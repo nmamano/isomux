@@ -51,6 +51,8 @@ You never read a value. Variable values and a secret's Show stay with members. A
 
 You cannot add a host to a saved secret: 403 `secret_host_add_refused`. You can remove hosts, and you set them when you save a new secret.
 
+A secret can also go to apps: the app gets the value in its environment. Only a member gives a secret to an app, on the Integrations page. A save with `apps`, or an edit that adds one, gets 403 `secret_app_add_refused`. You can remove apps with `PATCH` and `{apps}`, the names that stay. A secret with no host is not in your environment or in `GET /api/agent-connections`.
+
 Safe example: `PUT /api/users/:username/env/TZ` with `{"value":"Europe/Madrid"}`.
 
 ## Route contract

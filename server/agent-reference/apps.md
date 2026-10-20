@@ -1,6 +1,6 @@
 # Agent-built apps
 
-Only register an app when a member or an agent with the same manager asks for one. The registry assigns its stable port and runs it as a systemd user service. The app reads `PORT` and passes `ISOMUX_APP_HOST` directly as the bind host when present. Persistent state belongs under `ISOMUX_APP_DATA_DIR`; the public address, when available, is `ISOMUX_APP_URL`.
+Only register an app when a member or an agent with the same manager asks for one. The registry assigns its stable port and runs it as a systemd user service. The app reads `PORT` and passes `ISOMUX_APP_HOST` directly as the bind host when present. Persistent state belongs under `ISOMUX_APP_DATA_DIR`; the public address, when available, is `ISOMUX_APP_URL`. A secret that a member gives the app is in its environment under the secret's name; the app restarts when the secret changes.
 
 Use `POST /api/apps` with `{name,command,cwd,description?}`. Set `messageTargetAgentId` later with `PATCH /api/apps/:name`. To move an app to another agent and its room, PATCH `{createdByAgentId}`; the app owner must also have access to that agent. Use `GET /api/apps` or `/api/apps/:name`, `POST /api/apps/:name/start|stop|restart`, `GET /api/apps/:name/logs?lines=N`, and `DELETE /api/apps/:name`. Delete retires credentials and routes, stops the service, frees the name and port, and preserves data under `.retired`.
 

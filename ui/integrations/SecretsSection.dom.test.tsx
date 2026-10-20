@@ -2,7 +2,7 @@
 // tests): a value is write-only, a preset hides its fields, Other clears what
 // a preset filled, and the server's refusals read as fixed sentences.
 
-import { afterAll, beforeEach, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { expectMasked } from "../test-support/masked.ts";
 
@@ -29,8 +29,16 @@ beforeEach(() => {
   ]).install();
 });
 
-async function mount(target: object = SELF, role = "owner") {
-  const view = render(createElement(SecretsSection, { target, role } as never));
+// The target member's user id: alice's for her own card, none for the
+// office, whose secrets may go to every app.
+async function mount(
+  target: { kind: string } = SELF,
+  role = "owner",
+  ownerUserId: string | null = target.kind === "office" ? null : "u-alice",
+) {
+  const view = render(
+    createElement(SecretsSection, { target, role, ownerUserId } as never),
+  );
   await act(async () => {});
   return view;
 }
@@ -133,6 +141,7 @@ it("edits the addresses, how the service expects it and the note", async () => {
     valueSetAt: 1,
     updatedAt: 1,
     note: null,
+    apps: [],
     value: FAKE,
   });
   const view = await mount();
@@ -228,6 +237,7 @@ it("has a Test only for a secret whose hosts have an identity check", async () =
     valueSetAt: 1,
     updatedAt: 1,
     note: null,
+    apps: [],
     value: FAKE,
   };
   fake.scope("alice").secrets.push(
@@ -261,4 +271,116 @@ it("shows the load failure, not a crash, when a server answers with another shap
   expect(view.getByRole("alert").textContent).toBe(
     t("settings.secrets.loadFailed"),
   );
+});
+
+// Task c7007f8b: a secret can go to apps. The form offers the target
+// member's apps (every app for the office), a secret with an app needs no
+// address, and an edit sends apps only when the list changed.
+describe("apps that read a secret", () => {
+  beforeEach(() => {
+    // Owners are matched by id: bot's username is from before alice was
+    // renamed, and bob took her old name before he registered "impostor".
+    fake.apps = [
+      { name: "bot", userId: "u-alice", username: "alice-before" },
+      { name: "impostor", userId: "u-bob", username: "alice" },
+      { name: "web", userId: "u-bob", username: "bob" },
+    ];
+  });
+
+  const appBoxes = (view: ReturnType<typeof render>) =>
+    [
+      ...view.container.querySelectorAll<HTMLInputElement>("[data-secret-app]"),
+    ].map((box) => [box.dataset.secretApp, box.checked]);
+
+  it("adds a secret that only the member's own app reads, and lists who reads it", async () => {
+    const view = await mount();
+    await click(view.container.querySelector("[data-integrations-add]"));
+    await choose(view, "other");
+    expect(appBoxes(view)).toEqual([["bot", false]]);
+    await act(async () => {
+      fireEvent.change(
+        view.container.querySelector("[data-secret-name-input]")!,
+        { target: { value: "BOT_TOKEN" } },
+      );
+      fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+    });
+    const save =
+      view.container.querySelector<HTMLButtonElement>("[data-panel-save]")!;
+    // No address and no app: nothing to save.
+    expect(save.disabled).toBe(true);
+    await click(view.container.querySelector('[data-secret-app="bot"]'));
+    expect(save.disabled).toBe(false);
+    await click(save);
+    expect(fake.requests("POST", "/api/users/alice/secrets")[0].body).toEqual(
+      expect.objectContaining({ name: "BOT_TOKEN", hosts: [], apps: ["bot"] }),
+    );
+    const row = view.container.textContent;
+    expect(row).toContain("BOT_TOKEN");
+    expect(row).toContain(t("integrations.secrets.readBy", { apps: "bot" }));
+  });
+
+  it("does not tell a member that an office secret apps read goes nowhere", async () => {
+    // A member reads office secrets as a summary: name, hosts and note.
+    fake = new IntegrationsFake({ username: "alice", owner: false }, [
+      "alice",
+    ]).install();
+    fake.scope("office").secrets.push({
+      name: "OFFICE_BOT",
+      hosts: [],
+      form: { kind: "authorization" },
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+      note: null,
+      apps: ["bot"],
+      value: FAKE,
+    });
+    const view = await mount({ kind: "office" }, "member");
+    const text = view.container.textContent;
+    expect(text).toContain("OFFICE_BOT");
+    expect(text).not.toContain(t("integrations.secrets.reachesNothing"));
+  });
+
+  it("offers every app for an office secret", async () => {
+    const view = await mount({ kind: "office" });
+    await click(view.container.querySelector("[data-integrations-add]"));
+    await choose(view, "other");
+    expect(appBoxes(view)).toEqual([
+      ["bot", false],
+      ["impostor", false],
+      ["web", false],
+    ]);
+  });
+
+  it("keeps a granted app on the list, and an edit sends apps only when they changed", async () => {
+    fake.scope("alice").secrets.push({
+      name: "MY_KEY",
+      hosts: ["api.example.com"],
+      form: { kind: "authorization" },
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+      note: null,
+      // An app the list does not offer, as after the app moved owners.
+      apps: ["bot", "old-app"],
+      value: FAKE,
+    });
+    const view = await mount();
+    await click(view.container.querySelector("[data-secret-edit]"));
+    expect(appBoxes(view)).toEqual([
+      ["bot", true],
+      ["old-app", true],
+    ]);
+    await click(view.container.querySelector("[data-panel-save]"));
+    expect(
+      fake.requests("PATCH", "/api/users/alice/secrets/MY_KEY")[0].body,
+    ).not.toHaveProperty("apps");
+
+    await click(view.container.querySelector("[data-secret-edit]"));
+    await click(view.container.querySelector('[data-secret-app="old-app"]'));
+    await click(view.container.querySelector("[data-panel-save]"));
+    expect(
+      fake.requests("PATCH", "/api/users/alice/secrets/MY_KEY")[1].body,
+    ).toEqual(expect.objectContaining({ apps: ["bot"] }));
+  });
 });

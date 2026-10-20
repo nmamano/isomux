@@ -849,6 +849,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.secrets.error.neverListed":
     "{host} never receives a secret: model and package registry hosts are on the never-list.",
   "settings.secrets.error.exists": "A secret with this name exists.",
+  "settings.secrets.error.apps": "An app is gone or belongs to another member.",
+  "settings.secrets.error.appClash":
+    "One of these apps already reads a secret with this name.",
   "settings.connections.bedrockHint":
     "Want to connect Bedrock? Read <link>here</link>.",
   "settings.mcpServers.loadFailed": "Could not load MCP servers.",
@@ -952,7 +955,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabIntro.variables":
     "Plain settings that agents can read, such as a time zone.",
   "integrations.secretsHonesty":
-    "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files.",
+    "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files or apps.",
   "integrations.secrets.modelKeys":
     "Model API keys such as <code>ANTHROPIC_API_KEY</code> go in <link>Variables</link>, not here: Isomux never sends a secret to a model provider.",
   "integrations.office": "Office-wide",
@@ -1070,6 +1073,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.secrets.presetSet": "{service} · set {date}",
   "integrations.secrets.goesToSet": "Goes to {hosts} · set {date}",
   "integrations.secrets.goesTo": "Goes to {hosts}",
+  "integrations.secrets.apps": "Apps that may read it",
+  "integrations.secrets.appsHint":
+    "The app gets the value in its environment, and restarts when the secret changes.",
+  "integrations.secrets.noApps": "No apps.",
+  "integrations.secrets.readBy": "Read by {apps}",
+  "integrations.secrets.readBySet": "Read by {apps} · set {date}",
+  "integrations.secrets.reachesNothing":
+    "Goes nowhere. Add an address or an app.",
   "integrations.secrets.showFailed": "Could not show the value.",
   "integrations.secrets.reissueHint":
     "Agents get a new stand-in, and the old one stops working.",

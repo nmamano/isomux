@@ -75,18 +75,20 @@ export function buildAgentConnections(
   for (const name of Object.keys(member).sort())
     connections.push(variable("personal", name, memberNotes));
 
-  // Secrets: both scopes; there is no same-name rule between them.
+  // Secrets: both scopes; there is no same-name rule between them. A secret
+  // with no host goes only to apps (task c7007f8b): agents do not get it.
   const secretScopes: SecretScope[] = [{ kind: "office" }];
   if (userId) secretScopes.push({ kind: "user", userId });
   for (const scope of secretScopes)
     for (const secret of orNothing(() => sources.secrets.list(scope), []))
-      connections.push({
-        kind: "secret",
-        scope: scopeOf(scope),
-        name: secret.name,
-        hosts: [...secret.hosts],
-        note: secret.note,
-      });
+      if (secret.hosts.length > 0)
+        connections.push({
+          kind: "secret",
+          scope: scopeOf(scope),
+          name: secret.name,
+          hosts: [...secret.hosts],
+          note: secret.note,
+        });
 
   // MCP servers: the registrations the spawn gives the engines, less those
   // whose secret check fails. registrationsFor drops an unreadable store.

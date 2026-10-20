@@ -171,6 +171,24 @@ async function seeded() {
     session: m,
     body: { hosts: ["elsewhere.example"] },
   });
+  // A secret that only an app reads (task c7007f8b): agents do not get it,
+  // so it is no connection of theirs.
+  await expectStatus(srv, 201, "/api/apps", {
+    method: "POST",
+    session: m,
+    body: { name: "bot", command: "true", cwd: srv.stateRoot },
+  });
+  await expectStatus(srv, 201, `${mine}/secrets`, {
+    method: "POST",
+    session: m,
+    body: {
+      name: "APP_ONLY",
+      value: FAKE.mineSecret,
+      hosts: [],
+      form: { kind: "authorization" },
+      apps: ["bot"],
+    },
+  });
   const memberId = getUserByName(member.username)!.id;
   const ownerId = getUserByName(owner.username)!.id;
   return { srv, owner, member, other, memberId, ownerId };

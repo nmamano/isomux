@@ -110,6 +110,8 @@ export function isNeverListed(host: string): boolean {
 }
 
 export const SECRET_MAX_HOSTS = 20;
+// The apps that may read a secret's value (task c7007f8b).
+export const SECRET_MAX_APPS = 20;
 export const SECRET_MAX_VALUE_LENGTH = 16 * 1024;
 // The proxy's scrub and the log masking skip shorter values
 // (server/secret-proxy/scrub.ts), so a host that reflected one would return
@@ -153,6 +155,20 @@ const RESERVED_NAMES: readonly string[] = [
 ];
 const RESERVED_PREFIXES: readonly string[] = ["ISOMUX_", "GIT_CONFIG_"];
 
+// The names an app's own environment needs. A secret with apps cannot use
+// them: the app's secrets file would override the value the office sets.
+export const APP_RESERVED_SECRET_NAMES: readonly string[] = [
+  "PORT",
+  "PATH",
+  "HOME",
+  "LANG",
+  "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS",
+];
+
+export function isAppReservedSecretName(name: string): boolean {
+  return APP_RESERVED_SECRET_NAMES.includes(name);
+}
+
 const SAFE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function isReservedSecretName(name: string): boolean {
@@ -181,8 +197,14 @@ const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
 // so a value pasted into the wrong field does not come back. `host` is set
 // only for a never-listed host, which is a name from the fixed list above.
 export interface SecretFieldError {
-  field: "name" | "value" | "hosts" | "form" | "note";
-  reason: "invalid" | "reserved" | "too_short" | "too_long" | "never_listed";
+  field: "name" | "value" | "hosts" | "form" | "note" | "apps";
+  reason:
+    | "invalid"
+    | "reserved"
+    | "too_short"
+    | "too_long"
+    | "never_listed"
+    | "clash";
   host?: string;
 }
 
@@ -215,10 +237,12 @@ export function checkSecretValue(value: unknown): SecretFieldError | null {
 }
 
 // Validates the whole host set: syntax first, then the never-list.
+// `allowEmpty`: the secret has apps, so it needs no host.
 export function checkSecretHosts(
   hosts: unknown,
+  options: { allowEmpty?: boolean } = {},
 ): { ok: true; hosts: string[] } | { ok: false; error: SecretFieldError } {
-  if (!Array.isArray(hosts) || hosts.length === 0)
+  if (!Array.isArray(hosts) || (hosts.length === 0 && !options.allowEmpty))
     return { ok: false, error: { field: "hosts", reason: "invalid" } };
   if (hosts.length > SECRET_MAX_HOSTS)
     return { ok: false, error: { field: "hosts", reason: "too_long" } };

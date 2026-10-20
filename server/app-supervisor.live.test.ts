@@ -41,6 +41,7 @@ import {
 } from "./test-support/live-unit-cleanup.ts";
 import { reconcileAppUrls } from "./app-url-reconcile.ts";
 import { appPublicUrl } from "./app-domain.ts";
+import { appSecretsPath, renderSecretsEnv } from "./app-secrets.ts";
 import type { AppRecord } from "../shared/types.ts";
 
 const LIVE = process.env.ISOMUX_TEST_SYSTEMD === "1";
@@ -148,6 +149,7 @@ suite("app-supervisor against real systemd", () => {
     // thing this test writes outside its own directory is the unit file, and
     // that is the thing under test.
     const launcherDir = join(tmpRoot, "units 50%");
+    const secretsDir = join(tmpRoot, "secrets 50%", "apps");
     supervisor = createAppSupervisor({
       host: { ...host, launcherDir },
       unitPrefix: UNIT_PREFIX,
@@ -155,6 +157,8 @@ suite("app-supervisor against real systemd", () => {
       // real one is frozen at boot and there is no boot here. Starting at null
       // is the plain-HTTP office every dev box is.
       appHostDomain: () => liveDomain,
+      // Task c7007f8b. A space and a percent sign, as for the launcher dir.
+      secretsDir,
     });
 
     // A real free port from the app window, probed the way the registry does.
@@ -186,7 +190,9 @@ suite("app-supervisor against real systemd", () => {
       // only honest check is asking the running process what it got.
       `Bun.serve({\n` +
         `  port: Number(process.env.PORT),\n` +
-        `  fetch: () => new Response(\n` +
+        `  fetch: (req) => new URL(req.url).pathname === "/secret"\n` +
+        `    ? new Response(process.env.VAULT_SECRET ?? "no-secret")\n` +
+        `    : new Response(\n` +
         `    (process.env.ISOMUX_APP_DATA_DIR ?? "no-data-dir") + "|" +\n` +
         `    (process.env.ISOMUX_APP_TOKEN ?? "no-token") + "|" +\n` +
         `    (process.env.ISOMUX_APP_URL ?? "no-url")),\n` +
@@ -213,6 +219,17 @@ suite("app-supervisor against real systemd", () => {
     // The token, provisioned BEFORE the install exactly as the register route
     // does it - a process's environment is fixed at exec.
     const token = "tok_live-ABC_123";
+
+    // A vault value with every character systemd's EnvironmentFile or a
+    // shell treats specially (task c7007f8b). Written before the install,
+    // as sync writes it before an app's next start.
+    const vaultSecret = `a b"c'd\\e$f#g\`h\${HOME}%i\\\\j\\"k ;l=m\\n`;
+    mkdirSync(secretsDir, { recursive: true });
+    writeFileSync(
+      appSecretsPath(secretsDir, APP_NAME),
+      renderSecretsEnv({ VAULT_SECRET: vaultSecret }),
+      { mode: 0o600 },
+    );
 
     try {
       supervisor.provisionToken(APP_NAME, token);
@@ -241,6 +258,10 @@ suite("app-supervisor against real systemd", () => {
       // leave the variable UNSET, and only the running process can prove that
       // systemd did not define it as empty.
       expect(body).toBe(`${dataDir}|${token}|no-url`);
+      // The vault value, byte for byte, as the running process got it.
+      expect(
+        await (await fetch(`http://127.0.0.1:${port}/secret`)).text(),
+      ).toBe(vaultSecret);
       expect(supervisor.readToken(APP_NAME)).toBe(token);
       expect(supervisor.states([APP_NAME]).get(APP_NAME)).toEqual({
         state: "running",

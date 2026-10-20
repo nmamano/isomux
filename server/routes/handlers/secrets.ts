@@ -6,7 +6,8 @@
 // the member or an office owner (integrationSelfOrOwner), office secrets
 // owner-only (integrationOfficeOwner), and the office list for members too
 // (integrationOfficeReader), as a summary. An agent caller may not add a host
-// to a saved secret. Only Show returns a value: cap secret:show, which no
+// to a saved secret, and may not give a secret to an app (task c7007f8b: an
+// agent can read an app's environment). Only Show returns a value: cap secret:show, which no
 // agent holds, the member's own (selfUserOrApi) or an office one for an
 // owner. No error echoes any input: a value pasted into the wrong field
 // does not come back.
@@ -25,6 +26,7 @@ import {
 } from "../executor.ts";
 import {
   SecretStoreUnreadableError,
+  type AppGrant,
   type SecretChange,
   type SecretUpdateChange,
   type SecretScope,
@@ -61,11 +63,17 @@ export interface SecretsDeps {
   onChanged?: () => Promise<void>;
   // After the runtime took the change, so the push reads the new secrets.
   pushOpenCodeSettings?: PushOpenCodeSettings;
+  // A live app by name, for the apps field (task c7007f8b): its creation
+  // time binds the grant, its owner limits member secrets. Null when no live
+  // app has the name.
+  appFor?: (
+    name: string,
+  ) => { name: string; createdAt: number; userId: string | null } | null;
 }
 
-const CREATE_KEYS = ["name", "value", "hosts", "form", "note"];
+const CREATE_KEYS = ["name", "value", "hosts", "form", "note", "apps"];
 const ROTATE_KEYS = ["value"];
-const UPDATE_KEYS = ["hosts", "form", "note"];
+const UPDATE_KEYS = ["hosts", "form", "note", "apps"];
 
 // The body as an object with only the allowed keys, or null.
 function bodyWith(
@@ -86,6 +94,47 @@ function officeSecretSummary(secret: SecretWire): OfficeSecretSummaryWire {
 
 const invalidRequest = () =>
   fail(400, "invalid_request", "the request body has the wrong shape");
+
+const appAddRefused = () =>
+  fail(
+    403,
+    "secret_app_add_refused",
+    "only a member can give a secret to an app; an agent can remove apps",
+  );
+
+const isHuman = (ctx: Parameters<RouteHandler>[0]): boolean =>
+  ctx.identity.scope === "user" || ctx.identity.scope === "api";
+
+// The apps field as grants: each name a live app, and for a member secret
+// an app that member owns. The store checks the rest (count, names, clash,
+// who may add) in its write.
+function resolveApps(
+  deps: SecretsDeps,
+  scope: SecretScope,
+  apps: unknown,
+):
+  | { ok: true; grants: AppGrant[] | null }
+  | { ok: false; change: SecretChange } {
+  if (apps === undefined) return { ok: true, grants: null };
+  const invalid = {
+    ok: false as const,
+    change: {
+      ok: false as const,
+      kind: "invalid" as const,
+      error: { field: "apps" as const, reason: "invalid" as const },
+    },
+  };
+  if (!Array.isArray(apps) || !apps.every((a) => typeof a === "string"))
+    return invalid;
+  const grants: AppGrant[] = [];
+  for (const name of apps) {
+    const app = deps.appFor?.(name) ?? null;
+    if (!app) return invalid;
+    if (scope.kind === "user" && app.userId !== scope.userId) return invalid;
+    grants.push({ name: app.name, createdAt: app.createdAt });
+  }
+  return { ok: true, grants };
+}
 
 function answer(
   change: SecretChange | SecretUpdateChange,
@@ -124,6 +173,8 @@ function answer(
         "secret_host_add_refused",
         "an agent cannot add a host to a saved secret; it can remove hosts",
       );
+    case "app_added":
+      return appAddRefused();
   }
 }
 
@@ -210,6 +261,12 @@ function scopedHandlers(
       if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, CREATE_KEYS);
       if (!body) return invalidRequest();
+      // Only a human gives a secret to an app: an agent can read the
+      // environment of any app.
+      if (Array.isArray(body.apps) && body.apps.length > 0 && !isHuman(ctx))
+        return appAddRefused();
+      const apps = resolveApps(deps, scope, body.apps);
+      if (!apps.ok) return answer(apps.change);
       // A name that looks like a credential is most likely the value in the
       // wrong field. Refuse it, so it never becomes a listed name.
       if (typeof body.name === "string" && hasCredentialShape(body.name))
@@ -220,7 +277,13 @@ function scopedHandlers(
         });
       return committed(
         deps,
-        answer(deps.store.create(scope, body), "created"),
+        answer(
+          deps.store.create(scope, {
+            ...body,
+            ...(apps.grants ? { apps: apps.grants } : {}),
+          }),
+          "created",
+        ),
         scope,
       );
     },
@@ -240,15 +303,22 @@ function scopedHandlers(
       if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
+      const apps = resolveApps(deps, scope, body.apps);
+      if (!apps.ok) return answer(apps.change);
       return committed(
         deps,
         answer(
-          deps.store.update(scope, ctx.params.name ?? "", body, {
-            // Only a human, by cookie or API token, adds hosts; every other
-            // caller (an agent, an app) only narrows them.
-            addHosts:
-              ctx.identity.scope === "user" || ctx.identity.scope === "api",
-          }),
+          deps.store.update(
+            scope,
+            ctx.params.name ?? "",
+            { ...body, ...(apps.grants ? { apps: apps.grants } : {}) },
+            {
+              // Only a human, by cookie or API token, adds hosts or apps;
+              // every other caller (an agent, an app) only narrows them.
+              addHosts: isHuman(ctx),
+              addApps: isHuman(ctx),
+            },
+          ),
         ),
         scope,
       );

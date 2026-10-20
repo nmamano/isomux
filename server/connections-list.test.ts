@@ -161,6 +161,7 @@ describe("buildConnectionsList", () => {
       valueSetAt: 1,
       updatedAt: 1,
       note: null,
+      apps: [],
     });
     const list = await buildConnectionsList(
       sources({
@@ -237,6 +238,7 @@ describe("buildConnectionsList", () => {
       valueSetAt: 1,
       updatedAt: 1,
       note,
+      apps: [],
     });
     const owner = await buildConnectionsList(
       sources({
@@ -277,6 +279,7 @@ describe("buildConnectionsList", () => {
       valueSetAt: 1,
       updatedAt: 1,
       note: "office note",
+      apps: [],
     };
     const build = (officeOwner: boolean) =>
       buildConnectionsList(sources({ officeOwner, secrets: () => [github] }));

@@ -391,7 +391,14 @@ import {
   mcpServerRows,
   setMcpPlaceholderProvider,
 } from "./mcp-servers.ts";
-import { createSecretStore, type SecretScope } from "./secret-store.ts";
+import {
+  createSecretStore,
+  SecretStoreUnreadableError,
+  type AppGrant,
+  type SecretScope,
+} from "./secret-store.ts";
+import { scrubPatterns } from "./secret-proxy/scrub.ts";
+import { appSecretsDir, createAppSecrets } from "./app-secrets.ts";
 import { OAUTH_SECRET_NAME } from "../shared/mcp-servers.ts";
 import { createSecretsRuntime } from "./secret-proxy/runtime.ts";
 import { setSecretValuesForRedaction } from "./log-redaction.ts";
@@ -659,6 +666,52 @@ const secretsRuntime = createSecretsRuntime({
   },
 });
 setSecretEnvironmentProvider((userId) => secretsRuntime.environmentFor(userId));
+// Vault secrets that apps read as raw values (task c7007f8b): the files in
+// STATE_ROOT/secrets/apps, synced after every secret change, app delete and
+// boot. The supervisor is read at call time: startServer assigns it.
+const appSecrets = createAppSecrets({
+  store: secretStore,
+  apps: () => appRegistry.list(),
+  supervisor: {
+    unitInjectsSecrets: (name) => appSupervisor.unitInjectsSecrets(name),
+    regenerate: (record) => appSupervisor.regenerate(record),
+    states: (names) => appSupervisor.states(names),
+    restart: (name) => appSupervisor.restart(name),
+  },
+  dir: appSecretsDir(STATE_ROOT),
+  oauthOwned: (scope) => {
+    try {
+      return oauthRegistrations.oauthOwnedSecrets(scope);
+    } catch {
+      return null;
+    }
+  },
+  log: (line) => console.error(line),
+});
+// After a committed secret change: the proxy and agents, then the apps. The
+// apps sync even when the proxy did not take the change.
+async function secretsChanged(): Promise<void> {
+  try {
+    await secretsRuntime.changed();
+  } finally {
+    await appSecrets.sync();
+  }
+}
+// Every vault value, for the app logs scrub. An unreadable file has none to
+// give.
+function vaultValues(): string[] {
+  return secretStore.scopes().flatMap((scope) => {
+    try {
+      return secretStore.readForProxy(scope).map((secret) => secret.value);
+    } catch (error) {
+      if (error instanceof SecretStoreUnreadableError) return [];
+      throw error;
+    }
+  });
+}
+// A grant names a live app by name and creation time.
+const isLiveAppGrant = (grant: AppGrant): boolean =>
+  appRegistry.get(grant.name)?.createdAt === grant.createdAt;
 setMcpPlaceholderProvider((scope, name) =>
   secretsRuntime.placeholderOf(scope, name),
 );
@@ -3288,6 +3341,11 @@ function buildExecutorDeps(
       restart: (name) => appSupervisor.restart(name),
       states: (names) => appSupervisor.states(names),
       logs: (name, lines) => appSupervisor.logs(name, lines),
+      secretScrubPatterns: () => scrubPatterns(vaultValues()),
+      forgetSecrets: (record) => {
+        secretStore.dropApp({ name: record.name, createdAt: record.createdAt });
+        appSecrets.syncNow();
+      },
       attributionFor,
       validateCwd: (cwd) => {
         try {
@@ -4028,11 +4086,23 @@ function buildExecutorDeps(
   // Secrets: no route returns a value but Show. The runtime pushes each
   // change to the proxy.
   // MCP servers name a secret in the same scope.
-  const mcpSources = createMcpServerSources();
+  const mcpSources = createMcpServerSources(undefined, {
+    isLiveApp: isLiveAppGrant,
+  });
   register(
     secretsHandlers({
       store: mcpSources.secrets,
-      onChanged: () => secretsRuntime.changed(),
+      onChanged: () => secretsChanged(),
+      appFor: (name) => {
+        const record = appRegistry.get(name);
+        return record
+          ? {
+              name: record.name,
+              createdAt: record.createdAt,
+              userId: record.userId,
+            }
+          : null;
+      },
       pushOpenCodeSettings: (scope) => agentManager.pushOpenCodeSettings(scope),
       userIdForUsername: (username) =>
         buildLiveGuardDeps().userIdForUsername(username),
@@ -4062,7 +4132,7 @@ function buildExecutorDeps(
         // The OpenCode servers take the new secret as after a save; every
         // one, since the request names no scope here.
         onChanged: async () => {
-          await secretsRuntime.changed();
+          await secretsChanged();
           agentManager.pushOpenCodeSettings({ kind: "office" });
         },
         placeholderOf: (scope, name) =>
@@ -4436,7 +4506,7 @@ function buildExecutorDeps(
           // The proxy drops the secrets; the member's agents that had one
           // restart without them after their turn.
           try {
-            await secretsRuntime.changed();
+            await secretsChanged();
           } catch {
             console.error("[secrets] the proxy did not take a change");
           }
@@ -8836,6 +8906,9 @@ export async function startServer(
     reconcileAppTokensAtBoot();
     // Then their addresses, on the units the pass above may just have written.
     reconcileAppUrlsAtBoot();
+    // Then their vault secrets: a lost file is written again, and a unit
+    // written before app secrets existed gets its line.
+    await appSecrets.sync({ boot: true });
   }
   // Before the listener: the delivery logs load (and a crash's `pending` rows
   // become retryable) before the first delivery can arrive.

@@ -37,6 +37,8 @@ export function createUnavailableAppSupervisor(): AppSupervisor {
     readToken: () => null,
     removeToken: () => {},
     unitInjectsToken: () => false,
+    // Nothing is installed, so no unit needs its secrets line.
+    unitInjectsSecrets: () => true,
     readUnitFile: () => null,
     restoreUnitFile: refuse,
     reloadUnits: refuse,

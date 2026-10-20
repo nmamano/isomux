@@ -2806,8 +2806,16 @@ export async function demoApi(
     case "GET /api/asks":
       return [...demoAskEntries()];
     // apps.list - the Apps tab fetches on open and polls while it is open.
-    case "GET /api/apps":
-      return [...demoApps];
+    // The fixture names the owner "demo-user"; the demo's Ricky gets a
+    // generated id at boot, and the secrets apps checklist matches by id.
+    case "GET /api/apps": {
+      const ricky = users.get("ricky");
+      return demoApps.map((app) =>
+        ricky && app.userId === "demo-user"
+          ? { ...app, userId: ricky.id }
+          : app,
+      );
+    }
     // cron.listAllRuns - one completed fixture backs the Runs tab.
     case "GET /api/cron-runs":
       return {

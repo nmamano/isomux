@@ -774,6 +774,8 @@ App 的一些原则：
   "settings.secrets.error.neverListed":
     "{host} 永远不会收到密钥：模型主机和软件包注册表主机在禁止列表中。",
   "settings.secrets.error.exists": "已存在同名密钥。",
+  "settings.secrets.error.apps": "某个 App 已不存在或属于其他成员。",
+  "settings.secrets.error.appClash": "其中某个 App 已读取同名密钥。",
   "settings.connections.bedrockHint":
     "想连接 Bedrock？请阅读<link>此处</link>。",
   "settings.mcpServers.loadFailed": "无法加载 MCP 服务器。",
@@ -865,7 +867,7 @@ App 的一些原则：
   "integrations.tabIntro.secrets": "GitHub 等服务的 API 密钥和令牌。",
   "integrations.tabIntro.variables": "智能体可以读取的普通设置，例如时区。",
   "integrations.secretsHonesty":
-    "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件之间没有严格隔离。",
+    "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件或 App 之间没有严格隔离。",
   "integrations.secrets.modelKeys":
     "<code>ANTHROPIC_API_KEY</code> 等模型 API 密钥放在<link>变量</link>中，而不是这里：Isomux 从不把密钥发送给模型提供商。",
   "integrations.office": "办公室通用",
@@ -980,6 +982,13 @@ App 的一些原则：
   "integrations.secrets.presetSet": "{service} · {date} 设置",
   "integrations.secrets.goesToSet": "发往 {hosts} · {date} 设置",
   "integrations.secrets.goesTo": "发往 {hosts}",
+  "integrations.secrets.apps": "可读取它的 App",
+  "integrations.secrets.appsHint":
+    "App 会在其环境中获得该值，密钥变更时会重启。",
+  "integrations.secrets.noApps": "没有 App。",
+  "integrations.secrets.readBy": "由 {apps} 读取",
+  "integrations.secrets.readBySet": "由 {apps} 读取 · {date} 设置",
+  "integrations.secrets.reachesNothing": "未发往任何地方。请添加地址或 App。",
   "integrations.secrets.showFailed": "无法显示该值。",
   "integrations.secrets.reissueHint": "智能体获得新的占位值，旧的占位值失效。",
   "integrations.secrets.addHeading.self": "添加密钥",

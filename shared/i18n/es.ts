@@ -857,6 +857,9 @@ Cosas que puedes hacer por él:
   "settings.secrets.error.neverListed":
     "{host} nunca recibe un secreto: los hosts de modelos y de registros de paquetes están en la lista de exclusión.",
   "settings.secrets.error.exists": "Ya existe un secreto con este nombre.",
+  "settings.secrets.error.apps": "Una app ya no existe o es de otro miembro.",
+  "settings.secrets.error.appClash":
+    "Una de estas apps ya lee un secreto con este nombre.",
   "settings.connections.bedrockHint":
     "¿Quieres conectar Bedrock? Lee <link>aquí</link>.",
   "settings.mcpServers.loadFailed": "No se pudieron cargar los servidores MCP.",
@@ -962,7 +965,7 @@ Cosas que puedes hacer por él:
   "integrations.tabIntro.variables":
     "Ajustes simples que los agentes pueden leer, como una zona horaria.",
   "integrations.secretsHonesty":
-    "Isomux impide que los agentes lean los secretos guardados, pero esta oficina no tiene un muro firme entre los agentes y sus archivos.",
+    "Isomux impide que los agentes lean los secretos guardados, pero esta oficina no tiene un muro firme entre los agentes y sus archivos o apps.",
   "integrations.secrets.modelKeys":
     "Las claves de API de modelos, como <code>ANTHROPIC_API_KEY</code>, van en <link>Variables</link>, no aquí: Isomux nunca envía un secreto a un proveedor de modelos.",
   "integrations.office": "De toda la oficina",
@@ -1084,6 +1087,14 @@ Cosas que puedes hacer por él:
   "integrations.secrets.presetSet": "{service} · guardado el {date}",
   "integrations.secrets.goesToSet": "Va a {hosts} · guardado el {date}",
   "integrations.secrets.goesTo": "Va a {hosts}",
+  "integrations.secrets.apps": "Apps que pueden leerlo",
+  "integrations.secrets.appsHint":
+    "La app recibe el valor en su entorno y se reinicia cuando el secreto cambia.",
+  "integrations.secrets.noApps": "No hay apps.",
+  "integrations.secrets.readBy": "Leído por {apps}",
+  "integrations.secrets.readBySet": "Leído por {apps} · guardado el {date}",
+  "integrations.secrets.reachesNothing":
+    "No va a ningún sitio. Añade una dirección o una app.",
   "integrations.secrets.showFailed": "No se pudo mostrar el valor.",
   "integrations.secrets.reissueHint":
     "Los agentes reciben un sustituto nuevo y el anterior deja de funcionar.",

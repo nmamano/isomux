@@ -50,6 +50,9 @@
 //     because isomux keeps only the token's hash and could not reproduce its
 //     contents. That is exactly why an update preserves an app's token instead
 //     of rotating it on every edit.
+// The unit also names a fourth file, the app's vault secrets in
+// STATE_ROOT/secrets/apps/, which server/app-secrets.ts writes and this module
+// never touches.
 
 import { spawnSync } from "child_process";
 import { createHash } from "crypto";
@@ -60,6 +63,7 @@ import { STATE_ROOT } from "./config.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { appHostDomain, appPublicUrl } from "./app-domain.ts";
+import { appSecretsDir, appSecretsPath } from "./app-secrets.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppErrorCode, AppState } from "../shared/contract-shapes.ts";
 
@@ -371,6 +375,11 @@ export function parseTokenEnv(contents: string | null): string | null {
 export const tokenEnvDirective = (tokenEnvPath: string): string =>
   `EnvironmentFile=-${unitPathValue(tokenEnvPath, "the app's token file path")}`;
 
+// The app's secrets file (task c7007f8b), by reference, optional like the
+// token file. server/app-secrets.ts writes the file; the unit only names it.
+export const secretsEnvDirective = (secretsEnvPath: string): string =>
+  `EnvironmentFile=-${unitPathValue(secretsEnvPath, "the app's secrets file path")}`;
+
 // The one place the URL directive's text lives, for the same reason as the
 // token's: the renderer writes it and boot reconciliation compares against it,
 // and a second literal would let the two disagree about what "already correct"
@@ -443,6 +452,9 @@ export interface UnitRenderOpts {
   // EnvironmentFile shows only as its path. So the secret stays in a 0600 file
   // isomux owns, and the unit says where to find it.
   tokenEnvPath: string;
+  // Where the app's secrets file lives (STATE_ROOT/secrets/apps/<app>.env).
+  // By path, for the token file's reason.
+  secretsEnvPath: string;
   // The app's public address, or null when this office has no app hostnames.
   // Required rather than optional so no call site can forget it: an app whose
   // unit silently lost its URL would keep serving and stop knowing its own
@@ -495,6 +507,9 @@ Environment=${unitQuoted(`PATH=${opts.path}`, "the app's PATH")}${appUrlLine}${a
 # 255, a quoted path here is read with the quotes as part of the filename and -
 # because of that same leading "-" - fails SILENTLY, leaving the app running
 # with no token and nothing said about it.
+# The vault secrets the app may read come first (server/app-secrets.ts writes
+# that file), so the token file, read later, wins a name the two share.
+${secretsEnvDirective(opts.secretsEnvPath)}
 ${tokenEnvDirective(opts.tokenEnvPath)}
 ExecStart=/bin/sh ${unitQuoted(opts.launcherPath, "the app's launcher path")}
 Restart=on-failure
@@ -644,6 +659,9 @@ export interface AppSupervisor {
   // hash-plus-file pair sitting behind it would otherwise look like a working
   // token forever.
   unitInjectsToken(appName: string): boolean;
+  // Does the app's installed unit read its secrets file? Boot sync
+  // regenerates a unit written before app secrets existed.
+  unitInjectsSecrets(appName: string): boolean;
   // The app's INSTALLED unit file, verbatim, or null when there is none. Boot
   // URL reconciliation (server/app-url-reconcile.ts) is the only caller: it
   // reads the bytes to decide whether the unit still declares the right
@@ -698,6 +716,8 @@ export interface AppSupervisorOptions {
   // default that answered "no domain" would turn app URLs off silently on a
   // deployment that has them.
   appHostDomain?: () => string | null;
+  // Where the app secrets files live. Default STATE_ROOT/secrets/apps.
+  secretsDir?: string;
 }
 
 export function createAppSupervisor(
@@ -722,6 +742,10 @@ export function createAppSupervisor(
   // tarball is a different problem.)
   const tokenEnvPath = (appName: string) =>
     join(host.launcherDir, `${appName}.env`);
+
+  const secretsDir = options.secretsDir ?? appSecretsDir(STATE_ROOT);
+  const secretsEnvPath = (appName: string) =>
+    appSecretsPath(secretsDir, appName);
 
   const cache = new Map<string, AppRuntime>();
   let cachedAt = 0;
@@ -869,6 +893,7 @@ export function createAppSupervisor(
           path: computeAppPath(app.cwd, runtimeBinDir),
           unitName: unit,
           tokenEnvPath: tokenEnvPath(app.name),
+          secretsEnvPath: secretsEnvPath(app.name),
           // Read here, at every write, rather than captured once: install,
           // reinstall and regenerate then cannot produce units that disagree
           // about the app's address.
@@ -974,6 +999,14 @@ export function createAppSupervisor(
 
     removeToken(appName) {
       host.removeFile(tokenEnvPath(appName));
+    },
+
+    // The exact line, as unitInjectsToken checks its own.
+    unitInjectsSecrets(appName) {
+      const unit = host.readFile(unitPath(appName));
+      if (!unit) return false;
+      const wanted = secretsEnvDirective(secretsEnvPath(appName));
+      return unit.split("\n").some((line) => line.trim() === wanted);
     },
 
     unitInjectsToken(appName) {

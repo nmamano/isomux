@@ -27,6 +27,8 @@ import { join } from "path";
 
 import { STATE_ROOT } from "./config.ts";
 import {
+  SECRET_MAX_APPS,
+  isAppReservedSecretName,
   checkSecretForm,
   checkSecretHosts,
   checkSecretName,
@@ -39,6 +41,14 @@ import { checkConnectionNote } from "../shared/connection-notes.ts";
 
 export type SecretScope = { kind: "office" } | { kind: "user"; userId: string };
 
+// An app that may read a secret's value (task c7007f8b). The creation time
+// binds the grant to one registration: a later app with the same name gets
+// nothing.
+export interface AppGrant {
+  name: string;
+  createdAt: number;
+}
+
 export interface StoredSecret {
   name: string;
   value: string;
@@ -50,6 +60,8 @@ export interface StoredSecret {
   updatedAt: number;
   // The usage note for agents (integrations A4); absent when there is none.
   note?: string;
+  // The apps that read the value from their environment; absent when none.
+  apps?: AppGrant[];
 }
 
 interface SecretsFile {
@@ -70,14 +82,24 @@ export type SecretChange =
   | { ok: false; kind: "invalid"; error: SecretFieldError }
   | { ok: false; kind: "exists" }
   | { ok: false; kind: "not_found" };
-// An update that would add a host the caller may not add.
+// An update that would add a host or an app the caller may not add.
 export type SecretUpdateChange =
   | SecretChange
-  | { ok: false; kind: "host_added" };
+  | { ok: false; kind: "host_added" }
+  | { ok: false; kind: "app_added" };
+
+export interface SecretStoreOptions {
+  // Whether a grant names a live app (same name and creation time). The wire
+  // lists only those. Without it, every grant counts as live.
+  isLiveApp?: (grant: AppGrant) => boolean;
+}
 
 const SAFE_USER_ID = /^[A-Za-z0-9_-]+$/;
 
-function toWire(secret: StoredSecret): SecretWire {
+function toWire(
+  secret: StoredSecret,
+  isLiveApp: (grant: AppGrant) => boolean,
+): SecretWire {
   return {
     name: secret.name,
     hosts: [...secret.hosts],
@@ -86,7 +108,43 @@ function toWire(secret: StoredSecret): SecretWire {
     valueSetAt: secret.valueSetAt,
     updatedAt: secret.updatedAt,
     note: secret.note ?? null,
+    apps: (secret.apps ?? []).filter(isLiveApp).map((grant) => grant.name),
   };
+}
+
+const sameGrant = (a: AppGrant, b: AppGrant): boolean =>
+  a.name === b.name && a.createdAt === b.createdAt;
+
+function isAppGrant(entry: unknown): entry is AppGrant {
+  if (!entry || typeof entry !== "object") return false;
+  const g = entry as Record<string, unknown>;
+  return (
+    typeof g.name === "string" &&
+    g.name.length > 0 &&
+    typeof g.createdAt === "number" &&
+    Number.isFinite(g.createdAt)
+  );
+}
+
+// The grants a caller sent, deduplicated and sorted by name, then time.
+function checkAppGrants(
+  apps: unknown,
+): { ok: true; apps: AppGrant[] } | { ok: false; error: SecretFieldError } {
+  if (apps === undefined) return { ok: true, apps: [] };
+  if (!Array.isArray(apps) || !apps.every(isAppGrant))
+    return { ok: false, error: { field: "apps", reason: "invalid" } };
+  const unique: AppGrant[] = [];
+  for (const grant of apps)
+    if (!unique.some((g) => sameGrant(g, grant)))
+      unique.push({ name: grant.name, createdAt: grant.createdAt });
+  if (unique.length > SECRET_MAX_APPS)
+    return { ok: false, error: { field: "apps", reason: "too_long" } };
+  unique.sort((a, b) =>
+    a.name === b.name
+      ? a.createdAt - b.createdAt
+      : a.name.localeCompare(b.name),
+  );
+  return { ok: true, apps: unique };
 }
 
 function isStoredSecret(entry: unknown): entry is StoredSecret {
@@ -104,13 +162,20 @@ function isStoredSecret(entry: unknown): entry is StoredSecret {
     typeof s.valueSetAt === "number" &&
     typeof s.updatedAt === "number" &&
     // Any string: the note rule is checked at write only.
-    (s.note === undefined || typeof s.note === "string")
+    (s.note === undefined || typeof s.note === "string") &&
+    (s.apps === undefined ||
+      (Array.isArray(s.apps) && s.apps.every(isAppGrant)))
   );
 }
 
-export function createSecretStore(root: string = STATE_ROOT) {
+export function createSecretStore(
+  root: string = STATE_ROOT,
+  options: SecretStoreOptions = {},
+) {
   const dir = join(root, "secrets");
   const usersDir = join(dir, "users");
+  const isLiveApp = options.isLiveApp ?? (() => true);
+  const wire = (secret: StoredSecret) => toWire(secret, isLiveApp);
 
   function pathFor(scope: SecretScope): string {
     if (scope.kind === "office") return join(dir, "office.json");
@@ -204,15 +269,68 @@ export function createSecretStore(root: string = STATE_ROOT) {
     return found;
   }
 
+  // Would `apps` let one app read this secret and another scope's secret
+  // of the same name? Checked in the write path of the change. An
+  // unreadable file holds no grant that this check can see; the render
+  // drops a clash that slips through.
+  function clashes(scope: SecretScope, name: string, apps: AppGrant[]) {
+    if (apps.length === 0) return false;
+    const self = pathFor(scope);
+    return scopes().some((other) => {
+      if (pathFor(other) === self) return false;
+      let secrets: StoredSecret[];
+      try {
+        secrets = read(other);
+      } catch (error) {
+        if (error instanceof SecretStoreUnreadableError) return false;
+        throw error;
+      }
+      return secrets.some(
+        (s) =>
+          s.name === name &&
+          (s.apps ?? []).some((g) => apps.some((grant) => sameGrant(g, grant))),
+      );
+    });
+  }
+
+  // Keeps the grants that `keep` accepts, in every readable scope, and
+  // writes only a scope that changed. A secret keeps its place when its last
+  // grant goes: it reaches nothing until a member gives it an app or a host.
+  function keepGrants(keep: (grant: AppGrant) => boolean): void {
+    for (const scope of scopes()) {
+      let secrets: StoredSecret[];
+      try {
+        secrets = read(scope);
+      } catch (error) {
+        if (error instanceof SecretStoreUnreadableError) continue;
+        throw error;
+      }
+      let changed = false;
+      for (const secret of secrets) {
+        if (!secret.apps) continue;
+        const kept = secret.apps.filter(keep);
+        if (kept.length === secret.apps.length) continue;
+        changed = true;
+        if (kept.length > 0) secret.apps = kept;
+        else delete secret.apps;
+      }
+      if (changed) write(scope, secrets);
+    }
+  }
+
   return {
     list(scope: SecretScope): SecretWire[] {
-      return read(scope).map(toWire);
+      return read(scope).map(wire);
     },
 
     // One scope's secrets with their values, for the snapshot that the
     // server sends to the secret proxy and for placeholders. One file read.
     readForProxy(scope: SecretScope): StoredSecret[] {
-      return read(scope).map((s) => ({ ...s, ...valuesOf(s) }));
+      return read(scope).map((s) => ({
+        ...s,
+        ...valuesOf(s),
+        ...(s.apps ? { apps: s.apps.map((grant) => ({ ...grant })) } : {}),
+      }));
     },
 
     readSecretValues,
@@ -235,12 +353,19 @@ export function createSecretStore(root: string = STATE_ROOT) {
       });
     },
 
+    // `input.apps`, when present, holds AppGrant pairs that the caller
+    // resolved against the live app records.
     create(scope: SecretScope, input: Record<string, unknown>): SecretChange {
       const nameError = checkSecretName(input.name);
       if (nameError) return { ok: false, kind: "invalid", error: nameError };
       const valueError = checkSecretValue(input.value);
       if (valueError) return { ok: false, kind: "invalid", error: valueError };
-      const hosts = checkSecretHosts(input.hosts);
+      const apps = checkAppGrants(input.apps);
+      if (!apps.ok) return { ok: false, kind: "invalid", error: apps.error };
+      // A secret needs a host or an app.
+      const hosts = checkSecretHosts(input.hosts, {
+        allowEmpty: apps.apps.length > 0,
+      });
       if (!hosts.ok) return { ok: false, kind: "invalid", error: hosts.error };
       const form = checkSecretForm(input.form);
       if (!form.ok) return { ok: false, kind: "invalid", error: form.error };
@@ -251,10 +376,22 @@ export function createSecretStore(root: string = STATE_ROOT) {
           kind: "invalid",
           error: { field: "note", reason: note.reason },
         };
-      const secrets = read(scope);
       const name = input.name as string;
+      if (apps.apps.length > 0 && isAppReservedSecretName(name))
+        return {
+          ok: false,
+          kind: "invalid",
+          error: { field: "name", reason: "reserved" },
+        };
+      const secrets = read(scope);
       if (secrets.some((s) => s.name === name))
         return { ok: false, kind: "exists" };
+      if (clashes(scope, name, apps.apps))
+        return {
+          ok: false,
+          kind: "invalid",
+          error: { field: "apps", reason: "clash" },
+        };
       const now = Date.now();
       const secret: StoredSecret = {
         name,
@@ -266,9 +403,10 @@ export function createSecretStore(root: string = STATE_ROOT) {
         valueSetAt: now,
         updatedAt: now,
         ...(note.note !== null ? { note: note.note } : {}),
+        ...(apps.apps.length > 0 ? { apps: apps.apps } : {}),
       };
       write(scope, [...secrets, secret]);
-      return { ok: true, secret: toWire(secret) };
+      return { ok: true, secret: wire(secret) };
     },
 
     rotate(scope: SecretScope, name: string, value: unknown): SecretChange {
@@ -282,7 +420,7 @@ export function createSecretStore(root: string = STATE_ROOT) {
       secret.valueSetAt = now;
       secret.updatedAt = now;
       write(scope, secrets);
-      return { ok: true, secret: toWire(secret) };
+      return { ok: true, secret: wire(secret) };
     },
 
     // A new placeholder: the generation goes up and the value stays. The
@@ -294,23 +432,36 @@ export function createSecretStore(root: string = STATE_ROOT) {
       secret.generation += 1;
       secret.updatedAt = Date.now();
       write(scope, secrets);
-      return { ok: true, secret: toWire(secret) };
+      return { ok: true, secret: wire(secret) };
     },
 
     // `addHosts: false` (an agent caller, Lead 2026-10-14): the new hosts must
     // be stored hosts already. Otherwise the agent could send the stand-in it
     // holds to a host it controls and read the value back. Checked against
-    // the stored list in the same read as the write.
+    // the stored list in the same read as the write. `addApps: false` is the
+    // same rule for apps (task c7007f8b): an agent can read the environment
+    // of any app, so only a human gives a secret to one.
     update(
       scope: SecretScope,
       name: string,
       patch: Record<string, unknown>,
-      options: { addHosts: boolean } = { addHosts: true },
+      options: { addHosts: boolean; addApps: boolean } = {
+        addHosts: true,
+        addApps: true,
+      },
     ): SecretUpdateChange {
       let hosts: string[] | undefined;
       let form: SecretForm | undefined;
+      let apps: AppGrant[] | undefined;
+      if (patch.apps !== undefined) {
+        const checked = checkAppGrants(patch.apps);
+        if (!checked.ok)
+          return { ok: false, kind: "invalid", error: checked.error };
+        apps = checked.apps;
+      }
       if (patch.hosts !== undefined) {
-        const checked = checkSecretHosts(patch.hosts);
+        // An empty list is judged below, against the apps the secret keeps.
+        const checked = checkSecretHosts(patch.hosts, { allowEmpty: true });
         if (!checked.ok)
           return { ok: false, kind: "invalid", error: checked.error };
         hosts = checked.hosts;
@@ -341,13 +492,48 @@ export function createSecretStore(root: string = STATE_ROOT) {
         !hosts.every((host) => secret.hosts.includes(host))
       )
         return { ok: false, kind: "host_added" };
+      // Judged on (name, createdAt) pairs: the same name for another
+      // registration is an add.
+      const stored = secret.apps ?? [];
+      if (
+        apps &&
+        !options.addApps &&
+        !apps.every((grant) => stored.some((g) => sameGrant(g, grant)))
+      )
+        return { ok: false, kind: "app_added" };
+      if (hosts || apps) {
+        const nextHosts = hosts ?? secret.hosts;
+        const nextApps = apps ?? stored;
+        if (nextHosts.length === 0 && nextApps.length === 0)
+          return {
+            ok: false,
+            kind: "invalid",
+            error: { field: "hosts", reason: "invalid" },
+          };
+        if (nextApps.length > 0 && isAppReservedSecretName(name))
+          return {
+            ok: false,
+            kind: "invalid",
+            error: { field: "name", reason: "reserved" },
+          };
+      }
+      if (apps && clashes(scope, name, apps))
+        return {
+          ok: false,
+          kind: "invalid",
+          error: { field: "apps", reason: "clash" },
+        };
       if (hosts) secret.hosts = hosts;
+      if (apps) {
+        if (apps.length > 0) secret.apps = apps;
+        else delete secret.apps;
+      }
       if (form) secret.form = form;
       if (note === null) delete secret.note;
       else if (note !== undefined) secret.note = note;
       secret.updatedAt = Date.now();
       write(scope, secrets);
-      return { ok: true, secret: toWire(secret) };
+      return { ok: true, secret: wire(secret) };
     },
 
     // Keeps the file when the list becomes empty: its path is part of the
@@ -358,6 +544,16 @@ export function createSecretStore(root: string = STATE_ROOT) {
       if (next.length === secrets.length) return false;
       write(scope, next);
       return true;
+    },
+
+    // An app was deleted: its grant leaves every scope.
+    dropApp(grant: AppGrant): void {
+      keepGrants((g) => !sameGrant(g, grant));
+    },
+
+    // Removes every grant whose app is not live, in every scope.
+    pruneApps(isLive: (grant: AppGrant) => boolean): void {
+      keepGrants(isLive);
     },
 
     // The member left the office: their file goes, even one that does not

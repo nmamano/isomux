@@ -30,6 +30,7 @@ import {
   createSecretStore,
   type SecretScope,
   type SecretStore,
+  type SecretStoreOptions,
 } from "./secret-store.ts";
 
 // One server as an engine receives it.
@@ -46,11 +47,14 @@ export interface McpServerSources {
 
 // The stores under STATE_ROOT. Both read their files on every call, so one
 // instance per caller is as current as a shared one.
-export function createMcpServerSources(root?: string): McpServerSources & {
+export function createMcpServerSources(
+  root?: string,
+  secretOptions?: SecretStoreOptions,
+): McpServerSources & {
   servers: McpServerStore;
   secrets: SecretStore;
 } {
-  const secrets = createSecretStore(root);
+  const secrets = createSecretStore(root, secretOptions);
   const servers = createMcpServerStore(
     (scope, name) => secrets.readSecretValues(scope, name)?.hosts ?? null,
     root,

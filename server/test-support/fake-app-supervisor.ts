@@ -58,6 +58,9 @@ export interface FakeAppSupervisor extends AppSupervisor {
   // token sits behind a unit that does not read it - a test has to be able to
   // construct that.
   unitsInjectingToken: Set<string>;
+  // Apps whose installed unit references their secrets file, kept like the
+  // token set: every unit write adds the app, teardown removes it.
+  unitsInjectingSecrets: Set<string>;
   failProvisionToken: string | null;
   failRegenerate: string | null;
   // Model an install that gets as far as WRITING the unit and then fails (the
@@ -115,6 +118,7 @@ export function createFakeAppSupervisor(
     unitFiles: new Map(),
     appHostDomain,
     unitsInjectingToken: new Set(),
+    unitsInjectingSecrets: new Set(),
     failProvisionToken: null,
     failRegenerate: null,
     failInstallAfterFiles: null,
@@ -142,6 +146,7 @@ export function createFakeAppSupervisor(
     readToken: (name: string) => fake.tokenFiles.get(name) ?? null,
 
     unitInjectsToken: (name: string) => fake.unitsInjectingToken.has(name),
+    unitInjectsSecrets: (name: string) => fake.unitsInjectingSecrets.has(name),
 
     // Reads, like readToken, so they stay out of `calls`.
     readUnitFile: (name: string) => fake.unitFiles.get(name) ?? null,
@@ -170,6 +175,7 @@ export function createFakeAppSupervisor(
       // the reason reconciliation is allowed to call it).
       fake.installed.set(app.name, app);
       fake.unitsInjectingToken.add(app.name);
+      fake.unitsInjectingSecrets.add(app.name);
       fake.unitFiles.set(app.name, unitText(app));
     },
 
@@ -180,6 +186,7 @@ export function createFakeAppSupervisor(
         // Files written (so the unit references the token), then the failure -
         // the app is NOT installed as far as systemd is concerned.
         fake.unitsInjectingToken.add(app.name);
+        fake.unitsInjectingSecrets.add(app.name);
         fake.unitFiles.set(app.name, unitText(app));
         runtimes.set(app.name, {
           state: "unknown",
@@ -204,6 +211,7 @@ export function createFakeAppSupervisor(
       }
       fake.installed.set(app.name, app);
       fake.unitsInjectingToken.add(app.name);
+      fake.unitsInjectingSecrets.add(app.name);
       fake.unitFiles.set(app.name, unitText(app));
       runtimes.set(app.name, { ...fake.installedState });
     },
@@ -226,6 +234,7 @@ export function createFakeAppSupervisor(
       // The unit is rewritten, so it carries the token directive again even if
       // it was written before tokens existed.
       fake.unitsInjectingToken.add(app.name);
+      fake.unitsInjectingSecrets.add(app.name);
       fake.unitFiles.set(app.name, unitText(app));
       const prior = runtimes.get(app.name);
       if (!prior || prior.state === "unknown") {
@@ -258,6 +267,7 @@ export function createFakeAppSupervisor(
       fake.tokenFiles.delete(name);
       fake.unitFiles.delete(name);
       fake.unitsInjectingToken.delete(name);
+      fake.unitsInjectingSecrets.delete(name);
     },
 
     start(name: string) {

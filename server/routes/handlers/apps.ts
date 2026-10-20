@@ -66,6 +66,7 @@ import {
   type Identity,
 } from "../../identity/index.ts";
 import { noteAuditTarget } from "../../audit-context.ts";
+import { scrubText } from "../../secret-proxy/scrub.ts";
 import type { AppRecord } from "../../../shared/types.ts";
 import {
   MAX_APP_THUMBNAIL_BYTES,
@@ -81,6 +82,13 @@ import type {
   AppRegisterReq,
   AppWire,
 } from "../../../shared/contract-shapes.ts";
+
+// App log lines with every vault value removed (task c7007f8b): an app that
+// prints a secret it reads must not put the value into an agent's context.
+const scrubLines = (lines: string[], patterns: readonly string[]): string[] =>
+  patterns.length === 0
+    ? lines
+    : lines.map((line) => scrubText(line, patterns));
 
 // The app-to-agent send outcome. messageId is optional for the same reason it
 // is on the inter-agent send: the manager's dedupe branch acks an EARLIER send
@@ -227,6 +235,13 @@ export interface AppsDeps {
   // app. A name the supervisor cannot speak for is simply absent.
   states(names: readonly string[]): Map<string, AppRuntime>;
   logs(name: string, lines: number): string[];
+  // Every vault value as exact scrub patterns (secret-proxy/scrub.ts): no
+  // log line leaves this route with one (task c7007f8b).
+  secretScrubPatterns?(): readonly string[];
+  // After a delete committed: the app's secret grants and its secrets file
+  // go (task c7007f8b). Synchronous, as the rest of the delete, and never
+  // throws.
+  forgetSecrets?(record: AppRecord): void;
 
   // Deliver a message from `appName` to `targetAgentId`. The SENDER is built
   // server-side by the wiring, from the app name the token resolved to - so
@@ -851,6 +866,15 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // credential whose owner nothing can look up.
         deps.revokeToken(record.name);
         if (!deps.remove(record.name)) return fail(404, "not_found");
+        // The grants of this registration go with it, and its secrets file
+        // before the answer. Logged, never thrown: the delete happened.
+        try {
+          deps.forgetSecrets?.(record);
+        } catch {
+          console.error(
+            `[apps] the secrets of the deleted app "${record.name}" could not be removed`,
+          );
+        }
         // The name is free from this line on, so the message budget attached to
         // it has to go with the old app. Otherwise the next app to take the
         // name - which can belong to a different user - inherits whatever the
@@ -1058,7 +1082,10 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           name: record.name,
           // Clamped inside the supervisor, which is also where the ceiling is
           // defined - so a caller cannot ask journald for a million lines.
-          lines: deps.logs(record.name, lines),
+          lines: scrubLines(
+            deps.logs(record.name, lines),
+            deps.secretScrubPatterns?.() ?? [],
+          ),
         };
         return ok(body);
       } catch (err) {

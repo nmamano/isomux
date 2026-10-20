@@ -53,6 +53,7 @@ export function secret(
     valueSetAt: 1_760_000_000_000,
     updatedAt: 1_760_000_000_000,
     note: null,
+    apps: [],
     value: `value-of-${name}`,
     ...over,
   };
@@ -84,6 +85,8 @@ export class IntegrationsFake {
     { provider: "codex", status: "not_connected" },
   ];
   officeSettings: Record<string, unknown> = {};
+  // GET /api/apps: the apps the viewer can see, with their owners.
+  apps: { name: string; userId: string | null; username: string | null }[] = [];
   testResult: ConnectionTestResult = {
     ok: true,
     kind: "secret",
@@ -173,6 +176,7 @@ export class IntegrationsFake {
       return { accounts: this.accounts };
     if (path === "/api/me/connections") return this.connections;
     if (path === "/api/office/settings") return this.officeSettings;
+    if (path === "/api/apps" && method === "GET") return this.apps;
     // The Browser Use tab's status: the viewer's own Chrome, none paired.
     if (path === "/api/me/browser" && method === "GET")
       return {
@@ -278,6 +282,7 @@ export class IntegrationsFake {
             form: body.form as SecretWire["form"],
             note: (body.note as string) ?? null,
             value: String(body.value),
+            apps: (body.apps as string[]) ?? [],
           }),
         );
         return {};

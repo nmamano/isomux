@@ -163,8 +163,10 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
   }
 
   // Every stored secret with its placeholder, scope by scope.
+  // The material is made only when a secret needs a placeholder: an office
+  // whose secrets only apps read has no CA.
   function readAll(): { scope: SecretScope; secrets: ProxySecret[] }[] {
-    const key = ensureMaterial().placeholderKey;
+    const key = () => ensureMaterial().placeholderKey;
     return deps.store.scopes().map((scope) => ({
       scope,
       secrets: agentSecrets(scope).map((secret) => ({
@@ -175,7 +177,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         hosts: secret.hosts,
         form: secret.form,
         placeholder: placeholderFor(
-          key,
+          key(),
           scope,
           secret.name,
           secret.generation,
@@ -185,9 +187,29 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     }));
   }
 
+  // The secrets agents use: not one an OAuth registration owns, and not
+  // one with no host, which only apps read (task c7007f8b).
   function agentSecrets(scope: SecretScope): StoredSecret[] {
     const owned = ownedIn(scope);
-    return readScope(scope).filter((secret) => !owned(secret.name));
+    return readScope(scope).filter(
+      (secret) => !owned(secret.name) && secret.hosts.length > 0,
+    );
+  }
+
+  // True when a scope holds a secret that agents use. An unreadable file
+  // counts, for the reason store.hasAny gives.
+  function hasAgentSecrets(): boolean {
+    return deps.store.scopes().some((scope) => {
+      try {
+        const owned = ownedIn(scope);
+        return deps.store
+          .readForProxy(scope)
+          .some((secret) => !owned(secret.name) && secret.hosts.length > 0);
+      } catch (error) {
+        if (error instanceof SecretStoreUnreadableError) return true;
+        throw error;
+      }
+    });
   }
 
   function signatureOf(secrets: ProxySecret[]): string {
@@ -267,11 +289,13 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
   }
 
   return {
-    // Boot: start the proxy if the office has a secret.
+    // Boot: start the proxy if the office has a secret that agents use. An
+    // office whose secrets only apps read still feeds log redaction.
     async enable(): Promise<void> {
       enabled = true;
       if (!deps.store.hasAny()) return;
       refresh();
+      if (!hasAgentSecrets()) return;
       await waitForListen(startProxy());
     },
 
@@ -281,7 +305,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       if (!enabled) return;
       const changed = refresh();
       if (!supervisor) {
-        if (!deps.store.hasAny()) return;
+        if (!hasAgentSecrets()) return;
         await waitForListen(startProxy());
       } else supervisor.push();
       if (changed.length > 0) deps.onSetChanged(changed);
@@ -302,9 +326,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       const git = new Map<string, string>();
       // Member scope first, so a member secret wins a host over an office one.
       for (const scope of [...scopes].reverse()) {
-        const owned = ownedIn(scope);
-        for (const secret of readScope(scope)) {
-          if (owned(secret.name)) continue;
+        for (const secret of agentSecrets(scope)) {
           const placeholder = placeholderFor(
             key,
             scope,

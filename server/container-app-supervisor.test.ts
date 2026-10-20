@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createContainerAppSupervisor } from "./container-app-supervisor.ts";
+import { appSecretsPath, renderSecretsEnv } from "./app-secrets.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 
@@ -131,6 +132,7 @@ async function response() {
     count: number;
     secret?: string;
     url: string;
+    vault?: string;
   };
 }
 
@@ -219,7 +221,8 @@ Bun.serve({hostname: process.env.ISOMUX_APP_HOST, port: Number(process.env.PORT)
     setTimeout(() => process.exit(73), 10); return new Response("crashing");
   }
   return Response.json({pid: process.pid, token: process.env.ISOMUX_APP_TOKEN,
-    secret: process.env.RENDER_SECRET_SENTINEL, url: process.env.ISOMUX_APP_URL, count});
+    secret: process.env.RENDER_SECRET_SENTINEL, url: process.env.ISOMUX_APP_URL, count,
+    vault: process.env.VAULT_SECRET});
 }});
 `,
   );
@@ -298,6 +301,37 @@ test("real app: token, logs, crash restart, stop, delete, and port reuse", async
     socket: { data() {} },
   });
   reused.stop(true);
+}, 60_000);
+
+// Task c7007f8b: the worker reads STATE_ROOT/secrets/apps/<app>.env at each
+// launch. STATE_ROOT is the parent of the runtime directory.
+test("an app gets its vault values from the secrets file at each launch", async () => {
+  const hostile = `a b"c'd\\e$f#g\`h\${HOME}%i\\\\j\\"k ;l=m\\n`;
+  const dir = join(root, "secrets", "apps");
+  mkdirSync(dir, { recursive: true });
+  const write = (value: string) =>
+    writeFileSync(
+      appSecretsPath(dir, app.name),
+      renderSecretsEnv({ VAULT_SECRET: value }),
+      { mode: 0o600 },
+    );
+  write(hostile);
+  supervisor.provisionToken(app.name, "synthetic-token-one");
+  supervisor.install(app);
+  expect(supervisor.unitInjectsSecrets(app.name)).toBe(true);
+  expect(supervisor.unitInjectsSecrets("not-installed")).toBe(false);
+  const first = await appResponse(1);
+  expect(first.vault).toBe(hostile);
+  expect(first.token).toBe("synthetic-token-one");
+  write("fake-rotated-vault-0001");
+  supervisor.restart(app.name);
+  const second = await appResponse(2, 15_000);
+  expect(second.vault).toBe("fake-rotated-vault-0001");
+  // No file: no variable.
+  rmSync(appSecretsPath(dir, app.name));
+  supervisor.restart(app.name);
+  const third = await appResponse(3, 15_000);
+  expect(third.vault).toBeUndefined();
 }, 60_000);
 
 test("container restart restores running apps, data, credentials, and stopped intent", async () => {

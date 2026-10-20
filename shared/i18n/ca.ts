@@ -853,6 +853,10 @@ Coses que pots fer per ell:
   "settings.secrets.error.neverListed":
     "{host} mai no rep un secret: els hosts de models i de registres de paquets són a la llista d'exclusió.",
   "settings.secrets.error.exists": "Ja existeix un secret amb aquest nom.",
+  "settings.secrets.error.apps":
+    "Una app ja no existeix o és d'un altre membre.",
+  "settings.secrets.error.appClash":
+    "Una d'aquestes apps ja llegeix un secret amb aquest nom.",
   "settings.connections.bedrockHint":
     "Vols connectar Bedrock? Llegeix <link>aquí</link>.",
   "settings.mcpServers.loadFailed":
@@ -961,7 +965,7 @@ Coses que pots fer per ell:
   "integrations.tabIntro.variables":
     "Paràmetres simples que els agents poden llegir, com una zona horària.",
   "integrations.secretsHonesty":
-    "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers.",
+    "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers o apps.",
   "integrations.secrets.modelKeys":
     "Les claus d'API de models, com <code>ANTHROPIC_API_KEY</code>, van a <link>Variables</link>, no aquí: Isomux mai no envia un secret a un proveïdor de models.",
   "integrations.office": "De tota l'oficina",
@@ -1084,6 +1088,14 @@ Coses que pots fer per ell:
   "integrations.secrets.presetSet": "{service} · desat el {date}",
   "integrations.secrets.goesToSet": "Va a {hosts} · desat el {date}",
   "integrations.secrets.goesTo": "Va a {hosts}",
+  "integrations.secrets.apps": "Apps que el poden llegir",
+  "integrations.secrets.appsHint":
+    "L'app rep el valor al seu entorn i es reinicia quan el secret canvia.",
+  "integrations.secrets.noApps": "No hi ha apps.",
+  "integrations.secrets.readBy": "Llegit per {apps}",
+  "integrations.secrets.readBySet": "Llegit per {apps} · desat el {date}",
+  "integrations.secrets.reachesNothing":
+    "No va enlloc. Afegeix una adreça o una app.",
   "integrations.secrets.showFailed": "No s'ha pogut mostrar el valor.",
   "integrations.secrets.reissueHint":
     "Els agents reben un substitut nou i l'anterior deixa de funcionar.",

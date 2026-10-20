@@ -6,6 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import type {
+  AppListWire,
   SecretListRes,
   SecretValueRes,
   SecretWire,
@@ -65,6 +66,8 @@ type SecretRow = {
   note: string | null;
   form?: SecretForm;
   valueSetAt?: number;
+  // The apps that read the value (task c7007f8b).
+  apps: string[];
 };
 
 type Mode =
@@ -81,6 +84,10 @@ function hostsOf(text: string): string[] {
     .map((host) => host.trim())
     .filter(Boolean);
 }
+
+const sameList = (a: string[], b: string[]): boolean =>
+  a.length === b.length &&
+  [...a].sort().every((x, i) => x === [...b].sort()[i]);
 
 function presetOf(row: SecretRow) {
   return SECRET_PRESETS.find(
@@ -105,6 +112,7 @@ function rowsOf(result: unknown): SecretRow[] | null {
       note: typeof secret.note === "string" && secret.note ? secret.note : null,
       form: secret.form,
       valueSetAt: secret.valueSetAt,
+      apps: Array.isArray(secret.apps) ? secret.apps : [],
     }));
 }
 
@@ -128,6 +136,10 @@ export function useSecretErrorText() {
       if (detail.field === "hosts") return t("settings.secrets.error.hosts");
       if (detail.field === "form") return t("settings.secrets.error.header");
       if (detail.field === "note") return t("settings.connections.error.note");
+      if (detail.field === "apps")
+        return detail.reason === "clash"
+          ? t("settings.secrets.error.appClash")
+          : t("settings.secrets.error.apps");
     }
     return t("settings.secrets.saveFailed");
   };
@@ -136,10 +148,16 @@ export function useSecretErrorText() {
 export function SecretsSection({
   target,
   role,
+  ownerUserId,
   onGone,
 }: {
   target: Target;
   role: Role;
+  // The user id of the target member, whose own apps the apps checklist
+  // offers; null for the office (every app) or a member the page does not
+  // know (no app). By id: an app's username is a snapshot that a rename
+  // leaves stale.
+  ownerUserId: string | null;
   // The member left the office while the card showed them.
   onGone?: () => void;
 }) {
@@ -205,6 +223,8 @@ export function SecretsSection({
             secret={secret}
             path={`${path}/${encodeURIComponent(secret.name)}`}
             target={target}
+            ownerUserId={ownerUserId}
+            summary={summary}
             editable={editable && !summary}
             showable={canShowSecret(target, role) && !summary}
             mode={mode}
@@ -226,6 +246,7 @@ export function SecretsSection({
           <AddSecret
             path={path}
             target={target}
+            ownerUserId={ownerUserId}
             onCancel={close}
             onSaved={changed}
           />
@@ -247,6 +268,8 @@ function SecretItem({
   secret,
   path,
   target,
+  ownerUserId,
+  summary,
   editable,
   showable,
   mode,
@@ -257,6 +280,9 @@ function SecretItem({
   secret: SecretRow;
   path: string;
   target: Target;
+  ownerUserId: string | null;
+  // A member's row of an office secret: name, hosts and note only.
+  summary: boolean;
   editable: boolean;
   showable: boolean;
   mode: Mode;
@@ -279,16 +305,40 @@ function SecretItem({
       <Data>{host}</Data>
     </Fragment>
   ));
-  const where = preset
-    ? setOn
-      ? t("integrations.secrets.presetSet", {
-          service: preset.label,
-          date: setOn,
-        })
-      : preset.label
-    : setOn
-      ? rich("integrations.secrets.goesToSet", { hosts, date: setOn })
-      : rich("integrations.secrets.goesTo", { hosts });
+  const apps = secret.apps.map((app, index) => (
+    <Fragment key={app}>
+      {index > 0 && ", "}
+      <Data>{app}</Data>
+    </Fragment>
+  ));
+  // A secret that only apps read has no address to name. A summary row does
+  // not know its apps, so it says nothing about where it goes.
+  const where =
+    summary && secret.hosts.length === 0
+      ? null
+      : preset
+        ? setOn
+          ? t("integrations.secrets.presetSet", {
+              service: preset.label,
+              date: setOn,
+            })
+          : preset.label
+        : secret.hosts.length === 0
+          ? secret.apps.length === 0
+            ? t("integrations.secrets.reachesNothing")
+            : setOn
+              ? rich("integrations.secrets.readBySet", { apps, date: setOn })
+              : rich("integrations.secrets.readBy", { apps })
+          : setOn
+            ? rich("integrations.secrets.goesToSet", { hosts, date: setOn })
+            : rich("integrations.secrets.goesTo", { hosts });
+  const readBy =
+    secret.hosts.length > 0 && secret.apps.length > 0 ? (
+      <>
+        {" · "}
+        {rich("integrations.secrets.readBy", { apps })}
+      </>
+    ) : null;
   const form =
     secret.form?.kind === "header" ? (
       <>
@@ -307,6 +357,7 @@ function SecretItem({
         <>
           {where}
           {form}
+          {readBy}
         </>
       }
       actions={
@@ -350,6 +401,8 @@ function SecretItem({
       {here && mode.kind === "edit" && secret.form && (
         <EditSecret
           path={path}
+          target={target}
+          ownerUserId={ownerUserId}
           secret={{ ...secret, form: secret.form }}
           heading={whoseHeading("integrations.dialog.edit", target, {
             name: secret.name,
@@ -650,6 +703,99 @@ function AddressesField({
   );
 }
 
+// The apps whose environment gets the value (task c7007f8b): the target
+// member's own apps for a member secret, every app for an office secret.
+// The server checks the same rule; the list only offers what it accepts.
+function AppsField({
+  target,
+  ownerUserId,
+  value,
+  onChange,
+}: {
+  target: Target;
+  ownerUserId: string | null;
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const { t } = useI18n();
+  const alive = useAlive();
+  const [apps, setApps] = useState<string[] | null>(null);
+  useEffect(() => {
+    apiFetch<AppListWire[]>("GET", "/api/apps")
+      .then((list) => {
+        if (!alive.current || !Array.isArray(list)) return;
+        setApps(
+          list
+            .filter(
+              (app) =>
+                target.kind === "office" ||
+                (ownerUserId !== null && app.userId === ownerUserId),
+            )
+            .map((app) => app.name)
+            .sort(),
+        );
+      })
+      .catch(() => {
+        if (alive.current) setApps([]);
+      });
+    // The field is keyed by its form; the target never changes in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // An app the secret already has stays on the list, so it can be removed.
+  const names = [...new Set([...(apps ?? []), ...value])].sort();
+  return (
+    <div data-secret-apps style={{ marginTop: 12 }}>
+      <span
+        style={{
+          display: "block",
+          fontSize: 12,
+          fontWeight: 600,
+          color: "var(--text-dim)",
+          marginBottom: 5,
+        }}
+      >
+        {t("integrations.secrets.apps")}
+      </span>
+      {apps === null ? (
+        <span style={hintText}>{t("common.loading")}</span>
+      ) : names.length === 0 ? (
+        <span style={hintText}>{t("integrations.secrets.noApps")}</span>
+      ) : (
+        names.map((name) => (
+          <label
+            key={name}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12.5,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              data-secret-app={name}
+              checked={value.includes(name)}
+              onChange={(e) =>
+                onChange(
+                  e.target.checked
+                    ? [...value, name].sort()
+                    : value.filter((v) => v !== name),
+                )
+              }
+              style={{ cursor: "pointer", margin: 0 }}
+            />
+            <span style={mono}>{name}</span>
+          </label>
+        ))
+      )}
+      <span style={{ ...hintText, display: "block", marginTop: 4 }}>
+        {t("integrations.secrets.appsHint")}
+      </span>
+    </div>
+  );
+}
+
 function MoreOptions({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -677,11 +823,13 @@ const OTHER = "other";
 function AddSecret({
   path,
   target,
+  ownerUserId,
   onCancel,
   onSaved,
 }: {
   path: string;
   target: Target;
+  ownerUserId: string | null;
   onCancel: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -702,6 +850,7 @@ function AddSecret({
   );
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
+  const [apps, setApps] = useState<string[]>([]);
   const [showHosts, setShowHosts] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -719,8 +868,11 @@ function AddSecret({
   }
 
   const hostList = hostsOf(hosts);
+  // A secret goes to an address, an app, or both.
   const ready =
-    name.trim().length > 0 && value.trim().length > 0 && hostList.length > 0;
+    name.trim().length > 0 &&
+    value.trim().length > 0 &&
+    (hostList.length > 0 || apps.length > 0);
 
   async function save() {
     setBusy(true);
@@ -735,6 +887,7 @@ function AddSecret({
             ? { kind: "header", header: header.trim() }
             : { kind: "authorization" },
         ...(note.trim() ? { note } : {}),
+        ...(apps.length > 0 ? { apps } : {}),
       });
       if (alive.current) await onSaved();
     } catch (caught) {
@@ -821,6 +974,12 @@ function AddSecret({
           </MoreOptions>
         </>
       )}
+      <AppsField
+        target={target}
+        ownerUserId={ownerUserId}
+        value={apps}
+        onChange={setApps}
+      />
       <div style={{ marginTop: 4 }}>
         <ConnectionNoteField value={note} onChange={setNote} />
       </div>
@@ -842,6 +1001,8 @@ function AddSecret({
 
 function EditSecret({
   path,
+  target,
+  ownerUserId,
   secret,
   heading,
   onCancel,
@@ -849,6 +1010,8 @@ function EditSecret({
   onSaved,
 }: {
   path: string;
+  target: Target;
+  ownerUserId: string | null;
   secret: SecretRow & { form: SecretForm };
   heading: Heading;
   onCancel: () => void;
@@ -864,6 +1027,7 @@ function EditSecret({
     secret.form.kind === "header" ? secret.form.header : "",
   );
   const [note, setNote] = useState(secret.note ?? "");
+  const [apps, setApps] = useState<string[]>(secret.apps);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -876,6 +1040,12 @@ function EditSecret({
         onForm={setForm}
         onHeader={setHeader}
       />
+      <AppsField
+        target={target}
+        ownerUserId={ownerUserId}
+        value={apps}
+        onChange={setApps}
+      />
       <div style={{ marginTop: 4 }}>
         <ConnectionNoteField value={note} onChange={setNote} />
       </div>
@@ -887,7 +1057,7 @@ function EditSecret({
         {t("integrations.secrets.reissueHint")}
       </div>
       <FormButtons
-        ready={hostsOf(hosts).length > 0}
+        ready={hostsOf(hosts).length > 0 || apps.length > 0}
         busy={busy}
         saveLabel={t("common.save")}
         onCancel={onCancel}
@@ -902,6 +1072,8 @@ function EditSecret({
                   ? { kind: "header", header: header.trim() }
                   : { kind: "authorization" },
               note,
+              // Only a change: the list the secret has goes unsent.
+              ...(sameList(apps, secret.apps) ? {} : { apps }),
             });
             if (alive.current) await onSaved();
           } catch (caught) {

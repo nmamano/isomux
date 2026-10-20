@@ -40,6 +40,22 @@ STOP_SIGNALS = {signal.SIGTERM, signal.SIGINT}
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 
 
+SECRETS_LINE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\["\\`$])*)"\Z')
+SECRETS_ESCAPE = re.compile(r'\\(["\\`$])')
+
+
+def parse_secrets_env(text):
+    """The exact inverse of renderSecretsEnv (server/app-secrets.ts): a dict
+    of the NAME="value" lines of an app's secrets file. A line of another
+    shape is skipped. Never logs a value."""
+    env = {}
+    for line in text.split("\n"):
+        match = SECRETS_LINE.match(line)
+        if match:
+            env[match.group(1)] = SECRETS_ESCAPE.sub(r"\1", match.group(2))
+    return env
+
+
 class SupervisionFatal(Exception):
     """Stops the container. Messages are fixed text, never app data."""
 
@@ -127,6 +143,16 @@ def worker(root, name):
     # Deliberately narrow inheritance. Deployment credentials and supervisor setup
     # secrets must never be copied into generated app environments.
     env.update(HOME=os.environ["HOME"], LANG="C.UTF-8")
+    # The app's vault secrets (server/app-secrets.ts writes the file under
+    # STATE_ROOT, the parent of this runtime directory), then the token, which
+    # wins a shared name as the later EnvironmentFile does under systemd.
+    # An unreadable file starts the app without them: a worker that dies
+    # stops the whole container.
+    secrets_path = root.parent / "secrets" / "apps" / f"{name}.env"
+    try:
+        env.update(parse_secrets_env(secrets_path.read_text(encoding="utf8")))
+    except (OSError, ValueError):
+        pass
     token_path = root / f"{name}.token.json"
     if token_path.exists():
         env["ISOMUX_APP_TOKEN"] = json.loads(token_path.read_text())
@@ -579,6 +605,10 @@ def run(argv):
         return worker(Path(argv[2]), argv[3])
     if mode == "serve":
         serve(Path(argv[2]), argv[3:])
+        return 0
+    if mode == "parse-secrets-env":
+        # For tests: the parsed file as JSON on stdout.
+        sys.stdout.write(json.dumps(parse_secrets_env(Path(argv[2]).read_text())))
         return 0
     return 1
 

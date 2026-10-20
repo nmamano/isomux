@@ -7,6 +7,8 @@ import {
   checkSecretHosts,
   checkSecretName,
   checkSecretValue,
+  isAppReservedSecretName,
+  SECRET_MAX_APPS,
   SECRET_MIN_VALUE_LENGTH,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
@@ -38,6 +40,18 @@ function refuse(error: SecretFieldError): never {
       : `the ${error.field} field is not valid`,
     { code: "invalid_secret", field: error.field, reason: error.reason },
   );
+}
+
+// The apps field (task c7007f8b) as names, or the server's refusal. The demo
+// does not check that an app exists.
+function appsOf(apps: unknown): string[] {
+  if (apps === undefined) return [];
+  if (!Array.isArray(apps) || !apps.every((a) => typeof a === "string"))
+    refuse({ field: "apps", reason: "invalid" });
+  const names = [...new Set(apps)].sort();
+  if (names.length > SECRET_MAX_APPS)
+    refuse({ field: "apps", reason: "too_long" });
+  return names;
 }
 
 // Answers a secrets route, or returns undefined for any other path. `userId`
@@ -89,8 +103,11 @@ export function demoSecretsRoute(
     if (method !== "POST") return undefined;
     const fieldError = checkSecretName(b.name) ?? checkSecretValue(b.value);
     if (fieldError) refuse(fieldError);
-    const hosts = checkSecretHosts(b.hosts);
+    const apps = appsOf(b.apps);
+    const hosts = checkSecretHosts(b.hosts, { allowEmpty: apps.length > 0 });
     if (!hosts.ok) refuse(hosts.error);
+    if (apps.length > 0 && isAppReservedSecretName(b.name as string))
+      refuse({ field: "name", reason: "reserved" });
     const form = checkSecretForm(b.form);
     if (!form.ok) refuse(form.error);
     const note = checkConnectionNote(b.note ?? null);
@@ -109,6 +126,7 @@ export function demoSecretsRoute(
       valueSetAt: now,
       updatedAt: now,
       note: note.note,
+      apps,
     };
     list.push(secret);
     list.sort((a, c) => a.name.localeCompare(c.name));
@@ -142,11 +160,20 @@ export function demoSecretsRoute(
     return { handled: true, result: undefined };
   }
   if (method !== "PATCH") return undefined;
+  const apps = b.apps === undefined ? secret.apps : appsOf(b.apps);
+  let hosts = secret.hosts;
   if (b.hosts !== undefined) {
-    const hosts = checkSecretHosts(b.hosts);
-    if (!hosts.ok) refuse(hosts.error);
-    secret.hosts = hosts.hosts;
+    const checked = checkSecretHosts(b.hosts, { allowEmpty: true });
+    if (!checked.ok) refuse(checked.error);
+    hosts = checked.hosts;
   }
+  // A secret needs a host or an app.
+  if (hosts.length === 0 && apps.length === 0)
+    refuse({ field: "hosts", reason: "invalid" });
+  if (apps.length > 0 && isAppReservedSecretName(secret.name))
+    refuse({ field: "name", reason: "reserved" });
+  secret.hosts = hosts;
+  secret.apps = apps;
   if (b.form !== undefined) {
     const form = checkSecretForm(b.form);
     if (!form.ok) refuse(form.error);

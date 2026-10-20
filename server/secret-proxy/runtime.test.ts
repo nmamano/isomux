@@ -651,3 +651,95 @@ describe("secrets an OAuth registration owns", () => {
     expect(runtime.snapshotSecrets().map((s) => s.name)).toEqual(["GH_TOKEN"]);
   });
 });
+
+// Task c7007f8b: a secret with apps and no hosts goes to apps only. Agents
+// get no placeholder for it, so adding, rotating or removing one changes no
+// agent; log redaction still masks its value.
+describe("secrets that only apps read", () => {
+  const BOT = { name: "bot", createdAt: 1 };
+  const APP_VALUE = "fake-app-only-value-0001";
+  const OFFICE_APP_VALUE = "fake-office-app-only-0001";
+
+  function addAppOnly(scope: SecretScope, name: string, value: string) {
+    const result = store.create(scope, {
+      name,
+      value,
+      hosts: [],
+      form: { kind: "authorization" },
+      apps: [BOT],
+    });
+    if (!result.ok) throw new Error(`create failed: ${JSON.stringify(result)}`);
+  }
+
+  test("give agents the environment of an office without secrets, and mark no restart", async () => {
+    writeManagedOfficeEnv({ PLAIN: "office-plain" });
+    const off = setSecretEnvironmentProvider(() => null);
+    const before = {
+      env: buildEnvForUserId(ALICE),
+      key: environmentSourceKeyForUserId(ALICE),
+      revision: environmentSourceRevisionForUserId(ALICE),
+    };
+    setSecretEnvironmentProvider(off);
+    await runtime.enable();
+    addAppOnly(OFFICE, "OFFICE_APP_KEY", OFFICE_APP_VALUE);
+    addAppOnly(AT_ALICE, "APP_KEY", APP_VALUE);
+    await runtime.changed();
+    store.rotate(AT_ALICE, "APP_KEY", "fake-app-only-rotated-0001");
+    await runtime.changed();
+    expect(changes).toEqual([]);
+    // No proxy and no CA: nothing for agents to send.
+    expect(runtime.proxyPort).toBeNull();
+    expect(existsSync(secretMaterialPaths(STATE_ROOT, STATE_ROOT).bundle)).toBe(
+      false,
+    );
+    expect(runtime.environmentFor(ALICE)).toBeNull();
+    expect(buildEnvForUserId(ALICE)).toEqual(before.env);
+    expect(environmentSourceRevisionForUserId(ALICE)).toBe(before.revision);
+    expect(runtime.snapshotSecrets()).toEqual([]);
+    // Log redaction still masks both values.
+    expect(values.sort()).toEqual(
+      ["fake-app-only-rotated-0001", OFFICE_APP_VALUE].sort(),
+    );
+    store.remove(AT_ALICE, "APP_KEY");
+    await runtime.changed();
+    expect(changes).toEqual([]);
+  });
+
+  test("start no proxy at boot when they are the office's only secrets", async () => {
+    addAppOnly(AT_ALICE, "APP_KEY", APP_VALUE);
+    await runtime.enable();
+    expect(runtime.proxyPort).toBeNull();
+    expect(existsSync(secretMaterialPaths(STATE_ROOT, STATE_ROOT).bundle)).toBe(
+      false,
+    );
+    expect(values).toEqual([APP_VALUE]);
+  });
+
+  test("have no placeholder and no snapshot entry beside a host secret of the same scope", async () => {
+    await runtime.enable();
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    addAppOnly(AT_ALICE, "APP_KEY", APP_VALUE);
+    await runtime.changed();
+    const env = buildEnvForUserId(ALICE)!;
+    expect(env.GH_TOKEN).toMatch(/^ghp_/);
+    expect(env.APP_KEY).toBeUndefined();
+    expect(envText(env)).not.toContain(APP_VALUE);
+    expect(runtime.placeholderOf(AT_ALICE, "GH_TOKEN")).not.toBeNull();
+    expect(runtime.placeholderOf(AT_ALICE, "APP_KEY")).toBeNull();
+    expect(runtime.snapshotSecrets().map((s) => s.name)).toEqual(["GH_TOKEN"]);
+  });
+
+  test("an app added to or removed from a host secret marks no restart and keeps the revision", async () => {
+    await runtime.enable();
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    await runtime.changed();
+    changes = [];
+    const revision = environmentSourceRevisionForUserId(ALICE);
+    store.update(AT_ALICE, "GH_TOKEN", { apps: [BOT] });
+    await runtime.changed();
+    store.update(AT_ALICE, "GH_TOKEN", { apps: [] });
+    await runtime.changed();
+    expect(changes).toEqual([]);
+    expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
+  });
+});

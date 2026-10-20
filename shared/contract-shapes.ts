@@ -1054,6 +1054,9 @@ export interface SecretWire {
   valueSetAt: number;
   updatedAt: number;
   note: string | null;
+  // The live apps that read the raw value from their environment (task
+  // c7007f8b). A grant whose app was deleted is not listed.
+  apps: string[];
 }
 export interface SecretListRes {
   secrets: SecretWire[];
@@ -1064,6 +1067,8 @@ export interface SecretCreateReq {
   hosts: string[];
   form: SecretForm;
   note?: string | null;
+  // App names. Only a human caller may send them.
+  apps?: string[];
 }
 export interface SecretRotateReq {
   value: string;
@@ -1072,6 +1077,8 @@ export interface SecretUpdateReq {
   hosts?: string[];
   form?: SecretForm;
   note?: string | null;
+  // The whole new list. Only a human caller may add an app.
+  apps?: string[];
 }
 export interface SecretRes {
   secret: SecretWire;

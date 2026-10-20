@@ -93,6 +93,9 @@ export function createContainerAppSupervisor(
     readToken: (name) => rpc("token.read", { name }),
     removeToken: (name) => rpc("token.remove", { name }),
     unitInjectsToken: (name) => rpc("exists", { name }),
+    // The worker reads STATE_ROOT/secrets/apps/<app>.env at each launch, so
+    // an app that exists reads its secrets file.
+    unitInjectsSecrets: (name) => rpc("exists", { name }),
     readUnitFile: (name) => rpc("descriptor.read", { name }),
     restoreUnitFile: (name, descriptor) =>
       rpc("descriptor.restore", { name, descriptor }),

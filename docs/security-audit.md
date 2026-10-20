@@ -205,7 +205,7 @@ A privileged agent gets a part of its member's capabilities: it can drive other 
 
 A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
 
-A privileged agent can add, change, remove and test its manager's variables, secrets and MCP servers, and the office's and every member's when its manager is an owner. It never reads a value: no variable values, no Show, no MCP sign-in, and the MCP server routes give it the host in place of the URL. It cannot add a host to a saved secret: it holds the secret's placeholder and could send it to a host it controls. An ordinary agent only reads its connections and asks for a secret.
+A privileged agent can add, change, remove and test its manager's variables, secrets and MCP servers, and the office's and every member's when its manager is an owner. It never reads a value: no variable values, no Show, no MCP sign-in, and the MCP server routes give it the host in place of the URL. It cannot add a host to a saved secret: it holds the secret's placeholder and could send it to a host it controls. It cannot give a secret to an app: it could read the app's environment. An ordinary agent only reads its connections and asks for a secret.
 
 A privileged agent has the destructive reach of its member. For example, it can close a shared room. Give the flag as you give your own seat.
 
@@ -250,6 +250,8 @@ An agent, terminal or scheduled run with a secret in scope gets a placeholder in
 
 An agent can ask for a secret (`POST /api/agents/:id/secret-requests`). The request waits as an ask (`~/.isomux/asks.json`, which holds the request and never a value); the value goes from the member's browser to the store, never into the transcript. A reply or dismiss on that ask is refused, so a value typed there cannot reach the chat. Only the agent's manager can save a personal secret, and only an owner an office secret. The agent gets the placeholder.
 
+A member can give a personal secret to the apps they own, and an owner can give an office secret to any app. The app gets the value in its environment, from a file in `secrets/apps/` (mode 0600), and restarts when the secret changes. A secret with no host gives agents no placeholder. The app's process holds the value, so an agent that reads that process's environment can read it (section 3.2), and an office owner can change a member's app command to print a member's secret. The app logs route removes every secret value, as a backstop.
+
 ---
 
 ## 7. Members inside the office
@@ -276,7 +278,7 @@ Daily backups do not include the managed environment files, the secrets, the reg
 
 ### 8.3 Secret redaction in logs
 
-Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Terminal output is not stored; the terminal read (section 6.5) masks it on each read.
+Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. The app logs route removes the same values from each line it returns. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Terminal output is not stored; the terminal read (section 6.5) masks it on each read.
 
 ### 8.4 Telemetry
 

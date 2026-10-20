@@ -108,6 +108,15 @@ function IntegrationsPage({
   const others = [...users.values()]
     .filter((user) => user.id !== sessionContext?.userId)
     .sort((a, b) => a.name.localeCompare(b.name));
+  // A card's member as a user id, for what is keyed by id (a secret's apps);
+  // null for the office or a member the page does not know.
+  const userIdOf = (target: Target): string | null =>
+    target.kind === "office"
+      ? null
+      : target.kind === "self"
+        ? (sessionContext?.userId ?? null)
+        : ([...users.values()].find((user) => user.name === target.username)
+            ?.id ?? null);
   // The result of an MCP sign-in that came back, with the note the page left
   // before it went: which server, on whose card. With the note it shows on
   // the server's row until the next action on that card; without one, at
@@ -230,6 +239,7 @@ function IntegrationsPage({
             key={key}
             target={target}
             role={role}
+            ownerUserId={userIdOf(target)}
             onGone={memberGone}
           />
         );

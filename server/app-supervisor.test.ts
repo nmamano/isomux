@@ -210,6 +210,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      secretsEnvPath: "/secrets/apps/hello.env",
       appUrl: "https://hello.office.example",
     });
     expect(directives(unit)).toEqual([
@@ -235,6 +236,9 @@ describe("app-supervisor: unit generation", () => {
       // NOT quoted, for the same reason as WorkingDirectory - and the failure
       // mode is worse: a quoted path here is tolerated by the leading "-" and
       // the app silently runs with no token (measured on systemd 255).
+      // The vault values first, so the token file, read later, wins any name
+      // the two might share (task c7007f8b).
+      "EnvironmentFile=-/secrets/apps/hello.env",
       "EnvironmentFile=-/launchers/hello.env",
       'ExecStart=/bin/sh "/launchers/hello.sh"',
       "Restart=on-failure",
@@ -254,6 +258,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      secretsEnvPath: "/secrets/apps/hello.env",
       appUrl: null,
     });
     expect(directives(unit)).toEqual([
@@ -269,6 +274,7 @@ describe("app-supervisor: unit generation", () => {
       'Environment="ISOMUX_APP_NAME=hello"',
       'Environment="ISOMUX_APP_DATA_DIR=/state/apps/data/hello"',
       'Environment="PATH=/p:/q"',
+      "EnvironmentFile=-/secrets/apps/hello.env",
       "EnvironmentFile=-/launchers/hello.env",
       'ExecStart=/bin/sh "/launchers/hello.sh"',
       "Restart=on-failure",
@@ -288,6 +294,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      secretsEnvPath: "/secrets/apps/hello.env",
       appUrl: "https://Hello.Office.Example:8443/dashboard",
     });
     expect(unit).toContain(
@@ -305,6 +312,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      secretsEnvPath: "/secrets/apps/hello.env",
       appUrl: null,
     });
     expect(unit).not.toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS");
@@ -317,6 +325,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      secretsEnvPath: "/secrets/apps/hello.env",
       appUrl: null,
     });
     expect(unit).not.toContain("bun run dev");
@@ -346,6 +355,7 @@ describe("app-supervisor: unit generation", () => {
         path: "/p",
         unitName: "isomux-app-hello.service",
         tokenEnvPath: `/launchers/50% "q"\\hello.env`,
+        secretsEnvPath: "/secrets/apps/hello.env",
         appUrl: null,
       },
     );
@@ -375,6 +385,7 @@ describe("app-supervisor: unit generation", () => {
         path: "/p",
         unitName: "isomux-app-hello.service",
         tokenEnvPath: "/launchers/hello.env",
+        secretsEnvPath: "/secrets/apps/hello.env",
         appUrl: null,
       }),
     ).toThrow(AppSupervisorError);
@@ -394,6 +405,7 @@ describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
       path: "/p",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      secretsEnvPath: "/secrets/apps/hello.env",
       appUrl,
     });
 
@@ -1301,6 +1313,38 @@ describe("app-supervisor: the app's token file", () => {
       "[Service]\nEnvironmentFile=-/launchers/other.env\n",
     );
     expect(sup.unitInjectsToken("hello")).toBe(false);
+  });
+
+  it("says whether the installed unit reads the app's secrets file, by the exact line", () => {
+    // Task c7007f8b: boot sync regenerates a unit written before app secrets
+    // existed, and only such a unit.
+    const host = fakeHost();
+    const sup = createAppSupervisor({
+      host,
+      unitPrefix: "isomux-app-",
+      runtimeBinDir: "/rt/bin",
+      now: () => 0,
+      appHostDomain: () => null,
+      secretsDir: "/secrets/apps",
+    });
+    expect(sup.unitInjectsSecrets("hello")).toBe(false); // no unit at all
+    sup.install(record());
+    expect(sup.unitInjectsSecrets("hello")).toBe(true);
+    for (const unit of [
+      // Written before app secrets: the token line only.
+      "[Service]\nEnvironmentFile=-/launchers/hello.env\n",
+      "[Service]\n# EnvironmentFile=-/secrets/apps/hello.env\n",
+      "[Service]\nEnvironmentFile=-/secrets/apps/hello.env.backup\n",
+      "[Service]\nEnvironmentFile=-/secrets/apps/other.env\n",
+    ]) {
+      host.writeFile("/units/isomux-app-hello.service", unit);
+      expect([unit, sup.unitInjectsSecrets("hello")]).toEqual([unit, false]);
+    }
+    host.writeFile(
+      "/units/isomux-app-hello.service",
+      "[Service]\n  EnvironmentFile=-/secrets/apps/hello.env  \n",
+    );
+    expect(sup.unitInjectsSecrets("hello")).toBe(true);
   });
 
   it("unitInjectsToken matches the directive LINE, not a substring of the file", () => {
