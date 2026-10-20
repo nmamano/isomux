@@ -4,7 +4,9 @@
 // waiting desk, and auth-shaped text without it gives neither. The fake's
 // detectAuthError calls every text below auth-shaped, so a sniff that comes
 // back fails the cases without auth_needed.
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
@@ -35,15 +37,26 @@ const AUTH_SHAPED_NOTE =
   "Allowing any command starting with `grep 401` for this session.";
 const AUTH_SHAPED_ERROR = "401 Unauthorized";
 
+// A file skill, so `/<name>` runs as a skill turn.
+const SKILL = "authneededskill";
+const skillDir = join(STATE_ROOT, "skills", SKILL);
+beforeAll(() => {
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), "Do the thing.");
+});
+afterAll(() => rmSync(skillDir, { recursive: true, force: true }));
+
 // `idle`: the events land after a first turn ended, with no turn waiting on
-// them. `queue` and `send`: they end the turn a queued message or a direct
-// send started, whose owner then handles the rejected turn too.
+// them. The others end the turn that a queued message, a direct send, a skill
+// or `/plan <text>` started, whose owner then handles the rejected turn too.
 async function run(
   events: NormalizedEvent[],
   until: "card" | "text" | "error",
-  via: "idle" | "queue" | "send" = "idle",
+  via: "idle" | "queue" | "send" | "skill" | "plan" = "idle",
 ) {
   const fake = new FakeBackend({
+    // `/plan <text>` needs an engine with a native plan mode.
+    planMode: via === "plan",
     isAuthError: (t) => /401|not logged in|authentication/i.test(t),
     loginInstructions: {
       text: "Sign in to continue.",
@@ -91,8 +104,9 @@ async function run(
   );
   if (!info) throw new Error("spawn returned null");
   // The session is created on the first message, not at spawn.
-  if (via === "send")
-    void mgr.sendMessage(info.id, "hi", "Boss").catch(() => {});
+  const typed = { send: "hi", skill: `/${SKILL}`, plan: "/plan hi" } as const;
+  if (via === "send" || via === "skill" || via === "plan")
+    void mgr.sendMessage(info.id, typed[via], "Boss").catch(() => {});
   else
     mgr.enqueueMessage(info.id, {
       sender: { kind: "user", username: "Boss" },
@@ -103,6 +117,10 @@ async function run(
     "message sent",
   );
   const session = fake.sessionForAgent(info.id)!;
+  // The turn is the kind `via` names: a skill sends the skill's prompt, and
+  // `/plan <text>` starts the session in plan mode.
+  if (via === "skill") expect(session.sent[0].text).toContain("Do the thing.");
+  expect(session.opts.planMode === true).toBe(via === "plan");
   if (via === "idle") {
     session.completeTurn({ text: "ok" });
     await waitUntil(
@@ -188,7 +206,7 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
 
   // The turn's owner gets the rejection after the error handler wrote the
   // line and the card: it adds no second line and leaves the desk waiting.
-  for (const via of ["queue", "send"] as const) {
+  for (const via of ["queue", "send", "skill", "plan"] as const) {
     it(`keeps one error line and a waiting desk when auth_needed ends a ${via} turn`, async () => {
       expect(
         await run(

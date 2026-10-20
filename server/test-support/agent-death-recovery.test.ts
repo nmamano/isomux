@@ -37,6 +37,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "fs";
 import { join } from "path";
@@ -419,6 +420,45 @@ describe("backend death: what the user is told (86678675, e8168c2a)", () => {
     expect(logContents(server, target.id).join("\n")).not.toContain(
       "Error flushing queue:",
     );
+  });
+
+  it("explains a death during a skill turn, exactly once", async () => {
+    // Skills and `/plan <text>` run their turn through the command path, whose
+    // own catch wrote the death a second time as the raw exit code.
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const a = await spawnAgent(server, "SkillDies", firstRoomId(server));
+    const skillDir = join(server.stateRoot, "skills", "deathskill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "Do the thing.");
+    try {
+      await sendHuman(server, owner.rawSessionId, a.id, "/deathskill");
+      await waitUntil(() => agentOf(server!, a.id).state === "thinking");
+      const session = server.fakeBackend.sessionForAgent(a.id)!;
+      // The turn in flight is the skill's.
+      expect(session.sent[0].text).toContain("Do the thing.");
+      session.push({
+        kind: "error",
+        message: "Claude Code process exited with code 143",
+      });
+      await waitUntil(() => agentOf(server!, a.id).state === "error");
+      // Give the command path's catch time to write a second line.
+      await sleep(50);
+
+      const errors = server.agentManager
+        .getAgentLogs(a.id)
+        .filter((e) => e.kind === "error");
+      // One explained line, carrying the raw text; a second line has none.
+      expect(errors.map((e) => e.metadata?.backendFailureRaw ?? null)).toEqual([
+        "Claude Code process exited with code 143",
+      ]);
+      expect(logContents(server, a.id).join("\n")).not.toContain(
+        "exited with code 143",
+      );
+      expect(agentOf(server, a.id).state).toBe("error");
+    } finally {
+      rmSync(skillDir, { recursive: true, force: true });
+    }
   });
 });
 

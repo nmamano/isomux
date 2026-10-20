@@ -48,7 +48,6 @@ import {
   openFile as openEditorFile,
 } from "./file-editor.ts";
 import {
-  BackendSignedOutError,
   SessionSwappedError,
   inMultiStepFlow,
   type ManagedAgent,
@@ -56,11 +55,7 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
-import {
-  directInputCapped,
-  UsageCapError,
-  usageCapText,
-} from "./member-usage-cap.ts";
+import { directInputCapped } from "./member-usage-cap.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
 export const DOCS_URL = "https://isomux.com/docs";
@@ -240,11 +235,18 @@ interface HandlerDeps {
     username?: string,
     device?: string,
   ) => boolean;
-  // A send the engine's sign-in state stopped: the sign-in notice and card.
-  surfaceSignedOut: (
+  // A rejected turn, after the caller handled its session swaps: the same
+  // lines and end state as a member's send (agent-manager ownedTurnFailure).
+  // `frame` words an error it cannot classify.
+  turnFailure: (
     agentId: string,
     managed: ManagedAgent,
-    err: BackendSignedOutError,
+    err: unknown,
+    opts: {
+      username?: string;
+      label: string;
+      frame: (raw: string) => string;
+    },
   ) => void;
   // The office's disk-usage measurement, FULL (per-agent detail included) -
   // the same call GET /api/storage/usage makes, memoized for 30s. Injected
@@ -1356,27 +1358,12 @@ export function createCommandHandling(deps: HandlerDeps) {
       )
         return true;
       if (err instanceof SessionSwappedError) return true;
-      if (err instanceof BackendSignedOutError) {
-        deps.surfaceSignedOut(agentId, managed, err);
-        return true;
-      }
-      if (err instanceof UsageCapError) {
-        deps.addLogEntry(
-          agentId,
-          "error",
-          usageCapText(translatorForUsername(username), err),
-        );
-        deps.updateState(agentId, "waiting_for_response");
-        return true;
-      }
-      deps.addLogEntry(
-        agentId,
-        "error",
-        translatorForUsername(username).t(errorKey, {
-          error: errMessage(err),
-        }),
-      );
-      deps.updateState(agentId, "error");
+      deps.turnFailure(agentId, managed, err, {
+        username,
+        label: "command",
+        frame: (raw) =>
+          translatorForUsername(username).t(errorKey, { error: raw }),
+      });
     }
     return true;
   }

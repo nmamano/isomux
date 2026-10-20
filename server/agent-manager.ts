@@ -3830,9 +3830,51 @@ export function createAgentManager(deps: ManagerDeps) {
     updateState(agentId, "waiting_for_response");
   }
 
-  // Log a failed turn from the TURN-OWNING CALLER's catch (sendMessage,
-  // flushQueue). `frame` wraps anything we could not classify, keeping each
-  // caller's existing wording for ordinary failures.
+  // A rejected turn, in the catch of the caller that owns it (sendMessage,
+  // flushQueue, the auto-handoff brief and the command turn of a skill or
+  // `/plan <text>`), after that caller handled its own session swaps. One
+  // handler, so a failure reads and ends the same on every path. `frame` wraps
+  // an error we could not classify, in the caller's own wording; `label`
+  // names the path in the server log.
+  function ownedTurnFailure(
+    agentId: string,
+    managed: ManagedAgent,
+    err: unknown,
+    opts: {
+      username?: string;
+      label: string;
+      frame: (raw: string) => string;
+    },
+  ): void {
+    if (err instanceof UsageCapError) {
+      refuseForUsageCap(agentId, managed, err, opts.username);
+      return;
+    }
+    if (err instanceof BackendNotConfiguredError) {
+      // Backend can't run at all (CLI missing, signed out, etc.).
+      // surfaceBackendNotConfigured emits the hint+card, holds the kept
+      // queue (so the updateState transition it makes does not re-fire
+      // flushQueue and double-emit the hint), and transitions state to
+      // waiting_for_response.
+      surfaceBackendNotConfigured(agentId, managed, err);
+      return;
+    }
+    if (err instanceof ProviderCapacityError) {
+      updateState(agentId, "waiting_for_response");
+      return;
+    }
+    if (err instanceof AuthNeededError) {
+      keepWaitingForSignIn(agentId, managed);
+      return;
+    }
+    console.error(`Agent ${agentId} ${opts.label} error:`, errMessage(err));
+    addCallerFailureEntry(agentId, managed, err, opts.frame);
+    updateState(agentId, "error");
+  }
+
+  // Log a failed turn from the TURN-OWNING CALLER's catch (ownedTurnFailure).
+  // `frame` wraps anything we could not classify, keeping each caller's
+  // existing wording for ordinary failures.
   //
   // Two jobs:
   //   - explain a backend death instead of pasting its raw text, exactly as the
@@ -6998,7 +7040,7 @@ export function createAgentManager(deps: ManagerDeps) {
         username,
         device,
       }),
-    surfaceSignedOut: surfaceBackendNotConfigured,
+    turnFailure: ownedTurnFailure,
     enqueueMessage,
     // Same measurement, same roots, same 30s memo as GET /api/storage/usage -
     // productionStorageRoots() is the single answer to "what counts as isomux
@@ -8248,28 +8290,11 @@ export function createAgentManager(deps: ManagerDeps) {
           );
           return;
         }
-        if (err instanceof BackendNotConfiguredError) {
-          // Backend can't run at all (CLI missing, auth missing, etc.).
-          // surfaceBackendNotConfigured emits the hint+card, holds the kept
-          // queue (so the updateState transition it makes does not re-fire
-          // flushQueue and double-emit the hint), and transitions state to
-          // waiting_for_response.
-          surfaceBackendNotConfigured(agentId, managed, err);
-          return;
-        }
-        if (err instanceof ProviderCapacityError) {
-          updateState(agentId, "waiting_for_response");
-          return;
-        }
-        if (err instanceof AuthNeededError) {
-          keepWaitingForSignIn(agentId, managed);
-          return;
-        }
-        console.error(`Agent ${agentId} flush error:`, errMessage(err));
-        addCallerFailureEntry(agentId, managed, err, (raw) =>
-          logWords(agentId)("systemEntries.flushError", { error: raw }),
-        );
-        updateState(agentId, "error");
+        ownedTurnFailure(agentId, managed, err, {
+          label: "flush",
+          frame: (raw) =>
+            logWords(agentId)("systemEntries.flushError", { error: raw }),
+        });
       }
     } finally {
       if (agents.has(agentId)) {
@@ -9546,31 +9571,12 @@ export function createAgentManager(deps: ManagerDeps) {
       )
         return;
       if (err instanceof SessionSwappedError) return;
-      if (err instanceof UsageCapError) {
-        refuseForUsageCap(agentId, managed, err, username);
-        return;
-      }
-      if (err instanceof BackendNotConfiguredError) {
-        // Backend isn't usable (CLI missing, auth missing, etc.).
-        // surfaceBackendNotConfigured emits the hint+card, drains any queued
-        // sibling messages (preventing the cross-path updateState→flushQueue
-        // duplicate emit), and transitions state to waiting_for_response.
-        surfaceBackendNotConfigured(agentId, managed, err);
-        return;
-      }
-      if (err instanceof ProviderCapacityError) {
-        updateState(agentId, "waiting_for_response");
-        return;
-      }
-      if (err instanceof AuthNeededError) {
-        keepWaitingForSignIn(agentId, managed);
-        return;
-      }
-      console.error(`Agent ${agentId} send error:`, errMessage(err));
-      addCallerFailureEntry(agentId, managed, err, (raw) =>
-        logWords(agentId)("systemEntries.genericError", { error: raw }),
-      );
-      updateState(agentId, "error");
+      ownedTurnFailure(agentId, managed, err, {
+        username,
+        label: "send",
+        frame: (raw) =>
+          logWords(agentId)("systemEntries.genericError", { error: raw }),
+      });
     }
   }
 
@@ -10837,30 +10843,11 @@ export function createAgentManager(deps: ManagerDeps) {
   ): void {
     // The swapper (stop, send-now, a settings change, a reset) owns the state.
     if (err instanceof SessionSwappedError) return;
-    if (err instanceof UsageCapError) {
-      refuseForUsageCap(agentId, managed, err);
-      return;
-    }
-    if (err instanceof BackendNotConfiguredError) {
-      surfaceBackendNotConfigured(agentId, managed, err);
-      return;
-    }
-    if (err instanceof ProviderCapacityError) {
-      updateState(agentId, "waiting_for_response");
-      return;
-    }
-    if (err instanceof AuthNeededError) {
-      keepWaitingForSignIn(agentId, managed);
-      return;
-    }
-    console.error(
-      `Agent ${agentId} auto-handoff brief error:`,
-      errMessage(err),
-    );
-    addCallerFailureEntry(agentId, managed, err, (raw) =>
-      logWords(agentId)("systemEntries.genericError", { error: raw }),
-    );
-    updateState(agentId, "error");
+    ownedTurnFailure(agentId, managed, err, {
+      label: "auto-handoff brief",
+      frame: (raw) =>
+        logWords(agentId)("systemEntries.genericError", { error: raw }),
+    });
   }
 
   // The member's two lines, the old chat's ("writing") and the fresh chat's
