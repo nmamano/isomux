@@ -126,7 +126,7 @@ describe("B1 loadLogWithAncestors (Phase 1.4a)", () => {
     appendLog(A, "parent", le(A, "p3", "text"));
     appendLog(A, "child", le(A, "c1", "user_message"));
     appendLog(A, "child", le(A, "c2", "text"));
-    persistSessionFork(A, "child", "parent", "p2", null, 0, "/tmp");
+    persistSessionFork(A, "child", "parent", "p2", null, "/tmp");
 
     // Ancestor prefix is taken UP TO (excluding) the fork point p2: p1 only,
     // never p2/p3; then the child's own entries.
@@ -145,8 +145,8 @@ describe("B1 loadLogWithAncestors (Phase 1.4a)", () => {
     appendLog(A, "parent", le(A, "p2", "user_message")); // fork point for child
     appendLog(A, "parent", le(A, "p3", "text"));
     appendLog(A, "child", le(A, "c1", "text"));
-    persistSessionFork(A, "parent", "gp", "g2", null, 0, "/tmp");
-    persistSessionFork(A, "child", "parent", "p2", null, 0, "/tmp");
+    persistSessionFork(A, "parent", "gp", "g2", null, "/tmp");
+    persistSessionFork(A, "child", "parent", "p2", null, "/tmp");
 
     expect(loadLogWithAncestors(A, "child").map((e) => e.id)).toEqual([
       "g1",
@@ -158,8 +158,8 @@ describe("B1 loadLogWithAncestors (Phase 1.4a)", () => {
   it("terminates (no infinite loop) on a forkedFrom cycle and still yields the leaf's own entries", () => {
     appendLog(A, "sa", le(A, "a1", "text"));
     appendLog(A, "sb", le(A, "b1", "text"));
-    persistSessionFork(A, "sa", "sb", "b1", null, 0, "/tmp");
-    persistSessionFork(A, "sb", "sa", "a1", null, 0, "/tmp");
+    persistSessionFork(A, "sa", "sb", "b1", null, "/tmp");
+    persistSessionFork(A, "sb", "sa", "a1", null, "/tmp");
     const out = loadLogWithAncestors(A, "sa");
     // Finite + deterministic; the leaf's own entry is present. We do not overfit
     // the exact ancestor-dedup order under a cycle (not a real-world shape).
@@ -398,7 +398,6 @@ describe("B1 readAgentUsage (Phase 1.4a)", () => {
       "parent",
       "p2",
       null,
-      0,
       "/tmp",
       usage(100, 50, 0, 0, 1.0),
     );

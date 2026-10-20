@@ -125,7 +125,7 @@ describe("personal API tokens", () => {
     });
     expect(srv.agentManager.getAgent(sender.id)).toMatchObject({
       state: stateBeforeReply,
-      topicStale: false,
+      topicGenerating: false,
       turnHadHumanInput: false,
     });
     expect(needsInterruptionMarker(outbound)).toBe(false);

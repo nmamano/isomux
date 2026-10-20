@@ -1828,9 +1828,9 @@ Coses que pots fer per ell:
   "logView.backToBackRoomTitle": "Torna a la rebotiga (Esc)",
   "logView.backRoomStrip":
     "A la rebotiga de {room}. La gent parla amb el davant:",
+  "logView.noTopic": "Sense tema",
   "logView.editTopic": "Fes clic per editar el tema",
   "logView.regenerateTopic": "Regenera el tema a partir de la conversa",
-  "logView.noHistoryToSummarize": "No hi ha historial de conversa per resumir",
   "logView.lastMessagePrefix": "↑ Tu:",
   "logView.emptyStart": "Envia un missatge per començar una conversa o",
   "logView.emptyResume": "reprèn-ne una d'anterior",

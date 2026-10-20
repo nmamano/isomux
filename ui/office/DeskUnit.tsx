@@ -381,7 +381,7 @@ export function DeskUnit({
             </span>
           )}
         </div>
-        {agent.topic && agent.topic !== "..." && (
+        {agent.topic && (
           <div
             {...noTranslate()}
             style={{

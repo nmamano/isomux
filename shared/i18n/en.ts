@@ -1786,9 +1786,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.backToBackRoomTitle": "Back to the back room (Esc)",
   "logView.backRoomStrip":
     "In the back room of {room}. People talk to the front:",
+  "logView.noTopic": "No topic",
   "logView.editTopic": "Click to edit topic",
   "logView.regenerateTopic": "Regenerate topic from conversation",
-  "logView.noHistoryToSummarize": "No conversation history to summarize",
   "logView.lastMessagePrefix": "↑ You:",
   "logView.emptyStart": "Send a message to start a conversation or",
   "logView.emptyResume": "resume a past one",

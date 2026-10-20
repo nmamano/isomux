@@ -393,11 +393,10 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       sessionId: "fake-session-1",
       topic: "Resolved topic",
       firstUserMessage: "first request",
-      topicMessageCount: 1,
     });
   });
 
-  it("does not persist a topic placeholder when generation fails", async () => {
+  it("persists no topic when generation fails", async () => {
     let rejectTopic!: (error: Error) => void;
     const topicResult = new Promise<string>((_resolve, reject) => {
       rejectTopic = reject;
@@ -421,11 +420,16 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       () => listAgentSessions(opencode.id).length === 1,
       "resolved session id in the listing",
     );
+    expect(server.agentManager.getAgent(opencode.id)?.topicGenerating).toBe(
+      true,
+    );
     rejectTopic(new Error("topic unavailable"));
     await waitUntil(
-      () => server?.agentManager.getAgent(opencode.id)?.topic === null,
-      "failed topic generation to clear its placeholder",
+      () =>
+        server?.agentManager.getAgent(opencode.id)?.topicGenerating === false,
+      "failed topic generation to end",
     );
+    expect(server.agentManager.getAgent(opencode.id)?.topic).toBeNull();
     expect(listAgentSessions(opencode.id)[0]).toMatchObject({
       sessionId: "fake-session-1",
       topic: null,

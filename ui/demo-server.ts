@@ -626,7 +626,7 @@ function seedOffice() {
       effort: DEFAULT_EFFORT,
       state: char.state,
       topic: char.topic,
-      topicStale: false,
+      topicGenerating: false,
       customInstructions: char.customInstructions,
       customInstructionsVersion: versionOf(char.customInstructions ?? ""),
       agentType: char.agentType,
@@ -667,7 +667,7 @@ function seedOffice() {
       effort: DEFAULT_EFFORT,
       state: "idle",
       topic: null,
-      topicStale: false,
+      topicGenerating: false,
       customInstructions: null,
       customInstructionsVersion: versionOf(""),
       agentType: "opencode",
@@ -3750,15 +3750,26 @@ export async function demoApi(
     return undefined;
   }
   // agents.setTopic (PUT .../topic) / agents.regenerateTopic (DELETE .../topic).
-  // The demo has no conversation to regenerate from, so DELETE clears.
+  // The demo has no conversation to regenerate from, so DELETE sets a fixed
+  // label after a simulated generation.
   const agentTopicMatch = pathname.match(/^\/api\/agents\/([^/]+)\/topic$/);
   if (agentTopicMatch && (method === "PUT" || method === "DELETE")) {
     const id = decodeURIComponent(agentTopicMatch[1]);
     if (method === "PUT") {
       const b = (body ?? {}) as TopicReq;
-      emitEvents(state.setTopic(id, b.topic));
+      // Trimmed, and a blank topic clears the label, as on the server.
+      const topic = b.topic.trim();
+      emitEvents(
+        topic === "" ? state.resetTopic(id) : state.setTopic(id, topic),
+      );
     } else {
-      emitEvents(state.resetTopic(id));
+      // The old label stays while a simulated generation runs, then the new
+      // one replaces it.
+      emitEvents(state.updateAgent(id, { topicGenerating: true }));
+      setTimeout(() => {
+        emitEvents(state.updateAgent(id, { topicGenerating: false }));
+        emitEvents(state.setTopic(id, "Planning the team offsite agenda"));
+      }, 4000);
     }
     return undefined;
   }

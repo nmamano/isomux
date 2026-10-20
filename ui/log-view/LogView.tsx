@@ -685,19 +685,18 @@ export function LogView({
   const [topicDraft, setTopicDraft] = useState("");
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
-  // Whether the ↻ button can regenerate the topic. `topicStale` is a server
-  // runtime flag that only flips true once a *new* message arrives during the
-  // live session, so on a fresh page load (or after a restart) it stays false
-  // even when there's a full conversation to re-summarize. Fall back to the
-  // logs the UI already holds: gate on at least one *user* message, matching
-  // what generateTopic() actually summarizes - it returns null (clearing the
-  // topic) when no user message exists, so enabling on model text alone could
-  // wipe an existing topic.
+  // The header has one topic slot once the chat has a user message (the only
+  // input the topic generator reads): the label, or a "No topic" placeholder,
+  // then the ↻ button, which spins while a generation runs. The label stays
+  // during a generation; with no label the spinner stands alone. A blank chat
+  // shows nothing.
   const hasTopicableHistory = useMemo(
     () => logs.some((e) => e.kind === "user_message"),
     [logs],
   );
-  const canRegenerateTopic = agent.topicStale || hasTopicableHistory;
+  const topicGenerating = agent.topicGenerating;
+  const showTopicRefresh = hasTopicableHistory && agent.capabilities.topicGen;
+  const showTopicPlaceholder = hasTopicableHistory && !topicGenerating;
   // Side panel state (terminal vs editor vs none) lives in the store keyed
   // by agent id so it survives LogView remount on agent switch. Toggling a
   // panel dispatches set_side_panel; opening one closes the other.
@@ -1998,61 +1997,59 @@ export function LogView({
                   lineHeight: 1.2,
                 }}
               >
-                {agent.topic && agent.topic !== "..." && !editingTopic && (
-                  <>
-                    <span
-                      {...noTranslate()}
-                      onClick={() => {
-                        setEditingTopic(true);
-                        setTopicDraft(agent.topic ?? "");
-                        setTimeout(() => topicInputRef.current?.focus(), 0);
-                      }}
-                      style={{
-                        color: "var(--text-secondary)",
-                        fontSize: 13,
-                        cursor: "text",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        minWidth: 0,
-                      }}
-                      title={agent.topic ?? i18n.t("logView.editTopic")}
-                    >
-                      {agent.topic}
-                    </span>
-                    <button
-                      onClick={() => {
-                        apiFetch(
-                          "DELETE",
-                          `/api/agents/${agent.id}/topic`,
-                        ).catch(() => {});
-                      }}
-                      disabled={!canRegenerateTopic}
-                      title={
-                        canRegenerateTopic
-                          ? i18n.t("logView.regenerateTopic")
-                          : i18n.t("logView.noHistoryToSummarize")
-                      }
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: canRegenerateTopic ? "pointer" : "default",
-                        color: "var(--text-secondary)",
-                        fontSize: 15,
-                        padding: "0 4px",
-                        opacity: canRegenerateTopic ? 0.8 : 0.3,
-                        transition: "opacity 0.2s",
-                        lineHeight: 1,
-                      }}
-                    >
-                      ↻
-                    </button>
-                  </>
-                )}
-                {agent.topic === "..." && (
-                  <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>
-                    ...
+                {!editingTopic && (agent.topic || showTopicPlaceholder) && (
+                  <span
+                    {...noTranslate()}
+                    data-topic-text={agent.topic ? "label" : "placeholder"}
+                    onClick={() => {
+                      setEditingTopic(true);
+                      setTopicDraft(agent.topic ?? "");
+                      setTimeout(() => topicInputRef.current?.focus(), 0);
+                    }}
+                    style={{
+                      color: agent.topic
+                        ? "var(--text-secondary)"
+                        : "var(--text-ghost)",
+                      fontStyle: agent.topic ? undefined : "italic",
+                      fontSize: 13,
+                      cursor: "text",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                    title={agent.topic ?? i18n.t("logView.editTopic")}
+                  >
+                    {agent.topic ?? i18n.t("logView.noTopic")}
                   </span>
+                )}
+                {!editingTopic && showTopicRefresh && (
+                  <button
+                    data-topic-refresh
+                    onClick={() => {
+                      apiFetch("DELETE", `/api/agents/${agent.id}/topic`).catch(
+                        () => {},
+                      );
+                    }}
+                    disabled={topicGenerating}
+                    title={i18n.t("logView.regenerateTopic")}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: topicGenerating ? "default" : "pointer",
+                      color: "var(--text-secondary)",
+                      fontSize: 15,
+                      padding: "0 4px",
+                      opacity: 0.8,
+                      lineHeight: 1,
+                      display: "inline-block",
+                      animation: topicGenerating
+                        ? "topicSpin 1s linear infinite"
+                        : undefined,
+                    }}
+                  >
+                    ↻
+                  </button>
                 )}
                 {editingTopic && (
                   <input
@@ -2063,7 +2060,7 @@ export function LogView({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         const trimmed = topicDraft.trim();
-                        if (trimmed && trimmed !== agent.topic) {
+                        if (trimmed !== (agent.topic ?? "")) {
                           apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
                             topic: trimmed,
                           } satisfies TopicReq).catch(() => {});
@@ -2083,7 +2080,7 @@ export function LogView({
                         return;
                       }
                       const trimmed = topicDraft.trim();
-                      if (trimmed && trimmed !== agent.topic) {
+                      if (trimmed !== (agent.topic ?? "")) {
                         apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
                           topic: trimmed,
                         } satisfies TopicReq).catch(() => {});

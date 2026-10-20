@@ -762,8 +762,11 @@ export interface AgentInfo {
   modelFamily: string;
   effort: EffortLevel;
   state: AgentState;
+  // A label or null, never a placeholder: a generation in progress shows in
+  // topicGenerating instead.
   topic: string | null;
-  topicStale: boolean;
+  // True while a topic generation runs. Runtime only, never persisted.
+  topicGenerating: boolean;
   customInstructions: string | null;
   // Optimistic-concurrency token over the customInstructions blob (task
   // 44a2c98d): versionOf(customInstructions ?? "") from shared/blob-version.ts,

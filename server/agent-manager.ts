@@ -91,6 +91,7 @@ import {
   writeManifest,
   buildManifest,
   persistSessionTopic,
+  storedTopic,
   persistSessionFork,
   persistSessionCwd,
   getSessionCwd,
@@ -1276,7 +1277,8 @@ export function createAgentManager(deps: ManagerDeps) {
   const EPHEMERAL_AGENT_FIELDS = new Set([
     "state",
     "sessionSwapping",
-    "topicStale",
+    // Flips twice per topic generation; a restart starts with no generation.
+    "topicGenerating",
     "turnHadHumanInput",
     // In-memory context-fullness snapshot (not in PersistedAgent). Broadcast at
     // every turn boundary + Codex usage_update, so persisting on each would
@@ -2331,7 +2333,7 @@ export function createAgentManager(deps: ManagerDeps) {
       agentType: entry.agentType ?? "claude",
       lastRoomId: entry.lastRoomId,
       lastRoomName: entry.lastRoomName,
-      topic: entry.topic ?? null,
+      topic: storedTopic(entry.topic),
       killedAt: entry.killedAt ?? fallbackKilledAt,
     };
   }
@@ -2508,10 +2510,6 @@ export function createAgentManager(deps: ManagerDeps) {
         resumeSessionId = p.lastSessionId;
       }
     }
-    const persistedTopicCount = resumeSessionId
-      ? (listAgentSessions(p.id).find((s) => s.sessionId === resumeSessionId)
-          ?.topicMessageCount ?? 0)
-      : 0;
     const desk = opts.deskOverride ?? p.desk;
     // Resolve the agent's stable roomId from its container room
     // (opts.roomIdx is the physical truth from the persisted bucket). Clamp +
@@ -2554,9 +2552,8 @@ export function createAgentManager(deps: ManagerDeps) {
       // editMessage forks from the on-disk session, so a dormant
       // "waiting_for_response" agent edits fine (the fork wakes it).
       state: resumeSessionId ? "waiting_for_response" : "idle",
-      topic: p.topic ?? null,
-      // Determined by the textCount scan below after logs load.
-      topicStale: false,
+      topic: storedTopic(p.topic),
+      topicGenerating: false,
       customInstructions: p.customInstructions ?? null,
       // Derived from the blob (never persisted separately), so legacy records
       // that predate the field backfill correctly on load.
@@ -2613,8 +2610,6 @@ export function createAgentManager(deps: ManagerDeps) {
       lastNormalizedEventAt: 0,
       busyTurnWatchdogObserved: false,
       toolCallTimestamps: new Map(),
-      topicGenerating: false,
-      topicMessageCount: persistedTopicCount,
       topicGenToken: 0,
       topicBackoff: null,
       contextUsage: null,
@@ -2691,22 +2686,6 @@ export function createAgentManager(deps: ManagerDeps) {
       const history = loadLogWithAncestors(p.id, resumeSessionId);
       if (history.length > 0) {
         logCache.set(p.id, [...history]);
-      }
-      if (info.topic) {
-        const textCount = history.filter(
-          (e) => e.kind === "user_message" || e.kind === "text",
-        ).length;
-        const drift = textCount - persistedTopicCount;
-        if (drift > 0) {
-          info.topicStale = true;
-        }
-        // Lazy restore skips eager topic-gen: generateTopic spawns a transient
-        // one-shot subprocess, and firing a burst of them during boot is the
-        // exact thundering-herd lazy restore exists to avoid. The drift re-check
-        // on the agent's next real turn regenerates it.
-        if (!opts.lazy && drift >= TOPIC_REGEN_THRESHOLD) {
-          void generateTopic(p.id);
-        }
       }
     }
 
@@ -3922,24 +3901,6 @@ export function createAgentManager(deps: ManagerDeps) {
       // /isomux-usage's per-turn snapshots have a stable anchor inside the log.
       managed.lastWrittenEntryId = entry.id;
     }
-
-    // Track topicStale: new text entries after topic was generated
-    if (
-      (kind === "text" || kind === "user_message") &&
-      managed &&
-      managed.info.topic !== null &&
-      managed.info.topic !== "..."
-    ) {
-      const textCount = (logCache.get(agentId) ?? []).filter(
-        (e) => e.kind === "user_message" || e.kind === "text",
-      ).length;
-      if (textCount > managed.topicMessageCount) {
-        for (const event of officeState.updateAgent(agentId, {
-          topicStale: true,
-        }))
-          emit(event);
-      }
-    }
     return true;
   }
 
@@ -3981,28 +3942,21 @@ export function createAgentManager(deps: ManagerDeps) {
     emit({ type: "log_entry", entry });
   }
 
-  // Auto-regenerate the topic once this many new user_message+text entries have
-  // accumulated since the topic was last generated. The goal is catching
-  // "the conversation is now about a fundamentally different thing" (the same
-  // signal /clear gives explicitly), not chasing every subtle drift - a smaller
-  // number would burn Sonnet calls on minor shifts that the original topic
-  // still describes well enough. Users who want an earlier refresh have the ↻
-  // button in LogView (calls resetTopic, no threshold).
-  const TOPIC_REGEN_THRESHOLD = 20;
+  // The one writer of the topicGenerating flag. It goes through officeState so
+  // a client that connects during a generation gets it in its snapshot.
+  function setTopicGenerating(agentId: string, generating: boolean) {
+    if (officeState.getAgent(agentId)?.topicGenerating === generating) return;
+    for (const event of officeState.updateAgent(agentId, {
+      topicGenerating: generating,
+    }))
+      emit(event);
+  }
 
-  // True when the conversation has accumulated enough new exchanges since the
-  // topic was generated that the topic likely no longer describes what the
-  // agent is actually working on. Used by the post-resume / post-restart /
-  // long-session triggers; the manual ↻ button uses the looser topicStale
-  // signal (any drift at all) via resetTopic directly.
-  function shouldAutoRegenerateTopic(managed: ManagedAgent): boolean {
-    if (!managed.info.topicStale) return false;
-    if (managed.info.topic === null || managed.info.topic === "...")
-      return false;
-    const textCount = (logCache.get(managed.info.id) ?? []).filter(
-      (e) => e.kind === "user_message" || e.kind === "text",
-    ).length;
-    return textCount - managed.topicMessageCount >= TOPIC_REGEN_THRESHOLD;
+  // Only an empty topic fills by itself. A label changes only by the ↻ button
+  // (resetTopic), an edit (setTopic) or a new conversation.
+  function maybeFillTopic(agentId: string, managed: ManagedAgent) {
+    if (managed.info.topic === null && !managed.info.topicGenerating)
+      void generateTopic(agentId); // fire-and-forget
   }
 
   // After a failed topic, automatic triggers wait this long for the same
@@ -4011,8 +3965,9 @@ export function createAgentManager(deps: ManagerDeps) {
   const TOPIC_RETRY_BASE_MS = 10 * 60_000;
   const TOPIC_RETRY_MAX_MS = 24 * 60 * 60_000;
 
-  // Generate a short topic description for an agent's conversation. The
-  // manual refresh passes manual: true to skip the failure backoff.
+  // Generate a short topic label for an agent's conversation. The topic keeps
+  // its value while this runs, and a failure leaves it as it was. The manual
+  // refresh passes manual: true to skip the failure backoff.
   async function generateTopic(
     agentId: string,
     opts: { manual?: boolean } = {},
@@ -4020,7 +3975,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (
       !managed ||
-      managed.topicGenerating ||
+      managed.info.topicGenerating ||
       !managed.info.capabilities.topicGen
     )
       return;
@@ -4040,70 +3995,51 @@ export function createAgentManager(deps: ManagerDeps) {
       Date.now() < backoff.retryAt
     )
       return;
-    managed.topicGenerating = true;
-    // Capture before the await; if /clear, /resume, fork, etc. ran during the
-    // LLM call, the token will have changed and we drop the stale result.
+    // Captured before the first await. A path that bumps the token (/clear,
+    // /resume, fork, a typed topic) also clears the flag, and this call then
+    // drops its result and leaves the flag to whoever runs next.
     const startToken = managed.topicGenToken;
-    // A signed-out engine cannot label: skip it instead of failing the call.
-    if (await agentIsKnownUnauthenticated(managed)) {
-      if (agents.has(agentId) && managed.topicGenToken === startToken)
-        managed.topicGenerating = false;
-      return;
-    }
-    if (!agents.has(agentId) || managed.topicGenToken !== startToken) return;
-    // A failure puts these back, so a failed refresh keeps the old label.
-    const previousTopic = managed.info.topic;
-    const previousStale = managed.info.topicStale;
-    for (const event of officeState.updateAgent(agentId, {
-      topic: "...",
-      topicStale: false,
-    }))
-      emit(event);
-
-    // Build context: first user message + last 5 user messages.
-    // textEntries (user + text) is still the drift-counting source - it
-    // measures how far the conversation has moved since the last regen - but
-    // the labeller itself only sees user messages. Assistant text in the
-    // prompt biases the model toward whatever the agent happened to quote /
-    // paste from files, which produces confidently-wrong labels rooted in
-    // incidental content (e.g. a labeller fed a file-read snippet describing
-    // mermaid will label the conversation "mermaid" even if the user never
-    // asked about mermaid). Restricting to user messages anchors the label
-    // to what the user actually said. Each message is capped at 1000 chars
-    // so a single long bug report doesn't crowd out the rest.
-    const logs = logCache.get(agentId) ?? [];
-    const textEntries = logs.filter(
-      (e) => e.kind === "user_message" || e.kind === "text",
-    );
-    const userEntries = logs.filter((e) => e.kind === "user_message");
-    const firstUserMsg = userEntries[0];
-    if (!firstUserMsg) {
-      managed.topicGenerating = false;
-      for (const event of officeState.updateAgent(agentId, { topic: null }))
-        emit(event);
-      return;
-    }
-
-    const CAP = 1000;
-    const lastFive = userEntries.slice(-5);
-    let context: string;
-    if (userEntries.length <= 1) {
-      context = `User message: ${firstUserMsg.content.slice(0, CAP)}`;
-    } else {
-      const recent = lastFive.filter((e) => e.id !== firstUserMsg.id);
-      context =
-        `First message: ${firstUserMsg.content.slice(0, CAP)}\n\nRecent messages:\n` +
-        recent.map((e) => `User: ${e.content.slice(0, CAP)}`).join("\n");
-    }
-
-    // System framing matters: without it, Sonnet occasionally roleplayed as the
-    // agent in the conversation and "responded" to the task (e.g. asking for
-    // file access) instead of labelling. Wrapping the snippet in a tag and
-    // pinning the model to a labeller role suppresses that.
-    const topicSystemPrompt = `You are a labelling tool. You receive a snippet of a conversation between a user and an AI assistant and you output a short topic label that summarizes what the conversation is about. You are NOT the assistant in the conversation, you do NOT have access to any files or systems mentioned, and you must NOT attempt to do the task. You only label.`;
-    const prompt = `<conversation>\n${context}\n</conversation>\n\nOutput ONLY a topic label, max 8 words. No quotes, no trailing punctuation.`;
-
+    const current = () =>
+      agents.has(agentId) && managed.topicGenToken === startToken;
+    setTopicGenerating(agentId, true);
     try {
+      // A signed-out engine cannot label: skip it instead of failing the call.
+      if (await agentIsKnownUnauthenticated(managed)) return;
+      if (!current()) return;
+
+      // Build context: first user message + last 5 user messages. The
+      // labeller sees only user messages: assistant text in the prompt biases the model toward whatever the agent happened to quote /
+      // paste from files, which produces confidently-wrong labels rooted in
+      // incidental content (e.g. a labeller fed a file-read snippet describing
+      // mermaid will label the conversation "mermaid" even if the user never
+      // asked about mermaid). Restricting to user messages anchors the label
+      // to what the user actually said. Each message is capped at 1000 chars
+      // so a single long bug report doesn't crowd out the rest.
+      const logs = logCache.get(agentId) ?? [];
+      const userEntries = logs.filter((e) => e.kind === "user_message");
+      const firstUserMsg = userEntries[0];
+      // Nothing to label: keep the topic as it is.
+      if (!firstUserMsg) return;
+
+      const CAP = 1000;
+      const lastFive = userEntries.slice(-5);
+      let context: string;
+      if (userEntries.length <= 1) {
+        context = `User message: ${firstUserMsg.content.slice(0, CAP)}`;
+      } else {
+        const recent = lastFive.filter((e) => e.id !== firstUserMsg.id);
+        context =
+          `First message: ${firstUserMsg.content.slice(0, CAP)}\n\nRecent messages:\n` +
+          recent.map((e) => `User: ${e.content.slice(0, CAP)}`).join("\n");
+      }
+
+      // System framing matters: without it, Sonnet occasionally roleplayed as the
+      // agent in the conversation and "responded" to the task (e.g. asking for
+      // file access) instead of labelling. Wrapping the snippet in a tag and
+      // pinning the model to a labeller role suppresses that.
+      const topicSystemPrompt = `You are a labelling tool. You receive a snippet of a conversation between a user and an AI assistant and you output a short topic label that summarizes what the conversation is about. You are NOT the assistant in the conversation, you do NOT have access to any files or systems mentioned, and you must NOT attempt to do the task. You only label.`;
+      const prompt = `<conversation>\n${context}\n</conversation>\n\nOutput ONLY a topic label, max 8 words. No quotes, no trailing punctuation.`;
+
       const backend = getBackend(managed.info.agentType);
       const text = await backend.oneShotPrompt(prompt, {
         cwd: managed.info.cwd,
@@ -4122,47 +4058,26 @@ export function createAgentManager(deps: ManagerDeps) {
             }
           : {}),
       });
-      const signedOutNotice =
-        agents.has(agentId) &&
-        managed.topicGenToken === startToken &&
-        detectAgentAuthError(managed, text) &&
-        (await agentIsKnownUnauthenticated(managed));
+      if (!current()) return;
+      // A signed-out backend can return its auth notice as a successful
+      // one-shot result. Treat it like the quiet auth-error catch below
+      // rather than publishing provider copy as the topic. With no earlier
+      // label, a null topic retries this cheap subprocess on each message
+      // until sign-in; keep that self-resolving cost (no backoff) instead of
+      // blocking the recovered account.
       if (
-        signedOutNotice &&
-        agents.has(agentId) &&
-        managed.topicGenToken === startToken
-      ) {
-        // A signed-out backend can return its auth notice as a successful
-        // one-shot result. Treat it like the quiet auth-error catch below,
-        // rather than publishing provider copy as the topic, and put back the
-        // earlier label. With no earlier label, a null topic retries this
-        // cheap subprocess on each message until sign-in; keep that
-        // self-resolving cost (no backoff) instead of blocking the recovered
-        // account.
-        for (const event of officeState.updateAgent(agentId, {
-          topic: previousTopic,
-          topicStale: previousStale,
-        }))
-          emit(event);
-      } else if (agents.has(agentId) && managed.topicGenToken === startToken) {
-        managed.topicBackoff = null;
-        const topic = text.trim().slice(0, 80);
-        managed.topicMessageCount = textEntries.length;
-        // officeState.setTopic mutates topic + topicStale, fires persistAll via onChange,
-        // and returns the agent_updated event.
-        for (const event of officeState.setTopic(agentId, topic)) emit(event);
-        // Persist topic + the textCount at which it was generated, so that on
-        // resume/restart we can compute drift against the replayed history and
-        // decide whether to auto-refresh.
-        if (managed.sessionManager.sessionId) {
-          persistSessionTopic(
-            agentId,
-            managed.sessionManager.sessionId,
-            topic,
-            textEntries.length,
-          );
-        }
-      }
+        detectAgentAuthError(managed, text) &&
+        (await agentIsKnownUnauthenticated(managed))
+      )
+        return;
+      if (!current()) return;
+      managed.topicBackoff = null;
+      const topic = text.trim().slice(0, 80);
+      if (topic === "") return;
+      for (const event of officeState.setTopic(agentId, topic)) emit(event);
+      // sessions.json keeps the topic for the resume list and a restore.
+      if (managed.sessionManager.sessionId)
+        persistSessionTopic(agentId, managed.sessionManager.sessionId, topic);
     } catch (err) {
       const text = errMessage(err);
       // Auth-error topic-gen failures are expected when the agent is in the
@@ -4189,22 +4104,8 @@ export function createAgentManager(deps: ManagerDeps) {
           `(next automatic attempt in ${Math.round(waitMs / 60_000)} min)`,
         );
       }
-      // Silently fail - put back the label from before the "..." placeholder,
-      // but only if the placeholder is still ours
-      if (agents.has(agentId) && managed.topicGenToken === startToken) {
-        for (const event of officeState.updateAgent(agentId, {
-          topic: previousTopic,
-          topicStale: previousStale,
-        }))
-          emit(event);
-      }
     } finally {
-      // Only release the generating flag if the conversation hasn't been reset.
-      // If it has, the reset already cleared the flag and a fresh generateTopic
-      // may have set it true again - leave that one alone.
-      if (agents.has(agentId) && managed.topicGenToken === startToken) {
-        managed.topicGenerating = false;
-      }
+      if (current()) setTopicGenerating(agentId, false);
     }
   }
 
@@ -6712,8 +6613,6 @@ export function createAgentManager(deps: ManagerDeps) {
       lastNormalizedEventAt: 0,
       busyTurnWatchdogObserved: false,
       toolCallTimestamps: new Map(),
-      topicGenerating: false,
-      topicMessageCount: 0,
       topicGenToken: 0,
       topicBackoff: null,
       contextUsage: null,
@@ -7128,12 +7027,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // before the send) on a fresh conversation finds an empty cache
     // and bails out, leaving topic null. Matches the sendMessage path
     // which also logs before triggering.
-    if (
-      (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
-      !managed.topicGenerating
-    ) {
-      void generateTopic(agentId);
-    }
+    maybeFillTopic(agentId, managed);
   }
 
   // Remove delivered items from the live queue and from disk.
@@ -8712,12 +8606,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // (Isomux PM ruling, task 51de8814).
       accept();
       beginTurn(agentId, { humanInput: true });
-      if (
-        (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
-        !managed.topicGenerating
-      ) {
-        void generateTopic(agentId); // fire-and-forget
-      }
+      maybeFillTopic(agentId, managed);
     }
     // If an abort is mid-handoff, wait for it to install the replacement session.
     // Without this, a follow-up message arriving in the gap between session.close()
@@ -9040,12 +8929,8 @@ export function createAgentManager(deps: ManagerDeps) {
             managed.info.cwd,
             storedCwdInvalid,
           );
-          managed.topicGenerating = false;
-          // Restore the textCount baseline from sessions.json so drift is
-          // measured against the replayed history, not from zero (otherwise
-          // any first new message after resume trivially trips the threshold).
-          managed.topicMessageCount = picked.topicMessageCount;
           managed.topicGenToken++;
+          setTopicGenerating(agentId, false);
           // Clear and replay resumed session's logs (walks fork ancestry)
           const history = loadLogWithAncestors(agentId, picked.sessionId);
           logCache.set(agentId, []);
@@ -9056,16 +8941,10 @@ export function createAgentManager(deps: ManagerDeps) {
               emit({ type: "log_entry", entry });
             }
           }
-          const replayedTextCount = history.filter(
-            (e) => e.kind === "user_message" || e.kind === "text",
-          ).length;
-          const drift = replayedTextCount - picked.topicMessageCount;
           // Restore topic - officeState.updateAgent fires persistAll via onChange,
-          // capturing the new sessionId set above. topicStale reflects whether
-          // the replayed history has moved past the topic's generation point.
+          // capturing the new sessionId set above.
           for (const event of officeState.updateAgent(agentId, {
             topic: picked.topic,
-            topicStale: drift > 0,
           }))
             emit(event);
           emitEphemeralLog(
@@ -9078,14 +8957,9 @@ export function createAgentManager(deps: ManagerDeps) {
           if (switchedSession)
             addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
           updateState(agentId, "waiting_for_response");
-          // Regenerate immediately if there's no topic at all, or if the
-          // resumed conversation has drifted enough since the topic was last
-          // generated. Waiting for the next user_message would let one stale
-          // message through; firing here keeps the resumed agent's topic
-          // honest from the moment the user sees it.
-          if (!picked.topic || drift >= TOPIC_REGEN_THRESHOLD) {
-            void generateTopic(agentId);
-          }
+          // A resumed conversation with no topic fills it now, not at the
+          // next message.
+          maybeFillTopic(agentId, managed);
         } catch (err) {
           emitEphemeralLog(
             agentId,
@@ -9422,16 +9296,7 @@ export function createAgentManager(deps: ManagerDeps) {
       accept();
       beginTurn(agentId, { humanInput: true });
 
-      // First-message bootstrap (topic === null) OR drift-driven refresh after
-      // resume/restart/long session (shouldAutoRegenerateTopic). The threshold
-      // inside the helper keeps cost bounded to ~one regen per
-      // TOPIC_REGEN_THRESHOLD new user/text entries.
-      if (
-        (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
-        !managed.topicGenerating
-      ) {
-        void generateTopic(agentId); // fire-and-forget
-      }
+      maybeFillTopic(agentId, managed);
     }
 
     // A native command goes as typed: the engine expands it only at the start
@@ -9568,16 +9433,11 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
-    if (
-      managed.sessionManager.sessionId &&
-      managed.info.topic &&
-      managed.info.topic !== "..."
-    ) {
+    if (managed.sessionManager.sessionId && managed.info.topic) {
       persistSessionTopic(
         agentId,
         managed.sessionManager.sessionId,
         managed.info.topic,
-        managed.topicMessageCount,
       );
     }
   }
@@ -10448,9 +10308,8 @@ export function createAgentManager(deps: ManagerDeps) {
       // AFTER the session swap.
       managed.sessionManager.sessionId = null;
       managed.dormantReason = "fresh";
-      managed.topicGenerating = false;
-      managed.topicMessageCount = 0;
       managed.topicGenToken++;
+      setTopicGenerating(agentId, false);
       // /clear and engine switches both land here: a blank conversation has no
       // fullness measurement. Runs before the drain await per the order contract
       // above, so a late sample from the old session self-discards on gen.
@@ -10466,7 +10325,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // cross-session dead-end.
       logCache.set(agentId, []);
       emit({ type: "clear_logs", agentId });
-      // officeState.resetTopic mutates topic + topicStale, fires persistAll via
+      // officeState.resetTopic clears topic and fires persistAll via
       // onChange (capturing the null sessionId set above).
       for (const event of officeState.resetTopic(agentId)) emit(event);
       updateState(agentId, "idle");
@@ -11281,8 +11140,8 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.info.cwd,
         storedCwdInvalid,
       );
-      managed.topicGenerating = false;
       managed.topicGenToken++;
+      setTopicGenerating(agentId, false);
 
       // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
       const history = loadLogWithAncestors(agentId, sessionId);
@@ -11295,20 +11154,12 @@ export function createAgentManager(deps: ManagerDeps) {
         }
       }
 
-      // Restore topic + topicMessageCount baseline from sessions.json so drift
-      // can be measured against the replayed history.
+      // Restore the session's topic from sessions.json.
       const sessions = listAgentSessions(agentId);
       const sessionEntry = sessions.find((s) => s.sessionId === sessionId);
       const restoredTopic = sessionEntry?.topic ?? null;
-      const restoredCount = sessionEntry?.topicMessageCount ?? 0;
-      managed.topicMessageCount = restoredCount;
-      const replayedTextCount = history.filter(
-        (e) => e.kind === "user_message" || e.kind === "text",
-      ).length;
-      const drift = replayedTextCount - restoredCount;
       for (const event of officeState.updateAgent(agentId, {
         topic: restoredTopic,
-        topicStale: drift > 0,
       }))
         emit(event);
 
@@ -11332,12 +11183,8 @@ export function createAgentManager(deps: ManagerDeps) {
       );
       addQueueCarriedLine(agentId, managed, carried);
 
-      // Regenerate now (rather than waiting for the next user_message) if the
-      // topic is missing or the replayed history has drifted past the
-      // refresh threshold - same policy as the /resume two-step flow above.
-      if (!restoredTopic || drift >= TOPIC_REGEN_THRESHOLD) {
-        void generateTopic(agentId);
-      }
+      // No topic: fill it now, as the /resume two-step flow above does.
+      maybeFillTopic(agentId, managed);
     } catch (err) {
       addLogEntry(
         agentId,
@@ -11466,7 +11313,6 @@ export function createAgentManager(deps: ManagerDeps) {
     const oldSessionId = managed.sessionManager.sessionId;
     persistCurrentSessionTopic(agentId, managed);
     const oldTopic = managed.info.topic;
-    const oldTopicStale = managed.info.topicStale;
 
     try {
       // 1. Get backend session messages and match by content + occurrence index.
@@ -11621,24 +11467,12 @@ export function createAgentManager(deps: ManagerDeps) {
         const parentBase = targetIsFirstUserMessage
           ? undefined
           : findUsageAtFork(agentId, forkFromSessionId, logEntryId);
-        // Count the parent's user/text entries up to the fork point - that's
-        // the baseline for measuring drift on the new branch. Persisting it
-        // alongside the inherited topic lets a later /resume of this fork
-        // correctly recognize that the topic is in sync (or not).
-        let parentTopicMessageCount = 0;
-        for (const entry of oldLogCache) {
-          if (entry.id === logEntryId) break;
-          if (entry.kind === "user_message" || entry.kind === "text") {
-            parentTopicMessageCount++;
-          }
-        }
         persistSessionFork(
           agentId,
           newSessionId,
           forkFromSessionId,
           logEntryId,
           oldTopic,
-          parentTopicMessageCount,
           // Fork inherits the active session's cwd (cwd is per-session).
           managed.info.cwd,
           parentBase,
@@ -11668,22 +11502,13 @@ export function createAgentManager(deps: ManagerDeps) {
       // For fresh sessions, sessionId is set by the system/init event (like newConversation).
       // For forks, set it now.
       managed.sessionManager.sessionId = isFreshSession ? null : newSessionId;
-      managed.topicGenerating = false;
-      // Build parentEntries up front so we can both seed managed.topicMessageCount
-      // and replay them into logCache below from the same computation.
       const parentEntries: LogEntry[] = [];
       for (const entry of oldLogCache) {
         if (entry.id === logEntryId) break;
         parentEntries.push(entry);
       }
-      // Anchor drift detection to the parent's text count at the fork point.
-      // Zeroing here (as the previous code did) would trip the regen threshold
-      // on the very first new exchange in the fork - defeating the threshold's
-      // debounce. Match what's persisted alongside the inherited topic above.
-      managed.topicMessageCount = parentEntries.filter(
-        (e) => e.kind === "user_message" || e.kind === "text",
-      ).length;
       managed.topicGenToken++;
+      setTopicGenerating(agentId, false);
       // A fork truncates the transcript, so the parent's fullness measurement
       // overstates the child's context. Reset; the first turn on the fork
       // repopulates it.
@@ -11710,13 +11535,9 @@ export function createAgentManager(deps: ManagerDeps) {
       );
       addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
 
-      // 8. Inherit parent's topic, marked stale. The drift-aware trigger in
-      //    the next user_message path will regenerate it once the fork has
-      //    accumulated TOPIC_REGEN_THRESHOLD new user/text entries; the ↻
-      //    button is enabled immediately for users who want it sooner.
+      // 8. Inherit parent's topic. The ↻ button relabels the fork.
       for (const event of officeState.updateAgent(agentId, {
         topic: oldTopic,
-        topicStale: true,
       }))
         emit(event);
 
@@ -11807,7 +11628,6 @@ export function createAgentManager(deps: ManagerDeps) {
 
         for (const event of officeState.updateAgent(agentId, {
           topic: oldTopic,
-          topicStale: oldTopicStale,
         }))
           emit(event);
 
@@ -11858,25 +11678,28 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
+  // A typed topic. A blank one clears the topic, and the next message fills
+  // it again.
   function setTopic(agentId: string, topic: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
     // Invalidate any in-flight generateTopic so its delayed LLM result doesn't
-    // overwrite the user's manual choice.
+    // overwrite the user's manual choice. The flag goes with it: the dropped
+    // call leaves it alone.
     managed.topicGenToken++;
-    for (const event of officeState.setTopic(agentId, topic)) emit(event);
-    const textCount = (logCache.get(agentId) ?? []).filter(
-      (e) => e.kind === "user_message" || e.kind === "text",
-    ).length;
-    managed.topicMessageCount = textCount;
-    // Persist to sessions.json so resume list shows the manual topic; the
-    // count anchors future drift detection to the moment the user signed off.
+    setTopicGenerating(agentId, false);
+    const trimmed = topic.trim();
+    const events =
+      trimmed === ""
+        ? officeState.resetTopic(agentId)
+        : officeState.setTopic(agentId, trimmed);
+    for (const event of events) emit(event);
+    // Persist to sessions.json so the resume list shows the typed topic.
     if (managed.sessionManager.sessionId) {
       persistSessionTopic(
         agentId,
         managed.sessionManager.sessionId,
         managed.info.topic,
-        textCount,
       );
     }
     updateManifest();

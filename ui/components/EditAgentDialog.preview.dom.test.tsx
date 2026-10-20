@@ -35,7 +35,7 @@ const agent: AgentInfo = {
   effort: "high",
   state: "idle",
   topic: null,
-  topicStale: false,
+  topicGenerating: false,
   customInstructions: "Saved instructions",
   customInstructionsVersion: "v1",
   agentType: "claude",

@@ -101,7 +101,7 @@ bound to the session), logs them as `user_message` entries with sender, schedule
 results and before the next model request, so the chat order is right. Claimed items leave the visible queue and can
 no longer be cancelled, but stay in `messageQueue` and on disk until that session's `turn_completed` drains them. The
 log and drain steps are the same helpers `flushQueue` uses (`logDeliveredItems`, `drainQueueItems`, with the
-existing `shouldAutoRegenerateTopic` check), and both paths build item text with `queuedItemText`.
+existing check that fills an empty topic), and both paths build item text with `queuedItemText`.
 
 **Acceptance and failure policy (PM ruling).** Acceptance is "our callback returned the text". The callback is ours
 and in-process, so it cannot fail silently: its body is wrapped, and any exception releases what it claimed and

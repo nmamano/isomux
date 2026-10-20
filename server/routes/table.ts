@@ -579,9 +579,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:manage", agentParam("id")),
     emits: ["agent_updated"],
   }),
-  // DELETE drops the current topic and regenerates it from the conversation
-  // (the LogView refresh button). Nothing clears a topic except a new
-  // conversation.
+  // DELETE regenerates the topic from the conversation (the LogView refresh
+  // button); the current topic stays until the new one replaces it. A PUT with
+  // a blank topic clears it.
   defineRoute<void, NoContent>({
     opId: "agents.regenerateTopic",
     audit: { owner: "executor", targets: resourceTargets },

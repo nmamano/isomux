@@ -830,12 +830,11 @@ export function createCommandHandling(deps: HandlerDeps) {
             a.info.claudeFamilyModels,
           );
           const topic = a.info.topic;
-          const hasTopic = topic && topic !== "...";
           const desk = t("commands.isomuxAllHands.desk", {
             number: a.info.desk + 1,
           });
           const header = `**${a.info.name}** (${desk})${selfTag} - ${modelLabel} - \`${a.info.cwd}\``;
-          if (hasTopic) {
+          if (topic) {
             lines.push(header);
             lines.push(`  ${t("commands.isomuxAllHands.topic", { topic })}`);
           } else {

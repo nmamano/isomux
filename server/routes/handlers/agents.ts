@@ -437,8 +437,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.setTopic": (ctx) => {
-      // A missing / non-string topic is a malformed body, NOT an empty-topic
-      // mutation -> reject it. An empty string is a valid, deliberate topic.
+      // A missing / non-string topic is a malformed body -> reject it. A blank
+      // string clears the topic (agentManager.setTopic).
       const b = (ctx.body ?? {}) as { topic?: unknown };
       if (typeof b.topic !== "string") {
         return fail(422, "invalid_topic", "topic is required");

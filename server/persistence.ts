@@ -224,14 +224,10 @@ type UsageSnapshot = { entryId: string; usage: PersistedUsage };
 type SessionsMap = Record<
   string,
   {
+    // Read through storedTopic: entries from older servers can hold "..."
+    // or a blank string.
     topic: string | null;
     firstUserMessage?: string | null;
-    // Count of user_message + text log entries at the moment the persisted
-    // topic was last generated. Used on resume/startup to detect drift: if
-    // the replayed log has materially more entries, the topic is stale and
-    // worth regenerating. Missing on entries persisted before this field
-    // existed - treated as 0 (regenerate aggressively).
-    topicMessageCount?: number;
     lastModified: number;
     // The cwd this session runs in. Source of truth for per-session cwd; the
     // agent's `cwd` field is a denormalized mirror of the *active* session's
@@ -329,18 +325,23 @@ function readLegacySessionPreview(path: string): string | null {
   }
 }
 
+// A topic read from disk. Servers before task 1b8084fd saved "..." while a
+// generation ran and accepted a blank topic; both mean no topic.
+export function storedTopic(topic: string | null | undefined): string | null {
+  if (!topic || topic.trim() === "" || topic === "...") return null;
+  return topic;
+}
+
 export function persistSessionTopic(
   agentId: string,
   sessionId: string,
   topic: string | null,
-  topicMessageCount: number = 0,
 ) {
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId];
   map[sessionId] = {
     ...existing,
     topic,
-    topicMessageCount,
     lastModified: Date.now(),
   };
   saveSessionsMap(agentId, map);
@@ -510,7 +511,6 @@ export function persistSessionFork(
   forkedFrom: string,
   forkMessageId: string,
   topic: string | null,
-  topicMessageCount: number,
   // The cwd the new (forked) session runs in - inherited from the active
   // session's cwd at fork time, so a fork keeps working in the same directory.
   cwd: string,
@@ -521,7 +521,6 @@ export function persistSessionFork(
   map[sessionId] = {
     ...existing,
     topic,
-    topicMessageCount,
     cwd,
     lastModified: Date.now(),
     forkedFrom,
@@ -649,7 +648,6 @@ export function listAgentSessions(agentId: string): {
   lastModified: number;
   topic: string | null;
   firstUserMessage: string | null;
-  topicMessageCount: number;
   cwd: string | null;
   agentType: AgentInfo["agentType"] | null;
   modelFamily: AgentInfo["modelFamily"] | null;
@@ -690,10 +688,9 @@ export function listAgentSessions(agentId: string): {
           lastModified:
             effectiveEntry?.lastModified ??
             Bun.file(join(agentDir, f)).lastModified,
-          topic: effectiveEntry?.topic ?? null,
+          topic: storedTopic(effectiveEntry?.topic),
           firstUserMessage:
             effectiveEntry?.firstUserMessage ?? legacyPreview ?? null,
-          topicMessageCount: effectiveEntry?.topicMessageCount ?? 0,
           cwd: effectiveEntry?.cwd ?? null,
           agentType: effectiveEntry?.agentType ?? null,
           modelFamily: effectiveEntry?.modelFamily ?? null,

@@ -88,7 +88,7 @@ describe("a cold link over a restored chat", () => {
     modelFamily: "opus",
     effort: "medium",
     topic: null,
-    topicStale: false,
+    topicGenerating: false,
     customInstructions: null,
     customInstructionsVersion: "0",
     permissionMode: "default",

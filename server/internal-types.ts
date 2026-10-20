@@ -99,10 +99,8 @@ export interface ManagedAgent {
   // Per-turn active tools. The value includes the display name so the logs API
   // can describe the oldest active call without re-reading the transcript.
   toolCallTimestamps: Map<string, { name: string; startedAt: number }>;
-  topicGenerating: boolean;
-  topicMessageCount: number;
   // Bumped by any path that resets the conversation (/clear, /resume, fork,
-  // newConversation). generateTopic captures this at start and discards the
+  // newConversation) and by a typed topic. generateTopic captures this at start and discards the
   // result if it changed during the await - otherwise an in-flight LLM call
   // would stomp on the cleared state when it finally returns.
   topicGenToken: number;
@@ -265,7 +263,6 @@ export interface ManagedAgent {
     sessionId: string;
     lastModified: number;
     topic: string | null;
-    topicMessageCount: number;
   }[];
   pendingModelPick: boolean;
   pendingEffortPick: boolean;

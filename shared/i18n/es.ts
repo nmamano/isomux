@@ -1826,10 +1826,9 @@ Cosas que puedes hacer por él:
   "logView.backToBackRoomTitle": "Volver a la trastienda (Esc)",
   "logView.backRoomStrip":
     "En la trastienda de {room}. La gente habla con el frente:",
+  "logView.noTopic": "Sin tema",
   "logView.editTopic": "Haz clic para editar el tema",
   "logView.regenerateTopic": "Regenerar el tema a partir de la conversación",
-  "logView.noHistoryToSummarize":
-    "No hay historial de conversación que resumir",
   "logView.lastMessagePrefix": "↑ Tú:",
   "logView.emptyStart": "Envía un mensaje para empezar una conversación o",
   "logView.emptyResume": "reanuda una anterior",

@@ -209,7 +209,7 @@ Grouped by resource. `Cap` = `requiredCapability`; `Guard` = `resourceGuard`. A 
 | `agents.update` | PATCH `/api/agents/:id` | `agent:manage` | `requiresRoomAccess(:id)` | `EditAgentReq` | `{ agent: AgentInfo }` | `agent_updated` | WS:edit_agent `[strangle]`, `[delete]` agent_save_response |
 | `agents.setPrivileged` | PUT `/api/agents/:id/privileged` | `agent:privilege` | `userScope` ∧ (`officeOwner` ∨ `agentManagerMatch(:id)`) | `SetPrivilegedReq` | `{ agent: AgentInfo }` | `agent_updated` | re-mints token + session-swap; double-gated (cap not in any agent set ∧ scope guard) so no agent can flip the flag. Conferral is (i-b): owner toggles any agent, a member only agents they manage - NOT room co-membership (which would let a member elevate another's agent) |
 | `agents.setTopic` | PUT `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | `TopicReq` | `204` | `agent_updated` | WS:set_topic `[strangle]` |
-| `agents.regenerateTopic` | DELETE `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | - | `204` | `agent_updated` | WS:reset_topic `[strangle]`. Regenerates the topic from the conversation; nothing clears it |
+| `agents.regenerateTopic` | DELETE `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | - | `204` | `agent_updated` | WS:reset_topic `[strangle]`. Regenerates the topic from the conversation; the old topic stays until the new one lands. A blank `PUT` clears it |
 | `rooms.swapDesks` | POST `/api/rooms/:roomId/swap-desks` | `agent:manage` | `requiresRoomAccess(:roomId)` | `SwapDesksReq` | `204` | `agent_updated` ×2 | WS:swap_desks `[strangle]` |
 
 **Agents - conversation**

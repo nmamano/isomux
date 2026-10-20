@@ -303,7 +303,7 @@ export class OfficeState {
       effort: opts.effort ?? DEFAULT_EFFORT,
       state: "idle",
       topic: null,
-      topicStale: false,
+      topicGenerating: false,
       customInstructions: opts.customInstructions || null,
       // Maintained in lockstep with customInstructions (see AgentInfo docs):
       // the optimistic-concurrency token an edit must echo back.
@@ -786,12 +786,11 @@ export class OfficeState {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
     agent.topic = topic.slice(0, 80);
-    agent.topicStale = false;
     const events: OfficeEvent[] = [
       {
         type: "agent_updated",
         agentId,
-        changes: { topic: agent.topic, topicStale: false },
+        changes: { topic: agent.topic },
       },
     ];
     this.emitEvents(events);
@@ -802,12 +801,11 @@ export class OfficeState {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
     agent.topic = null;
-    agent.topicStale = false;
     const events: OfficeEvent[] = [
       {
         type: "agent_updated",
         agentId,
-        changes: { topic: null, topicStale: false },
+        changes: { topic: null },
       },
     ];
     this.emitEvents(events);
