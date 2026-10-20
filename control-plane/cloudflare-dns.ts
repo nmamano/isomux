@@ -189,6 +189,12 @@ export class CloudflareDns {
     );
   }
 
+  /**
+   * Refuses an empty host, a leading "*." and a slash. It does not detect the
+   * zone apex: the writer knows only the zone id. The caller must pass a host
+   * under the zone (signup's hostnameForNewOffice does; an operator's
+   * `recycle --host` is trusted as typed).
+   */
   private officeNames(host: string): [string, string] {
     const clean = normalName(host).toLowerCase();
     if (!clean || clean.startsWith("*.") || clean.includes("/")) {
