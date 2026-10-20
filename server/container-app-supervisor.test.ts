@@ -156,21 +156,47 @@ async function appResponse(count?: number, ms = 6000) {
   } catch (error) {
     throw new Error(
       `${message}; last transport error: ${String(lastResponseError)}; ` +
-        `last response: ${JSON.stringify(last)}; supervisor stderr: ${containerStderr}`,
+        `last response: ${JSON.stringify(last)}; supervisor stderr: ${containerStderr}; ` +
+        appDiagnostics(),
       { cause: error },
     );
   }
 }
 
+// Why the app restarted, for example a lost port. Never hides the failure.
+function appDiagnostics() {
+  try {
+    const restarts = supervisor.states([app.name]).get(app.name)?.restartCount;
+    return `restart count: ${restarts}; app log: ${supervisor.logs(app.name, 20).join("\n")}`;
+  } catch (error) {
+    return `app diagnostics unavailable: ${String(error)}`;
+  }
+}
+
+// A port from the preload's block for this process (preload.ts). The block is
+// below the kernel ephemeral range, so no other process can take a port from
+// it between this probe and the app's bind. Port 0 could be lost that way: the
+// app then crashed and restarted (task 3be3b31b).
+const portMin = Number(process.env.ISOMUX_TEST_APP_PORT_MIN);
+const portMax = Number(process.env.ISOMUX_TEST_APP_PORT_MAX);
+let nextPort = portMin;
+
 function freePort() {
-  const probe = Bun.listen({
-    hostname: "127.0.0.1",
-    port: 0,
-    socket: { data() {} },
-  });
-  const port = probe.port;
-  probe.stop(true);
-  return port;
+  if (!Number.isInteger(portMin) || !Number.isInteger(portMax))
+    throw new Error("the test preload did not set the app port block");
+  for (let tries = portMax - portMin + 1; tries > 0; tries--) {
+    const port = nextPort;
+    nextPort = port >= portMax ? portMin : port + 1;
+    try {
+      Bun.listen({ hostname: "127.0.0.1", port, socket: { data() {} } }).stop(
+        true,
+      );
+      return port;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "EADDRINUSE") throw error;
+    }
+  }
+  throw new Error(`no free port in ${portMin}-${portMax}`);
 }
 
 beforeEach(async () => {
@@ -274,9 +300,7 @@ test("real app: token, logs, crash restart, stop, delete, and port reuse", async
   reused.stop(true);
 }, 60_000);
 
-// Quarantined (task 3be3b31b): red once in ci:remote on 4e4233ff (the app
-// reached start count 2 before the first check), green on the next run.
-test.skip("container restart restores running apps, data, credentials, and stopped intent", async () => {
+test("container restart restores running apps, data, credentials, and stopped intent", async () => {
   supervisor.provisionToken(app.name, "synthetic-persistent-token");
   supervisor.install(app);
   await appResponse(1);
