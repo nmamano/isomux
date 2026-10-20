@@ -1,9 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   utimesSync,
   writeFileSync,
@@ -30,6 +32,12 @@ const defaultHome = join(STATE_ROOT, "codex-home");
 await prepareCodexSafetyHookArtifact().catch((cause) => {
   throw new Error("Codex safety hook test preparation failed", { cause });
 });
+
+function sha256(path: string): string {
+  return new Bun.CryptoHasher("sha256")
+    .update(readFileSync(path))
+    .digest("hex");
+}
 
 function userEntry(command: string) {
   return { matcher: "user-tool", hooks: [{ type: "command", command }] };
@@ -203,6 +211,97 @@ describe("Codex safety hook installation", () => {
       expect(readFileSync(CODEX_SAFETY_HOOK_PATH)).toEqual(installedBefore);
     },
   );
+
+  // A red run must not leave the golden missing for the cases after it.
+  async function restoreGolden(): Promise<void> {
+    if (existsSync(_test.goldenPath)) return;
+    _test.resetPreparation();
+    await prepareCodexSafetyHookArtifact();
+  }
+
+  // The golden artifact lives in STATE_ROOT, which an operator or a test
+  // server can empty while the process runs (task 99e20870). A cached
+  // preparation must not point at a file that is gone.
+  it.skipIf(INTEL_MAC)(
+    "re-prepares a deleted golden artifact and installs the hook from it",
+    async () => {
+      expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+      rmSync(_test.goldenPath);
+      rmSync(CODEX_SAFETY_HOOK_PATH);
+      expect(existsSync(_test.goldenPath)).toBe(false);
+
+      try {
+        const result = await ensureCodexSafetyHook(defaultHome);
+        expect(result.warning).toBeNull();
+        expect(result.hookIdentity?.sourcePath).toBe(
+          join(defaultHome, "hooks.json"),
+        );
+        expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
+      } finally {
+        await restoreGolden();
+      }
+    },
+    30_000,
+  );
+
+  it.skipIf(INTEL_MAC)(
+    "concurrent preflights after a golden delete share one rebuild",
+    async () => {
+      expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+      rmSync(_test.goldenPath);
+      rmSync(CODEX_SAFETY_HOOK_PATH);
+      expect(existsSync(_test.goldenPath)).toBe(false);
+
+      const errors = spyOn(console, "error");
+      let results: Awaited<ReturnType<typeof ensureCodexSafetyHook>>[];
+      // mockRestore also clears the recorded calls: copy them first.
+      let errorCalls: unknown[][];
+      try {
+        results = await Promise.all(
+          Array.from({ length: 4 }, () => ensureCodexSafetyHook(defaultHome)),
+        );
+      } finally {
+        errorCalls = [...errors.mock.calls];
+        errors.mockRestore();
+      }
+      try {
+        for (const result of results) expect(result.warning).toBeNull();
+        expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
+        // One rebuild logs the golden path once; a rebuild per caller logs it
+        // once per caller.
+        const goldenLines = errorCalls.filter((args) =>
+          String(args[0]).includes(_test.goldenPath),
+        );
+        expect(goldenLines).toHaveLength(1);
+      } finally {
+        await restoreGolden();
+      }
+    },
+    30_000,
+  );
+
+  it("fails open on a changed golden artifact instead of preparing it again", async () => {
+    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+    const golden = readFileSync(_test.goldenPath);
+    const goldenStat = statSync(_test.goldenPath);
+    try {
+      const changed = Buffer.from(golden);
+      changed[Math.floor(changed.length / 2)] ^= 0xff;
+      writeFileSync(_test.goldenPath, changed);
+      const changedHash = sha256(_test.goldenPath);
+      const installed = readFileSync(CODEX_SAFETY_HOOK_PATH);
+      installed[Math.floor(installed.length / 2)] ^= 0xff;
+      writeFileSync(CODEX_SAFETY_HOOK_PATH, installed);
+
+      const result = await ensureCodexSafetyHook(defaultHome);
+      expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
+      expect(sha256(_test.goldenPath)).toBe(changedHash);
+    } finally {
+      writeFileSync(_test.goldenPath, golden);
+      chmodSync(_test.goldenPath, goldenStat.mode & 0o7777);
+    }
+    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+  });
 
   it("installs and trusts the same hook in an override CODEX_HOME", async () => {
     const override = join(STATE_ROOT, "users/test-user/codex-home");

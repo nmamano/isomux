@@ -175,25 +175,36 @@ async function discoverTrustedHash(): Promise<string> {
   return hash;
 }
 
-export function prepareCodexSafetyHookArtifact(): Promise<void> {
-  preparation ??= prepareArtifact();
-  return preparation.then(
-    () => undefined,
-    (err) => {
-      preparation = null;
-      throw err;
-    },
-  );
+async function awaitPreparation(
+  awaited: Promise<PreparedArtifact>,
+): Promise<PreparedArtifact> {
+  try {
+    return await awaited;
+  } catch (err) {
+    // A late rejection must not clear a newer preparation.
+    if (preparation === awaited) preparation = null;
+    throw err;
+  }
+}
+
+export async function prepareCodexSafetyHookArtifact(): Promise<void> {
+  await awaitPreparation((preparation ??= prepareArtifact()));
 }
 
 async function preparedArtifact(): Promise<PreparedArtifact> {
-  preparation ??= prepareArtifact();
-  try {
-    return await preparation;
-  } catch (err) {
-    preparation = null;
-    throw err;
+  const awaited = (preparation ??= prepareArtifact());
+  const artifact = await awaitPreparation(awaited);
+  if (existsSync(artifact.path)) return artifact;
+  // The golden copy was deleted after boot (for example a wiped state
+  // directory): prepare it again, or every repair fails until a restart.
+  // Concurrent callers share the one rebuild the first of them starts.
+  if (preparation === awaited) {
+    console.error(
+      `[codex safety] golden artifact missing at ${artifact.path}; preparing it again`,
+    );
+    preparation = prepareArtifact();
   }
+  return awaitPreparation((preparation ??= prepareArtifact()));
 }
 
 function ownedMatcher(hookPath: string): HookMatcher {
