@@ -191,8 +191,8 @@ active turn or when codex refuses. The `tool_call` retry covers a steer that cam
 first `userMessage` item whose `clientId` is a steer id it sent. Only then does the orchestrator log the items
 (`delivery: "tool_boundary"`, same metadata as the hook), at the point where codex put it. Codex does not cut a
 running command, but it runs a long command as a call plus polls and can record the steer at a poll while the
-command still runs (§6 live check). The chat then shows the steer before the command card, because the adapter
-reports a command only when it ends. `steer_delivered` passes the hot-abort event filter in `session-manager.ts`: when codex records
+command still runs (§6 live check). The adapter shows a command's card at `item/started` and its result at
+`item/completed` (task 9f8d6942), so the chat shows such a steer between the card and the result. `steer_delivered` passes the hot-abort event filter in `session-manager.ts`: when codex records
 a steer after a member's Send now has sent `turn/interrupt`, the model has it, and the flush must not send it
 again.
 
@@ -219,7 +219,7 @@ the sender prefix, so it never matches a member's text, and `editMessage` alread
 | Rate limit (3/min/receiver) | counts steers that interrupted | unchanged meaning: boundary steers interrupt nothing, so they are neither counted nor refused |
 | Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | Claude: steer waits for it. Codex: the command keeps running and the steer can go in at its next poll. OpenCode: steer cuts it |
 | Ordinary agent that must stop a Claude agent now | steer | no path; privileged agents and members keep `/abort` and Send now. Since task f4452169 (Nil, 2026-10-02) every agent may `/abort` any agent it may message; agent stops share the steer window and leave the target a stop notice |
-| Chat log | "Agent interrupted." then the message | no interruption line. Claude: the message appears after the tool result. Codex: where codex recorded it, which for a long command can be before the command card (the adapter reports a command when it ends) |
+| Chat log | "Agent interrupted." then the message | no interruption line. Claude: the message appears after the tool result. Codex: where codex recorded it, which for a long command can be between the command card and its result |
 | Curl card label for a steer | "Interrupt {who} with a message" | "Message {who} mid-turn" (en; es, ca, zh follow) |
 
 ## 5. Decisions (PM, 2026-09-26)
@@ -266,6 +266,6 @@ the sender prefix, so it never matches a member's text, and `editMessage` alread
   it with the §1 FYI text. Two runs, the same result: ack `{"queued":false,"steered":true}`; no "Agent interrupted."
   line; the script ran all 12 steps; the steer was logged with `delivery: "tool_boundary"` and the sender metadata
   about 10 s after the steer, while the script still ran (codex runs a long command as a call plus polls, and
-  recorded the text at a poll boundary; the chat shows it before the Bash card, which codex reports only when the
-  command ends); the Receiver did steps 2 and 3 and replied with the line count. It asked nobody anything and did
+  recorded the text at a poll boundary; the chat showed it before the Bash card, which the adapter reported only
+  when the command ended until task 9f8d6942); the Receiver did steps 2 and 3 and replied with the line count. It asked nobody anything and did
   not treat the steer as injected text.

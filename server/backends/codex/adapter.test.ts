@@ -1126,6 +1126,337 @@ describe("CodexSession item translation - tool calls", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tool cards at item/started (task 9f8d6942): a long command shows its card
+// while it runs, and a steer recorded during it lands below the card.
+// ---------------------------------------------------------------------------
+describe("CodexSession tool card at item/started", () => {
+  function fireStarted(
+    fake: FakeCodexTransport,
+    item: Record<string, unknown>,
+    threadId?: string,
+  ): void {
+    fake.fireNotification(
+      "item/started",
+      threadId !== undefined ? { item, threadId } : { item },
+    );
+  }
+
+  // A parent agentMessage: the next event after it proves nothing else
+  // (a second card, a duplicate result) was emitted before it.
+  async function expectOnlySentinelNext(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<void> {
+    fireItem(fake, { type: "agentMessage", id: "sentinel", text: "done" });
+    expectKind(await nextEvent(it, "sentinel"), "assistant_text");
+  }
+
+  const cases: {
+    label: string;
+    started: Record<string, unknown>;
+    completed: Record<string, unknown>;
+    name: string;
+    input: Record<string, unknown>;
+  }[] = [
+    {
+      label: "commandExecution",
+      started: {
+        type: "commandExecution",
+        id: "cmd-s",
+        command: "sleep 60",
+        cwd: "/work",
+        status: "inProgress",
+        aggregatedOutput: null,
+        exitCode: null,
+      },
+      completed: {
+        type: "commandExecution",
+        id: "cmd-s",
+        command: "sleep 60",
+        cwd: "/work",
+        status: "completed",
+        aggregatedOutput: "slept\n",
+        exitCode: 0,
+        durationMs: 60_000,
+      },
+      name: "Bash",
+      input: { command: "sleep 60", cwd: "/work" },
+    },
+    {
+      label: "fileChange",
+      started: {
+        type: "fileChange",
+        id: "fc-s",
+        changes: [{ path: "src/a.ts", kind: { type: "update" }, diff: "" }],
+        status: "inProgress",
+      },
+      completed: {
+        type: "fileChange",
+        id: "fc-s",
+        changes: [{ path: "src/a.ts", kind: { type: "update" }, diff: "" }],
+        status: "completed",
+      },
+      name: "Edit",
+      input: {
+        changes: [{ path: "src/a.ts", kind: { type: "update" }, diff: "" }],
+      },
+    },
+    {
+      label: "mcpToolCall",
+      started: {
+        type: "mcpToolCall",
+        id: "mcp-s",
+        server: "memory",
+        tool: "search",
+        status: "inProgress",
+        arguments: { query: "x" },
+        result: null,
+        error: null,
+      },
+      completed: {
+        type: "mcpToolCall",
+        id: "mcp-s",
+        server: "memory",
+        tool: "search",
+        status: "completed",
+        arguments: { query: "x" },
+        result: { content: [] },
+        error: null,
+        durationMs: 4,
+      },
+      name: "mcp__memory__search",
+      input: { query: "x" },
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.label}: one card at start, one result at completion`, async () => {
+      const { fake, it } = await bootstrapped();
+      fireStarted(fake, c.started);
+      // Nothing else is fired yet: the card must come from item/started.
+      const call = expectKind(
+        await nextEvent(it, "tool_call at item/started"),
+        "tool_call",
+      );
+      expect(call.toolUseId).toBe(c.started.id as string);
+      expect(call.name).toBe(c.name);
+      expect(call.input).toEqual(c.input);
+
+      // A repeated start shows no second card.
+      fireStarted(fake, c.started);
+      fireItem(fake, c.completed);
+      const result = expectKind(
+        await nextEvent(it, "tool_result at item/completed"),
+        "tool_result",
+      );
+      expect(result.toolUseId).toBe(c.started.id as string);
+      expect(result.isError).toBe(false);
+      await expectOnlySentinelNext(fake, it);
+    });
+  }
+
+  it("webSearch shows its card at completion only, with the query codex sends there", async () => {
+    const { fake, it } = await bootstrapped();
+    // Wire shape at start (probe 2026-10-20): empty query, no action.
+    fireStarted(fake, {
+      type: "webSearch",
+      id: "ws-s",
+      query: "",
+      action: null,
+    });
+    fireItem(fake, {
+      type: "webSearch",
+      id: "ws-s",
+      query: "isomux",
+      action: { type: "search", query: "isomux" },
+    });
+    const call = expectKind(await nextEvent(it, "tool_call"), "tool_call");
+    expect(call.input).toEqual({ query: "isomux" });
+    expectKind(await nextEvent(it, "tool_result"), "tool_result");
+    await expectOnlySentinelNext(fake, it);
+  });
+
+  it("a spawn shows its card at start and still registers the child at completion", async () => {
+    const { fake, it } = await bootstrapped();
+    // Wire shape at start (codex rust-v0.160.0 multi_agents/spawn.rs): the
+    // prompt is set, the model is "" when none was passed, no receivers yet.
+    const spawn = {
+      type: "collabAgentToolCall",
+      id: "collab-start",
+      tool: "spawnAgent",
+      status: "inProgress",
+      senderThreadId: FIXTURE_THREAD_ID,
+      receiverThreadIds: [],
+      prompt: "Run the tests",
+      model: "",
+      reasoningEffort: null,
+      agentsStates: null,
+    };
+    fireStarted(fake, spawn);
+    const call = expectKind(
+      await nextEvent(it, "spawn tool_call at item/started"),
+      "tool_call",
+    );
+    expect(call.toolUseId).toBe("collab-start");
+    expect(call.name).toBe("spawnAgent");
+    expect(call.input).toEqual({ prompt: "Run the tests" });
+
+    fireItem(fake, {
+      ...spawn,
+      status: "completed",
+      receiverThreadIds: ["child-late"],
+      agentsStates: { "child-late": { status: "running", message: null } },
+    });
+    const result = expectKind(
+      await nextEvent(it, "spawn tool_result"),
+      "tool_result",
+    );
+    expect(result.toolUseId).toBe("collab-start");
+
+    // The child registered at completion: its command surfaces.
+    fireItem(
+      fake,
+      {
+        type: "commandExecution",
+        id: "late-child-cmd",
+        command: "ls",
+        cwd: "/work",
+        aggregatedOutput: "",
+        exitCode: 0,
+      },
+      "child-late",
+    );
+    const childCall = expectKind(
+      await nextEvent(it, "child tool_call"),
+      "tool_call",
+    );
+    expect(childCall.subagent?.parentToolUseId).toBe("collab-start");
+    expectKind(await nextEvent(it, "child tool_result"), "tool_result");
+    await expectOnlySentinelNext(fake, it);
+  });
+
+  it("a known child thread's command shows its card at start, with the subagent origin", async () => {
+    const { fake, it } = await bootstrapped();
+    fireItem(fake, {
+      type: "collabAgentToolCall",
+      id: "collab-s",
+      tool: "spawnAgent",
+      status: "completed",
+      senderThreadId: FIXTURE_THREAD_ID,
+      receiverThreadIds: ["child-s"],
+      prompt: "Run the tests",
+      model: "gpt-5.3-codex",
+      reasoningEffort: null,
+      agentsStates: null,
+    });
+    expectKind(await nextEvent(it, "collab tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "collab tool_result"), "tool_result");
+
+    const cmd = {
+      type: "commandExecution",
+      id: "child-cmd",
+      command: "bun test",
+      cwd: "/work",
+      status: "inProgress",
+      aggregatedOutput: null,
+      exitCode: null,
+    };
+    fireStarted(fake, cmd, "child-s");
+    const call = expectKind(
+      await nextEvent(it, "child tool_call at item/started"),
+      "tool_call",
+    );
+    expect(call.toolUseId).toBe("child-cmd");
+    expect(call.subagent?.parentToolUseId).toBe("collab-s");
+    fireItem(
+      fake,
+      { ...cmd, status: "completed", aggregatedOutput: "ok", exitCode: 0 },
+      "child-s",
+    );
+    const result = expectKind(
+      await nextEvent(it, "child tool_result"),
+      "tool_result",
+    );
+    expect(result.toolUseId).toBe("child-cmd");
+    expect(result.subagent?.parentToolUseId).toBe("collab-s");
+    await expectOnlySentinelNext(fake, it);
+  });
+
+  it("a steer recorded while a command runs lands between its card and its result", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("run the slow script");
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-s" },
+    });
+    expect(await session.steer("also check the logs", "steer-s")).toBe(true);
+    const cmd = {
+      type: "commandExecution",
+      id: "cmd-slow",
+      command: "./slow.sh",
+      cwd: "/work",
+      status: "inProgress",
+      aggregatedOutput: null,
+      exitCode: null,
+    };
+    fireStarted(fake, cmd, FIXTURE_THREAD_ID);
+    // Codex records the steer at a poll of the running command.
+    fake.fireNotification("item/started", {
+      threadId: FIXTURE_THREAD_ID,
+      item: {
+        type: "userMessage",
+        id: "u-s",
+        clientId: "steer-s",
+        content: [{ type: "text", text: "x", text_elements: [] }],
+      },
+    });
+    fireItem(
+      fake,
+      { ...cmd, status: "completed", aggregatedOutput: "", exitCode: 0 },
+      FIXTURE_THREAD_ID,
+    );
+    const call = expectKind(await nextEvent(it, "card"), "tool_call");
+    expect(call.toolUseId).toBe("cmd-slow");
+    const delivered = expectKind(
+      await nextEvent(it, "steer_delivered"),
+      "steer_delivered",
+    );
+    expect(delivered.steerId).toBe("steer-s");
+    const result = expectKind(await nextEvent(it, "result"), "tool_result");
+    expect(result.toolUseId).toBe("cmd-slow");
+  });
+
+  it("a capacity failure after a card was shown at start is not retried", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("run once");
+    fireStarted(fake, {
+      type: "commandExecution",
+      id: "cmd-cap",
+      command: "make deploy",
+      cwd: "/work",
+      status: "inProgress",
+      aggregatedOutput: null,
+      exitCode: null,
+    });
+    expectKind(await nextEvent(it, "card at start"), "tool_call");
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+    });
+    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
+    const terminal = expectKind(
+      await nextEvent(it, "terminal, not a retry"),
+      "turn_completed",
+    );
+    expect(terminal.causedByProviderCapacity).toBe(true);
+    expect(clock.pending).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Turn lifecycle
 // ---------------------------------------------------------------------------
 describe("CodexSession turn lifecycle", () => {

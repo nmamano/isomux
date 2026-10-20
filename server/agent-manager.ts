@@ -5142,7 +5142,8 @@ export function createAgentManager(deps: ManagerDeps) {
           input: ev.input,
           ...(ev.subagent ? { subagent: ev.subagent } : {}),
         });
-        // A steer a push session could not take yet goes in at this call's end.
+        // A steer a push session could not take yet is pushed again here; the
+        // engine records it at its next step (a poll or the call's end).
         if (!ev.subagent) pushBoundarySteer(agentId);
         break;
       }

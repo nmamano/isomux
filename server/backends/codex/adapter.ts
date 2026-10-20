@@ -20,8 +20,8 @@
 //      filtered against this session's threadId. Sub-agent / review-mode
 //      child threads have their own ids and must never resolve our turn.
 //      One deliberate carve-out: a KNOWN child thread's
-//      item/completed surfaces as subagent tool activity - display only,
-//      never turn bookkeeping.
+//      item/started and item/completed surface as subagent tool activity -
+//      display only, never turn bookkeeping.
 //
 //   3. experimentalApi: true at initialize. We generated schemas with
 //      --experimental, so missing this flag would silently strip experimental
@@ -761,6 +761,90 @@ function isToolActivityItem(rawItem: unknown): boolean {
   return typeof type === "string" && SUBAGENT_VISIBLE_ITEMS.has(type);
 }
 
+// Tool items whose card shows at item/started, so a long command has its card
+// while it runs. Their started items already carry the card's input. A
+// webSearch is not here: its query is empty until item/completed.
+const CARD_AT_START_ITEMS = new Set([
+  "commandExecution",
+  "fileChange",
+  "mcpToolCall",
+  "collabAgentToolCall",
+]);
+
+// The card of a tool item, the same from its started and its completed item.
+// Null for an item that is not a tool call.
+function toolCallFor(
+  item: Record<string, unknown>,
+  subagent?: SubagentOrigin,
+): Extract<NormalizedEvent, { kind: "tool_call" }> | null {
+  const toolUseId = item.id as string;
+  const origin = subagent ? { subagent } : {};
+  switch (item.type) {
+    case "commandExecution": {
+      const command = item.command as string | undefined;
+      const cwd = item.cwd as string | undefined;
+      return {
+        kind: "tool_call",
+        toolUseId,
+        name: "Bash",
+        input: cwd ? { command, cwd } : { command },
+        ...origin,
+      };
+    }
+    case "fileChange": {
+      const changes = Array.isArray(item.changes) ? item.changes : [];
+      return {
+        kind: "tool_call",
+        toolUseId,
+        name: "Edit",
+        input: { changes },
+        ...origin,
+      };
+    }
+    case "mcpToolCall":
+      return {
+        kind: "tool_call",
+        toolUseId,
+        name: `mcp__${item.server as string}__${item.tool as string}`,
+        input: (item.arguments ?? {}) as Record<string, unknown>,
+        ...origin,
+      };
+    case "webSearch": {
+      const query = item.query as string | undefined;
+      return {
+        kind: "tool_call",
+        toolUseId,
+        name: "WebSearch",
+        input: query ? { query } : {},
+        ...origin,
+      };
+    }
+    case "collabAgentToolCall": {
+      const prompt = typeof item.prompt === "string" ? item.prompt : null;
+      const model = typeof item.model === "string" ? item.model : null;
+      const receivers = collabReceivers(item);
+      return {
+        kind: "tool_call",
+        toolUseId,
+        name: typeof item.tool === "string" ? item.tool : "collabAgent",
+        input: {
+          ...(prompt ? { prompt } : {}),
+          ...(model ? { model } : {}),
+          ...(receivers.length ? { threadIds: receivers } : {}),
+        },
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function collabReceivers(item: Record<string, unknown>): string[] {
+  return Array.isArray(item.receiverThreadIds)
+    ? (item.receiverThreadIds as string[])
+    : [];
+}
+
 // One bounded line for SubagentOrigin labels (same 200-char cap as the
 // Claude backend's sanitizeTaskLabel - the UI pill ellipsizes, but the
 // metadata is persisted per entry).
@@ -974,7 +1058,13 @@ export class CodexSession implements BackendSession {
   private modelProvider = "openai";
   // A usage limit ended this turn (codexErrorInfo "usageLimitExceeded").
   private usageLimitThisTurn = false;
-  private completedItemsThisAttempt = 0;
+  // Items of this attempt the chat already shows: completed items and tool
+  // cards shown at item/started. A capacity retry runs only while it is 0.
+  private shownItemsThisAttempt = 0;
+  // Ids of tool items whose card was shown at item/started. Their completed
+  // item adds only the result. Not cleared at turn end: codex can complete an
+  // item after turn/completed.
+  private readonly shownToolCalls = new Set<string>();
   private capacityRetryCount = 0;
   private cancelCapacityRetry: (() => void) | null = null;
   // jsonRpcId-keyed map of in-flight server-initiated approval requests. The
@@ -1299,7 +1389,7 @@ export class CodexSession implements BackendSession {
     this.terminalErrorThisAttempt = null;
     this.clearTurnWatchdog();
     this.usageLimitThisTurn = false;
-    this.completedItemsThisAttempt = 0;
+    this.shownItemsThisAttempt = 0;
     // Open the auth-stderr gate before turn/start. The gate must be open
     // during turn/start's await window because codex's websocket retry burst
     // can land on stderr before the RPC returns. If turn/start itself throws,
@@ -1355,7 +1445,7 @@ export class CodexSession implements BackendSession {
     this.cancelCapacityRetry?.();
     this.cancelCapacityRetry = null;
     this.capacityErrorThisAttempt = null;
-    this.completedItemsThisAttempt = 0;
+    this.shownItemsThisAttempt = 0;
     this.capacityRetryCount = 0;
   }
 
@@ -1433,7 +1523,7 @@ export class CodexSession implements BackendSession {
       this.capacityErrorThisAttempt = null;
       this.refusalThisAttempt = null;
       this.terminalErrorThisAttempt = null;
-      this.completedItemsThisAttempt = 0;
+      this.shownItemsThisAttempt = 0;
       this.turnStarting = true;
       // The failed turn already persisted the original user item. An empty
       // turn asks Codex to run from that history without appending it again.
@@ -2107,14 +2197,16 @@ export class CodexSession implements BackendSession {
       this.threadId &&
       eventThreadId !== this.threadId
     ) {
-      // Carve-out: a KNOWN child thread's completed items
+      // Carve-out: a KNOWN child thread's started and completed items
       // surface as subagent tool activity. Everything else from foreign
       // threads - turn lifecycle, token usage, deltas - stays dropped, so
       // parent turn bookkeeping is untouched.
-      if (n.method === "item/completed") {
+      if (n.method === "item/started" || n.method === "item/completed") {
         const origin = this.childThreads.get(eventThreadId as string);
         if (origin && params?.item) {
-          this.translateCompletedItem(params.item, origin);
+          if (n.method === "item/started")
+            this.translateStartedItem(params.item, origin);
+          else this.translateCompletedItem(params.item, origin);
         }
       }
       return;
@@ -2165,14 +2257,15 @@ export class CodexSession implements BackendSession {
         const rawStatus = mapTurnStatus(turn?.status);
         const capacityError = this.capacityErrorThisAttempt;
         // Codex can deliver completed items after turn/completed. This gate
-        // prevents a known completed item from being replayed. A late item can
+        // prevents an item the chat already shows (a completed item or a
+        // card shown at start) from being replayed. A late item can
         // still arrive after we schedule the empty-input continuation; that
         // continuation resumes from persisted history and does not repeat the
         // original user prompt.
         const canRetryCapacity =
           rawStatus === "failed" &&
           capacityError !== null &&
-          this.completedItemsThisAttempt === 0 &&
+          this.shownItemsThisAttempt === 0 &&
           this.capacityRetryCount < CODEX_CAPACITY_RETRY_DELAYS_MS.length;
         this.activeTurnId = null;
         if (canRetryCapacity) {
@@ -2285,17 +2378,25 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      case "item/started":
-        // Carries the full ThreadItem but we wait for completion, except for
-        // the record of a steer.
-        this.noteSteerRecorded(params?.item);
+      case "item/started": {
+        // The record of a steer, or the card of a tool call that now runs.
+        // Everything else waits for item/completed.
+        const item = params?.item;
+        this.noteSteerRecorded(item);
+        if (
+          item &&
+          this.translateStartedItem(item) &&
+          (this.turnInFlight || this.turnStarting)
+        )
+          this.shownItemsThisAttempt += 1;
         break;
+      }
       case "item/completed": {
         const item = params?.item;
         if (item) {
           this.noteSteerRecorded(item);
           if (this.turnInFlight || this.turnStarting)
-            this.completedItemsThisAttempt += 1;
+            this.shownItemsThisAttempt += 1;
           this.translateCompletedItem(item);
           if (
             !(this.turnInFlight || this.turnStarting) &&
@@ -2496,6 +2597,39 @@ export class CodexSession implements BackendSession {
     }
   }
 
+  // Shows the card of a tool item at item/started (CARD_AT_START_ITEMS).
+  // True when it emitted a card.
+  private translateStartedItem(
+    rawItem: unknown,
+    subagent?: SubagentOrigin,
+  ): boolean {
+    const item = rawItem as Record<string, unknown>;
+    const type = item?.type as string;
+    if (!CARD_AT_START_ITEMS.has(type)) return false;
+    if (subagent && !SUBAGENT_VISIBLE_ITEMS.has(type)) return false;
+    const toolUseId = item.id as string;
+    if (this.shownToolCalls.has(toolUseId)) return false;
+    const call = toolCallFor(item, subagent);
+    if (!call) return false;
+    this.shownToolCalls.add(toolUseId);
+    this.enqueue(call);
+    return true;
+  }
+
+  // The card of a completed tool item, unless item/started showed it.
+  // Returns the item id, which the result carries.
+  private showToolCall(
+    item: Record<string, unknown>,
+    subagent?: SubagentOrigin,
+  ): string {
+    const toolUseId = item.id as string;
+    if (!this.shownToolCalls.delete(toolUseId)) {
+      const call = toolCallFor(item, subagent);
+      if (call) this.enqueue(call);
+    }
+    return toolUseId;
+  }
+
   private translateCompletedItem(
     rawItem: unknown,
     subagent?: SubagentOrigin,
@@ -2525,19 +2659,10 @@ export class CodexSession implements BackendSession {
         break;
       }
       case "commandExecution": {
-        const command = item.command as string | undefined;
-        const cwd = item.cwd as string | undefined;
         const aggregatedOutput = item.aggregatedOutput as string | undefined;
         const exitCode = item.exitCode as number | undefined;
         const durationMs = item.durationMs as number | undefined;
-        const toolUseId = item.id as string;
-        this.enqueue({
-          kind: "tool_call",
-          toolUseId,
-          name: "Bash",
-          input: cwd ? { command, cwd } : { command },
-          ...(subagent ? { subagent } : {}),
-        });
+        const toolUseId = this.showToolCall(item, subagent);
         const content =
           (aggregatedOutput ?? "") +
           (exitCode != null ? `\n(exit code ${exitCode})` : "");
@@ -2552,19 +2677,12 @@ export class CodexSession implements BackendSession {
         break;
       }
       case "fileChange": {
-        const toolUseId = item.id as string;
         const changes = Array.isArray(item.changes) ? item.changes : [];
         const summary = (changes as { path?: string; kind?: unknown }[])
           .map((c) => `${c.path ?? "?"} (${formatPatchChangeKind(c.kind)})`)
           .join("\n");
         const status = item.status as string | undefined;
-        this.enqueue({
-          kind: "tool_call",
-          toolUseId,
-          name: "Edit",
-          input: { changes },
-          ...(subagent ? { subagent } : {}),
-        });
+        const toolUseId = this.showToolCall(item, subagent);
         this.enqueue({
           kind: "tool_result",
           toolUseId,
@@ -2576,17 +2694,8 @@ export class CodexSession implements BackendSession {
         break;
       }
       case "mcpToolCall": {
-        const toolUseId = item.id as string;
-        const server = item.server as string;
-        const tool = item.tool as string;
         const durationMs = item.durationMs as number | undefined;
-        this.enqueue({
-          kind: "tool_call",
-          toolUseId,
-          name: `mcp__${server}__${tool}`,
-          input: (item.arguments ?? {}) as Record<string, unknown>,
-          ...(subagent ? { subagent } : {}),
-        });
+        const toolUseId = this.showToolCall(item, subagent);
         const result = item.result;
         const error = item.error;
         const content = error
@@ -2603,16 +2712,8 @@ export class CodexSession implements BackendSession {
         break;
       }
       case "webSearch": {
-        const toolUseId = item.id as string;
-        const query = item.query as string | undefined;
         const actionSummary = formatWebSearchAction(item.action);
-        this.enqueue({
-          kind: "tool_call",
-          toolUseId,
-          name: "WebSearch",
-          input: query ? { query } : {},
-          ...(subagent ? { subagent } : {}),
-        });
+        const toolUseId = this.showToolCall(item, subagent);
         this.enqueue({
           kind: "tool_result",
           toolUseId,
@@ -2680,17 +2781,15 @@ export class CodexSession implements BackendSession {
       // wait / closeAgent) - the codex counterpart of Claude's Task card.
       // Rendered as a normal tool card under the codex tool
       // name, and a spawn's receiver threads are registered as children so
-      // their own tool items surface.
+      // their own tool items surface. The card can show at item/started; the
+      // registration waits for completion, where the receiver ids exist.
       case "collabAgentToolCall": {
         const toolUseId = item.id as string;
-        const tool = typeof item.tool === "string" ? item.tool : "collabAgent";
         const status = item.status as string | undefined;
         const prompt = typeof item.prompt === "string" ? item.prompt : null;
         const model = typeof item.model === "string" ? item.model : null;
-        const receivers = Array.isArray(item.receiverThreadIds)
-          ? (item.receiverThreadIds as string[])
-          : [];
-        if (tool === "spawnAgent") {
+        const receivers = collabReceivers(item);
+        if (item.tool === "spawnAgent") {
           for (const childId of receivers) {
             if (typeof childId !== "string" || !childId) continue;
             // Merge with any earlier thread/started registration: keep its
@@ -2708,16 +2807,7 @@ export class CodexSession implements BackendSession {
             });
           }
         }
-        this.enqueue({
-          kind: "tool_call",
-          toolUseId,
-          name: tool,
-          input: {
-            ...(prompt ? { prompt } : {}),
-            ...(model ? { model } : {}),
-            ...(receivers.length ? { threadIds: receivers } : {}),
-          },
-        });
+        this.showToolCall(item);
         const states = item.agentsStates as
           | Record<
               string,
