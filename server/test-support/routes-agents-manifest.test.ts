@@ -356,8 +356,8 @@ describe("GET /agents (discovery manifest)", () => {
     });
     expect(res.status).toBe(403);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("bad origin");
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("bad_origin");
   });
 
   it("non-GET on /agents -> 401", async () => {

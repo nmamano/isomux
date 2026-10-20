@@ -56,6 +56,7 @@ export const AUDIT_OPERATIONS = [
   "browser.revokeOne",
   "browserExtension.pair",
   "browserExtension.unpair",
+  "chatFiles.upload",
   "cron.create",
   "cron.delete",
   "cron.editRunMessage",

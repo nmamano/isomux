@@ -21,7 +21,7 @@ export interface BackRoomSummary {
   pendingPrompt: number;
 }
 
-interface ManifestLike {
+export interface ManifestLike {
   desk: number;
   roomId: string;
   roomName: string;

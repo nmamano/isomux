@@ -44,6 +44,9 @@ const NOOP_GUARD_DEPS: GuardDeps = {
   isOfficeOwnerUserId: () => false,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,
+  killedAgentLastRoomId: () => null,
+  roomExists: () => false,
+  cronRunVisibleTo: () => false,
 };
 
 function userIdentity(role: "owner" | "member"): Identity {

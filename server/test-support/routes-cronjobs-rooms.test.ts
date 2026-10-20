@@ -346,11 +346,11 @@ describe("cron rooms: runs, transcripts and the system prompt follow SEE", () =>
           rawSessionId: who,
         })
       ).status;
-    expect(await fileStatus(bob.rawSessionId, stream)).toBe(404);
+    expect(await fileStatus(bob.rawSessionId, stream)).toBe(403);
     expect(await fileStatus(alice.rawSessionId, stream)).toBe(200);
     expect(await fileStatus(maker.rawSessionId, stream)).toBe(200);
     expect(await fileStatus(owner.rawSessionId, stream)).toBe(200);
-    expect(await fileStatus(owner.rawSessionId, orphan)).toBe(404);
+    expect(await fileStatus(owner.rawSessionId, orphan)).toBe(403);
   });
 });
 

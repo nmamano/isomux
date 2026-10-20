@@ -267,6 +267,9 @@ describe("prefs.update - agent tokens are locked out", () => {
     isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => "u-1",
     killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   const identity = (
     scope: Identity["scope"],

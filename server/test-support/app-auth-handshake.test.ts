@@ -782,7 +782,7 @@ describe("app-host handshake: the office mint endpoint", () => {
       headers: { Accept: "application/json" },
     });
     expect(json.status).toBe(401);
-    expect(await json.json()).toEqual({ error: "unauthenticated" });
+    expect((await json.json()).error.code).toBe("unauthenticated");
   });
 
   it("gives a bearer identity nothing: a token is not a session", async () => {
@@ -791,7 +791,26 @@ describe("app-host handshake: the office mint endpoint", () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect((await res.json()).error.code).toBe("forbidden");
+  });
+
+  // Only GET mints. Another method must not fall through to the office shell,
+  // which would answer 200 text/html.
+  it("answers another method with a 404, not the office page", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    // The enabling condition: this session mints on GET.
+    expect(
+      (await mint(srv, `?app=${label}&r=%2F`, { rawSessionId })).status,
+    ).toBe(302);
+    for (const method of ["POST", "PUT", "DELETE"]) {
+      const res = await srv.http(`/auth/app?app=${label}&r=%2F`, {
+        method,
+        rawSessionId,
+        redirect: "manual",
+      });
+      expect({ method, status: res.status }).toEqual({ method, status: 404 });
+      expect(res.headers.get("content-type") ?? "").not.toContain("text/html");
+    }
   });
 
   it("answers unknown, retired and malformed labels identically", async () => {

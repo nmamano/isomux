@@ -39,6 +39,13 @@ export interface GuardDepsLiveReaders {
   // it holds the authoritative map, so asking it avoids re-deriving "killed"
   // from a second snapshot here.
   killedAgentManagerUserId(agentId: string): string | null;
+  // The room recorded for a KILLED agent, or null for a live/unknown one.
+  // agentManager.killedAgentLastRoomId.
+  killedAgentLastRoomId(agentId: string): string | null;
+  // A cronjob run stream's visibility to an identity: its job's, read live.
+  // The seam owns the stream -> run -> job lookup and the cronjob visibility
+  // rule; any id that is not a known run's stream is false.
+  cronRunVisibleTo(identity: Identity, streamId: string): boolean;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
   // User id -> live role. The app-control guard asks about the agent or API
@@ -116,6 +123,18 @@ export function buildProductionGuardDeps(
 
     killedAgentManagerUserId(agentId: string): string | null {
       return live.killedAgentManagerUserId(agentId);
+    },
+
+    killedAgentLastRoomId(agentId: string): string | null {
+      return live.killedAgentLastRoomId(agentId);
+    },
+
+    roomExists(roomId: string): boolean {
+      return live.getRooms().some((r) => r.id === roomId);
+    },
+
+    cronRunVisibleTo(identity: Identity, streamId: string): boolean {
+      return live.cronRunVisibleTo(identity, streamId);
     },
   };
 }

@@ -117,6 +117,9 @@ describe("integration routes at the guard", () => {
     isOfficeOwnerUserId: (userId) => userId === "boss",
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   const agent = (
     userId: string,

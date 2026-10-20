@@ -10,4 +10,4 @@ Safe example: `GET /agents`.
 
 ## Route contract
 
-`GET /agents` returns the live array above; `GET /agents?back=1` returns it with every back room agent listed. `back` takes only `1` and never goes with `killed`. `GET /agents?killed=1` returns the killed array above. User, API-token, agent, and cron-run identities are accepted, except that cron-run gets 403 on `?killed=1`; app identities are refused. A caller without identity gets 401, a cross-origin browser request gets 403, and an unsupported `killed` or `back` value or a bad `limit` or `before` gets 400.
+`GET /agents` returns the live array above; `GET /agents?back=1` returns it with every back room agent listed. `back` takes only `1` and never goes with `killed`. `GET /agents?killed=1` returns the killed array above. User, API-token, agent, and cron-run identities are accepted, and an app identity while its owner agent is live; cron-run gets 403 on `?killed=1`. A caller without identity gets 401, a cross-origin browser request gets 403, and an unsupported `killed` or `back` value or a bad `limit` or `before` gets 400.

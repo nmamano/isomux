@@ -146,6 +146,9 @@ function makeDeps(over: Partial<GuardDeps> = {}): GuardDeps {
     isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
     ...over,
   };
 }

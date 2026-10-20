@@ -100,6 +100,9 @@ describe("provider account routes", () => {
         isOfficeOwnerUserId: () => false,
         agentManagerUserId: () => null,
         killedAgentManagerUserId: () => null,
+        killedAgentLastRoomId: () => null,
+        roomExists: () => false,
+        cronRunVisibleTo: () => false,
       },
     );
     expect(result).toEqual({ ok: false, status: 403, code: "forbidden" });
@@ -413,6 +416,9 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       isOfficeOwnerUserId: () => false,
       agentManagerUserId: () => null,
       killedAgentManagerUserId: () => null,
+      killedAgentLastRoomId: () => null,
+      roomExists: () => false,
+      cronRunVisibleTo: () => false,
     };
     const cap = API_ROUTES.find((r) => r.auth.kind === "capability");
     if (!cap || cap.auth.kind !== "capability") throw new Error("no cap route");
@@ -441,6 +447,9 @@ describe("route table: managed env values are self-only", () => {
     isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => "u1",
     killedAgentManagerUserId: () => "u1",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   const identities: Record<string, Identity> = {
     user: {
@@ -764,6 +773,9 @@ describe("route table: managed office env is owner-only", () => {
     isOfficeOwnerUserId: (id: string) => id === "owner",
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   } satisfies GuardDeps;
   const identity = (
     scope: Identity["scope"],
@@ -892,6 +904,9 @@ describe("route table: users.create admits an owner's proxies for a plain member
     isOfficeOwnerUserId: (id: string) => id === "owner",
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   } satisfies GuardDeps;
   const identity = (
     scope: Identity["scope"],
@@ -1022,6 +1037,9 @@ describe("route table: agent reference coverage", () => {
     isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u1",
     killedAgentManagerUserId: () => "u1",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   const identities: Identity[] = [
     {
@@ -1097,6 +1115,8 @@ const SPEC_ROUTE_CONTRACT: Record<
 > = {
   "agentReference.list": { caps: [], emits: [] },
   "agentReference.get": { caps: [], emits: [] },
+  // GET /agents, the office directory.
+  "agents.discovery": { caps: [], emits: [] },
   // Agents - lifecycle
   "agents.spawn": { caps: ["agent:manage"], emits: ["agent_added"] },
   "agents.kill": {
@@ -1247,6 +1267,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Agents - uploads / files
   "agents.upload": { caps: ["file:upload"], emits: [] },
   "agents.getFile": { caps: ["office:read"], emits: [] },
+  // The chat UI's attachment paths (/api/upload, /api/files, /api/images).
+  "chatFiles.upload": { caps: [], emits: [] },
+  "chatFiles.get": { caps: [], emits: [] },
+  "chatFiles.getImage": { caps: [], emits: [] },
   "membersChat.page": { caps: ["chat:members"], emits: [] },
   "membersChat.post": {
     caps: ["chat:members"],
@@ -1475,6 +1499,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "pager.get": { caps: ["pager:read"], emits: [] },
   "pager.ack": { caps: ["pager:write"], emits: ["pager_upserted"] },
   "pager.resolve": { caps: ["pager:write"], emits: ["pager_upserted"] },
+  // GET /auth/app, the app sign-in mint for a member's browser session.
+  "apps.mintSignIn": { caps: [], emits: [] },
   // Apps (agent-built web apps isomux runs). app:read / app:write are BASELINE
   // agent capabilities - an agent registering the app it just built IS the
   // feature - so the object-level scoping is carried by the
@@ -1660,6 +1686,9 @@ describe("route table: an APP identity authorizes exactly the app-self routes", 
     isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   const appIdentity: Identity = {
     scope: "app",
@@ -1832,6 +1861,11 @@ const APP_REFUSED_OPIDS = [
   // A browser session's routes, which `authenticated` keeps from every app.
   "sessions.logout",
   "validate.env",
+  // Chat attachments: `authenticated` keeps every app out, as the legacy wall
+  // did (opening a route class to apps is its own decision).
+  "chatFiles.upload",
+  "chatFiles.get",
+  "chatFiles.getImage",
 ];
 
 // An ORDINARY agent may also clear its own conversation, and take back its own
@@ -1853,6 +1887,9 @@ describe("route table: an APP has its live owner agent's reach", () => {
     isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   // :id is the owner agent itself, so every self-bound route is open to the
   // agent and the walk shows what the app does NOT get.
@@ -1956,6 +1993,9 @@ describe("agents.listSessions / readQueue / cancelQueued / terminal non-agent se
     isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "owner-1",
     killedAgentManagerUserId: () => "owner-1",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
 
   it("refuses cron-run and app identities even with accessible-room dependencies", () => {
@@ -2005,6 +2045,7 @@ const API_REACHABLE_OPIDS = [
   "tasks.restore",
   "agentReference.list",
   "agentReference.get",
+  "agents.discovery",
   "agents.spawn",
   "agents.kill",
   "agents.revive",
@@ -2180,6 +2221,9 @@ describe("route table: usage checks use log-read scope", () => {
     isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   const identities: Identity[] = [
     {
@@ -2251,6 +2295,9 @@ describe("route table: an API identity authorizes exactly the remote-boss surfac
     isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   it("reaches the independently declared operational routes", () => {
     const allowed: string[] = [];
@@ -2292,6 +2339,9 @@ describe("member prompt route authority", () => {
     isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => "u1",
     killedAgentManagerUserId: () => "u1",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
   };
   it("opens only the two prompt routes to a privileged member's agent", () => {
     const identity: Identity = {
@@ -2374,6 +2424,9 @@ it("audit and restore reject member-owned API tokens and admit owner proxies", (
         webhookOwnerUserId: () => null,
         agentManagerUserId: () => null,
         killedAgentManagerUserId: () => null,
+        killedAgentLastRoomId: () => null,
+        roomExists: () => false,
+        cronRunVisibleTo: () => false,
         isOfficeOwnerUserId: (id) => id === "owner",
       };
       expect(
@@ -2400,4 +2453,86 @@ it("audit and restore reject member-owned API tokens and admit owner proxies", (
         ).toMatchObject({ ok: false, status: 403 });
     }
   }
+});
+
+// Task d0d38eb9: GET /agents and GET /auth/app are table routes outside /api.
+// The dispatcher matches the table on every path, so a row outside /api
+// answers before the static UI: a new one would shadow a page silently.
+describe("route table: rows outside /api", () => {
+  it("are exactly the office directory and the app sign-in mint", () => {
+    expect(
+      API_ROUTES.filter((r) => !r.path.startsWith("/api/"))
+        .map((r) => `${r.method} ${r.path}`)
+        .sort(),
+    ).toEqual(["GET /agents", "GET /auth/app"]);
+  });
+});
+
+// GET /agents (agents.discovery): every office identity, and an API token only
+// with api:discover-agents. The app arms are in the app-reach walk above.
+describe("route table: agents.discovery reach", () => {
+  const route = API_ROUTES.find((r) => r.opId === "agents.discovery")!;
+  const deps: GuardDeps = {
+    hasRoomAccess: () => false,
+    roomIdForAgent: () => null,
+    userIdForUsername: () => null,
+    cronjobCreatorUserId: () => null,
+    appOwnerUserId: () => null,
+    webhookOwnerUserId: () => null,
+    isOfficeOwnerUserId: () => false,
+    agentManagerUserId: () => null,
+    killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
+  };
+  const allowed = (identity: Identity): boolean =>
+    runAuthorize(route.auth, identity, {}, undefined, deps).ok;
+  const api = (capabilities: readonly Capability[]): Identity => ({
+    scope: "api",
+    userId: "u1",
+    role: "member",
+    apiTokenId: "pat-1",
+    apiTokenName: "Laptop",
+    capabilities: [...capabilities],
+  });
+
+  it("admits a member, an agent and a cron run", () => {
+    expect(
+      allowed({
+        scope: "user",
+        userId: "u1",
+        role: "member",
+        capabilities: USER_CAPABILITIES,
+      }),
+    ).toBe(true);
+    expect(
+      allowed({
+        scope: "agent",
+        userId: "u1",
+        role: "member",
+        agentId: "a1",
+        capabilities: AGENT_CAPABILITIES,
+      }),
+    ).toBe(true);
+    expect(
+      allowed({
+        scope: "cron-run",
+        userId: "u1",
+        role: "member",
+        cronjobId: "job-1",
+        runId: "run-1",
+        capabilities: RUN_CAPABILITIES,
+      }),
+    ).toBe(true);
+  });
+
+  it("admits an API token only while it holds api:discover-agents", () => {
+    // The enabling condition: the full API set holds it.
+    expect(API_CAPABILITIES).toContain("api:discover-agents");
+    expect(allowed(api(API_CAPABILITIES))).toBe(true);
+    expect(
+      allowed(api(API_CAPABILITIES.filter((c) => c !== "api:discover-agents"))),
+    ).toBe(false);
+  });
 });

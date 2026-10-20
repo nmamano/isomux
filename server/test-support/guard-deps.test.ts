@@ -33,6 +33,8 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     // "a1" is LIVE and deliberately answers null here (the reader owns that
     // exclusion), so the two lookups can never both claim the same agent.
     killedAgentManagerUserId: (agentId) => (agentId === "aDead" ? "u2" : null),
+    killedAgentLastRoomId: () => null,
+    cronRunVisibleTo: () => false,
     getUserByName: (name) => (name === "Nil" ? { id: "u1" } : null),
     getUserById: (userId) =>
       userId === "u-owner"

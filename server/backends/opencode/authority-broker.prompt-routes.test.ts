@@ -166,13 +166,13 @@ describe("OpenCode broker allowlist", () => {
     for (const occurrence of occurrences) {
       const [method, path] = occurrence.route.split(" ");
       const matched = matchRoute(API_ROUTES, method, path);
-      const manifest = method === "GET" && path === "/agents";
       // A documented route cannot silently become an unknown-route exception.
-      expect(manifest || matched !== null, occurrence.route).toBe(true);
+      // GET /agents included: it is a table route (task d0d38eb9).
+      expect(matched !== null, occurrence.route).toBe(true);
       const handle = binding.activate(process.pid);
       const actual = await status(socketPath, handle, method, path);
       expect(actual, `${occurrence.where}: ${occurrence.route}`).toBe(
-        manifest || (matched && agentStageOne(matched.route)) ? 200 : 403,
+        matched && agentStageOne(matched.route) ? 200 : 403,
       );
     }
     // A specific user-only refusal also guards against replacing the predicate

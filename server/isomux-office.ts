@@ -118,16 +118,14 @@ import {
   saveServerConfig,
   loadSessionsMap,
   peekMessageQueuesRaw,
-  buildKilledManifest,
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
-import { KILLED_AGENT_CHIP_CAP, MAX_UPLOAD_BYTES } from "../shared/types.ts";
+import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
 import {
   BACK_ROOM_FULL_MESSAGE,
   BACK_ROOM_OFF_MESSAGE,
   hasBackRoom,
 } from "../shared/desks.ts";
-import { projectBackRooms } from "./discovery-back-room.ts";
 import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
 import {
   startUpdateChecker,
@@ -292,10 +290,7 @@ import { askHandlers } from "./routes/handlers/asks.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
-import {
-  recordAgentReferenceUsage,
-  recordApiReferenceUsage,
-} from "./agent-reference-telemetry.ts";
+import { recordApiReferenceUsage } from "./agent-reference-telemetry.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import {
   appRegistry,
@@ -327,6 +322,7 @@ import {
   appSessionExpiresAt,
   invalidateAppRegistration,
 } from "./app-auth.ts";
+import { neutralNotFound } from "./app-host-responses.ts";
 import { retireAppRegistration } from "./app-lifecycle.ts";
 import { previewAppGrant } from "./app-preview-grant.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
@@ -356,6 +352,8 @@ import { buildSessionIndex, retrieveSession } from "./log-search.ts";
 import { fileLogSource } from "./log-source.ts";
 import { runSearchInChild } from "./log-search-runner.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
+import { agentDirectoryHandlers } from "./routes/handlers/agent-directory.ts";
+import { appSignInHandlers } from "./routes/handlers/app-sign-in.ts";
 import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
 import { skillsHandlers } from "./routes/handlers/skills.ts";
 import {
@@ -464,7 +462,6 @@ import {
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
-import { parseKilledPageQuery, pageKilledAgents } from "./killed-roster.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
@@ -520,12 +517,7 @@ import {
   probeEditFile,
   probeReadFile,
 } from "./affordance-checks.ts";
-import {
-  actsForAgent,
-  identityHasCapability,
-  reachAgentId,
-  type Identity,
-} from "./identity/index.ts";
+import { actsForAgent, reachAgentId, type Identity } from "./identity/index.ts";
 import {
   appVisibleTo,
   viewerUserId,
@@ -2373,6 +2365,19 @@ function buildLiveGuardDeps(): GuardDeps {
     getRooms: () => agentManager.getRooms(),
     killedAgentManagerUserId: (agentId) =>
       agentManager.killedAgentManagerUserId(agentId),
+    killedAgentLastRoomId: (agentId) =>
+      agentManager.killedAgentLastRoomId(agentId),
+    cronRunVisibleTo: (identity, streamId) => {
+      const runPrefix = cronjobRunStreamId("");
+      if (!streamId.startsWith(runPrefix)) return false;
+      const jobId = cronjobManager.jobIdForRun(
+        streamId.slice(runPrefix.length),
+      );
+      return (
+        jobId !== null &&
+        cronjobVisibleTo(cronjobFactsById(jobId), cronjobViewerFor(identity))
+      );
+    },
     getUserByName: (username) => getUserByName(username) ?? null,
     getUserById: (userId) => getUserById(userId) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
@@ -2897,36 +2902,6 @@ const webhookWire = (record: WebhookRecord): WebhookWire =>
     record,
   );
 
-// Who may reach an agent's files on the legacy /api/upload, /api/files and
-// /api/images routes. A live agent's files follow its room, as on
-// agents.getFile. A killed agent's files follow the room it was in; once that
-// room is gone, only office owners. A cronjob run's files sit under its
-// cronrun-<runId> stream id, which has no room, so they follow the job's
-// visibility. An unknown run denies; a run whose job is gone is office
-// owners' only.
-function mayReachAgentFiles(identity: Identity, agentId: string): boolean {
-  const runPrefix = cronjobRunStreamId("");
-  if (agentId.startsWith(runPrefix)) {
-    const jobId = cronjobManager.jobIdForRun(agentId.slice(runPrefix.length));
-    if (jobId === null) return false;
-    return cronjobVisibleTo(
-      cronjobFactsById(jobId),
-      cronjobViewerFor(identity),
-    );
-  }
-  const guardDeps = buildLiveGuardDeps();
-  const liveRoomId = guardDeps.roomIdForAgent(agentId);
-  if (liveRoomId !== null) return guardDeps.hasRoomAccess(identity, liveRoomId);
-  const killedRoomId = agentManager.killedAgentLastRoomId(agentId);
-  if (killedRoomId === null) return false;
-  if (agentManager.roomById(killedRoomId)) {
-    return guardDeps.hasRoomAccess(identity, killedRoomId);
-  }
-  return (
-    identity.userId !== null && guardDeps.isOfficeOwnerUserId(identity.userId)
-  );
-}
-
 // The app routes' answer for this agent (projectForList), asked live, and only
 // while the agent is alive. Screenshot grants revalidate with it on every
 // request.
@@ -3066,6 +3041,29 @@ function buildExecutorDeps(
   };
 
   register(agentReferenceHandlers());
+  register(
+    agentDirectoryHandlers({
+      originAllowed: checkOrigin,
+      roomIdsFor: (identity) => {
+        const user = identity.userId ? getUserById(identity.userId) : null;
+        return user ? accessibleRoomIdsFor(user) : new Set<string>();
+      },
+      isLobbyRoom: (roomId) => agentManager.roomById(roomId)?.type === "lobby",
+      liveManifest: () => agentManager.getManifest(),
+      killedAgents: () => agentManager.getKilledAgentSummaries(),
+      killedAgentsForManager: (userId) =>
+        agentManager.getKilledAgentSummariesForManager(userId),
+    }),
+  );
+  register(
+    appSignInHandlers({
+      mint: (req, url, session) =>
+        handleAppMintRequest(req, url, session, {
+          appHostDomain: appHostDomain(),
+          canAccess: canUserAccessApp,
+        }),
+    }),
+  );
   register(auditHandlers(officeAuditStore));
 
   register(
@@ -3693,10 +3691,9 @@ function buildExecutorDeps(
     }),
   );
 
-  // Uploads + file-serving (browser surfaces; room-ACL gated). Narrow
-  // deps: just the persistence helpers (the guard owns access, getFilePath owns
-  // path-traversal). agents.getFile is room-ACL-gated [behavior-change]; the
-  // legacy /api/files + /api/images apply the same check inline.
+  // Chat uploads + file-serving (agents.* and chatFiles.*; room-ACL gated).
+  // Narrow deps: just the persistence helpers (the guards own access,
+  // getFilePath owns path-traversal).
   register(
     uploadsHandlers({
       saveFile: (agentId, data, mediaType, originalName) =>
@@ -7721,22 +7718,28 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // Unified REST surface. Routes declared in the typed table are
         // dispatched through the executor: identity -> authorize -> preconditions
         // -> idempotency -> handler -> emit. Identity is REQUIRED (cookie or
-        // bearer). An unmatched or not-yet-migrated /api path falls through to the
-        // legacy handlers (/api/upload, /api/files, /api/images), and then to a
-        // JSON 404 before the static serve.
-        if (url.pathname.startsWith("/api/")) {
+        // bearer). Most rows are /api paths; GET /agents and GET /auth/app are
+        // the two outside it. An /api path no row takes gets a JSON 404 below,
+        // before the static serve.
+        {
           const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
           if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
             const apiAuth = authenticate(req, source().onBox, { officeName });
             if (apiAuth.kind !== "ok") {
-              // Marshal the auth rejection into the /api envelope
-              // {error:{code,message}} - the new contract, NOT the legacy
-              // auth-middleware shape. Every migrated /api route inherits this
-              // entrypoint, so the envelope must be uniform here. authenticate()
-              // rejects with only two statuses: 403 (bad origin / CSRF) and 401
-              // (no / invalid identity).
-              const badOrigin =
-                apiAuth.kind === "rejected" && apiAuth.response.status === 403;
+              // A browser navigation keeps the wall's login page: the chat
+              // links attachments under /api/files, and a signed-out member
+              // who opens one must be able to sign in. Any other rejection is
+              // the envelope {error:{code,message}}. authenticate() rejects
+              // with only two statuses: 403 (bad origin / CSRF) and 401 (no /
+              // invalid identity).
+              if (
+                apiAuth.response.headers
+                  .get("content-type")
+                  ?.startsWith("text/html")
+              ) {
+                return apiAuth.response;
+              }
+              const badOrigin = apiAuth.response.status === 403;
               return badOrigin
                 ? errorResponse(403, "bad_origin", "bad origin")
                 : errorResponse(401, "unauthenticated", "unauthenticated");
@@ -7794,38 +7797,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const auth = authenticate(req, source().onBox, { officeName });
         if (auth.kind === "rejected") return auth.response;
 
-        // Narrow non-browser tokens stop here, before the identity-only legacy
-        // surface. API tokens get explicit exceptions for the live and killed
-        // GET /agents manifests.
-        //
-        // Everything below this line predates the capability model and gates on
-        // "is there an identity" alone: the agent manifest (live and killed), the
-        // legacy upload/file/image handlers, the static UI. A registered app -
-        // agent-authored code, often serving strangers - would otherwise inherit
-        // all of it the moment it had a token, beyond what its capabilities
-        // express. On the /api surface above,
-        // the route table decides instead.
-        //
-        // ONE check for the whole surface rather than per-handler, so a legacy
-        // route added later cannot forget it. 403, not 401: the token is real and
-        // isomux knows whose it is. The one opening: an app with a live owner
-        // agent reads the agent manifest as that agent does.
-        const appManifestAllowed =
-          actsForAgent(auth.identity) &&
-          req.method === "GET" &&
-          url.pathname === "/agents";
-        const apiManifestAllowed =
-          auth.identity.scope === "api" &&
-          req.method === "GET" &&
-          url.pathname === "/agents" &&
-          (!url.searchParams.has("killed") ||
-            url.searchParams.get("killed") === "1") &&
-          (!url.searchParams.has("back") ||
-            url.searchParams.get("back") === "1");
-        if (
-          (auth.identity.scope === "app" && !appManifestAllowed) ||
-          (auth.identity.scope === "api" && !apiManifestAllowed)
-        ) {
+        // App and API tokens stop here. Everything below gates on "is there
+        // an identity" alone (the app short-link shell, the retired-path walls,
+        // the static UI); the route table above decides what those tokens
+        // reach. 403, not 401: the token is real and isomux knows whose it is.
+        if (auth.identity.scope === "app" || auth.identity.scope === "api") {
           return new Response(JSON.stringify({ error: "forbidden" }), {
             status: 403,
             headers: { "Content-Type": "application/json" },
@@ -7850,229 +7826,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           // Hidden and unknown apps retain the normal office-shell fallback.
         }
 
-        // GET /auth/app?app=<label>&r=<path> - mint a single-use code for one of
-        // this office's app hostnames and redirect the browser to it. The
-        // handshake itself lives in server/app-auth.ts; this is only the mount.
-        //
-        // Mounted HERE, behind the wall, rather than in tryHandleAuthRoute: the
-        // route needs a signed-in office user, and the wall has already answered
-        // an unauthenticated visitor with the login page (or a 401 for a fetch),
-        // so the handshake adds no pre-auth surface. What the wall does NOT bring
-        // is a CSRF check - authenticate() checks Origin on unsafe methods only,
-        // and this is a GET; handleAppMintRequest explains why that is accepted
-        // rather than patched here.
-        //
-        // A bearer identity gets nothing: an agent token has no office session
-        // for a code to be bound to (and an app token already stopped above).
-        if (url.pathname === APP_MINT_PATH) {
-          if (!auth.session) {
-            return new Response(JSON.stringify({ error: "forbidden" }), {
-              status: 403,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-          const mintRes = handleAppMintRequest(req, url, auth.session, {
-            appHostDomain: appHostDomain(),
-            canAccess: canUserAccessApp,
-          });
-          // The `__Host-` migration rides this response like it rides a page load
-          // or a safe /api GET. It matters MORE here than on those: this is the
-          // door into the app origins, and the cookie-migration prerequisite
-          // closes shadowing from a sibling subdomain BEFORE one exists. A user
-          // who reached an app while holding only the legacy, shadowable office
-          // cookie would be exactly the case the prerequisite was for.
-          // Restricted to GET for the same reason the /api path restricts it to
-          // safe methods - and any other method here is a neutral 404 anyway.
-          return req.method === "GET"
-            ? withCookieMigration(mintRes, req, auth.session)
-            : mintRes;
-        }
-
-        // Agent discovery manifest - GET /agents. Serves the live manifest with
-        // the same entry shape as ~/.isomux/agents-summary.json (still written
-        // alongside for existing file-based readers). Identity REQUIRED (bearer
-        // or cookie): an anonymous request - loopback included - already 401'd at
-        // the wall above (the endpoint always answers with a
-        // projected view, never an unauthenticated full dump; agents send
-        // $ISOMUX_AGENT_TOKEN).
-        //
-        // Browser-read hardening: GETs skip the CSRF origin check in
-        // authenticate(), so a hostile web page whose request somehow carries a
-        // valid cookie would otherwise be served. Two walls close that: (1) a
-        // request carrying a cross-origin Origin header is rejected - agent
-        // curl sends no Origin, and browsers always attach one to cross-origin
-        // fetches; (2) no Access-Control-Allow-Origin is ever sent, so even
-        // without wall 1 a cross-origin response body would stay unreadable.
-        //
-        // The manifest is PROJECTED to the rooms the identity's user can access -
-        // owners every room by rule, members their
-        // allowedRooms grants, agents/cron-runs their manager's/creator's
-        // access. An identity with no resolvable user (an unowned cron job, a
-        // deleted user) has access to no rooms and receives [] - mirrors
-        // guard-deps hasRoomAccess.
-        if (url.pathname === "/agents" && req.method === "GET") {
-          if (
-            auth.identity.scope === "api" &&
-            !identityHasCapability(auth.identity, "api:discover-agents")
-          ) {
-            return new Response(JSON.stringify({ error: "forbidden" }), {
-              status: 403,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-          if (req.headers.get("origin") !== null && !checkOrigin(req)) {
-            return new Response(JSON.stringify({ error: "bad origin" }), {
-              status: 403,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-          // No explicit wall here: authenticate() has only two outcomes now, and
-          // the rejected one returned above, so reaching this line means an
-          // identity was resolved. (The old defensive 401 guarded against a future
-          // edit to the loopback-bypass list; that list is gone.)
-          const user = auth.identity.userId
-            ? getUserById(auth.identity.userId)
-            : null;
-          // ?killed=1 asks the other roster: agents that have left the office but
-          // whose transcripts are still on disk. It exists so the
-          // killed-agent log reach is usable - without it an
-          // agent can read a dead agent's logs but has no way to learn its id.
-          //
-          // EXACTLY "1" selects it; any other value is a 400 rather than a silent
-          // fall-through to the live roster. `?killed=0` reads as "no" to a human
-          // and would otherwise be answered with the killed list, while a typo'd
-          // value would be answered with live agents - both are the quietly-wrong
-          // answer this surface is being hardened against.
-          // ?back=1 lists back room agents one by one; without it, an agent
-          // (or cron run) sees each back room as one summary entry. EXACTLY
-          // "1", and only on the live list, for the same reason as killed.
-          const backParam = url.searchParams.get("back");
-          if (
-            backParam !== null &&
-            (backParam !== "1" || url.searchParams.has("killed"))
-          ) {
-            return new Response(
-              JSON.stringify({
-                error:
-                  "back must be 1, and only without killed (omit it for front agents and one entry per back room)",
-              }),
-              {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-              },
-            );
-          }
-          const killedParam = url.searchParams.get("killed");
-          if (killedParam !== null) {
-            if (killedParam !== "1") {
-              return new Response(
-                JSON.stringify({
-                  error: "killed must be 1 (omit it for the live roster)",
-                }),
-                {
-                  status: 400,
-                  headers: { "Content-Type": "application/json" },
-                },
-              );
-            }
-            const page = parseKilledPageQuery(url.searchParams);
-            if (!page.ok) {
-              return new Response(JSON.stringify({ error: page.error }), {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-              });
-            }
-            // SCOPED LIKE THE LOG RULE, deliberately NOT like the live manifest
-            // below: the killed agent's own member (the user that spawned it), plus
-            // office owners, and NEVER a cron run. Room grants move after a kill
-            // and a dead agent's last room is a fact about the past, so the room
-            // projection the live arm uses would be the wrong question here - and
-            // it would hand out ids the log route then refuses.
-            //
-            // Mirrors killedAgentLogAccess in identity/guards.ts clause for
-            // clause, INCLUDING its cron-run denial: an AGENT identity carries its
-            // spawning user's userId (which is what lets an agent reach its own
-            // member's killed agents), but a CRON-RUN identity carries its
-            // creator's - so without this branch a cron run would out-reach the
-            // very log route this discovery feeds.
-            if (auth.identity.scope === "cron-run") {
-              return new Response(JSON.stringify({ error: "forbidden" }), {
-                status: 403,
-                headers: { "Content-Type": "application/json" },
-              });
-            }
-            const isOwner =
-              auth.identity.scope === "user" && auth.identity.role === "owner";
-            // One history load either way - the per-id killedAgentManagerUserId
-            // lookup re-reads and re-parses agent-history.json for every entry.
-            const killed = isOwner
-              ? agentManager.getKilledAgentSummaries()
-              : auth.identity.userId
-                ? agentManager.getKilledAgentSummariesForManager(
-                    auth.identity.userId,
-                  )
-                : [];
-            if (auth.identity.scope === "agent" && auth.identity.agentId) {
-              recordAgentReferenceUsage({
-                at: Date.now(),
-                agentId: auth.identity.agentId,
-                sessionId: agentManager.getCurrentSessionId(
-                  auth.identity.agentId,
-                ),
-                kind: "feature_call",
-                category: "discovery",
-                topics: ["discovery"],
-                opId: "agents.discovery",
-              });
-            }
-            return new Response(
-              JSON.stringify(
-                buildKilledManifest(
-                  pageKilledAgents(killed, page.limit, page.before),
-                ),
-                null,
-                2,
-              ),
-              { headers: { "Content-Type": "application/json" } },
-            );
-          }
-          const accessible = user
-            ? accessibleRoomIdsFor(user)
-            : new Set<string>();
-          // The receptionist (room id "lobby") is listed for every identity.
-          const manifest = agentManager
-            .getManifest()
-            .filter(
-              (e) =>
-                accessible.has(e.roomId) ||
-                agentManager.roomById(e.roomId)?.type === "lobby",
-            );
-          if (auth.identity.scope === "agent" && auth.identity.agentId) {
-            recordAgentReferenceUsage({
-              at: Date.now(),
-              agentId: auth.identity.agentId,
-              sessionId: agentManager.getCurrentSessionId(
-                auth.identity.agentId,
-              ),
-              kind: "feature_call",
-              category: "discovery",
-              topics: ["discovery"],
-              opId: "agents.discovery",
-            });
-          }
-          const collapseBackRooms =
-            (actsForAgent(auth.identity) ||
-              auth.identity.scope === "cron-run") &&
-            backParam !== "1";
-          return new Response(
-            JSON.stringify(
-              projectBackRooms(manifest, collapseBackRooms),
-              null,
-              2,
-            ),
-            { headers: { "Content-Type": "application/json" } },
-          );
-        }
+        // The app sign-in mint (apps.mintSignIn) is a GET route. Another method
+        // on its path gets the mint's neutral 404, not the SPA shell.
+        if (url.pathname === APP_MINT_PATH) return neutralNotFound();
 
         // Retired legacy surfaces: /tasks*, /cronjobs* and /backup/status. These
         // were unprefixed, loopback-trusted aliases of routes that now live on the
@@ -8133,135 +7889,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
 
-        if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
-          const agentId = url.pathname.split("/")[3];
-          // Same room check as the file read below; a denial reads as an
-          // unknown agent.
-          if (
-            !agentId ||
-            !agentManager.getAgent(agentId) ||
-            !mayReachAgentFiles(auth.identity, agentId)
-          ) {
-            return new Response(JSON.stringify({ error: "agent not found" }), {
-              status: 404,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-          try {
-            const formData = await req.formData();
-            const attachments: Attachment[] = [];
-            const MAX_FILES = 5;
-            const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
-            let totalSize = 0;
-            let fileCount = 0;
-
-            for (const [, value] of formData) {
-              if (!(value instanceof File)) continue;
-              fileCount++;
-              if (fileCount > MAX_FILES) {
-                return new Response(
-                  JSON.stringify({
-                    error: `Maximum ${MAX_FILES} files per upload`,
-                  }),
-                  {
-                    status: 400,
-                    headers: { "Content-Type": "application/json" },
-                  },
-                );
-              }
-              if (value.size > MAX_UPLOAD_BYTES) {
-                return new Response(
-                  JSON.stringify({
-                    error: `File "${value.name}" exceeds 200MB limit`,
-                  }),
-                  {
-                    status: 400,
-                    headers: { "Content-Type": "application/json" },
-                  },
-                );
-              }
-              totalSize += value.size;
-              if (totalSize > MAX_TOTAL) {
-                return new Response(
-                  JSON.stringify({ error: "Total upload exceeds 400MB limit" }),
-                  {
-                    status: 400,
-                    headers: { "Content-Type": "application/json" },
-                  },
-                );
-              }
-              const buffer = Buffer.from(await value.arrayBuffer());
-              const att = saveFile(
-                agentId,
-                buffer,
-                value.type || "application/octet-stream",
-                value.name,
-              );
-              if (att) {
-                recordAudit({
-                  actor: auditActor(
-                    auth.identity,
-                    attributionFor(auth.identity).createdBy,
-                  ),
-                  operation: "uploads.legacy",
-                  targets: [agentId, `${agentId}/${att.filename}`],
-                  fields: [],
-                });
-                attachments.push(att);
-              }
-            }
-            return new Response(JSON.stringify({ attachments }), {
-              headers: { "Content-Type": "application/json" },
-            });
-          } catch (err) {
-            return new Response(
-              JSON.stringify({ error: errMessage(err, "Upload failed") }),
-              {
-                status: 500,
-                headers: { "Content-Type": "application/json" },
-              },
-            );
-          }
-        }
-
-        if (
-          url.pathname.startsWith("/api/files/") ||
-          url.pathname.startsWith("/api/images/")
-        ) {
-          const parts = url.pathname.split("/").filter(Boolean);
-          const agentId = parts[2];
-          // Decode the filename: the browser percent-encodes spaces and other
-          // characters, but getFilePath needs the real on-disk name. A malformed
-          // %xx must not throw the dispatch, so fall back to the raw segment.
-          let filename = parts[3];
-          if (filename) {
-            try {
-              filename = decodeURIComponent(filename);
-            } catch {}
-          }
-          if (!agentId || !filename) {
-            return new Response("Not found", { status: 404 });
-          }
-          // The chat UI links every agent file here. A denial reads as a
-          // miss, so the response does not show which agents exist.
-          const filePath = mayReachAgentFiles(auth.identity, agentId)
-            ? getFilePath(agentId, filename)
-            : null;
-          if (!filePath) {
-            return new Response("Not found", { status: 404 });
-          }
-          return new Response(Bun.file(filePath), {
-            headers: {
-              ...untrustedFileHeaders(),
-              "Content-Type": httpContentTypeForFilename(filename),
-            },
-          });
-        }
-
-        // An /api path that no route or legacy handler took is a wrong or
-        // retired route: answer the executor's own 404 envelope, not the SPA
-        // shell's 200 text/html. Matched after one %2f decode, as the retired
-        // wall above is, so `/api%2fx` cannot reach the shell.
+        // An /api path that no route took is a wrong or retired route: answer
+        // the executor's own 404 envelope, not the SPA shell's 200 text/html.
+        // Matched after one %2f decode, as the retired wall above is, so
+        // `/api%2fx` cannot reach the shell.
         if (url.pathname.replace(/%2f/gi, "/").startsWith("/api/")) {
           return errorResponse(404, "not_found");
         }

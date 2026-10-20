@@ -66,7 +66,7 @@ describe("routes/auth: cookie wall (Phase 1.4b)", () => {
     server = srv;
     const res = await srv.http("/api/files/ghost/x.txt");
     expect(res.status).toBe(401);
-    expect((await res.json()).error).toBe("unauthenticated");
+    expect((await res.json()).error.code).toBe("unauthenticated");
   });
 
   it("POST /api/upload without a cookie -> 401 unauthenticated", async () => {
@@ -74,17 +74,17 @@ describe("routes/auth: cookie wall (Phase 1.4b)", () => {
     server = srv;
     const res = await srv.http("/api/upload/ghost", { method: "POST" });
     expect(res.status).toBe(401);
-    expect((await res.json()).error).toBe("unauthenticated");
+    expect((await res.json()).error.code).toBe("unauthenticated");
   });
 
-  it("a valid cookie clears the wall (GET /api/files -> 404, not 401)", async () => {
+  it("a valid cookie clears the wall (GET /api/files -> 403 for an unknown agent, not 401)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const res = await srv.http("/api/files/ghost/x.txt", {
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(404); // reached the handler; file just doesn't exist
+    expect(res.status).toBe(403); // reached the guard; no such agent
   });
 });
 
@@ -149,7 +149,7 @@ describe("routes/auth: 401 shape by Accept (Phase 1.4b)", () => {
     });
     expect(res.status).toBe(401);
     expect(res.headers.get("content-type")).toContain("application/json");
-    expect((await res.json()).error).toBe("unauthenticated");
+    expect((await res.json()).error.code).toBe("unauthenticated");
   });
 
   it("Accept: text/html -> 401 login HTML (same unauthorized() helper)", async () => {
@@ -158,11 +158,17 @@ describe("routes/auth: 401 shape by Accept (Phase 1.4b)", () => {
     // Use a cookie-walled path so the unauthorized() branch is exercised
     // independent of office-claim state (a fresh, unclaimed office serves an
     // open bootstrap page at "/" - that is an onboarding concern, not auth).
-    const res = await srv.http("/api/files/ghost/x.txt", {
-      headers: { Accept: "text/html" },
-    });
-    expect(res.status).toBe(401);
-    expect(res.headers.get("content-type")).toContain("text/html");
+    //
+    // A table route answers a browser navigation the same way: the chat links
+    // attachments under /api/files, and a signed-out member who opens one gets
+    // the login page, not a JSON envelope (task d0d38eb9).
+    for (const path of ["/api/files/ghost/x.txt", "/agents", "/api/tasks"]) {
+      const res = await srv.http(path, {
+        headers: { Accept: "text/html" },
+      });
+      expect({ path, status: res.status }).toEqual({ path, status: 401 });
+      expect(res.headers.get("content-type")).toContain("text/html");
+    }
   });
 });
 
@@ -173,15 +179,15 @@ describe("routes/auth: 401 shape by Accept (Phase 1.4b)", () => {
 // bearer clears the cookie wall anywhere authenticate() gates - acceptable only
 // because the token is a bearer secret injected into local subprocess env.
 describe("routes/auth: bearer alongside cookie (Phase 2.1, additive)", () => {
-  it("a valid AGENT bearer token clears the cookie wall (GET /api/files -> 404, not 401)", async () => {
+  it("a valid AGENT bearer token clears the cookie wall (GET /api/files -> 403 for an unknown agent, not 401)", async () => {
     const srv = await startTestServer();
     server = srv;
     const raw = mintAgentToken("agent-bearer-1", "user-1");
     const res = await srv.http("/api/files/ghost/x.txt", {
       headers: { Authorization: `Bearer ${raw}` },
     });
-    // Reached the handler (file just doesn't exist) instead of the 401 wall.
-    expect(res.status).toBe(404);
+    // Reached the guard (no such agent) instead of the 401 wall.
+    expect(res.status).toBe(403);
   });
 
   it("an invalid/garbage bearer is IGNORED: a cookie-walled path still 401 (no new rejection)", async () => {
@@ -191,7 +197,7 @@ describe("routes/auth: bearer alongside cookie (Phase 2.1, additive)", () => {
       headers: { Authorization: "Bearer not-a-real-token" },
     });
     expect(res.status).toBe(401);
-    expect((await res.json()).error).toBe("unauthenticated");
+    expect((await res.json()).error.code).toBe("unauthenticated");
   });
 
   it("a garbage bearer on a retired prefix is still 401, not a bypass", async () => {

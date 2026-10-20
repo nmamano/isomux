@@ -38,10 +38,12 @@ import {
 import type { IdempotencyCache } from "../transport/idempotency.ts";
 import { readPlainTextForm } from "../../shared/plain-text-form.ts";
 
-// A typed union so resource handlers never construct a Response directly; the
-// executor renders it (status, envelope, idempotency storage). `file` is for
-// byte/stream responses (agents.getFile); everything else is JSON / no-content /
-// an error envelope.
+// A typed union so resource handlers do not construct a Response; the executor
+// renders it (status, envelope, idempotency storage). `file` is for byte/stream
+// responses (agents.getFile); `response` is the one exception, for the browser
+// handshake of apps.mintSignIn only, whose plain-text bodies, 302 and
+// Referrer-Policy come from server/app-host-responses.ts, shared with the app
+// hosts. Everything else is JSON / no-content / an error envelope.
 export type HandlerErrorStatus =
   | 400
   | 401
@@ -65,6 +67,7 @@ export type HandlerResult =
       headers?: Record<string, string>;
     }
   | { kind: "noContent" }
+  | { kind: "response"; response: Response }
   | {
       kind: "file";
       path: string;
@@ -176,6 +179,8 @@ function render(result: HandlerResult): Response {
       });
     case "noContent":
       return new Response(null, { status: 204 });
+    case "response":
+      return result.response;
     case "bytes":
       return new Response(result.body, {
         status: 200,

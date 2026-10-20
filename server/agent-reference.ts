@@ -52,6 +52,7 @@ export const PRIVILEGED_REFERENCE_TOPICS: ReadonlySet<AgentReferenceTopic> =
 export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   Record<string, AgentReferenceTopic>
 > = {
+  "agents.discovery": "discovery",
   "agents.spawn": "agent-management",
   "agents.kill": "agent-management",
   "agents.revive": "agent-management",
@@ -211,6 +212,10 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "agents.closeFile": "Human editor transport route.",
   "agents.upload": "Human chat upload transport route.",
   "agents.getFile": "Human chat attachment transport route.",
+  "chatFiles.upload": "Human chat upload transport route.",
+  "chatFiles.get": "Human chat attachment transport route.",
+  "chatFiles.getImage": "Human chat attachment transport route.",
+  "apps.mintSignIn": "Browser sign-in redirect for app hostnames.",
   "sessions.logout": "Cookie-session route; agent authorization is not useful.",
   "validate.cwd": "Human form validation route.",
   "validate.env": "Human form validation route.",

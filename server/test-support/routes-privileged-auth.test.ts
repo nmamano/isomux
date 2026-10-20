@@ -72,6 +72,9 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     // setPrivileged (i-b) tests, which override per case).
     agentManagerUserId: () => member.userId,
     killedAgentManagerUserId: () => null,
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
     ...over,
   };
 }

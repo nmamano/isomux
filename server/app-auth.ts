@@ -641,7 +641,7 @@ function liveAppByLabel(
 export function handleAppMintRequest(
   req: Request,
   url: URL,
-  session: SessionLookup,
+  session: Pick<SessionLookup, "userId" | "sessionIdHash">,
   opts: {
     appHostDomain: string | null;
     registry?: AppRegistry;

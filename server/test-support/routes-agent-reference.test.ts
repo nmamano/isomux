@@ -277,6 +277,34 @@ describe("agent reference routes", () => {
     });
     expect(events[1].topics).toContain("scheduled-messages");
   });
+
+  // GET /agents is the discovery feature call, on both rosters. A rejected
+  // call is not a feature call.
+  it("records each successful GET /agents by an agent under discovery", async () => {
+    const { srv, agent, token } = await setup();
+    const headers = { Authorization: `Bearer ${token}` };
+    for (const query of ["", "?killed=1", "?killed=0", "?back=2"]) {
+      const res = await fetch(`${srv.baseUrl}/agents${query}`, { headers });
+      expect({ query, status: res.status }).toEqual({
+        query,
+        status: query === "" || query === "?killed=1" ? 200 : 400,
+      });
+    }
+    const events = readFileSync(AGENT_REFERENCE_USAGE_LOG, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const mine = events.filter((event) => event.agentId === agent.id);
+    expect(mine).toHaveLength(2);
+    for (const event of mine) {
+      expect(event).toMatchObject({
+        kind: "feature_call",
+        category: "discovery",
+        opId: "agents.discovery",
+      });
+      expect(event.topics).toContain("discovery");
+    }
+  });
 });
 
 describe("agent reference usage events", () => {

@@ -156,7 +156,7 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
 });
 
 describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
-  it("upload to an unknown agent -> 404 agent not found", async () => {
+  it("upload to an unknown agent -> 403, the same as a denial", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -167,11 +167,11 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
       body: fd,
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(404);
-    expect((await res.json()).error).toBe("agent not found");
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("forbidden");
   });
 
-  it("more than 5 files -> 400 Maximum 5 files per upload", async () => {
+  it("more than 5 files -> 400 too_many_files", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -187,7 +187,7 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("Maximum 5 files per upload");
+    expect((await res.json()).error.code).toBe("too_many_files");
   });
 
   it("small upload returns attachments, then GET /api/files serves the bytes; unknown filename -> 404", async () => {

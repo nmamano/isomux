@@ -48,6 +48,9 @@ const deps: GuardDeps = {
   isOfficeOwnerUserId: () => false,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,
+  killedAgentLastRoomId: () => null,
+  roomExists: () => false,
+  cronRunVisibleTo: () => false,
 };
 
 const allowGuard: Guard = () => ({ ok: true });

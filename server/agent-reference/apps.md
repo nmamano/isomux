@@ -19,7 +19,7 @@ An app token cannot use these routes, even with a live owner agent:
 - cron create, run-now and run messages
 - the agent reference
 - logout and env validation
-- the legacy file routes under `/api/upload/`, `/api/files/` and `/api/images/`
+- the chat file routes under `/api/upload/`, `/api/files/` and `/api/images/`
 
 When a person must act and the agent may be down, the app server can page its owner instead: `POST /api/app/pager` with `{title, body?, key?}`, and `POST /api/app/pager/resolve` with `{id}` or `{key}` when the problem is gone. Same token. The `pager` reference has the details.
 

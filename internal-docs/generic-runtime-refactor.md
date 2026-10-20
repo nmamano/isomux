@@ -252,8 +252,12 @@ The editor is request/response, so it is REST (unlike the interactive terminal).
 
 | opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
 |---|---|---|---|---|---|---|---|
-| `agents.upload` | POST `/api/agents/:id/uploads` | `file:upload` | `requiresRoomAccess(:id)` | multipart (≤5 files, 200MB each, 400MB total) | `{ attachments: Attachment[] }` | - | HTTP:POST /api/upload/:agentId `[strangle]` |
-| `agents.getFile` | GET `/api/agents/:id/files/:filename` | `office:read` | `requiresRoomAccess(:id)` | - | file bytes | - | HTTP:GET /api/files/:agentId/:filename `[behavior-change]` now room-ACL-gated, not public-with-cookie |
+| `agents.upload` | POST `/api/agents/:id/uploads` | `file:upload` | `requiresRoomAccess(:id)` | multipart (≤5 files, 200MB each, 400MB total) | `{ attachments: Attachment[] }` | - | no UI caller; the chat uses `chatFiles.upload` |
+| `agents.getFile` | GET `/api/agents/:id/files/:filename` | `office:read` | `requiresRoomAccess(:id)` | - | file bytes | - | no UI caller; the chat uses `chatFiles.get` |
+| `chatFiles.upload` | POST `/api/upload/:id` | - | `authenticated` ∧ `agentFilesUpload` (live agent, room access) | as `agents.upload` | as `agents.upload` | - | the chat UI's upload; app and API tokens refused |
+| `chatFiles.get` / `chatFiles.getImage` | GET `/api/files/:id/:filename`, `/api/images/:id/:filename` | - | `authenticated` ∧ `agentFilesRead` (live agent: room; killed: last room, owners once it is gone; cron run stream: job visibility) | - | file bytes | - | the chat UI's links; `/api/images` for older transcripts |
+
+GET `/agents` (`agents.discovery`, guard `agentDirectoryReader`) and GET `/auth/app` (`apps.mintSignIn`, guard `userScope`) are the two table rows outside `/api`. A rejected request to any row gets the wall's login page when it is a browser navigation, else the `/api` envelope.
 
 **Rooms**
 

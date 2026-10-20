@@ -369,7 +369,7 @@ describe("routes/uploads REST: agent files cannot run as office content", () => 
 });
 
 describe("routes/uploads REST: legacy /api/files + /api/images follow room access", () => {
-  it("a member without access gets the same 404 as a miss; a grant opens it", async () => {
+  it("a member without access is refused whether or not the file exists; a grant opens it", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -382,15 +382,16 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
       `/api/files/${agent.id}/${name}`,
       `/api/images/${agent.id}/${name}`,
     ];
-    for (const path of legacyPaths(att.filename)) {
-      const denied = await srv.http(path, {
-        rawSessionId: member.rawSessionId,
-      });
-      expect(denied.status).toBe(404);
-    }
-    for (const path of legacyPaths("missing.txt")) {
-      const miss = await srv.http(path, { rawSessionId: member.rawSessionId });
-      expect(miss.status).toBe(404);
+    // A denial does not show whether the file exists: both answers are the
+    // same refusal.
+    for (const name of [att.filename, "missing.txt"]) {
+      for (const path of legacyPaths(name)) {
+        const denied = await srv.http(path, {
+          rawSessionId: member.rawSessionId,
+        });
+        expect(denied.status).toBe(403);
+        expect((await denied.json()).error.code).toBe("forbidden");
+      }
     }
 
     updateUserById(getUserByName("Mallory")!.id, { allowedRooms: [room.id] });
@@ -399,9 +400,14 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
       expect(got.status).toBe(200);
       expect(await got.text()).toBe("s");
     }
+    // With access, a miss is a miss.
+    for (const path of legacyPaths("missing.txt")) {
+      const miss = await srv.http(path, { rawSessionId: member.rawSessionId });
+      expect(miss.status).toBe(404);
+    }
   });
 
-  it("an unknown agent id is a 404 even when its files dir exists", async () => {
+  it("an unknown agent id is refused like a denial, even when its files dir exists", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -414,7 +420,8 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
     const res = await srv.http(`/api/files/agent-gone/${att.filename}`, {
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("forbidden");
   });
 
   it("a cronjob run's files follow the job's room: a member of it reads them; another member and an ordinary agent do not", async () => {
@@ -452,11 +459,11 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
     expectSandboxed(got);
 
     const denied = await srv.http(path, { rawSessionId: other.rawSessionId });
-    expect(denied.status).toBe(404);
+    expect(denied.status).toBe(403);
     const byAgent = await srv.http(path, {
       headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)!}` },
     });
-    expect(byAgent.status).toBe(404);
+    expect(byAgent.status).toBe(403);
   });
 });
 
@@ -479,7 +486,7 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
     expect(await got.text()).toBe("k");
     expectSandboxed(got);
     const denied = await srv.http(path, { rawSessionId: other.rawSessionId });
-    expect(denied.status).toBe(404);
+    expect(denied.status).toBe(403);
   });
 
   it("once that room is gone, only office owners read them", async () => {
@@ -497,7 +504,7 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
     const path = `/api/files/${agent.id}/${att.filename}`;
 
     const denied = await srv.http(path, { rawSessionId: member.rawSessionId });
-    expect(denied.status).toBe(404);
+    expect(denied.status).toBe(403);
     const got = await srv.http(path, { rawSessionId: owner.rawSessionId });
     expect(got.status).toBe(200);
     expect(await got.text()).toBe("k");
@@ -505,7 +512,7 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
 });
 
 describe("routes/uploads REST: legacy /api/upload follows room access", () => {
-  it("a member without access gets the unknown-agent 404; a grant opens it", async () => {
+  it("a member without access gets the unknown-agent refusal; a grant opens it", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -528,13 +535,79 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
     });
 
     const denied = await legacyUpload();
-    expect(denied.status).toBe(404);
+    expect(unknown.status).toBe(403);
+    expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual(await unknown.json());
 
     updateUserById(getUserByName("Mallory")!.id, { allowedRooms: [room.id] });
     const allowed = await legacyUpload();
     expect(allowed.status).toBe(200);
     expect(((await allowed.json()).attachments as unknown[]).length).toBe(1);
+  });
+
+  // Reading follows a killed agent's last room and a run's job, but an upload
+  // goes to a live agent only: nobody can attach a file to a chat that has
+  // ended.
+  it("refuses an upload to a killed agent or a cronjob run, even for an office owner", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const job = srv.cronjobManager.addCronjob({
+      name: "Nightly",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "p",
+      cwd: srv.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: "Boss",
+      userId: getUserByName("Boss")!.id,
+      roomId: room.id,
+    });
+    saveRuns(job.id, [
+      { id: "run1", cronjobId: job.id, startedAt: 1 } as unknown as CronjobRun,
+    ]);
+    const upload = async (id: string): Promise<Response> => {
+      const fd = new FormData();
+      fd.append("file", new File(["u"], "u.txt", { type: "text/plain" }));
+      return srv.http(`/api/upload/${id}`, {
+        method: "POST",
+        body: fd,
+        rawSessionId: owner.rawSessionId,
+      });
+    };
+    // The enabling condition: the owner uploads to the live agent, and reads
+    // the run's and (below) the killed agent's files.
+    expect((await upload(agent.id)).status).toBe(200);
+    const unknown = await upload("agent-unknown");
+    expect(unknown.status).toBe(403);
+    const unknownBody = await unknown.json();
+
+    const stream = cronjobRunStreamId("run1");
+    const runFile = saveFile(stream, Buffer.from("r"), "text/plain", "r.txt")!;
+    expect(
+      (
+        await srv.http(`/api/files/${stream}/${runFile.filename}`, {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(200);
+    const run = await upload(stream);
+    expect(run.status).toBe(403);
+    expect(await run.json()).toEqual(unknownBody);
+
+    const att = saveFile(agent.id, Buffer.from("k"), "text/plain", "k.txt")!;
+    await srv.agentManager.kill(agent.id);
+    const read = await srv.http(`/api/files/${agent.id}/${att.filename}`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(read.status).toBe(200);
+    const killed = await upload(agent.id);
+    expect(killed.status).toBe(403);
+    expect(await killed.json()).toEqual(unknownBody);
   });
 });
 it("audits each saved multipart file when the sixth file is rejected, including legacy uploads", async () => {
@@ -549,7 +622,7 @@ it("audits each saved multipart file when the sixth file is rejected, including 
   );
   for (const [path, operation] of [
     [`/api/agents/${agent.id}/uploads`, "agents.upload"],
-    [`/api/upload/${agent.id}`, "uploads.legacy"],
+    [`/api/upload/${agent.id}`, "chatFiles.upload"],
   ]) {
     const form = new FormData();
     for (let n = 0; n < 6; n++)

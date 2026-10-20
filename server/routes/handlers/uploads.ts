@@ -1,16 +1,15 @@
 import { savedFileAudit } from "../audit.ts";
-// Upload + file-serving handlers. The two browser-facing
-// file routes on the unified REST surface (opIds agents.upload / agents.getFile).
+// Upload + file-serving handlers for chat attachments. Two route pairs share
+// the same bodies and differ in their guards (server/routes/table.ts):
 //
-// agents.upload  POST /api/agents/:id/uploads  - `file:upload` + requiresRoomAccess(:id)
-// agents.getFile GET  /api/agents/:id/files/:filename - `office:read` + requiresRoomAccess(:id)
+// chatFiles.upload  POST /api/upload/:id, chatFiles.get / chatFiles.getImage
+// GET /api/files|images/:id/:filename - the paths the chat UI links. Any office
+// identity but apps and API tokens; agentFilesUpload / agentFilesRead decide
+// by room (killed agents and cronjob run streams included for reads).
 //
-// Both are USER surfaces (the agent-identity capabilities omit file:upload /
-// office:read), gated by room access. The legacy /api/upload/:agentId +
-// /api/files + /api/images keep their paths (the chat UI and cronjob runs
-// still use them, and they apply the same room check); these new routes
-// don't collide (distinct path shapes) and delegate to the SAME persistence
-// helpers.
+// agents.upload  POST /api/agents/:id/uploads - `file:upload` + room access
+// agents.getFile GET  /api/agents/:id/files/:filename - `office:read` + room
+// access. Live agents only; no caller in the UI.
 //
 // Limits: 5 files / 200MB each / 400MB total
 // - matching the legacy route + the saveFile MAX_UPLOAD_BYTES storage backstop.
@@ -21,8 +20,8 @@ import { savedFileAudit } from "../audit.ts";
 // neither reads nor hashes the body), which is the right call for uploads here.
 //
 // LEAF over the executor + shared types. UploadsDeps is narrow: the persistence
-// helpers only. The guard owns access; getFilePath owns path-traversal safety. No
-// agent/room state reaches the handler.
+// helpers only. The guards own access; getFilePath owns path-traversal safety.
+// No agent/room state reaches the handler.
 
 import { ok, fail, file, type RouteHandler } from "../executor.ts";
 import type { Attachment } from "../../../shared/types.ts";
@@ -48,70 +47,78 @@ export interface UploadsDeps {
 export function uploadsHandlers(
   deps: UploadsDeps,
 ): Record<string, RouteHandler> {
-  return {
-    "agents.upload": async (ctx) => {
-      // Agent existence is covered by requiresRoomAccess(:id): an unknown agent
-      // resolves to a null room and denies as a generic 403, so the handler needs
-      // no agent lookup - it only enforces limits + persists.
-      let formData: FormData;
-      try {
-        formData = await ctx.req.formData();
-      } catch {
-        return fail(400, "invalid_request", "expected multipart/form-data");
-      }
-      const attachments: Attachment[] = [];
-      let fileCount = 0;
-      let totalSize = 0;
-      for (const [, value] of formData) {
-        if (!(value instanceof File)) continue;
-        fileCount++;
-        if (fileCount > MAX_FILES) {
-          return fail(
-            400,
-            "too_many_files",
-            `Maximum ${MAX_FILES} files per upload`,
-          );
-        }
-        if (value.size > MAX_UPLOAD_BYTES) {
-          return fail(
-            400,
-            "file_too_large",
-            `File "${value.name}" exceeds 200MB limit`,
-          );
-        }
-        totalSize += value.size;
-        if (totalSize > MAX_TOTAL) {
-          return fail(
-            400,
-            "upload_too_large",
-            "Total upload exceeds 400MB limit",
-          );
-        }
-        const buffer = Buffer.from(await value.arrayBuffer());
-        const att = deps.saveFile(
-          ctx.params.id,
-          buffer,
-          value.type || "application/octet-stream",
-          value.name,
+  const upload: RouteHandler = async (ctx) => {
+    // Agent existence is covered by requiresRoomAccess(:id): an unknown agent
+    // resolves to a null room and denies as a generic 403, so the handler needs
+    // no agent lookup - it only enforces limits + persists.
+    let formData: FormData;
+    try {
+      formData = await ctx.req.formData();
+    } catch {
+      return fail(400, "invalid_request", "expected multipart/form-data");
+    }
+    const attachments: Attachment[] = [];
+    let fileCount = 0;
+    let totalSize = 0;
+    for (const [, value] of formData) {
+      if (!(value instanceof File)) continue;
+      fileCount++;
+      if (fileCount > MAX_FILES) {
+        return fail(
+          400,
+          "too_many_files",
+          `Maximum ${MAX_FILES} files per upload`,
         );
-        if (att) {
-          savedFileAudit(`${ctx.params.id}/${att.filename}`);
-          attachments.push(att);
-        }
       }
-      return ok({ attachments });
-    },
-
-    "agents.getFile": (ctx) => {
-      // getFilePath is the ONLY resolver: it blocks path traversal and serves
-      // both the files/ dir and the legacy images/ fallback. A miss is a 404.
-      const filePath = deps.getFilePath(ctx.params.id, ctx.params.filename);
-      if (!filePath) return fail(404, "not_found");
-      return file(
-        filePath,
-        deps.contentTypeFor(ctx.params.filename),
-        deps.untrustedFileHeaders(),
+      if (value.size > MAX_UPLOAD_BYTES) {
+        return fail(
+          400,
+          "file_too_large",
+          `File "${value.name}" exceeds 200MB limit`,
+        );
+      }
+      totalSize += value.size;
+      if (totalSize > MAX_TOTAL) {
+        return fail(
+          400,
+          "upload_too_large",
+          "Total upload exceeds 400MB limit",
+        );
+      }
+      const buffer = Buffer.from(await value.arrayBuffer());
+      const att = deps.saveFile(
+        ctx.params.id,
+        buffer,
+        value.type || "application/octet-stream",
+        value.name,
       );
-    },
+      if (att) {
+        savedFileAudit(`${ctx.params.id}/${att.filename}`);
+        attachments.push(att);
+      }
+    }
+    return ok({ attachments });
+  };
+
+  const getFile: RouteHandler = (ctx) => {
+    // getFilePath is the ONLY resolver: it blocks path traversal and serves
+    // both the files/ dir and the legacy images/ fallback. A miss is a 404.
+    const filePath = deps.getFilePath(ctx.params.id, ctx.params.filename);
+    if (!filePath) return fail(404, "not_found");
+    return file(
+      filePath,
+      deps.contentTypeFor(ctx.params.filename),
+      deps.untrustedFileHeaders(),
+    );
+  };
+
+  return {
+    "agents.upload": upload,
+    "agents.getFile": getFile,
+    // The paths the chat UI links. Same bodies; the guards differ (see the
+    // route table).
+    "chatFiles.upload": upload,
+    "chatFiles.get": getFile,
+    "chatFiles.getImage": getFile,
   };
 }

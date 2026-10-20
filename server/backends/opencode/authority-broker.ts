@@ -324,13 +324,7 @@ export class OpenCodeAuthorityBroker {
       request.method,
       request.url.pathname,
     );
-    // Discovery is the only agent endpoint outside API_ROUTES.
-    const manifest =
-      request.method === "GET" && request.url.pathname === "/agents";
-    if (
-      !manifest &&
-      (!matched || !passesRouteStageOne(matched.route.auth, AGENT_CEILING))
-    )
+    if (!matched || !passesRouteStageOne(matched.route.auth, AGENT_CEILING))
       return httpResponse(
         403,
         "This Isomux API route is not available through OpenCode.",

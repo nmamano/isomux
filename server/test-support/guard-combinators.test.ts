@@ -23,6 +23,9 @@ const deps: GuardDeps = {
   isOfficeOwnerUserId: () => false,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,
+  killedAgentLastRoomId: () => null,
+  roomExists: () => false,
+  cronRunVisibleTo: () => false,
 };
 const identity: Identity = {
   scope: "user",

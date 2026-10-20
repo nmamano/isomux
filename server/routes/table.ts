@@ -59,6 +59,9 @@ import {
   requiresRoomAccess,
   agentParamMustEqualTokenAgent,
   agentManagerMatch,
+  agentDirectoryReader,
+  agentFilesRead,
+  agentFilesUpload,
   messageSend,
   agentAbort,
   scheduledMessagesOwner,
@@ -457,6 +460,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agent-reference/:topic",
     auth: authn(agentReferenceReader),
+    emits: [],
+  }),
+  // The office directory. Path outside /api on purpose: every agent, skill
+  // and prompt calls /agents.
+  defineRoute<void, unknown>({
+    opId: "agents.discovery",
+    method: "GET",
+    path: "/agents",
+    auth: authn(agentDirectoryReader),
     emits: [],
   }),
   defineRoute<SpawnReq, AgentEnvelope>({
@@ -990,6 +1002,32 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/files/:filename",
     auth: cap("office:read", agentParam("id")),
+    emits: [],
+  }),
+
+  // Chat attachments, the paths the chat UI links. App and API tokens stay
+  // out (`authenticated`); opening them is a separate decision.
+  defineRoute<unknown, { attachments: Attachment[] }>({
+    opId: "chatFiles.upload",
+    audit: { owner: "store" },
+    method: "POST",
+    path: "/api/upload/:id",
+    auth: authn(and(authenticated, agentFilesUpload)),
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "chatFiles.get",
+    method: "GET",
+    path: "/api/files/:id/:filename",
+    auth: authn(and(authenticated, agentFilesRead)),
+    emits: [],
+  }),
+  // Older transcripts link images here.
+  defineRoute<void, unknown>({
+    opId: "chatFiles.getImage",
+    method: "GET",
+    path: "/api/images/:id/:filename",
+    auth: authn(and(authenticated, agentFilesRead)),
     emits: [],
   }),
 
@@ -2159,6 +2197,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/pager/:id/resolve",
     auth: cap("pager:write", operationalAuthenticated),
     emits: ["pager_upserted"],
+  }),
+
+  // The app sign-in mint (server/app-auth.ts): a signed-in member's browser
+  // gets a single-use code for one app hostname. Cookie users only.
+  defineRoute<void, unknown>({
+    opId: "apps.mintSignIn",
+    method: "GET",
+    path: "/auth/app",
+    auth: authn(userScope),
+    emits: [],
   }),
 
   // The registry: register an app by name, isomux allocates the port. Ownership

@@ -82,6 +82,17 @@ export interface GuardDeps {
   // it reads the killed list, and every route that does not want dead agents in
   // scope simply does not ask for it.
   killedAgentManagerUserId(agentId: string): string | null;
+  // The room a KILLED agent was last in, or null when `agentId` is live,
+  // unknown, or has no recorded room. The room may since have been closed:
+  // ask roomExists.
+  killedAgentLastRoomId(agentId: string): string | null;
+  // Whether `roomId` names a live room (the lobby included).
+  roomExists(roomId: string): boolean;
+  // Whether `streamId` is a cronjob run's chat stream (cronrun-<runId>) that
+  // this identity may see: its job's visibility. False for an unknown run and
+  // for any id that is not a run stream; a run whose job is gone is office
+  // owners' only.
+  cronRunVisibleTo(identity: Identity, streamId: string): boolean;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer; contract
@@ -173,6 +184,49 @@ export const operationalAuthenticated: Guard = ({ identity }) =>
 // On-demand agent references are useful to humans, remote API-token callers,
 // and agents. Cron runs have their own prompt contract; app code gets one
 // purpose-built route and must not gain general office documentation.
+// GET /agents, the office directory: every office identity, an app only with a
+// live owner agent (it reads the directory as that agent does), and an API
+// token only with api:discover-agents.
+export const agentDirectoryReader: Guard = (ctx) => {
+  const gate = operationalAuthenticated(ctx);
+  if (!gate.ok) return gate;
+  return ctx.identity.scope !== "api" ||
+    identityHasCapability(ctx.identity, "api:discover-agents")
+    ? ALLOW
+    : FORBIDDEN;
+};
+
+// Chat attachments of `:id` (GET /api/files, /api/images). A live agent's
+// files follow its room. A killed agent's follow the room it was last in, and
+// office owners' only once that room is gone. A `cronrun-<runId>` stream
+// follows its job's visibility. Anything else denies, the same as no access.
+export const agentFilesRead: Guard = ({ identity, params, deps }) => {
+  // As in requiresRoomAccess: an ownerless app's userId is its owner's.
+  if (identity.scope === "app" && !actsForAgent(identity)) return FORBIDDEN;
+  const streamId = params.id;
+  if (!streamId) return FORBIDDEN;
+  const liveRoomId = deps.roomIdForAgent(streamId);
+  if (liveRoomId !== null) {
+    return deps.hasRoomAccess(identity, liveRoomId) ? ALLOW : FORBIDDEN;
+  }
+  const killedRoomId = deps.killedAgentLastRoomId(streamId);
+  if (killedRoomId !== null) {
+    if (deps.roomExists(killedRoomId)) {
+      return deps.hasRoomAccess(identity, killedRoomId) ? ALLOW : FORBIDDEN;
+    }
+    return identity.userId !== null && deps.isOfficeOwnerUserId(identity.userId)
+      ? ALLOW
+      : FORBIDDEN;
+  }
+  return deps.cronRunVisibleTo(identity, streamId) ? ALLOW : FORBIDDEN;
+};
+
+// Chat upload to `:id` (POST /api/upload): a live agent only, by its room.
+export const agentFilesUpload: Guard = requiresRoomAccess({
+  kind: "paramAgentId",
+  name: "id",
+});
+
 export const agentReferenceReader: Guard = ({ identity }) =>
   identity.scope === "user" ||
   identity.scope === "api" ||
