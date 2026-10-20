@@ -1585,4 +1585,172 @@ describe("ProviderAccountManager", () => {
       });
     });
   }
+
+  // The Codex card names where the viewer's agents get OPENAI_API_KEY, which
+  // Codex uses over a stored sign-in (task a704657a). The source is the
+  // viewer's, read on every read, on Codex wires only.
+  describe("Codex API key source", () => {
+    type Source = ReturnType<
+      NonNullable<ConstructorParameters<typeof ProviderAccountManager>[16]>
+    >;
+    const keyManager = (options: {
+      source: (userId: string) => Source;
+      personalActive?: boolean;
+      codex?: () => unknown;
+    }) => {
+      let probes = 0;
+      const codex =
+        options.codex ??
+        (() => ({
+          start: async () => {
+            probes++;
+          },
+          read: async () => ({ connected: true, email: "office@example.com" }),
+          close: async () => {},
+        }));
+      const manager = new ProviderAccountManager(
+        () => {},
+        codex as never,
+        undefined,
+        (id) => id,
+        () => ({}),
+        disconnectedAccountClient as never,
+        () => ({}),
+        () => ({}),
+        () => ({}),
+        () => [
+          { id: "user-a", name: "Ana" },
+          { id: "user-b", name: "Ben" },
+        ],
+        (id, provider) => `/tmp/api-key-source-personal-${provider}-${id}`,
+        (id, provider) => `/tmp/api-key-source-personal-${provider}-${id}`,
+        () => options.personalActive ?? true,
+        () => {},
+        () => {},
+        undefined,
+        options.source,
+      );
+      return { manager, probes: () => probes };
+    };
+    const sources = (
+      accounts: Array<{
+        provider: string;
+        scope: string;
+        apiKeySource?: string;
+      }>,
+    ) =>
+      Object.fromEntries(
+        accounts.map((account) => [
+          `${account.provider}:${account.scope}`,
+          account.apiKeySource ?? null,
+        ]),
+      );
+
+    for (const personalActive of [true, false]) {
+      it(`follows the viewer's source on every read, warm cache included (personal ${personalActive ? "active" : "inactive"})`, async () => {
+        let current: Source = "member_variable";
+        const { manager, probes } = keyManager({
+          source: () => current,
+          personalActive,
+        });
+        const first = await manager.list("user-a");
+        expect(sources(first)).toEqual({
+          "codex:office": "member_variable",
+          "codex:personal": "member_variable",
+          "claude:office": null,
+          "claude:personal": null,
+        });
+        // The probe still reports the stored sign-in.
+        expect(
+          first.find((a) => a.provider === "codex" && a.scope === "office"),
+        ).toMatchObject({ accountStatus: "connected" });
+        const probed = probes();
+        expect(probed).toBeGreaterThan(0);
+
+        current = "office_secret";
+        const second = await manager.list("user-a");
+        expect(probes()).toBe(probed);
+        expect(sources(second)["codex:office"]).toBe("office_secret");
+        expect(sources(second)["codex:personal"]).toBe("office_secret");
+        expect(sources(manager.cachedList("user-a")!)).toEqual({
+          "codex:office": "office_secret",
+          "codex:personal": "office_secret",
+          "claude:office": null,
+          "claude:personal": null,
+        });
+
+        current = null;
+        const third = await manager.list("user-a");
+        expect(probes()).toBe(probed);
+        for (const account of [...third, ...manager.cachedList("user-a")!])
+          expect("apiKeySource" in account).toBe(false);
+      });
+    }
+
+    it("leaves the field off when the source cannot be read", async () => {
+      const { manager } = keyManager({
+        source: () => {
+          throw new Error("env file waits for import");
+        },
+      });
+      const accounts = await manager.list("user-a");
+      expect(accounts).toHaveLength(4);
+      expect(
+        accounts.find((a) => a.provider === "codex" && a.scope === "office"),
+      ).toMatchObject({ accountStatus: "connected" });
+      const cached = manager.cachedList("user-a");
+      expect(cached).toHaveLength(4);
+      for (const account of [...accounts, ...cached!])
+        expect("apiKeySource" in account).toBe(false);
+    });
+
+    it("carries each viewer's own source through a sign-in in progress", async () => {
+      const { manager } = keyManager({
+        source: (userId) =>
+          userId === "user-a" ? "member_secret" : "office_variable",
+        codex: () => ({
+          start: async () => {},
+          login: async () => ({
+            loginId: "login-1",
+            authUrl: "https://auth.openai.com/",
+          }),
+          waitForCompletion: () => new Promise(() => {}),
+          read: async () => ({ connected: false }),
+          cancel: async () => {},
+          close: async () => {},
+        }),
+      });
+      const started = await manager.startLogin(
+        "user-a",
+        "codex",
+        "office",
+        "browser",
+      );
+      expect(started.ok).toBe(true);
+      if (!started.ok) return;
+      expect(started.value.account).toMatchObject({
+        loginStatus: "waiting_external",
+        apiKeySource: "member_secret",
+      });
+      const holder = (await manager.list("user-a")).find(
+        (a) => a.provider === "codex" && a.scope === "office",
+      );
+      expect(holder).toMatchObject({
+        loginStatus: "waiting_external",
+        apiKeySource: "member_secret",
+      });
+      // Ben waits in Ana's queue and sees his own source, not hers.
+      const queued = (await manager.list("user-b")).find(
+        (a) => a.provider === "codex" && a.scope === "office",
+      );
+      expect(queued?.loginQueue?.holderName).toBe("Ana");
+      expect(queued?.apiKeySource).toBe("office_variable");
+      const cachedQueued = manager
+        .cachedList("user-b")
+        ?.find((a) => a.provider === "codex" && a.scope === "office");
+      expect(cachedQueued?.loginQueue?.holderName).toBe("Ana");
+      expect(cachedQueued?.apiKeySource).toBe("office_variable");
+      expect(await manager.cancel("user-a", "codex", "office")).toBe(true);
+    });
+  });
 });

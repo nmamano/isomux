@@ -1044,6 +1044,17 @@ App 的一些原则：
   "settings.signIn.connected": "已连接",
   "settings.signIn.unavailable": "连接不可用",
   "settings.signIn.notConnected": "未连接",
+  "settings.signIn.apiKey": "正在使用 API 密钥",
+  "settings.signIn.codexKey.server":
+    "你的智能体使用服务器环境中的 <code>OPENAI_API_KEY</code>，而不是登录账户。",
+  "settings.signIn.codexKey.officeVariable":
+    "你的智能体使用办公室通用的变量 <code>OPENAI_API_KEY</code>，而不是登录账户。",
+  "settings.signIn.codexKey.officeSecret":
+    "你的智能体使用办公室通用的密钥 <code>OPENAI_API_KEY</code>，而不是登录账户。",
+  "settings.signIn.codexKey.memberVariable":
+    "你的智能体使用你的个人变量 <code>OPENAI_API_KEY</code>，而不是登录账户。",
+  "settings.signIn.codexKey.memberSecret":
+    "你的智能体使用你的个人密钥 <code>OPENAI_API_KEY</code>，而不是登录账户。",
   "settings.signIn.startFailed": "无法开始 {provider} 登录。",
   "settings.signIn.submitFailed": "无法提交 Claude 验证码。",
   "settings.signIn.cancelFailed": "无法取消登录。",

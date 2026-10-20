@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
+  EnvVariableSource,
   ProviderAccountProvider,
   ProviderAccountScope,
   ProviderAccountWire,
@@ -138,6 +139,16 @@ export function ProviderSignInCard({
     </section>
   );
 }
+
+// One sentence per source: a source word inside one sentence does not
+// translate.
+const API_KEY_SOURCE_LINE = {
+  server: "settings.signIn.codexKey.server",
+  office_variable: "settings.signIn.codexKey.officeVariable",
+  office_secret: "settings.signIn.codexKey.officeSecret",
+  member_variable: "settings.signIn.codexKey.memberVariable",
+  member_secret: "settings.signIn.codexKey.memberSecret",
+} as const satisfies Record<EnvVariableSource, string>;
 
 const scopeLineStyle: CSSProperties = {
   fontSize: 12,
@@ -403,13 +414,21 @@ function ProviderScopeConnection({
     }
   }
 
+  // Codex uses an OPENAI_API_KEY in the agents' env over a stored sign-in.
+  // Only the personal scope trades "not connected" for it: the office scope
+  // still says whether the office has a sign-in.
+  const apiKeySource = provider === "codex" ? account?.apiKeySource : undefined;
   const statusState = !account
     ? loaded
       ? "unavailable"
       : "checking"
     : account.loginStatus === "waiting_external"
       ? "waiting"
-      : account.accountStatus;
+      : scope === "personal" &&
+          apiKeySource &&
+          account.accountStatus === "not_connected"
+        ? "apiKey"
+        : account.accountStatus;
   const status =
     statusState === "checking"
       ? t("settings.signIn.checking")
@@ -427,7 +446,9 @@ function ProviderScopeConnection({
             : t("settings.signIn.connected")
           : statusState === "unavailable"
             ? t("settings.signIn.unavailable")
-            : t("settings.signIn.notConnected");
+            : statusState === "apiKey"
+              ? t("settings.signIn.apiKey")
+              : t("settings.signIn.notConnected");
   const externalWarning = account?.externalCli
     ? t("settings.signIn.externalWarning", { provider: title })
     : account?.explicitDirectory
@@ -512,6 +533,16 @@ function ProviderScopeConnection({
       >
         <strong>{t("settings.signIn.status")}</strong> {status}
       </p>
+      {apiKeySource && API_KEY_SOURCE_LINE[apiKeySource] && (
+        <p
+          data-codex-api-key-source={apiKeySource}
+          style={{ ...hint, margin: "8px 0 0" }}
+        >
+          {rich(API_KEY_SOURCE_LINE[apiKeySource], {
+            code: (chunk) => <Data>{chunk}</Data>,
+          })}
+        </p>
+      )}
       {account?.error && (
         <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
           {account.error}

@@ -18,7 +18,7 @@ import {
   claudeFamilyModels,
   limitedClaudeFamilies,
 } from "./backends/claude-install-check.ts";
-import type { ClaudeFamilyModels } from "../shared/types.ts";
+import type { ClaudeFamilyModels, EnvVariableSource } from "../shared/types.ts";
 import { readEnvFile } from "./persistence.ts";
 import { logicalAgentPath } from "./split/roots.ts";
 import { getUserByName } from "./users.ts";
@@ -124,6 +124,33 @@ export function buildEnvForUserId(
   userId: string | null | undefined,
   base: { [key: string]: string | undefined } = getAgentHost().baseEnv(),
 ): { [key: string]: string | undefined } | undefined {
+  const merge = mergeEnvForUserId(userId, base);
+  if (merge) return merge.env;
+  return getAgentHost().kind === "runner" ? { ...base } : undefined;
+}
+
+// Where the env of `userId`'s agents gets `name` from, by the merge order of
+// buildEnvForUserId. Null when the merged value is unset or empty.
+export function envSourceForUserId(
+  userId: string | null | undefined,
+  name: string,
+): EnvVariableSource | null {
+  const base = getAgentHost().baseEnv();
+  const merge = mergeEnvForUserId(userId, base);
+  const value = merge ? merge.env[name] : base[name];
+  if (!value) return null;
+  return merge?.sources.get(name) ?? "server";
+}
+
+// The one merge behind buildEnvForUserId and envSourceForUserId, with the
+// layer each name came from. Null when nothing is in scope.
+function mergeEnvForUserId(
+  userId: string | null | undefined,
+  base: { [key: string]: string | undefined },
+): {
+  env: { [key: string]: string | undefined };
+  sources: Map<string, EnvVariableSource>;
+} | null {
   const officeEnvFile = resolveOfficeEnvSource();
   const userEnvFile = resolveUserEnvSource(userId);
   const personalClaude = Boolean(
@@ -140,32 +167,40 @@ export function buildEnvForUserId(
     !personalCodex &&
     !secrets
   )
-    return getAgentHost().kind === "runner" ? { ...base } : undefined;
+    return null;
 
+  const env: { [key: string]: string | undefined } = { ...base };
+  const sources = new Map<string, EnvVariableSource>();
+  const layer = (
+    source: EnvVariableSource,
+    vars: { [key: string]: string | undefined },
+  ) => {
+    for (const [name, value] of Object.entries(vars)) {
+      env[name] = value;
+      sources.set(name, source);
+    }
+  };
   // Order (secrets design 2.1): office variable, office secret, member
   // variable, member secret; then the proxy and trust variables over all.
-  const merged: { [key: string]: string | undefined } = { ...base };
-  if (officeEnvFile) {
-    const officeEnv = readEnvFile(officeEnvFile);
-    Object.assign(merged, officeEnv);
-  }
-  if (secrets) Object.assign(merged, secrets.office);
+  if (officeEnvFile) layer("office_variable", readEnvFile(officeEnvFile));
+  if (secrets) layer("office_secret", secrets.office);
   const userEnv = userEnvFile ? readEnvFile(userEnvFile) : {};
-  if (userEnvFile) {
-    Object.assign(merged, userEnv);
-  }
-  if (secrets) Object.assign(merged, secrets.member);
+  if (userEnvFile) layer("member_variable", userEnv);
+  if (secrets) layer("member_secret", secrets.member);
+  // The server sets the rest.
   if (userId && personalClaude && !userEnv.CLAUDE_CONFIG_DIR?.trim()) {
-    merged.CLAUDE_CONFIG_DIR = personalProviderHome(userId, "claude");
+    layer("server", {
+      CLAUDE_CONFIG_DIR: personalProviderHome(userId, "claude"),
+    });
   }
   if (userId && personalCodex && !userEnv.CODEX_HOME?.trim()) {
-    merged.CODEX_HOME = personalProviderHome(userId, "codex");
+    layer("server", { CODEX_HOME: personalProviderHome(userId, "codex") });
   }
   if (secrets) {
-    Object.assign(merged, secrets.fixed);
-    appendGitCredentialHelpers(merged, secrets.gitCredentials);
+    layer("server", secrets.fixed);
+    layer("server", gitCredentialHelpers(env, secrets.gitCredentials));
   }
-  return merged;
+  return { env, sources };
 }
 
 // The office git credential helper (secrets design 2.4): for each listed
@@ -174,24 +209,26 @@ export function buildEnvForUserId(
 // helper first resets the host's helper list: else the system and global
 // helpers answer first (with the member's own token), and git's store and
 // erase calls would reach them with the placeholder.
-function appendGitCredentialHelpers(
+function gitCredentialHelpers(
   env: { [key: string]: string | undefined },
   hosts: { host: string; placeholder: string }[],
-) {
-  if (hosts.length === 0) return;
+): Record<string, string> {
+  if (hosts.length === 0) return {};
+  const added: Record<string, string> = {};
   const count = Number(env.GIT_CONFIG_COUNT ?? "0");
   let next = Number.isSafeInteger(count) && count > 0 ? count : 0;
   for (const { host, placeholder } of hosts) {
-    env[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
-    env[`GIT_CONFIG_VALUE_${next}`] = "";
+    added[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
+    added[`GIT_CONFIG_VALUE_${next}`] = "";
     next++;
-    env[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
+    added[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
     // A placeholder is base62 after a known prefix: no quote can occur.
-    env[`GIT_CONFIG_VALUE_${next}`] =
+    added[`GIT_CONFIG_VALUE_${next}`] =
       `!f() { test "$1" = get && printf 'username=x-access-token\\npassword=%s\\n' '${placeholder}'; }; f`;
     next++;
   }
-  env.GIT_CONFIG_COUNT = String(next);
+  added.GIT_CONFIG_COUNT = String(next);
+  return added;
 }
 
 // A member's effective env (office plus personal variables) for the Claude

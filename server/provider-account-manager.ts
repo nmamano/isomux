@@ -7,6 +7,7 @@ import { listUsers } from "./users.ts";
 import {
   buildEnvForUserId,
   buildOfficeEnv,
+  envSourceForUserId,
   environmentSourceKeyForUserId,
   readOfficeEnvFile,
 } from "./env-loader.ts";
@@ -19,6 +20,7 @@ import { ClaudeAccountClient } from "./backends/claude/account.ts";
 import { isClaudeCloudSelected } from "./backends/claude-install-check.ts";
 import type { HandlerErrorStatus } from "./routes/executor.ts";
 import type {
+  EnvVariableSource,
   ProviderAccountProvider,
   ProviderAccountScope,
   ProviderAccountWire,
@@ -184,6 +186,12 @@ export class ProviderAccountManager {
       const timer = setTimeout(onTimeout, ACCOUNT_STATUS_TIMEOUT_MS);
       return () => clearTimeout(timer);
     },
+    // Where the member's agents get OPENAI_API_KEY, which Codex uses over a
+    // stored sign-in. Read on every read, never cached.
+    private readonly apiKeySource: (
+      userId: string,
+    ) => EnvVariableSource | null = (userId) =>
+      envSourceForUserId(userId, "OPENAI_API_KEY"),
   ) {}
 
   private userOnlyEnv(userId: string): Record<string, string> {
@@ -409,7 +417,7 @@ export class ProviderAccountManager {
       ["claude", "office"],
       ["claude", "personal"],
     ];
-    return Promise.all(
+    const wires = await Promise.all(
       pairs
         .filter(
           ([provider, scope]) =>
@@ -420,6 +428,29 @@ export class ProviderAccountManager {
           this.wireFor(userId, provider, scope, refresh, selection?.signal),
         ),
     );
+    return this.withApiKeySource(userId, wires);
+  }
+
+  // The viewer's OPENAI_API_KEY source on each Codex wire, read now: a
+  // cached or queued wire may carry another read's or member's.
+  private withApiKeySource(
+    userId: string,
+    wires: ProviderAccountWire[],
+  ): ProviderAccountWire[] {
+    let source: EnvVariableSource | null;
+    try {
+      source = this.apiKeySource(userId);
+    } catch {
+      // An env file waiting for import: the wires say so on their own.
+      source = null;
+    }
+    return wires.map((wire) => {
+      if (wire.provider !== "codex") return wire;
+      const next = { ...wire };
+      delete next.apiKeySource;
+      if (source) next.apiKeySource = source;
+      return next;
+    });
   }
 
   // Assemble an existing full snapshot without starting unrelated providers.
@@ -473,7 +504,7 @@ export class ProviderAccountManager {
         );
       }
     }
-    return accounts;
+    return this.withApiKeySource(userId, accounts);
   }
 
   private inactivePersonal(target: Target): ProviderAccountWire {
@@ -714,7 +745,7 @@ export class ProviderAccountManager {
       return {
         ok: true,
         value: {
-          account: existing.wire,
+          account: this.withApiKeySource(userId, [existing.wire])[0],
           authUrl: existing.authUrl,
           userCode: existing.userCode,
         },
@@ -800,7 +831,7 @@ export class ProviderAccountManager {
       return {
         ok: true,
         value: {
-          account: active.wire,
+          account: this.withApiKeySource(active.userId, [active.wire])[0],
           authUrl: start.authUrl,
           userCode: active.userCode,
         },

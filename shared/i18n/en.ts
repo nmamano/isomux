@@ -1143,6 +1143,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.signIn.connected": "Connected",
   "settings.signIn.unavailable": "Connection unavailable",
   "settings.signIn.notConnected": "Not connected",
+  "settings.signIn.apiKey": "Using an API key",
+  "settings.signIn.codexKey.server":
+    "Your agents use <code>OPENAI_API_KEY</code> from the server's environment instead of a sign-in.",
+  "settings.signIn.codexKey.officeVariable":
+    "Your agents use the office-wide variable <code>OPENAI_API_KEY</code> instead of a sign-in.",
+  "settings.signIn.codexKey.officeSecret":
+    "Your agents use the office-wide secret <code>OPENAI_API_KEY</code> instead of a sign-in.",
+  "settings.signIn.codexKey.memberVariable":
+    "Your agents use your personal variable <code>OPENAI_API_KEY</code> instead of a sign-in.",
+  "settings.signIn.codexKey.memberSecret":
+    "Your agents use your personal secret <code>OPENAI_API_KEY</code> instead of a sign-in.",
   "settings.signIn.startFailed": "Could not start {provider} sign-in.",
   "settings.signIn.submitFailed": "Could not submit the Claude code.",
   "settings.signIn.cancelFailed": "Could not cancel sign-in.",

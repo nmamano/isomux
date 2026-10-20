@@ -1162,6 +1162,17 @@ Cosas que puedes hacer por él:
   "settings.signIn.connected": "Conectado",
   "settings.signIn.unavailable": "Conexión no disponible",
   "settings.signIn.notConnected": "Sin conectar",
+  "settings.signIn.apiKey": "Se usa una clave de API",
+  "settings.signIn.codexKey.server":
+    "Tus agentes usan <code>OPENAI_API_KEY</code> del entorno del servidor en lugar de un inicio de sesión.",
+  "settings.signIn.codexKey.officeVariable":
+    "Tus agentes usan la variable <code>OPENAI_API_KEY</code> de toda la oficina en lugar de un inicio de sesión.",
+  "settings.signIn.codexKey.officeSecret":
+    "Tus agentes usan el secreto <code>OPENAI_API_KEY</code> de toda la oficina en lugar de un inicio de sesión.",
+  "settings.signIn.codexKey.memberVariable":
+    "Tus agentes usan tu variable personal <code>OPENAI_API_KEY</code> en lugar de un inicio de sesión.",
+  "settings.signIn.codexKey.memberSecret":
+    "Tus agentes usan tu secreto personal <code>OPENAI_API_KEY</code> en lugar de un inicio de sesión.",
   "settings.signIn.startFailed":
     "No se ha podido iniciar sesión en {provider}.",
   "settings.signIn.submitFailed": "No se ha podido enviar el código de Claude.",

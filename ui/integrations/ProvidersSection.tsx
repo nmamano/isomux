@@ -35,6 +35,10 @@ import {
   hintText,
 } from "./kit.tsx";
 import { useMyConnections } from "./my-connections.tsx";
+import {
+  onConnectionsChanged,
+  onManagedEnvSaved,
+} from "../connections-events.ts";
 import { useAlive } from "./use-alive.ts";
 import { isGone, type Role, type Target } from "./target.ts";
 
@@ -101,6 +105,19 @@ export function useProviderAccounts() {
   useEffect(() => {
     void read(false);
     // Once per mount; Refresh reads again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A saved variable or secret can change the OPENAI_API_KEY the Codex card
+  // names.
+  useEffect(() => {
+    const reread = () => void read(false);
+    const offEnv = onManagedEnvSaved(reread);
+    const offConnections = onConnectionsChanged(reread);
+    return () => {
+      offEnv();
+      offConnections();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

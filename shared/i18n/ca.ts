@@ -1166,6 +1166,17 @@ Coses que pots fer per ell:
   "settings.signIn.connected": "Connectat",
   "settings.signIn.unavailable": "Connexió no disponible",
   "settings.signIn.notConnected": "Sense connectar",
+  "settings.signIn.apiKey": "S'utilitza una clau d'API",
+  "settings.signIn.codexKey.server":
+    "Els teus agents fan servir <code>OPENAI_API_KEY</code> de l'entorn del servidor en lloc d'un inici de sessió.",
+  "settings.signIn.codexKey.officeVariable":
+    "Els teus agents fan servir la variable <code>OPENAI_API_KEY</code> de tota l'oficina en lloc d'un inici de sessió.",
+  "settings.signIn.codexKey.officeSecret":
+    "Els teus agents fan servir el secret <code>OPENAI_API_KEY</code> de tota l'oficina en lloc d'un inici de sessió.",
+  "settings.signIn.codexKey.memberVariable":
+    "Els teus agents fan servir la teva variable personal <code>OPENAI_API_KEY</code> en lloc d'un inici de sessió.",
+  "settings.signIn.codexKey.memberSecret":
+    "Els teus agents fan servir el teu secret personal <code>OPENAI_API_KEY</code> en lloc d'un inici de sessió.",
   "settings.signIn.startFailed":
     "No s'ha pogut iniciar la sessió a {provider}.",
   "settings.signIn.submitFailed": "No s'ha pogut enviar el codi de Claude.",

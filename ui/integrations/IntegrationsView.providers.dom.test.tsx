@@ -13,6 +13,8 @@ const { createElement } = await import("react");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { IntegrationsView } = await import("./IntegrationsView.tsx");
+const { notifyConnectionsChanged, notifyManagedEnvSaved } =
+  await import("../connections-events.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 afterAll(() => setApiShim(null));
 
@@ -154,4 +156,42 @@ it("renders every tab when the connections answer has another shape", async () =
       view.container.querySelector('[data-integrations-card="office"]'),
     ).not.toBeNull();
   }
+});
+
+// A saved variable or secret can change the OPENAI_API_KEY the Codex card
+// names (task a704657a): the page reads the accounts again, without the
+// probe that Refresh starts and without going back to "checking".
+it("reads the accounts again after a variable or secret save", async () => {
+  accounts = async () => ({
+    accounts: [
+      {
+        provider: "codex",
+        scope: "office",
+        accountStatus: "not_connected",
+        loginStatus: "idle",
+        canBrowserLogin: true,
+      },
+    ],
+  });
+  const view = await open();
+  const reads = () =>
+    sent.filter((request) =>
+      request.startsWith("GET /api/me/provider-accounts"),
+    ).length;
+  const first = reads();
+  expect(first).toBeGreaterThan(0);
+
+  await act(async () => notifyManagedEnvSaved());
+  expect(reads()).toBe(first + 1);
+  await act(async () => notifyConnectionsChanged());
+  expect(reads()).toBe(first + 2);
+  expect(sent).not.toContain("POST /api/me/provider-accounts/refresh");
+  expect(states(view, "checking")).toHaveLength(0);
+
+  view.unmount();
+  await act(async () => {
+    notifyManagedEnvSaved();
+    notifyConnectionsChanged();
+  });
+  expect(reads()).toBe(first + 2);
 });

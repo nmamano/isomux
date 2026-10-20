@@ -2054,12 +2054,25 @@ export interface ProviderLoginQueueWire {
   startedAt: number;
 }
 
+// Where a variable in an agent's env comes from: the server's own env (the
+// agent host's base env), an office or member variable, or an office or
+// member secret. The last one to define the name wins.
+export type EnvVariableSource =
+  | "server"
+  | "office_variable"
+  | "office_secret"
+  | "member_variable"
+  | "member_secret";
+
 export interface ProviderAccountWire {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
   accountStatus: ProviderAccountStatus;
   loginStatus: ProviderLoginStatus;
   accountLabel?: string;
+  // Codex only: the viewer's agents get OPENAI_API_KEY from here, and Codex
+  // uses it over the stored sign-in. Absent: no key.
+  apiKeySource?: EnvVariableSource;
   shared?: boolean;
   canBrowserLogin: boolean;
   externalCli?: boolean;

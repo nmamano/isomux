@@ -5,8 +5,10 @@ import {
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
   buildEnvForUserId,
+  envSourceForUserId,
   setOfficeEnvFileProvider,
   setPersonalProviderActiveProvider,
+  setSecretEnvironmentProvider,
 } from "./env-loader.ts";
 import {
   isPersonalProviderActive,
@@ -161,5 +163,125 @@ describe("managed user environment", () => {
       if (prior === undefined) delete process.env.GH_TOKEN;
       else process.env.GH_TOKEN = prior;
     }
+  });
+});
+
+// Where the Codex card says a member's agents get OPENAI_API_KEY: the last
+// layer of buildEnvForUserId's merge that defines it (task a704657a).
+describe("envSourceForUserId", () => {
+  const KEY = "OPENAI_API_KEY";
+  const secrets = (
+    office: Record<string, string>,
+    member: Record<string, Record<string, string>>,
+  ) =>
+    setSecretEnvironmentProvider((userId) => ({
+      office,
+      member: (userId && member[userId]) || {},
+      fixed: {},
+      gitCredentials: [],
+      revision: "test",
+    }));
+  // The agents' value, as the spawn sees it: no merge in scope means the
+  // agent host's own env.
+  const agentValue = (userId: string | null) =>
+    (buildEnvForUserId(userId) ?? process.env)[KEY];
+
+  const withProcessKey = (value: string | undefined, run: () => void) => {
+    const prior = process.env[KEY];
+    const restoreSecrets = setSecretEnvironmentProvider(() => null);
+    try {
+      if (value === undefined) delete process.env[KEY];
+      else process.env[KEY] = value;
+      run();
+    } finally {
+      setSecretEnvironmentProvider(restoreSecrets);
+      if (prior === undefined) delete process.env[KEY];
+      else process.env[KEY] = prior;
+    }
+  };
+
+  it("names the last layer that defines the key, per member", () => {
+    const user = claimUser("Key Source User");
+    const other = claimUser("Key Source Other");
+    withProcessKey(undefined, () => {
+      expect(envSourceForUserId(user.id, KEY)).toBeNull();
+
+      process.env[KEY] = "from-process";
+      expect(envSourceForUserId(user.id, KEY)).toBe("server");
+
+      writeManagedOfficeEnv({ [KEY]: "office-variable" });
+      expect(envSourceForUserId(user.id, KEY)).toBe("office_variable");
+
+      secrets({ [KEY]: "office-secret" }, {});
+      expect(envSourceForUserId(user.id, KEY)).toBe("office_secret");
+
+      writeManagedUserEnv(user.id, { [KEY]: "member-variable" });
+      expect(envSourceForUserId(user.id, KEY)).toBe("member_variable");
+
+      secrets({ [KEY]: "office-secret" }, { [user.id]: { [KEY]: "member" } });
+      expect(envSourceForUserId(user.id, KEY)).toBe("member_secret");
+
+      // The member layers are the member's own: another member and an
+      // unowned context still get the office secret.
+      expect(envSourceForUserId(other.id, KEY)).toBe("office_secret");
+      expect(envSourceForUserId(null, KEY)).toBe("office_secret");
+      // Another name has its own source.
+      expect(
+        envSourceForUserId(user.id, "NOT_SET_ANYWHERE_A704657A"),
+      ).toBeNull();
+    });
+  });
+
+  it("says no key when a later layer empties it, as the agents get it", () => {
+    const user = claimUser("Key Source Empty User");
+    withProcessKey("from-process", () => {
+      writeManagedOfficeEnv({ [KEY]: "office-variable" });
+      writeManagedUserEnv(user.id, { [KEY]: "" });
+      expect(agentValue(user.id)).toBe("");
+      expect(envSourceForUserId(user.id, KEY)).toBeNull();
+      expect(envSourceForUserId(null, KEY)).toBe("office_variable");
+
+      // A secret over the empty variable sets it again.
+      secrets({}, { [user.id]: { [KEY]: "member-secret" } });
+      expect(agentValue(user.id)).toBe("member-secret");
+      expect(envSourceForUserId(user.id, KEY)).toBe("member_secret");
+    });
+  });
+
+  it("agrees with the merge on whether the agents have the key", () => {
+    const user = claimUser("Key Source Agree User");
+    const cases: Array<() => void> = [
+      () => {},
+      () => {
+        process.env[KEY] = "from-process";
+      },
+      () => writeManagedOfficeEnv({ [KEY]: "" }),
+      () => secrets({ [KEY]: "office-secret" }, {}),
+      () => writeManagedUserEnv(user.id, { [KEY]: "" }),
+      () => secrets({ [KEY]: "office-secret" }, { [user.id]: { [KEY]: "m" } }),
+    ];
+    withProcessKey(undefined, () => {
+      for (const step of cases) {
+        step();
+        for (const id of [user.id, null]) {
+          const value = agentValue(id);
+          expect(envSourceForUserId(id, KEY) !== null).toBe(Boolean(value));
+        }
+      }
+    });
+  });
+
+  it("fails like the merge while an office env file waits for import", () => {
+    setOfficeEnvFileProvider(() => "/tmp/pending-import.env");
+    let mergeError: unknown;
+    try {
+      buildEnvForUserId(null);
+    } catch (err) {
+      mergeError = err;
+    }
+    expect(mergeError).toBeInstanceOf(Error);
+    expect(() => envSourceForUserId(null, KEY)).toThrow(
+      (mergeError as Error).message,
+    );
   });
 });

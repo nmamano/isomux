@@ -435,3 +435,125 @@ it("drops the scope word under the page's scope header and keeps it in chat", ()
   for (const scope of ["office", "personal"] as const)
     expect(line(page, scope)).not.toContain(scopeWords[scope]);
 });
+
+// Codex uses an OPENAI_API_KEY in the agents' env over a stored sign-in
+// (task a704657a). The card names where the key comes from on both scopes;
+// only the personal scope trades "not connected" for the key state, since the
+// office scope still tells an owner whether the office has a sign-in.
+it("says where Codex agents get OPENAI_API_KEY, next to each scope's sign-in", () => {
+  type Source = NonNullable<
+    import("../../shared/types.ts").ProviderAccountWire["apiKeySource"]
+  >;
+  const account = (
+    scope: "office" | "personal",
+    accountStatus: "connected" | "not_connected",
+    apiKeySource?: Source,
+  ) => ({
+    provider: "codex" as const,
+    scope,
+    accountStatus,
+    accountLabel: accountStatus === "connected" ? "ana@example.com" : undefined,
+    loginStatus: "idle" as const,
+    canBrowserLogin: true,
+    ...(apiKeySource ? { apiKeySource } : {}),
+  });
+  const card = (
+    accountStatus: "connected" | "not_connected",
+    apiKeySource: Source | undefined,
+    pageLook: boolean,
+  ) =>
+    createElement(ProviderSignInCard, {
+      provider: "codex",
+      accounts: [
+        account("office", accountStatus, apiKeySource),
+        account("personal", accountStatus, apiKeySource),
+      ],
+      canChangeOffice: true,
+      pageLook,
+    });
+  const half = (
+    view: ReturnType<typeof render>,
+    scope: "office" | "personal",
+  ) =>
+    view.container.querySelector(`[data-sign-in-scope="${scope}"]`)!
+      .parentElement!;
+  const seen = (
+    view: ReturnType<typeof render>,
+    scope: "office" | "personal",
+  ) => {
+    const root = half(view, scope);
+    const lines = root.querySelectorAll("[data-codex-api-key-source]");
+    return {
+      state: root
+        .querySelector("[data-provider-account-state]")
+        ?.getAttribute("data-provider-account-state"),
+      source:
+        lines.length === 1
+          ? lines[0].getAttribute("data-codex-api-key-source")
+          : lines.length === 0
+            ? null
+            : `${lines.length} lines`,
+      signIn: !!root.querySelector("[data-start-provider-login]"),
+    };
+  };
+
+  for (const pageLook of [false, true]) {
+    const view = render(card("not_connected", "office_variable", pageLook));
+    expect(seen(view, "office")).toEqual({
+      state: "not_connected",
+      source: "office_variable",
+      signIn: true,
+    });
+    // A sign-in still serves agents once the key is gone.
+    expect(seen(view, "personal")).toEqual({
+      state: "apiKey",
+      source: "office_variable",
+      signIn: true,
+    });
+
+    view.rerender(card("connected", "member_secret", pageLook));
+    expect(seen(view, "office")).toEqual({
+      state: "connected",
+      source: "member_secret",
+      signIn: false,
+    });
+    expect(seen(view, "personal")).toEqual({
+      state: "connected",
+      source: "member_secret",
+      signIn: false,
+    });
+    expect(half(view, "personal").textContent).toContain("ana@example.com");
+
+    view.rerender(card("not_connected", undefined, pageLook));
+    expect(seen(view, "office")).toEqual({
+      state: "not_connected",
+      source: null,
+      signIn: true,
+    });
+    expect(seen(view, "personal")).toEqual({
+      state: "not_connected",
+      source: null,
+      signIn: true,
+    });
+    view.unmount();
+  }
+
+  // Each source reads differently, and the line names the variable.
+  const sources: Source[] = [
+    "server",
+    "office_variable",
+    "office_secret",
+    "member_variable",
+    "member_secret",
+  ];
+  const texts = sources.map((source) => {
+    const view = render(card("connected", source, true));
+    const text = half(view, "personal").querySelector(
+      `[data-codex-api-key-source="${source}"]`,
+    )?.textContent;
+    view.unmount();
+    expect(text).toContain("OPENAI_API_KEY");
+    return text;
+  });
+  expect(new Set(texts).size).toBe(sources.length);
+});
