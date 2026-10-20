@@ -564,9 +564,19 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
   }
 });
 
-for (const variant of ["phone", "no chat target"] as const) {
+// The iPhone Home Screen variant: the direct link must leave the Home Screen
+// window for Safari, since that window has no Back button.
+for (const variant of [
+  "phone",
+  "no chat target",
+  "iPhone Home Screen",
+] as const) {
   it(`keeps the direct link in the bottom dock with no chat panel (${variant})`, async () => {
     sessionStorage.clear();
+    const { asDevice, IPHONE_HOME_SCREEN } =
+      await import("./test-support/ios-home-screen.ts");
+    const homeScreen = variant === "iPhone Home Screen";
+    const undo = homeScreen ? asDevice(IPHONE_HOME_SCREEN) : () => {};
     const { StateCtx, initialState } = await import("./store.tsx");
     const settings = (
       window as unknown as {
@@ -580,9 +590,9 @@ for (const variant of ["phone", "no chat target"] as const) {
       appUrl: "https://hello.office.example",
       sessionExpiresAt: Date.now() + 1000000,
       chat:
-        variant === "phone"
-          ? { agentId: agent.id, agentName: agent.name }
-          : null,
+        variant === "no chat target"
+          ? null
+          : { agentId: agent.id, agentName: agent.name },
     }));
     let view: ReturnType<typeof render> | undefined;
     try {
@@ -593,7 +603,7 @@ for (const variant of ["phone", "no chat target"] as const) {
               ...initialState,
               agents: [agent],
               connected: true,
-              isMobile: variant === "phone",
+              isMobile: variant !== "no chat target",
             }}
           >
             <AppWidgetPage boot={boot} />
@@ -604,17 +614,20 @@ for (const variant of ["phone", "no chat target"] as const) {
       const links = view!.container.querySelectorAll<HTMLAnchorElement>("a");
       expect(links).toHaveLength(1);
       expect(dock.contains(links[0])).toBe(true);
-      expect(links[0].href).toBe(
-        "https://hello.office.example/" + window.location.search,
+      expect(links[0].getAttribute("href")).toBe(
+        (homeScreen ? "x-safari-" : "") +
+          "https://hello.office.example/" +
+          window.location.search,
       );
       expect(links[0].getAttribute("aria-label")).toBeTruthy();
       expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
       expect(dock.querySelector(".app-widget-launcher") !== null).toBe(
-        variant === "phone",
+        variant !== "no chat target",
       );
     } finally {
       view?.unmount();
       settings.disableIframePageLoading = iframeLoading;
+      undo();
     }
   });
 }

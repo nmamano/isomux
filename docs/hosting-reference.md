@@ -55,6 +55,8 @@ Each app an agent registers can get its own address, like `hello.office.example.
 
 The Apps page shows a short link such as `office.example.com/hello`, which opens the app with a chat widget.
 
+In an office added to an iPhone Home Screen, app links open in Safari. If Safari is not signed in to the office, open a device link there once (`Settings` → `You` → `Sign-in links`).
+
 Certificates are obtained per app the first time it is opened. Two things follow:
 
 - The office answers 404 for every name under its domain that is not a live app, so a subdomain you pointed at this server for something else stops working after updating.

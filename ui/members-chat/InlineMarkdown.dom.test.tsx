@@ -4,6 +4,8 @@ setUpDomTestFile();
 const { render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { InlineMarkdown } = await import("./InlineMarkdown.tsx");
+const { asDevice, IPHONE_HOME_SCREEN } =
+  await import("../test-support/ios-home-screen.ts");
 
 it("renders only bold, italics and safe web links", () => {
   const view = render(
@@ -76,4 +78,31 @@ it("keeps a quote in a destination inside the href attribute", () => {
     'https://example.com/"onmouseover="alert',
   );
   expect(anchor.hasAttribute("onmouseover")).toBe(false);
+});
+
+// iOS keeps a same-origin link inside the Home Screen window, which has no
+// Back button: there an app's short link opens Safari. An office page stays in
+// the office, and a link to another site keeps the plain href (iOS opens it in
+// a Safari sheet).
+it("opens an app link in Safari from the iPhone Home Screen office, and nothing else", () => {
+  const office = window.location.origin;
+  const undo = asDevice(IPHONE_HOME_SCREEN);
+  try {
+    const view = render(
+      createElement(InlineMarkdown, {
+        content: `[loop](${office}/loop) ${office}/board ${office}/settings https://example.com/`,
+      }),
+    );
+    expect(
+      view.getAllByRole("link").map((link) => link.getAttribute("href")),
+    ).toEqual([
+      "x-safari-" + office + "/loop",
+      "x-safari-" + office + "/board",
+      office + "/settings",
+      "https://example.com/",
+    ]);
+    view.unmount();
+  } finally {
+    undo();
+  }
 });

@@ -35,6 +35,8 @@ import type {
   PlainMessageKey,
   Translator,
 } from "../../shared/i18n/translate.ts";
+import { readSafariEnv, safariHref } from "../safari-link.ts";
+import type { SafariEnv } from "../safari-link.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -123,11 +125,12 @@ export function appLinkHref(
   app: Pick<AppWire, "name" | "shortUrl" | "url" | "port">,
   officeHostname: string,
   liveAppPreviews: boolean,
+  env: SafariEnv = readSafariEnv(),
 ): string {
   if (!liveAppPreviews) {
     return `/demo/app?name=${encodeURIComponent(app.name)}`;
   }
-  return appHref(app, officeHostname);
+  return safariHref(appHref(app, officeHostname), env);
 }
 
 // Not a component, so the translator arrives as an argument (ruling 18).

@@ -12,6 +12,7 @@ import {
 } from "./log-view/ChatTranscript.tsx";
 import { LiveCharacter } from "./office/LiveCharacter.tsx";
 import { OpenIcon } from "./components/AppsView.tsx";
+import { readSafariEnv, safariHref } from "./safari-link.ts";
 import {
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
@@ -211,7 +212,9 @@ export function AppWidgetPage({
     setOpen(false);
     launcher.current?.focus();
   };
-  const directHref = appUrl ? appUrl + "/" + window.location.search : null;
+  const directHref = appUrl
+    ? safariHref(appUrl + "/" + window.location.search, readSafariEnv())
+    : null;
   const chatReady = !!target && !!agent;
   // The open panel's header holds the direct link; otherwise the dock does.
   const panelShown = chatReady && open && !state.isMobile;

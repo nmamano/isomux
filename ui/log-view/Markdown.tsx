@@ -26,6 +26,7 @@ import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import { sanitizeSvg } from "./svg-sanitize.ts";
 import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
+import { readSafariEnv, safariHrefSameOrigin } from "../safari-link.ts";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -72,7 +73,12 @@ marked.setOptions({
 const renderer = new marked.Renderer();
 renderer.link = ({ href, title, text }) => {
   const titleAttr = title ? ` title="${title}"` : "";
-  return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+  const target = safariHrefSameOrigin(
+    href,
+    readSafariEnv(),
+    window.location.origin,
+  );
+  return `<a href="${target}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
 };
 marked.use({ renderer });
 
