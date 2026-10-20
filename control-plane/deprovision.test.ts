@@ -263,6 +263,33 @@ describe("remove_dns removes exactly the A records it owns", () => {
     await b.store.close();
   });
 
+  test("a hung Cloudflare call ends at the remote budget and retries", async () => {
+    const b = await bed({ kind: "remove_dns" });
+    const begin = Date.now();
+    const marker = "no signal ended this call";
+    const result = await removeDnsHandler({
+      officeDns: {
+        officeARecords: async () => [],
+        replaceOfficeARecords: async () => {},
+        removeOfficeARecords: (_host, signal) =>
+          new Promise<boolean>((_resolve, reject) => {
+            const late = setTimeout(() => reject(new Error(marker)), 1500);
+            signal?.addEventListener("abort", () => {
+              clearTimeout(late);
+              reject(new Error("socket reset"));
+            });
+          }),
+      },
+    }).run({
+      ...b.ctx,
+      budget: new RemoteBudget(begin + 150, begin + 300_000, () => Date.now()),
+    });
+    expect(result.kind).toBe("retry");
+    expect(JSON.stringify(result)).not.toContain(marker);
+    expect(Date.now() - begin).toBeLessThan(1000);
+    await b.store.close();
+  });
+
   test("success clears the missing-writer attention and audits the resolution", async () => {
     const b = await bed({ kind: "remove_dns" });
     await removeDnsHandler().run(b.ctx);

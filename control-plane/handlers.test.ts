@@ -667,9 +667,51 @@ describe("set_dns owns the office and wildcard A records", () => {
         ipv4: "169.58.97.2",
       },
     });
-    expect(calls).toEqual([["cp1.test.isomux.app", "169.58.97.2"]]);
+    expect(calls.map((args) => (args as unknown[]).slice(0, 2))).toEqual([
+      ["cp1.test.isomux.app", "169.58.97.2"],
+    ]);
+  });
+
+  test("a hung Cloudflare call ends at the remote budget and is audited ambiguous", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const begin = Date.now();
+    const budget = new RemoteBudget(begin + 150, begin + 300_000, () =>
+      Date.now(),
+    );
+    const result = await setDnsHandler({
+      ...b.deps,
+      officeDns: hungOfficeDns(),
+    }).run(await b.ctx({}, budget));
+    expect(result.kind).toBe("retry");
+    expect(JSON.stringify(result)).not.toContain(UNBOUNDED);
+    expect(Date.now() - begin).toBeLessThan(1000);
+    // An aborted batch may have acted, whatever error the transport threw.
+    expect(b.audits).toContain("set_office_dns:ambiguous");
   });
 });
+
+const UNBOUNDED = "no signal ended this call";
+/** Every call waits on its signal, and rejects with a plain transport error
+ * when it aborts. Without a signal it fails late with UNBOUNDED. */
+function hungOfficeDns() {
+  const hang = (signal?: AbortSignal) =>
+    new Promise<never>((_resolve, reject) => {
+      const late = setTimeout(() => reject(new Error(UNBOUNDED)), 1500);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(late);
+        reject(new Error("socket reset"));
+      });
+    });
+  return {
+    officeARecords: (_host: string, signal?: AbortSignal) => hang(signal),
+    replaceOfficeARecords: (
+      _host: string,
+      _ipv4: string,
+      signal?: AbortSignal,
+    ) => hang(signal),
+    removeOfficeARecords: (_host: string, signal?: AbortSignal) => hang(signal),
+  };
+}
 
 describe("verify_https includes app wildcard readiness", () => {
   const dns = (a: string[], aaaa: string[] = []) => ({

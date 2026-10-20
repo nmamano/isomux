@@ -23,6 +23,8 @@ function fake(
   options: {
     now?: () => number;
     requestTimeoutMs?: number;
+    // Each request answers only after this long, unless its signal aborts.
+    delayMs?: number;
     // Wraps each request: return undefined to answer normally.
     intercept?: (
       method: string,
@@ -34,6 +36,7 @@ function fake(
   const records = [...initial];
   let next = 1;
   const calls: { method: string; url: string; body?: unknown }[] = [];
+  const started: string[] = [];
   const request = async (input: URL | RequestInfo, init?: RequestInit) => {
     const url =
       typeof input === "string"
@@ -42,6 +45,18 @@ function fake(
           ? input.href
           : input.url;
     const method = init?.method ?? "GET";
+    started.push(method);
+    const delayMs = options.delayMs;
+    if (delayMs !== undefined)
+      await new Promise<void>((resolve, reject) => {
+        // As fetch does, an already aborted signal rejects at once.
+        if (init?.signal?.aborted) return reject(new Error("aborted"));
+        const timer = setTimeout(resolve, delayMs);
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
     const intercepted = options.intercept?.(method, url, init);
     if (intercepted) return intercepted;
     const rawBody = typeof init?.body === "string" ? init.body : undefined;
@@ -103,7 +118,7 @@ function fake(
       ? { requestTimeoutMs: options.requestTimeoutMs }
       : {}),
   });
-  return { dns, records, calls };
+  return { dns, records, calls, started };
 }
 
 describe("crash-safe Cloudflare TXT ownership", () => {
@@ -227,6 +242,34 @@ describe("permanent office A records", () => {
       ],
     });
   });
+
+  // Five requests (two parallel lists, the batch, two parallel lists) of
+  // 200 ms each: about 600 ms in sequence. The signal fires inside the first
+  // lists, or inside the batch, and the call must end there.
+  test.each([
+    [50, 150, 2],
+    [300, 380, 3],
+  ])(
+    "one signal bounds the whole call, though no single request is slow (abort at %d ms)",
+    async (abortMs, endsBeforeMs, requests) => {
+      const t = fake([], { delayMs: 200 });
+      const begin = performance.now();
+      let failure: unknown;
+      try {
+        await t.dns.replaceOfficeARecords(
+          "slow.example",
+          "203.0.113.7",
+          AbortSignal.timeout(abortMs),
+        );
+      } catch (err) {
+        failure = err;
+      }
+      expect(failure).toBeInstanceOf(Error);
+      expect(performance.now() - begin).toBeLessThan(endsBeforeMs);
+      // Nothing starts after the abort.
+      expect(t.started).toHaveLength(requests);
+    },
+  );
 
   test("refuses an unsafe office name before any request", async () => {
     const { dns, calls } = fake();

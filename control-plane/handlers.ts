@@ -59,6 +59,7 @@ import type { Reporter } from "./report.ts";
 import { loadAnyRun, loadRun, saveRun, type RunRecord } from "./run-record.ts";
 import {
   ObserverWriteFailed,
+  RemoteTimeoutError,
   SshClient,
   type Exec,
   type SshTarget,
@@ -141,8 +142,12 @@ export function setDnsHandler(deps: HandlerDeps): Handler {
         return { kind: "retry", reason };
       }
       try {
-        await remote(ctx, "set_office_dns", () =>
-          deps.officeDns!.replaceOfficeARecords(ctx.instance.name, ipv4),
+        await remote(ctx, "set_office_dns", (signal) =>
+          deps.officeDns!.replaceOfficeARecords(
+            ctx.instance.name,
+            ipv4,
+            signal,
+          ),
         );
       } catch (err) {
         return {
@@ -266,7 +271,8 @@ function sshFor(
 
 /**
  * Run one remote step: claim budget, record that it STARTED, act, record the
- * outcome.
+ * outcome. `fn` gets a signal that aborts when the claimed budget runs out; a
+ * call that does its own I/O must pass it on (ssh clients claim their own).
  *
  * The `started` row goes down BEFORE the call is issued, which is the only crash
  * boundary we can actually guarantee: a process that dies mid-call leaves a
@@ -276,14 +282,21 @@ function sshFor(
 async function remote<T>(
   ctx: HandlerContext,
   action: string,
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  ctx.budget.claim(action);
+  const signal = AbortSignal.timeout(ctx.budget.claim(action));
   await ctx.audit(action, "started");
   let out: T;
   try {
-    out = await fn();
-  } catch (err) {
+    out = await fn(signal);
+  } catch (caught) {
+    // Classified by the signal, not the error: each transport rejects an abort
+    // in its own way, and an aborted call may still have acted.
+    const err = signal.aborted
+      ? new RemoteTimeoutError(`${action} exceeded its remote budget`, {
+          cause: caught,
+        })
+      : caught;
     // A call that threw may still have acted, so the audit says ambiguous
     // rather than failed whenever the transport is what gave up.
     try {

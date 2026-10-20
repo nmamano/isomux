@@ -270,10 +270,11 @@ export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
         return { kind: "retry", reason };
       }
 
-      ctx.budget.claim("remove_office_dns");
+      // Outside the try: a lost lease must not read as a retryable failure.
+      const signal = AbortSignal.timeout(ctx.budget.claim("remove_office_dns"));
       let removed: boolean;
       try {
-        removed = await officeDns.removeOfficeARecords(host);
+        removed = await officeDns.removeOfficeARecords(host, signal);
       } catch (err) {
         return {
           kind: "retry",

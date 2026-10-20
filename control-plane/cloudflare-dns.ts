@@ -30,9 +30,13 @@ export interface ARecord {
 }
 
 export interface OfficeDnsWriter {
-  officeARecords(host: string): Promise<ARecord[]>;
-  replaceOfficeARecords(host: string, ipv4: string): Promise<void>;
-  removeOfficeARecords(host: string): Promise<boolean>;
+  officeARecords(host: string, signal?: AbortSignal): Promise<ARecord[]>;
+  replaceOfficeARecords(
+    host: string,
+    ipv4: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  removeOfficeARecords(host: string, signal?: AbortSignal): Promise<boolean>;
 }
 
 interface CloudflareAnswer<T> {
@@ -126,14 +130,30 @@ export class CloudflareDns {
     this.now = opts.now ?? (() => Date.now());
   }
 
-  private async api<T>(path: string, init?: RequestInit): Promise<T> {
+  /** `signal` bounds the caller's whole operation; requestTimeoutMs bounds
+   * this one request. Either can abort it, and an abort during the body read
+   * still rejects. */
+  private async api<T>(
+    path: string,
+    init?: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const signals = [
+      ...(signal ? [signal] : []),
+      ...(this.opts.requestTimeoutMs === undefined
+        ? []
+        : [AbortSignal.timeout(this.opts.requestTimeoutMs)]),
+    ];
     const response = await this.request(
       `${this.opts.baseUrl.replace(/\/$/, "")}/zones/${encodeURIComponent(this.opts.zoneId)}${path}`,
       {
         ...init,
-        ...(this.opts.requestTimeoutMs === undefined
+        ...(signals.length === 0
           ? {}
-          : { signal: AbortSignal.timeout(this.opts.requestTimeoutMs) }),
+          : {
+              signal:
+                signals.length === 1 ? signals[0] : AbortSignal.any(signals),
+            }),
         headers: {
           Authorization: `Bearer ${this.opts.apiToken}`,
           "Content-Type": "application/json",
@@ -144,8 +164,11 @@ export class CloudflareDns {
     let answer: CloudflareAnswer<T>;
     try {
       answer = (await response.json()) as CloudflareAnswer<T>;
-    } catch {
-      throw new Error(`Cloudflare DNS returned HTTP ${response.status}`);
+    } catch (err) {
+      if (signals.some((s) => s.aborted)) throw err;
+      throw new Error(`Cloudflare DNS returned HTTP ${response.status}`, {
+        cause: err,
+      });
     }
     if (!response.ok || !answer.success) {
       throw new Error(
@@ -176,18 +199,22 @@ export class CloudflareDns {
     return [clean, `*.${clean}`];
   }
 
-  private async listA(name: string): Promise<ARecord[]> {
+  private async listA(name: string, signal?: AbortSignal): Promise<ARecord[]> {
     const records = await this.api<ARecord[]>(
       `/dns_records?type=A&name=${encodeURIComponent(name)}&per_page=100`,
+      undefined,
+      signal,
     );
     return records.filter(
       (record) => record.name === name && record.content.length > 0,
     );
   }
 
-  async officeARecords(host: string): Promise<ARecord[]> {
+  async officeARecords(host: string, signal?: AbortSignal): Promise<ARecord[]> {
     const names = this.officeNames(host);
-    return (await Promise.all(names.map((name) => this.listA(name)))).flat();
+    return (
+      await Promise.all(names.map((name) => this.listA(name, signal)))
+    ).flat();
   }
 
   private officeARecordsMatch(
@@ -208,29 +235,41 @@ export class CloudflareDns {
     );
   }
 
-  async replaceOfficeARecords(host: string, ipv4: string): Promise<void> {
+  async replaceOfficeARecords(
+    host: string,
+    ipv4: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const names = this.officeNames(host);
-    const existing = await this.officeARecords(host);
+    const existing = await this.officeARecords(host, signal);
     if (this.officeARecordsMatch(names, existing, ipv4)) {
       return;
     }
-    await this.api("/dns_records/batch", {
-      method: "POST",
-      body: JSON.stringify({
-        ...(existing.length > 0
-          ? { deletes: existing.map((record) => ({ id: record.id })) }
-          : {}),
-        posts: names.map((name) => ({
-          type: "A",
-          name,
-          content: ipv4,
-          ttl: 120,
-          proxied: false,
-        })),
-      }),
-    });
+    await this.api(
+      "/dns_records/batch",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(existing.length > 0
+            ? { deletes: existing.map((record) => ({ id: record.id })) }
+            : {}),
+          posts: names.map((name) => ({
+            type: "A",
+            name,
+            content: ipv4,
+            ttl: 120,
+            proxied: false,
+          })),
+        }),
+      },
+      signal,
+    );
     if (
-      !this.officeARecordsMatch(names, await this.officeARecords(host), ipv4)
+      !this.officeARecordsMatch(
+        names,
+        await this.officeARecords(host, signal),
+        ipv4,
+      )
     ) {
       throw new Error(
         `Cloudflare did not converge office A records for ${host}`,
@@ -238,17 +277,24 @@ export class CloudflareDns {
     }
   }
 
-  async removeOfficeARecords(host: string): Promise<boolean> {
-    const existing = await this.officeARecords(host);
+  async removeOfficeARecords(
+    host: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const existing = await this.officeARecords(host, signal);
     if (existing.length > 0) {
-      await this.api("/dns_records/batch", {
-        method: "POST",
-        body: JSON.stringify({
-          deletes: existing.map((record) => ({ id: record.id })),
-        }),
-      });
+      await this.api(
+        "/dns_records/batch",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            deletes: existing.map((record) => ({ id: record.id })),
+          }),
+        },
+        signal,
+      );
     }
-    return (await this.officeARecords(host)).length === 0;
+    return (await this.officeARecords(host, signal)).length === 0;
   }
 
   /**
