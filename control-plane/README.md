@@ -1743,13 +1743,17 @@ the code never learns its path, and nothing prints, logs or echoes the value.
 `StripeClient` refuses to issue a single request unless the key is an
 `sk_test_`/`rk_test_` one, and a live prefix gets its own named error.
 
+The test chain uses the account's classic test mode, not a general sandbox.
+Test mode shares live settings: Public details and the failed-payment setting
+(proven 2026-10-20, when a live terms URL change showed in a test-mode
+Checkout). Revisit if Stripe announces a test-mode retirement.
+
 The deployed provisioner also serves `POST /stripe/webhook` on port 4311, and
-Caddy publishes that path. It reads the durable Dashboard endpoint secret from
-`STRIPE_WEBHOOK_SECRET`; this replaces the temporary secret printed by a
-hand-run `stripe listen` session. Its restricted Stripe key has Subscriptions
-read, Invoices read, and Checkout Sessions read and write. The write permission
-is used only by the existing `expire_checkout` lifecycle operation. Webhook
-processing uses only the three read resources.
+Caddy publishes that path. It runs in live mode: it reads the live endpoint
+secret from `STRIPE_LIVE_WEBHOOK_SECRET`, and its key grants are in "Stripe
+mode boundary" below. Test mode has no deployed endpoint; a future test-mode
+provisioner gets its own endpoint at its own URL, with the secret in
+`STRIPE_WEBHOOK_SECRET`. Webhook processing only reads from Stripe.
 
 The same provisioner cadence polls ordinary signup Checkout sessions that have
 no local subscription row. Session IDs and expiries are recorded before a

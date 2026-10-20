@@ -57,6 +57,8 @@ config bpc_1U7LiaAU22RWBcwcbIWEqFdY (card-change + invoice history, cancel
 off), provisioner key isomux-provisioner-live minted. Step 2 secrets file
 verified (3 lines, 0600). Step 3 staging ran and held: 9 before, 4 written,
 13 exact.
+2026-10-20: the test-mode blocker is gone; test mode shares Public details
+with live (71075e7d).
 
 ## Progress 2026-08-23 (second leg: steps 4-6, quiet variant)
 
@@ -74,6 +76,7 @@ launch-domain-flip for the announce step. Deploys from local main 03461e4
 provisioner activate --redeploy completed and probe.ts accepted. The site
 needed no deploy (unchanged). The batch later pushed (3eaac86) with Nil's
 word; the copy stays parked on launch-domain-flip for the announce step.
+2026-10-20: a test-mode Checkout with ToS consent now works (71075e7d).
 
 ## Progress 2026-08-23 (step 7 complete, live incident fixed en route)
 
@@ -97,7 +100,8 @@ blockers were found and fixed during the run:
   isomux-provisioner-live during the run. Update step 1.4 if re-run.
 The Stripe env staging file (~/.config/isomux/control-plane-stripe.env)
 is strictly per-mode; test-mode lines parked in
-control-plane-stripe-test.env.
+control-plane-stripe-test.env. Its webhook secret is dead: its endpoint
+was deleted 2026-10-20 (71075e7d).
 
 Disposition (Nil's ruling): no refund (self-payment; retention story
 stays simple - refunds only on request per policy), and launch-test is
@@ -117,8 +121,8 @@ pre-checks (`internal-docs/hosted-launch-domain-checklist.md`): Cloudflare
 zone for isomux.app, DNS state, live instance-record read. Confirm the last
 site deploy is READY and the 65e0ceeb validation verdict is green.
 
-Step 1, Nil in the Stripe Dashboard (live mode; the terms URL also in test
-mode):
+Step 1, Nil in the Stripe Dashboard (live mode; test mode shares Public
+details with live):
 0. Public details MUST carry the Terms of service URL
    (https://isomux.com/hosted-terms) and Privacy policy URL
    (https://isomux.com/hosted-privacy) before any customer
@@ -149,8 +153,8 @@ mode):
 5. Public details: set the terms-of-service URL to exactly
    `https://isomux.com/hosted-terms` and privacy to
    `https://isomux.com/hosted-privacy` - the Dashboard values must equal
-   our pages, in BOTH test and live mode (Checkout's consent checkbox links
-   the Dashboard value, not our page).
+   our pages (Checkout's consent checkbox links the Dashboard value, not our
+   page). The live value also covers test mode.
 6. Enable a customer portal configuration (the intended card-change path;
    none exists today - measured 2026-08-21).
 
@@ -174,9 +178,8 @@ page - read `control-plane/README.md:1202` context before relying on it.
 
 Step 4, PM: test-mode Checkout proof (billing-cli openCheckout): session
 creation succeeds AND the created session carries
-`consent_collection.terms_of_service = "required"`. Until Dashboard step
-1.5 lands, every test-mode session create fails at creation by design
-(the `f6da59d` commit message documents the two affected callers).
+`consent_collection.terms_of_service = "required"`. Checked 2026-10-20
+(task 71075e7d): the session is created and shows the consent checkbox.
 
 Step 5, PM: web redeploy (`--redeploy`). Ships: terms consent, signup
 policy links, cloud favicon, multi-office dashboard. Verify the favicon,

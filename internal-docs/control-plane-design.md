@@ -611,14 +611,13 @@ instead of opening a second episode. Event ids are claimed in the same
 transaction as the cache update, so duplicate delivery is harmless and a failed
 transaction remains replayable.
 
-The real deployed endpoint remains in Stripe TEST mode and uses an `rk_test_`
-restricted key; the existing live-mode gates remain closed. That key has
-Subscriptions read, Invoices read, and Checkout Sessions read and write.
-Checkout Sessions write is the one narrow write permission: the already-deployed
-`expire_checkout` operation expires an unfinished reinstatement Checkout session
-before deletion can continue. The webhook path itself performs no Stripe write,
-and the source-shape test pins every production Stripe POST caller so a future
-webhook write fails the suite.
+The deployed endpoint is in Stripe live mode, with the provisioner's own
+`rk_live_` restricted key; its grants are in `control-plane/README.md`, "Stripe
+mode boundary". Test mode has no deployed endpoint. The `expire_checkout`
+operation uses the Checkout Sessions write: it expires an unfinished
+reinstatement Checkout session before deletion can continue. The webhook path
+itself performs no Stripe write, and `ownership.test.ts` ("the webhook surface
+cannot add a Stripe POST") fails the suite if a webhook write is added.
 
 **No trial** (ruling 1). Checkout collects a card and charges immediately.
 (Amended by Nil 2026-08-03: he may still hand out free boxes for feedback, so
