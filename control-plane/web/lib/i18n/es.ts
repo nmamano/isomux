@@ -309,4 +309,13 @@ export const es: Catalog = {
     "No hemos podido guardar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
   "errors.rateLimited":
     "Demasiados intentos desde tu red. Vuelve a intentarlo en unos minutos.",
+  "unsubscribe.heading": "Darse de baja de los consejos",
+  "unsubscribe.lead":
+    "Así dejas de recibir los consejos que enviamos por correo en las dos primeras semanas de tu oficina.",
+  "unsubscribe.button": "Darme de baja",
+  "unsubscribe.done": "Listo. No te enviaremos más consejos.",
+  "unsubscribe.failed":
+    "No hemos podido darte de baja en este momento. Vuelve a intentarlo.",
+  "unsubscribe.noToken":
+    "Este enlace está incompleto. Vuelve a abrir el enlace de baja del correo.",
 };

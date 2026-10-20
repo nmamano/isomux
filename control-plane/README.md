@@ -1728,6 +1728,47 @@ a provisioner started without one refuses to serve the seam at all, and says so.
   the mint gate because its existing owner can already be signed in without a new
   invite.
 
+## The welcome series
+
+Five plain-text English mails to a new customer: day 0 ("your office is
+ready", with its address), then tips on days 1, 3, 7 and 14
+(`welcome-mail-copy.ts`). The provisioner sends them through Resend from
+`hello@isomux.com` (`welcome-mail.ts`).
+
+**Sending is off** until Nil approves the copy: `WELCOME_MAIL_SENDING` is
+`false`. Sending also needs `RESEND_API_KEY` in `provisioner.env` and a
+non-empty `WELCOME_MAIL_POSTAL_ADDRESS` (CAN-SPAM wants a postal address in
+each mail; the sender refuses without one). While sending is off, the
+schedule clause is off and the provisioner sends nothing.
+
+- **The clock is first live.** `Ticker.finish` calls `store.recordFirstLive`
+  when an office goes from `provisioning` to `live`, in the same transaction.
+  The `welcome_mails` row it inserts is the only record of that moment. A
+  later `live` (after `power_on`) is not a first. An office with no reservation
+  inserts no row, and offices that went live before this table existed have no
+  series. A later office of the same account gets day 0 only (`tips` 0).
+- **Advance, then send.** `welcome-mail-watch.ts` runs in the watch class,
+  after the certificate-contact check. For each due row it moves the row to
+  its next step with a version CAS, and only the winner sends. A crash between
+  the two loses that mail; no mail goes out twice. A failed send is audited
+  and not retried.
+- **What stops a step.** A step goes out only to a `live` office whose current
+  subscription is `active` or `trialing`, with no cancellation and at most
+  48 hours late. Otherwise it is skipped and the series moves on. The series
+  ends when the office is deprovisioned, the subscription ends or no
+  subscription exists. Each outcome is an `audit_events` row with action
+  `welcome_mail`.
+- **The due clause is the pass's selection**: `next_due_at <= now` and
+  `opted_out_at is null`, the same predicate as `store.dueWelcomeMails`, so a
+  handled row is idle and an opted-out row never wakes the loop.
+- **Unsubscribe.** Each mail carries a random token. The body links to the
+  storefront's `/unsubscribe` page, which unsubscribes only on a button click,
+  because mail scanners open links. `List-Unsubscribe` names
+  `/api/unsubscribe`: a POST there is the RFC 8058 one-click opt-out, with no
+  Origin check and no session, and a GET redirects to the page. An opt-out
+  covers every office of the account, and a later office of that account
+  starts opted out.
+
 ## Billing (Stripe test-mode account)
 
 Signup, the comped path, webhooks and the dunning ladder. Every module lives in
@@ -1954,8 +1995,9 @@ tax code before any live Product is changed.
 
 Stripe owns tax collection, customer tax IDs, statement descriptors, invoices,
 Checkout confirmation text, receipts and subscription-related customer emails
-for Managed Payments. The control plane's one customer mail is the email
-sign-in link (see "What is in the app"); as checked 2026-08-16, its dunning
+for Managed Payments. The control plane's customer mails are the email
+sign-in link (see "What is in the app") and the welcome series (see "The
+welcome series", off until its copy is approved); as checked 2026-08-16, its dunning
 ladder records state, raises internal attention and requests suspension, so it
 does not duplicate Stripe's customer emails. Adding customer
 dunning email copy later is a policy decision, not an implementation default.
@@ -2258,9 +2300,9 @@ When a language is added to `shared/languages.ts`, add it here too.
 
 Precedence, highest first: the `isomux_lang` cookie the switch writes, then the
 request's `Accept-Language`, then English. There is NO stored customer language
-and no column for one - the one customer email, the sign-in link, goes out in
-the language of the request that asked for it, so nothing needs a language that
-outlives a browser.
+and no column for one - the sign-in link goes out in the language of the
+request that asked for it, and the welcome series is English only, so nothing
+needs a language that outlives a browser.
 
 Two resolution paths, because the pages render two different ways:
 

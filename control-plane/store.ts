@@ -32,6 +32,7 @@
 // database.
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes } from "node:crypto";
 import pg from "pg";
 import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
 import { ASSET_GONE_REASON, LIFECYCLE_ASSET_GONE } from "./lifecycle.ts";
@@ -221,6 +222,27 @@ export interface LivenessRow {
   updated_at: number;
 }
 
+/**
+ * One office's welcome series (welcome-mail-watch.ts). The row is created when
+ * the office first goes from provisioning to live, so `live_at` is the only
+ * record of that moment. `next_due_at` null means the series is over.
+ * `tips` 0 marks a later office of an account that already had a series: it
+ * gets the first mail only. An opt-out covers every row of the account.
+ */
+export interface WelcomeMailRow {
+  instance_id: string;
+  account_id: string;
+  live_at: number;
+  tips: number;
+  next_step: number;
+  next_due_at: number | null;
+  unsubscribe_token: string;
+  opted_out_at: number | null;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface AuditRow {
   seq: number;
   ts: number;
@@ -259,6 +281,8 @@ export interface WorkScheduleOptions {
   checkoutConfigured: boolean;
   cadenceConfigured: boolean;
   livenessConfigured: boolean;
+  /** The welcome series may send (welcomeMailConfigured). Absent means no. */
+  welcomeMailConfigured?: boolean;
   staleProvisioningMs: number;
   staleProvisioningReason: string;
 }
@@ -291,7 +315,29 @@ export const PRODUCT_TABLES = [
   "sequences",
   "stripe_events",
   "subscriptions",
+  "welcome_mails",
 ] as const;
+
+/**
+ * The welcome series table (WelcomeMailRow). SCHEMA creates it on a new
+ * database and migrateWelcomeMailsTable on an existing one, from this one text.
+ */
+export const WELCOME_MAILS_DDL = `
+create table if not exists welcome_mails (
+  instance_id text primary key,
+  account_id text not null,
+  live_at bigint not null,
+  tips integer not null,
+  next_step integer not null default 0,
+  next_due_at bigint,
+  unsubscribe_token text not null unique,
+  opted_out_at bigint,
+  version integer not null default 0,
+  created_at bigint not null,
+  updated_at bigint not null
+);
+create index if not exists welcome_mails_account_id on welcome_mails (account_id);
+`;
 
 // `source_op_id` is NOT NULL with an empty-string sentinel on purpose: NULLs
 // compare distinct in a unique index on both engines, so a nullable column would
@@ -596,7 +642,7 @@ create table if not exists name_reservations (
   created_at bigint not null,
   updated_at bigint not null
 );
-`;
+${WELCOME_MAILS_DDL}`;
 
 /**
  * Indexes over columns THIS build added, created after the column check rather
@@ -2148,7 +2194,11 @@ export class Store {
         "and (l.claim_until is null or l.claim_until <= $1))) or " +
         "((i.certificate_contact_next_check_at is null or i.certificate_contact_next_check_at <= $1) " +
         "and (i.certificate_contact_claim_until is null " +
-        "or i.certificate_contact_claim_until <= $1)))))) as liveness_due" +
+        "or i.certificate_contact_claim_until <= $1)))) " +
+        // The welcome series: exactly dueWelcomeMails' predicate, so a row the
+        // pass handles is a row that woke it, and a handled row is idle.
+        "or ($14 = 1 and exists (select 1 from welcome_mails where next_due_at <= $1 " +
+        "and opted_out_at is null)))) as liveness_due" +
         "), due_times as (" +
         "select case when lease_until is not null and lease_until > next_attempt_at " +
         "then lease_until else next_attempt_at end as due_at from operations " +
@@ -2185,7 +2235,9 @@ export class Store {
         "certificate_contact_claim_until > certificate_contact_next_check_at) " +
         "then certificate_contact_claim_until when certificate_contact_next_check_at is null " +
         "then $1 else certificate_contact_next_check_at end " +
-        "from instances where $11 = 1 and service_state = 'live'" +
+        "from instances where $11 = 1 and service_state = 'live' " +
+        "union all select next_due_at from welcome_mails where $11 = 1 and $14 = 1 " +
+        "and opted_out_at is null and next_due_at is not null" +
         ") select case when operation_due or provider_due then 1 else 0 end as tick_due, " +
         "case when cadence_due then 1 else 0 end as cadence_due, " +
         "case when liveness_due then 1 else 0 end as liveness_due, " +
@@ -2204,6 +2256,7 @@ export class Store {
         opts.livenessConfigured ? 1 : 0,
         LIFECYCLE_ASSET_GONE,
         ASSET_GONE_REASON,
+        opts.welcomeMailConfigured ? 1 : 0,
       ],
     );
     if (!row) throw new Error("the work schedule query returned no row");
@@ -2533,6 +2586,79 @@ export class Store {
         "and certificate_contact_claim_holder = $5 returning *",
       [nextAt, this.now(), instanceId, expectedVersion, holder],
     );
+  }
+
+  // ------------------------------------------------------------ welcome mail
+
+  /**
+   * Start the welcome series of an office that has just gone from provisioning
+   * to live. One statement, so it cannot fail the transition it runs in: an
+   * office with no reservation inserts nothing, and a second call changes
+   * nothing. A later office of the same account gets tips 0 and inherits the
+   * account's opt-out.
+   */
+  async recordFirstLive(instanceId: string, now: number): Promise<void> {
+    await this.sqlRun(
+      "insert into welcome_mails (instance_id, account_id, live_at, tips, next_step, " +
+        "next_due_at, unsubscribe_token, opted_out_at, version, created_at, updated_at) " +
+        "select n.instance_id, n.account_id, $2, case when exists (select 1 from welcome_mails w " +
+        "where w.account_id = n.account_id) then 0 else 1 end, 0, $2, $3, " +
+        "(select min(w.opted_out_at) from welcome_mails w where w.account_id = n.account_id), " +
+        "0, $2, $2 from name_reservations n where n.instance_id = $1 " +
+        "order by n.created_at, n.name limit 1 on conflict (instance_id) do nothing",
+      [instanceId, now, randomBytes(32).toString("base64url")],
+    );
+  }
+
+  async getWelcomeMail(instanceId: string): Promise<WelcomeMailRow | null> {
+    return this.sqlGet<WelcomeMailRow>(
+      "select * from welcome_mails where instance_id = $1",
+      [instanceId],
+    );
+  }
+
+  /** The rows the send pass handles at `now`: the same predicate as the
+   * schedule's welcome-mail clause. */
+  async dueWelcomeMails(now: number): Promise<WelcomeMailRow[]> {
+    return this.sqlAll<WelcomeMailRow>(
+      "select * from welcome_mails where next_due_at <= $1 and opted_out_at is null " +
+        "order by next_due_at, instance_id",
+      [now],
+    );
+  }
+
+  /** Move a row to its next step. Null when the version moved or the account
+   * opted out since the read: the caller then does not send. */
+  async advanceWelcomeMail(
+    instanceId: string,
+    expectedVersion: number,
+    next: { next_step: number; next_due_at: number | null },
+  ): Promise<WelcomeMailRow | null> {
+    return this.sqlGet<WelcomeMailRow>(
+      "update welcome_mails set next_step = $1, next_due_at = $2, version = version + 1, " +
+        "updated_at = $3 where instance_id = $4 and version = $5 and opted_out_at is null " +
+        "returning *",
+      [
+        next.next_step,
+        next.next_due_at,
+        this.now(),
+        instanceId,
+        expectedVersion,
+      ],
+    );
+  }
+
+  /** Opt out every row of the token's account. Returns the rows changed; an
+   * unknown token changes none. A second opt-out keeps the first moment. */
+  async unsubscribeWelcomeMail(token: string, now: number): Promise<number> {
+    const rows = await this.sqlAll<{ instance_id: string }>(
+      "update welcome_mails set opted_out_at = coalesce(opted_out_at, $2), " +
+        "next_due_at = null, version = version + 1, updated_at = $2 " +
+        "where account_id = (select account_id from welcome_mails where unsubscribe_token = $1) " +
+        "returning instance_id",
+      [token, now],
+    );
+    return rows.length;
   }
 
   // ------------------------------------------------------------- audit

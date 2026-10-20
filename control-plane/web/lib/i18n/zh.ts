@@ -236,4 +236,11 @@ export const zh: Catalog = {
   "errors.checkoutSessionUnavailable": "暂时无法检查付款页面，请稍后重试。",
   "errors.checkoutSessionUnsaved": "暂时无法保存付款页面，请稍后重试。",
   "errors.rateLimited": "来自你所在网络的尝试次数过多。请几分钟后重试。",
+  "unsubscribe.heading": "退订使用提示",
+  "unsubscribe.lead":
+    "退订后，我们将不再在你的办公室开通后的头两周通过邮件发送使用提示。",
+  "unsubscribe.button": "退订",
+  "unsubscribe.done": "已退订。我们不会再向你发送使用提示。",
+  "unsubscribe.failed": "暂时无法为你退订。请重试。",
+  "unsubscribe.noToken": "此链接不完整。请重新打开邮件中的退订链接。",
 };

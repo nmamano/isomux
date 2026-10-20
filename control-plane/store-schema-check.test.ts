@@ -24,6 +24,7 @@ import {
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
   migratePendingCheckoutColumns,
+  migrateWelcomeMailsTable,
 } from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
 import {
@@ -239,6 +240,22 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     );
     await migratePendingCheckoutColumns(ownerDsn);
     await migratePendingCheckoutColumns(ownerDsn);
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
+  });
+
+  test("runtime refuses a missing welcome series table until the owner migration", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `drop table ${quoteIdentifier(schema)}.welcome_mails cascade`,
+    );
+    const refusal = await Store.openRuntime(roleDsn).then(
+      () => "opened",
+      (err: Error) => err.message,
+    );
+    expect(refusal).toContain("has no welcome_mails table");
+    await migrateWelcomeMailsTable(ownerDsn);
+    await migrateWelcomeMailsTable(ownerDsn);
     const store = await Store.openRuntime(roleDsn);
     await store.close();
   });

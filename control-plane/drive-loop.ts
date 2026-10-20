@@ -21,6 +21,8 @@ export interface ScheduleCapabilities {
   providerConfigured: boolean;
   provisioningConfigured: boolean;
   checkoutConfigured: boolean;
+  /** The welcome series may send. Absent means no. */
+  welcomeMailConfigured?: boolean;
   staleProvisioningMs: number;
   staleProvisioningReason: string;
 }
@@ -102,6 +104,7 @@ export async function driveTicks(
       checkoutConfigured: opts.capabilities.checkoutConfigured,
       cadenceConfigured: opts.cadence !== undefined,
       livenessConfigured: opts.watch !== undefined,
+      welcomeMailConfigured: opts.capabilities.welcomeMailConfigured,
       staleProvisioningMs: opts.capabilities.staleProvisioningMs,
       staleProvisioningReason: opts.capabilities.staleProvisioningReason,
     });

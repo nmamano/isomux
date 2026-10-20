@@ -822,7 +822,8 @@ version, provider row ref, access-window state and the attention fields below) -
 ends at, host key fingerprint) - `operations` (as above) - `instance_secrets`
 (encrypted provisioning key material, destroyed at revocation) - `audit_events`
 (append-only: actor, instance, action, outcome, including every remote command
-we run).
+we run) - `welcome_mails` (one row per office from its first live moment: the
+welcome series step, its due time, the unsubscribe token and the opt-out).
 
 Attention is persisted, not derived: `attention_state`, `attention_reason`,
 `attention_severity`, `attention_raised_at`, `acknowledged_at`,

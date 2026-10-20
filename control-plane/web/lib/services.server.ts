@@ -1180,3 +1180,11 @@ export async function identityForSignIn(args: {
     throw err;
   }
 }
+
+/**
+ * Opt the account behind an unsubscribe token out of the welcome series. An
+ * unknown token changes nothing and is not an error.
+ */
+export async function unsubscribeWelcomeMail(token: string): Promise<void> {
+  await withStore((store) => store.unsubscribeWelcomeMail(token, Date.now()));
+}

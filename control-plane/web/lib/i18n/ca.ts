@@ -306,4 +306,13 @@ export const ca: Catalog = {
     "No hem pogut desar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
   "errors.rateLimited":
     "Massa intents des de la teva xarxa. Torna-ho a provar d'aquí a uns minuts.",
+  "unsubscribe.heading": "Donar-se de baixa dels consells",
+  "unsubscribe.lead":
+    "Així deixes de rebre els consells que enviem per correu les dues primeres setmanes de la teva oficina.",
+  "unsubscribe.button": "Dona'm de baixa",
+  "unsubscribe.done": "Fet. No t'enviarem més consells.",
+  "unsubscribe.failed":
+    "No t'hem pogut donar de baixa ara mateix. Torna-ho a provar.",
+  "unsubscribe.noToken":
+    "Aquest enllaç està incomplet. Torna a obrir l'enllaç de baixa del correu.",
 };

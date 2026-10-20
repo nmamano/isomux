@@ -14,6 +14,7 @@ import { SignedOut, Dashboard } from "../app/home-view";
 import { SignupForm } from "./signup-form";
 import { OfficeView } from "./office-view";
 import { PolicyNotice } from "./policy-notice";
+import { UnsubscribeView } from "./unsubscribe-view";
 import { customerPriceLine } from "./plan-copy";
 import { webTranslatorFor } from "../lib/i18n/rich";
 import type { ProgressView } from "../lib/services.server";
@@ -339,5 +340,18 @@ describe("the office page", () => {
     const dated = (html: string) =>
       texts(html).map((text) => text.includes("2026-01-02"));
     expect(dated(ca)).toEqual(dated(en));
+  });
+});
+
+describe("the unsubscribe page", () => {
+  test("reads every language, with and without a token", () => {
+    for (const token of ["Zm9vYmFy", null]) {
+      const render = (language: Language) =>
+        renderToStaticMarkup(
+          <UnsubscribeView token={token} language={language} />,
+        );
+      for (const language of ["es", "ca", "zh"] as const)
+        expectTranslated(render(language), render("en"));
+    }
   });
 });

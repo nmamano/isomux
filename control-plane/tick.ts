@@ -668,6 +668,14 @@ export class Ticker {
               outcome: "succeeded",
               detail: becomes,
             });
+            // The first time only: a powered-on office was live before, and
+            // its welcome series (welcome-mail-watch.ts) started then or never.
+            if (
+              instance.service_state === "provisioning" &&
+              becomes === "live"
+            ) {
+              await this.store.recordFirstLive(instance.id, now);
+            }
           }
           const next = nextKind(
             op.kind as OperationKind,

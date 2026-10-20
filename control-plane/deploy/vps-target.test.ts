@@ -15,6 +15,7 @@ import {
   CONTABO_SECRET_NAMES,
   STRIPE_CONFIGURATION_NAMES,
 } from "./secret-names.ts";
+import { WELCOME_MAIL_KEY_ENV } from "../welcome-mail.ts";
 
 const VPS = path.join(import.meta.dir, "vps");
 
@@ -200,6 +201,7 @@ describe("the committed templates", () => {
         ...CONTABO_SECRET_NAMES,
         ...CERTIFICATE_SECRET_NAMES,
         ...certificateSettings,
+        WELCOME_MAIL_KEY_ENV,
       ].sort(),
     );
   });

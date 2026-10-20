@@ -92,6 +92,7 @@ describe("only one file reaches the store", () => {
       "revealInvite",
       "signUpOffice",
       "signupPageState",
+      "unsubscribeWelcomeMail",
     ]);
     // And nothing exports a store, a database or a transaction.
     expect(source).not.toMatch(/export .*\bStore\b/);

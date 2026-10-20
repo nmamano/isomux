@@ -25,6 +25,7 @@ import {
   GOVERNED_SETTINGS,
   PRODUCT_TABLES,
   Store,
+  WELCOME_MAILS_DDL,
   redactConnectionDetails,
 } from "./store.ts";
 import type { SqlArgs } from "./store.ts";
@@ -174,6 +175,19 @@ export async function migrateCertificateContactColumns(
       "alter table if exists instances add column if not exists certificate_contact_claim_holder text",
       "alter table if exists instances add column if not exists certificate_contact_version integer",
     ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+/** Owner-role migration for the welcome series table (welcome_mails). */
+export async function migrateWelcomeMailsTable(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [WELCOME_MAILS_DDL]);
   } finally {
     await pool.end().catch(() => {});
   }
@@ -363,6 +377,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-certificate-contact",
     run: migrateCertificateContactColumns,
     ready: "certificate-contact schedule columns",
+  },
+  {
+    command: "migrate-welcome-mails",
+    run: migrateWelcomeMailsTable,
+    ready: "welcome series table",
   },
 ];
 
@@ -1010,6 +1029,7 @@ export async function bootstrapDatabase(
   await migrateMultiOfficeReservations(dsn);
   await migratePendingCheckoutColumns(dsn);
   await migrateCertificateContactColumns(dsn);
+  await migrateWelcomeMailsTable(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
@@ -1018,6 +1038,7 @@ export async function bootstrapDatabase(
     await migrateMultiOfficeReservations(dsn);
     await migratePendingCheckoutColumns(dsn);
     await migrateCertificateContactColumns(dsn);
+    await migrateWelcomeMailsTable(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

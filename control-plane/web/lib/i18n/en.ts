@@ -308,6 +308,17 @@ export const en = {
   // The refusal of lib/rate-limit.server.ts, past a per-address quota.
   "errors.rateLimited":
     "Too many attempts from your network. Try again in a few minutes.",
+
+  // ------------------------------------------------------------- unsubscribe
+  // The page the unsubscribe link in a welcome mail opens.
+  "unsubscribe.heading": "Unsubscribe from the tips",
+  "unsubscribe.lead":
+    "This stops the tips we email in the first two weeks of your office.",
+  "unsubscribe.button": "Unsubscribe",
+  "unsubscribe.done": "Done. We will not email you more tips.",
+  "unsubscribe.failed": "We could not unsubscribe you just now. Try again.",
+  "unsubscribe.noToken":
+    "This link is incomplete. Open the unsubscribe link in the email again.",
 } as const;
 
 export type Catalog = Readonly<Record<keyof typeof en, string>>;

@@ -262,6 +262,13 @@ export const WEB_GRANTS: readonly TableGrant[] = [
     because:
       "the store open proves the database identity row before serving (boot.ts)",
   },
+  {
+    table: "welcome_mails",
+    verbs: ["select"],
+    updateColumns: ["opted_out_at", "next_due_at", "version", "updated_at"],
+    because:
+      "the unsubscribe link in a welcome mail opts the account out; it cannot start, move or resend a step",
+  },
 ];
 
 /**
@@ -391,6 +398,12 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
     verbs: ["select", "update"],
     because:
       "the audit sequence is bumped per event, and runtime open asserts its row exists",
+  },
+  {
+    table: "welcome_mails",
+    verbs: ["select", "insert", "update"],
+    because:
+      "the tick starts an office's welcome series when it first goes live, and the send pass advances it",
   },
 ];
 
@@ -621,6 +634,24 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
       "recordTerminalOrdinarySession, and stripe/reconcile.ts " +
       "applyPolledCheckout (select ... for update, then the reconciled mark)",
   },
+  {
+    table: "welcome_mails",
+    verb: "select",
+    via:
+      "tick.ts Ticker.finish -> store.recordFirstLive (the account's earlier rows); " +
+      "cli.ts cmdRun watch -> welcome-mail-watch.ts watchWelcomeMail -> " +
+      "store.dueWelcomeMails; store.workSchedule's welcome clause",
+  },
+  {
+    table: "welcome_mails",
+    verb: "insert",
+    via: "tick.ts Ticker.finish -> store.recordFirstLive, at provisioning -> live",
+  },
+  {
+    table: "welcome_mails",
+    verb: "update",
+    via: "welcome-mail-watch.ts watchWelcomeMail -> store.advanceWelcomeMail",
+  },
 ];
 
 /**
@@ -815,6 +846,17 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     verb: "select",
     via: "openedStore -> boot:proveDatabaseIdentity reads the database identity row",
   },
+  {
+    table: "welcome_mails",
+    verb: "select",
+    via: "unsubscribeWelcomeMail -> store:unsubscribeWelcomeMail finds the token's account",
+  },
+  {
+    table: "welcome_mails",
+    verb: "update",
+    columns: ["opted_out_at", "next_due_at", "version", "updated_at"],
+    via: "unsubscribeWelcomeMail -> store:unsubscribeWelcomeMail opts the account out",
+  },
 ];
 
 /**
@@ -876,6 +918,7 @@ export const AUDITED_WEB_STORE_CALLS: readonly string[] = [
   "close",
   "getInstance",
   "openRuntime",
+  "unsubscribeWelcomeMail",
 ];
 
 /**
@@ -1038,6 +1081,11 @@ export const AUDITED_CMDRUN_SURFACES = [
   "runLifecycleCadence",
   "watchLiveness",
   "watchCertificateContact",
+  // The welcome series send pass (welcome-mail-watch.ts), in its own guard,
+  // and the flag-and-key check that turns its schedule clause on. The key is
+  // read from the environment.
+  "watchWelcomeMail",
+  "welcomeMailConfigured",
   // The two independently guarded monitoring passes surface either failure
   // without stopping the other pass.
   "reporter.problem",

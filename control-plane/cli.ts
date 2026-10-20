@@ -80,6 +80,8 @@ import {
 import { InviteHold } from "./invite-hold.ts";
 import { watchLiveness } from "./liveness-watch.ts";
 import { watchCertificateContact } from "./certificate-contact-watch.ts";
+import { WELCOME_MAIL_KEY_ENV, welcomeMailConfigured } from "./welcome-mail.ts";
+import { watchWelcomeMail } from "./welcome-mail-watch.ts";
 import {
   readReleaseIdentity,
   startMintSeam,
@@ -909,11 +911,16 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   // provisioner without provider means idles correctly and looks identical to
   // one that is working, until an operation needs a provider and fails.
   reporter.line(`provider-configured ${providerConfigured}`);
+  // Off while WELCOME_MAIL_SENDING is false, and without the key.
+  const welcomeMail = welcomeMailConfigured();
   try {
     await driveTicks(store, running, {
       forever: args.get("once") !== "true",
       reporter,
-      capabilities: scheduleCapabilities(running, !!checkoutReader),
+      capabilities: {
+        ...scheduleCapabilities(running, !!checkoutReader),
+        welcomeMailConfigured: welcomeMail,
+      },
       wake,
       cadence: {
         failureLabel: "lifecycle pass failed",
@@ -953,6 +960,18 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           reporter.problem(
             `certificate-contact monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
           );
+        }
+        if (welcomeMail) {
+          try {
+            await watchWelcomeMail(store, {
+              apiKey: process.env[WELCOME_MAIL_KEY_ENV]!,
+              report: (line) => reporter.line(line),
+            });
+          } catch (err) {
+            reporter.problem(
+              `welcome mail pass failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       },
     });

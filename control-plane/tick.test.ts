@@ -1109,6 +1109,111 @@ describe("service state", () => {
   });
 });
 
+// The welcome series (welcome-mail-watch.ts) counts from the moment an office
+// FIRST goes live, and its row is the only record of that moment. It is written
+// in the transaction that marks the office live, so it must never fail it.
+describe("first live starts the welcome series", () => {
+  async function reserve(store: Store, inst: string, account: string) {
+    await store.sqlRun(
+      "insert into name_reservations (name, id, account_id, instance_id, plan, " +
+        "coupon_id, version, created_at, updated_at) " +
+        "values ($1, $2, $3, $4, 'V153', null, 1, 0, 0)",
+      [`name-${inst}`, `res-${inst}`, account, inst],
+    );
+  }
+
+  function httpsTicker(store: Store, now: () => number): Ticker {
+    return new Ticker({
+      store,
+      handlers: [
+        fakeHandler("verify_https", async () => ({ kind: "done" })),
+        fakeHandler("power_on", async () => ({ kind: "done" })),
+      ],
+      holder: "a",
+      now,
+    });
+  }
+
+  test("provisioning to live records the moment once, for the reserving account", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await reserve(store, inst, "acct-1");
+    const ticker = httpsTicker(store, c.now);
+    await ticker.enqueue(inst, "verify_https");
+    const wentLive = c.now();
+    await ticker.once();
+    expect((await store.getInstance(inst))?.service_state).toBe("live");
+    const row = await store.getWelcomeMail(inst);
+    expect(row).toMatchObject({
+      instance_id: inst,
+      account_id: "acct-1",
+      live_at: wentLive,
+      tips: 1,
+      next_step: 0,
+      next_due_at: wentLive,
+      opted_out_at: null,
+    });
+    // 32 random bytes, base64url: 43 characters of the URL-safe alphabet.
+    expect(row!.unsubscribe_token).toMatch(/^[A-Za-z0-9_-]{43,}$/);
+
+    // A later live transition of the same office (suspended, then powered on)
+    // is not a first: the row is untouched.
+    await store.sqlRun(
+      "update instances set service_state = 'suspended', version = version + 1 where id = $1",
+      [inst],
+    );
+    c.advance(60_000);
+    await ticker.enqueue(inst, "power_on");
+    await ticker.once();
+    expect((await store.getInstance(inst))?.service_state).toBe("live");
+    expect(await store.getWelcomeMail(inst)).toEqual(row);
+  });
+
+  test("an office that was live before the series existed never starts one", async () => {
+    // Suspended with no row: it went live before this build. Neither a power-on
+    // nor a re-run HTTPS check may greet it as new.
+    const c = clock();
+    const store = await tempStore(c.now);
+    await store.createInstance({
+      id: "inst-old",
+      run_id: null,
+      name: "old.test.isomux.app",
+      plan: "V153",
+      region: "EU",
+      service_state: "suspended",
+      goal: "live",
+      access_window_expires_at: null,
+    });
+    await reserve(store, "inst-old", "acct-old");
+    const ticker = httpsTicker(store, c.now);
+    await ticker.enqueue("inst-old", "power_on");
+    await ticker.once();
+    expect((await store.getInstance("inst-old"))?.service_state).toBe("live");
+    await store.sqlRun(
+      "update instances set service_state = 'suspended', version = version + 1 where id = $1",
+      ["inst-old"],
+    );
+    c.advance(POLL);
+    await ticker.enqueue("inst-old", "verify_https");
+    await ticker.once();
+    expect((await store.getInstance("inst-old"))?.service_state).toBe("live");
+    expect(await store.getWelcomeMail("inst-old")).toBeNull();
+  });
+
+  test("an office with no reservation still goes live, with no series", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    const ticker = httpsTicker(store, c.now);
+    const op = await ticker.enqueue(inst, "verify_https");
+    await ticker.once();
+    expect((await store.getOperation(op.id))?.status).toBe("succeeded");
+    expect((await store.getInstance(inst))?.service_state).toBe("live");
+    expect(await store.getWelcomeMail(inst)).toBeNull();
+  });
+});
+
 const POLL = 6000;
 
 describe("audit", () => {
