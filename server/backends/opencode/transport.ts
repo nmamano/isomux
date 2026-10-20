@@ -442,6 +442,9 @@ export class OpenCodeTransport {
   // that stopped answering replaces it even while other turns run on it.
   private promptSent = false;
   private promptSentAt = 0;
+  // A failed turn's session stop that is still in flight. The next prompt
+  // waits on it, so that the late abort does not stop the next turn.
+  private sessionStop: Promise<void> | null = null;
   // Open permission requests: request id -> OpenCode session id. OpenCode
   // runs the tool calls of one step in parallel, and each can ask at once.
   private pendingPermissions = new Map<string, string>();
@@ -663,6 +666,9 @@ export class OpenCodeTransport {
     let settled = false;
     let turnStarted = false;
     let controller: AbortController | undefined;
+    // Set when this turn's prompt request starts. this.promptSent can still
+    // hold the previous turn's value until this turn begins.
+    let promptOut = false;
     // The step a failure happened in, for the journal.
     let step: OpenCodeTurnStep | undefined;
     const emit: EventSink = (event) => {
@@ -711,7 +717,32 @@ export class OpenCodeTransport {
         // A request still open when the turn ends can never be answered, so
         // OpenCode gets a reject and does not wait on it. A request that
         // arrives late is refused in the same way (consumeEvents).
-        void this.rejectPendingPermission();
+        const rejected = this.rejectPendingPermission();
+        // A turn that fails after its prompt went out stops its session, so
+        // that it does not run on unseen. The abort comes after the reject,
+        // as in abort(). A stopped server has nothing to stop, and a marked
+        // one is replaced. After a failure OpenCode reported itself, the
+        // session is idle already and the abort changes nothing: one rule
+        // for every failure is deliberate.
+        if (
+          event.status === "failed" &&
+          promptOut &&
+          event.error !== OPENCODE_SERVER_STOPPED_FAILURE &&
+          event.error !== OPENCODE_SERVER_UNRESPONSIVE_FAILURE &&
+          this.sessionId
+        ) {
+          const path = `/session/${encodeURIComponent(this.sessionId)}/abort`;
+          const stop: Promise<void> = rejected
+            .then(() => this.request(path, { method: "POST" }))
+            .then(
+              () => undefined,
+              () => undefined,
+            )
+            .finally(() => {
+              if (this.sessionStop === stop) this.sessionStop = null;
+            });
+          this.sessionStop = stop;
+        }
         for (const id of this.pendingPermissions.keys())
           sink({ kind: "approval_withdrawn", approvalId: id });
         this.pendingPermissions.clear();
@@ -829,7 +860,10 @@ export class OpenCodeTransport {
       // After beginTurn and recovery, which can each replace the server.
       const { variant, notice } = await this.resolveEffort();
       if (settled) return;
-      // A stop during the catalog wait: no prompt is out, so none goes.
+      await this.previousSessionStop();
+      if (settled) return;
+      // A stop during the catalog wait or the wait above: no prompt is out,
+      // so none goes.
       if (this.abortRequested) {
         emit({ kind: "turn_completed", status: "interrupted" });
         return;
@@ -837,6 +871,7 @@ export class OpenCodeTransport {
       if (notice) emit({ kind: "system_text", text: notice });
       step = "prompt";
       const [providerID, modelID] = splitModel(this.model);
+      promptOut = true;
       this.promptSent = true;
       this.promptSentAt = Date.now();
       await this.request(
@@ -864,6 +899,25 @@ export class OpenCodeTransport {
       // A turn that ended before beginTurn, even a silent one after close(),
       // still holds its acquire; after beginTurn this is a no-op.
       settleAcquire();
+    }
+  }
+
+  // Waits up to the stream deadline for a failed turn's session stop. A
+  // stop request to a server that froze must not hold the next turn.
+  private async previousSessionStop(): Promise<void> {
+    const stop = this.sessionStop;
+    if (!stop) return;
+    let timer: unknown;
+    const bound = new Promise<void>((resolve) => {
+      timer = this.deadlineScheduler.setTimeout(
+        resolve,
+        this.eventStreamDeadlineMs,
+      );
+    });
+    try {
+      await Promise.race([stop, bound]);
+    } finally {
+      this.deadlineScheduler.clearTimeout(timer);
     }
   }
 
@@ -1169,19 +1223,11 @@ export class OpenCodeTransport {
         "",
       );
     };
-    // The server answers, so only this turn fails. Its session is stopped so
-    // that it does not run on unseen.
+    // The server answers, so only this turn fails. The turn's end stops its
+    // session (send).
     const failAlone = (): void => {
       if (settled || signal.aborted) return;
       reportSilence("failed_alone");
-      if (this.promptSent)
-        void this.rejectPendingPermission()
-          .then(() =>
-            this.request(`/session/${encodeURIComponent(sessionId)}/abort`, {
-              method: "POST",
-            }),
-          )
-          .catch(() => undefined);
       fail(
         new OpenCodeTurnFailure(OPENCODE_EVENT_STREAM_LOST_FAILURE, {
           cause: new Error(),

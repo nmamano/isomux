@@ -785,6 +785,11 @@ function drivenServer(
     holdReply?: boolean;
     holdToolIds?: boolean;
     failStreamAtPrompt?: boolean;
+    // An HTTP status for prompt_async other than 200.
+    promptStatus?: number;
+    // The session abort answers only on releaseAbort, as a server that is
+    // slow to stop a session does.
+    holdAbort?: boolean;
     // How /global/health answers. A frozen server (a held session or event
     // request) accepts the connection and never answers; a killed one that
     // is not reaped yet refuses it.
@@ -808,6 +813,7 @@ function drivenServer(
   let providerAborts = 0;
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let releaseReply: (() => void) | undefined;
+  const heldAborts: (() => void)[] = [];
   let providerRequests = 0;
   let eventRequests = 0;
   let healthRequests = 0;
@@ -925,6 +931,8 @@ function drivenServer(
     }
     if (url.pathname.endsWith("/prompt_async")) {
       promptBodies.push(JSON.parse(init?.body as string));
+      if (options.promptStatus)
+        return new Response(null, { status: options.promptStatus });
       if (options.failStreamAtPrompt) stream!.error(failure);
       else if (options.holdReply)
         stream!.enqueue(
@@ -953,6 +961,10 @@ function drivenServer(
       await new Promise<void>((resolve) => (releaseReply = resolve));
       return Response.json(true);
     }
+    if (url.pathname === "/session/driven/abort" && options.holdAbort)
+      return new Promise<Response>((resolve) =>
+        heldAborts.push(() => resolve(Response.json(true))),
+      );
     if (url.pathname === "/global/health") {
       healthRequests++;
       if (health === "silent") return hold(init);
@@ -978,10 +990,15 @@ function drivenServer(
     promptBodies,
     replies,
     replyPending: () => releaseReply !== undefined,
+    releaseAbort: () => heldAborts.splice(0).forEach((answer) => answer()),
+    // How many times the session was stopped.
+    aborts: () => log.filter((path) => path === "/session/driven/abort").length,
     releaseReply: () => releaseReply?.(),
     send: (bytes: Uint8Array) => stream!.enqueue(bytes),
     // The stream breaks while the server still answers.
     fail: () => stream!.error(failure),
+    // The stream ends cleanly before the turn completed.
+    end: () => stream!.close(),
     complete() {
       stream!.enqueue(
         frame({
@@ -1143,6 +1160,9 @@ it("keeps a turn whose stream frames reset the deadline across several deadlines
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.completions).toEqual([unresponsive]);
     expect(turn.marked).toEqual([{ pid: 4242, afterPrompt: true }]);
+    // A request to a server that stopped answering has no bound.
+    await settleUntil(() => server.aborts() > 0);
+    expect(server.aborts(), "no session abort").toBe(0);
     expect(turn.recoveries(), "no replacement inside the turn").toBe(0);
     expect(server.promptBodies, "the prompt is never replayed").toHaveLength(1);
     expect(server.eventRequests(), "no second subscription").toBe(1);
@@ -1663,6 +1683,189 @@ it("rejects to OpenCode a request still open when its stream fails", async () =>
   }
 });
 
+// Task 4817cf7b: a turn that failed after its prompt went out only settled,
+// and OpenCode ran the turn on with nobody reading its stream.
+for (const [how, options, failTurn] of [
+  ["its stream ends", {}, (server) => server.end()],
+  ["its stream fails", {}, (server) => server.fail()],
+  ["OpenCode refuses its prompt", { promptStatus: 500 }, () => {}],
+] as const satisfies readonly (readonly [
+  string,
+  Parameters<typeof drivenServer>[0],
+  (server: ReturnType<typeof drivenServer>) => void,
+])[])
+  it(`stops its session when ${how} after the prompt went out`, async () => {
+    const clock = drivenClock();
+    const server = drivenServer(options);
+    const turn = drivenTransport(clock, { sessionId: "driven" });
+    try {
+      await turn.send();
+      failTurn(server);
+      await settleUntil(
+        () => turn.completions.length > 0 && server.aborts() > 0,
+      );
+      expect(turn.completions).toMatchObject([{ status: "failed" }]);
+      expect(server.promptBodies).toHaveLength(1);
+      expect(server.aborts()).toBe(1);
+      expect(server.log.lastIndexOf("/session/driven/abort")).toBeGreaterThan(
+        server.log.indexOf("/session/driven/prompt_async"),
+      );
+    } finally {
+      turn.transport.close();
+      server.restore();
+    }
+  });
+
+// OpenCode must not take the session abort as the answer to the request.
+it("stops a failed turn's session only after OpenCode took the reject of its open request", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdReply: true });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await settleUntil(() => turn.approvals.length > 0);
+    expect(turn.approvals, "the request is open").toEqual(["asked"]);
+    server.fail();
+    await settleUntil(() => server.replyPending() && server.aborts() > 0);
+    expect(turn.completions).toMatchObject([{ status: "failed" }]);
+    expect(server.replies).toEqual([{ id: "asked", reply: "reject" }]);
+    expect(server.aborts(), "no abort while the reject is open").toBe(0);
+    server.releaseReply();
+    await settleUntil(() => server.aborts() > 0);
+    expect(server.aborts()).toBe(1);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// The prompt of the previous turn does not count for this one.
+it("does not stop the session when a turn fails before its prompt after an earlier turn sent one", async () => {
+  const clock = drivenClock();
+  const server = drivenServer();
+  let entries = 0;
+  const turn = drivenTransport(clock, {
+    sessionId: "driven",
+    onBeginTurn: () => {
+      if (++entries === 2) throw new Error("begin turn failed");
+    },
+  });
+  try {
+    await turn.send();
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    await turn.send();
+    await settleUntil(() => turn.completions.length > 1 && server.aborts() > 0);
+    expect(entries, "the second turn failed at its entry").toBe(2);
+    expect(turn.completions).toMatchObject([
+      { status: "completed" },
+      { status: "failed" },
+    ]);
+    expect(server.promptBodies, "one prompt, the first turn's").toHaveLength(1);
+    expect(server.aborts()).toBe(0);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// A queued message starts the next turn on the same session at once. The
+// failed turn's late abort must not stop it.
+it("sends the next turn's prompt only after the failed turn's session abort answered", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdAbort: true });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.fail();
+    await settleUntil(() => turn.completions.length > 0 && server.aborts() > 0);
+    expect(turn.completions).toMatchObject([{ status: "failed" }]);
+    expect(server.aborts(), "the abort is open").toBe(1);
+    const next = turn.send();
+    await settleUntil(() => server.promptBodies.length > 1);
+    expect(server.promptBodies, "the next prompt waits").toHaveLength(1);
+    server.releaseAbort();
+    await settleUntil(() => server.promptBodies.length > 1);
+    expect(server.promptBodies).toHaveLength(2);
+    await next;
+    server.complete();
+    await settleUntil(() => turn.completions.length > 1);
+    expect(turn.completions).toMatchObject([
+      { status: "failed" },
+      { status: "completed" },
+    ]);
+    expect(server.aborts(), "the next turn is not stopped").toBe(1);
+  } finally {
+    server.releaseAbort();
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// A server that froze after the failure does not hold the next turn for ever.
+it("sends the next turn's prompt at the deadline when the failed turn's session abort never answers", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdAbort: true });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.fail();
+    await settleUntil(() => turn.completions.length > 0 && server.aborts() > 0);
+    const next = turn.send();
+    await settleUntil(() => server.promptBodies.length > 1);
+    expect(server.promptBodies, "the next prompt waits").toHaveLength(1);
+    // A frame moves the stream deadline past the wait's bound.
+    clock.advance(DEADLINE_MS / 2);
+    server.send(heartbeat());
+    await settleUntil(() => false);
+    clock.advance(DEADLINE_MS / 2);
+    await settleUntil(() => server.promptBodies.length > 1);
+    expect(server.promptBodies, "the prompt went at the bound").toHaveLength(2);
+    await next;
+    expect(server.eventRequests(), "the stream was not recovered").toBe(2);
+    server.complete();
+    await settleUntil(() => turn.completions.length > 1);
+    expect(turn.completions).toMatchObject([
+      { status: "failed" },
+      { status: "completed" },
+    ]);
+  } finally {
+    server.releaseAbort();
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("sends no prompt when the member stops the next turn while it waits on the failed turn's session abort", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdAbort: true });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.fail();
+    await settleUntil(() => turn.completions.length > 0 && server.aborts() > 0);
+    const next = turn.send();
+    await settleUntil(() => server.promptBodies.length > 1);
+    expect(server.promptBodies, "the next prompt waits").toHaveLength(1);
+    // The member's stop posts its own abort, which the server also holds.
+    void turn.transport.abort();
+    server.releaseAbort();
+    await settleUntil(() => turn.completions.length > 1);
+    server.releaseAbort();
+    await next;
+    expect(turn.completions).toEqual([
+      expect.objectContaining({ status: "failed" }),
+      { kind: "turn_completed", status: "interrupted" },
+    ]);
+    expect(server.promptBodies, "no prompt after the stop").toHaveLength(1);
+  } finally {
+    server.releaseAbort();
+    turn.transport.close();
+    server.restore();
+  }
+});
+
 // Task 9251ff1d: the turn can end between the safety check of a request and
 // its card. A request with no command fails the check open, and its warning
 // is the moment to end the turn.
@@ -2110,6 +2313,8 @@ it("fails the turn before its prompt when the folder's tools lack the safety plu
     ]);
     expect(server.promptBodies, "no prompt").toEqual([]);
     expect(turn.marked).toEqual([]);
+    await settleUntil(() => server.aborts() > 0);
+    expect(server.aborts(), "nothing runs to stop").toBe(0);
   } finally {
     turn.transport.close();
     server.restore();
@@ -2165,6 +2370,9 @@ for (const [dying, health, serverStopped] of [
         { name: "Error", code: "ConnectionRefused" },
       ]);
       expect(turn.marked).toEqual([]);
+      expect(server.promptBodies).toHaveLength(1);
+      await settleUntil(() => server.aborts() > 0);
+      expect(server.aborts(), "no session abort to a stopped server").toBe(0);
       expect(JSON.stringify(turn.errors)).not.toContain(CANARY);
     } finally {
       turn.transport.close();
