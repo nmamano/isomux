@@ -28,6 +28,7 @@ import {
   isSupportedLanguage,
   type SupportedLanguageCode,
 } from "../shared/languages.ts";
+import { isVoiceInput, isVoiceName, isVoiceOutput } from "../shared/voice.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import {
   defaultGhostColorForUserId,
@@ -109,6 +110,21 @@ function normalizeMemberPrompt(value: unknown): string | null {
 // system-prompt clause can never be built from a language we don't know.
 function normalizeLanguage(value: unknown): SupportedLanguageCode | null {
   return isSupportedLanguage(value) ? value : null;
+}
+
+// The voice preferences (task 4481e64b) are optional fields: absent means the
+// default (browser, and DEFAULT_VOICE_NAME), so a legacy record or an
+// unrecognized value simply leaves the field out.
+function voicePreferences(
+  value: Partial<Record<"voiceInput" | "voiceOutput" | "voiceName", unknown>>,
+): Pick<UserRecord, "voiceInput" | "voiceOutput" | "voiceName"> {
+  return {
+    ...(isVoiceInput(value.voiceInput) ? { voiceInput: value.voiceInput } : {}),
+    ...(isVoiceOutput(value.voiceOutput)
+      ? { voiceOutput: value.voiceOutput }
+      : {}),
+    ...(isVoiceName(value.voiceName) ? { voiceName: value.voiceName } : {}),
+  };
 }
 
 // Avatar color (live-avatars feature). Stored as a normalized lowercase
@@ -215,6 +231,7 @@ function load(): Record<string, UserRecord> {
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
+        ...voicePreferences(value),
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
@@ -581,6 +598,9 @@ export function updateUserById(
       | "avatarColor"
       | "avatarVariant"
       | "language"
+      | "voiceInput"
+      | "voiceOutput"
+      | "voiceName"
     >
   > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -658,6 +678,11 @@ export function updateUserById(
       changes.language !== undefined
         ? normalizeLanguage(changes.language)
         : existing.language,
+    ...voicePreferences({
+      voiceInput: changes.voiceInput ?? existing.voiceInput,
+      voiceOutput: changes.voiceOutput ?? existing.voiceOutput,
+      voiceName: changes.voiceName ?? existing.voiceName,
+    }),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
 

@@ -969,6 +969,7 @@ Cosas que puedes hacer por él:
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Uso del navegador",
+  "integrations.tabs.voice": "Voz",
   "integrations.tabIntro.providers":
     "Las cuentas y claves con las que funcionan los agentes de Claude, Codex y OpenCode.",
   "integrations.tabIntro.mcp":
@@ -977,6 +978,24 @@ Cosas que puedes hacer por él:
     "Claves de API y tokens de servicios como GitHub.",
   "integrations.tabIntro.variables":
     "Ajustes simples que los agentes pueden leer, como una zona horaria.",
+  "integrations.tabIntro.voice":
+    "Lo que usan el micrófono y la lectura en voz alta, en todos tus dispositivos.",
+  "integrations.voice.mic": "Micrófono",
+  "integrations.voice.readAloud": "Lectura en voz alta",
+  "integrations.voice.voiceName": "Voz",
+  "integrations.voice.browser": "Navegador",
+  "integrations.voice.openai": "OpenAI",
+  "integrations.voice.where":
+    "Con OpenAI, el servidor de la oficina envía a OpenAI tus grabaciones y las respuestas que lees en voz alta.",
+  "integrations.voice.key.member": "OpenAI usa {name} de tus variables.",
+  "integrations.voice.key.office":
+    "OpenAI usa {name} de las variables de la oficina.",
+  "integrations.voice.key.server":
+    "OpenAI usa {name} del entorno del servidor.",
+  "integrations.voice.key.secret":
+    "{name} está guardada como secreto. OpenAI la necesita como variable.",
+  "integrations.voice.key.none": "Añade OPENAI_VOICE_API_KEY para usar OpenAI.",
+  "integrations.voice.saveFailed": "El cambio no se guardó.",
   "integrations.secretsHonesty":
     "Isomux impide que los agentes lean los secretos guardados, pero esta oficina no tiene un muro firme entre los agentes y sus archivos o apps.",
   "integrations.secrets.modelKeys":
@@ -1925,6 +1944,22 @@ Cosas que puedes hacer por él:
     "Activa HTTPS en tu <console>consola de administración de Tailscale</console> (página DNS), y luego ejecuta esto en el host (usa la terminal integrada):",
   "logView.voice.httpsStep2":
     "Visita la URL HTTPS que imprime Tailscale (p. ej. <url>{example}</url>).",
+  "voice.openVariables": "Abrir Variables",
+  "voice.keyRejected": "OpenAI rechazó la clave.",
+  "voice.retry": "Reintentar",
+  "voice.useBrowser": "Usar las voces del navegador",
+  "voice.mic.keyMissing":
+    "Define OPENAI_VOICE_API_KEY para usar el micrófono de OpenAI.",
+  "voice.mic.tooLarge": "La grabación supera los 25 MB.",
+  "voice.mic.rejected": "OpenAI no pudo transcribir la grabación.",
+  "voice.mic.failed": "La transcripción falló.",
+  "voice.mic.limitReached": "La grabación se detuvo a los {minutes} minutos.",
+  "voice.mic.kept": "La grabación se guarda en esta página.",
+  "voice.mic.transcribing": "Transcribiendo",
+  "voice.speak.keyMissing":
+    "Define OPENAI_VOICE_API_KEY para leer en voz alta con OpenAI.",
+  "voice.speak.rejected": "OpenAI no pudo leer esta respuesta.",
+  "voice.speak.failed": "La lectura en voz alta falló.",
   "panels.resizer.label": "Cambiar el ancho del panel lateral",
   "panels.terminal.ready": "Lista",
   "panels.terminal.busy": "Ocupada: {process}",
@@ -3211,6 +3246,9 @@ Cosas que puedes hacer por él:
   "apiCall.pagerSettings.read": "Leer los ajustes de avisos",
   "apiCall.pagerSettings.save": "Guardar los ajustes de avisos",
   "apiCall.pagerSettings.test": "Enviar aviso de prueba",
+  "apiCall.voice.status": "Leer el estado de la clave de voz",
+  "apiCall.voice.transcribe": "Transcribir una grabación",
+  "apiCall.voice.speak": "Leer un texto en voz alta",
   "push.test": "Notificación de prueba de Isomux.",
   "push.turnEnd.title": "{agent} ha terminado",
   "push.settings.switch": "Notificaciones",

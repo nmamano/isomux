@@ -1,6 +1,6 @@
 // Personal-preference handler (opId prefs.update). The
 // self-scoped write path for the settings that follow a member across devices:
-// the reply language.
+// the reply language and the voice settings (what the mic and read aloud use).
 //
 // SELF-only by construction: the route table gates it with user:self +
 // authenticated and the handler acts on the CALLER's own userId, never on a
@@ -32,6 +32,11 @@ import {
   type PreferencesReq,
 } from "../../../shared/contract-shapes.ts";
 import { isSupportedLanguage } from "../../../shared/languages.ts";
+import {
+  isVoiceInput,
+  isVoiceName,
+  isVoiceOutput,
+} from "../../../shared/voice.ts";
 
 export interface PreferencesDeps {
   // Persists + fans out. Returns false only if the user record vanished
@@ -81,6 +86,36 @@ export function preferencesHandlers(
           );
         }
         change.language = value;
+      }
+      if ("voiceInput" in body) {
+        if (!isVoiceInput(body.voiceInput)) {
+          return fail(
+            422,
+            "invalid_voice_input",
+            "voiceInput must be browser or openai",
+          );
+        }
+        change.voiceInput = body.voiceInput;
+      }
+      if ("voiceOutput" in body) {
+        if (!isVoiceOutput(body.voiceOutput)) {
+          return fail(
+            422,
+            "invalid_voice_output",
+            "voiceOutput must be browser or openai",
+          );
+        }
+        change.voiceOutput = body.voiceOutput;
+      }
+      if ("voiceName" in body) {
+        if (!isVoiceName(body.voiceName)) {
+          return fail(
+            422,
+            "invalid_voice_name",
+            "voiceName must be an OpenAI voice",
+          );
+        }
+        change.voiceName = body.voiceName;
       }
       if (!deps.applyPreferences(userId, change)) {
         return fail(404, "user_not_found");

@@ -28,6 +28,7 @@ export const INTEGRATIONS_TABS = [
   "mcp",
   "secrets",
   "variables",
+  "voice",
   "browser",
 ] as const;
 export type IntegrationsTab = (typeof INTEGRATIONS_TABS)[number];

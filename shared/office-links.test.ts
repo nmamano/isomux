@@ -29,6 +29,7 @@ describe("office links", () => {
         "/integrations/mcp",
         "/integrations/secrets",
         "/integrations/variables",
+        "/integrations/voice",
         "/integrations/browser",
       ].sort(),
     );

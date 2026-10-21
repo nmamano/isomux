@@ -7,6 +7,7 @@ import type { RoomDecor } from "./room-decor.ts";
 
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
+import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import { keyFrom } from "./i18n/translate.ts";
 import type { MessageKey, Translator } from "./i18n/translate.ts";
 import type { LogMessage, LogPart } from "./i18n/log-message.ts";
@@ -1910,6 +1911,13 @@ export interface UserRecord {
   // agent system prompt plus the voice input/output locale. null means "no
   // clause" - agents behave exactly as they did before the setting existed.
   language: SupportedLanguageCode | null;
+  // `voiceInput`: what the composer mic uses (shared/voice.ts). Absent means
+  // "browser", the default, so legacy records need no rewrite.
+  voiceInput?: VoiceInput;
+  // `voiceOutput`: what read aloud uses; absent means "browser".
+  // `voiceName`: the OpenAI voice; absent means DEFAULT_VOICE_NAME.
+  voiceOutput?: VoiceOutput;
+  voiceName?: VoiceName;
   // Set when an owner creates the member (users.create); removed by the
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".

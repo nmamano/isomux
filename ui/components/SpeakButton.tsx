@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, type CSSProperties } from "react";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
 import {
   isSupportedLanguage,
@@ -6,6 +6,11 @@ import {
   type SupportedLanguageCode,
 } from "../../shared/languages.ts";
 import { useI18n } from "../i18n.tsx";
+import { useSelfUser } from "../hooks/useSelfUser.ts";
+import { useOpenAISpeech } from "../hooks/useOpenAISpeech.ts";
+import { apiFetch } from "../api.ts";
+import { DEFAULT_VOICE_NAME, type VoiceName } from "../../shared/voice.ts";
+import { VoiceVariablesLink } from "./VoiceVariablesLink.tsx";
 import type {
   PlainMessageKey,
   Translator,
@@ -135,12 +140,44 @@ function useVoices(): SpeechSynthesisVoice[] {
   return voices;
 }
 
+const SPEAK_ERROR: Record<
+  NonNullable<ReturnType<typeof useOpenAISpeech>["error"]>["kind"],
+  PlainMessageKey
+> = {
+  keyMissing: "voice.speak.keyMissing",
+  keyRejected: "voice.keyRejected",
+  rejected: "voice.speak.rejected",
+  failed: "voice.speak.failed",
+};
+
 export function SpeakButton({
   getText,
   size = 24,
 }: {
   getText: () => string;
   size?: number;
+}) {
+  const self = useSelfUser();
+  // Integrations > Voice. OpenAI reads the reply on the office server's call;
+  // it never falls back to the device's voices without a word.
+  if (self?.voiceOutput === "openai") {
+    return (
+      <OpenAISpeakButton
+        getText={getText}
+        size={size}
+        voice={self.voiceName ?? DEFAULT_VOICE_NAME}
+      />
+    );
+  }
+  return <BrowserSpeakButton getText={getText} size={size} />;
+}
+
+function BrowserSpeakButton({
+  getText,
+  size,
+}: {
+  getText: () => string;
+  size: number;
 }) {
   const [speaking, setSpeaking] = useState(false);
   const i18n = useI18n();
@@ -201,27 +238,122 @@ export function SpeakButton({
         className="copy-btn"
         disabled={disabled}
         aria-label={label}
-        style={{
-          opacity: disabled ? 0.4 : 1,
-          width: size,
-          height: size,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          border: "1px solid var(--border-medium)",
-          borderRadius: 6,
-          background: speaking
-            ? "var(--accent-bg, var(--green-bg))"
-            : "var(--btn-surface)",
-          color: speaking ? "var(--accent-text)" : "var(--text-dim)",
-          cursor: disabled ? "not-allowed" : "pointer",
-          padding: 0,
-          flexShrink: 0,
-          transition: "color 0.15s, background 0.15s, border-color 0.15s",
-        }}
+        style={speakButtonStyle(size, speaking, disabled)}
       >
         {speaking ? STOP_ICON : SPEAK_ICON}
       </button>
     </span>
   );
+}
+
+function OpenAISpeakButton({
+  getText,
+  size,
+  voice,
+}: {
+  getText: () => string;
+  size: number;
+  voice: VoiceName;
+}) {
+  const i18n = useI18n();
+  const speech = useOpenAISpeech();
+  const label = i18n.t(
+    speech.speaking ? "logView.voice.stop" : "logView.voice.speak",
+  );
+  const error = speech.error;
+  return (
+    <span
+      style={{ display: "inline-flex", flexShrink: 0, position: "relative" }}
+    >
+      <span title={label} style={{ display: "inline-flex", flexShrink: 0 }}>
+        <button
+          onClick={(e) => {
+            if (speech.speaking) speech.stop();
+            else {
+              const text = stripMarkdown(getText());
+              if (text) speech.speak(text, voice);
+            }
+            (e.target as HTMLElement).blur();
+          }}
+          className="copy-btn"
+          aria-label={label}
+          style={speakButtonStyle(size, speech.speaking, false)}
+        >
+          {speech.speaking ? STOP_ICON : SPEAK_ICON}
+        </button>
+      </span>
+      {error && (
+        <span
+          role="alert"
+          style={{
+            position: "absolute",
+            top: size + 4,
+            right: 0,
+            zIndex: 5,
+            width: "max-content",
+            maxWidth: 260,
+            padding: "6px 8px",
+            borderRadius: 6,
+            border: "1px solid var(--border-medium)",
+            background: "var(--bg-base)",
+            color: "var(--red-text)",
+            fontSize: 11,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <span>{i18n.t(SPEAK_ERROR[error.kind])}</span>
+          {(error.kind === "keyMissing" || error.kind === "keyRejected") && (
+            <VoiceVariablesLink />
+          )}
+          <button
+            type="button"
+            data-voice-action="use-browser"
+            onClick={() => {
+              void apiFetch("PATCH", "/api/me/preferences", {
+                voiceOutput: "browser",
+              }).catch(() => {});
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "inherit",
+              font: "inherit",
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            {i18n.t("voice.useBrowser")}
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function speakButtonStyle(
+  size: number,
+  speaking: boolean,
+  disabled: boolean,
+): CSSProperties {
+  return {
+    opacity: disabled ? 0.4 : 1,
+    width: size,
+    height: size,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid var(--border-medium)",
+    borderRadius: 6,
+    background: speaking
+      ? "var(--accent-bg, var(--green-bg))"
+      : "var(--btn-surface)",
+    color: speaking ? "var(--accent-text)" : "var(--text-dim)",
+    cursor: disabled ? "not-allowed" : "pointer",
+    padding: 0,
+    flexShrink: 0,
+    transition: "color 0.15s, background 0.15s, border-color 0.15s",
+  };
 }

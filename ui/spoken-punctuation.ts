@@ -145,14 +145,33 @@ export function applySpokenPunctuation(
   return spokenText([fragment], locale);
 }
 
-/** Whether a finalized recognizer fragment is only a submit command. */
-export function isSpokenSubmit(fragment: string, locale: string): boolean {
+/**
+ * Split a trailing submit command off a finalized transcript, matched without
+ * case and with trailing punctuation removed ("... Submit." from OpenAI).
+ * `text` is what comes before the command; `submit` says whether one was there.
+ */
+export function splitSpokenSubmit(
+  text: string,
+  locale: string,
+): { text: string; submit: boolean } {
   const commands = spokenCommandsFor(locale);
-  if (!commands) return false;
-  const normalized = fragment.trim().toLocaleLowerCase();
-  return commands.submit.some(
-    (phrase) => phrase.toLocaleLowerCase() === normalized,
-  );
+  if (!commands) return { text, submit: false };
+  const body = text.replace(/[\p{P}\s]+$/u, "");
+  const lower = body.toLocaleLowerCase();
+  for (const phrase of commands.submit) {
+    const wanted = phrase.toLocaleLowerCase();
+    if (!lower.endsWith(wanted)) continue;
+    const start = body.length - wanted.length;
+    if (
+      commands.boundaries === "word" &&
+      start > 0 &&
+      /[\p{L}\p{N}]/u.test(body[start - 1] ?? "")
+    ) {
+      continue;
+    }
+    return { text: body.slice(0, start).trimEnd(), submit: true };
+  }
+  return { text, submit: false };
 }
 
 /**

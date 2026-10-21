@@ -38,11 +38,15 @@ import { ghostBodyBottomOffset } from "../office/Ghost.tsx";
 import { MiniGhostCluster } from "../office/MiniGhostCluster.tsx";
 import {
   advanceDictationSession,
-  isSpokenSubmit,
   joinSpoken,
   reconcileDictationEdit,
+  splitSpokenSubmit,
   startDictationSession,
 } from "../spoken-punctuation.ts";
+import { micAvailable, pickRecorderMimeType } from "../voice-input.ts";
+import { useRecordedDictation } from "../hooks/useRecordedDictation.ts";
+import { useSelfUser } from "../hooks/useSelfUser.ts";
+import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
 import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
@@ -1353,11 +1357,63 @@ export function LogView({
 
   const SpeechRecognition =
     window.SpeechRecognition ?? window.webkitSpeechRecognition;
+  // What the mic uses (Integrations > Voice). OpenAI records a clip and the
+  // office server transcribes it; it never falls back to the browser's
+  // recognizer, which would send the audio to the browser vendor.
+  const voiceInput = useSelfUser()?.voiceInput ?? "browser";
+  const recorderMimeType =
+    typeof MediaRecorder !== "undefined" && navigator.mediaDevices
+      ? pickRecorderMimeType((type) => MediaRecorder.isTypeSupported(type))
+      : null;
+  const micShown = micAvailable({
+    speechRecognition: Boolean(SpeechRecognition),
+    voiceInput,
+    secureContext: window.isSecureContext,
+    recorderMimeType,
+  });
+  // The HTTPS hint: a mic this browser would have, but for the context.
+  const micNeedsHttps =
+    !window.isSecureContext &&
+    (voiceInput === "openai"
+      ? recorderMimeType !== null
+      : Boolean(SpeechRecognition));
+  const micShownRef = useRef(micShown);
+  micShownRef.current = micShown;
+  const recorded = useRecordedDictation({
+    locale: speechLocale,
+    keywords: allAgents.map((a) => a.name),
+    onTranscript(text) {
+      const spoken = splitSpokenSubmit(text, speechLocale);
+      const session = advanceDictationSession(
+        startDictationSession(inputRef.current, speechLocale),
+        spoken.text ? [spoken.text] : [],
+        "",
+      );
+      if (spoken.submit) {
+        handleSendRef.current({ text: session.display });
+        return;
+      }
+      dispatch({ type: "set_draft", agentId: agent.id, text: session.display });
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (el) {
+          autoResize(el);
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    },
+  });
+  const listening =
+    voiceInput === "openai" ? recorded.state === "recording" : isListening;
 
   // The draft text before voice started + every finalized speech segment since.
   const dictationRef = useRef(startDictationSession(""));
 
   function startListening() {
+    if (voiceInput === "openai") {
+      recorded.start();
+      return;
+    }
     if (isListeningRef.current || !SpeechRecognition) return;
     setVoiceInputError(null);
     dictationRef.current = startDictationSession(
@@ -1378,7 +1434,9 @@ export function LogView({
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          if (isSpokenSubmit(t, speechLocale)) {
+          // A stand-alone submit only: a recognizer fragment ends at a pause.
+          const spoken = splitSpokenSubmit(t, speechLocale);
+          if (spoken.submit && !spoken.text) {
             const finalizedSession = advanceDictationSession(session, [], "");
             dictationRef.current = finalizedSession;
             const sent = handleSendRef.current({
@@ -1434,6 +1492,9 @@ export function LogView({
   }
 
   function stopListening(discard?: boolean) {
+    // A recording is transcribed, never dropped: its words are not on the
+    // draft yet.
+    recorded.stop();
     const recognition = recognitionRef.current;
     if (!recognition) return;
     if (discard) {
@@ -1455,9 +1516,10 @@ export function LogView({
   startListeningRef.current = startListening;
   stopListeningRef.current = stopListening;
   useEffect(() => {
-    if (!SpeechRecognition || !window.isSecureContext) return;
+    if (!window.isSecureContext) return;
     function onKeyDown(e: KeyboardEvent) {
       if (
+        micShownRef.current &&
         e.code === "Space" &&
         e.ctrlKey &&
         !e.shiftKey &&
@@ -1481,8 +1543,7 @@ export function LogView({
       window.removeEventListener("keyup", onKeyUp);
       recognitionRef.current?.stop();
     };
-    // SpeechRecognition is read once at mount; handlers go through refs above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Handlers and the mic's availability go through refs above.
   }, []);
 
   function handleFileSelect(files: FileList | null) {
@@ -2648,7 +2709,10 @@ export function LogView({
                 <span>{i18n.t("logView.outbox.saveFailed")}</span>
               </div>
             )}
-            {voiceInputError && (
+            {voiceInput === "openai" && (
+              <VoiceInputAlert dictation={recorded} isMobile={isMobile} />
+            )}
+            {voiceInput !== "openai" && voiceInputError && (
               <div
                 role="alert"
                 style={{
@@ -2946,13 +3010,18 @@ export function LogView({
                   }}
                 />
               </div>
-              {SpeechRecognition && window.isSecureContext ? (
+              {micShown ? (
                 <button
                   // Toggle: click to start dictation, click again to stop.
                   onClick={() => {
-                    if (isListeningRef.current) stopListening();
+                    if (voiceInput === "openai") {
+                      if (recorded.state === "recording") recorded.stop();
+                      else if (recorded.state !== "transcribing")
+                        recorded.start();
+                    } else if (isListeningRef.current) stopListening();
                     else startListening();
                   }}
+                  aria-busy={recorded.state === "transcribing" || undefined}
                   style={{
                     flexShrink: 0,
                     // Pin to the row's bottom edge (viewport-stable) so the
@@ -2964,28 +3033,34 @@ export function LogView({
                     marginTop: -9,
                     touchAction: "none",
                     borderRadius: 6,
-                    border: isListening
+                    border: listening
                       ? "1px solid var(--red)"
                       : "1px solid var(--border)",
-                    background: isListening
+                    background: listening
                       ? "rgba(255,50,50,0.15)"
                       : "transparent",
-                    color: isListening
-                      ? "var(--red-text)"
-                      : "var(--text-muted)",
-                    cursor: "pointer",
+                    color: listening ? "var(--red-text)" : "var(--text-muted)",
+                    cursor:
+                      recorded.state === "transcribing"
+                        ? "progress"
+                        : "pointer",
+                    opacity: recorded.state === "transcribing" ? 0.6 : 1,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     padding: 0,
                     transition: "all 0.15s",
-                    animation: isListening
+                    animation: listening
                       ? "mic-pulse 1.5s ease-in-out infinite"
                       : "none",
                     userSelect: "none",
                     WebkitUserSelect: "none",
                   }}
-                  title={i18n.t("logView.voice.talkHint")}
+                  title={i18n.t(
+                    recorded.state === "transcribing"
+                      ? "voice.mic.transcribing"
+                      : "logView.voice.talkHint",
+                  )}
                 >
                   <svg
                     width="16"
@@ -3003,7 +3078,7 @@ export function LogView({
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                 </button>
-              ) : SpeechRecognition && !window.isSecureContext ? (
+              ) : micNeedsHttps ? (
                 <div
                   style={{
                     position: "relative",

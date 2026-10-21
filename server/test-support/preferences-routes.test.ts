@@ -228,6 +228,122 @@ describe("prefs.update - live event contract", () => {
   });
 });
 
+// What the composer mic uses (task 4481e64b): "browser" (the default) or
+// "openai". The UI reads it off the self record, so it must persist and fan
+// out on the self channel like language, and never ride a public event.
+describe("prefs.update - voiceInput", () => {
+  const bag = (sock: TestSocket, type: string): Record<string, unknown>[] =>
+    (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type);
+
+  it("round-trips through a cold restart and back to browser", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    expect(
+      await putPrefs(server, owner.rawSessionId, { voiceInput: "openai" }),
+    ).toBe(204);
+    server = await server.restart();
+    expect(getUserByName("Boss")!.voiceInput).toBe("openai");
+    // Writing voiceInput leaves language alone, and the reverse.
+    expect(getUserByName("Boss")!.language).toBe(null);
+    const session = owner.rawSessionId;
+    expect(await putPrefs(server, session, { language: "es" })).toBe(204);
+    expect(getUserByName("Boss")!.voiceInput).toBe("openai");
+    expect(await putPrefs(server, session, { voiceInput: "browser" })).toBe(
+      204,
+    );
+    expect(getUserByName("Boss")!.voiceInput).toBe("browser");
+    expect(getUserByName("Boss")!.language).toBe("es");
+  });
+
+  it("rejects a value that is not a mic source, and writes nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    for (const voiceInput of ["google", "OpenAI", null, 1, true]) {
+      expect({
+        voiceInput,
+        status: await putPrefs(server, owner.rawSessionId, { voiceInput }),
+      }).toEqual({ voiceInput, status: 422 });
+    }
+    // A bad voiceInput refuses the whole write, language included.
+    expect(
+      await putPrefs(server, owner.rawSessionId, {
+        language: "es",
+        voiceInput: "google",
+      }),
+    ).toBe(422);
+    const rec = getUserByName("Boss")!;
+    expect(rec.voiceInput ?? "browser").toBe("browser");
+    expect(rec.language).toBe(null);
+  });
+
+  it("reaches the member's own sockets and no public event", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const memberSock = await server.connectWs(member.rawSessionId);
+    await memberSock.waitFor("presence_list");
+    const beforeSelf = bag(memberSock, "user_self_updated").length;
+
+    expect(
+      await putPrefs(server, member.rawSessionId, { voiceInput: "openai" }),
+    ).toBe(204);
+    await sleep(50);
+
+    const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
+    expect(selfEvents.length).toBe(1);
+    expect((selfEvents[0].user as Record<string, unknown>).voiceInput).toBe(
+      "openai",
+    );
+    expect(bag(memberSock, "user_updated").length).toBe(0);
+    memberSock.close();
+  });
+});
+
+// Read aloud (task 4481e64b): voiceOutput ("browser" | "openai") and the
+// OpenAI voice, written like voiceInput.
+describe("prefs.update - voiceOutput and voiceName", () => {
+  it("round-trips both through a cold restart, each write leaving the other alone", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    expect(
+      await putPrefs(server, owner.rawSessionId, {
+        voiceOutput: "openai",
+        voiceName: "cedar",
+      }),
+    ).toBe(204);
+    server = await server.restart();
+    let rec = getUserByName("Boss")!;
+    expect([rec.voiceOutput, rec.voiceName]).toEqual(["openai", "cedar"]);
+
+    expect(
+      await putPrefs(server, owner.rawSessionId, { voiceOutput: "browser" }),
+    ).toBe(204);
+    rec = getUserByName("Boss")!;
+    expect([rec.voiceOutput, rec.voiceName]).toEqual(["browser", "cedar"]);
+  });
+
+  it("rejects an unknown output or voice, and writes nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    for (const body of [
+      { voiceOutput: "google" },
+      { voiceOutput: null },
+      { voiceName: "robot" },
+      { voiceName: "Cedar" },
+      { voiceName: null },
+      { voiceOutput: "openai", voiceName: "robot" },
+    ]) {
+      expect({
+        body,
+        status: await putPrefs(server, owner.rawSessionId, body),
+      }).toEqual({ body, status: 422 });
+    }
+    const rec = getUserByName("Boss")!;
+    expect(rec.voiceOutput ?? "browser").toBe("browser");
+    expect(rec.voiceName).toBeUndefined();
+  });
+});
+
 // The retired turn-end box (task 0c3fa26f): the per-room Devices column
 // replaced it, so the key is refused like any unknown one and writes nothing.
 describe("prefs.update - turnEndPush is gone", () => {

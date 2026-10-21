@@ -7,9 +7,9 @@ import {
   advanceDictationSession,
   applySpokenPunctuation,
   dictationText,
-  isSpokenSubmit,
   joinSpoken,
   reconcileDictationEdit,
+  splitSpokenSubmit,
   startDictation,
   startDictationSession,
   type Dictation,
@@ -144,15 +144,60 @@ describe("locale command data", () => {
     expect(joinSpoken("你好", "，世界")).toBe("你好，世界");
     expect(joinSpoken("（", "内容")).toBe("（内容");
   });
+});
 
-  it("recognizes submit only as a whole fragment in the selected locale", () => {
-    expect(isSpokenSubmit("  SUBMIT  ", "en-US")).toBe(true);
-    expect(isSpokenSubmit("submit the form", "en-US")).toBe(false);
-    expect(isSpokenSubmit("Submit.", "en-US")).toBe(false);
-    expect(isSpokenSubmit("enviar", "es-ES")).toBe(true);
-    expect(isSpokenSubmit("enviar", "ca-ES")).toBe(true);
-    expect(isSpokenSubmit("提交", "zh-CN")).toBe(true);
-    expect(isSpokenSubmit("submit", "fr-FR")).toBe(false);
+// One submit rule for both mic sources (task 4481e64b): the browser hands it
+// one finalized fragment, OpenAI the whole clip, often with its own
+// capitalization and a closing period.
+describe("splitSpokenSubmit", () => {
+  it("takes a stand-alone submit in any case, with or without closing punctuation", () => {
+    for (const fragment of ["submit", "  SUBMIT  ", "Submit.", "submit!"]) {
+      expect({ fragment, ...splitSpokenSubmit(fragment, "en-US") }).toEqual({
+        fragment,
+        text: "",
+        submit: true,
+      });
+    }
+  });
+
+  it("splits a trailing submit off the text before it", () => {
+    expect(splitSpokenSubmit("Fix the bug. Submit.", "en-US")).toEqual({
+      text: "Fix the bug.",
+      submit: true,
+    });
+    expect(splitSpokenSubmit("fix the bug submit", "en-US")).toEqual({
+      text: "fix the bug",
+      submit: true,
+    });
+  });
+
+  it("leaves submit inside the text, or inside a longer word, alone", () => {
+    for (const text of [
+      "submit the form",
+      "Please resubmit.",
+      "Submitted.",
+      "Did it submit the form?",
+    ]) {
+      expect(splitSpokenSubmit(text, "en-US")).toEqual({ text, submit: false });
+    }
+  });
+
+  it("uses the selected locale's command, and none where there is none", () => {
+    expect(splitSpokenSubmit("Arregla el error. Enviar.", "es-ES")).toEqual({
+      text: "Arregla el error.",
+      submit: true,
+    });
+    expect(splitSpokenSubmit("enviar", "ca-ES").submit).toBe(true);
+    expect(splitSpokenSubmit("修复错误。提交。", "zh-CN")).toEqual({
+      text: "修复错误。",
+      submit: true,
+    });
+    // English's command is not Spanish's.
+    expect(splitSpokenSubmit("Fix it. Submit.", "es-ES").submit).toBe(false);
+    expect(splitSpokenSubmit("Fix it. Submit.", "fr-FR")).toEqual({
+      text: "Fix it. Submit.",
+      submit: false,
+    });
   });
 });
 

@@ -227,6 +227,9 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "system.version": "Human UI bootstrap route.",
   "storage.usage": "Human settings status route.",
   "usage.read": "Human settings status route.",
+  "voice.status": "Human voice-settings status route.",
+  "voice.transcribe": "Human composer mic transport route.",
+  "voice.speak": "Human read-aloud transport route.",
 } as const;
 
 const topicNames = Object.keys(AGENT_REFERENCE_TOPICS) as AgentReferenceTopic[];

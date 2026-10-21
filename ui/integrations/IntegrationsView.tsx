@@ -30,6 +30,7 @@ import { ProvidersSection, useProviderAccounts } from "./ProvidersSection.tsx";
 import { McpSection, SignInNotice } from "./McpSection.tsx";
 import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
+import { VoiceSection } from "./VoiceSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
 import { takeSignIn, type SignInNote } from "./sign-in-return.ts";
 import { Btn, Data, card, hintText, input } from "./kit.tsx";
@@ -58,6 +59,7 @@ const TAB_LABEL = {
   mcp: "integrations.tabs.mcp",
   secrets: "integrations.tabs.secrets",
   variables: "integrations.tabs.variables",
+  voice: "integrations.tabs.voice",
   browser: "integrations.tabs.browser",
 } as const;
 
@@ -66,6 +68,7 @@ const TAB_INTRO = {
   mcp: "integrations.tabIntro.mcp",
   secrets: "integrations.tabIntro.secrets",
   variables: "integrations.tabIntro.variables",
+  voice: "integrations.tabIntro.voice",
   browser: "browser.intro",
 } as const;
 
@@ -252,7 +255,8 @@ function IntegrationsPage({
             onGone={memberGone}
           />
         );
-      // The Browser Use tab has no cards (see the page below).
+      // The Voice and Browser Use tabs have no cards (see the page below).
+      case "voice":
       case "browser":
         return null;
     }
@@ -425,7 +429,9 @@ function IntegrationsPage({
               </p>
             )}
 
-            {tab === "browser" ? (
+            {tab === "voice" ? (
+              <VoiceSection onVariables={() => setTab("variables")} />
+            ) : tab === "browser" ? (
               // Only a session has its own Chrome to pair.
               sessionContext && <BrowserPane />
             ) : (

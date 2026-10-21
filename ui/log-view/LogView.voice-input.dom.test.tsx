@@ -164,10 +164,20 @@ it("submits only finalized stand-alone commands and keeps dictation open", () =>
   expect(sent).toEqual([]);
   act(() => recognition.result("submit", true));
   expect(sent).toEqual(["first"]);
+  // A fragment that only ends in submit is dictation here: the recognizer
+  // splits at pauses, so a stand-alone command is the only safe signal.
+  act(() => recognition.result("please submit", true));
+  expect(sent).toEqual(["first"]);
+  act(() => recognition.result("submit", true));
+  expect(sent).toEqual(["first", "please submit"]);
 
   act(() => recognition.result("second", true));
   act(() => recognition.result("submit", true));
-  expect(sent).toEqual(["first", "second"]);
+  expect(sent).toEqual(["first", "please submit", "second"]);
+  // The same rule as the OpenAI path: case and a closing period do not matter.
+  act(() => recognition.result("third", true));
+  act(() => recognition.result("Submit.", true));
+  expect(sent).toEqual(["first", "please submit", "second", "third"]);
   expect(recognition.startCalls).toBe(1);
   expect(recognition.stopCalls).toBe(0);
   expect(recognition.abortCalls).toBe(0);

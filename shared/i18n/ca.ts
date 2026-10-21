@@ -970,6 +970,7 @@ Coses que pots fer per ell:
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Ús del navegador",
+  "integrations.tabs.voice": "Veu",
   "integrations.tabIntro.providers":
     "Els comptes i les claus amb què funcionen els agents de Claude, Codex i OpenCode.",
   "integrations.tabIntro.mcp":
@@ -978,6 +979,26 @@ Coses que pots fer per ell:
     "Claus d'API i tokens de serveis com GitHub.",
   "integrations.tabIntro.variables":
     "Paràmetres simples que els agents poden llegir, com una zona horària.",
+  "integrations.tabIntro.voice":
+    "El que fan servir el micròfon i la lectura en veu alta, a tots els teus dispositius.",
+  "integrations.voice.mic": "Micròfon",
+  "integrations.voice.readAloud": "Lectura en veu alta",
+  "integrations.voice.voiceName": "Veu",
+  "integrations.voice.browser": "Navegador",
+  "integrations.voice.openai": "OpenAI",
+  "integrations.voice.where":
+    "Amb OpenAI, el servidor de l'oficina envia a OpenAI les teves gravacions i les respostes que llegeixes en veu alta.",
+  "integrations.voice.key.member":
+    "OpenAI fa servir {name} de les teves variables.",
+  "integrations.voice.key.office":
+    "OpenAI fa servir {name} de les variables de l'oficina.",
+  "integrations.voice.key.server":
+    "OpenAI fa servir {name} de l'entorn del servidor.",
+  "integrations.voice.key.secret":
+    "{name} està desada com a secret. OpenAI la necessita com a variable.",
+  "integrations.voice.key.none":
+    "Afegeix OPENAI_VOICE_API_KEY per fer servir OpenAI.",
+  "integrations.voice.saveFailed": "El canvi no s'ha desat.",
   "integrations.secretsHonesty":
     "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers o apps.",
   "integrations.secrets.modelKeys":
@@ -1929,6 +1950,22 @@ Coses que pots fer per ell:
     "Activa HTTPS a la teva <console>consola d'administració de Tailscale</console> (pàgina DNS), i després executa això a l'amfitrió (fes servir la terminal integrada):",
   "logView.voice.httpsStep2":
     "Visita l'URL HTTPS que imprimeix Tailscale (p. ex. <url>{example}</url>).",
+  "voice.openVariables": "Obre Variables",
+  "voice.keyRejected": "OpenAI ha rebutjat la clau.",
+  "voice.retry": "Torna-ho a provar",
+  "voice.useBrowser": "Fes servir les veus del navegador",
+  "voice.mic.keyMissing":
+    "Defineix OPENAI_VOICE_API_KEY per fer servir el micròfon d'OpenAI.",
+  "voice.mic.tooLarge": "La gravació supera els 25 MB.",
+  "voice.mic.rejected": "OpenAI no ha pogut transcriure la gravació.",
+  "voice.mic.failed": "La transcripció ha fallat.",
+  "voice.mic.limitReached": "La gravació s'ha aturat als {minutes} minuts.",
+  "voice.mic.kept": "La gravació es conserva en aquesta pàgina.",
+  "voice.mic.transcribing": "S'està transcrivint",
+  "voice.speak.keyMissing":
+    "Defineix OPENAI_VOICE_API_KEY per llegir en veu alta amb OpenAI.",
+  "voice.speak.rejected": "OpenAI no ha pogut llegir aquesta resposta.",
+  "voice.speak.failed": "La lectura en veu alta ha fallat.",
   "panels.resizer.label": "Canvia l'amplada del plafó lateral",
   "panels.terminal.ready": "Llesta",
   "panels.terminal.busy": "Ocupada: {process}",
@@ -3215,6 +3252,9 @@ Coses que pots fer per ell:
   "apiCall.pagerSettings.read": "Llegir els ajustos d'avisos",
   "apiCall.pagerSettings.save": "Desar els ajustos d'avisos",
   "apiCall.pagerSettings.test": "Enviar un avís de prova",
+  "apiCall.voice.status": "Llegir l'estat de la clau de veu",
+  "apiCall.voice.transcribe": "Transcriure una gravació",
+  "apiCall.voice.speak": "Llegir un text en veu alta",
   "push.test": "Notificació de prova d'Isomux.",
   "push.turnEnd.title": "{agent} ha acabat",
   "push.settings.switch": "Notificacions",

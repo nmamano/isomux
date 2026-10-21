@@ -13,6 +13,7 @@ import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor, RoomDecorPatch } from "./room-decor.ts";
 import type { SecretForm } from "./secret-hosts.ts";
+import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import type {
   UserRecord,
   AgentInfo,
@@ -688,12 +689,20 @@ export interface TuckedRoomsReq {
 // so a caller can clear or set the value; `language: null` is meaningful.
 export type PreferencesReq = Partial<{
   language: SupportedLanguageCode | null;
+  voiceInput: VoiceInput;
+  voiceOutput: VoiceOutput;
+  voiceName: VoiceName;
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
 // key (a typo like `langauge` would otherwise be a successful no-op) without a
 // second hand-maintained list drifting from the type above.
-export const PREFERENCE_KEYS = ["language"] as const;
+export const PREFERENCE_KEYS = [
+  "language",
+  "voiceInput",
+  "voiceOutput",
+  "voiceName",
+] as const;
 
 export interface ApiTokenWire {
   id: string;

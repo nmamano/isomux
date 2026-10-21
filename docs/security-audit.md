@@ -328,12 +328,16 @@ For a registered MCP server that needs the MCP authorization flow, Isomux is the
 
 A member can write a note for agents on a variable, a secret or an MCP server. An agent reads, through `GET /api/agent-connections`, the kind, name, hosts and note of each connection it gets: the office's and its member's, never another member's. The answer holds no value, URL path or query. The agent reference tells agents that a note never overrides a chat message or the system prompt.
 
-### 8.9 Browser speech
+### 8.9 Speech
 
-Voice input and read aloud use the speech services of the member's browser. The browser sends the audio and the text to these services directly; the office server does not take part.
+Each member picks what voice input and read aloud use, in Integrations > Voice: the browser (the default) or OpenAI.
+
+With the browser, the member's browser sends the audio and the text to its speech services directly; the office server does not take part.
 
 - **Voice input.** Isomux does not ask the browser to recognize speech on the device. Thus the browser can send the audio to its vendor's speech service. Chrome sends it to Google.
 - **Read aloud.** Isomux prefers a voice whose name contains "Google". In desktop Chrome, these voices are remote: Chrome sends the reply text to Google, which makes the audio.
+
+With OpenAI, the browser sends the recording or the reply text to the office server, and the office server sends it to OpenAI with the key in `OPENAI_VOICE_API_KEY` (or `OPENAI_API_KEY` when only that one is set), from the member's variables or else the office's. A recording also carries the names of the office's agents, as words to expect. The key does not leave the server, and the server keeps no recording, text or audio. Agents and API tokens can call the same routes; each call spends the key of the member they act for. If OpenAI fails, the mic and read aloud say so; neither falls back to the browser without a word.
 
 No office setting turns these features off.
 
@@ -368,7 +372,7 @@ The office setting **Record terminals** is off by default. When an owner turns i
 | 12  | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                                        | Accepted.                                                                                                                 |
 | 13  | Info     | On macOS, `claude auth status` runs without Claude Code's own telemetry opt-out (section 8.4). Isomux has no telemetry.                                                                                                            | Open.                                                                                                                     |
 | 14  | Info     | The browser extension socket accepts any Chrome extension origin, which a client outside a browser can send. The real control is the pairing code (256 bits, one use, five minutes) and the paired credential (256 bits).          | Accepted.                                                                                                                 |
-| 15  | Info     | Voice input and read aloud use the browser's speech services, which can send the audio or the reply text to the browser vendor. No office setting turns them off (section 8.9).                                                    | Open.                                                                                                                     |
+| 15  | Info     | Voice input and read aloud send the audio or the reply text to the browser vendor, or, when the member picks OpenAI, to OpenAI through the office server. No office setting turns them off (section 8.9).                          | Open.                                                                                                                     |
 
 ---
 

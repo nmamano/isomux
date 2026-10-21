@@ -252,6 +252,11 @@ import type {
   TerminalReadRes,
   TerminalRecordingsListRes,
 } from "../../shared/contract-shapes.ts";
+import type {
+  VoiceSpeakReq,
+  VoiceStatusRes,
+  VoiceTranscribeRes,
+} from "../../shared/voice.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -1327,6 +1332,40 @@ export const API_ROUTES: readonly RouteDef[] = [
     // observable change and would only broadcast the TIMING of a private edit.
     // Owners get the full record on the admin channel, the subject on its own.
     emits: ["user_admin_updated", "user_self_updated"],
+  }),
+
+  // Voice input and read aloud through OpenAI (task 4481e64b). Each call
+  // spends the caller's user's voice key (server/voice-key.ts): a member's
+  // own, an agent's manager's. The status names only where the key comes
+  // from, never a value.
+  defineRoute<void, VoiceStatusRes>({
+    opId: "voice.status",
+    method: "GET",
+    path: "/api/voice",
+    auth: cap("voice:use", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<unknown, VoiceTranscribeRes>({
+    opId: "voice.transcribe",
+    audit: {
+      owner: "none",
+      reason: "Turns audio into text without changing state.",
+    },
+    method: "POST",
+    path: "/api/voice/transcribe",
+    auth: cap("voice:use", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<VoiceSpeakReq, unknown>({
+    opId: "voice.speak",
+    audit: {
+      owner: "none",
+      reason: "Turns text into audio without changing state.",
+    },
+    method: "POST",
+    path: "/api/voice/speak",
+    auth: cap("voice:use", operationalAuthenticated),
+    emits: [],
   }),
 
   // Managed per-user environment. Cleartext values stay self-only, but a

@@ -1374,6 +1374,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self"],
     emits: ["user_admin_updated", "user_self_updated"],
   },
+  // Voice input spends the caller's user's OPENAI_API_KEY; it changes no state.
+  "voice.status": { caps: ["voice:use"], emits: [] },
+  "voice.transcribe": { caps: ["voice:use"], emits: [] },
+  "voice.speak": { caps: ["voice:use"], emits: [] },
   "userEnv.get": { caps: ["user:env"], emits: [] },
   "userEnv.replace": { caps: ["user:env"], emits: [] },
   "userEnv.names": { caps: ["integration:manage"], emits: [] },
@@ -2130,6 +2134,9 @@ const API_REACHABLE_OPIDS = [
   "rooms.rename",
   "rooms.getSettings",
   "rooms.setSettings",
+  "voice.status",
+  "voice.transcribe",
+  "voice.speak",
   "userEnv.get",
   "userEnv.replace",
   "userEnv.set",
@@ -2572,5 +2579,98 @@ describe("route table: agents.discovery reach", () => {
     expect(
       allowed(api(API_CAPABILITIES.filter((c) => c !== "api:discover-agents"))),
     ).toBe(false);
+  });
+});
+
+// Voice input (task 4481e64b): each call spends the caller's user's
+// OPENAI_API_KEY. A member, their API token and their agents may spend it; a
+// cron run and an app with no owner agent may not. (An app with a live owner
+// agent inherits it through appCapabilities, pinned by the owner-reach suite.)
+describe("route table: voice routes reach", () => {
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => "u1",
+    cronjobCreatorUserId: () => "u1",
+    appOwnerUserId: () => "u1",
+    webhookOwnerUserId: () => "u1",
+    isOfficeOwnerUserId: () => true,
+    agentManagerUserId: () => "u1",
+    killedAgentManagerUserId: () => "u1",
+    killedAgentLastRoomId: () => null,
+    roomExists: () => false,
+    cronRunVisibleTo: () => false,
+  };
+  const who: Record<string, Identity> = {
+    member: {
+      scope: "user",
+      userId: "u1",
+      role: "member",
+      capabilities: USER_CAPABILITIES,
+    },
+    api: {
+      scope: "api",
+      userId: "u1",
+      role: "member",
+      apiTokenId: "pat-1",
+      apiTokenName: "Laptop",
+      capabilities: API_CAPABILITIES,
+    },
+    agent: {
+      scope: "agent",
+      userId: "u1",
+      agentId: "a1",
+      role: "member",
+      capabilities: AGENT_CAPABILITIES,
+    },
+    privilegedAgent: {
+      scope: "agent",
+      userId: "u1",
+      agentId: "a1",
+      role: "member",
+      capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+    },
+    cronRun: {
+      scope: "cron-run",
+      userId: "u1",
+      cronjobId: "job-1",
+      runId: "run-1",
+      role: "member",
+      capabilities: RUN_CAPABILITIES,
+    },
+    app: {
+      scope: "app",
+      userId: "u1",
+      appName: "hello",
+      role: "member",
+      capabilities: APP_CAPABILITIES,
+    },
+  };
+
+  it("admits a member, an API token and agents; refuses a cron run and a plain app", () => {
+    for (const opId of ["voice.status", "voice.transcribe", "voice.speak"]) {
+      const route = API_ROUTES.find((r) => r.opId === opId)!;
+      const outcome = Object.fromEntries(
+        Object.entries(who).map(([label, identity]) => [
+          label,
+          runAuthorize(route.auth, identity, {}, undefined, deps),
+        ]),
+      );
+      // toEqual, not toMatchObject: every allowed outcome is the one frozen
+      // ALLOW object, and bun 1.4.2's toMatchObject passes a second, different
+      // expectation for an actual object it has already matched once.
+      const refused = { ok: false, status: 403, code: "forbidden" } as const;
+      expect({ opId, outcome }).toEqual({
+        opId,
+        outcome: {
+          member: { ok: true },
+          api: { ok: true },
+          agent: { ok: true },
+          privilegedAgent: { ok: true },
+          cronRun: refused,
+          app: refused,
+        },
+      });
+    }
   });
 });

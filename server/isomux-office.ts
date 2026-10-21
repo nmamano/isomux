@@ -297,6 +297,8 @@ import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
 import { askHandlers } from "./routes/handlers/asks.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
+import { voiceHandlers } from "./routes/handlers/voice.ts";
+import { voiceKeyForUserId } from "./voice-key.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
 import { recordApiReferenceUsage } from "./agent-reference-telemetry.ts";
@@ -3344,6 +3346,13 @@ function buildExecutorDeps(
           agentManager.copyAskReadFile(agentId, absPath),
       },
       deliver: deliverAskAnswer,
+    }),
+  );
+
+  register(
+    voiceHandlers({
+      keyFor: (userId) => voiceKeyForUserId(userId),
+      fetch: (input, init) => fetch(input, init),
     }),
   );
 
@@ -6912,7 +6921,12 @@ function applyPreferencesChange(
     return false;
   }
   // Only fan out on a real change.
-  if (r.user.language !== user.language) {
+  if (
+    r.user.language !== user.language ||
+    r.user.voiceInput !== user.voiceInput ||
+    r.user.voiceOutput !== user.voiceOutput ||
+    r.user.voiceName !== user.voiceName
+  ) {
     emitPrivateUserRecord(r.user);
   }
   return true;

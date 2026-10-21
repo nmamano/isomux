@@ -118,6 +118,13 @@ export type Capability =
   // capability to reach this route would drag every other office:read surface
   // along with it. Its own capability is what keeps the widening surgical.
   | "log:read"
+  // Voice through OpenAI (voice.status, voice.transcribe, voice.speak): each
+  // call spends the caller's user's voice key (server/voice-key.ts). Held by
+  // USER, API and the AGENT baseline (so the PRIVILEGED set too). An app with
+  // a live owner agent inherits it (appCapabilities); that guards nothing the
+  // owner lacks, since the agent's own env already holds the key. RUN and
+  // plain APP do not hold it.
+  | "voice:use"
   // Non-user sender/affordance capabilities. Deliberately absent from USER
   // scope: a human is not an agent or cron run and has no own-chat.
   | "agent:send-as-self"
@@ -212,6 +219,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "pager:write",
   "webhook:read",
   "webhook:write",
+  "voice:use",
 ];
 
 // AGENT set: the loopback surface plus the global task board, isomux-memory,
@@ -237,6 +245,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "pager:raise",
   "pager:read",
   "pager:write",
+  "voice:use",
 ];
 
 // PRIVILEGED AGENT set: the baseline AGENT set PLUS a curated allowlist of the
@@ -411,6 +420,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "pager:write",
   "webhook:read",
   "webhook:write",
+  "voice:use",
 ];
 
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {

@@ -32,6 +32,7 @@ const TAB_LABEL: Record<IntegrationsTab, PlainMessageKey> = {
   mcp: "integrations.tabs.mcp",
   secrets: "integrations.tabs.secrets",
   variables: "integrations.tabs.variables",
+  voice: "integrations.tabs.voice",
   browser: "integrations.tabs.browser",
 };
 

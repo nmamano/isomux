@@ -2981,6 +2981,9 @@ export async function demoApi(
       const updated: UserRecord = {
         ...existing,
         language: b.language !== undefined ? b.language : existing.language,
+        ...(b.voiceInput !== undefined ? { voiceInput: b.voiceInput } : {}),
+        ...(b.voiceOutput !== undefined ? { voiceOutput: b.voiceOutput } : {}),
+        ...(b.voiceName !== undefined ? { voiceName: b.voiceName } : {}),
       };
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_updated", user: updated });
@@ -2988,6 +2991,9 @@ export async function demoApi(
     }
     case "GET /api/me/api-tokens":
       return { apiTokens: [...demoApiTokens] };
+    // The Voice tab: the demo has no OpenAI key.
+    case "GET /api/voice":
+      return { keySource: null, keyName: null };
     // The integrations list: names only, office variables for owners only,
     // as the server builds it. Every demo sign-in is signed out, so there are
     // no sign-in or connector rows.

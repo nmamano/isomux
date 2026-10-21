@@ -33,7 +33,7 @@ const panel = (view: View) =>
   view.container.querySelector('[role="tabpanel"]')!;
 
 describe("the Browser Use tab", () => {
-  it("is the fifth tab", async () => {
+  it("is the sixth tab", async () => {
     const view = await open();
     const tabs = [
       ...view.container.querySelectorAll("[data-integrations-tab]"),
@@ -43,6 +43,7 @@ describe("the Browser Use tab", () => {
       "mcp",
       "secrets",
       "variables",
+      "voice",
       "browser",
     ]);
   });

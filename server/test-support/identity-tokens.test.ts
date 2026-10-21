@@ -74,6 +74,9 @@ describe("identity: capability sets (Phase 2.1)", () => {
           // webhookOwnerOrOfficeOwner guard scopes it.
           "webhook:read",
           "webhook:write",
+          // Voice through OpenAI; each call spends the manager's voice key,
+          // which the agent's own env already holds.
+          "voice:use",
         ] as Capability[]
       ).sort(),
     );
@@ -281,6 +284,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "pager:write",
       "webhook:read",
       "webhook:write",
+      "voice:use",
     ]);
     for (const set of [
       USER_CAPABILITIES,

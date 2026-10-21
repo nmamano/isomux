@@ -960,6 +960,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Browser Use",
+  "integrations.tabs.voice": "Voice",
   "integrations.tabIntro.providers":
     "The accounts and keys that Claude, Codex and OpenCode agents run on.",
   "integrations.tabIntro.mcp":
@@ -968,6 +969,24 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "API keys and tokens for services such as GitHub.",
   "integrations.tabIntro.variables":
     "Plain settings that agents can read, such as a time zone.",
+  "integrations.tabIntro.voice":
+    "What the mic and read aloud use, on all your devices.",
+  "integrations.voice.mic": "Mic",
+  "integrations.voice.readAloud": "Read aloud",
+  "integrations.voice.voiceName": "Voice",
+  "integrations.voice.browser": "Browser",
+  "integrations.voice.openai": "OpenAI",
+  "integrations.voice.where":
+    "With OpenAI, the office server sends your recordings and the replies you read aloud to OpenAI.",
+  "integrations.voice.key.member": "OpenAI uses {name} from your variables.",
+  "integrations.voice.key.office":
+    "OpenAI uses {name} from the office variables.",
+  "integrations.voice.key.server":
+    "OpenAI uses {name} from the server's environment.",
+  "integrations.voice.key.secret":
+    "{name} is saved as a secret. OpenAI needs it as a variable.",
+  "integrations.voice.key.none": "Add OPENAI_VOICE_API_KEY to use OpenAI.",
+  "integrations.voice.saveFailed": "The change was not saved.",
   "integrations.secretsHonesty":
     "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files or apps.",
   "integrations.secrets.modelKeys":
@@ -1883,6 +1902,21 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Enable HTTPS in your <console>Tailscale admin console</console> (DNS page), then run these on the host (use the built-in terminal):",
   "logView.voice.httpsStep2":
     "Visit the HTTPS URL Tailscale prints (e.g. <url>{example}</url>).",
+  "voice.openVariables": "Open Variables",
+  "voice.keyRejected": "OpenAI refused the key.",
+  "voice.retry": "Retry",
+  "voice.useBrowser": "Use browser voices",
+  "voice.mic.keyMissing": "Set OPENAI_VOICE_API_KEY to use the OpenAI mic.",
+  "voice.mic.tooLarge": "The recording is over 25 MB.",
+  "voice.mic.rejected": "OpenAI could not transcribe the recording.",
+  "voice.mic.failed": "Transcription failed.",
+  "voice.mic.limitReached": "Recording stopped at {minutes} minutes.",
+  "voice.mic.kept": "The recording is kept on this page.",
+  "voice.mic.transcribing": "Transcribing",
+  "voice.speak.keyMissing":
+    "Set OPENAI_VOICE_API_KEY to read aloud with OpenAI.",
+  "voice.speak.rejected": "OpenAI could not read this reply.",
+  "voice.speak.failed": "Read aloud failed.",
   "panels.resizer.label": "Resize side panel",
   "panels.terminal.ready": "Ready",
   "panels.terminal.busy": "Busy: {process}",
@@ -3183,6 +3217,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.pagerSettings.read": "Read pager settings",
   "apiCall.pagerSettings.save": "Save pager settings",
   "apiCall.pagerSettings.test": "Send test page",
+  "apiCall.voice.status": "Read voice key status",
+  "apiCall.voice.transcribe": "Transcribe a recording",
+  "apiCall.voice.speak": "Read text aloud",
   "push.test": "Test notification from Isomux.",
   "push.turnEnd.title": "{agent} finished",
   "push.settings.switch": "Notifications",
