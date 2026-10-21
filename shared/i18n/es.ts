@@ -2147,6 +2147,7 @@ Cosas que puedes hacer por él:
   "contextMenu.moveToFront": "Mover al frente",
   "contextMenu.moveToFrontFull": "Mover al frente (lleno)",
   "app.reconnecting": "Reconectando…",
+  "app.uiBuild.outOfDate": "Esta página no está actualizada",
   "themes.dark": "Oscuro",
   "themes.light": "Claro",
   "themes.nord": "Nord",

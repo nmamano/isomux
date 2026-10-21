@@ -12,6 +12,7 @@
 !site/screenshot.png
 !scripts/build.sh
 !scripts/publish-ui-dist.ts
+!scripts/stamp-ui-build.ts
 !scripts/build-browser-extension.ts
 !scripts/extension-zip.ts
 !deploy/container/**

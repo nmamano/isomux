@@ -48,6 +48,11 @@ cp ui/icon.svg "$stage"/icons/icon.svg
 # state from this specific deployment leaks.
 cp site/screenshot.png "$stage"/login-bg.png
 
+# The build id, a hash of the bundle, into the staged index.html. The server
+# reads it from ui/dist/index.html and tells open tabs that run an older build
+# to reload (server/ui-build.ts).
+bun run scripts/stamp-ui-build.ts "$stage"
+
 bun run scripts/publish-ui-dist.ts "$stage" ui/dist
 
 # Also supplies the authenticated extension download on install and update.

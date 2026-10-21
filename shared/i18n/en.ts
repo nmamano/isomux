@@ -2103,6 +2103,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "contextMenu.moveToFront": "Move to front",
   "contextMenu.moveToFrontFull": "Move to front (full)",
   "app.reconnecting": "Reconnecting…",
+  "app.uiBuild.outOfDate": "This page is out of date",
   "themes.dark": "Dark",
   "themes.light": "Light",
   "themes.nord": "Nord",

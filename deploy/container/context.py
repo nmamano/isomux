@@ -12,7 +12,7 @@ ROOTS = ("server/", "shared/", "ui/", "browser-extension/", "skills/", "deploy/c
 FILES = {
     "LICENSE", "package.json", "bun.lock", "api/chat.ts", "site/screenshot.png",
     "scripts/build.sh", "scripts/build-browser-extension.ts", "scripts/extension-zip.ts",
-    "scripts/publish-ui-dist.ts",
+    "scripts/publish-ui-dist.ts", "scripts/stamp-ui-build.ts",
     "deploy/render/Dockerfile", "deploy/render/Dockerfile.dockerignore",
 }
 

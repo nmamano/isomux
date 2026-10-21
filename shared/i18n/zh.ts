@@ -1928,6 +1928,7 @@ App 的一些原则：
   "contextMenu.moveToFront": "移到前台",
   "contextMenu.moveToFrontFull": "移到前台（已满）",
   "app.reconnecting": "正在重新连接…",
+  "app.uiBuild.outOfDate": "此页面不是最新版本",
   "themes.dark": "深色",
   "themes.light": "浅色",
   "themes.nord": "Nord",

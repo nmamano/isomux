@@ -212,6 +212,7 @@ import {
 } from "./users.ts";
 import { homedir, hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
+import { trackUiBuild, type UiBuildTracker } from "./ui-build.ts";
 import {
   isCredentialStorePath,
   CREDENTIAL_PATH_MESSAGE,
@@ -740,6 +741,7 @@ let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
 let webPushStore: WebPushStore;
 let webPushDelivery: WebPushDeliveryService;
+let uiBuildTracker: UiBuildTracker | undefined;
 // Turn ends that sound the browser's turn-end sound also feed the turn-end
 // push (task 1eda8af8). Made per server start, so its last-state memory
 // starts empty each time.
@@ -960,6 +962,7 @@ function createManagers(startOpts: StartServerOpts): void {
   webPushStore = createWebPushStore(
     createWebPushFilePersistence(join(STATE_ROOT, "web-push.json")),
   );
+  uiBuildTracker = trackUiBuild(UI_DIST, broadcast);
   webPushDelivery = createWebPushDelivery({
     store: webPushStore,
     pages: pagerStore,
@@ -6400,6 +6403,7 @@ function sendProjectedFullState(
         appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
       // Every office session is a person, who holds chat:members.
       membersChat: membersChat.summary(session.userId),
+      uiBuild: uiBuildTracker?.current() ?? undefined,
     } satisfies ServerMessage),
   );
   // Fence the replay so the client knows the replayed transcript is complete
@@ -8796,6 +8800,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   extensionSessions?.stop();
   pagerDelivery?.stop();
   webPushDelivery?.stop();
+  uiBuildTracker?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
   mcpOAuthTimer = null;
   await server.stop(true);

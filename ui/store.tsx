@@ -256,6 +256,10 @@ export interface AppState {
   updateInfo: UpdateStatusWire | null;
   // Which update this tab follows on the update screen (ui/update-watch.ts).
   updateWatch: UpdateWatch;
+  // The UI build the server serves (null: unknown), and the one whose notice
+  // the member closed (ui/ui-build.ts).
+  serverUiBuild: string | null;
+  uiBuildDismissed: string | null;
   // Server-stored member profiles. `users` is keyed by lowercase(name). The
   // current device's user is identified by `sessionContext.username`, which
   // the server sends right after WS open from the session cookie. Pre-auth
@@ -332,6 +336,7 @@ type Action =
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
       membersChat?: MembersChatSummary;
+      uiBuild?: string;
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
@@ -355,6 +360,9 @@ type Action =
   | { type: "update_launching" }
   | { type: "update_clicked" }
   | { type: "update_hide"; screen: UpdateScreen }
+  | { type: "ui_build"; uiBuild: string | null }
+  // CLIENT-LOCAL: the member closed the new-build notice.
+  | { type: "ui_build_dismiss" }
   // CLIENT-LOCAL (no longer a ServerMessage): ContextMenu dispatches this after
   // the REST agents.listSessions fetch (GET /api/agents/:id/sessions) to seed the
   // per-agent sessions map. The WS sessions_list push it replaced was retired.
@@ -756,6 +764,7 @@ export function reducer(state: AppState, action: Action): AppState {
             .map((a) => [a.id, state.workingSince.get(a.id) ?? Date.now()]),
         ),
         hasReceivedInitialState: true,
+        serverUiBuild: action.uiBuild ?? null,
       };
     }
     case "agent_added":
@@ -1460,6 +1469,10 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         updateWatch: watchOnHide(state.updateWatch, action.screen),
       };
+    case "ui_build":
+      return { ...state, serverUiBuild: action.uiBuild };
+    case "ui_build_dismiss":
+      return { ...state, uiBuildDismissed: state.serverUiBuild };
     case "room_closed": {
       const result = applyRoomClose(
         state.rooms,
@@ -1741,6 +1754,8 @@ export const initialState: AppState = {
   updateAvailable: false,
   updateInfo: null,
   updateWatch: initialUpdateWatch,
+  serverUiBuild: null,
+  uiBuildDismissed: null,
   users: new Map(),
   usersLoaded: false,
   sessionContext: null,

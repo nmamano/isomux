@@ -2259,6 +2259,9 @@ export type ServerMessage =
       unavailableFeatures?: UnavailableFeatures;
       // Absent on older servers.
       membersChat?: MembersChatSummary;
+      // The UI build the server serves now (server/ui-build.ts). Absent when
+      // unknown and on older servers.
+      uiBuild?: string;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions
@@ -2436,6 +2439,8 @@ export type ServerMessage =
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_expired" }
   | ({ type: "update_status" } & UpdateStatusWire)
+  // The served UI build changed (a build:ui with no restart). null: unknown.
+  | { type: "ui_build"; uiBuild: string | null }
   | {
       type: "cronjobs_state";
       cronjobs: CronjobListWire[];

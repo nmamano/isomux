@@ -34,6 +34,7 @@ import type { InboxTab } from "./inbox.ts";
 import { useAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
+import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
 import { languageSeed } from "./preference-form.ts";
@@ -1044,6 +1045,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       <style>{CSS}</style>
       <ConnectionBanner />
       <UpdateOverlay />
+      <UiBuildNotice />
       {page === "settings" ? (
         <UserSettingsView
           initialUserId={editingUserId}
