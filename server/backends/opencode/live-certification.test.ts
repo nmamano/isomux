@@ -17,6 +17,8 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { preferredFreeOpenCodeModel } from "../../../shared/opencode-model.ts";
+import { OPENCODE_DEFAULT_MODEL } from "../../../shared/types.ts";
 import { LIVE } from "../../test-support/live-gate.ts";
 import type { NormalizedEvent } from "../types.ts";
 import { createOpenCodeBackend } from "./adapter.ts";
@@ -57,7 +59,14 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
     });
     const backend = createOpenCodeBackend({ supervisor });
     const discovered = await backend.listModels({ cwd: repo });
-    const freeModel = discovered.find((model) => model.isFree && !model.hidden);
+    // Free models only from the default model's provider, as the product
+    // picks them: OpenCode Go refuses its cost-0 models without a
+    // subscription.
+    const freeProvider = `${OPENCODE_DEFAULT_MODEL.split("/")[0]}/`;
+    const freeModel = preferredFreeOpenCodeModel(
+      discovered,
+      OPENCODE_DEFAULT_MODEL,
+    );
     expect(freeModel).toBeDefined();
     expect(
       (
@@ -71,7 +80,10 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
     ).toContain("LIVE_TOPIC_OK");
     const variantModel = discovered.find(
       (model) =>
-        model.isFree && !model.hidden && model.supportedEfforts.length > 0,
+        model.isFree &&
+        !model.hidden &&
+        model.supportedEfforts.length > 0 &&
+        model.id.startsWith(freeProvider),
     );
     expect(variantModel).toBeDefined();
     // This is a real-provider smoke, not proof that OpenCode applied the
