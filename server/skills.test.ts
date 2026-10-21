@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   rmSync,
   readFileSync,
   readlinkSync,
@@ -109,6 +110,35 @@ describe("bundled skills", () => {
     ]).filter((entry) => entry.name === "wrap-session");
     expect(entries).toHaveLength(1);
     expect(entries[0].origin).toBe("user");
+  });
+
+  // The engines read frontmatter as strict YAML and drop a skill they cannot
+  // parse; discoverBundledSkills reads it with a regex and would still list it.
+  it("has frontmatter that parses as YAML, named after its folder", () => {
+    const skillsDir = join(import.meta.dir, "..", "skills");
+    const folders = readdirSync(skillsDir).filter((name) =>
+      existsSync(join(skillsDir, name, "SKILL.md")),
+    );
+    expect(folders).toContain("isomux-report-bug");
+    for (const folder of folders) {
+      const text = readFileSync(join(skillsDir, folder, "SKILL.md"), "utf8");
+      const frontmatter = text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+      let parsed: { name?: unknown; description?: unknown } = {};
+      try {
+        parsed = Bun.YAML.parse(frontmatter) as typeof parsed;
+      } catch (err) {
+        throw new Error(`skills/${folder}/SKILL.md: ${String(err)}`, {
+          cause: err,
+        });
+      }
+      const description =
+        typeof parsed.description === "string" ? parsed.description.trim() : "";
+      expect({
+        folder,
+        name: parsed.name,
+        hasDescription: description !== "",
+      }).toEqual({ folder, name: folder, hasDescription: true });
+    }
   });
 });
 
