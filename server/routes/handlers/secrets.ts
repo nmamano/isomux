@@ -33,7 +33,7 @@ import {
   type SecretStore,
 } from "../../secret-store.ts";
 import { hasCredentialShape } from "../../log-redaction.ts";
-import { SECRET_MIN_VALUE_LENGTH } from "../../../shared/secret-hosts.ts";
+import { secretFieldErrorMessage } from "../../../shared/secret-hosts.ts";
 import type {
   OfficeSecretSummaryWire,
   SecretWire,
@@ -147,21 +147,10 @@ function answer(
   switch (change.kind) {
     case "invalid": {
       const { field, reason, host } = change.error;
+      const message = secretFieldErrorMessage(change.error);
       if (reason === "never_listed")
-        return fail(
-          422,
-          "host_not_allowed",
-          `${host} never receives a secret: model and package registry hosts are on the never-list`,
-          { field, host },
-        );
-      return fail(
-        400,
-        "invalid_secret",
-        reason === "too_short"
-          ? `the value must have at least ${SECRET_MIN_VALUE_LENGTH} characters`
-          : `the ${field} field is not valid`,
-        { field, reason },
-      );
+        return fail(422, "host_not_allowed", message, { field, host });
+      return fail(400, "invalid_secret", message, { field, reason });
     }
     case "exists":
       return fail(409, "secret_exists", "a secret with this name exists");

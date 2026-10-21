@@ -22,8 +22,9 @@ import {
 import {
   checkSecretForm,
   checkSecretHosts,
+  checkModelKeyHosts,
   checkSecretName,
-  SECRET_MIN_VALUE_LENGTH,
+  secretFieldErrorMessage,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { hasCredentialShape } from "./log-redaction.ts";
@@ -70,22 +71,20 @@ export type SecretRequestResult<T> = ({ ok: true } & T) | SecretRequestFailure;
 type SecretAsk = AskEntry & { secret: SecretAskRequest };
 
 function fieldFailure(error: SecretFieldError): SecretRequestFailure {
+  const message = secretFieldErrorMessage(error);
   if (error.reason === "never_listed")
     return {
       ok: false,
       status: 422,
       code: "host_not_allowed",
-      message: `${error.host} never receives a secret: model and package registry hosts are on the never-list`,
+      message,
       detail: { field: error.field, host: error.host },
     };
   return {
     ok: false,
     status: 400,
     code: "invalid_secret",
-    message:
-      error.reason === "too_short"
-        ? `the value must have at least ${SECRET_MIN_VALUE_LENGTH} characters`
-        : `the ${error.field} field is not valid`,
+    message,
     detail: { field: error.field, reason: error.reason },
   };
 }
@@ -192,6 +191,8 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       return fieldFailure({ field: "name", reason: "invalid" });
     const hosts = checkSecretHosts(body.hosts);
     if (!hosts.ok) return fieldFailure(hosts.error);
+    const modelKey = checkModelKeyHosts(body.name as string, hosts.hosts);
+    if (modelKey) return fieldFailure(modelKey);
     const form = checkSecretForm(body.form ?? { kind: "authorization" });
     if (!form.ok) return fieldFailure(form.error);
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";

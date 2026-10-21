@@ -3,13 +3,14 @@
 // browser can return one. Show answers with a fixed stand-in that says so.
 
 import {
+  checkModelKeyHosts,
   checkSecretForm,
   checkSecretHosts,
   checkSecretName,
   checkSecretValue,
   isAppReservedSecretName,
   SECRET_MAX_APPS,
-  SECRET_MIN_VALUE_LENGTH,
+  secretFieldErrorMessage,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { checkConnectionNote } from "../shared/connection-notes.ts";
@@ -25,21 +26,18 @@ export type DemoViewer = { userId: string | null; owner: boolean };
 
 // The same codes and detail fields as server/routes/handlers/secrets.ts.
 function refuse(error: SecretFieldError): never {
+  const message = secretFieldErrorMessage(error);
   if (error.reason === "never_listed")
-    throw new ApiError(
-      422,
-      "host_not_allowed",
-      `${error.host} never receives a secret: model and package registry hosts are on the never-list`,
-      { code: "host_not_allowed", field: error.field, host: error.host },
-    );
-  throw new ApiError(
-    400,
-    "invalid_secret",
-    error.reason === "too_short"
-      ? `the value must have at least ${SECRET_MIN_VALUE_LENGTH} characters`
-      : `the ${error.field} field is not valid`,
-    { code: "invalid_secret", field: error.field, reason: error.reason },
-  );
+    throw new ApiError(422, "host_not_allowed", message, {
+      code: "host_not_allowed",
+      field: error.field,
+      host: error.host,
+    });
+  throw new ApiError(400, "invalid_secret", message, {
+    code: "invalid_secret",
+    field: error.field,
+    reason: error.reason,
+  });
 }
 
 // The apps field (task c7007f8b) as names, or the server's refusal. The demo
@@ -106,6 +104,8 @@ export function demoSecretsRoute(
     const apps = appsOf(b.apps);
     const hosts = checkSecretHosts(b.hosts, { allowEmpty: apps.length > 0 });
     if (!hosts.ok) refuse(hosts.error);
+    const modelKey = checkModelKeyHosts(b.name as string, hosts.hosts);
+    if (modelKey) refuse(modelKey);
     if (apps.length > 0 && isAppReservedSecretName(b.name as string))
       refuse({ field: "name", reason: "reserved" });
     const form = checkSecretForm(b.form);
@@ -172,6 +172,8 @@ export function demoSecretsRoute(
     refuse({ field: "hosts", reason: "invalid" });
   if (apps.length > 0 && isAppReservedSecretName(secret.name))
     refuse({ field: "name", reason: "reserved" });
+  const modelKey = checkModelKeyHosts(secret.name, hosts);
+  if (modelKey) refuse(modelKey);
   secret.hosts = hosts;
   secret.apps = apps;
   if (b.form !== undefined) {

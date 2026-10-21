@@ -18,7 +18,7 @@ Secrets have their own list next to the variables list, on the office and the pe
 
 | Field | Meaning |
 |---|---|
-| name | The environment name (`GH_TOKEN`), same rules as a variable. Unique in its scope. |
+| name | The environment name (`GH_TOKEN`), same rules as a variable. Unique in its scope. A secret with a host cannot use a model sign-in key name (`MODEL_KEY_SECRET_NAMES` in `shared/secret-hosts.ts`: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and the like): the engine would sign in with the placeholder, and the proxy never swaps it on a never-listed host (task f51e4ab9). The rule holds on create, on every edit and on a secret request (400 `invalid_secret`, field `name`, reason `model_key`); a secret stored before it keeps loading and shows a warning on its row. An app-only secret may use the name. |
 | value | Write-only. No route returns it. The list shows "set" and the date of the last value change. A new value has at least 8 characters, because the scrub and the log masking skip shorter values (Nil, 2026-10-13); a shorter value saved before that rule keeps working. |
 | hosts | 1-20 exact DNS host names that may receive it (`api.github.com`). No scheme, port, path, wildcard, IP literal or `localhost`. A host on the never-list (section 2.2) is refused. |
 | form | `authorization`: the `Authorization` header in any scheme (Bearer, `token`, the user or password of Basic after decoding). `header`: the whole value of one named header (`x-api-key`). |

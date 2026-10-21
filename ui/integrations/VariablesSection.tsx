@@ -42,23 +42,15 @@ import {
 import { Confirm } from "./SecretsSection.tsx";
 import { useAlive } from "./use-alive.ts";
 import { basePath, canEdit, isGone, type Role, type Target } from "./target.ts";
+import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
 
 type Variable = { name: string; value: string | null; note: string };
 
-// Model API keys go here, not in Secrets, so the "looks like a key" hint
-// leaves them alone.
-const MODEL_KEYS = new Set([
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENCODE_API_KEY",
-]);
-
+// Model sign-in keys go here, not in Secrets, so the "looks like a key" hint
+// leaves them alone. The caller passes the trimmed name.
 export function looksLikeKey(name: string): boolean {
-  return (
-    /KEY|TOKEN|SECRET|PASSWORD/i.test(name) &&
-    !MODEL_KEYS.has(name.trim().toUpperCase())
-  );
+  return /KEY|TOKEN|SECRET|PASSWORD/i.test(name) && !isModelKeySecretName(name);
 }
 
 type Mode =

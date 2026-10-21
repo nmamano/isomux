@@ -29,6 +29,7 @@ import { STATE_ROOT } from "./config.ts";
 import {
   SECRET_MAX_APPS,
   isAppReservedSecretName,
+  checkModelKeyHosts,
   checkSecretForm,
   checkSecretHosts,
   checkSecretName,
@@ -377,6 +378,8 @@ export function createSecretStore(
           error: { field: "note", reason: note.reason },
         };
       const name = input.name as string;
+      const modelKey = checkModelKeyHosts(name, hosts.hosts);
+      if (modelKey) return { ok: false, kind: "invalid", error: modelKey };
       if (apps.apps.length > 0 && isAppReservedSecretName(name))
         return {
           ok: false,
@@ -517,6 +520,11 @@ export function createSecretStore(
             error: { field: "name", reason: "reserved" },
           };
       }
+      // Judged on the result, whatever the patch holds: a secret stored
+      // under a model key name before the rule cannot be edited until its
+      // hosts go, so the member meets the error that points to Variables.
+      const modelKey = checkModelKeyHosts(name, hosts ?? secret.hosts);
+      if (modelKey) return { ok: false, kind: "invalid", error: modelKey };
       if (apps && clashes(scope, name, apps))
         return {
           ok: false,

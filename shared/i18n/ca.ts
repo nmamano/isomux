@@ -863,6 +863,8 @@ Coses que pots fer per ell:
     "Fes servir lletres, dígits i guions baixos al nom, i no comencis amb un dígit.",
   "settings.secrets.error.reservedName":
     "L'oficina defineix aquest nom per si mateixa. Tria un altre nom.",
+  "settings.secrets.error.modelKey":
+    "Les claus d'API de models van a Variables: els agents no poden iniciar la sessió amb un secret.",
   "settings.secrets.error.value":
     "El valor ha de tenir entre 8 caràcters i 16 KiB d'ASCII imprimible, sense espais al principi ni al final.",
   "settings.secrets.error.hosts":
@@ -1114,6 +1116,8 @@ Coses que pots fer per ell:
   "integrations.secrets.readBySet": "Llegit per {apps} · desat el {date}",
   "integrations.secrets.reachesNothing":
     "No va enlloc. Afegeix una adreça o una app.",
+  "integrations.secrets.modelKeyWarning":
+    "Els agents no poden iniciar la sessió amb aquest secret. Mou-lo a Variables.",
   "integrations.secrets.showFailed": "No s'ha pogut mostrar el valor.",
   "integrations.secrets.reissueHint":
     "Els agents reben un substitut nou i l'anterior deixa de funcionar.",

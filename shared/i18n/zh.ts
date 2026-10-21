@@ -782,6 +782,8 @@ App 的一些原则：
     "名称只能使用字母、数字和下划线，且不能以数字开头。",
   "settings.secrets.error.reservedName":
     "办公室会自行设置此名称。请换一个名称。",
+  "settings.secrets.error.modelKey":
+    "模型 API 密钥放在「变量」中：智能体无法用密钥登录。",
   "settings.secrets.error.value":
     "值必须是 8 个字符到 16 KiB 的可打印 ASCII 字符，首尾不能有空格。",
   "settings.secrets.error.hosts":
@@ -1005,6 +1007,8 @@ App 的一些原则：
   "integrations.secrets.readBy": "由 {apps} 读取",
   "integrations.secrets.readBySet": "由 {apps} 读取 · {date} 设置",
   "integrations.secrets.reachesNothing": "未发往任何地方。请添加地址或 App。",
+  "integrations.secrets.modelKeyWarning":
+    "智能体无法用此密钥登录。请把它移到「变量」中。",
   "integrations.secrets.showFailed": "无法显示该值。",
   "integrations.secrets.reissueHint": "智能体获得新的占位值，旧的占位值失效。",
   "integrations.secrets.addHeading.self": "添加密钥",

@@ -865,6 +865,8 @@ Cosas que puedes hacer por él:
     "Usa letras, dígitos y guiones bajos en el nombre, y no empieces con un dígito.",
   "settings.secrets.error.reservedName":
     "La oficina define este nombre por sí misma. Elige otro nombre.",
+  "settings.secrets.error.modelKey":
+    "Las claves de API de modelos van en Variables: los agentes no pueden iniciar sesión con un secreto.",
   "settings.secrets.error.value":
     "El valor debe tener entre 8 caracteres y 16 KiB de ASCII imprimible, sin espacios al principio ni al final.",
   "settings.secrets.error.hosts":
@@ -1112,6 +1114,8 @@ Cosas que puedes hacer por él:
   "integrations.secrets.readBySet": "Leído por {apps} · guardado el {date}",
   "integrations.secrets.reachesNothing":
     "No va a ningún sitio. Añade una dirección o una app.",
+  "integrations.secrets.modelKeyWarning":
+    "Los agentes no pueden iniciar sesión con este secreto. Muévelo a Variables.",
   "integrations.secrets.showFailed": "No se pudo mostrar el valor.",
   "integrations.secrets.reissueHint":
     "Los agentes reciben un sustituto nuevo y el anterior deja de funcionar.",

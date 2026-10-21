@@ -18,6 +18,7 @@ const { onManagedEnvSaved } = await import("../connections-events.ts");
 const { IntegrationsFake } =
   await import("../test-support/integrations-fake.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { MODEL_KEY_SECRET_NAMES } = await import("../../shared/secret-hosts.ts");
 afterAll(() => setApiShim(null));
 
 const { t } = translatorFor("en");
@@ -147,12 +148,11 @@ it("flags a key-like name, except the model API keys that belong here", async ()
   expect(looksLikeKey("GH_TOKEN")).toBe(true);
   expect(looksLikeKey("my_password")).toBe(true);
   expect(looksLikeKey("TZ")).toBe(false);
-  for (const name of [
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "OPENCODE_API_KEY",
-  ])
-    expect(looksLikeKey(name)).toBe(false);
+  // The names the Secrets tab refuses on a secret with an address
+  // (task f51e4ab9): one list for both tabs.
+  expect(MODEL_KEY_SECRET_NAMES).toContain("GROQ_API_KEY");
+  for (const name of MODEL_KEY_SECRET_NAMES)
+    expect([name, looksLikeKey(name)]).toEqual([name, false]);
   const view = await mount({ kind: "self", username: "ann" });
   await click(view.container.querySelector("[data-integrations-add]"));
   await type(view.container.querySelector("[data-env-name]"), "GH_TOKEN");

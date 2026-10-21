@@ -198,6 +198,75 @@ it("names the refused host when a host is on the never-list", async () => {
   );
 });
 
+// Task f51e4ab9: a model sign-in key with an address breaks the agents'
+// sign-in, so the save is refused with its own sentence, and a secret stored
+// before the rule carries a warning on its row.
+it("refuses a model sign-in key name with its own sentence", async () => {
+  // The demo's route has the server's checks.
+  setApiShim(async (method, path, body) => {
+    const answer = demoSecretsRoute(method, path, body, () => "u-test");
+    if (!answer) throw new Error(`unexpected ${method} ${path}`);
+    return answer.result;
+  });
+  const view = await mount({ kind: "office" });
+  await click(view.container.querySelector("[data-integrations-add]"));
+  await choose(view, "other");
+  await act(async () => {
+    fireEvent.change(
+      view.container.querySelector("[data-secret-name-input]")!,
+      { target: { value: "OPENAI_API_KEY" } },
+    );
+    fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+    fireEvent.change(view.container.querySelector("[data-secret-hosts]")!, {
+      target: { value: "api.example.com" },
+    });
+  });
+  await click(view.container.querySelector("[data-panel-save]"));
+  expect(view.getByRole("alert").textContent).toBe(
+    t("settings.secrets.error.modelKey"),
+  );
+  expect(t("settings.secrets.error.modelKey")).not.toBe(
+    t("settings.secrets.error.name"),
+  );
+});
+
+it("warns on a stored model sign-in key that has an address, and on no other row", async () => {
+  const base = {
+    form: { kind: "authorization" as const },
+    createdAt: 1,
+    valueSetAt: 1,
+    updatedAt: 1,
+    note: null,
+    value: FAKE,
+  };
+  const rows = [
+    { ...base, name: "OPENAI_API_KEY", hosts: ["api.example.com"], apps: [] },
+    { ...base, name: "ANTHROPIC_API_KEY", hosts: [], apps: ["bot"] },
+    { ...base, name: "GH_TOKEN", hosts: ["api.github.com"], apps: [] },
+  ];
+  // Each listed row, and whether it carries the warning.
+  const warned = (view: ReturnType<typeof render>) =>
+    [...view.container.querySelectorAll<HTMLElement>("[data-secret-name]")]
+      .map((row) => [
+        row.dataset.secretName,
+        row.querySelector("[data-secret-model-key]") !== null,
+      ])
+      .sort();
+  const expected = [
+    ["ANTHROPIC_API_KEY", false],
+    ["GH_TOKEN", false],
+    ["OPENAI_API_KEY", true],
+  ];
+  fake.scope("alice").secrets.push(...rows);
+  const own = await mount();
+  expect(warned(own)).toEqual(expected);
+  own.unmount();
+  // A member's view of the office secrets: names and addresses only.
+  fake.scope("office").secrets.push(...rows);
+  fake.viewer = { username: "alice", owner: false };
+  expect(warned(await mount({ kind: "office" }, "member"))).toEqual(expected);
+});
+
 it("clears the preset's name and addresses when the member picks Other", async () => {
   const view = await mount();
   await click(view.container.querySelector("[data-integrations-add]"));

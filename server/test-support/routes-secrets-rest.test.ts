@@ -510,6 +510,136 @@ describe("secret field rules", () => {
     });
   });
 
+  // Task f51e4ab9: an agent with a secret gets its placeholder in the env,
+  // and an engine signs in with a model key from the env over its stored
+  // sign-in. The proxy never swaps a placeholder for a model host, so a
+  // model key name may go only on a secret that apps alone read.
+  it("refuses a model sign-in key name on a secret with a host, and keeps one stored before the rule removable", async () => {
+    server = await startTestServer();
+    const srv = server;
+    const owner = await srv.seedOwner("Boss");
+    const session = owner.rawSessionId;
+    const userBase = `/api/users/${owner.username}/secrets`;
+    const modelKey = (res: Res) => {
+      expect(res.status).toBe(400);
+      expect(errorOf(res)).toEqual(
+        expect.objectContaining({
+          code: "invalid_secret",
+          field: "name",
+          reason: "model_key",
+        }),
+      );
+    };
+    const toExample = { hosts: ["api.example.com"] };
+    for (const base of [userBase, "/api/office/secrets"]) {
+      for (const name of [
+        "OPENAI_API_KEY",
+        "CODEX_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "OPENCODE_API_KEY",
+        "OPENROUTER_API_KEY",
+      ])
+        modelKey(
+          await call(srv, "POST", base, {
+            session,
+            body: { ...github(), ...toExample, name },
+          }),
+        );
+      // Not a model sign-in key: a generic name, and a name that differs
+      // only in case (the engines read the exact name).
+      for (const name of ["GOOGLE_API_KEY", "openai_api_key"])
+        expect(
+          (
+            await call(srv, "POST", base, {
+              session,
+              body: { ...github(), ...toExample, name },
+            })
+          ).status,
+        ).toBe(201);
+      expect(
+        (
+          (await call(srv, "GET", base, { session })).body as {
+            secrets: { name: string }[];
+          }
+        ).secrets
+          .map((s) => s.name)
+          .sort(),
+      ).toEqual(["GOOGLE_API_KEY", "openai_api_key"]);
+    }
+
+    // A secret that only an app reads gives the app the real value and
+    // reaches no agent: allowed, and it cannot gain a host.
+    const app = await call(srv, "POST", "/api/apps", {
+      session,
+      body: { name: "bot", command: "true", cwd: srv.stateRoot },
+    });
+    expect(app.status).toBe(201);
+    const appOnly = await call(srv, "POST", userBase, {
+      session,
+      body: {
+        ...github(),
+        name: "ANTHROPIC_API_KEY",
+        hosts: [],
+        apps: ["bot"],
+      },
+    });
+    expect(appOnly.status).toBe(201);
+    modelKey(
+      await call(srv, "PATCH", `${userBase}/ANTHROPIC_API_KEY`, {
+        session,
+        body: toExample,
+      }),
+    );
+
+    // A secret with a host stored before the rule: it still loads, an edit
+    // that keeps a host is refused whatever it changes, and the member can
+    // rotate, reissue and delete it.
+    const ownerId = getUserByName(owner.username)!.id;
+    const file = join(srv.stateRoot, "secrets", "users", `${ownerId}.json`);
+    const stored = JSON.parse(readFileSync(file, "utf8"));
+    const old = stored.secrets.find(
+      (s: { name: string }) => s.name === "GOOGLE_API_KEY",
+    );
+    old.name = "OPENAI_API_KEY";
+    writeFileSync(file, JSON.stringify(stored), { mode: 0o600 });
+    const listed = await call(srv, "GET", userBase, { session });
+    expect(listed.status).toBe(200);
+    expect(
+      (listed.body as { secrets: { name: string; hosts: string[] }[] }).secrets,
+    ).toContainEqual(
+      expect.objectContaining({
+        name: "OPENAI_API_KEY",
+        hosts: ["api.example.com"],
+      }),
+    );
+    modelKey(
+      await call(srv, "PATCH", `${userBase}/OPENAI_API_KEY`, {
+        session,
+        body: { note: "moving it to Variables" },
+      }),
+    );
+    expect(
+      (
+        await call(srv, "PUT", `${userBase}/OPENAI_API_KEY/value`, {
+          session,
+          body: { value: `${FAKE}-2` },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call(srv, "POST", `${userBase}/OPENAI_API_KEY/reissue`, {
+          session,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await call(srv, "DELETE", `${userBase}/OPENAI_API_KEY`, { session }))
+        .status,
+    ).toBe(204);
+  });
+
   it("keeps both of two concurrent creates in one scope", async () => {
     server = await startTestServer();
     const srv = server;

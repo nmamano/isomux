@@ -178,6 +178,59 @@ export function isReservedSecretName(name: string): boolean {
   );
 }
 
+// The names a model engine reads as its sign-in key, for the vendors whose
+// hosts are on the never-list. An agent that gets a secret's placeholder under
+// one of them signs in with it, and the proxy never swaps it, so a secret with
+// a host cannot use them; they go in Variables.
+export const MODEL_KEY_SECRET_NAMES: readonly string[] = [
+  // Claude.
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "AWS_BEARER_TOKEN_BEDROCK",
+  // Codex.
+  "OPENAI_API_KEY",
+  "CODEX_API_KEY",
+  // OpenCode: its own key and the models.dev provider keys of never-listed
+  // vendors.
+  "OPENCODE_API_KEY",
+  "OPENROUTER_API_KEY",
+  "GROQ_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "XAI_API_KEY",
+  "MISTRAL_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "AZURE_API_KEY",
+];
+
+export function isModelKeySecretName(name: string): boolean {
+  return MODEL_KEY_SECRET_NAMES.includes(name);
+}
+
+// A secret under a model key name may have no host: only a secret with a host
+// reaches agents. An app-only secret gives the app the real value.
+export function checkModelKeyHosts(
+  name: string,
+  hosts: readonly string[],
+): SecretFieldError | null {
+  return hosts.length > 0 && isModelKeySecretName(name)
+    ? { field: "name", reason: "model_key" }
+    : null;
+}
+
+// The message an agent reads for a refused field. The routes send `field` and
+// `reason` with it, never the input.
+export function secretFieldErrorMessage(error: SecretFieldError): string {
+  if (error.reason === "never_listed")
+    return `${error.host} never receives a secret: model and package registry hosts are on the never-list`;
+  if (error.reason === "too_short")
+    return `the value must have at least ${SECRET_MIN_VALUE_LENGTH} characters`;
+  if (error.reason === "model_key")
+    return "this name is a model sign-in key: agents cannot sign in with a secret, so set it as a variable";
+  return `the ${error.field} field is not valid`;
+}
+
 // Headers that carry the request's framing or routing, or that the
 // authorization form covers.
 const REFUSED_HEADERS: readonly string[] = [
@@ -204,7 +257,8 @@ export interface SecretFieldError {
     | "too_short"
     | "too_long"
     | "never_listed"
-    | "clash";
+    | "clash"
+    | "model_key";
   host?: string;
 }
 

@@ -858,6 +858,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Use letters, digits and underscores for the name, and do not start with a digit.",
   "settings.secrets.error.reservedName":
     "The office sets this name itself. Choose another name.",
+  "settings.secrets.error.modelKey":
+    "Model API keys go in Variables: agents cannot sign in with a secret.",
   "settings.secrets.error.value":
     "The value must be 8 characters to 16 KiB of printable ASCII, with no space at either end.",
   "settings.secrets.error.hosts":
@@ -1098,6 +1100,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.secrets.readBySet": "Read by {apps} · set {date}",
   "integrations.secrets.reachesNothing":
     "Goes nowhere. Add an address or an app.",
+  "integrations.secrets.modelKeyWarning":
+    "Agents cannot sign in with this secret. Move it to Variables.",
   "integrations.secrets.showFailed": "Could not show the value.",
   "integrations.secrets.reissueHint":
     "Agents get a new stand-in, and the old one stops working.",

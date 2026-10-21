@@ -191,6 +191,16 @@ describe("the agent's ask", () => {
     expect(codeOf("a1", { ...ASK, name: "AKIAIOSFODNN7EXAMPLE" })).toBe(
       "invalid_secret",
     );
+    // A requested secret always has a host, so a model sign-in key name is
+    // refused (task f51e4ab9).
+    const modelKey = requests.open("a1", { ...ASK, name: "OPENAI_API_KEY" });
+    expect(modelKey).toEqual(
+      expect.objectContaining({
+        ok: false,
+        code: "invalid_secret",
+        detail: { field: "name", reason: "model_key" },
+      }),
+    );
     expect(codeOf("a1", { ...ASK, reason: "" })).toBe("invalid_request");
     expect(codeOf("a1", { ...ASK, reason: `use ${VALUE}` })).toBe(
       "invalid_request",

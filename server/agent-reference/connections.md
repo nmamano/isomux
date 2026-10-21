@@ -20,7 +20,7 @@ When you need a credential you do not have, ask for it as a secret. Never ask a 
 
 The route answers `{requestId}`. End your turn and wait. To withdraw the request, delete its ask. When the member saves, you get a message with the placeholder, and the variable holds it from your next start. When the member declines, you get a message that says so.
 
-Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer).
+Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 400 `invalid_secret` with reason `model_key` for a model sign-in key name such as `OPENAI_API_KEY`, which a member sets as a variable instead; 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer).
 
 ## Changing connections
 
@@ -50,6 +50,8 @@ MCP servers:
 You never read a value. Variable values and a secret's Show stay with members. An MCP server comes back with its `host` in place of its URL. A member signs in to an MCP server that uses OAuth on the Integrations page.
 
 You cannot add a host to a saved secret: 403 `secret_host_add_refused`. You can remove hosts, and you set them when you save a new secret.
+
+A secret with a host cannot use a model sign-in key name such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`: the engine signs in with it and fails. The save or edit gets 400 `invalid_secret` with reason `model_key`; set it as a variable.
 
 A secret can also go to apps: the app gets the value in its environment. Only a member gives a secret to an app, on the Integrations page. A save with `apps`, or an edit that adds one, gets 403 `secret_app_add_refused`. You can remove apps with `PATCH` and `{apps}`, the names that stay. A secret with no host is not in your environment or in `GET /api/agent-connections`.
 

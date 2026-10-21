@@ -11,7 +11,11 @@ import type {
   SecretValueRes,
   SecretWire,
 } from "../../shared/contract-shapes.ts";
-import { SECRET_PRESETS, type SecretForm } from "../../shared/secret-hosts.ts";
+import {
+  isModelKeySecretName,
+  SECRET_PRESETS,
+  type SecretForm,
+} from "../../shared/secret-hosts.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -131,7 +135,9 @@ export function useSecretErrorText() {
       if (detail.field === "name")
         return detail.reason === "reserved"
           ? t("settings.secrets.error.reservedName")
-          : t("settings.secrets.error.name");
+          : detail.reason === "model_key"
+            ? t("settings.secrets.error.modelKey")
+            : t("settings.secrets.error.name");
       if (detail.field === "value") return t("settings.secrets.error.value");
       if (detail.field === "hosts") return t("settings.secrets.error.hosts");
       if (detail.field === "form") return t("settings.secrets.error.header");
@@ -385,6 +391,14 @@ function SecretItem({
         ) : null
       }
     >
+      {secret.hosts.length > 0 && isModelKeySecretName(secret.name) && (
+        <div
+          data-secret-model-key
+          style={{ ...hintText, color: "var(--orange-text)" }}
+        >
+          {t("integrations.secrets.modelKeyWarning")}
+        </div>
+      )}
       <NoteLine note={secret.note} />
       {showable && <SecretValue path={path} />}
       <TestResult test={test} />
