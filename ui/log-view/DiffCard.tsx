@@ -1,11 +1,17 @@
 import { StatusShape } from "../components/StatusShape.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiffFileSummary, DiffPayload } from "../../shared/types.ts";
-import { DiffRenderer, type DiffOutputFormat } from "./DiffRenderer.tsx";
+import type { DiffOutputFormat } from "./DiffRenderer.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
+import { lazyComponent } from "../lazy-component.tsx";
+
+// diff2html loads with the first diff shown, not with the office.
+const DiffRenderer = lazyComponent(() =>
+  import("./DiffRenderer.tsx").then((m) => m.DiffRenderer),
+);
 
 const PREF_KEY = "isomux:diff:outputFormat";
 const INLINE_LINES_THRESHOLD = 200;

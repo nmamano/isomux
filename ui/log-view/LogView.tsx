@@ -73,8 +73,7 @@ import {
   CheckIcon,
   EndConversationIcon,
 } from "../components/NavIcons.tsx";
-import { TerminalPanel } from "./TerminalPanel.tsx";
-import { EditorPanel } from "./EditorPanel.tsx";
+import { lazyComponent } from "../lazy-component.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
@@ -98,6 +97,15 @@ import {
   composerMaxHeight,
   fitComposer,
 } from "../composer-height.ts";
+
+// The terminal and editor libraries load when a panel first opens, not with
+// the office.
+const TerminalPanel = lazyComponent(() =>
+  import("./TerminalPanel.tsx").then((m) => m.TerminalPanel),
+);
+const EditorPanel = lazyComponent(() =>
+  import("./EditorPanel.tsx").then((m) => m.EditorPanel),
+);
 
 // Header label for an agent parked on a two-step prompt. It
 // sits where the activity indicator would be if a turn were running - which is

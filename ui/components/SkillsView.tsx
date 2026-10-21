@@ -32,7 +32,7 @@ import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 import { Markdown } from "../log-view/Markdown.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { Portal } from "./Portal.tsx";
-import { SkillSourceEditor } from "./SkillSourceEditor.tsx";
+import { lazyComponent } from "../lazy-component.tsx";
 import {
   UnsavedChangesPrompt,
   useUnsavedChangesPrompt,
@@ -54,6 +54,12 @@ import {
   tildePath,
   validSkillName,
 } from "./skills-page.ts";
+
+// CodeMirror loads with the first skill opened for editing, not with the
+// office.
+const SkillSourceEditor = lazyComponent(() =>
+  import("./SkillSourceEditor.tsx").then((m) => m.SkillSourceEditor),
+);
 
 // Every command an agent can run here, Isomux's own and the engine built-ins
 // it passes through (CommandConfig.native).

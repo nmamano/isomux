@@ -110,9 +110,14 @@ async function mount() {
 it("cancel and stale delete keep the draft; successful delete removes the selection and refreshes the catalog", async () => {
   const view = await mount();
   await click("[data-skill-edit]");
-  const cm = EditorView.findFromDOM(
-    view.container.querySelector(".cm-editor") as HTMLElement,
-  )!;
+  // The source editor's module (CodeMirror) loads when the editor first
+  // mounts: wait for it.
+  const cm = await waitFor(() => {
+    const dom = view.container.querySelector(".cm-editor") as HTMLElement;
+    const found = dom ? EditorView.findFromDOM(dom) : null;
+    if (!found) throw new Error("no editor");
+    return found;
+  });
   await act(async () => {
     cm.dispatch({
       changes: { from: 0, to: cm.state.doc.length, insert: "unsaved draft" },

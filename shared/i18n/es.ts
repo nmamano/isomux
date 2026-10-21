@@ -626,6 +626,9 @@ Cosas que puedes hacer por él:
   "update.screen.hide": "Ocultar",
   "update.outcome.title": "Notas de la actualización",
 
+  "lazyPanel.loadFailed": "No se pudo cargar.",
+  "lazyPanel.reload": "Recargar",
+
   "settings.usage.title": "Uso de la oficina",
   "settings.usage.intro":
     "Los límites del plan de suscripción no se muestran aquí. Esta página informa del uso de tokens y del coste estimado que registra Isomux.",

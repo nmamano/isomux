@@ -578,6 +578,8 @@ App 的一些原则：
   "update.screen.reload": "重新加载",
   "update.screen.hide": "隐藏",
   "update.outcome.title": "更新说明",
+  "lazyPanel.loadFailed": "无法加载。",
+  "lazyPanel.reload": "重新加载",
   "settings.usage.title": "办公室用量",
   "settings.usage.intro":
     "此处不显示订阅套餐的限额。此页面报告 Isomux 记录的 token 用量和估算费用。",

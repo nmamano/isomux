@@ -8,7 +8,8 @@
 import { afterAll, expect, it, mock } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
-const { render, fireEvent, act } = await import("@testing-library/react");
+const { render, fireEvent, act, waitFor } =
+  await import("@testing-library/react");
 const { AuditPane } = await import("./AuditList.tsx");
 const { setApiShim } = await import("../api.ts");
 afterAll(() => setApiShim(null));
@@ -89,21 +90,31 @@ it("replays a recorded session that cannot write the clipboard or open a page, a
     expect(replay).toHaveLength(1);
 
     fireEvent.click(replay[0]);
-    await wait(100);
-    expect(
-      fetched.some((url) =>
-        url.endsWith(`/api/terminal-recordings/${RECORDING}`),
-      ),
-    ).toBe(true);
-    const dialog = view.getByRole("dialog");
+    // The player's module (xterm) loads with the first replay.
+    const dialog = await waitFor(() => view.getByRole("dialog"), {
+      interval: 10,
+    });
     // xterm draws a space inside a link as a no-break space.
     const screen = () =>
       (dialog.querySelector(".xterm-rows")?.textContent ?? "").replace(
         /\u00a0/g,
         " ",
       );
-    expect(screen()).toContain("first-line");
-    expect(screen()).toContain("a link");
+    // Playback starts once the player is in: wait for the first two frames
+    // (10 ms apart), which leaves the 290 ms before the third to check and
+    // pause.
+    await waitFor(
+      () => {
+        expect(screen()).toContain("first-line");
+        expect(screen()).toContain("a link");
+      },
+      { interval: 10 },
+    );
+    expect(
+      fetched.some((url) =>
+        url.endsWith(`/api/terminal-recordings/${RECORDING}`),
+      ),
+    ).toBe(true);
     expect(screen()).not.toContain("second-line");
 
     const toggle = dialog.querySelector("button[aria-pressed]")!;

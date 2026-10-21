@@ -623,6 +623,9 @@ Coses que pots fer per ell:
   "update.screen.hide": "Amaga",
   "update.outcome.title": "Notes de l'actualització",
 
+  "lazyPanel.loadFailed": "No s'ha pogut carregar.",
+  "lazyPanel.reload": "Recarrega",
+
   "settings.usage.title": "Ús de l'oficina",
   "settings.usage.intro":
     "Els límits del pla de subscripció no es mostren aquí. Aquesta pàgina informa de l'ús de tokens i del cost estimat que registra Isomux.",

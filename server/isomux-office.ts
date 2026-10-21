@@ -222,6 +222,7 @@ import {
   mimeTypeForFilename,
   httpContentTypeForFilename,
 } from "./mime-types.ts";
+import { createStaticAssets } from "./static-assets.ts";
 import { join } from "path";
 import {
   authenticate,
@@ -7664,6 +7665,8 @@ async function handleInboundMessage(
 }
 
 const UI_DIST = join(import.meta.dir, "..", "ui", "dist");
+// Caching and compression of the built UI files (server/static-assets.ts).
+const uiAssets = createStaticAssets(UI_DIST);
 
 // Escape a string for safe inclusion as text inside an HTML element (e.g. <title>).
 function escapeHtml(s: string): string {
@@ -8266,12 +8269,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         if (filePath === "/index.html") {
           return serveIndexHtml(req, auth.session);
         }
-        const file = Bun.file(join(UI_DIST, filePath));
-        if (await file.exists()) {
-          return new Response(file, {
-            headers: { "Cache-Control": "no-cache" },
-          });
-        }
+        const asset = await uiAssets.serve(req, filePath);
+        if (asset) return asset;
         return serveIndexHtml(req, auth.session);
       })();
       if (!officeHostResponse) return;

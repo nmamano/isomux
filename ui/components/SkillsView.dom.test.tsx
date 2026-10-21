@@ -119,11 +119,15 @@ async function open(view: ReturnType<typeof render>, name: string) {
   );
 }
 
-function editor(view: ReturnType<typeof render>) {
-  const dom = view.container.querySelector(".cm-editor") as HTMLElement;
-  const cm = EditorView.findFromDOM(dom);
-  if (!cm) throw new Error("no editor");
-  return cm;
+// The source editor's module (CodeMirror) loads when the editor first mounts,
+// so wait for it: in a file run alone, no earlier test has loaded it.
+async function editor(view: ReturnType<typeof render>) {
+  return await waitFor(() => {
+    const dom = view.container.querySelector(".cm-editor") as HTMLElement;
+    const cm = dom ? EditorView.findFromDOM(dom) : null;
+    if (!cm) throw new Error("no editor");
+    return cm;
+  });
 }
 
 it("shows a built-in skill read-only, without an Edit control", async () => {
@@ -137,11 +141,14 @@ it("shows a built-in skill read-only, without an Edit control", async () => {
       .getByRole("tab", { name: translatorFor("en").t("skills.view.source") })
       .click();
   });
-  expect(
-    view.container
-      .querySelector("[data-skill-source]")
-      ?.getAttribute("data-editable"),
-  ).toBe("false");
+  // The source editor's module loads when the tab first opens.
+  await waitFor(() =>
+    expect(
+      view.container
+        .querySelector("[data-skill-source]")
+        ?.getAttribute("data-editable"),
+    ).toBe("false"),
+  );
   view.unmount();
 });
 
@@ -156,7 +163,7 @@ it("keeps the member's text and explains a stale save", async () => {
       view.container.querySelector("[data-skill-edit]") as HTMLButtonElement
     ).click();
   });
-  const cm = editor(view);
+  const cm = await editor(view);
   await act(async () => {
     cm.dispatch({
       changes: { from: cm.state.doc.length, insert: "my edit\n" },
@@ -180,7 +187,7 @@ it("keeps the member's text and explains a stale save", async () => {
     },
   ]);
   // Still editing, with the edit intact.
-  expect(editor(view).state.doc.toString()).toContain("my edit");
+  expect((await editor(view)).state.doc.toString()).toContain("my edit");
   expect(
     view.container
       .querySelector("[data-skill-source]")
@@ -198,7 +205,7 @@ it("leaves edit mode after a save the server accepts", async () => {
       view.container.querySelector("[data-skill-edit]") as HTMLButtonElement
     ).click();
   });
-  const cm = editor(view);
+  const cm = await editor(view);
   await act(async () => {
     cm.dispatch({ changes: { from: 0, insert: "x" } });
   });
@@ -236,7 +243,7 @@ async function startEditing(view: ReturnType<typeof render>, text: string) {
       view.container.querySelector("[data-skill-edit]") as HTMLButtonElement
     ).click();
   });
-  const cm = editor(view);
+  const cm = await editor(view);
   await act(async () => {
     cm.dispatch({ changes: { from: cm.state.doc.length, insert: text } });
   });
@@ -255,7 +262,7 @@ it("keeps text typed while a save is in flight", async () => {
   const view = await mount();
   await startEditing(view, "first\n");
   await clickSave(view);
-  const cm = editor(view);
+  const cm = await editor(view);
   await act(async () => {
     cm.dispatch({ changes: { from: cm.state.doc.length, insert: "later\n" } });
   });
@@ -266,7 +273,7 @@ it("keeps text typed while a save is in flight", async () => {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 20));
   });
-  expect(editor(view).state.doc.toString()).toContain("first\nlater\n");
+  expect((await editor(view)).state.doc.toString()).toContain("first\nlater\n");
   expect(
     view.container
       .querySelector("[data-skill-source]")
@@ -334,7 +341,7 @@ it("keeps a broken disk file editable and keeps the draft when validation refuse
       view.container.querySelector("[data-skill-edit]") as HTMLButtonElement
     ).click();
   });
-  const cm = editor(view);
+  const cm = await editor(view);
   await act(async () => {
     cm.dispatch({
       changes: { from: 0, to: cm.state.doc.length, insert: "broken draft" },
@@ -346,7 +353,7 @@ it("keeps a broken disk file editable and keeps the draft when validation refuse
       null,
     ),
   );
-  expect(editor(view).state.doc.toString()).toBe("broken draft");
+  expect((await editor(view)).state.doc.toString()).toBe("broken draft");
   expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
   expect(view.container.querySelector("[data-skill-delete]")).not.toBe(null);
   expect(puts).toHaveLength(1);

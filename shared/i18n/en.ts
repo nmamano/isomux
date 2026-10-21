@@ -628,6 +628,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "update.screen.hide": "Hide",
   "update.outcome.title": "Notes from the update",
 
+  "lazyPanel.loadFailed": "Could not load.",
+  "lazyPanel.reload": "Reload",
+
   "settings.usage.title": "Office Usage",
   "settings.usage.intro":
     "Subscription plan limits are not shown here. This page reports token usage and estimated cost recorded by Isomux.",

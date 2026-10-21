@@ -4,7 +4,7 @@ import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
 import { AUDIT_OPERATIONS } from "../audit-operations.ts";
-import { TerminalReplay } from "./TerminalReplay.tsx";
+import { lazyComponent } from "../lazy-component.tsx";
 import { AUDIT_ACTOR_KINDS } from "../../shared/audit.ts";
 import type { MemoryScope } from "../../shared/types.ts";
 import type { OfficeSettingsRes } from "../../shared/contract-shapes.ts";
@@ -18,6 +18,11 @@ import type {
   AuditPage,
   TaskHistory,
 } from "../../shared/audit.ts";
+
+// xterm loads with the first replay, not with the office.
+const TerminalReplay = lazyComponent(() =>
+  import("./TerminalReplay.tsx").then((m) => m.TerminalReplay),
+);
 
 const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   member: "audit.kind.member",
