@@ -11,6 +11,7 @@
 !api/chat.ts
 !site/screenshot.png
 !scripts/build.sh
+!scripts/publish-ui-dist.ts
 !scripts/build-browser-extension.ts
 !scripts/extension-zip.ts
 !deploy/container/**
