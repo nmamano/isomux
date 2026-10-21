@@ -1351,6 +1351,7 @@ App 的一些原则：
   "asks.reply": "回复",
   "asks.dismiss": "忽略",
   "asks.replyDefault": "完成",
+  "asks.recommended": "推荐",
   "asks.link": "请示",
   "asks.openLink": "打开「{page}」",
   "asks.dismissed": "已忽略",

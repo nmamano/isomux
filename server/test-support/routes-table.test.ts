@@ -318,11 +318,26 @@ describe("route table: plain-text form", () => {
       ["agents.sendMessage", ["steer", "deliverAt", "clientMessageId"]],
       [
         "agents.createAsk",
-        ["member", "link", "options", "commands", "editFiles", "readFiles"],
+        [
+          "member",
+          "link",
+          "options",
+          "recommended",
+          "commands",
+          "editFiles",
+          "readFiles",
+        ],
       ],
       [
         "agents.editAsk",
-        ["link", "options", "commands", "editFiles", "readFiles"],
+        [
+          "link",
+          "options",
+          "recommended",
+          "commands",
+          "editFiles",
+          "readFiles",
+        ],
       ],
       ["asks.reply", []],
       ["apiTokenInbox.send", []],

@@ -1,20 +1,23 @@
-// One open ask: the agent's prompt, its age, a reply field prefilled with the
-// catalog's "done", Reply and Dismiss; a secret request has its masked form
-// instead (SecretAskCard). The asks stack above the chat input and the Asks
-// page both draw it, so a new kind of ask shows on both. The card goes on a
-// 204, without waiting for ask_removed. An ask with a link to an office page
-// or an agent's chat has a button that opens it (ui/office-link.tsx); the ask
-// stays open. An ask with options has a button for each; a tap puts it in the
-// reply field, focused, for the member to edit and send. An ask's files,
-// editor files and commands are the chat's own cards, in that order; their
-// buttons open this agent's panel through the store, as in chat (on the Inbox
-// they also open the agent's chat), and answer nothing.
+// One open ask: the agent's prompt, its age, a reply field, Reply and
+// Dismiss; a secret request has its masked form instead (SecretAskCard). The
+// asks stack above the chat input and the Asks page both draw it, so a new
+// kind of ask shows on both. The card goes on a 204, without waiting for
+// ask_removed. An ask with a link to an office page or an agent's chat has a
+// button that opens it (ui/office-link.tsx); the ask stays open. An ask with
+// options has a button for each; a tap puts it in the reply field, focused,
+// for the member to edit and send. The field starts with the option the agent
+// recommends (marked on its button), empty for options without one, and with
+// the catalog's "done" for an ask without options. An ask's files, editor
+// files and commands are the chat's own cards, in that order; their buttons
+// open this agent's panel through the store, as in chat (on the Inbox they
+// also open the agent's chat), and answer nothing.
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
-// card. While the field holds the untouched default, focus and click select
-// it, and Dismiss sends nothing more; a typed reason goes with the dismiss.
-// Tab and Shift+Tab move between the reply fields inside the list that draws
-// the cards ([data-asks-list]); at either end the browser's order goes on.
+// card, and an untouched field follows an edit of the ask. While the field
+// holds the untouched default, focus and click select it, and Dismiss sends
+// nothing more; a typed reason goes with the dismiss. Tab and Shift+Tab move
+// between the reply fields inside the list that draws the cards
+// ([data-asks-list]); at either end the browser's order goes on.
 
 import {
   useContext,
@@ -59,6 +62,15 @@ function tabToReplyField(e: KeyboardEvent<HTMLInputElement>) {
   if (!next) return;
   e.preventDefault();
   next.focus();
+}
+
+// The reply field's starting value. A mark that names no option is ignored.
+function replyDefault(entry: AskEntry, done: string): string {
+  if (!entry.options?.length) return done;
+  return entry.recommended !== undefined &&
+    entry.options.includes(entry.recommended)
+    ? entry.recommended
+    : "";
 }
 
 // One ask, of either kind. `onFocusAgent` is set where the ask's chat is not
@@ -169,7 +181,8 @@ function ReplyAskCard({
   const { askDrafts, agents } = useAppState();
   const draft = askDrafts.get(entry.id);
   const untouched = draft === undefined;
-  const reply = draft ?? t("asks.replyDefault");
+  const fallback = replyDefault(entry, t("asks.replyDefault"));
+  const reply = draft ?? fallback;
   const [busy, setBusy] = useState(false);
   // One answer at a time: a second submit in the same frame still sees busy
   // false.
@@ -221,9 +234,7 @@ function ReplyAskCard({
   function dismissReason(): string | null {
     if (draft === undefined) return null;
     const typed = draft.trim();
-    return typed === "" || typed === t("asks.replyDefault").trim()
-      ? null
-      : draft;
+    return typed === "" || typed === fallback.trim() ? null : draft;
   }
 
   // While the field holds the untouched default, typing replaces it.
@@ -364,6 +375,9 @@ function ReplyAskCard({
               key={i}
               type="button"
               data-ask-option=""
+              {...(option === entry.recommended
+                ? { "data-ask-option-recommended": "" }
+                : {})}
               disabled={busy}
               onClick={() => fillOption(option)}
               style={{
@@ -384,6 +398,19 @@ function ReplyAskCard({
               }}
             >
               {option}
+              {option === entry.recommended && " "}
+              {option === entry.recommended && (
+                <span
+                  style={{
+                    marginLeft: 3,
+                    fontSize: isMobile ? 12 : 11,
+                    fontWeight: 500,
+                    opacity: 0.8,
+                  }}
+                >
+                  {t("asks.recommended")}
+                </span>
+              )}
             </button>
           ))}
         </div>

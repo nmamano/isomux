@@ -1524,6 +1524,7 @@ Coses que pots fer per ell:
   "asks.reply": "Respon",
   "asks.dismiss": "Descarta",
   "asks.replyDefault": "fet",
+  "asks.recommended": "Recomanada",
   "asks.link": "Petició",
   "asks.openLink": "Obre {page}",
   "asks.dismissed": "Descartada",

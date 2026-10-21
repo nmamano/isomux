@@ -45,6 +45,7 @@ import {
   type AskAffordanceEdit,
   type AskAffordances,
   checkOptions,
+  checkRecommended,
   checkPrompt,
   type AskAudienceDeps,
   type AskStore,
@@ -395,6 +396,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
         options = checkedOptions.options;
       }
+      let recommended: string | undefined;
+      if (body.recommended !== undefined) {
+        const checkedMark = checkRecommended(body.recommended, options);
+        if (!checkedMark.ok) return invalidOptions(checkedMark.message);
+        recommended = checkedMark.recommended;
+      }
       const lists = affordanceLists(body, null);
       if (!lists.ok) return lists.result;
       const agent = deps.agent(ctx.params.id);
@@ -432,6 +439,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         prompt: checked.prompt,
         ...(body.link !== undefined ? { link: body.link as string } : {}),
         ...(options ? { options } : {}),
+        ...(recommended !== undefined ? { recommended } : {}),
         // On a create every sent list is non-empty, so none is null.
         affordances: resolved.affordances as AskAffordances,
         ...(agent.sessionId ? { sessionId: agent.sessionId } : {}),
@@ -477,6 +485,20 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         !linkReachable(body.link, prev.memberUserId)
       )
         return invalidLink();
+      // The mark goes with the options: sent options without one clear it,
+      // and "" removes it.
+      let recommended: string | null | undefined;
+      if (body.recommended === undefined)
+        recommended = options === undefined ? undefined : null;
+      else if (body.recommended === "") recommended = null;
+      else {
+        const checkedMark = checkRecommended(
+          body.recommended,
+          options === undefined ? prev.options : (options ?? undefined),
+        );
+        if (!checkedMark.ok) return invalidOptions(checkedMark.message);
+        recommended = checkedMark.recommended;
+      }
       const lists = affordanceLists(body, prev);
       if (!lists.ok) return lists.result;
       const resolved = resolveAffordances(ctx.params.id, lists.lists);
@@ -487,6 +509,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         body.link === "" ? null : (body.link as string | undefined),
         options,
         resolved.affordances,
+        recommended,
       );
       return entry ? ok(wire(entry)) : notFound();
     }),

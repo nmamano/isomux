@@ -163,6 +163,16 @@ function isAskEntry(v: unknown): v is AskEntry {
     )
   )
     return false;
+  // A mark needs options; that it names one of them is a write check only.
+  if (
+    r.recommended !== undefined &&
+    !(
+      typeof r.recommended === "string" &&
+      r.recommended !== "" &&
+      r.options !== undefined
+    )
+  )
+    return false;
   // Chat affordances: the shape only, as for options.
   if (
     (r.commands !== undefined &&
@@ -248,6 +258,18 @@ export function checkOptions(
   return { ok: true, options };
 }
 
+// The recommended option as it is stored (trimmed like an option), or the
+// reason it is refused: it must be one of the ask's options.
+export function checkRecommended(
+  value: unknown,
+  options: string[] | undefined,
+): { ok: true; recommended: string } | { ok: false; message: string } {
+  const recommended = typeof value === "string" ? value.trim() : null;
+  if (recommended === null || !options?.includes(recommended))
+    return { ok: false, message: "recommended must be one of the options" };
+  return { ok: true, recommended };
+}
+
 // An ask's chat affordances as they are stored. On an edit, an absent list
 // keeps the ask's list and null removes it.
 export interface AskAffordances {
@@ -288,17 +310,19 @@ export interface AskStore {
     secret?: SecretAskRequest;
     link?: string;
     options?: string[];
+    recommended?: string;
     affordances?: AskAffordances;
     sessionId?: string;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
-  // link, options and each affordance list: undefined keeps the ask's value,
-  // null removes it.
+  // link, options, recommended and each affordance list: undefined keeps the
+  // ask's value, null removes it. Removing the options removes the mark.
   edit(
     id: string,
     prompt: string,
     link?: string | null,
     options?: string[] | null,
     affordances?: AskAffordanceEdit,
+    recommended?: string | null,
   ): AskEntry | null;
   remove(id: string): AskEntry | null;
   // Every entry of a removed agent. Returns how many went.
@@ -365,6 +389,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       secret,
       link,
       options,
+      recommended,
       affordances,
       sessionId,
     }) {
@@ -383,6 +408,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(secret ? { secret } : {}),
         ...(link !== undefined ? { link } : {}),
         ...(options !== undefined ? { options } : {}),
+        ...(recommended !== undefined ? { recommended } : {}),
         ...affordances,
         ...(sessionId ? { sessionId } : {}),
       };
@@ -390,7 +416,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       commit([...entries, entry], [{ kind: "upserted", entry }]);
       return { ok: true, entry: { ...entry } };
     },
-    edit(id, prompt, link, options, affordances = {}) {
+    edit(id, prompt, link, options, affordances = {}, recommended) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -399,6 +425,8 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       else if (link !== undefined) entry.link = link;
       if (options === null) delete entry.options;
       else if (options !== undefined) entry.options = options;
+      if (recommended === null || options === null) delete entry.recommended;
+      else if (recommended !== undefined) entry.recommended = recommended;
       const { commands, editFiles, readFiles } = affordances;
       if (commands === null) delete entry.commands;
       else if (commands !== undefined) entry.commands = commands;

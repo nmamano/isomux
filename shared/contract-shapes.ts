@@ -757,6 +757,8 @@ export interface AskCreateReq {
   link?: string;
   // 2 to 4 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
   options?: string[];
+  // The option the agent recommends, by its text; one of `options`.
+  recommended?: string;
   // Chat affordances, at most ASK_AFFORDANCES_MAX in total: single-line
   // commands, and paths resolved against the agent's cwd.
   commands?: string[];
@@ -769,6 +771,9 @@ export interface AskEditReq {
   link?: string;
   // Absent keeps the ask's options; [] removes them.
   options?: string[];
+  // Goes with options: sent options without it clear the mark. With kept
+  // options, one of them; "" removes the mark.
+  recommended?: string;
   // For each: absent keeps the ask's list; [] removes it.
   commands?: string[];
   editFiles?: string[];

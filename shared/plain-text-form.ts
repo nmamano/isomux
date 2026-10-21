@@ -49,6 +49,7 @@ export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
   member: "string",
   link: "string",
   options: { list: "option" },
+  recommended: "string",
   commands: { list: "command" },
   editFiles: { list: "editFile" },
   readFiles: { list: "readFile" },
@@ -56,6 +57,7 @@ export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
 export const ASK_EDIT_PLAIN_TEXT_PARAMS = {
   link: "string",
   options: { list: "option" },
+  recommended: "string",
   commands: { list: "command" },
   editFiles: { list: "editFile" },
   readFiles: { list: "readFile" },

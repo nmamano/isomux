@@ -204,6 +204,33 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // A recommendation needs options; that it is one of them is checked on
+    // write only.
+    [
+      "recommended option",
+      { ...BASE, memberUserId: "u1", options: ["a", "b"], recommended: "b" },
+      true,
+    ],
+    [
+      "recommendation that is not one of the options",
+      { ...BASE, memberUserId: "u1", options: ["a", "b"], recommended: "c" },
+      true,
+    ],
+    [
+      "recommendation without options",
+      { ...BASE, memberUserId: "u1", recommended: "a" },
+      false,
+    ],
+    [
+      "empty recommendation",
+      { ...BASE, memberUserId: "u1", options: ["a", "b"], recommended: "" },
+      false,
+    ],
+    [
+      "recommendation that is not a string",
+      { ...BASE, memberUserId: "u1", options: ["a", "b"], recommended: 1 },
+      false,
+    ],
     // Chat affordances: the shape is checked on load, the bounds on write.
     [
       "commands, editor files and read files",

@@ -718,6 +718,153 @@ describe("options the member can tap", () => {
     ]);
   });
 
+  // The mark as the agent, the member's list and the file see it.
+  const mark = (e: unknown) => (e as AskEntry | undefined)?.recommended ?? null;
+
+  it("marks one option as recommended on create and edit, and the mark goes with the options", async () => {
+    const w = await world();
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const agent = w.as(w.asker.id);
+    // Text/plain: recommended= names an option, trimmed like one.
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?option=Yes&option=No&recommended=${encodeURIComponent(" No ")}`,
+      agent,
+      { text: "Keep the verifier rule?\n" },
+    );
+    expect([made.status, made.code]).toEqual([201, undefined]);
+    const id = (made.body as AskEntry).id;
+    expect(mark(made.body)).toBe("No");
+    expect(mark((await ws.waitFor("ask_upserted")).entry)).toBe("No");
+    expect(mark(stored(w, id))).toBe("No");
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    expect((listed.body as AskEntry[]).map(mark)).toEqual(["No"]);
+
+    const edit = async (
+      query: string,
+      body: { json?: unknown; text?: string },
+    ) => {
+      const r = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${id}${query}`,
+        agent,
+        body,
+      );
+      expect(`${query} ${r.status}`).toBe(`${query} 200`);
+      expect(mark(r.body)).toBe(mark(stored(w, id)));
+      return r.body as AskEntry;
+    };
+    // Neither sent: kept.
+    expect(mark(await edit("", { text: "Keep it?" }))).toBe("No");
+    // Kept options, a new mark among them.
+    expect(mark(await edit("?recommended=Yes", { text: "Keep it?" }))).toBe(
+      "Yes",
+    );
+    // New options with their own mark.
+    const renamed = await edit("", {
+      json: {
+        text: "Keep it?",
+        options: ["Keep", "Drop"],
+        recommended: "Drop",
+      },
+    });
+    expect([renamed.options, mark(renamed)]).toEqual([
+      ["Keep", "Drop"],
+      "Drop",
+    ]);
+    // New options without a mark clear it, even when the old one is among them.
+    const unmarked = await edit("", {
+      json: { text: "Keep it?", options: ["Keep", "Drop"] },
+    });
+    expect([unmarked.options, mark(unmarked)]).toEqual([
+      ["Keep", "Drop"],
+      null,
+    ]);
+    // A JSON mark on kept options, then recommended= removes it.
+    expect(
+      mark(await edit("", { json: { text: "Keep it?", recommended: "Keep" } })),
+    ).toBe("Keep");
+    const cleared = await edit("?recommended=", { text: "Keep it?" });
+    expect([cleared.options, mark(cleared)]).toEqual([["Keep", "Drop"], null]);
+    // Removing the options removes the mark with them.
+    await edit("?recommended=Keep", { text: "Keep it?" });
+    const bare = await edit("?option=", { text: "Keep it?" });
+    expect(["options" in bare, mark(bare)]).toEqual([false, null]);
+
+    // A JSON create carries a mark too.
+    const json = await call(w.srv, "POST", base, agent, {
+      json: { text: "Ship it?", options: ["Yes", "No"], recommended: "Yes" },
+    });
+    expect(json.status).toBe(201);
+    expect(mark(stored(w, (json.body as AskEntry).id))).toBe("Yes");
+  });
+
+  it("refuses a mark that is not one of the options, on create and on edit, and changes nothing", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const agent = w.as(w.asker.id);
+    const plain = await open(w, "Which one?");
+    const marked = await call(w.srv, "POST", base, agent, {
+      json: { text: "Which?", options: ["A", "B"], recommended: "A" },
+    });
+    expect(marked.status).toBe(201);
+    const markedId = (marked.body as AskEntry).id;
+    const refused = async (
+      method: string,
+      path: string,
+      body: { json?: unknown; text?: string },
+    ) => {
+      const label = `${method} ${path} ${JSON.stringify(body)}`;
+      const r = await call(w.srv, method, path, agent, body);
+      expect(`${label} ${r.status} ${r.code}`).toBe(
+        `${label} 422 invalid_options`,
+      );
+    };
+    // Create.
+    for (const recommended of ["C", "", "a", 1, null])
+      await refused("POST", base, {
+        json: { text: "Which?", options: ["A", "B"], recommended },
+      });
+    await refused("POST", base, { json: { text: "Which?", recommended: "A" } });
+    await refused("POST", `${base}?recommended=A`, { text: "Which?" });
+    await refused("POST", `${base}?option=A&option=B&recommended=C`, {
+      text: "Which?",
+    });
+    // Edit: not among the kept options, the new options, or no options.
+    const at = `${base}/${markedId}`;
+    await refused("PATCH", at, { json: { text: "Which?", recommended: "C" } });
+    await refused("PATCH", `${at}?recommended=C`, { text: "Which?" });
+    await refused("PATCH", at, {
+      json: { text: "Which?", options: ["C", "D"], recommended: "A" },
+    });
+    await refused("PATCH", at, {
+      json: { text: "Which?", options: [], recommended: "A" },
+    });
+    await refused("PATCH", `${at}?option=&recommended=A`, { text: "Which?" });
+    await refused("PATCH", `${base}/${plain.id}?recommended=A`, {
+      text: "Which?",
+    });
+    // Nothing changed: the agent's list and the file.
+    const listed = await call(w.srv, "GET", base, agent);
+    expect(
+      (listed.body as AskEntry[]).map((e) => [
+        e.prompt,
+        e.options ?? null,
+        mark(e),
+      ]),
+    ).toEqual([
+      ["Which one?", null, null],
+      ["Which?", ["A", "B"], "A"],
+    ]);
+    expect(mark(stored(w, markedId))).toBe("A");
+    expect(mark(stored(w, plain.id))).toBe(null);
+  });
+
   it("never goes on a secret request", async () => {
     const w = await world();
     const owner = { rawSessionId: w.owner.rawSessionId };
@@ -760,11 +907,19 @@ describe("options the member can tap", () => {
       { json: { text: entry.prompt, options: ["Save", "Decline"] } },
     );
     expect(`${edit.status} ${edit.code}`).toBe("409 secret_request");
+    const marked = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+      { json: { text: entry.prompt, recommended: "Save" } },
+    );
+    expect(`${marked.status} ${marked.code}`).toBe("409 secret_request");
     const after = (await call(w.srv, "GET", "/api/asks", owner))
       .body as AskEntry[];
-    expect(after.map((e) => [e.id, "options" in e])).toEqual([
-      [entry.id, false],
-    ]);
+    expect(
+      after.map((e) => [e.id, "options" in e, "recommended" in e]),
+    ).toEqual([[entry.id, false, false]]);
   });
 
   it("answers once when the same option is sent twice at the same time", async () => {

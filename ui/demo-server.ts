@@ -1131,6 +1131,7 @@ function demoAskEntries(): AskEntry[] {
       createdAt: now - 5 * 60_000,
       updatedAt: now - 5 * 60_000,
       options: ["Jim", "Dwight"],
+      recommended: "Jim",
     },
     {
       id: "dea0ac06",

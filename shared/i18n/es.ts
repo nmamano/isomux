@@ -1520,6 +1520,7 @@ Cosas que puedes hacer por él:
   "asks.reply": "Responder",
   "asks.dismiss": "Descartar",
   "asks.replyDefault": "hecho",
+  "asks.recommended": "Recomendada",
   "asks.link": "Petición",
   "asks.openLink": "Abrir {page}",
   "asks.dismissed": "Descartada",

@@ -17,6 +17,7 @@ const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { OfficeLinkOpener } = await import("../office-link.tsx");
+const { en } = await import("../../shared/i18n/en.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type OfficeLink = import("../../shared/office-links.ts").OfficeLink;
 
@@ -92,6 +93,18 @@ const ENTRIES: AskEntry[] = [
     ...entry("llll0012", "a7", "Say go in Ghost's chat?", 7),
     link: "/agents/ghost",
   },
+  // Agent a8's asks recommend an option: the second one, and one that is not
+  // among the options (the card ignores it).
+  {
+    ...entry("mmmm0013", "a8", "Keep the verifier rule?", 9),
+    options: ["Yes", "No"],
+    recommended: "No",
+  },
+  {
+    ...entry("nnnn0014", "a8", "Keep the old rule?", 8),
+    options: ["Yes", "No"],
+    recommended: "Maybe",
+  },
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -121,9 +134,12 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
+// The store's dispatch, for a change after the cards are drawn.
+let seeded: ReturnType<typeof useDispatch> = () => {};
 function Seed({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
   useEffect(() => {
+    seeded = dispatch;
     dispatch({ type: "agent_added", agent: SCOUT });
     dispatch({ type: "asks_loaded", entries: ENTRIES, revision: 0 });
   }, [dispatch]);
@@ -382,6 +398,140 @@ it("draws a button per option above the reply field, and a tap fills the field f
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(cards(view.container)).toEqual([]);
+  view.unmount();
+});
+
+const recommendedMarks = (card: HTMLElement) =>
+  [
+    ...card.querySelectorAll<HTMLButtonElement>(
+      "[data-ask-option-recommended]",
+    ),
+  ].map((b) => b.textContent);
+
+it("starts the field with the recommended option, marks that option only, and one Reply sends it", async () => {
+  const view = mount(false, "a8");
+  await waitFor(() =>
+    expect(cards(view.container)).toEqual(["mmmm0013", "nnnn0014"]),
+  );
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="mmmm0013"]',
+  )!;
+  const input = field(view.container, "mmmm0013");
+  expect(input.value).toBe("No");
+  // The mark is on the option's own button, with the catalog's label.
+  expect(recommendedMarks(card).length).toBe(1);
+  expect(recommendedMarks(card)[0]).toContain("No");
+  const label = (en as Record<string, string>)["asks.recommended"];
+  expect(typeof label).toBe("string");
+  expect(card.textContent).toContain(label);
+  // The other option is an ordinary button.
+  expect(optionButtons(card).map((b) => b.textContent)).toContain("Yes");
+  // Untouched, so focus selects it for typing over.
+  act(() => input.focus());
+  expect(selection(input)).toEqual([0, 2]);
+
+  // A recommendation that is not one of the options marks nothing and fills
+  // nothing.
+  const stale = view.container.querySelector<HTMLElement>(
+    '[data-ask="nnnn0014"]',
+  )!;
+  expect(recommendedMarks(stale)).toEqual([]);
+  expect(field(view.container, "nnnn0014").value).toBe("");
+  expect(stale.textContent).not.toContain(label);
+
+  await act(async () => {
+    fireEvent.submit(card.querySelector("form")!);
+  });
+  expect(posts).toEqual([
+    { path: "/api/asks/mmmm0013/reply", body: { text: "No" } },
+  ]);
+  view.unmount();
+});
+
+it("starts an ask with options and no recommendation empty, and Reply waits for an answer", async () => {
+  const view = mount(false, "a4");
+  await waitFor(() => expect(cards(view.container)).toEqual(["ffff0006"]));
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="ffff0006"]',
+  )!;
+  expect(field(view.container, "ffff0006").value).toBe("");
+  expect(recommendedMarks(card)).toEqual([]);
+  const submit = card.querySelector<HTMLButtonElement>(
+    'button[type="submit"]',
+  )!;
+  expect(submit.disabled).toBe(true);
+  await act(async () => {
+    fireEvent.submit(card.querySelector("form")!);
+  });
+  expect(posts).toEqual([]);
+  // A dismiss of the untouched empty field sends no reason.
+  await act(async () => {
+    fireEvent.click(card.querySelector("form button[type=button]")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual([{ path: "/api/asks/ffff0006/dismiss", body: {} }]);
+  view.unmount();
+});
+
+it("sends no dismiss reason for the recommended default, tapped or typed again, and sends another option or typed text", async () => {
+  for (const [label, step, body] of [
+    ["untouched", null, {}],
+    ["tapped the recommendation", { tap: 1 }, {}],
+    ["typed the recommendation again", { type: "No" }, {}],
+    ["tapped the other option", { tap: 0 }, { text: "Yes" }],
+    ["typed a reason", { type: "not now" }, { text: "not now" }],
+  ] as const) {
+    posts = [];
+    const view = mount(false, "a8");
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-ask="mmmm0013"]',
+    )!;
+    const input = field(view.container, "mmmm0013");
+    if (step && "tap" in step)
+      await act(async () => {
+        fireEvent.click(optionButtons(card)[step.tap]);
+      });
+    if (step && "type" in step) {
+      fireEvent.change(input, { target: { value: "" } });
+      fireEvent.change(input, { target: { value: step.type } });
+    }
+    await act(async () => {
+      fireEvent.click(card.querySelector("form button[type=button]")!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect([label, posts]).toEqual([
+      label,
+      [{ path: "/api/asks/mmmm0013/dismiss", body }],
+    ]);
+    view.unmount();
+  }
+});
+
+it("follows an edit of the recommendation while the field is untouched, and keeps what the member typed", async () => {
+  const view = mount(false, "a8");
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  const { recommended: _mark, ...base } = ENTRIES.find(
+    (e) => e.id === "mmmm0013",
+  )!;
+  act(() =>
+    seeded({
+      type: "ask_upserted",
+      entry: { ...base, recommended: "Yes", updatedAt: NOW },
+    }),
+  );
+  expect(field(view.container, "mmmm0013").value).toBe("Yes");
+  fireEvent.change(field(view.container, "mmmm0013"), {
+    target: { value: "Yes, but later" },
+  });
+  // The mark goes: the field keeps the member's text.
+  act(() =>
+    seeded({
+      type: "ask_upserted",
+      entry: { ...base, updatedAt: NOW + 1 },
+    }),
+  );
+  expect(field(view.container, "mmmm0013").value).toBe("Yes, but later");
   view.unmount();
 });
 

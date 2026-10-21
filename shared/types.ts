@@ -1272,6 +1272,9 @@ export interface AskEntry {
   // Answers the member can tap; a tap puts the option in the reply field.
   // Never on a secret request.
   options?: string[];
+  // The option the agent recommends, by its text: the card marks it and the
+  // reply field starts with it. Only with options.
+  recommended?: string;
   // Chat affordances on the card (server/agent-reference/asks.md): commands
   // for the member's terminal panel, files for the editor card, and files
   // copied into the agent's files dir when the ask was made or edited. Never
