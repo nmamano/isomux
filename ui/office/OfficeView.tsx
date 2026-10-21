@@ -291,8 +291,8 @@ export function OfficeView({
   // positional door nav (prev/next neighbour); -1 when nothing is selected.
   const currentRoomIndex = rooms.findIndex((r) => r.id === currentRoomId);
   const dispatch = useDispatch();
-  // A wall door between two rooms turns the room (off for now, see
-  // room-turn.ts); tabs and the lobby doors switch with no animation.
+  // A wall door between two rooms turns the room (the Room switch animation
+  // device setting); tabs and the lobby doors switch with no animation.
   const contentEl = useRef<HTMLDivElement | null>(null);
   const doorGo = (side: TurnSide, roomId: string) => {
     beginRoomTurn(contentEl.current, side, roomId);

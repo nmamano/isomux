@@ -7,7 +7,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { mount, room, act, fireEvent } = fixture;
-const { setRoomTurn } = await import("./room-turn.ts");
+const { setRoomTurn } = await import("../device-settings.ts");
 fixture.setupRoomDoorTests({ decorations: false });
 afterEach(() => setRoomTurn("off"));
 

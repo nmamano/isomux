@@ -5,8 +5,10 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { beginRoomTurn, finishRoomTurn, cancelRoomTurn, setRoomTurn } =
+const { beginRoomTurn, finishRoomTurn, cancelRoomTurn } =
   await import("./room-turn.ts");
+// The choice is the Room switch animation device setting (task ada9af7b).
+const { setRoomTurn } = await import("../device-settings.ts");
 
 const realRaf = globalThis.requestAnimationFrame;
 const realCaf = globalThis.cancelAnimationFrame;
@@ -63,8 +65,6 @@ describe("a wall-door turn", () => {
   it.each([
     ["turn-350", 350],
     ["turn-600", 600],
-    ["cube-350", 350],
-    ["cube-600", 600],
   ] as const)(
     "%s runs for its time and then leaves only the live scene",
     (choice, ms) => {
@@ -78,10 +78,6 @@ describe("a wall-door turn", () => {
         expect(clone.hasAttribute("inert")).toBe(true);
       }
       expect(content.style.opacity).toBe("0");
-      // The cube flips the flat picture in 3D; the turn moves the pieces.
-      expect(
-        clones().some((el) => el.style.transform.includes("rotateY")),
-      ).toBe(choice.startsWith("cube"));
       flush(ms - 50);
       expect(clones()).toHaveLength(2);
       flush(ms + 50);
@@ -89,6 +85,21 @@ describe("a wall-door turn", () => {
       expect(content.style.opacity).toBe("");
     },
   );
+
+  it("moves a desk on every frame, with none of its own transition easing it", () => {
+    content.innerHTML =
+      '<div data-turn-anchor="300,400" style="position:absolute;z-index:30;transition:transform 0.25s"></div>';
+    setRoomTurn("turn-350");
+    beginRoomTurn(content, "right", "next");
+    finishRoomTurn("next");
+    flush();
+    const desks = clones().map((c) => c.firstElementChild as HTMLElement);
+    expect(desks).toHaveLength(2);
+    for (const desk of desks) expect(desk.style.transition).toBe("none");
+    const before = desks.map((d) => d.style.translate);
+    flush(175);
+    expect(desks.map((d) => d.style.translate)).not.toEqual(before);
+  });
 
   it("keeps the choice made at the click when the setting changes mid-turn", () => {
     setRoomTurn("turn-600");

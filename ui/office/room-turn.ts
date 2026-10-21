@@ -1,43 +1,26 @@
-// The room turn when a member walks through a wall door between two rooms.
-// It is off, and no setting turns it on, until task ada9af7b ships it.
-// Tests turn it on with setRoomTurn.
+// The room turn when a member walks through a wall door between two rooms,
+// as chosen in the Room switch animation device setting (off by default).
 //
 // At the click the old room is snapshotted (a DOM clone), the room switch
 // dispatches at once, and after React commits the new room is snapshotted
 // too. Both clones animate over the live scene, which stays hit-testable at
 // opacity 0, so the switch and clicks never wait for the animation.
 //
-// Variant "turn" turns the world 90 degrees about the vertical axis through
+// The turn rotates the world 90 degrees about the vertical axis through
 // the back corner, where the two walls meet. The room behind the clicked
 // door shares that wall, so after the turn the shared wall is the new room's
 // other wall. Each plane maps by an exact affine: the floor by P*R*P^-1, each
 // wall by its own base direction with verticals kept vertical. Upright
 // sprites (desks, characters, props) move with their floor anchor and stay
-// upright. Variant "cube" is a screen-space flip of the flat picture.
+// upright, in the depth order of their turned floor points.
 
-export type RoomTurn =
-  | "off"
-  | "turn-350"
-  | "turn-600"
-  | "cube-350"
-  | "cube-600";
-let roomTurn: RoomTurn = "off";
-
-export function setRoomTurn(value: RoomTurn): void {
-  roomTurn = value;
-}
+import { getRoomTurn, type RoomTurn } from "../device-settings.ts";
 
 export type TurnSide = "left" | "right";
-type Variant = "turn" | "cube";
 
-const CHOICES: Record<
-  Exclude<RoomTurn, "off">,
-  { variant: Variant; ms: number }
-> = {
-  "turn-350": { variant: "turn", ms: 350 },
-  "turn-600": { variant: "turn", ms: 600 },
-  "cube-350": { variant: "cube", ms: 350 },
-  "cube-600": { variant: "cube", ms: 600 },
+const DURATION_MS: Record<Exclude<RoomTurn, "off">, number> = {
+  "turn-350": 350,
+  "turn-600": 600,
 };
 
 // Scene pixel coordinates (950x700 box): the back corner is SVG (120, 40)
@@ -141,7 +124,13 @@ type Piece = (deg: number) => void;
 function pieces(clone: HTMLElement): Piece[] {
   const out: Piece[] = [];
   const children = Array.from(clone.children) as HTMLElement[];
+  // Sprites that stand on the floor, re-ranked in depth each frame.
+  const sprites: Sprite[] = [];
   for (const el of children) {
+    // A snapshot is a still picture: a transition left on a piece (a desk's
+    // hover lift) eases each frame's move, so the piece trails the floor and
+    // the live scene jumps into place when the turn ends.
+    el.style.transition = "none";
     const kind = el.getAttribute("data-turn");
     const ox = el.offsetLeft || 0,
       oy = el.offsetTop || 0;
@@ -203,14 +192,47 @@ function pieces(clone: HTMLElement): Piece[] {
       const named = el.getAttribute("data-turn-anchor")?.split(",").map(Number);
       const ax = named ? named[0] : ox + el.offsetWidth / 2,
         ay = named ? named[1] : oy + el.offsetHeight - el.offsetWidth / 4;
-      const base = el.style.transform;
+      // The translate property composes with the element's own transform,
+      // and a transform animation or transition does not touch it.
       out.push((deg) => {
         const [dx, dy] = moveAnchor(ax, ay, deg);
-        el.style.transform = `translate(${dx}px, ${dy}px) ${base}`;
+        el.style.translate = `${dx}px ${dy}px`;
       });
+      if (named)
+        sprites.push({ el, y: (deg) => ay + moveAnchor(ax, ay, deg)[1] });
     }
   }
+  out.push(depthOrder(sprites));
   return out;
+}
+
+// Desks stack by their floor row and column, an order the turn breaks. In
+// between, hand the same z-index values out again by the turned floor point,
+// the one lowest on screen (nearest the viewer) on top. Name tags (z + 10000)
+// rank among themselves. At rest the scene's own order holds, so the last
+// frame matches the live scene exactly.
+type Sprite = { el: HTMLElement; y: (deg: number) => number };
+function depthOrder(sprites: Sprite[]): Piece {
+  const bands = [(z: number) => z < 10000, (z: number) => z >= 10000].map(
+    (inBand) =>
+      sprites
+        .filter((s) => s.el.style.zIndex !== "")
+        .map((s) => ({ ...s, z: Number(s.el.style.zIndex) }))
+        .filter((s) => Number.isFinite(s.z) && inBand(s.z)),
+  );
+  return (deg) => {
+    for (const band of bands) {
+      if (deg === 0) {
+        for (const s of band) s.el.style.zIndex = String(s.z);
+        continue;
+      }
+      const zs = band.map((s) => s.z).sort((a, b) => a - b);
+      const order = band
+        .map((s) => ({ s, y: s.y(deg) }))
+        .sort((a, b) => a.y - b.y || a.s.z - b.s.z);
+      order.forEach(({ s }, i) => (s.el.style.zIndex = String(zs[i])));
+    }
+  };
 }
 
 function moveAnchor(ax: number, ay: number, deg: number): [number, number] {
@@ -227,7 +249,6 @@ function ramp(p: number, a: number, b: number): number {
 
 interface Job {
   side: TurnSide;
-  variant: Variant;
   ms: number;
   targetRoomId: string;
   from: HTMLElement;
@@ -261,13 +282,11 @@ export function beginRoomTurn(
   targetRoomId: string,
 ) {
   cancelRoomTurn();
-  const choice = roomTurn;
+  const choice = getRoomTurn();
   if (!content || choice === "off" || reducedMotion()) return;
-  const { variant, ms } = CHOICES[choice];
   pending = {
     side,
-    variant,
-    ms,
+    ms: DURATION_MS[choice],
     targetRoomId,
     from: snapshot(content, "__turnA"),
     content,
@@ -293,7 +312,7 @@ export function finishRoomTurn(roomId: string | null) {
   };
 }
 
-function runTurn({ side, variant, ms, targetRoomId, from, content }: Job) {
+function runTurn({ side, ms, targetRoomId, from, content }: Job) {
   const to = snapshot(content, "__turnB");
   // Siblings of the live scene in the viewport layer, so zoom, pan and the
   // centering transform apply to them exactly as to the live scene.
@@ -302,35 +321,19 @@ function runTurn({ side, variant, ms, targetRoomId, from, content }: Job) {
   content.style.opacity = "0";
 
   const sign = side === "right" ? 1 : -1;
-  let frame: (p: number) => void;
-  if (variant === "cube") {
-    const half = 475;
-    for (const el of [from, to]) {
-      el.style.transformOrigin = `50% 50% ${-half}px`;
-      el.style.backfaceVisibility = "hidden";
-    }
-    const baseA = from.style.transform,
-      baseB = to.style.transform;
-    frame = (p) => {
-      const e = ease(p);
-      from.style.transform = `${baseA} perspective(2400px) rotateY(${-sign * 90 * e}deg)`;
-      to.style.transform = `${baseB} perspective(2400px) rotateY(${sign * 90 * (1 - e)}deg)`;
-    };
-  } else {
-    const a = pieces(from),
-      b = pieces(to);
-    frame = (p) => {
-      const deg = sign * 90 * ease(p);
-      for (const f of a) f(deg);
-      for (const f of b) f(deg - sign * 90);
-      // The old room is in front until the shared wall stands edge-on.
-      const aFront = p < 0.5;
-      from.style.zIndex = aFront ? "2" : "1";
-      to.style.zIndex = aFront ? "1" : "2";
-      to.style.opacity = String(ramp(p, 0, 0.45));
-      from.style.opacity = String(1 - ramp(p, 0.55, 1));
-    };
-  }
+  const a = pieces(from),
+    b = pieces(to);
+  const frame = (p: number) => {
+    const deg = sign * 90 * ease(p);
+    for (const f of a) f(deg);
+    for (const f of b) f(deg - sign * 90);
+    // The old room is in front until the shared wall stands edge-on.
+    const aFront = p < 0.5;
+    from.style.zIndex = aFront ? "2" : "1";
+    to.style.zIndex = aFront ? "1" : "2";
+    to.style.opacity = String(ramp(p, 0, 0.45));
+    from.style.opacity = String(1 - ramp(p, 0.55, 1));
+  };
   for (const el of [from, to]) {
     el.style.position = "absolute";
   }

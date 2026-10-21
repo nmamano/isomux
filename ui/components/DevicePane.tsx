@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { getDevice, setDevice } from "../device-settings.ts";
+import {
+  getDevice,
+  getRoomTurn,
+  setDevice,
+  setRoomTurn,
+  ROOM_TURNS,
+  type RoomTurn,
+} from "../device-settings.ts";
 import { sectionHeader, hint as hintStyle } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
@@ -15,10 +22,10 @@ import {
   useUnsavedChangesPrompt,
 } from "./UnsavedChangesPrompt.tsx";
 
-// Device-scoped settings (one record per browser, stored in localStorage).
-// Just the device label: user-level preferences (notifications, env, language)
-// live on the server and are edited under You, so they follow the person
-// rather than the browser.
+// Device-scoped settings (one record per browser, stored in localStorage):
+// the device label and the room switch animation. User-level preferences
+// (notifications, env, language) live on the server and are edited under
+// You, so they follow the person rather than the browser.
 //
 // The label is dirty-capable, so this pane registers into the settings page's
 // closeRef. Without that a sidebar click would drop a typed-but-unsaved label
@@ -86,6 +93,7 @@ export function DevicePane({
           {justSaved && !dirty ? t("common.saved") : t("common.save")}
         </button>
       </div>
+      <RoomTurnSetting />
       {discardPrompt.open && (
         <UnsavedChangesPrompt
           onDiscard={discardPrompt.discard}
@@ -93,6 +101,40 @@ export function DevicePane({
         />
       )}
     </div>
+  );
+}
+
+// Applies on change, outside the label's save and discard flow.
+function RoomTurnSetting() {
+  const { t } = useI18n();
+  const [choice, setChoice] = useState<RoomTurn>(getRoomTurn);
+  const name = (v: RoomTurn) =>
+    v === "off"
+      ? t("settings.roomTurn.off")
+      : t("settings.roomTurn.ms", { ms: v.slice("turn-".length) });
+  return (
+    <>
+      <h4 style={{ ...sectionHeader, marginTop: 32 }}>
+        <label htmlFor="room-turn-select">{t("settings.roomTurn.title")}</label>
+      </h4>
+      <p style={hintStyle}>{t("settings.roomTurn.hint")}</p>
+      <select
+        id="room-turn-select"
+        value={choice}
+        onChange={(e) => {
+          const v = ROOM_TURNS.find((c) => c === e.target.value) ?? "off";
+          setRoomTurn(v);
+          setChoice(v);
+        }}
+        style={{ ...inputStyle, maxWidth: 320 }}
+      >
+        {ROOM_TURNS.map((v) => (
+          <option key={v} value={v}>
+            {name(v)}
+          </option>
+        ))}
+      </select>
+    </>
   );
 }
 
