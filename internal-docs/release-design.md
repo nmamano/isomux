@@ -418,8 +418,36 @@ Shipped (the shell-drivable slice):
   ahead, diverged and 404 publish quiet; a failed call keeps the prior status.
   A security release gets its own compare. The status carries
   `apply: {kind: "host"} | {kind: "image", guide}`: with the image action the
-  pane has no Update now and links the platform guide
-  (`KUBERNETES_SERVICE_HOST`, then `RENDER`, else the container reference).
+  pane has no Update now and links the platform guide (a Homebrew keg, then
+  `KUBERNETES_SERVICE_HOST`, then `RENDER`, else the container reference).
+- Homebrew on macOS (task 7438350b). The tap is the public repo
+  `isomux/homebrew-isomux` (`brew install isomux/isomux/isomux`). Its formula
+  builds the release's GitHub source tarball with the bun version the release
+  pins, writes `version-info.json` like a container build, and runs the office
+  as a `brew services` launchd agent; its launcher takes `PATH` from the
+  user's login shell. A keg reports `source: "image"`: `git()` in
+  `server/version.ts` sets `GIT_CEILING_DIRECTORIES` to the parent of the
+  install root, because on Apple silicon the Cellar sits inside Homebrew's own
+  checkout (`/opt/homebrew`) and git would otherwise report Homebrew's commit.
+  `pickCheckerMode` picks the `homebrew` guide when the real path of the
+  install root contains `/Cellar/isomux/`; the pane names
+  `brew upgrade isomux`, then `brew services restart isomux`.
+  `scripts/release.sh` does not touch the tap. The tap's bump workflow runs
+  every hour: when a newer release exists it rewrites the formula, installs it
+  from source on Apple silicon and Intel runners, starts it as a service, and
+  checks the agent CLIs in the keg, the reported tag, the `homebrew` guide and
+  that the keg's file list does not change. It commits to the tap's main only
+  when both runners pass. A failed run leaves the formula on the last good
+  release and shows as a failed run in the tap's Actions tab. GitHub emails a
+  failed scheduled run to the account that last changed the workflow's
+  schedule (nmamano), which is how a release that does not reach the tap
+  gets noticed. GitHub turns off a public repo's schedule after 60 days with
+  no repository activity; after a release pause that long, turn the bump
+  workflow back on in the tap's Actions tab (checked 2026-10-21).
+  While the formula is still on the tap's first release (v2026.10.17.2, which
+  predates Homebrew support), the bump skips a newer release whose
+  `server/update-checker.ts` lacks the Cellar rule; once the formula moves
+  past that tag the rule never runs again.
 - Security-release designation and sticky detection data. `scripts/release.sh
   --security` writes the exact machine-readable marker into the GitHub Release
   body. Release-mode checks preserve `releases/latest` as the banner target and

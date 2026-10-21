@@ -8,7 +8,7 @@
 // When git is unavailable the fields are null rather than a guess.
 
 import { execSync } from "child_process";
-import { join } from "path";
+import { dirname, join } from "path";
 import { readFileSync, statSync } from "fs";
 
 export interface VersionInfo {
@@ -25,15 +25,18 @@ export interface VersionInfo {
   release: string | null;
 }
 
-const PROJECT_ROOT = join(import.meta.dir, "..");
+export const PROJECT_ROOT = join(import.meta.dir, "..");
 
 // args is a fixed shell fragment (constants below, never caller input); the
 // "v*" match pattern is single-quoted so the shell can't glob it against
-// repo-root files (vercel.json would match an unquoted v*).
+// repo-root files (vercel.json would match an unquoted v*). The ceiling stops
+// git at the root: a Homebrew keg has no .git, and on Apple silicon its
+// Cellar sits inside Homebrew's own checkout (/opt/homebrew).
 function git(root: string, args: string): string | null {
   try {
     const out = execSync(`git ${args}`, {
       cwd: root,
+      env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) },
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
     })
@@ -85,8 +88,8 @@ function imageVersion(root: string): VersionInfo {
 }
 
 // Where the identity came from. "git" is a source checkout; "image" is a
-// container with no checkout: build metadata, or the platform's record of the
-// deployed commit. The update checker keys its mode on this.
+// container or a Homebrew keg with no checkout: build metadata, or the
+// platform's record of the deployed commit. The update checker keys its mode on this.
 export type VersionSource = "git" | "image" | null;
 
 // Render builds deploy/container/Dockerfile from the repository without .git

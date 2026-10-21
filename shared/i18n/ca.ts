@@ -606,6 +606,8 @@ Coses que pots fer per ell:
     "Per actualitzar, fes servir el control de desplegament manual del servei web a Render.",
   "settings.update.imageRelease":
     "Per actualitzar, desplega la imatge de la versió {tag}.",
+  "settings.update.imageHomebrew":
+    "Per actualitzar, executa <code>brew upgrade isomux</code> i després <code>brew services restart isomux</code>.",
   "settings.update.updateGuide": "Guia d'actualització",
   "settings.update.ownerOnly":
     "Un propietari de l'oficina la pot aplicar des d'aquest diàleg.",

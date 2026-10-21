@@ -6,9 +6,9 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { execSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import {
   resolveVersion,
   resolveVersionInfo,
@@ -188,6 +188,58 @@ describe("container build identity", () => {
     } finally {
       rmSync(join(repo, "version-info.json"), { force: true });
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A Homebrew keg sits inside the Homebrew prefix, which on Apple silicon
+  // (/opt/homebrew) is itself a Git checkout of Homebrew. The keg's identity
+  // is its own record, never the enclosing checkout's commit or tags.
+  it("a tree nested in an unrelated checkout reports its own record", () => {
+    const outer = mkdtempSync(join(tmpdir(), "isomux-nested-version-"));
+    const run = (cmd: string, cwd = outer) =>
+      execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"] })
+        .toString()
+        .trim();
+    const identity = {
+      commit: "a".repeat(40),
+      release: "v2099.1.2",
+      version: "v2099.1.2",
+    };
+    try {
+      run("git init -q");
+      run("git config user.email test@test && git config user.name Test");
+      writeFileSync(join(outer, "f.txt"), "one\n");
+      run("git add . && git commit -qm one && git tag -a v2026.1.1 -m r");
+      const keg = join(outer, "Cellar", "isomux", "2099.1.2", "libexec");
+      mkdirSync(keg, { recursive: true });
+      writeFileSync(join(keg, "version-info.json"), JSON.stringify(identity));
+      // The fixture reproduces the hazard: plain Git run in the keg finds
+      // the enclosing checkout.
+      expect(run("git rev-parse HEAD", keg)).toBe(run("git rev-parse HEAD"));
+      expect(resolveVersion(keg, {})).toEqual({
+        info: identity,
+        source: "image",
+      });
+      expect(resolveReachableRelease(keg)).toBeNull();
+    } finally {
+      rmSync(outer, { recursive: true, force: true });
+    }
+  });
+
+  it("a linked worktree is still a checkout", () => {
+    const wt = join(
+      mkdtempSync(join(tmpdir(), "isomux-worktree-version-")),
+      "wt",
+    );
+    try {
+      sh(`git worktree add -q --detach ${wt}`);
+      expect(resolveVersion(wt, {})).toEqual({
+        info: expect.objectContaining({ commit: sh("git rev-parse HEAD") }),
+        source: "git",
+      });
+    } finally {
+      sh(`git worktree remove --force ${wt}`);
+      rmSync(dirname(wt), { recursive: true, force: true });
     }
   });
 

@@ -475,37 +475,65 @@ describe("pickCheckerMode (which checker runs)", () => {
   const parsed = { state: "parsed", values: {} } as const;
   const invalid = { state: "invalid" } as const;
   const k8s = { KUBERNETES_SERVICE_HOST: "10.0.0.1" };
+  const plainRoot = "/srv/isomux";
+  // Real paths of a Homebrew keg's install root: Apple silicon and Intel.
+  const kegRoots = [
+    "/opt/homebrew/Cellar/isomux/2026.10.17.2/libexec",
+    "/usr/local/Cellar/isomux/2026.10.17.2/libexec",
+  ];
+  const guide = (
+    env: Record<string, string>,
+    installRoot = plainRoot,
+    source: "git" | "image" | null = "image",
+  ) => {
+    const mode = pickCheckerMode(absent, source, env, installRoot);
+    return mode.kind === "image" && mode.apply.kind === "image"
+      ? mode.apply.guide
+      : mode.kind;
+  };
 
   it("update.conf presence keeps the host updater, even on an image or with a damaged conf", () => {
     for (const conf of [parsed, invalid]) {
       for (const source of ["git", "image", null] as const) {
-        expect(
-          pickCheckerMode(conf, source, { ...k8s, RENDER: "true" }),
-        ).toEqual({ kind: "host" });
+        for (const root of [plainRoot, ...kegRoots]) {
+          expect(
+            pickCheckerMode(conf, source, { ...k8s, RENDER: "true" }, root),
+          ).toEqual({ kind: "host" });
+        }
       }
     }
   });
 
   it("without update.conf, a checkout or an unknown identity keeps commit mode", () => {
-    expect(pickCheckerMode(absent, "git", { RENDER: "true" })).toEqual({
-      kind: "commit",
-    });
-    expect(pickCheckerMode(absent, null, k8s)).toEqual({ kind: "commit" });
+    for (const root of [plainRoot, ...kegRoots]) {
+      expect(guide({ RENDER: "true" }, root, "git")).toBe("commit");
+      expect(guide(k8s, root, null)).toBe("commit");
+    }
   });
 
   it("an image picks the guide: Kubernetes, then Render, else the container reference", () => {
-    const guide = (env: Record<string, string>) => {
-      const mode = pickCheckerMode(absent, "image", env);
-      return mode.kind === "image" && mode.apply.kind === "image"
-        ? mode.apply.guide
-        : mode.kind;
-    };
     expect(guide({ ...k8s, RENDER: "true" })).toBe("kubernetes");
     expect(guide(k8s)).toBe("kubernetes");
     expect(guide({ RENDER: "true" })).toBe("render");
     expect(guide({ RENDER: "false" })).toBe("container");
     expect(guide({ KUBERNETES_SERVICE_HOST: "" })).toBe("container");
     expect(guide({})).toBe("container");
+  });
+
+  it("an image installed in a Homebrew keg gets the Homebrew guide, before any platform", () => {
+    for (const root of kegRoots) {
+      expect(guide({}, root)).toBe("homebrew");
+      expect(guide({ ...k8s, RENDER: "true" }, root)).toBe("homebrew");
+    }
+    // Only an isomux keg counts: another formula's keg, or a directory whose
+    // name merely contains the words, keeps the platform rule.
+    for (const root of [
+      "/opt/homebrew/Cellar/isomux-extra/1/libexec",
+      "/home/user/Cellar-isomux/libexec",
+      "/home/user/my-Cellar/isomux/libexec",
+    ]) {
+      expect(guide({}, root)).toBe("container");
+    }
   });
 });
 

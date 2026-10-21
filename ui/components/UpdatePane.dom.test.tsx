@@ -182,7 +182,7 @@ describe("image deployments (no host updater)", () => {
   const en = translatorFor("en");
   const sha = "c".repeat(40);
   const imageStatus = (
-    guide: "kubernetes" | "render" | "container",
+    guide: "kubernetes" | "render" | "container" | "homebrew",
     release: string | null = null,
   ): Status => ({
     ...oldStatus,
@@ -251,6 +251,36 @@ describe("image deployments (no host updater)", () => {
       expect(link.parentElement?.textContent?.startsWith(action)).toBe(true);
       view.unmount();
     }
+  });
+
+  // A Homebrew install updates in two shell steps, in this order: the upgrade
+  // installs the new keg, the restart moves the service onto it.
+  it("a Homebrew install shows the upgrade and the restart, in the pane and on the clipboard", async () => {
+    const upgrade = "brew upgrade isomux";
+    const restart = "brew services restart isomux";
+    const guideUrl =
+      "https://isomux.com/docs/hosting-local#update-with-homebrew";
+    const { view } = renderImage(imageStatus("homebrew", "v2026.9.1"), "owner");
+    const link = view.getByRole("link", {
+      name: en.t("settings.update.updateGuide"),
+    });
+    expect(link.getAttribute("href")).toBe(guideUrl);
+    const commands = [...link.parentElement!.querySelectorAll("code")].map(
+      (c) => c.textContent,
+    );
+    expect(commands).toEqual([upgrade, restart]);
+
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void (copied = text) },
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: en.t("common.copy") }));
+    });
+    expect(copied.includes(guideUrl)).toBe(true);
+    expect(copied.indexOf(upgrade)).toBeGreaterThan(-1);
+    expect(copied.indexOf(restart)).toBeGreaterThan(copied.indexOf(upgrade));
   });
 
   it("shows an untagged image as its short commit and a tagged one as its release", () => {

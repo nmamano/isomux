@@ -43,6 +43,7 @@
 // A non-github REPO_URL disables release checks entirely (we can only enumerate
 // releases through the GitHub API).
 
+import { realpathSync } from "fs";
 import type {
   UpdateApply,
   UpdateOutcomeWire,
@@ -54,6 +55,7 @@ import {
   getVersionSource,
   getReachableRelease,
   CALVER_RELEASE_RE,
+  PROJECT_ROOT,
   type VersionSource,
 } from "./version.ts";
 import { readUpdateConf, type UpdateConfRead } from "./update-conf.ts";
@@ -564,8 +566,8 @@ async function checkImage(apply: UpdateApply) {
 
 // Which checker runs, pure for tests. update.conf PRESENCE wins (a damaged
 // conf stays a quiet host release box). Without it, a source checkout keeps
-// commit mode and a container image uses release mode with the image action.
-// The platform only picks the guide link.
+// commit mode, and a container image or a Homebrew keg uses release mode with
+// the image action. The platform only picks the guide link.
 export type CheckerMode =
   | { kind: "commit" }
   | { kind: "host" }
@@ -575,14 +577,19 @@ export function pickCheckerMode(
   conf: UpdateConfRead,
   source: VersionSource,
   env: Record<string, string | undefined>,
+  // The real path of the install root; under a Homebrew keg it holds a
+  // Cellar/isomux/ segment.
+  installRoot: string,
 ): CheckerMode {
   if (conf.state !== "absent") return { kind: "host" };
   if (source !== "image") return { kind: "commit" };
-  const guide = env.KUBERNETES_SERVICE_HOST
-    ? "kubernetes"
-    : env.RENDER === "true"
-      ? "render"
-      : "container";
+  const guide = installRoot.includes("/Cellar/isomux/")
+    ? "homebrew"
+    : env.KUBERNETES_SERVICE_HOST
+      ? "kubernetes"
+      : env.RENDER === "true"
+        ? "render"
+        : "container";
   return { kind: "image", apply: { kind: "image", guide } };
 }
 
@@ -693,9 +700,24 @@ export function onUpdateChange(cb: (s: UpdateStatusWire) => void) {
   onChange = cb;
 }
 
+// brew services runs the keg through its opt/ symlink; the real path names
+// the Cellar.
+function realInstallRoot(): string {
+  try {
+    return realpathSync(PROJECT_ROOT);
+  } catch {
+    return PROJECT_ROOT;
+  }
+}
+
 export function startUpdateChecker() {
   const conf = readUpdateConf();
-  const mode = pickCheckerMode(conf, getVersionSource(), process.env);
+  const mode = pickCheckerMode(
+    conf,
+    getVersionSource(),
+    process.env,
+    realInstallRoot(),
+  );
   const v = getVersionInfo();
   let run = () => void checkCommit();
   if (mode.kind === "image") {

@@ -2213,7 +2213,10 @@ export interface UpdateProgressWire {
 
 export type UpdateApply =
   | { kind: "host" }
-  | { kind: "image"; guide: "kubernetes" | "render" | "container" };
+  | {
+      kind: "image";
+      guide: "kubernetes" | "render" | "container" | "homebrew";
+    };
 
 // Server → Browser messages
 // OpenCode's supervisor and office proxy run only on Linux and macOS (see

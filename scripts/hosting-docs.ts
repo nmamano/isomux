@@ -52,7 +52,7 @@ export const HOSTING_GUIDES = [
     label: "Host locally",
     detail: "An office on this computer",
     description:
-      "Run an Isomux office on your own Linux or macOS computer. The office runs while its terminal is open.",
+      "Run an Isomux office on your own Linux or macOS computer. The office runs while its terminal is open, or in the background with Homebrew on macOS.",
     source: "docs/hosting/local.md",
   },
   {

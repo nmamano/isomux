@@ -609,6 +609,8 @@ Cosas que puedes hacer por él:
     "Para actualizar, usa el control de despliegue manual del servicio web en Render.",
   "settings.update.imageRelease":
     "Para actualizar, despliega la imagen de la versión {tag}.",
+  "settings.update.imageHomebrew":
+    "Para actualizar, ejecuta <code>brew upgrade isomux</code> y después <code>brew services restart isomux</code>.",
   "settings.update.updateGuide": "Guía de actualización",
   "settings.update.ownerOnly":
     "Un propietario de la oficina puede aplicarla desde este diálogo.",

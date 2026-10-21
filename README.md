@@ -89,6 +89,8 @@ bun install
 bun run dev
 ```
 
+On a Mac, Homebrew can install Isomux and run it in the background instead: [Install with Homebrew](docs/hosting/local.md#install-with-homebrew).
+
 ### 3. Open
 
 Open the setup link that `bun run dev` prints.

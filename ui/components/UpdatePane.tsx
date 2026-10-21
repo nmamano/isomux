@@ -25,6 +25,7 @@ const IMAGE_GUIDES = {
   render: "https://isomux.com/docs/hosting-render#update-the-office",
   container:
     "https://github.com/nmamano/isomux/blob/main/deploy/container/reference.md#updates",
+  homebrew: "https://isomux.com/docs/hosting-local#update-with-homebrew",
 } as const;
 
 // Not a component, so the language arrives as an argument (ruling 18). The
@@ -81,9 +82,11 @@ function buildReleasePlainText(s: ReleaseStatus): string {
       lines.push(
         "",
         `To update: ${
-          s.apply.guide === "render"
-            ? "use the web service's manual deployment control in Render."
-            : `deploy the ${s.latest.tag} release image.`
+          s.apply.guide === "homebrew"
+            ? "run `brew upgrade isomux`, then `brew services restart isomux`."
+            : s.apply.guide === "render"
+              ? "use the web service's manual deployment control in Render."
+              : `deploy the ${s.latest.tag} release image.`
         } Guide: ${IMAGE_GUIDES[s.apply.guide]}`,
       );
     } else {
@@ -316,9 +319,11 @@ function ReleaseBody({
 
       {image && latest && (
         <p style={{ ...textStyle, margin: "16px 0 0" }}>
-          {image.guide === "render"
-            ? t("settings.update.imageRender")
-            : t("settings.update.imageRelease", { tag: latest.tag })}{" "}
+          {image.guide === "homebrew"
+            ? rich("settings.update.imageHomebrew", { code: inCode })
+            : image.guide === "render"
+              ? t("settings.update.imageRender")
+              : t("settings.update.imageRelease", { tag: latest.tag })}{" "}
           <a
             href={IMAGE_GUIDES[image.guide]}
             target="_blank"

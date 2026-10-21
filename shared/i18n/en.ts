@@ -611,6 +611,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.update.imageRender":
     "To update, use the web service's manual deployment control in Render.",
   "settings.update.imageRelease": "To update, deploy the {tag} release image.",
+  "settings.update.imageHomebrew":
+    "To update, run <code>brew upgrade isomux</code>, then <code>brew services restart isomux</code>.",
   "settings.update.updateGuide": "Update guide",
   "settings.update.ownerOnly": "An office owner can apply it from this dialog.",
   "settings.update.updateNow": "Update now",

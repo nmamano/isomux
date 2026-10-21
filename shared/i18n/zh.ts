@@ -563,6 +563,8 @@ App 的一些原则：
   "settings.update.imageRender":
     "如需更新，请在 Render 中使用该 Web 服务的手动部署控件。",
   "settings.update.imageRelease": "如需更新，请部署 {tag} 版本镜像。",
+  "settings.update.imageHomebrew":
+    "如需更新，请运行 <code>brew upgrade isomux</code>，然后运行 <code>brew services restart isomux</code>。",
   "settings.update.updateGuide": "更新指南",
   "settings.update.ownerOnly": "办公室所有者可以在此对话框中应用更新。",
   "settings.update.updateNow": "立即更新",
