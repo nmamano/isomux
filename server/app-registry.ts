@@ -143,6 +143,7 @@ export const RESERVED_APP_NAMES: ReadonlySet<string> = new Set([
   "readyz",
   "icons",
   "katex",
+  "mcp",
 ]);
 
 // Every refusal and every failure the registry can raise, carrying the wire

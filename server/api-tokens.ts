@@ -580,7 +580,7 @@ export async function sendApiTokenMessage(
   send: () => Promise<UserSendAcceptance>,
 ): Promise<
   | Exclude<UserSendAcceptance, { ok: true }>
-  | { ok: true; messageId: string; sentAt: number }
+  | { ok: true; messageId: string; sentAt: number; sequence: number }
 > {
   return mutate(async () => {
     ensureLoaded();
@@ -600,14 +600,15 @@ export async function sendApiTokenMessage(
     // sender as well as into the log, so a client outside the office learns
     // when the office took the message without draining its log to find out.
     const sentAt = Date.now();
+    const sequence = record.lastSequence + 1;
     commitEntry(record, {
       ...target,
       direction: "to_agent",
       id,
       sentAt,
-      sequence: record.lastSequence + 1,
+      sequence,
     });
-    return { ok: true, messageId: id, sentAt };
+    return { ok: true, messageId: id, sentAt, sequence };
   });
 }
 

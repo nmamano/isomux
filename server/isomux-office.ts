@@ -283,6 +283,7 @@ import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import { setAgentHost } from "./agent-host.ts";
 import { matchRoute } from "./routes/match.ts";
+import { handleMcpRequest, type McpEndpointDeps } from "./mcp-endpoint.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
   executeRoute,
@@ -1641,6 +1642,62 @@ const idempotencyCache = createIdempotencyCache();
 // The HTTP executor's deps for the migrated /api surface. Assembled in
 // startServer once the managers exist; read by the fetch handler at request time.
 let executorDeps: ExecutorDeps;
+// read_replies waiters (server/mcp-endpoint.ts), by token id. The token
+// log's entry sink (wireEventSinks) wakes them.
+const tokenLogWaiters = new Map<string, Set<() => void>>();
+function wakeTokenLogWaiters(tokenId: string): void {
+  const waiters = tokenLogWaiters.get(tokenId);
+  if (!waiters) return;
+  for (const wake of [...waiters]) wake();
+}
+
+// The /mcp endpoint's seams into the executor and the token logs.
+const mcpEndpointDeps: McpEndpointDeps = {
+  dispatch: async (identity, method, path, body) => {
+    const url = new URL(path, buildPublicOrigin().origin);
+    const match = matchRoute(API_ROUTES, method, url.pathname);
+    if (!match || !executorDeps.handlers.has(match.route.opId))
+      return { status: 404, body: { error: { code: "not_found" } } };
+    const res = await executeRoute(
+      match,
+      new Request(url, {
+        method,
+        ...(body === undefined
+          ? {}
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            }),
+      }),
+      identity,
+      executorDeps,
+      { via: "mcp" },
+    );
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : null };
+  },
+  waitForTokenLogEntry: (tokenId, timeoutMs, signal) =>
+    new Promise<void>((resolve) => {
+      let waiters = tokenLogWaiters.get(tokenId);
+      if (!waiters) {
+        waiters = new Set();
+        tokenLogWaiters.set(tokenId, waiters);
+      }
+      const set = waiters;
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", done);
+        set.delete(done);
+        if (set.size === 0 && tokenLogWaiters.get(tokenId) === set)
+          tokenLogWaiters.delete(tokenId);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      set.add(done);
+      if (signal.aborted) done();
+      else signal.addEventListener("abort", done);
+    }),
+};
 // The OAuth MCP flow of this boot (integrations A2b) and its refresh timer.
 let mcpOAuth: McpOAuth | null = null;
 let mcpOAuthTimer: ReturnType<typeof setInterval> | null = null;
@@ -5372,7 +5429,7 @@ function buildExecutorDeps(
           sendNow,
           clientMessageId,
         }),
-      sendAsApi: (agentId, text, username, device, tokenId) =>
+      sendAsApi: (agentId, text, username, device, tokenId, opts) =>
         sendApiTokenMessage(
           tokenId,
           {
@@ -5383,7 +5440,10 @@ function buildExecutorDeps(
               agentManager.getAgentDisplay(agentId)?.roomName ?? "",
             text,
           },
-          () => sendMemberMessage(agentId, text, username, device, undefined),
+          () =>
+            sendMemberMessage(agentId, text, username, device, undefined, {
+              refusePromptAnswer: opts?.refusePromptAnswer,
+            }),
         ),
       sendAsAgent: async (
         receiverId,
@@ -6517,6 +6577,7 @@ function sendMemberMessage(
     sendNow?: boolean;
     clientMessageId?: string;
     ask?: AskRef;
+    refusePromptAnswer?: boolean;
   } = {},
 ): Promise<UserSendAcceptance> {
   return new Promise((resolve) => {
@@ -7255,12 +7316,14 @@ function routeAgentEventToWs(
 // active instances. Body left at prior indentation; prettier normalizes.
 function wireEventSinks(): void {
   setApiTokenStreamSinks({
-    logEntry: (tokenId, entry) =>
+    logEntry: (tokenId, entry) => {
       liveEmit(
         "api_token_log_entry",
         { tokenId, entry },
         { apiTokenId: tokenId },
-      ),
+      );
+      wakeTokenLogWaiters(tokenId);
+    },
     revoked: (tokenId) => {
       for (const ws of apiTokenSockets) {
         if (ws.data.tokenId !== tokenId) continue;
@@ -7943,6 +8006,30 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 headers: { Location: target.href, "Cache-Control": "no-store" },
               });
             }
+          }
+        }
+
+        // The MCP endpoint takes a personal API token only. As on /ws, the
+        // cookie is never read and Origin is not checked: a bearer is not an
+        // ambient credential, and Claude's servers may send their own Origin.
+        if (url.pathname === "/mcp") {
+          const identity = resolveIdentityForRequest(req, null, source().onBox);
+          if (!identity) {
+            const res = errorResponse(
+              401,
+              "unauthenticated",
+              "unauthenticated",
+            );
+            res.headers.set("WWW-Authenticate", "Bearer");
+            return res;
+          }
+          if (identity.scope !== "api" || !identity.apiTokenId)
+            return errorResponse(403, "forbidden", "forbidden");
+          try {
+            return await handleMcpRequest(req, identity, mcpEndpointDeps);
+          } catch (err) {
+            console.error("[/mcp] uncaught error:", err);
+            return errorResponse(500, "internal", "internal");
           }
         }
 

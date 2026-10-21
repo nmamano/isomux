@@ -8589,6 +8589,9 @@ export function createAgentManager(deps: ManagerDeps) {
       // (server/asks.ts). Never read as a slash command or as the
       // answer to a pending prompt.
       ask?: AskRef;
+      // Refuse (409 awaits_member_answer) instead of reading the text as the
+      // answer to a pending prompt or choice card. Set for /mcp sends.
+      refusePromptAnswer?: boolean;
     },
   ) {
     if (!agents.has(agentId)) {
@@ -8637,6 +8640,7 @@ export function createAgentManager(deps: ManagerDeps) {
         sendNow: opts?.sendNow,
         claimedChoice: opts?.claimedChoice,
         ask: opts?.ask,
+        refusePromptAnswer: opts?.refusePromptAnswer,
         accept: () => settle({ ok: true }),
         refuse: settle,
       });
@@ -8674,6 +8678,7 @@ export function createAgentManager(deps: ManagerDeps) {
       sendNow?: boolean;
       claimedChoice?: ClaimedChoiceInteraction;
       ask?: AskRef;
+      refusePromptAnswer?: boolean;
       accept: () => void;
       refuse: (result: Exclude<UserSendAcceptance, { ok: true }>) => void;
     },
@@ -8701,6 +8706,25 @@ export function createAgentManager(deps: ManagerDeps) {
         status: 404,
         code: "agent_not_found",
         message: "No such agent.",
+      });
+      return;
+    }
+
+    // Decided before the claim below and before any await, in the same step
+    // that decides whether the text is an answer, so a prompt cannot open
+    // between the check and the send.
+    if (
+      opts.refusePromptAnswer &&
+      (inMultiStepFlow(managed) ||
+        managed.pendingInteraction ||
+        managed.queuedPermissions.length > 0)
+    ) {
+      refuse({
+        ok: false,
+        status: 409,
+        code: "awaits_member_answer",
+        message:
+          "The agent waits for a member's answer. The member answers it in the office.",
       });
       return;
     }

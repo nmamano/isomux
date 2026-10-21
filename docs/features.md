@@ -186,6 +186,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Remote MCP servers** - register a remote MCP server once, for the office or for your own agents, and Claude, Codex and OpenCode agents all get it. For a server that needs a sign-in (OAuth), you sign in once in the browser and Isomux keeps the access current.
 - **Codex approvals** - when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - **Personal API tokens** - drive the office from an external tool and receive the token’s sends and replies through the office WebSocket.
+- **Reach your office from Claude** - add the office to Claude, Claude Code or Codex as an MCP server with a personal API token, and ask your agents from there. Claude on the web needs an office with a public address. [Setup](developer-api.md#reach-your-office-from-claude).
 
 ## Running the office
 

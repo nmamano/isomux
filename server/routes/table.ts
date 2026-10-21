@@ -400,6 +400,9 @@ type AgentMessageAck = {
   // reads when the office took the message from the send itself, instead of
   // draining the log to find out.
   sentAt?: number;
+  // API-token senders only: the sequence of that `to_agent` log entry, a
+  // cursor for the drain.
+  sequence?: number;
 };
 // Schedule-branch ack (agents.sendMessage with deliverAt): the scheduled-entry
 // handle plus the normalized (UTC RFC3339) delivery time - never a fake empty

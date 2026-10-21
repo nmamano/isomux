@@ -132,9 +132,10 @@ export interface ConversationDeps {
     username: string | undefined,
     device: string,
     tokenId: string,
+    opts?: { refusePromptAnswer?: boolean },
   ): Promise<
     | Exclude<UserSendAcceptance, { ok: true }>
-    | { ok: true; messageId: string; sentAt: number }
+    | { ok: true; messageId: string; sentAt: number; sequence: number }
   >;
   // AGENT inter-agent send. Builds the structured sender server-side (blocks
   // prefix-injection / identity spoof) and enqueues; returns the discriminated
@@ -508,9 +509,15 @@ export function conversationHandlers(
             ),
           )!,
           ctx.identity.apiTokenId ?? "",
+          // An outside model's message never answers a pending prompt.
+          { refusePromptAnswer: ctx.via === "mcp" },
         );
         if (!r.ok) return fail(r.status, r.code, r.message);
-        return ok({ messageId: r.messageId, sentAt: r.sentAt });
+        return ok({
+          messageId: r.messageId,
+          sentAt: r.sentAt,
+          sequence: r.sequence,
+        });
       }
       // USER path. Empty text is allowed when attachments carry the content (the
       // composer sends an image with no caption). The 200 means the server has

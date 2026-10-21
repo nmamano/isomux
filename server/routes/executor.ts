@@ -135,6 +135,9 @@ export interface RouteHandlerContext {
   // act on the caller's OWN session (sessions.logout) and the logout lockout
   // precondition; a route that doesn't need it simply ignores it.
   callerSessionIdHash?: string;
+  // "mcp" when the request is a tool call of the /mcp endpoint
+  // (server/mcp-endpoint.ts), which dispatches each tool through this executor.
+  via?: "mcp";
 }
 
 export type RouteHandler = (
@@ -268,7 +271,7 @@ export async function executeRoute(
   // Per-request context the dispatch supplies alongside the identity. An options
   // object (not a positional arg) so future request-context fields extend it
   // without re-threading every call site.
-  opts?: { callerSessionIdHash?: string },
+  opts?: { callerSessionIdHash?: string; via?: "mcp" },
 ): Promise<Response> {
   const { route, params } = match;
   const method = req.method;
@@ -333,6 +336,7 @@ export async function executeRoute(
     query: url.searchParams,
     req,
     callerSessionIdHash: opts?.callerSessionIdHash,
+    via: opts?.via,
   };
 
   const authz = runAuthorize(

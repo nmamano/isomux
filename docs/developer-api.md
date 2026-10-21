@@ -50,7 +50,7 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
   -d '{"text":"Please check the latest alert."}'
 ```
 
-The send response contains `messageId` and `sentAt`. `messageId` is also the `id` of the send entry in the token log. `sentAt` is the office's own timestamp on that message, the same instant the send's `to_agent` entry carries, so a client pairs its send with the agent's reply, and the time between them, without reading the log at all.
+The send response contains `messageId`, `sentAt` and `sequence`. `messageId` is also the `id` of the send entry in the token log, and `sequence` is its sequence. `sentAt` is the office's own timestamp on that message, the same instant the send's `to_agent` entry carries, so a client pairs its send with the agent's reply, and the time between them, without reading the log at all.
 
 The agent sees the message with a label such as `[Nil (API token "Phone alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message.
 
@@ -124,6 +124,28 @@ Send an `Idempotency-Key` header on a message send or drain, and reuse that key 
 The cache is in memory for five minutes after completion and is cleared on restart. It covers sends to agents, agent replies to token inboxes, and drains. It does not make delivery and persistence atomic or prevent duplicates after an error. Token logs remain until the owner prunes them.
 
 A send can reach its destination before all log writes complete. If the send returns an error after delivery, a retry can create a duplicate.
+
+## Reach your office from Claude
+
+The office is also an MCP server at `/mcp`. It takes a personal API token as the bearer. Create a separate token for each client, for example one named "Claude": the agent label then names the client, and revoking the token breaks nothing else.
+
+On Claude Free, Pro or Max, go to **Customize → Connectors**, click **Add → Add custom connector**, enter `<office URL>/mcp`, choose **No sign in**, and add the request header `Authorization: Bearer <token>`. Free allows one custom connector. On Team and Enterprise only an owner adds it, and everyone who uses it then acts as that one member. Claude calls from Anthropic's servers, so this works only for an office with a public address.
+
+Claude Code and Codex on another machine use the same endpoint. They call from that machine, so a private office works too:
+
+```bash
+claude mcp add --transport http isomux "$OFFICE_URL/mcp" \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.isomux]
+url = "https://office.example.com/mcp"
+bearer_token_env_var = "ISOMUX_TOKEN"
+```
+
+The server has four tools: `list_agents` and `read_conversation` read, `send_message` sends as the member, and `read_replies` reads the token's conversation after a sequence and waits up to 25 seconds for a new entry. `send_message` refuses a text that starts with `/` (`command_not_allowed`), and a message to an agent that waits for a member's answer (`awaits_member_answer`): a page the model read must not approve a command. The member answers prompts in the office. What the model reads, such as agent chats, goes to Anthropic or OpenAI.
 
 ## Errors
 
