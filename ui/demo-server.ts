@@ -38,6 +38,10 @@ import type {
   TuckedRoomsReq,
   PushRoomsReq,
   StoragePruneReq,
+  StorageCompressReq,
+  StorageCompressRes,
+  BackupSettingsReq,
+  BackupSettingsRes,
   StoragePruneRes,
   StorageUsageWire,
   UsageBucketWire,
@@ -2283,7 +2287,9 @@ function demoBackupStatus(): BackupStatusWire {
     ok: true,
     error: null,
     retention: 7,
+    intervalHours: 24,
     destDir: "~/.isomux-backups",
+    destDirFromEnv: false,
   };
 }
 
@@ -2876,6 +2882,39 @@ export async function demoApi(
       };
       return request.apply
         ? { plan, applied: { deleted: 0, bytes: 0, refused: [] } }
+        : { plan, applied: null };
+    }
+    // The demo keeps no backups and no transcripts on disk: a save echoes the
+    // status with the values changed, and a compress finds nothing.
+    case "PUT /api/backup/settings": {
+      const b = (body ?? {}) as BackupSettingsReq;
+      const status = demoBackupStatus();
+      return {
+        ...status,
+        intervalHours: b.intervalHours ?? status.intervalHours,
+        retention: b.retention ?? status.retention,
+        destDir: b.dir ?? status.destDir,
+        oldBackupsDir: null,
+      } satisfies BackupSettingsRes;
+    }
+    case "POST /api/storage/compress": {
+      const request = (body ?? {}) as StorageCompressReq;
+      const plan: StorageCompressRes["plan"] = {
+        olderThanDays: request.olderThanDays,
+        candidates: [],
+        bytes: 0,
+        skipped: [],
+      };
+      return request.apply
+        ? {
+            plan,
+            applied: {
+              compressed: 0,
+              bytesBefore: 0,
+              bytesAfter: 0,
+              refused: [],
+            },
+          }
         : { plan, applied: null };
     }
     // office.setSettings - set + broadcast office_settings_updated; no body

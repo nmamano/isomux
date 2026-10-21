@@ -5,7 +5,13 @@
 // guard, which refuses any target that is not strictly under the temp dir.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  utimesSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { removeStateDir } from "./test-support/temp-state.ts";
@@ -140,6 +146,32 @@ describe("measureStorage", () => {
     expect(a.attachmentBytes).toBe(50);
     expect(a.sessions).toBe(2);
     expect(a.lastActivityAt).toBeGreaterThan(0);
+  });
+
+  // Task e9776386: a compressed transcript is a transcript, not metadata.
+  it("counts a compressed transcript as a transcript of its session", () => {
+    const root = tempDir();
+    const a = join(root, "logs", "agent-a");
+    write(join(a, "plain.jsonl"), 100);
+    write(join(a, "packed.jsonl.gz"), 30);
+    // A crash between compress steps leaves both forms: both use disk, but
+    // they are one session.
+    write(join(a, "both.jsonl"), 20);
+    write(join(a, "both.jsonl.gz"), 7);
+    write(join(a, "sessions.json"), 10);
+    const at = new Date(Date.UTC(2030, 0, 1));
+    utimesSync(join(a, "packed.jsonl.gz"), at, at);
+
+    const usage = measureStorage({
+      stateRoot: root,
+      backupDir: null,
+      snapshotDir: null,
+    });
+    expect(bytesOf(usage, "transcripts")).toBe(157);
+    expect(bytesOf(usage, "session-metadata")).toBe(10);
+    expect(usage.agents[0].transcriptBytes).toBe(157);
+    expect(usage.agents[0].sessions).toBe(3);
+    expect(usage.agents[0].lastActivityAt).toBe(at.getTime());
   });
 
   it("claims the webhooks directory out of other state", () => {

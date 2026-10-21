@@ -35,7 +35,7 @@ server logs both paths and opens an empty board. An old `memory/.oplog.jsonl` is
 
 ## What the daily backup is
 
-`server/backup.ts` archives the office state once a day. It omits persisted
+`server/backup.ts` archives the office state once a day by default. It omits persisted
 credential files and regenerable caches that mechanically capture environment
 variables. Each archive carries `RESTORE.txt`, which records what that run
 omitted and the concrete recovery action.
@@ -44,28 +44,47 @@ omitted and the concrete recovery action.
   `ISOMUX_HOME` points at. The archive is written with
   `tar -C <parent-of-state-root> <basename>`, so it holds exactly one
   top-level directory, normally `.isomux/`.
-- **Destination:** `$ISOMUX_BACKUP_DIR`, else a folder next to the state
-  root, named after it: `~/.isomux` backs up to `~/isomux-backups`, and an
+- **Settings:** the office owner sets how often (1 to 720 hours, default
+  24), how many copies to keep (1 to 100, default 7) and the folder in
+  Settings → Office → Storage (`PUT /api/backup/settings`). They live in
+  `office-config.json` as `backupIntervalHours`, `backupRetention` and
+  `backupDir`. Each hourly check reads them once and uses that snapshot for
+  the whole run, so a change needs no restart and a save during a run does not
+  move it.
+- **Destination:** `$ISOMUX_BACKUP_DIR`, else the folder setting, else a
+  folder next to the state root, named after it: `~/.isomux` backs up to `~/isomux-backups`, and an
   `ISOMUX_HOME` of `/srv/office` to `/srv/office-backups`. `~` there is the
   home directory of the **server process**, so on a VPS install it is
   `/home/isomux/isomux-backups`, not your own home. Two offices with different
-  state roots get separate folders, so one office's seven-day retention does
-  not delete the other's backups. The destination sits
-  outside the state root so a restore never clobbers the backups. It is
+  state roots get separate folders, so one office's retention does
+  not delete the other's backups. The environment variable wins over the
+  setting so a scratch office started from a copied `office-config.json`
+  cannot prune the real office's folder. The destination must be
+  outside the state root (checked on the real path when it is saved) so a
+  restore never clobbers the backups. When the folder changes, the earlier
+  backups stay in the old one; status and retention see only the new one. It is
   still the same disk as the office it protects, and nothing copies it
   anywhere else - a box that dies takes its backups with it. If the office
   matters, pull the tarballs onto another machine on a schedule.
 - **File name:** `isomux-YYYY-MM-DD.tar.gz`, the local date the run happened.
   A second successful run that day uses `-2`, then `-3`, and so on. A matching
-  `.verified.json` marker records the final archive size and modification time.
+  `.verified.json` marker records the final archive size and modification time,
+  when the run started and the state root of the office that wrote it. Two
+  offices can share a folder: each one's retention, status and schedule count
+  only its own archives and those whose marker names no office (older
+  releases).
   The archive and its marker are both mode `0600`. The archive is not a backup
   unless that marker matches.
-- **Retention:** the 7 newest verified archive-marker pairs are kept. Pruning
-  happens only after a new archive is fully verified and published. A failed,
+- **Retention:** the newest verified archive-marker pairs, as many as the
+  setting says (default 7), are kept. Pruning happens only after a new archive
+  is fully verified and published, so a lower setting takes effect at the next
+  backup. A failed,
   interrupted or invalid archive cannot take a slot or remove a good copy.
-- **Schedule:** hourly check; a new backup is taken once the newest one
-  is at least 24h old. Runs land a bit more than 24h apart, so a date in
-  the file names occasionally gets skipped - normal, not a missed backup.
+- **Schedule:** hourly check; a new backup is taken once the run that made
+  the newest one started at least one interval ago. The marker records that
+  start (`startedAt`); a marker from an older release has none, and its
+  archive's modification time stands in. A save of the settings runs one check
+  at once.
 - **No quiesce:** the archive is taken live. Config files are written
   atomically and JSONL logs are append-only and line-tolerant, so a
   snapshot cannot catch half-written state. GNU tar's exit 1 ("file
@@ -166,13 +185,16 @@ derived from archives and their markers, not only process memory:
   "ok": true,
   "error": null,
   "retention": 7,
-  "destDir": "/home/isomux/isomux-backups"
+  "intervalHours": 24,
+  "destDir": "/home/isomux/isomux-backups",
+  "destDirFromEnv": false
 }
 ```
 
 Read `destDir` from there rather than assuming `~/isomux-backups` - it is the
 path the running process actually uses. `ok: false` with a stale error means the
-newest verified archive is more than 26 hours old. The two-hour grace prevents
+newest verified archive is more than the interval plus two hours old (26 hours
+by default). The two-hour grace prevents
 the hourly scheduler from reporting a healthy backup as stale each day. A newer failed attempt also
 returns false while keeping `lastBackupFile` pointed at the recoverable copy.
 
@@ -351,7 +373,7 @@ curl -sf http://127.0.0.1:4000/readyz && echo ready
 **3. Delete the backup the fresh install already took.** A new office
 backs up as it starts, so `/home/isomux/isomux-backups` holds a tarball of
 the empty office. Left there it is what a later "restore the newest
-tarball" picks, and it holds the schedule off for 24h. The old box's
+tarball" picks, and it holds the schedule off for one interval. The old box's
 backups died with it and the archive you restored from is in `/root/`, so
 this directory holds exactly that one file - list it and delete it by
 name:

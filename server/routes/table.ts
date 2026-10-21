@@ -240,6 +240,10 @@ import type {
   StorageUsageWire,
   UsageReportWire,
   StoragePruneReq,
+  StorageCompressReq,
+  StorageCompressRes,
+  BackupSettingsReq,
+  BackupSettingsRes,
   StoragePruneRes,
   BackupStatusWire,
   WebhookCreateReq,
@@ -2772,6 +2776,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:read", operationalAuthenticated),
     emits: [],
   }),
+  // How often, how many copies, which folder. Owner-only, like storage.prune.
+  defineRoute<BackupSettingsReq, BackupSettingsRes>({
+    opId: "system.setBackupSettings",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "PUT",
+    path: "/api/backup/settings",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
   // Deployment version identity. Any authenticated caller, agents included:
   // version identity is harmless
   // metadata and agents legitimately reason about what's deployed.
@@ -2814,6 +2827,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/storage/prune",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  // Manual lossless compression of old transcripts. Owner-only and DRY RUN
+  // unless the body says apply:true (server/storage-compress.ts).
+  defineRoute<StorageCompressReq, StorageCompressRes>({
+    opId: "storage.compress",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/storage/compress",
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),

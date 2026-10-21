@@ -23,6 +23,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { getBackupStatus } from "../backup.ts";
+import { loadLog } from "../persistence.ts";
 import { readUpdateConf } from "../update-conf.ts";
 import { resetStorageUsageCache } from "../storage-usage.ts";
 import {
@@ -715,4 +716,123 @@ it("counts terminal recordings, and prunes old ones but never a live one", async
       (c) => c.path,
     ),
   ).toEqual([`${live.id}.cast`]);
+});
+
+// Lossless compression of old transcripts (task e9776386). POST
+// /api/storage/compress is office:admin + owner and a dry run unless apply is
+// true. What it gzips must still read as the same session.
+describe("routes/storage.compress REST", () => {
+  const compress = (srv: TestServer, rawSessionId: string, body: unknown) =>
+    api(srv, "/api/storage/compress", { method: "POST", rawSessionId, body });
+
+  it("is a dry run by default, and apply gzips what still reads the same", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const dir = seedOldLogs(srv.stateRoot);
+    const before = loadLog("agent-ghost", "old-a");
+    expect(before.map((e) => e.id)).toEqual(["1"]);
+
+    const dry = await compress(srv, owner.rawSessionId, { olderThanDays: 30 });
+    expect(dry.status).toBe(200);
+    expect(dry.body!.applied).toBeNull();
+    const plan = dry.body!.plan as { candidates: { path: string }[] };
+    expect(plan.candidates.map((c) => c.path).sort()).toEqual([
+      "agent-ghost/old-a.jsonl",
+      "agent-ghost/old-b.jsonl",
+    ]);
+    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
+    expect(existsSync(join(dir, "old-a.jsonl.gz"))).toBe(false);
+
+    const r = await compress(srv, owner.rawSessionId, {
+      olderThanDays: 30,
+      apply: true,
+    });
+    expect(r.status).toBe(200);
+    const applied = r.body!.applied as { compressed: number; refused: [] };
+    expect(applied.compressed).toBe(2);
+    expect(applied.refused).toEqual([]);
+    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(false);
+    expect(existsSync(join(dir, "old-a.jsonl.gz"))).toBe(true);
+    expect(loadLog("agent-ghost", "old-a")).toEqual(before);
+    // Attachments are not transcripts.
+    expect(existsSync(join(dir, "files", "old.png"))).toBe(true);
+  });
+
+  it("rejects a missing, zero, fractional or string age and a non-boolean apply", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const dir = seedOldLogs(srv.stateRoot);
+    for (const body of [
+      {},
+      { olderThanDays: 0 },
+      { olderThanDays: 1.5 },
+      { olderThanDays: "30" },
+      { olderThanDays: 30, apply: "yes" },
+    ]) {
+      const r = await compress(srv, owner.rawSessionId, body);
+      expect({ body, status: r.status }).toEqual({ body, status: 400 });
+    }
+    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
+  });
+
+  it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Alice");
+    const room = srv.agentManager.getRooms()[0];
+    const ops = await spawnAgent(srv, "Ops", room.id);
+    await srv.agentManager.setPrivileged(ops.id, true);
+    const dir = seedOldLogs(srv.stateRoot);
+    const body = { olderThanDays: 30, apply: true };
+    const post = (init: { rawSessionId?: string; bearer?: string }) =>
+      api(srv, "/api/storage/compress", { method: "POST", body, ...init });
+
+    expect((await post({ rawSessionId: member.rawSessionId })).status).toBe(
+      403,
+    );
+    expect((await post({ bearer: getAgentTokenRaw(ops.id)! })).status).toBe(
+      403,
+    );
+    expect((await post({})).status).toBe(401);
+    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
+  });
+
+  it("never compresses a live agent's active session", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const enq = srv.agentManager.enqueueMessage(agent.id, {
+      sender: { kind: "user", username: "Boss" },
+      text: "wake",
+    });
+    expect(enq.ok).toBe(true);
+    let sessionId: string | null = null;
+    for (let i = 0; i < 200 && sessionId === null; i++) {
+      sessionId = srv.agentManager.getCurrentSessionId(agent.id);
+      if (sessionId === null) await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(sessionId).toBeTruthy();
+    const path = join(srv.stateRoot, "logs", agent.id, `${sessionId}.jsonl`);
+    mkdirSync(join(srv.stateRoot, "logs", agent.id), { recursive: true });
+    if (!existsSync(path)) writeFileSync(path, '{"id":"1"}\n');
+    const aged = (Date.now() - 400 * DAY_MS) / 1000;
+    utimesSync(path, aged, aged);
+
+    const r = await compress(srv, owner.rawSessionId, {
+      olderThanDays: 1,
+      apply: true,
+    });
+    expect(r.status).toBe(200);
+    const plan = r.body!.plan as {
+      skipped: { reason: string; count: number }[];
+    };
+    expect(plan.skipped.some((s) => s.reason === "active-session")).toBe(true);
+    expect(existsSync(path)).toBe(true);
+    expect(existsSync(`${path}.gz`)).toBe(false);
+  });
 });

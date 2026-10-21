@@ -962,6 +962,8 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/storage/usage", "apiCall.storage.usage"],
   ["GET", "/api/usage", "apiCall.usage.tokens"],
   ["POST", "/api/storage/prune", "apiCall.storage.prune"],
+  ["POST", "/api/storage/compress", "apiCall.storage.compress"],
+  ["PUT", "/api/backup/settings", "apiCall.backup.settings"],
 ];
 
 export function describeIsomuxRoute(

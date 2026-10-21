@@ -12,6 +12,15 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { mkdtempSync, readdirSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import {
+  DEFAULT_BACKUP_SETTINGS,
+  loadBackupSettings,
+  saveBackupSettings,
+} from "../backup.ts";
+import { removeStateDir } from "./temp-state.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo } from "../../shared/types.ts";
@@ -29,14 +38,21 @@ interface Res {
 async function api(
   srv: TestServer,
   path: string,
-  init: { rawSessionId?: string; bearer?: string } = {},
+  init: {
+    rawSessionId?: string;
+    bearer?: string;
+    method?: string;
+    body?: unknown;
+  } = {},
 ): Promise<Res> {
   const headers: Record<string, string> = {};
   if (init.bearer) headers["Authorization"] = `Bearer ${init.bearer}`;
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
   const res = await srv.http(path, {
-    method: "GET",
+    method: init.method ?? "GET",
     headers,
     rawSessionId: init.rawSessionId,
+    ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
   let body: unknown = null;
   try {
@@ -117,7 +133,9 @@ describe("routes/system.backupStatus REST", () => {
       startServer: {
         getBackupStatus: () => ({
           backupDir: "/isolated/backup-status",
+          backupDirFromEnv: true,
           retention: 3,
+          intervalHours: 12,
           lastBackupAt: 123,
           lastBackupOk: false,
           lastBackupError: "test failure",
@@ -136,7 +154,9 @@ describe("routes/system.backupStatus REST", () => {
       ok: false,
       error: "test failure",
       retention: 3,
+      intervalHours: 12,
       destDir: "/isolated/backup-status",
+      destDirFromEnv: true,
     });
 
     await srv.stop();
@@ -152,6 +172,95 @@ describe("routes/system.backupStatus REST", () => {
     expect(body.ok).toBe(false);
     expect(body.error).toBeNull();
     expect(body.destDir).toBe(`${srv.stateRoot}/test-backups`);
+  });
+});
+
+// Backup settings (task e9776386). PUT /api/backup/settings is office:admin +
+// owner, like storage.prune: it picks where the office's full archive goes.
+describe("routes/system.setBackupSettings REST", () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    // Stop first: a failing reset must not leave the harness running for the
+    // next describe.
+    await server?.stop();
+    server = null;
+    while (dirs.length > 0) removeStateDir(dirs.pop()!);
+    saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
+  });
+
+  it("owner saves and gets the new status back; no backup runs in a test boot", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const root = mkdtempSync(join(tmpdir(), "isomux-backup-settings-"));
+    dirs.push(root);
+    const dir = join(root, "backups");
+
+    const r = await api(srv, "/api/backup/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { intervalHours: 6, retention: 3, dir },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      intervalHours: 6,
+      retention: 3,
+      destDir: dir,
+      destDirFromEnv: false,
+    });
+    expect(typeof (r.body as Record<string, unknown>).oldBackupsDir).toBe(
+      "string",
+    );
+    expect(loadBackupSettings()).toEqual({
+      intervalHours: 6,
+      retention: 3,
+      dir,
+    });
+    // The save asks the scheduler for a check, and a test boot has none.
+    await Bun.sleep(200);
+    expect(readdirSync(dir).filter((n) => n.endsWith(".tar.gz"))).toEqual([]);
+  });
+
+  it("rejects a malformed or refused value with 400 and saves nothing", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    for (const body of [
+      { intervalHours: 0 },
+      { intervalHours: "6" },
+      { retention: 1.5 },
+      { dir: 5 },
+      { dir: "relative/backups" },
+      { dir: srv.stateRoot },
+    ]) {
+      const r = await api(srv, "/api/backup/settings", {
+        method: "PUT",
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
+      expect({ body, status: r.status }).toEqual({ body, status: 400 });
+    }
+    expect(loadBackupSettings()).toEqual(DEFAULT_BACKUP_SETTINGS);
+  });
+
+  it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Alice");
+    const room = srv.agentManager.getRooms()[0];
+    const ops = await spawnAgent(srv, "Ops", room.id);
+    await srv.agentManager.setPrivileged(ops.id, true);
+    const body = { retention: 2 };
+    const put = (init: { rawSessionId?: string; bearer?: string }) =>
+      api(srv, "/api/backup/settings", { method: "PUT", body, ...init });
+
+    expect((await put({ rawSessionId: member.rawSessionId })).status).toBe(403);
+    expect((await put({ bearer: getAgentTokenRaw(ops.id)! })).status).toBe(403);
+    expect((await put({})).status).toBe(401);
+    expect(loadBackupSettings().retention).toBe(
+      DEFAULT_BACKUP_SETTINGS.retention,
+    );
   });
 });
 

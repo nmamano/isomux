@@ -713,6 +713,30 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.lastBackupOk": "Last backup {when}, successful.",
   "settings.storage.lastBackupFailed": "Last backup {when} FAILED.",
   "settings.storage.lastBackupFailedWith": "Last backup {when} FAILED: {error}",
+  "settings.storage.backupEvery.one": "A new one every {count} hour.",
+  "settings.storage.backupEvery.other": "A new one every {count} hours.",
+  "settings.storage.oldBackupsStay":
+    "Earlier backups stay in <code>{dir}</code>.",
+  "settings.storage.backupInterval": "Back up every",
+  "settings.storage.backupHours": "hours",
+  "settings.storage.backupCopies": "Copies to keep",
+  "settings.storage.backupFolder": "Folder",
+  "settings.storage.backupFolderHint": "Leave it empty for the default folder.",
+  "settings.storage.backupFolderFromEnv": "ISOMUX_BACKUP_DIR sets the folder.",
+  "settings.storage.backupSaveFailed": "Could not save the backup settings.",
+  "settings.storage.compressSection": "Compress old conversations",
+  "settings.storage.compressHint":
+    "Old conversations take less space and read the same.",
+  "settings.storage.compress": "Compress",
+  "settings.storage.compressing": "Compressing…",
+  "settings.storage.compressNothing": "Nothing to compress.",
+  "settings.storage.compressedResult.one":
+    "Compressed {count} conversation, from {before} to {after}.",
+  "settings.storage.compressedResult.other":
+    "Compressed {count} conversations, from {before} to {after}.",
+  "settings.storage.compressRefused.one": "{count} was left as it was.",
+  "settings.storage.compressRefused.other": "{count} were left as they were.",
+  "settings.storage.compressFailed": "The compress request failed.",
   "settings.storage.backupKeeping":
     "Keeping {retention} in <code>{destDir}</code>.",
   "settings.storage.planCount":
@@ -1715,6 +1739,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.version.check": "Check isomux version",
   "apiCall.storage.usage": "Check office disk usage",
   "apiCall.storage.prune": "Prune stored history",
+  "apiCall.storage.compress": "Compress old conversations",
+  "apiCall.backup.settings": "Change backup settings",
   "apiCall.usage.tokens": "Check office token usage",
   "apiCall.body.jq": "body built with jq",
   "apiCall.body.jqReads": "body built with jq (reads {files})",

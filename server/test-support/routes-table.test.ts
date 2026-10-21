@@ -1605,12 +1605,15 @@ const SPEC_ROUTE_CONTRACT: Record<
   "cron.runDiff": { caps: ["self:affordance"], emits: ["cron_run_log_entry"] },
   // System
   "system.backupStatus": { caps: ["office:read"], emits: [] },
+  // Task e9776386: where the office's full archive goes is the owner's call.
+  "system.setBackupSettings": { caps: ["office:admin"], emits: [] },
   "system.version": { caps: [], emits: [] },
   // Storage (task 2366ccb0). usage reads like backupStatus (office:read, agents
   // included - it is a size report); prune deletes, so office:admin + owner.
   "storage.usage": { caps: ["office:read"], emits: [] },
   "usage.read": { caps: ["office:read"], emits: [] },
   "storage.prune": { caps: ["office:admin"], emits: [] },
+  "storage.compress": { caps: ["office:admin"], emits: [] },
   // Memory (isomux-memory)
   "memory.read": { caps: ["memory:read"], emits: [] },
   "memory.append": { caps: ["memory:write"], emits: [] },

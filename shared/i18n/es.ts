@@ -720,6 +720,32 @@ Cosas que puedes hacer por él:
     "Última copia de seguridad {when} FALLIDA.",
   "settings.storage.lastBackupFailedWith":
     "Última copia de seguridad {when} FALLIDA: {error}",
+  "settings.storage.backupEvery.one": "Una nueva cada {count} hora.",
+  "settings.storage.backupEvery.other": "Una nueva cada {count} horas.",
+  "settings.storage.oldBackupsStay":
+    "Las copias anteriores se quedan en <code>{dir}</code>.",
+  "settings.storage.backupInterval": "Copia cada",
+  "settings.storage.backupHours": "horas",
+  "settings.storage.backupCopies": "Copias que se guardan",
+  "settings.storage.backupFolder": "Carpeta",
+  "settings.storage.backupFolderHint":
+    "Déjala vacía para usar la carpeta predeterminada.",
+  "settings.storage.backupFolderFromEnv": "ISOMUX_BACKUP_DIR fija la carpeta.",
+  "settings.storage.backupSaveFailed":
+    "No se pudo guardar la configuración de las copias de seguridad.",
+  "settings.storage.compressSection": "Comprimir conversaciones antiguas",
+  "settings.storage.compressHint":
+    "Las conversaciones antiguas ocupan menos espacio y se leen igual.",
+  "settings.storage.compress": "Comprimir",
+  "settings.storage.compressing": "Comprimiendo…",
+  "settings.storage.compressNothing": "No hay nada que comprimir.",
+  "settings.storage.compressedResult.one":
+    "Se comprimió {count} conversación, de {before} a {after}.",
+  "settings.storage.compressedResult.other":
+    "Se comprimieron {count} conversaciones, de {before} a {after}.",
+  "settings.storage.compressRefused.one": "{count} se dejó como estaba.",
+  "settings.storage.compressRefused.other": "{count} se dejaron como estaban.",
+  "settings.storage.compressFailed": "La solicitud de compresión falló.",
   "settings.storage.backupKeeping":
     "Se conservan {retention} en <code>{destDir}</code>.",
   "settings.storage.planCount":
@@ -1754,6 +1780,9 @@ Cosas que puedes hacer por él:
   "apiCall.version.check": "Consultar la versión de isomux",
   "apiCall.storage.usage": "Consultar el uso de disco de la oficina",
   "apiCall.storage.prune": "Purgar el historial almacenado",
+  "apiCall.storage.compress": "Comprimir conversaciones antiguas",
+  "apiCall.backup.settings":
+    "Cambiar la configuración de las copias de seguridad",
   "apiCall.usage.tokens": "Consultar el uso de tokens de la oficina",
   "apiCall.body.jq": "cuerpo construido con jq",
   "apiCall.body.jqReads": "cuerpo construido con jq (lee {files})",

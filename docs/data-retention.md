@@ -64,7 +64,7 @@ The credential files are listed in the [security audit, section 8.1](security-au
 
 ### Backups
 
-Isomux keeps seven daily backups in a directory next to the state directory (`~/isomux-backups` for `~/.isomux`), or in `ISOMUX_BACKUP_DIR` if you set it. `GET /api/backup/status` gives the directory. The backups hold the conversations and the other office data, but not the credential files ([security audit, section 8.2](security-audit.md#82-backups)).
+By default, Isomux keeps seven daily backups in a directory next to the state directory (`~/isomux-backups` for `~/.isomux`). An office owner can change how often, how many and the directory in Settings → Office → Storage. `ISOMUX_BACKUP_DIR`, if you set it, fixes the directory. When the directory changes, the earlier backups stay in the old one. `GET /api/backup/status` gives the directory. The backups hold the conversations and the other office data, but not the credential files ([security audit, section 8.2](security-audit.md#82-backups)).
 
 ### Other copies
 

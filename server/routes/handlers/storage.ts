@@ -13,6 +13,9 @@
 // body says `"apply": true`. Nothing in the server ever calls this on a timer -
 // there is no retention scheduler (see server/storage-prune.ts).
 //
+// POST /api/storage/compress - the same gate and the same dry-run default. It
+// gzips old transcripts in place (server/storage-compress.ts); nothing is lost.
+//
 // LEAF over the executor. Only the injected StorageDeps.
 
 import { ok, fail, type RouteHandler } from "../executor.ts";
@@ -24,6 +27,7 @@ import {
   type PruneResult,
   type PruneTarget,
 } from "../../storage-prune.ts";
+import type { CompressPlan, CompressResult } from "../../storage-compress.ts";
 
 export interface StorageDeps {
   // Full breakdown including per-agent detail; the handler strips the detail
@@ -31,6 +35,8 @@ export interface StorageDeps {
   getUsage(): StorageUsage;
   planPrune(target: PruneTarget, policy: PrunePolicy): PrunePlan;
   applyPrune(plan: PrunePlan): PruneResult;
+  planCompress(olderThanDays: number): CompressPlan;
+  applyCompress(plan: CompressPlan): Promise<CompressResult>;
 }
 
 const TARGETS: readonly PruneTarget[] = [
@@ -134,6 +140,28 @@ export function storageHandlers(
       // signal that nothing was touched - never an empty result object, which
       // would read like a prune that found nothing to do.
       const applied = b.apply === true ? deps.applyPrune(plan) : null;
+      return ok({ plan, applied });
+    },
+
+    // Lossless, so no keepPerAgent and no fork-ancestor rule; the same age
+    // floor and the same dry-run default as storage.prune.
+    "storage.compress": async (ctx) => {
+      const b = (ctx.body ?? {}) as {
+        olderThanDays?: unknown;
+        apply?: unknown;
+      };
+      if (!isPositiveInt(b.olderThanDays, MIN_OLDER_THAN_DAYS)) {
+        return fail(
+          400,
+          "invalid_older_than_days",
+          `olderThanDays must be an integer of at least ${MIN_OLDER_THAN_DAYS}`,
+        );
+      }
+      if (b.apply !== undefined && typeof b.apply !== "boolean") {
+        return fail(400, "invalid_apply", "apply must be a boolean");
+      }
+      const plan = deps.planCompress(b.olderThanDays);
+      const applied = b.apply === true ? await deps.applyCompress(plan) : null;
       return ok({ plan, applied });
     },
   };

@@ -936,3 +936,87 @@ it("uses the injected token-log root independently of the transcript layout", ()
   expect(applyPrune(plan, d).deleted).toBe(1);
   expect(existsSync(path)).toBe(false);
 });
+
+// Compressed transcripts (task e9776386): a <sid>.jsonl.gz is the same session
+// in another form. Prune must rank, delete and read it like a .jsonl - above
+// all, an attachment that only a compressed transcript names is not an orphan.
+describe("compressed transcripts", () => {
+  const gz = (text: string) => Bun.gzipSync(text);
+
+  function writeAgedBytes(path: string, bytes: Uint8Array, ageDays: number) {
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, bytes);
+    const seconds = (NOW - ageDays * DAY_MS) / 1000;
+    utimesSync(path, seconds, seconds);
+  }
+
+  it("ranks a compressed session with the rest and deletes it", () => {
+    const logs = join(tempDir(), "logs");
+    // The newest session is compressed: keepPerAgent 1 must spare IT, so the
+    // plain one is the candidate.
+    writeAgedBytes(join(logs, "agent-a", "newest.jsonl.gz"), gz("n\n"), 100);
+    writeAged(join(logs, "agent-a", "older.jsonl"), "o".repeat(40), 200);
+    writeAgedBytes(join(logs, "agent-b", "packed.jsonl.gz"), gz("p\n"), 300);
+    const d = deps(logs);
+
+    const plan = planPrune(
+      "transcripts",
+      { olderThanDays: 30, keepPerAgent: 1 },
+      d,
+    );
+    expect(sessionIds(plan)).toEqual(["older"]);
+
+    const all = planPrune(
+      "transcripts",
+      { olderThanDays: 30, keepPerAgent: 0 },
+      d,
+    );
+    expect(sessionIds(all)).toEqual(["newest", "older", "packed"]);
+    expect(applyPrune(all, d).deleted).toBe(3);
+    expect(existsSync(join(logs, "agent-a", "newest.jsonl.gz"))).toBe(false);
+    expect(existsSync(join(logs, "agent-b", "packed.jsonl.gz"))).toBe(false);
+  });
+
+  it("deletes both files of a session a crash left in both forms", () => {
+    const logs = join(tempDir(), "logs");
+    writeAged(join(logs, "agent-a", "both.jsonl"), "b".repeat(10), 200);
+    writeAgedBytes(join(logs, "agent-a", "both.jsonl.gz"), gz("b\n"), 200);
+    const d = deps(logs);
+    const plan = planPrune(
+      "transcripts",
+      { olderThanDays: 30, keepPerAgent: 0 },
+      d,
+    );
+    expect(sessionIds(plan)).toEqual(["both"]);
+    applyPrune(plan, d);
+    expect(existsSync(join(logs, "agent-a", "both.jsonl"))).toBe(false);
+    expect(existsSync(join(logs, "agent-a", "both.jsonl.gz"))).toBe(false);
+  });
+
+  it("spares an attachment that only a compressed transcript names", () => {
+    const logs = agentWithAttachments();
+    writeAgedBytes(
+      join(logs, "agent-a", "older.jsonl.gz"),
+      gz(
+        JSON.stringify({ id: "1", attachments: [{ filename: "orphan.png" }] }) +
+          "\n",
+      ),
+      300,
+    );
+    const plan = planPrune("attachments", POLICY, deps(logs));
+    expect(plan.candidates).toEqual([]);
+    expect(skipCount(plan, "referenced")).toBe(2);
+  });
+
+  it("spares every attachment of an agent whose compressed transcript is corrupt", () => {
+    const logs = agentWithAttachments();
+    writeAgedBytes(
+      join(logs, "agent-a", "broken.jsonl.gz"),
+      new TextEncoder().encode("not gzip"),
+      300,
+    );
+    const plan = planPrune("attachments", POLICY, deps(logs));
+    expect(plan.candidates).toEqual([]);
+    expect(skipCount(plan, "referenced")).toBe(2);
+  });
+});

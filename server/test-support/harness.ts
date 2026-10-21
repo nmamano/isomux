@@ -294,7 +294,9 @@ async function bootTestServer(
       awaitRestore: true,
       getBackupStatus: () => ({
         backupDir: TEST_BACKUP_DIR,
+        backupDirFromEnv: false,
         retention: 7,
+        intervalHours: 24,
         lastBackupAt: null,
         lastBackupOk: null,
         lastBackupError: null,

@@ -1,10 +1,15 @@
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 import { OFFICE_DATABASE } from "./audit-store.ts";
-// Daily backup of ~/.isomux to a verified local tarball.
+// Backup of ~/.isomux to a verified local tarball. The office owner sets how
+// often (default every 24 hours), how many copies to keep (default 7) and the
+// folder; ISOMUX_BACKUP_DIR, when set, fixes the folder. Each check reads the
+// settings once, so a change needs no restart.
 //
 // A backup is published in three steps: write a uniquely named partial file,
 // walk the whole archive with `tar -tzf`, then rename it and write a verification
-// marker. The marker records the final file's size and mtime. A final file with
+// marker. The marker records the final file's size and mtime, when the run
+// started (the interval counts from that) and the office's state root (two
+// offices can share a folder; each counts only its own). A final file with
 // no matching marker is not a backup: the process may have stopped between the
 // rename and the marker write, or an older release may have written it directly.
 // The next tick verifies such legacy/orphaned files before it trusts them.
@@ -13,8 +18,11 @@ import { OFFICE_DATABASE } from "./audit-store.ts";
 // failed run therefore cannot displace a good backup. Restore is documented in
 // internal-docs/backup-restore.md.
 
-import { basename, dirname, join } from "path";
+import { basename, dirname, isAbsolute, join, relative } from "path";
 import {
+  accessSync,
+  constants as fsConstants,
+  realpathSync,
   closeSync,
   chmodSync,
   existsSync,
@@ -36,15 +44,13 @@ import {
   type BackendCredentialPath,
 } from "./backend-credential-paths.ts";
 import { STATE_ROOT } from "./config.ts";
+import { loadBackupSettingsRaw, saveBackupSettingsRaw } from "./persistence.ts";
 
-const STATE_ROOT_PARENT = dirname(STATE_ROOT);
-const STATE_ROOT_NAME = basename(STATE_ROOT);
-const BACKUP_DIR =
-  process.env.ISOMUX_BACKUP_DIR || defaultBackupDir(STATE_ROOT);
 const RETENTION = 7;
-const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1h
-const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
-const BACKUP_HEALTH_MAX_AGE_MS = 26 * 60 * 60 * 1000; // 26h
+const HOUR_MS = 60 * 60 * 1000;
+const CHECK_INTERVAL_MS = HOUR_MS;
+// The newest backup is stale this long after one interval has passed.
+const HEALTH_SLACK_MS = 2 * HOUR_MS;
 const FIRST_BACKUP_MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 const MIN_HEADROOM_BYTES = 256 * 1024 * 1024; // 256 MiB
 const FILENAME_PATTERN = /^isomux-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.tar\.gz$/;
@@ -61,14 +67,239 @@ export function defaultBackupDir(stateRoot: string): string {
   );
 }
 
+// The three backup settings, kept in office-config.json. dir null means the
+// default folder. ISOMUX_BACKUP_DIR, when set, wins over dir.
+export interface BackupSettings {
+  intervalHours: number;
+  retention: number;
+  dir: string | null;
+}
+
+// An omitted field keeps its value; dir null resets the folder.
+export interface BackupSettingsInput {
+  intervalHours?: number;
+  retention?: number;
+  dir?: string | null;
+}
+
+export const DEFAULT_BACKUP_SETTINGS: BackupSettings = {
+  intervalHours: 24,
+  retention: RETENTION,
+  dir: null,
+};
+
+export const BACKUP_INTERVAL_HOURS_RANGE = { min: 1, max: 720 } as const;
+export const BACKUP_RETENTION_RANGE = { min: 1, max: 100 } as const;
+
+export type BackupDirSource = "env" | "setting" | "default";
+
+// ISOMUX_BACKUP_DIR, then the setting, then the folder next to the state root.
+export function resolveBackupDir(
+  envDir: string | undefined,
+  settingDir: string | null,
+  stateRoot: string,
+): { dir: string; source: BackupDirSource } {
+  if (envDir) return { dir: envDir, source: "env" };
+  if (settingDir) return { dir: settingDir, source: "setting" };
+  return { dir: defaultBackupDir(stateRoot), source: "default" };
+}
+
+function inRange(
+  value: unknown,
+  range: { min: number; max: number },
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= range.min &&
+    value <= range.max
+  );
+}
+
+// The stored settings, with defaults for absent or invalid fields.
+export function loadBackupSettings(): BackupSettings {
+  const raw = loadBackupSettingsRaw();
+  return {
+    intervalHours: inRange(raw.intervalHours, BACKUP_INTERVAL_HOURS_RANGE)
+      ? raw.intervalHours
+      : DEFAULT_BACKUP_SETTINGS.intervalHours,
+    retention: inRange(raw.retention, BACKUP_RETENTION_RANGE)
+      ? raw.retention
+      : DEFAULT_BACKUP_SETTINGS.retention,
+    dir:
+      typeof raw.dir === "string" && isAbsolute(raw.dir)
+        ? raw.dir
+        : DEFAULT_BACKUP_SETTINGS.dir,
+  };
+}
+
+// A snapshot of the settings for one run. A save during a run never changes
+// the folder or the count the run already holds.
+function currentBackupConfig(
+  envDir: string | undefined = process.env.ISOMUX_BACKUP_DIR,
+  stateRoot: string = STATE_ROOT,
+): BackupConfig {
+  const settings = loadBackupSettings();
+  const { dir, source } = resolveBackupDir(envDir, settings.dir, stateRoot);
+  return Object.freeze({
+    backupDir: dir,
+    backupDirFromEnv: source === "env",
+    stateRootParent: dirname(stateRoot),
+    stateRootName: basename(stateRoot),
+    retention: settings.retention,
+    intervalMs: settings.intervalHours * HOUR_MS,
+    firstBackupMinFreeBytes: FIRST_BACKUP_MIN_FREE_BYTES,
+    minHeadroomBytes: MIN_HEADROOM_BYTES,
+  });
+}
+
+function isInside(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+// The real path `dir` has or will have once created: the real path of its
+// nearest existing ancestor plus the rest.
+function prospectiveRealPath(dir: string): string {
+  let existing = dir;
+  const rest: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(basename(existing));
+    existing = parent;
+  }
+  return join(realpathSync(existing), ...rest);
+}
+
+// null when `dir` can hold backups; otherwise why not. Creates the folder.
+function backupDirError(dir: string, stateRoot: string): string | null {
+  if (!isAbsolute(dir)) return "the backup folder must be an absolute path";
+  const realRoot = existsSync(stateRoot) ? realpathSync(stateRoot) : stateRoot;
+  const insideRoot = (path: string) =>
+    isInside(path, realRoot) || isInside(path, stateRoot);
+  const outside = "the backup folder must be outside the office state folder";
+  try {
+    // Checked before the mkdir too, so a refused folder is never created
+    // inside the state root.
+    if (insideRoot(prospectiveRealPath(dir))) return outside;
+    mkdirSync(dir, { recursive: true });
+    if (insideRoot(realpathSync(dir))) return outside;
+    accessSync(dir, fsConstants.W_OK);
+  } catch (err) {
+    return `the backup folder cannot be used: ${errMessage(err)}`;
+  }
+  return null;
+}
+
+export type SaveBackupSettingsResult =
+  | { ok: true; status: BackupStatus; oldBackupsDir: string | null }
+  | { ok: false; error: string };
+
+// Validates the whole input before it writes anything. The folder must be
+// absolute, creatable and writable, and its real path must not be the state
+// root or inside it. A folder change is refused while ISOMUX_BACKUP_DIR is
+// set. A run that already started keeps the settings it started with.
+export function saveBackupSettings(
+  input: BackupSettingsInput,
+  opts: { stateRoot?: string; envDir?: string | undefined } = {},
+): SaveBackupSettingsResult {
+  const stateRoot = opts.stateRoot ?? STATE_ROOT;
+  const envDir = "envDir" in opts ? opts.envDir : process.env.ISOMUX_BACKUP_DIR;
+  const current = loadBackupSettings();
+  const next: BackupSettings = { ...current };
+  if (input.intervalHours !== undefined) {
+    if (!inRange(input.intervalHours, BACKUP_INTERVAL_HOURS_RANGE))
+      return {
+        ok: false,
+        error: `intervalHours must be a whole number from ${BACKUP_INTERVAL_HOURS_RANGE.min} to ${BACKUP_INTERVAL_HOURS_RANGE.max}`,
+      };
+    next.intervalHours = input.intervalHours;
+  }
+  if (input.retention !== undefined) {
+    if (!inRange(input.retention, BACKUP_RETENTION_RANGE))
+      return {
+        ok: false,
+        error: `retention must be a whole number from ${BACKUP_RETENTION_RANGE.min} to ${BACKUP_RETENTION_RANGE.max}`,
+      };
+    next.retention = input.retention;
+  }
+  if (input.dir !== undefined && input.dir !== current.dir) {
+    if (envDir)
+      return {
+        ok: false,
+        error: "ISOMUX_BACKUP_DIR sets the backup folder",
+      };
+    if (input.dir !== null) {
+      if (typeof input.dir !== "string")
+        return { ok: false, error: "dir must be a path or null" };
+      const error = backupDirError(input.dir, stateRoot);
+      if (error) return { ok: false, error };
+    }
+    next.dir = input.dir;
+  }
+  const before = resolveBackupDir(envDir, current.dir, stateRoot).dir;
+  try {
+    saveBackupSettingsRaw(next);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `could not save the backup settings: ${errMessage(err)}`,
+    };
+  }
+  const config = currentBackupConfig(envDir, stateRoot);
+  requestBackupTick();
+  return {
+    ok: true,
+    status: statusFromDisk(
+      config,
+      Date.now(),
+      lastAttemptAt,
+      lastAttemptError,
+      running,
+    ),
+    oldBackupsDir: config.backupDir === before ? null : before,
+  };
+}
+
+let schedulerStarted = false;
+
+// Runs one scheduler check now, so a shorter interval acts at once. Does
+// nothing when the scheduler did not start (test and harness boots).
+export function requestBackupTick(): void {
+  if (schedulerStarted) void tick();
+}
+
+// Whether a backup is due at `now`: the interval is counted from the time the
+// newest verified backup STARTED (its marker), or its mtime for an older
+// marker that has no start time. Counted from the finish, an hourly check
+// one interval after the start would find it not quite due and wait an hour.
+function backupDue(config: BackupConfig, now: number): boolean {
+  const newest = newestVerifiedBackup(config);
+  if (!newest) return true;
+  return now - (newest.startedAt ?? newest.mtimeMs) >= config.intervalMs;
+}
+
+export function backupDueForTest(
+  overrides: Partial<BackupConfig>,
+  now: number,
+): boolean {
+  return backupDue({ ...currentBackupConfig(), ...overrides }, now);
+}
+
 let lastAttemptAt: number | null = null;
 let lastAttemptError: string | null = null;
 let running = false;
-let startupPrepared = false;
+// Folders whose leftovers from a stopped process were removed. Each folder is
+// prepared once, before this process can own a partial in it.
+const preparedDirs = new Set<string>();
 
 export interface BackupStatus {
   backupDir: string;
+  // ISOMUX_BACKUP_DIR set the folder.
+  backupDirFromEnv: boolean;
   retention: number;
+  intervalHours: number;
   lastBackupAt: number | null;
   lastBackupOk: boolean | null;
   lastBackupError: string | null;
@@ -76,11 +307,13 @@ export interface BackupStatus {
   running: boolean;
 }
 
-interface BackupConfig {
+export interface BackupConfig {
   backupDir: string;
+  backupDirFromEnv: boolean;
   stateRootParent: string;
   stateRootName: string;
   retention: number;
+  intervalMs: number;
   firstBackupMinFreeBytes: number;
   minHeadroomBytes: number;
 }
@@ -102,15 +335,6 @@ interface Subprocess {
 // GNU tar on Linux; bsdtar (libarchive) is the macOS system tar. They differ in
 // the options below and in what a non-zero exit means.
 type TarFlavor = "gnu" | "bsd";
-
-const DEFAULT_CONFIG: BackupConfig = {
-  backupDir: BACKUP_DIR,
-  stateRootParent: STATE_ROOT_PARENT,
-  stateRootName: STATE_ROOT_NAME,
-  retention: RETENTION,
-  firstBackupMinFreeBytes: FIRST_BACKUP_MIN_FREE_BYTES,
-  minHeadroomBytes: MIN_HEADROOM_BYTES,
-};
 
 const DEFAULT_DEPS: BackupDeps = {
   now: () => Date.now(),
@@ -157,11 +381,25 @@ interface VerifiedBackup {
   path: string;
   size: number;
   mtimeMs: number;
+  // When the run that wrote it started. Absent in markers from older
+  // releases and for archives certified after the fact.
+  startedAt?: number;
+  // The state root of the office that wrote it. Absent as for startedAt.
+  office?: string;
 }
 
 interface VerificationMarker {
   size: number;
   mtimeMs: number;
+  startedAt?: number;
+  office?: string;
+}
+
+// The office a marker names: its state root. Two offices can share a backup
+// folder, and each one's retention, status and schedule count only its own
+// archives, plus the unnamed ones from before markers named an office.
+function officeOf(config: BackupConfig): string {
+  return join(config.stateRootParent, config.stateRootName);
 }
 
 interface BackupExclusion {
@@ -272,7 +510,7 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
 
 export function getBackupStatus(): BackupStatus {
   return statusFromDisk(
-    DEFAULT_CONFIG,
+    currentBackupConfig(),
     Date.now(),
     lastAttemptAt,
     lastAttemptError,
@@ -287,16 +525,19 @@ function statusFromDisk(
   attemptError: string | null,
   isRunning: boolean,
 ): BackupStatus {
-  const newest = newestVerifiedBackup(config.backupDir);
+  const newest = newestVerifiedBackup(config);
   const newestAt = newest?.mtimeMs ?? null;
-  const stale = newestAt !== null && now - newestAt >= BACKUP_HEALTH_MAX_AGE_MS;
+  const staleAfterMs = config.intervalMs + HEALTH_SLACK_MS;
+  const stale = newestAt !== null && now - newestAt >= staleAfterMs;
   const failedAfterNewest =
     attemptError !== null &&
     attemptAt !== null &&
     (newestAt === null || attemptAt > newestAt);
   return {
     backupDir: config.backupDir,
+    backupDirFromEnv: config.backupDirFromEnv,
     retention: config.retention,
+    intervalHours: config.intervalMs / (60 * 60 * 1000),
     lastBackupAt: failedAfterNewest ? attemptAt : newestAt,
     lastBackupOk:
       newestAt === null
@@ -307,7 +548,7 @@ function statusFromDisk(
     lastBackupError: failedAfterNewest
       ? attemptError
       : stale
-        ? "newest verified backup is more than 26 hours old"
+        ? `newest verified backup is more than ${staleAfterMs / HOUR_MS} hours old`
         : null,
     lastBackupFile: newest?.file ?? null,
     running: isRunning,
@@ -339,22 +580,37 @@ function readVerifiedBackup(dir: string, file: string): VerifiedBackup | null {
       marker.mtimeMs !== stat.mtimeMs
     )
       return null;
-    return { file, path, size: stat.size, mtimeMs: stat.mtimeMs };
+    return {
+      file,
+      path,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      ...(typeof marker.startedAt === "number"
+        ? { startedAt: marker.startedAt }
+        : {}),
+      ...(typeof marker.office === "string" ? { office: marker.office } : {}),
+    };
   } catch {
     return null;
   }
 }
 
-function listVerifiedBackups(dir: string): VerifiedBackup[] {
+// This office's verified backups in its folder, oldest first.
+function listVerifiedBackups(config: BackupConfig): VerifiedBackup[] {
+  const dir = config.backupDir;
   if (!existsSync(dir)) return [];
+  const office = officeOf(config);
   return readdirSync(dir)
     .map((file) => readVerifiedBackup(dir, file))
-    .filter((item): item is VerifiedBackup => item !== null)
+    .filter(
+      (item): item is VerifiedBackup =>
+        item !== null && (item.office === undefined || item.office === office),
+    )
     .sort((a, b) => a.mtimeMs - b.mtimeMs || a.file.localeCompare(b.file));
 }
 
-function newestVerifiedBackup(dir: string): VerifiedBackup | null {
-  return listVerifiedBackups(dir).at(-1) ?? null;
+function newestVerifiedBackup(config: BackupConfig): VerifiedBackup | null {
+  return listVerifiedBackups(config).at(-1) ?? null;
 }
 
 function dateStr(now: number): string {
@@ -457,7 +713,10 @@ async function readFirstLine(
   return head;
 }
 
-function writeMarker(archivePath: string): void {
+function writeMarker(
+  archivePath: string,
+  run?: { startedAt: number; office: string },
+): void {
   const stat = statSync(archivePath);
   const finalMarker = markerPath(archivePath);
   const tempMarker = `${finalMarker}.${process.pid}.tmp`;
@@ -466,7 +725,7 @@ function writeMarker(archivePath: string): void {
     try {
       writeFileSync(
         fd,
-        `${JSON.stringify({ size: stat.size, mtimeMs: stat.mtimeMs })}\n`,
+        `${JSON.stringify({ size: stat.size, mtimeMs: stat.mtimeMs, ...run })}\n`,
       );
     } finally {
       closeSync(fd);
@@ -548,7 +807,7 @@ async function certifyUnmarkedArchives(
 }
 
 function pruneVerified(config: BackupConfig): void {
-  const files = listVerifiedBackups(config.backupDir);
+  const files = listVerifiedBackups(config);
   while (files.length > config.retention) {
     const oldest = files.shift()!;
     unlinkSync(oldest.path);
@@ -560,7 +819,7 @@ export async function runBackupOnceForTest(
   overrides: Partial<BackupConfig>,
   deps: BackupDeps,
 ): Promise<string> {
-  return runBackup({ ...DEFAULT_CONFIG, ...overrides }, deps);
+  return runBackup({ ...currentBackupConfig(), ...overrides }, deps);
 }
 
 export function backupStatusForTest(
@@ -568,7 +827,7 @@ export function backupStatusForTest(
   now: number,
 ): BackupStatus {
   return statusFromDisk(
-    { ...DEFAULT_CONFIG, ...overrides },
+    { ...currentBackupConfig(), ...overrides },
     now,
     null,
     null,
@@ -581,12 +840,12 @@ export function prepareBackupDirectoryForTest(dir: string): void {
 }
 
 async function runBackup(
-  config: BackupConfig = DEFAULT_CONFIG,
+  config: BackupConfig,
   deps: BackupDeps = DEFAULT_DEPS,
 ): Promise<string> {
   mkdirSync(config.backupDir, { recursive: true });
   await certifyUnmarkedArchives(config, deps);
-  const newest = newestVerifiedBackup(config.backupDir);
+  const newest = newestVerifiedBackup(config);
   const required = requiredFreeBytes(newest, config);
   const available = deps.availableBytes(config.backupDir);
   if (available < required) {
@@ -664,7 +923,7 @@ async function runBackup(
     chmodSync(partial, 0o600);
     await verifyArchive(partial, config.stateRootName, deps);
     renameSync(partial, final);
-    writeMarker(final);
+    writeMarker(final, { startedAt: now, office: officeOf(config) });
     pruneVerified(config);
     return basename(final);
   } finally {
@@ -679,20 +938,21 @@ async function tick() {
   if (running) return;
   running = true;
   try {
-    if (!startupPrepared) {
+    // One snapshot of the settings for the whole check and run.
+    const config = currentBackupConfig();
+    if (!preparedDirs.has(config.backupDir)) {
       lastAttemptAt = Date.now();
-      prepareBackupDirectory(BACKUP_DIR);
-      startupPrepared = true;
+      prepareBackupDirectory(config.backupDir);
+      preparedDirs.add(config.backupDir);
       lastAttemptError = null;
     }
     // On the first run after this feature ships, certify a legacy archive
     // before deciding it is due. Otherwise an upgrade would read the newest
     // archive once to verify it and immediately write a duplicate.
-    await certifyUnmarkedArchives(DEFAULT_CONFIG, DEFAULT_DEPS);
-    const newest = newestVerifiedBackup(BACKUP_DIR);
-    if (newest && Date.now() - newest.mtimeMs < BACKUP_INTERVAL_MS) return;
+    await certifyUnmarkedArchives(config, DEFAULT_DEPS);
+    if (!backupDue(config, Date.now())) return;
     lastAttemptAt = Date.now();
-    const file = await runBackup();
+    const file = await runBackup(config);
     lastAttemptError = null;
     console.log(`[backup] wrote and verified ${file}`);
   } catch (err) {
@@ -706,6 +966,7 @@ async function tick() {
 export function startBackupScheduler() {
   // A low-space refusal happens before tar reads the state root. Retrying it
   // hourly is therefore a cheap statfs check, not an hourly full archive.
+  schedulerStarted = true;
   void tick();
   setInterval(() => void tick(), CHECK_INTERVAL_MS);
 }

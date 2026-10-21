@@ -58,8 +58,19 @@ import type {
   PruneTarget,
   StoragePruneRes,
 } from "../../shared/contract-shapes.ts";
-import type { BackupStatusWire } from "../../shared/contract-shapes.ts";
-import { dialogInput, dialogCancelBtn, disabledLook } from "./dialog-styles.ts";
+import type {
+  BackupSettingsReq,
+  BackupSettingsRes,
+  BackupStatusWire,
+  StorageCompressRes,
+  CompressResultWire,
+} from "../../shared/contract-shapes.ts";
+import {
+  dialogInput,
+  dialogCancelBtn,
+  dialogSaveBtn,
+  disabledLook,
+} from "./dialog-styles.ts";
 
 // The category's words, by wire id. Own-property lookup like every other key
 // table (shared/i18n/translate.ts keyFrom), so an id that is not a category
@@ -331,7 +342,8 @@ export function StoragePane({
       </h3>
 
       <UsageBlock usage={usage} error={loadError} />
-      <BackupBlock backup={backup} />
+      <BackupBlock backup={backup} onSaved={setBackup} />
+      <CompressBlock onCompressed={loadUsage} />
 
       {leavePrompt.open && (
         <UnsavedChangesPrompt
@@ -603,11 +615,17 @@ function CategoryRow({
 
 function BackupBlock({
   backup,
+  onSaved,
 }: {
   backup: BackupStatusWire | "unavailable" | null;
+  onSaved: (status: BackupStatusWire) => void;
 }) {
-  const { t, rich, language } = useI18n();
+  const { t, tn, rich, language } = useI18n();
   const age = (ts: number) => ageText(language, t, ts);
+  const [editing, setEditing] = useState(false);
+  // Where the backups were before the last save moved the folder. They stay
+  // there, so the panel says where, or the space would vanish from view.
+  const [oldBackupsDir, setOldBackupsDir] = useState<string | null>(null);
   if (backup === null) return null;
   if (backup === "unavailable") {
     return (
@@ -653,9 +671,257 @@ function BackupBlock({
             retention: backup.retention,
             destDir: backup.destDir,
             code: inCode,
-          })}
-        </span>
+          })}{" "}
+          {tn("settings.storage.backupEvery", backup.intervalHours)}
+        </span>{" "}
+        {!editing && (
+          <button
+            onClick={() => setEditing(true)}
+            style={{
+              ...dialogCancelBtn,
+              padding: "1px 8px",
+              fontSize: 11,
+            }}
+          >
+            {t("common.edit")}
+          </button>
+        )}
       </p>
+      {oldBackupsDir && (
+        <p
+          style={{
+            fontSize: 11,
+            color: "var(--text-secondary)",
+            margin: "6px 0 0",
+            lineHeight: 1.5,
+          }}
+        >
+          {rich("settings.storage.oldBackupsStay", {
+            dir: oldBackupsDir,
+            code: inCode,
+          })}
+        </p>
+      )}
+      {editing && (
+        <BackupSettingsForm
+          backup={backup}
+          onCancel={() => setEditing(false)}
+          onSaved={(res) => {
+            const { oldBackupsDir: left, ...status } = res;
+            if (left) setOldBackupsDir(left);
+            onSaved(status);
+            setEditing(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// How often, how many copies, which folder. Only the fields the owner changed
+// are sent, so an untouched folder never turns the default into a fixed path.
+function BackupSettingsForm({
+  backup,
+  onCancel,
+  onSaved,
+}: {
+  backup: BackupStatusWire;
+  onCancel: () => void;
+  onSaved: (res: BackupSettingsRes) => void;
+}) {
+  const { t } = useI18n();
+  const [hours, setHours] = useState(String(backup.intervalHours));
+  const [copies, setCopies] = useState(String(backup.retention));
+  const [dir, setDir] = useState(backup.destDir);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const body: BackupSettingsReq = {};
+    if (hours !== String(backup.intervalHours))
+      body.intervalHours = Number(hours);
+    if (copies !== String(backup.retention)) body.retention = Number(copies);
+    if (!backup.destDirFromEnv && dir.trim() !== backup.destDir)
+      body.dir = dir.trim() === "" ? null : dir.trim();
+    setSaving(true);
+    setError(null);
+    try {
+      onSaved(
+        await apiFetch<BackupSettingsRes>("PUT", "/api/backup/settings", body),
+      );
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : t("settings.storage.backupSaveFailed"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const numberInput = (
+    value: string,
+    onChange: (v: string) => void,
+    max: number,
+  ) => (
+    <input
+      type="number"
+      min={1}
+      max={max}
+      value={value}
+      disabled={saving}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ ...dialogInput, width: 90 }}
+    />
+  );
+
+  return (
+    <div>
+      <FieldLabel>{t("settings.storage.backupInterval")}</FieldLabel>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {numberInput(hours, setHours, 720)}
+        <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+          {t("settings.storage.backupHours")}
+        </span>
+      </div>
+      <FieldLabel>{t("settings.storage.backupCopies")}</FieldLabel>
+      {numberInput(copies, setCopies, 100)}
+      <FieldLabel>{t("settings.storage.backupFolder")}</FieldLabel>
+      <input
+        value={dir}
+        disabled={saving || backup.destDirFromEnv}
+        onChange={(e) => setDir(e.target.value)}
+        style={{
+          ...dialogInput,
+          fontFamily: "'JetBrains Mono',monospace",
+          ...(backup.destDirFromEnv ? { color: "var(--text-hint)" } : null),
+        }}
+      />
+      <p
+        style={{ fontSize: 11, color: "var(--text-ghost)", margin: "5px 0 0" }}
+      >
+        {backup.destDirFromEnv
+          ? t("settings.storage.backupFolderFromEnv")
+          : t("settings.storage.backupFolderHint")}
+      </p>
+      {error && <ErrorLine>{error}</ErrorLine>}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button
+          onClick={() => void save()}
+          disabled={saving}
+          style={{ ...dialogSaveBtn, ...(saving ? disabledLook : null) }}
+        >
+          {saving ? t("common.saving") : t("common.save")}
+        </button>
+        <button onClick={onCancel} disabled={saving} style={dialogCancelBtn}>
+          {t("common.cancel")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const DEFAULT_COMPRESS_DAYS = 30;
+
+// Lossless, so one button and no preview: the result line says what it did.
+function CompressBlock({ onCompressed }: { onCompressed: () => void }) {
+  const { t, tn, language } = useI18n();
+  const size = (bytes: number) => sizeText(language, t, bytes);
+  const [days, setDays] = useState(String(DEFAULT_COMPRESS_DAYS));
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<CompressResultWire | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const olderThanDays = Number(days);
+  const valid = Number.isInteger(olderThanDays) && olderThanDays >= 1;
+
+  async function compress() {
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await apiFetch<StorageCompressRes>(
+        "POST",
+        "/api/storage/compress",
+        { olderThanDays, apply: true },
+      );
+      setResult(res.applied);
+      onCompressed();
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : t("settings.storage.compressFailed"),
+      );
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <>
+      <SectionLabel>{t("settings.storage.compressSection")}</SectionLabel>
+      <p
+        style={{
+          fontSize: 11,
+          color: "var(--text-secondary)",
+          margin: 0,
+          lineHeight: 1.5,
+        }}
+      >
+        {t("settings.storage.compressHint")}
+      </p>
+      <FieldLabel>{t("settings.storage.olderThan")}</FieldLabel>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input
+          type="number"
+          min={1}
+          value={days}
+          disabled={running}
+          onChange={(e) => {
+            setDays(e.target.value);
+            setResult(null);
+          }}
+          style={{ ...dialogInput, width: 90 }}
+        />
+        <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+          {t("settings.storage.daysHint")}
+        </span>
+      </div>
+      <button
+        onClick={() => void compress()}
+        disabled={!valid || running}
+        style={{
+          ...dialogCancelBtn,
+          marginTop: 14,
+          width: "100%",
+          ...(valid && !running ? null : disabledLook),
+        }}
+      >
+        {running
+          ? t("settings.storage.compressing")
+          : t("settings.storage.compress")}
+      </button>
+      {error && <ErrorLine>{error}</ErrorLine>}
+      {result && (
+        <p
+          style={{
+            fontSize: 11,
+            color: "var(--text-secondary)",
+            margin: "8px 0 0",
+            lineHeight: 1.5,
+          }}
+        >
+          {result.compressed === 0
+            ? t("settings.storage.compressNothing")
+            : tn("settings.storage.compressedResult", result.compressed, {
+                before: size(result.bytesBefore),
+                after: size(result.bytesAfter),
+              })}
+          {result.refused.length > 0 &&
+            " " + tn("settings.storage.compressRefused", result.refused.length)}
+        </p>
+      )}
     </>
   );
 }

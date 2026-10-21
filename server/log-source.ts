@@ -2,7 +2,9 @@
 // (server/log-search.ts). Reads the same tree persistence.ts writes:
 //
 //   <logsDir>/<agentId>/sessions.json      per-session metadata
-//   <logsDir>/<agentId>/<sessionId>.jsonl  one log entry per line
+//   <logsDir>/<agentId>/<sessionId>.jsonl  one log entry per line, or
+//   <logsDir>/<agentId>/<sessionId>.jsonl.gz  the same, compressed
+//                                             (server/transcript-files.ts)
 //
 // The logs directory is a CONSTRUCTOR ARGUMENT rather than a module-level
 // STATE_ROOT read, because the search scan runs inside a child process -
@@ -18,16 +20,24 @@ import { join } from "path";
 import { readdir } from "fs/promises";
 import type { LogEntry } from "../shared/types.ts";
 import { isSafeId, type LogSource, type SessionMeta } from "./log-search.ts";
+import {
+  resolveTranscript,
+  sessionIdOfTranscript,
+  transcriptByteStream,
+} from "./transcript-files.ts";
 
 // Split a byte stream into lines without ever holding the whole file. A 35 MB
 // session is walked in chunks, so the scan's memory stays flat regardless of
 // session size.
-async function* streamFileLines(path: string): AsyncGenerator<string> {
-  const file = Bun.file(path);
-  if (!(await file.exists())) return;
+async function* streamFileLines(
+  dir: string,
+  sessionId: string,
+): AsyncGenerator<string> {
+  const file = resolveTranscript(dir, sessionId);
+  if (!file) return;
   const decoder = new TextDecoder();
   let buf = "";
-  for await (const chunk of file.stream()) {
+  for await (const chunk of transcriptByteStream(file)) {
     buf += decoder.decode(chunk, { stream: true });
     let nl = buf.indexOf("\n");
     while (nl >= 0) {
@@ -56,18 +66,23 @@ export function fileLogSource(logsDir: string): LogSource {
       if (!dir) return [];
       try {
         const names = await readdir(dir);
-        const ids = names
-          .filter((n) => n.endsWith(".jsonl"))
-          .map((n) => n.slice(0, -".jsonl".length))
-          .filter(isSafeId);
-        return ids.map((sessionId) => ({
-          sessionId,
-          // Mirrors persistence.listAgentSessions' fallback for a session with
-          // no recorded lastModified. Bun.file().lastModified is 0 for a file
-          // that vanished between the readdir and here, which is the same
-          // "unknown, sort last" value the caller would use anyway.
-          mtime: Bun.file(join(dir, `${sessionId}.jsonl`)).lastModified,
-        }));
+        // A crash can leave both forms of one session; list it once.
+        const ids = new Set<string>();
+        for (const name of names) {
+          const named = sessionIdOfTranscript(name);
+          if (named) ids.add(named.sessionId);
+        }
+        return [...ids].map((sessionId) => {
+          const file = resolveTranscript(dir, sessionId);
+          return {
+            sessionId,
+            // Mirrors persistence.listAgentSessions' fallback for a session
+            // with no recorded lastModified. 0 for a file that vanished
+            // between the readdir and here, which is the same "unknown, sort
+            // last" value the caller would use anyway.
+            mtime: file ? Bun.file(file.path).lastModified : 0,
+          };
+        });
       } catch {
         return [];
       }
@@ -91,9 +106,7 @@ export function fileLogSource(logsDir: string): LogSource {
       const dir = agentDir(agentId);
       if (!dir || !isSafeId(sessionId)) return [];
       const out: LogEntry[] = [];
-      for await (const line of streamFileLines(
-        join(dir, `${sessionId}.jsonl`),
-      )) {
+      for await (const line of streamFileLines(dir, sessionId)) {
         if (line.length === 0) continue;
         try {
           const entry = JSON.parse(line) as LogEntry;
@@ -110,7 +123,7 @@ export function fileLogSource(logsDir: string): LogSource {
       if (!dir || !isSafeId(sessionId)) {
         return (async function* () {})();
       }
-      return streamFileLines(join(dir, `${sessionId}.jsonl`));
+      return streamFileLines(dir, sessionId);
     },
   };
 }

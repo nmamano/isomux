@@ -141,7 +141,7 @@ export interface SessionMeta {
 }
 
 export interface LogSource {
-  // Sessions that have a physical `<sessionId>.jsonl` on disk, in no particular
+  // Sessions that have a `<sessionId>.jsonl` or `.jsonl.gz` on disk, in no particular
   // order. The authoritative set: a session id from the caller is validated
   // against THIS before any path is constructed.
   //

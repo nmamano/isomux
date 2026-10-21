@@ -32,10 +32,12 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
+  utimesSync,
 } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
+import { compressTranscript } from "../transcript-files.ts";
 import {
   loadAgents,
   saveAgents,
@@ -55,6 +57,9 @@ import {
   backfillSessionEngineConfigs,
   listAgentSessions,
   appendLog,
+  appendLogOrThrow,
+  loadLog,
+  loadLogWithAncestors,
   loadSessionsMap,
   loadSessionSummaryState,
   persistSessionSummary,
@@ -87,6 +92,7 @@ import type {
   TaskItem,
   Cronjob,
   CronjobRun,
+  LogEntry,
   UserRecord,
 } from "../../shared/types.ts";
 
@@ -1109,5 +1115,90 @@ describe("session summary persistence", () => {
       }),
     ).toBe(false);
     expect(existsSync(stateFile(`logs/${AGENT}`))).toBe(false);
+  });
+});
+
+// Compressed transcripts (task e9776386). A session gzipped by the storage
+// panel must read exactly as it did before: the chat view, fork chains, the
+// resume picker. The next append turns it back into a plain .jsonl; when that
+// fails, the append fails, because a fresh .jsonl beside the .gz would hide the
+// whole history (the .jsonl wins when both exist).
+describe("compressed transcripts", () => {
+  const AGENT = "agent-compressed-logs";
+  const agentDir = () => join(STATE_ROOT, "logs", AGENT);
+
+  const msg = (id: string, content: string): LogEntry => ({
+    id,
+    agentId: AGENT,
+    timestamp: 1_000,
+    kind: "user_message",
+    content,
+  });
+
+  it("loads a compressed session and a fork chain through it unchanged", () => {
+    appendLog(AGENT, "parent", msg("p1", "first"));
+    appendLog(AGENT, "parent", msg("p2", "edited later"));
+    appendLog(AGENT, "child", msg("c1", "the edit"));
+    seed(`logs/${AGENT}/sessions.json`, {
+      ...loadSessionsMap(AGENT),
+      child: {
+        ...loadSessionsMap(AGENT).child,
+        forkedFrom: "parent",
+        forkMessageId: "p2",
+      },
+    });
+    const parentBefore = loadLog(AGENT, "parent");
+    const chainBefore = loadLogWithAncestors(AGENT, "child");
+    expect(chainBefore.map((e) => e.id)).toEqual(["p1", "c1"]);
+
+    compressTranscript(agentDir(), "parent");
+    compressTranscript(agentDir(), "child");
+
+    expect(loadLog(AGENT, "parent")).toEqual(parentBefore);
+    expect(loadLogWithAncestors(AGENT, "child")).toEqual(chainBefore);
+  });
+
+  it("lists a compressed legacy session once, with its preview and file time", () => {
+    mkdirSync(agentDir(), { recursive: true });
+    const path = join(agentDir(), "legacy.jsonl");
+    writeFileSync(
+      path,
+      `${JSON.stringify({ kind: "system", content: "init" })}\n${JSON.stringify({ kind: "user_message", content: "Legacy first request" })}\n`,
+    );
+    utimesSync(path, 1_700_000_000, 1_700_000_000);
+    compressTranscript(agentDir(), "legacy");
+    // A crash leftover of another session: both forms on disk.
+    writeFileSync(join(agentDir(), "both.jsonl"), "{}\n");
+    writeFileSync(join(agentDir(), "both.jsonl.gz"), Bun.gzipSync("{}\n"));
+
+    const sessions = listAgentSessions(AGENT);
+    expect(sessions.map((s) => s.sessionId).sort()).toEqual(["both", "legacy"]);
+    const legacy = sessions.find((s) => s.sessionId === "legacy")!;
+    expect(legacy.firstUserMessage).toBe("Legacy first request");
+    expect(legacy.lastModified).toBe(1_700_000_000_000);
+  });
+
+  it("an append to a compressed session restores it as plain and keeps the history", () => {
+    appendLog(AGENT, "resumed", msg("r1", "before"));
+    compressTranscript(agentDir(), "resumed");
+
+    appendLogOrThrow(AGENT, "resumed", msg("r2", "after"));
+
+    expect(existsSync(join(agentDir(), "resumed.jsonl.gz"))).toBe(false);
+    expect(existsSync(join(agentDir(), "resumed.jsonl"))).toBe(true);
+    expect(loadLog(AGENT, "resumed").map((e) => e.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("an append that cannot restore the session throws and writes nothing", () => {
+    mkdirSync(agentDir(), { recursive: true });
+    const gz = join(agentDir(), "broken.jsonl.gz");
+    writeFileSync(gz, "not gzip at all");
+
+    expect(() =>
+      appendLogOrThrow(AGENT, "broken", msg("b1", "lost?")),
+    ).toThrow();
+
+    expect(readFileSync(gz, "utf-8")).toBe("not gzip at all");
+    expect(existsSync(join(agentDir(), "broken.jsonl"))).toBe(false);
   });
 });

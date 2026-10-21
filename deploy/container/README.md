@@ -267,7 +267,7 @@ other device. For another person, use **Settings → Office → Invites**. Only
 invite people you trust: members and their agents can run commands within the
 office's operating-system account.
 
-Isomux keeps seven daily backups of its state on the same data disk. These do
+By default, Isomux keeps seven daily backups of its state on the same data disk. These do
 not cover the complete home and workspace directories. Keep separate snapshots
 of the complete EBS volume for recovery from disk loss. To erase office data,
 see [Data retention and deletion](https://isomux.com/docs/data-retention).

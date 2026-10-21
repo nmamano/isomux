@@ -1923,7 +1923,63 @@ export interface BackupStatusWire {
   ok: boolean;
   error: string | null;
   retention: number;
+  intervalHours: number;
   destDir: string;
+  // ISOMUX_BACKUP_DIR sets the folder; the settings cannot change it.
+  destDirFromEnv: boolean;
+}
+
+// PUT /api/backup/settings. An omitted field keeps its value; dir null resets
+// the folder to the default.
+export interface BackupSettingsReq {
+  intervalHours?: number;
+  retention?: number;
+  dir?: string | null;
+}
+
+export interface BackupSettingsRes extends BackupStatusWire {
+  // Set when the save moved the folder: the earlier backups stay here.
+  oldBackupsDir: string | null;
+}
+
+// POST /api/storage/compress. Gzips old session transcripts in logs/; nothing
+// is lost, so there is no keep-newest or fork-ancestor rule. Dry run unless
+// apply is true.
+export interface StorageCompressReq {
+  olderThanDays: number;
+  apply?: boolean;
+}
+
+export interface CompressCandidateWire {
+  // RELATIVE to logs/: "<agentId>/<sessionId>.jsonl".
+  path: string;
+  bytes: number;
+  agentId: string;
+  sessionId: string;
+  mtimeMs: number;
+}
+
+export type CompressSkipReason = "too-recent" | "active-session";
+
+export interface CompressPlanWire {
+  olderThanDays: number;
+  candidates: CompressCandidateWire[];
+  bytes: number;
+  skipped: { reason: CompressSkipReason; count: number; bytes: number }[];
+}
+
+export interface CompressResultWire {
+  compressed: number;
+  bytesBefore: number;
+  bytesAfter: number;
+  refused: { path: string; reason: string }[];
+  aborted?: string;
+}
+
+export interface StorageCompressRes {
+  plan: CompressPlanWire;
+  // null on a dry run.
+  applied: CompressResultWire | null;
 }
 
 // Office app wrapper readiness. A null chat hides all target metadata.

@@ -17,7 +17,7 @@
 //      stand between a caller-supplied string and the filesystem.
 
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { loadLogWithAncestors } from "../persistence.ts";
@@ -1141,5 +1141,72 @@ describe("log index: pages", () => {
     expect(q("limit=1000").indexLimit).toBe(1000);
     const over = parseLogQuery(new URLSearchParams("limit=1001"));
     expect("code" in over && over.code).toBe("invalid_limit");
+  });
+});
+
+// Compressed transcripts (task e9776386). The conversation-history routes and
+// the search child read through fileLogSource; a session the storage panel
+// gzipped must index, retrieve and search exactly like its plain twin.
+describe("log search: compressed transcripts read the same", () => {
+  const ZIP = "agent-logsearch-gzipped";
+
+  beforeAll(() => {
+    const dir = join(LOGS_DIR, ZIP);
+    mkdirSync(dir, { recursive: true });
+    for (const [sid, entries] of [
+      [S1, S1_ENTRIES],
+      [S2, S2_ENTRIES],
+    ] as const) {
+      writeFileSync(
+        join(dir, `${sid}.jsonl.gz`),
+        Bun.gzipSync(entries.map((e) => JSON.stringify(e)).join("\n") + "\n"),
+      );
+    }
+    writeFileSync(
+      join(dir, "sessions.json"),
+      readFileSync(join(LOGS_DIR, AGENT, "sessions.json")),
+    );
+    // No sessions.json entry: only the file time can place it.
+    const untracked = join(dir, "untracked.jsonl.gz");
+    writeFileSync(
+      untracked,
+      Bun.gzipSync(JSON.stringify(entry("u1", "text", "loose", 1)) + "\n"),
+    );
+    utimesSync(untracked, 1_700_000_000, 1_700_000_000);
+  });
+
+  it("indexes the same sessions, and dates an untracked one by its file", async () => {
+    const plain = await buildSessionIndex(source, AGENT);
+    const zipped = await buildSessionIndex(source, ZIP);
+    const tracked = zipped.sessions.filter((s) => s.sessionId !== "untracked");
+    expect(tracked).toEqual(plain.sessions);
+    expect(
+      zipped.sessions.find((s) => s.sessionId === "untracked")?.lastModified,
+    ).toBe(1_700_000_000_000);
+  });
+
+  it("retrieves the same fork timeline", async () => {
+    const query = q(`session=${S2}&tier=full`);
+    const plain = await retrieveSession(source, AGENT, S2, query);
+    const zipped = await retrieveSession(source, ZIP, S2, query);
+    // e1/e2 come out of the compressed ancestor, e6.. out of the compressed fork.
+    expect(zipped.entries.map((e) => e.entryId).slice(0, 3)).toEqual([
+      "e1",
+      "e2",
+      "e6",
+    ]);
+    expect(zipped.entries).toEqual(plain.entries);
+  });
+
+  it("finds the same hits, through the raw-line prefilter and without it", async () => {
+    for (const query of [
+      "q=permission+prompt&tier=full",
+      `q=${encodeURIComponent("café")}`,
+    ]) {
+      const plain = await searchLogs(source, AGENT, q(query), scan);
+      const zipped = await searchLogs(source, ZIP, q(query), scan);
+      expect(zipped.totalMatches).toBeGreaterThan(0);
+      expect(zipped.results).toEqual(plain.results);
+    }
   });
 });

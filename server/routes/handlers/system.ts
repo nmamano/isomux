@@ -14,12 +14,16 @@
 //
 // LEAF over the executor. Only the injected SystemDeps.
 
-import { ok, type RouteHandler } from "../executor.ts";
+import { ok, fail, type RouteHandler } from "../executor.ts";
 
 // The shape moved to shared/contract-shapes.ts when the storage panel became
 // its first UI consumer (ui/ imports nothing from server/). Re-exported here so
 // it stays the name every existing server caller already reaches for.
-import type { BackupStatusWire } from "../../../shared/contract-shapes.ts";
+import type {
+  BackupSettingsReq,
+  BackupSettingsRes,
+  BackupStatusWire,
+} from "../../../shared/contract-shapes.ts";
 export type { BackupStatusWire };
 
 // GET /api/version - git-derived deployment identity. Same shape as
@@ -33,12 +37,27 @@ export interface VersionWire {
 
 export interface SystemDeps {
   getBackupStatus(): BackupStatusWire;
+  // Validates, then saves. { ok: false } is a 400 with the error.
+  setBackupSettings(
+    input: BackupSettingsReq,
+  ): { ok: true; res: BackupSettingsRes } | { ok: false; error: string };
   getVersion(): VersionWire;
 }
 
 export function systemHandlers(deps: SystemDeps): Record<string, RouteHandler> {
   return {
     "system.backupStatus": () => ok(deps.getBackupStatus()),
+    // Owner-only (route table). The core validates every field before it
+    // saves any, so a 400 leaves the settings as they were.
+    "system.setBackupSettings": (ctx) => {
+      const b = ctx.body;
+      if (!b || typeof b !== "object" || Array.isArray(b))
+        return fail(400, "invalid_body", "the body must be a JSON object");
+      const result = deps.setBackupSettings(b);
+      return result.ok
+        ? ok(result.res)
+        : fail(400, "invalid_backup_settings", result.error);
+    },
     "system.version": () => ok(deps.getVersion()),
   };
 }

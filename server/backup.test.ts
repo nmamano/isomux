@@ -1,15 +1,22 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  backupDueForTest,
   backupStatusForTest,
+  DEFAULT_BACKUP_SETTINGS,
   defaultBackupDir,
   dfAvailableBytes,
+  getBackupStatus,
   isBackupPartialForTest,
+  loadBackupSettings,
   prepareBackupDirectoryForTest,
+  resolveBackupDir,
   runBackupOnceForTest,
+  saveBackupSettings,
 } from "./backup.ts";
+import { STATE_ROOT } from "./config.ts";
 
 const roots: string[] = [];
 
@@ -722,4 +729,293 @@ test("restoring a pre-SQLite archive imports its task JSON and preserves the sou
   } finally {
     db.close();
   }
+});
+
+// Backup settings (task e9776386): how often, how many copies, which folder.
+// Kept in office-config.json and read on every scheduler check, so a change
+// needs no restart. ISOMUX_BACKUP_DIR wins over the folder setting: a scratch
+// office relies on it to keep its retention away from real backups.
+describe("backup settings", () => {
+  let savedEnv: string | undefined;
+
+  function resetSettings() {
+    saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
+  }
+
+  beforeEach(() => {
+    savedEnv = process.env.ISOMUX_BACKUP_DIR;
+    delete process.env.ISOMUX_BACKUP_DIR;
+    resetSettings();
+  });
+  afterEach(() => {
+    resetSettings();
+    if (savedEnv === undefined) delete process.env.ISOMUX_BACKUP_DIR;
+    else process.env.ISOMUX_BACKUP_DIR = savedEnv;
+  });
+
+  test("the environment folder wins, then the setting, then the default", () => {
+    expect(resolveBackupDir("/env/b", "/set/b", "/home/u/.isomux")).toEqual({
+      dir: "/env/b",
+      source: "env",
+    });
+    expect(resolveBackupDir(undefined, "/set/b", "/home/u/.isomux")).toEqual({
+      dir: "/set/b",
+      source: "setting",
+    });
+    // An empty variable is unset, as it always was.
+    expect(resolveBackupDir("", null, "/home/u/.isomux")).toEqual({
+      dir: "/home/u/isomux-backups",
+      source: "default",
+    });
+  });
+
+  test("a save round-trips, shows in the status, and names the folder it left", () => {
+    const f = fixture();
+    const first = saveBackupSettings({
+      intervalHours: 6,
+      retention: 3,
+      dir: f.backupDir,
+    });
+    if (!first.ok) throw new Error(first.error);
+    expect(first.oldBackupsDir).toBe(defaultBackupDir(STATE_ROOT));
+    expect(first.status).toMatchObject({
+      intervalHours: 6,
+      retention: 3,
+      backupDir: f.backupDir,
+      backupDirFromEnv: false,
+    });
+    expect(loadBackupSettings()).toEqual({
+      intervalHours: 6,
+      retention: 3,
+      dir: f.backupDir,
+    });
+    expect(getBackupStatus()).toMatchObject({
+      intervalHours: 6,
+      retention: 3,
+      backupDir: f.backupDir,
+    });
+
+    // An omitted field keeps its value, and the folder did not move.
+    const second = saveBackupSettings({ retention: 5 });
+    if (!second.ok) throw new Error(second.error);
+    expect(second.oldBackupsDir).toBeNull();
+    expect(loadBackupSettings()).toEqual({
+      intervalHours: 6,
+      retention: 5,
+      dir: f.backupDir,
+    });
+
+    // null goes back to the default folder.
+    const third = saveBackupSettings({ dir: null });
+    if (!third.ok) throw new Error(third.error);
+    expect(third.oldBackupsDir).toBe(f.backupDir);
+    expect(getBackupStatus().backupDir).toBe(defaultBackupDir(STATE_ROOT));
+  });
+
+  test("refuses a bad value and then saves no field of the input", () => {
+    const f = fixture();
+    fs.symlinkSync(f.state, path.join(f.root, "state-link"));
+    const readOnly = path.join(f.root, "read-only");
+    fs.mkdirSync(readOnly, { mode: 0o500 });
+    const bad: Record<string, unknown>[] = [
+      { intervalHours: 0 },
+      { intervalHours: 721 },
+      { intervalHours: 1.5 },
+      { intervalHours: "6" },
+      { retention: 0 },
+      { retention: 101 },
+      { retention: null },
+      { dir: "relative/backups" },
+      { dir: "" },
+      { dir: f.state },
+      { dir: path.join(f.state, "backups") },
+      { dir: path.join(f.root, "state-link", "backups") },
+      { dir: readOnly },
+      { dir: path.join(readOnly, "backups") },
+      // One good field beside a bad one: the good one is not saved either.
+      { intervalHours: 6, retention: 0 },
+      { intervalHours: 6, dir: "relative/backups" },
+    ];
+    try {
+      for (const input of bad) {
+        const result = saveBackupSettings(input, {
+          stateRoot: f.state,
+          envDir: undefined,
+        });
+        expect({ input, ok: result.ok }).toEqual({ input, ok: false });
+        expect(loadBackupSettings()).toEqual(DEFAULT_BACKUP_SETTINGS);
+      }
+    } finally {
+      fs.chmodSync(readOnly, 0o700);
+    }
+    // The fixture itself is acceptable, so the refusals above are about the
+    // values, not the fixture.
+    const good = saveBackupSettings(
+      { intervalHours: 6, dir: f.backupDir },
+      { stateRoot: f.state, envDir: undefined },
+    );
+    expect(good.ok).toBe(true);
+  });
+
+  test("while ISOMUX_BACKUP_DIR is set the folder is fixed, the rest is not", () => {
+    const f = fixture();
+    const envDir = path.join(f.root, "env-backups");
+    const moved = saveBackupSettings({ dir: f.backupDir }, { envDir });
+    expect(moved.ok).toBe(false);
+    expect(loadBackupSettings().dir).toBeNull();
+
+    const interval = saveBackupSettings({ intervalHours: 12 }, { envDir });
+    if (!interval.ok) throw new Error(interval.error);
+    expect(interval.status).toMatchObject({
+      intervalHours: 12,
+      backupDir: envDir,
+      backupDirFromEnv: true,
+    });
+  });
+});
+
+// How often (task e9776386): the interval drives both when the scheduler runs
+// a backup and when the status calls the newest one stale.
+describe("backup schedule", () => {
+  const HOUR_MS = 60 * 60 * 1000;
+
+  test("the health threshold follows the interval", async () => {
+    const f = fixture();
+    const cfg = { ...config(f), intervalMs: 6 * HOUR_MS };
+    await runBackupOnceForTest(
+      cfg,
+      deps([{ exitCode: 0, writeArchive: true }, { exitCode: 0 }]).impl,
+    );
+    const writtenAt = fs.statSync(
+      path.join(f.backupDir, "isomux-2026-08-13.tar.gz"),
+    ).mtimeMs;
+    expect(
+      backupStatusForTest(cfg, writtenAt + 8 * HOUR_MS - 60_000).lastBackupOk,
+    ).toBe(true);
+    const stale = backupStatusForTest(cfg, writtenAt + 8 * HOUR_MS);
+    expect(stale.lastBackupOk).toBe(false);
+    expect(stale.lastBackupError).not.toBeNull();
+    expect(stale.intervalHours).toBe(6);
+  });
+
+  test("a backup is due one interval after the last run STARTED", async () => {
+    const f = fixture();
+    expect(backupDueForTest(config(f), Date.UTC(2026, 7, 13, 12))).toBe(true);
+
+    const startedAt = Date.UTC(2026, 7, 13, 12); // deps().now
+    const finishedAt = startedAt + 30 * 60_000; // tar took 30 minutes
+    await runBackupOnceForTest(
+      config(f),
+      deps([
+        { exitCode: 0, writeArchive: true, archiveMtimeMs: finishedAt },
+        { exitCode: 0 },
+      ]).impl,
+    );
+    // Counted from the finish, the hourly check at start + 24 h would skip,
+    // and "every 24 hours" would really be every 25.
+    const day = 24 * HOUR_MS;
+    expect(backupDueForTest(config(f), startedAt + day - 1)).toBe(false);
+    expect(backupDueForTest(config(f), startedAt + day)).toBe(true);
+    const sixHours = { ...config(f), intervalMs: 6 * HOUR_MS };
+    expect(backupDueForTest(sixHours, startedAt + 6 * HOUR_MS - 1)).toBe(false);
+    expect(backupDueForTest(sixHours, startedAt + 6 * HOUR_MS)).toBe(true);
+  });
+
+  test("a marker from before start times counts from the archive's mtime", async () => {
+    const f = fixture();
+    const finishedAt = Date.UTC(2026, 7, 13, 12, 30);
+    const file = await runBackupOnceForTest(
+      config(f),
+      deps([
+        { exitCode: 0, writeArchive: true, archiveMtimeMs: finishedAt },
+        { exitCode: 0 },
+      ]).impl,
+    );
+    const marker = path.join(f.backupDir, `${file}.verified.json`);
+    const { size, mtimeMs } = JSON.parse(fs.readFileSync(marker, "utf8"));
+    fs.writeFileSync(marker, `${JSON.stringify({ size, mtimeMs })}\n`);
+
+    const day = 24 * 60 * 60 * 1000;
+    expect(backupDueForTest(config(f), finishedAt + day - 1)).toBe(false);
+    expect(backupDueForTest(config(f), finishedAt + day)).toBe(true);
+  });
+
+  test("the scheduler writes to the set folder, on the set interval, and keeps the set count", async () => {
+    const f = fixture();
+    // An older verified backup in the folder the settings will name.
+    const old = await runBackupOnceForTest(config(f), realDeps);
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * HOUR_MS);
+    fs.utimesSync(path.join(f.backupDir, old), twoDaysAgo, twoDaysAgo);
+
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      ISOMUX_HOME: f.state,
+    };
+    delete env.ISOMUX_BACKUP_DIR;
+    const script = `
+      const b = await import(${JSON.stringify(path.join(import.meta.dir, "backup.ts"))});
+      const saved = b.saveBackupSettings({ intervalHours: 1, retention: 1, dir: ${JSON.stringify(f.backupDir)} });
+      if (!saved.ok) { console.error(saved.error); process.exit(2); }
+      b.startBackupScheduler();
+      const until = Date.now() + 8000;
+      while (Date.now() < until) {
+        const s = b.getBackupStatus();
+        if (!s.running && s.lastBackupFile && s.lastBackupFile !== ${JSON.stringify(old)}) {
+          console.log(JSON.stringify(s));
+          process.exit(0);
+        }
+        await Bun.sleep(50);
+      }
+      console.error("no backup", JSON.stringify(b.getBackupStatus()));
+      process.exit(3);
+    `;
+    const run = Bun.spawn([process.execPath, "-e", script], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, out, err] = await Promise.all([
+      run.exited,
+      new Response(run.stdout).text(),
+      new Response(run.stderr).text(),
+    ]);
+    expect({ code, err: code === 0 ? "" : err }).toEqual({ code: 0, err: "" });
+    const status = JSON.parse(out.trim().split("\n").at(-1)!);
+    expect(status.backupDir).toBe(f.backupDir);
+    expect(status.lastBackupOk).toBe(true);
+    // Retention 1: the new archive displaced the older one.
+    expect(finals(f.backupDir)).toEqual([status.lastBackupFile]);
+    expect(fs.existsSync(defaultBackupDir(f.state))).toBe(false);
+  }, 20_000);
+});
+
+// A folder from the settings can be shared: two offices on one box pointed at
+// one mounted disk. Retention and status count only this office's archives,
+// or one office's retention deletes the other's backups.
+describe("a backup folder two offices share", () => {
+  test("each office keeps its own copies and reports its own newest", async () => {
+    const a = fixture();
+    const b = fixture();
+    const shared = path.join(a.root, "shared");
+    const cfgA = { ...config(a), backupDir: shared, retention: 1 };
+    const cfgB = { ...config(b), backupDir: shared, retention: 1 };
+    const at = Date.UTC(2026, 7, 13, 11);
+    const run = (cfg: typeof cfgA, mtime: number) =>
+      runBackupOnceForTest(
+        cfg,
+        deps([
+          { exitCode: 0, writeArchive: true, archiveMtimeMs: mtime },
+          { exitCode: 0 },
+        ]).impl,
+      );
+
+    await run(cfgA, at);
+    const fromB = await run(cfgB, at + 60_000);
+    const fromA = await run(cfgA, at + 120_000);
+
+    // A's second run displaced A's first, not B's.
+    expect(finals(shared)).toEqual([fromB, fromA].sort());
+    expect(backupStatusForTest(cfgA, at + 180_000).lastBackupFile).toBe(fromA);
+    expect(backupStatusForTest(cfgB, at + 180_000).lastBackupFile).toBe(fromB);
+  });
 });

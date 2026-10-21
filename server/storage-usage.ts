@@ -20,6 +20,7 @@
 // the roots entirely.
 
 import { join } from "path";
+import { sessionIdOfTranscript } from "./transcript-files.ts";
 import { readdirSync, lstatSync } from "fs";
 import type {
   StorageCategoryId,
@@ -107,8 +108,9 @@ interface LogsBreakdown {
 }
 
 // One pass over <stateRoot>/logs producing both the category split and the
-// per-agent detail. The layout is logs/<agentId>/{<sessionId>.jsonl,
-// sessions.json, files/**} - see server/persistence.ts.
+// per-agent detail. The layout is logs/<agentId>/{<sessionId>.jsonl or
+// <sessionId>.jsonl.gz, sessions.json, files/**} - see server/persistence.ts
+// and server/transcript-files.ts.
 function measureLogs(logsDir: string): LogsBreakdown {
   const transcripts: DirUsage = { bytes: 0, files: 0 };
   const attachments: DirUsage = { bytes: 0, files: 0 };
@@ -127,7 +129,9 @@ function measureLogs(logsDir: string): LogsBreakdown {
     const agentDir = join(logsDir, agentId);
     let transcriptBytes = 0;
     let attachmentBytes = 0;
-    let sessions = 0;
+    // A crash can leave both forms of one session: both count on disk, as
+    // one session.
+    const sessionIds = new Set<string>();
     let lastActivityAt: number | null = null;
     let entries;
     try {
@@ -160,9 +164,10 @@ function measureLogs(logsDir: string): LogsBreakdown {
       } catch {
         continue;
       }
-      if (entry.name.endsWith(".jsonl")) {
+      const transcript = sessionIdOfTranscript(entry.name);
+      if (transcript) {
         transcriptBytes += stat.size;
-        sessions++;
+        sessionIds.add(transcript.sessionId);
         transcripts.bytes += stat.size;
         transcripts.files++;
         if (lastActivityAt === null || stat.mtimeMs > lastActivityAt) {
@@ -179,7 +184,7 @@ function measureLogs(logsDir: string): LogsBreakdown {
       agentId,
       transcriptBytes,
       attachmentBytes,
-      sessions,
+      sessions: sessionIds.size,
       lastActivityAt,
     });
   }

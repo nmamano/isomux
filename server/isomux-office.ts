@@ -144,6 +144,7 @@ import {
 import {
   startBackupScheduler,
   getBackupStatus,
+  saveBackupSettings,
   type BackupStatus,
 } from "./backup.ts";
 import { getVersionInfo } from "./version.ts";
@@ -475,6 +476,7 @@ import {
 import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
+import { planCompress, applyCompress } from "./storage-compress.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
@@ -499,6 +501,7 @@ import { conversationHandlers } from "./routes/handlers/conversation.ts";
 import { editorHandlers } from "./routes/handlers/editor.ts";
 import type {
   AccessSettings,
+  BackupStatusWire,
   PreferencesReq,
   UserPublicWire,
 } from "../shared/contract-shapes.ts";
@@ -3247,6 +3250,18 @@ function heirOwnerFor(deletedUserId: string): UserRecord | undefined {
   return listUsers()
     .filter((u) => u.role === "owner" && u.id !== deletedUserId)
     .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0];
+}
+
+function backupStatusWire(s: BackupStatus): BackupStatusWire {
+  return {
+    lastRunAt: s.lastBackupAt,
+    ok: s.lastBackupOk ?? false,
+    error: s.lastBackupError,
+    retention: s.retention,
+    intervalHours: s.intervalHours,
+    destDir: s.backupDir,
+    destDirFromEnv: s.backupDirFromEnv,
+  };
 }
 
 // Assemble the executor deps for the migrated /api surface. Called from
@@ -6011,15 +6026,18 @@ function buildExecutorDeps(
   // retired.
   register(
     systemHandlers({
-      getBackupStatus: () => {
-        const s = backupStatus();
-        return {
-          lastRunAt: s.lastBackupAt,
-          ok: s.lastBackupOk ?? false,
-          error: s.lastBackupError,
-          retention: s.retention,
-          destDir: s.backupDir,
-        };
+      getBackupStatus: () => backupStatusWire(backupStatus()),
+      setBackupSettings: (input) => {
+        const result = saveBackupSettings(input);
+        return result.ok
+          ? {
+              ok: true,
+              res: {
+                ...backupStatusWire(result.status),
+                oldBackupsDir: result.oldBackupsDir,
+              },
+            }
+          : result;
       },
       getVersion: () => getVersionInfo(),
     }),
@@ -6113,6 +6131,17 @@ function buildExecutorDeps(
       getUsage: () => measureStorageCached(storageRoots()),
       planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
       applyPrune: (plan) => applyPrune(plan, pruneDeps()),
+      planCompress: (olderThanDays) => planCompress(olderThanDays, pruneDeps()),
+      applyCompress: (plan) =>
+        applyCompress(plan, {
+          ...pruneDeps(),
+          isActiveNow: (sessionId) =>
+            agentManager
+              .getAllAgents()
+              .some(
+                (a) => agentManager.getCurrentSessionId(a.id) === sessionId,
+              ),
+        }),
     }),
   );
   register(

@@ -8,6 +8,15 @@ import type { RoomDecor } from "../shared/room-decor.ts";
 import { join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
+  TRANSCRIPT_SUFFIX,
+  inflateTranscript,
+  readTranscriptHeadSync,
+  readTranscriptSync,
+  resolveTranscript,
+  sessionIdOfTranscript,
+  type TranscriptFile,
+} from "./transcript-files.ts";
+import {
   mkdirSync,
   appendFileSync,
   chmodSync,
@@ -16,9 +25,6 @@ import {
   existsSync,
   readdirSync,
   renameSync,
-  openSync,
-  readSync,
-  closeSync,
 } from "fs";
 import { createHash } from "crypto";
 import type {
@@ -160,7 +166,10 @@ export function appendLogOrThrow(
   entry = prepareLogEntry(entry);
   const agentDir = join(LOGS_DIR, agentId);
   mkdirSync(agentDir, { recursive: true });
-  const logFile = join(agentDir, `${sessionId}.jsonl`);
+  // A compressed session goes back to plain before its next entry. When that
+  // fails this throws: a fresh .jsonl beside the .gz would hide the history.
+  inflateTranscript(agentDir, sessionId);
+  const logFile = join(agentDir, `${sessionId}${TRANSCRIPT_SUFFIX}`);
   appendFileSync(logFile, JSON.stringify(entry) + "\n");
   if (entry.kind === "user_message") {
     try {
@@ -173,9 +182,9 @@ export function appendLogOrThrow(
 
 export function loadLog(agentId: string, sessionId: string): LogEntry[] {
   try {
-    const logFile = join(LOGS_DIR, agentId, `${sessionId}.jsonl`);
-    if (!existsSync(logFile)) return [];
-    const content = readFileSync(logFile, "utf-8").trim();
+    const logFile = resolveTranscript(join(LOGS_DIR, agentId), sessionId);
+    if (!logFile) return [];
+    const content = readTranscriptSync(logFile).trim();
     if (!content) return [];
     return content.split("\n").map((line) => {
       const entry = JSON.parse(line) as LogEntry & { images?: string[] };
@@ -345,13 +354,10 @@ function persistSessionFirstUserMessage(
 
 const LEGACY_SESSION_PREVIEW_BYTES = 64 * 1024;
 
-function readLegacySessionPreview(path: string): string | null {
-  let fd: number | null = null;
+function readLegacySessionPreview(file: TranscriptFile): string | null {
   try {
-    fd = openSync(path, "r");
-    const buffer = Buffer.alloc(LEGACY_SESSION_PREVIEW_BYTES);
-    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
-    for (const line of buffer.toString("utf8", 0, bytes).split("\n")) {
+    const head = readTranscriptHeadSync(file, LEGACY_SESSION_PREVIEW_BYTES);
+    for (const line of head.split("\n")) {
       if (!line) continue;
       try {
         const entry = JSON.parse(line) as Partial<LogEntry>;
@@ -362,8 +368,6 @@ function readLegacySessionPreview(path: string): string | null {
     return null;
   } catch {
     return null;
-  } finally {
-    if (fd !== null) closeSync(fd);
   }
 }
 
@@ -784,14 +788,22 @@ export function listAgentSessions(agentId: string): {
       if (entry.forkedFrom) branchedFromIds.add(entry.forkedFrom);
     }
 
-    const sessions = readdirSync(agentDir)
-      .filter((f) => f.endsWith(".jsonl"))
-      .map((f) => {
-        const sid = f.replace(".jsonl", "");
+    // A crash can leave both forms of one session; list it once.
+    const sessionIds = new Set<string>();
+    for (const f of readdirSync(agentDir)) {
+      const named = sessionIdOfTranscript(f);
+      if (named) sessionIds.add(named.sessionId);
+    }
+    const sessions = [...sessionIds]
+      .flatMap((sid) => {
+        const file = resolveTranscript(agentDir, sid);
+        return file ? [{ sid, file }] : [];
+      })
+      .map(({ sid, file }) => {
         const entry = sessionsMap[sid];
         let legacyPreview: string | null = null;
         if (entry?.firstUserMessage === undefined) {
-          legacyPreview = readLegacySessionPreview(join(agentDir, f));
+          legacyPreview = readLegacySessionPreview(file);
           if (entry) {
             sessionsMap[sid] = {
               ...entry,
@@ -804,8 +816,7 @@ export function listAgentSessions(agentId: string): {
         return {
           sessionId: sid,
           lastModified:
-            effectiveEntry?.lastModified ??
-            Bun.file(join(agentDir, f)).lastModified,
+            effectiveEntry?.lastModified ?? Bun.file(file.path).lastModified,
           topic: storedTopic(effectiveEntry?.topic),
           firstUserMessage:
             effectiveEntry?.firstUserMessage ?? legacyPreview ?? null,
@@ -839,24 +850,6 @@ export function listAllAgentIdsOnDisk(): string[] {
       .map((d) => d.name);
   } catch {
     return [];
-  }
-}
-
-// Find the most recent session log for an agent (by file modification time)
-export function findLatestSession(agentId: string): string | null {
-  try {
-    const agentDir = join(LOGS_DIR, agentId);
-    if (!existsSync(agentDir)) return null;
-    const files = readdirSync(agentDir)
-      .filter((f) => f.endsWith(".jsonl"))
-      .map((f) => ({
-        name: f.replace(".jsonl", ""),
-        mtime: Bun.file(join(agentDir, f)).lastModified,
-      }))
-      .sort((a, b) => b.mtime - a.mtime);
-    return files[0]?.name ?? null;
-  } catch {
-    return null;
   }
 }
 
@@ -1288,6 +1281,43 @@ function saveOfficeConfigField(key: string, value: unknown): void {
   } catch (err) {
     console.error(`Failed to save ${key}:`, err);
   }
+}
+
+// The backup settings (server/backup.ts), beside the settings in
+// office-config.json. Raw values: backup.ts validates them and fills defaults.
+export function loadBackupSettingsRaw(): {
+  intervalHours: unknown;
+  retention: unknown;
+  dir: unknown;
+} {
+  const raw = readOfficeConfigRaw();
+  return {
+    intervalHours: raw.backupIntervalHours,
+    retention: raw.backupRetention,
+    dir: raw.backupDir,
+  };
+}
+
+// All three in one write. Throws when the write fails, so a save is never
+// reported as done when it is not.
+export function saveBackupSettingsRaw(settings: {
+  intervalHours: number;
+  retention: number;
+  dir: string | null;
+}): void {
+  atomicWriteFileSync(
+    OFFICE_CONFIG_FILE,
+    JSON.stringify(
+      {
+        ...readOfficeConfigRaw(),
+        backupIntervalHours: settings.intervalHours,
+        backupRetention: settings.retention,
+        backupDir: settings.dir,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 // Server/deployment config that shares office-config.json but isn't part of

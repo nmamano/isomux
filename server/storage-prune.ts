@@ -67,13 +67,7 @@
 // a temp fixture tree with zero reference to the real ~/.isomux.
 
 import { join, resolve, sep, dirname } from "path";
-import {
-  readdirSync,
-  readFileSync,
-  lstatSync,
-  realpathSync,
-  unlinkSync,
-} from "fs";
+import { readdirSync, lstatSync, realpathSync, unlinkSync } from "fs";
 import type {
   PruneTarget,
   PrunePolicy,
@@ -83,6 +77,11 @@ import type {
   PrunePlanWire,
   PruneResultWire,
 } from "../shared/contract-shapes.ts";
+import {
+  COMPRESSED_TRANSCRIPT_SUFFIX,
+  readTranscriptSync,
+  sessionIdOfTranscript,
+} from "./transcript-files.ts";
 
 // The wire contract IS the domain type - a plan travels out to the caller and
 // back in on apply, so a projection layer would just be a place to drift.
@@ -237,7 +236,7 @@ function addSkip(
 // like an agent dir is not a directory here and never gets traversed. The
 // `agent-` prefix keeps anything else that lands in logs/ out of the delete
 // path entirely (same rule as persistence.listAllAgentIdsOnDisk).
-function listAgentDirs(logsDir: string): string[] {
+export function listAgentDirs(logsDir: string): string[] {
   try {
     return readdirSync(logsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name.startsWith("agent-"))
@@ -272,25 +271,37 @@ function planTranscripts(
     let names: string[];
     try {
       names = readdirSync(agentDir, { withFileTypes: true })
-        .filter((d) => d.isFile() && d.name.endsWith(".jsonl"))
+        .filter((d) => d.isFile() && sessionIdOfTranscript(d.name) !== null)
         .map((d) => d.name);
     } catch {
       continue;
     }
 
-    const files: { sessionId: string; size: number; mtime: number }[] = [];
+    // One entry per session, plain or compressed (server/transcript-files.ts).
+    // A crash can leave both forms: they are one candidate that names the
+    // .jsonl, its size is both files, and applyPrune removes both.
+    const bySession = new Map<
+      string,
+      { sessionId: string; name: string; size: number; mtime: number }
+    >();
     for (const name of names) {
+      const { sessionId, compressed } = sessionIdOfTranscript(name)!;
+      let stat;
       try {
-        const stat = lstatSync(join(agentDir, name));
-        files.push({
-          sessionId: name.slice(0, -".jsonl".length),
-          size: stat.size,
-          mtime: stat.mtimeMs,
-        });
+        stat = lstatSync(join(agentDir, name));
       } catch {
         // Vanished under us; nothing to prune.
+        continue;
       }
+      const seen = bySession.get(sessionId);
+      bySession.set(sessionId, {
+        sessionId,
+        name: seen && compressed ? seen.name : name,
+        size: (seen?.size ?? 0) + stat.size,
+        mtime: Math.max(seen?.mtime ?? 0, stat.mtimeMs),
+      });
     }
+    const files = [...bySession.values()];
     if (files.length === 0) continue;
 
     // Newest first: the first keepPerAgent are spared on recency alone, for a
@@ -305,7 +316,7 @@ function planTranscripts(
     }
 
     files.forEach((file, index) => {
-      const rel = join(agentId, `${file.sessionId}.jsonl`);
+      const rel = join(agentId, file.name);
       // Order matters: skip reasons partition the spared set, first match wins.
       if (deps.activeSessionIds.has(file.sessionId)) {
         addSkip(ledger, rel, "active-session", file.size);
@@ -343,8 +354,8 @@ function planTranscripts(
 // always serialized as `"filename":"<on-disk name>"` (shared/types.ts
 // Attachment), the scan is ~1s over 350 MB where parsing would be minutes, and
 // over-matching is the safe direction - a stray "filename" key elsewhere in the
-// log only ever protects an extra file. Deliberately reads whatever .jsonl is
-// on disk right now, so pruning transcripts first is what turns their
+// log only ever protects an extra file. Deliberately reads whatever transcript
+// (.jsonl or .jsonl.gz) is on disk right now, so pruning transcripts first is what turns their
 // attachments into orphans.
 // Whitespace-tolerant: persistence writes compact JSON today, but a future
 // writer that pretty-prints must not silently turn every attachment into an
@@ -360,10 +371,16 @@ function referencedAttachments(agentDir: string): Set<string> {
     return referenced;
   }
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+    if (!entry.isFile()) continue;
+    const transcript = sessionIdOfTranscript(entry.name);
+    if (!transcript) continue;
     let raw: string;
     try {
-      raw = readFileSync(join(agentDir, entry.name), "utf8");
+      // A .gz that does not decompress is unreadable too.
+      raw = readTranscriptSync({
+        path: join(agentDir, entry.name),
+        compressed: transcript.compressed,
+      });
     } catch {
       // Unreadable transcript: assume it references everything by protecting
       // nothing extra here would be backwards, so bail out of this agent
@@ -627,6 +644,17 @@ export function planPrune(
 // Files the apply pass declined to delete after re-checking ride in `refused`.
 export type PruneResult = PruneResultWire;
 
+function unlinkTranscriptTwin(abs: string): void {
+  const twin = abs.endsWith(COMPRESSED_TRANSCRIPT_SUFFIX)
+    ? abs.slice(0, -".gz".length)
+    : abs + ".gz";
+  try {
+    if (lstatSync(twin).isFile()) unlinkSync(twin);
+  } catch {
+    // No twin: the usual case.
+  }
+}
+
 // Apply a plan. Re-derives every safety property from the live filesystem:
 // a plan is data, and data can be stale, hand-edited, or hostile.
 export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
@@ -727,6 +755,9 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
     }
     try {
       unlinkSync(abs);
+      // The other form of the same session, left by a crash (planTranscripts
+      // counted its bytes in this candidate).
+      if (plan.target === "transcripts") unlinkTranscriptTwin(abs);
       deleted++;
       bytes += live.bytes;
     } catch (err) {
