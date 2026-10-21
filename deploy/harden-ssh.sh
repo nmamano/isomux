@@ -3,8 +3,10 @@
 # whether it holds.
 #
 # Two jobs:
-#   apply - key-only SSH auth. Skipped, loudly, on a box that has no SSH key
-#           yet: turning off password logins there would lock the operator out.
+#   apply - key-only SSH auth in the general SSH settings. A Match rule for one
+#           user or address stays the owner's choice. Skipped, loudly, on a box
+#           that has no SSH key yet: turning off password logins there would
+#           lock the operator out.
 #   check - can the isomux service account log in as root on this box? Answered
 #           by TRYING, as that account, and reading the authentication
 #           transcript. Also checks passwordless sudo.
@@ -94,6 +96,9 @@ sshd_setting() {
 # to fail silently. Read from a single sshd -T snapshot, and a value that is
 # missing or unreadable counts as a failure, never as a pass.
 HARDENING_SHORTFALL=""
+# PermitRootLogin values that already allow no root password login. The first
+# is the one the hardening writes, and the one a shortfall names.
+STRICT_ROOT_LOGIN="prohibit-password|without-password|forced-commands-only|no"
 hardening_is_effective() {
   local resolved key accepted value entry
   HARDENING_SHORTFALL=""
@@ -103,10 +108,11 @@ hardening_is_effective() {
   fi
   # sshd renders PermitRootLogin prohibit-password as the older
   # without-password on some versions, so both spellings are the same answer.
+  # A stricter root rule the box already had is kept, so it passes too.
   for entry in \
     "passwordauthentication no" \
     "kbdinteractiveauthentication no" \
-    "permitrootlogin prohibit-password|without-password"; do
+    "permitrootlogin $STRICT_ROOT_LOGIN"; do
     key=${entry%% *}
     accepted=${entry#* }
     value=$(printf '%s\n' "$resolved" |
@@ -205,14 +211,23 @@ apply_hardening() {
     revert_hardening
     die "could not move $LEGACY_DROPIN aside; put back what was here and changed nothing else."
   }
+  # The root rule the box has without our files, read now that both are set
+  # aside. One that already allows no root password login stays: over a
+  # stricter rule, ours would let root back in with a key. An unreadable value
+  # counts as weaker, so our line goes in.
+  local box_root_login root_line="PermitRootLogin prohibit-password"
+  box_root_login=$(sshd_setting permitrootlogin)
+  if [[ -n $box_root_login && "|$STRICT_ROOT_LOGIN|" == *"|$box_root_login|"* ]]; then
+    root_line="# PermitRootLogin is left to this box's own rule ($box_root_login)."
+  fi
   CANDIDATE_WRITTEN=1
   install -m 644 /dev/null "$DROPIN"
-  cat >"$DROPIN" <<'EOF'
+  cat >"$DROPIN" <<EOF
 # Installed by the isomux VPS installer: key-only SSH auth. Named to sort
 # first, because sshd keeps the first value it reads for a keyword.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
-PermitRootLogin prohibit-password
+$root_line
 EOF
   # The drop-in composes with whatever sshd config the box already has;
   # validate the aggregate before it can take effect, and back out our file if
@@ -232,7 +247,10 @@ EOF
   if systemctl is-active -q ssh; then
     systemctl reload ssh
   fi
-  log "key-only SSH auth is in place ($DROPIN)"
+  log "key-only SSH auth is in place for the general SSH settings ($DROPIN)."
+  log "A Match rule for one user or address can still allow passwords; that stays your choice."
+  [[ $root_line == PermitRootLogin* ]] ||
+    log "Kept this box's root login rule (PermitRootLogin $box_root_login)."
   return 0
 }
 

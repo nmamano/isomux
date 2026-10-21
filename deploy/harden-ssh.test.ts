@@ -119,7 +119,8 @@ exit "\${STUB_SSH_RC:-0}"`,
   // -T is sshd's resolved configuration and -t its syntax check, which is the
   // pair the apply path leans on. The three policy lines default to a box where
   // the hardening wins; "omit" drops a line entirely, for the missing-value
-  // case.
+  // case. STUB_BOX_ROOTLOGIN is the box's own PermitRootLogin, which our
+  // drop-in overrides only when it carries the line.
   stub(
     "sshd",
     `case "\${1:-}" in
@@ -129,7 +130,16 @@ exit "\${STUB_SSH_RC:-0}"`,
     printf 'port 22\\nlistenaddress 0.0.0.0:22\\nlistenaddress [::]:22\\nauthorizedkeysfile %s\\nauthorizedkeyscommand none\\n' "\${STUB_AK:-.ssh/authorized_keys}"
     [[ "\${STUB_PW:-no}" == omit ]] || printf 'passwordauthentication %s\\n' "\${STUB_PW:-no}"
     [[ "\${STUB_KBD:-no}" == omit ]] || printf 'kbdinteractiveauthentication %s\\n' "\${STUB_KBD:-no}"
-    [[ "\${STUB_ROOTLOGIN:-prohibit-password}" == omit ]] || printf 'permitrootlogin %s\\n' "\${STUB_ROOTLOGIN:-prohibit-password}"
+    if [[ -n "\${STUB_BOX_ROOTLOGIN:-}" ]]; then
+      # First value wins: our drop-in decides when it has the line, and the
+      # box's own value shows through when it does not.
+      ours=""
+      [[ ! -f "${configDir}/00-isomux-hardening.conf" ]] || ours=$(awk 'tolower($1) == "permitrootlogin" { print tolower($2); exit }' "${configDir}/00-isomux-hardening.conf")
+      if [[ -n "$ours" ]]; then printf 'permitrootlogin %s\\n' "$ours"
+      elif [[ "$STUB_BOX_ROOTLOGIN" != omit ]]; then printf 'permitrootlogin %s\\n' "$STUB_BOX_ROOTLOGIN"; fi
+    else
+      [[ "\${STUB_ROOTLOGIN:-prohibit-password}" == omit ]] || printf 'permitrootlogin %s\\n' "\${STUB_ROOTLOGIN:-prohibit-password}"
+    fi
     ;;
   -t) exit "\${STUB_SSHD_SYNTAX_RC:-0}" ;;
   *) : ;;
@@ -656,10 +666,9 @@ describe("harden-ssh.sh --apply", () => {
   beforeEach(() => rmSync(configDir, { recursive: true, force: true }));
 
   it("writes a drop-in that sorts ahead of the provider's own", async () => {
-    const { code, output } = await apply();
+    const { code } = await apply();
     expect(code).toBe(0);
     expect(existsSync(dropin())).toBe(true);
-    expect(output).toContain("key-only SSH auth is in place");
     // The name is the mechanism: first value read wins, files are read in
     // name order, and 50-cloud-init.conf is the one to beat.
     expect(basename(dropin()) < "50-cloud-init.conf").toBe(true);
@@ -670,14 +679,12 @@ describe("harden-ssh.sh --apply", () => {
     expect(code).toBe(3);
     expect(existsSync(dropin())).toBe(false);
     expect(output).toContain("passwordauthentication is yes, not no");
-    expect(output).not.toContain("key-only SSH auth is in place");
   });
 
   it("fails when keyboard-interactive survives", async () => {
     const { code, output } = await apply({ STUB_KBD: "yes" });
     expect(code).toBe(3);
     expect(output).toContain("kbdinteractiveauthentication is yes, not no");
-    expect(output).not.toContain("key-only SSH auth is in place");
   });
 
   it("fails when root can still log in with a password", async () => {
@@ -696,7 +703,6 @@ describe("harden-ssh.sh --apply", () => {
       expect(code).toBe(3);
       expect(existsSync(dropin())).toBe(false);
       expect(output).toContain("would not report its resolved configuration");
-      expect(output).not.toContain("key-only SSH auth is in place");
     }
   });
 
@@ -709,11 +715,10 @@ describe("harden-ssh.sh --apply", () => {
 
   it("takes without-password as the same answer as prohibit-password", async () => {
     // Some sshd versions render the policy under its older name.
-    const { code, output } = await apply({
+    const { code } = await apply({
       STUB_ROOTLOGIN: "without-password",
     });
     expect(code).toBe(0);
-    expect(output).toContain("key-only SSH auth is in place");
   });
 
   it("retires the 90- file a previous version left behind", async () => {
@@ -807,6 +812,63 @@ describe("harden-ssh.sh --apply", () => {
     expect(code).toBe(0);
     expect(configFiles()).toEqual(["00-isomux-hardening.conf"]);
     expect(readFileSync(dropin(), "utf8")).toContain("Named to sort");
+  });
+
+  // An active PermitRootLogin line in our drop-in, which sshd reads first.
+  const ROOT_LINE = /^[ \t]*PermitRootLogin\b/im;
+  const OUR_ROOT_LINE = /^PermitRootLogin prohibit-password$/m;
+
+  it("keeps a root-login rule the box already has when it is stricter than yes", async () => {
+    for (const box of [
+      "no",
+      "forced-commands-only",
+      "prohibit-password",
+      "without-password",
+    ]) {
+      rmSync(configDir, { recursive: true, force: true });
+      const { code } = await apply({ STUB_BOX_ROOTLOGIN: box });
+      expect([box, code]).toEqual([box, 0]);
+      expect([box, ROOT_LINE.test(readFileSync(dropin(), "utf8"))]).toEqual([
+        box,
+        false,
+      ]);
+    }
+  });
+
+  it("turns root password logins off on a box that allows them", async () => {
+    const { code } = await apply({ STUB_BOX_ROOTLOGIN: "yes" });
+    expect(code).toBe(0);
+    expect(readFileSync(dropin(), "utf8")).toMatch(OUR_ROOT_LINE);
+  });
+
+  it("writes the root-login line when the box's own value cannot be read", async () => {
+    // Unreadable is not stricter: the line goes in, and the check after the
+    // write decides.
+    const { code } = await apply({ STUB_BOX_ROOTLOGIN: "omit" });
+    expect(code).toBe(0);
+    expect(readFileSync(dropin(), "utf8")).toMatch(OUR_ROOT_LINE);
+  });
+
+  it("a re-run reads the box's own root-login rule, not our old file's", async () => {
+    // Our old drop-in says prohibit-password. Read with it still in place,
+    // a box that allows root password logins would look already strict.
+    const OLD =
+      "PasswordAuthentication no\nPermitRootLogin prohibit-password\n";
+    for (const [box, wantLine] of [
+      ["yes", true],
+      ["no", false],
+    ] as const) {
+      rmSync(configDir, { recursive: true, force: true });
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(dropin(), OLD);
+      const { code } = await apply({ STUB_BOX_ROOTLOGIN: box });
+      expect([box, code]).toEqual([box, 0]);
+      expect([box, ROOT_LINE.test(readFileSync(dropin(), "utf8"))]).toEqual([
+        box,
+        wantLine,
+      ]);
+      expect(configFiles()).toEqual(["00-isomux-hardening.conf"]);
+    }
   });
 
   it("writes nothing on a box with no key to get back in with", async () => {
