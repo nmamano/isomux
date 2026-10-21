@@ -19,6 +19,7 @@ import {
   type ReplayGuard,
 } from "./terminal-replay-guard.ts";
 import { DARK_THEME, LIGHT_THEME } from "./terminal-themes.ts";
+import { createPtyResizer, type PtyResizer } from "./terminal-resize.ts";
 
 // xterm escape sequences for navigation keys we expose on the soft-key bar.
 const ESC = "\x1b";
@@ -275,6 +276,7 @@ export function TerminalPanel({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const replayGuardRef = useRef<ReplayGuard | null>(null);
+  const resizerRef = useRef<PtyResizer | null>(null);
   // Lets handleBodyTap query whether the just-completed touch was a scroll
   // gesture (in which case we should NOT focus the input proxy and pop the
   // keyboard). The function is set by the touch-handling effect.
@@ -439,6 +441,10 @@ export function TerminalPanel({
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    const resizer = createPtyResizer((cols, rows) =>
+      send({ type: "terminal_resize", agentId, cols, rows }),
+    );
+    resizerRef.current = resizer;
 
     // Ctrl+C / Ctrl+V copy-paste on non-Mac (Windows/Linux) keyboards.
     // Stock xterm maps Ctrl+letter to a control byte and cancels the
@@ -473,12 +479,7 @@ export function TerminalPanel({
     requestAnimationFrame(() => {
       fitAddon.fit();
       if (autoFocus && !mobile) term.focus();
-      send({
-        type: "terminal_resize",
-        agentId,
-        cols: term.cols,
-        rows: term.rows,
-      });
+      resizer.now(term.cols, term.rows);
       if (mobile) {
         // Trick xterm into rendering its focused cursor (block + blink) even
         // though we route input via our own proxy and the helper textarea is
@@ -517,19 +518,18 @@ export function TerminalPanel({
 
     send({ type: "terminal_open", agentId });
 
+    // xterm follows the panel at once; the PTY gets the size once the drag
+    // settles (terminal-resize.ts).
     const observer = new ResizeObserver(() => {
       fitAddon.fit();
-      send({
-        type: "terminal_resize",
-        agentId,
-        cols: term.cols,
-        rows: term.rows,
-      });
+      resizer.request(term.cols, term.rows);
     });
     observer.observe(containerRef.current);
 
     return () => {
       observer.disconnect();
+      resizer.dispose();
+      resizerRef.current = null;
       removeRawListener(handleRawMessage);
       replayGuardRef.current?.dispose();
       replayGuardRef.current = null;
@@ -654,14 +654,11 @@ export function TerminalPanel({
         // touchend (not per touchmove) keeps WebSocket traffic sane during
         // the gesture; readline prompts redraw at the new cols/rows after.
         fitRef.current?.fit();
-        if (termRef.current) {
-          send({
-            type: "terminal_resize",
-            agentId,
-            cols: termRef.current.cols,
-            rows: termRef.current.rows,
-          });
-        }
+        if (termRef.current)
+          resizerRef.current?.request(
+            termRef.current.cols,
+            termRef.current.rows,
+          );
       }
       scrollLastY = null;
       // scrollMoved is read by handleBodyTap to suppress the focus-on-tap
@@ -717,6 +714,9 @@ export function TerminalPanel({
     setCommandIssue(null);
     if (termRef.current) resetTerminalForRespawn(termRef.current);
     send({ type: "terminal_restart", agentId });
+    // The new PTY starts at 80x24.
+    if (termRef.current)
+      resizerRef.current?.now(termRef.current.cols, termRef.current.rows);
     focusTerminal();
   }
 
