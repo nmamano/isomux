@@ -291,6 +291,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
 - The Apps tab lists every app available to you with its link, state, restart count, and thumbnail. App owners and office owners can also read recent output and start, stop, restart, archive, or delete an app.
 - On an office with its own domain and wildcard DNS, each app can get a short address, like your-office.com/hello, that shows the app full-page with a chat button. Chat uses the target agent's shared conversation and requires access to both the app and the agent's room. Members can paste, drop or attach screenshots in chat; Isomux does not capture the screen. A direct link opens hello.your-office.com (see isomux.com/docs/hosting).
+- Install as app: the Apps tab and the app's short address can put an app on a phone's Home Screen or a computer's app list, as its own app with its own name. Chrome and Edge install it in one click; on iPhone the page shows the Safari steps (Share, then Add to Home Screen).
 - Only people signed in to the office can open an app's address.
 - An app can do what the agent that built it can, so it can report an event or hand out work to other agents.
 

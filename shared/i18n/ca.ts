@@ -2419,6 +2419,7 @@ Coses que pots fer per ell:
   "apps.menu.archive": "Arxiva",
   "apps.menu.unarchive": "Desarxiva",
   "apps.menu.delete": "Elimina...",
+  "apps.menu.install": "Instal·la com a app",
   "apps.actionFailed.archive": "No s'ha pogut arxivar.",
   "apps.actionFailed.unarchive": "No s'ha pogut desarxivar.",
   "common.untitledConversation": "Conversa sense títol",
@@ -3332,4 +3333,8 @@ Coses que pots fer per ell:
   "appWidget.attach": "Adjunta una imatge",
   "appWidget.direct": "Obre l'app directament",
   "appWidget.unavailable": "El xat no està disponible.",
+  "appWidget.install": "Instal·la com a app",
+  "appWidget.installSteps":
+    "Toca Comparteix i després Afegeix a la pantalla d'inici.",
+  "appWidget.installConfirm": "Instal·la {appName}",
 };

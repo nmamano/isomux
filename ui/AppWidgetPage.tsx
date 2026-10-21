@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
@@ -16,6 +23,14 @@ import { chatVisibleEntries } from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
 import { readSafariEnv, safariHref } from "./safari-link.ts";
 import {
+  INSTALL_HASH,
+  heldInstallPrompt,
+  installMode,
+  promptInstall,
+  readInstallEnv,
+  subscribeInstallPrompt,
+} from "./app-install.ts";
+import {
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
   beginAppHandshake,
@@ -31,11 +46,17 @@ const WIDGET_CSS = `
 .app-widget button,.app-widget a { font:inherit; }
 .app-widget button { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
 .app-widget button:disabled { cursor:default; opacity:.55; }
-.app-widget-dock { display:flex; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; border-radius:9px; box-shadow:0 3px 18px #0004; }
+.app-widget-dock { display:flex; gap:8px; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; }
+.app-widget-dock > * { border-radius:9px; box-shadow:0 3px 18px #0004; }
 .app-widget-launcher { display:flex; align-items:center; gap:8px; }
 .app-widget-launcher[aria-expanded="true"] { border-color:var(--accent); color:var(--accent-text); box-shadow:inset 0 0 0 1px var(--accent); }
 .app-widget-dock-direct { display:flex; align-items:center; justify-content:center; min-width:40px; min-height:40px; border:1px solid var(--border); border-radius:9px; background:var(--bg-surface-solid); color:var(--text-secondary); }
 .app-widget-dock-direct:hover { color:var(--text-primary); }
+.app-widget .app-widget-dock-install { padding:0; }
+.app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
+.app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:280px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; flex-direction:column; gap:10px; }
+.app-widget-install p { margin:0; display:flex; align-items:center; gap:8px; }
+.app-widget-install svg { flex-shrink:0; color:var(--accent-text); }
 .app-widget .app-widget-direct { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); white-space:nowrap; }
 .app-widget-direct:hover { color:var(--text-primary); }
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
@@ -80,6 +101,25 @@ export function AppWidgetPage({
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [open, setOpen] = useState(false);
+  // The Apps page links here with INSTALL_HASH: open the install popover.
+  const [installAsked, setInstallAsked] = useState(
+    () => window.location.hash === INSTALL_HASH,
+  );
+  const [stepsOpen, setStepsOpen] = useState(installAsked);
+  const held = useSyncExternalStore(
+    subscribeInstallPrompt,
+    () => heldInstallPrompt() !== null,
+  );
+  const install = installMode(readInstallEnv(), held);
+  useEffect(() => {
+    if (window.location.hash !== INSTALL_HASH) return;
+    // A reload must not open the popover again.
+    window.history.replaceState(
+      window.history.state,
+      "",
+      window.location.pathname + window.location.search,
+    );
+  }, []);
 
   const [verified, setVerified] = useState("");
   // State-only agent updates do not force extra readiness requests.
@@ -226,6 +266,51 @@ export function AppWidgetPage({
   // With a chat, only the open panel's header holds the direct link; with no
   // chat, the dock does.
   const dockDirect = !chatReady && directHref;
+  // On Chrome the popover waits for the event: prompt() needs it, and an
+  // offer with nothing to click would be a dead end.
+  const installOpen =
+    install === "ios-steps" ? stepsOpen : install === "prompt" && installAsked;
+  const runInstall = () => {
+    setInstallAsked(false);
+    void promptInstall();
+  };
+  // The iPhone Home Screen window has no Back control: the phone's Chat
+  // leaves for Safari instead of taking the app's window to the office.
+  const safariChat =
+    agent && state.isMobile
+      ? safariHref(
+          window.location.origin + AGENT_LINK_PREFIX + agent.id,
+          readSafariEnv(),
+        )
+      : null;
+  const chatInSafari = safariChat?.startsWith("x-safari-") ? safariChat : null;
+  // One body for both launcher elements, so they cannot drift apart.
+  const launcherBody = agent && (
+    <>
+      <span
+        aria-hidden="true"
+        className="app-widget-avatar"
+        data-agent-id={agent.id}
+        data-agent-state={agent.state}
+      >
+        <LiveCharacter agent={agent} height={36} />
+      </span>
+      {t("appWidget.launcher")}
+      {unread && (
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-block",
+            width: 8,
+            height: 8,
+            marginLeft: 8,
+            borderRadius: "50%",
+            background: "currentColor",
+          }}
+        />
+      )}
+    </>
+  );
   return (
     <main
       className="app-widget"
@@ -247,8 +332,48 @@ export function AppWidgetPage({
           {t("appWidget.unavailable")}
         </p>
       )}
-      {(dockDirect || chatReady) && (
+      {installOpen && (
+        <div
+          id="app-widget-install"
+          className="app-widget-install"
+          data-app-install-popover=""
+        >
+          {install === "ios-steps" ? (
+            <p>
+              <ShareIcon />
+              {t("appWidget.installSteps")}
+            </p>
+          ) : (
+            <button type="button" onClick={runInstall}>
+              {t("appWidget.installConfirm", {
+                appName: document.title || boot.name,
+              })}
+            </button>
+          )}
+        </div>
+      )}
+      {(dockDirect || chatReady || install) && (
         <div className="app-widget-dock">
+          {install && (
+            <button
+              type="button"
+              className="app-widget-dock-direct app-widget-dock-install"
+              aria-label={t("appWidget.install")}
+              title={t("appWidget.install")}
+              aria-expanded={install === "ios-steps" ? installOpen : undefined}
+              aria-controls={
+                install === "ios-steps" && installOpen
+                  ? "app-widget-install"
+                  : undefined
+              }
+              onClick={() => {
+                if (install === "prompt") runInstall();
+                else setStepsOpen(!stepsOpen);
+              }}
+            >
+              <InstallIcon />
+            </button>
+          )}
           {dockDirect && (
             <a
               className="app-widget-dock-direct"
@@ -261,7 +386,20 @@ export function AppWidgetPage({
               <OpenIcon size={16} />
             </a>
           )}
-          {target && agent && (
+          {target && agent && chatInSafari && (
+            <a
+              className="app-widget-launcher"
+              href={chatInSafari}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                setReadMark({ agent: target?.agentId, latest });
+              }}
+            >
+              {launcherBody}
+            </a>
+          )}
+          {target && agent && !chatInSafari && (
             <button
               ref={launcher}
               className="app-widget-launcher"
@@ -276,28 +414,7 @@ export function AppWidgetPage({
                 setReadMark({ agent: target?.agentId, latest });
               }}
             >
-              <span
-                aria-hidden="true"
-                className="app-widget-avatar"
-                data-agent-id={agent.id}
-                data-agent-state={agent.state}
-              >
-                <LiveCharacter agent={agent} height={36} />
-              </span>
-              {t("appWidget.launcher")}
-              {unread && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-block",
-                    width: 8,
-                    height: 8,
-                    marginLeft: 8,
-                    borderRadius: "50%",
-                    background: "currentColor",
-                  }}
-                />
-              )}
+              {launcherBody}
             </button>
           )}
         </div>
@@ -764,5 +881,44 @@ export function WidgetChat({
         </div>
       </form>
     </div>
+  );
+}
+
+function InstallIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 2v8M4.75 6.75 8 10l3.25-3.25" />
+      <path d="M2.5 11v1.25c0 .97.78 1.75 1.75 1.75h7.5c.97 0 1.75-.78 1.75-1.75V11" />
+    </svg>
+  );
+}
+
+// Safari's Share icon, drawn: iOS draws shape glyphs as emoji.
+function ShareIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 1.75v8.5M5.25 4.5 8 1.75l2.75 2.75" />
+      <path d="M5.5 6.75H4.25c-.69 0-1.25.56-1.25 1.25v5c0 .69.56 1.25 1.25 1.25h7.5c.69 0 1.25-.56 1.25-1.25V8c0-.69-.56-1.25-1.25-1.25H10.5" />
+    </svg>
   );
 }

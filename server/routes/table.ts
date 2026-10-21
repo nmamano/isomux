@@ -2272,6 +2272,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("app:read", memberScope),
     emits: [],
   }),
+  // The manifest the app's short-link page links (crossorigin
+  // use-credentials, so the member's cookie comes with it).
+  defineRoute<void, Uint8Array>({
+    opId: "apps.manifest",
+    method: "GET",
+    path: "/api/apps/:name/manifest",
+    auth: cap("app:read", memberScope),
+    emits: [],
+  }),
   defineRoute<void, AppWire>({
     opId: "apps.get",
     method: "GET",

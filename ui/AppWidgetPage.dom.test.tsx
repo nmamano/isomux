@@ -616,7 +616,13 @@ for (const [variant, phone, homeScreen] of [
       expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
       expect(dock.querySelector(".app-widget-launcher") !== null).toBe(phone);
       if (phone) {
-        expect(links).toHaveLength(0);
+        // On the iPhone Home Screen the launcher is itself a link to Safari
+        // (ui/AppWidgetPage.install.dom.test.tsx); no other link shows.
+        expect(
+          [...links].filter(
+            (link) => !link.classList.contains("app-widget-launcher"),
+          ),
+        ).toHaveLength(0);
         return;
       }
       expect(links).toHaveLength(1);

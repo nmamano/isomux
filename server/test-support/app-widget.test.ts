@@ -114,7 +114,7 @@ it("serves a private wrapper only after office sign-in and app access", async ()
   expect(signedOut.status).toBe(unknownSignedOut.status);
   expect(signedOut.body).toBe(unknownSignedOut.body);
   expect(signedOut.body).not.toContain("isomux-app-widget");
-  const wrapper = await fetchPage("/hello?view=details", rawSessionId);
+  const wrapper = await fetchPage("/hello/?view=details", rawSessionId);
   expect(wrapper.status).toBe(200);
   expect(wrapper.body).toContain('name="isomux-app-widget"');
   expect(wrapper.headers["cache-control"]).toBe("no-store");
@@ -276,4 +276,181 @@ it("refuses an image send when the app target changes after upload", async () =>
       .getAgentLogs(original.id)
       .filter((entry) => entry.kind === "user_message"),
   ).toHaveLength(0);
+});
+
+// The links of one rel in served HTML, as a browser parses them.
+async function linksWithRel(html: string, rel: string) {
+  const found: Record<string, string | null>[] = [];
+  await new HTMLRewriter()
+    .on("link", {
+      element(el) {
+        if (
+          (el.getAttribute("rel") ?? "")
+            .toLowerCase()
+            .split(/\s+/)
+            .includes(rel)
+        )
+          found.push({
+            href: el.getAttribute("href"),
+            crossorigin: el.getAttribute("crossorigin"),
+          });
+      },
+    })
+    .transform(new Response(html))
+    .text();
+  return found;
+}
+
+// Install as app (task 8a07aa4e). Chrome installs a page only through the
+// manifest it links, and it fetches that manifest without cookies unless the
+// link says crossorigin="use-credentials". The manifest's scope is /<app>/, so
+// the short link moves to that path first: a page outside its own scope
+// installs with an address bar, and scope "/<app>" would also capture
+// /<app>-other.
+it("moves a visible app's short link into its install scope and links the app's manifest there", async () => {
+  const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  const { raw, OFFICE_HOST, HTTPS_ORIGIN, NAVIGATION_HEADERS } =
+    await import("./app-host-test-kit.ts");
+  const { sessionCookieName } = await import("../auth.ts");
+  const fetchPage = (path: string, cookie?: string) =>
+    raw(srv.port, {
+      host: OFFICE_HOST,
+      path,
+      headers: {
+        ...NAVIGATION_HEADERS,
+        ...(cookie ? { Cookie: `${sessionCookieName()}=${cookie}` } : {}),
+      },
+    });
+
+  for (const suffix of ["", "?view=details", "?//evil.example"]) {
+    const moved = await fetchPage(`/hello${suffix}`, rawSessionId);
+    expect(moved.status).toBe(302);
+    const target = new URL(moved.headers.location, HTTPS_ORIGIN);
+    expect(target.origin).toBe(HTTPS_ORIGIN);
+    expect(target.pathname).toBe("/hello/");
+    expect(target.search).toBe(new URL(`${HTTPS_ORIGIN}/${suffix}`).search);
+  }
+
+  const wrapper = await fetchPage("/hello/", rawSessionId);
+  expect(wrapper.status).toBe(200);
+  expect(wrapper.body).toContain('name="isomux-app-widget"');
+  expect(await linksWithRel(wrapper.body, "manifest")).toEqual([
+    { href: "/api/apps/hello/manifest", crossorigin: "use-credentials" },
+  ]);
+  // The office page keeps the office's own manifest.
+  const office = await fetchPage("/", rawSessionId);
+  expect(await linksWithRel(office.body, "manifest")).toEqual([
+    { href: "/manifest.json", crossorigin: null },
+  ]);
+
+  // A member who cannot see the app, and a signed-out visitor, get what an
+  // unknown name gets: no redirect tells them the app exists.
+  const outsider = await srv.seedMember("Outsider");
+  const hidden = await fetchPage("/hello", outsider.rawSessionId);
+  const unknown = await fetchPage("/unknown", outsider.rawSessionId);
+  expect(hidden.status).toBe(unknown.status);
+  expect(hidden.headers.location).toBeUndefined();
+  expect(hidden.body).toBe(unknown.body);
+  const signedOut = await fetchPage("/hello");
+  const unknownSignedOut = await fetchPage("/unknown");
+  expect(signedOut.status).toBe(unknownSignedOut.status);
+  expect(signedOut.headers.location).toBe(unknownSignedOut.headers.location);
+});
+
+const ANDROID =
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36";
+const DESKTOP_CHROME =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
+const IPHONE =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+
+it("serves the app's manifest to a member's credentialed manifest fetch only", async () => {
+  const { srv, rawSessionId, token } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  const { raw, OFFICE_HOST, HTTPS_ORIGIN } =
+    await import("./app-host-test-kit.ts");
+  const { sessionCookieName } = await import("../auth.ts");
+  // What Chrome sends for <link rel="manifest" crossorigin="use-credentials">.
+  const manifestFetch = (name: string, cookie?: string, userAgent = ANDROID) =>
+    raw(srv.port, {
+      host: OFFICE_HOST,
+      path: `/api/apps/${name}/manifest`,
+      headers: {
+        "User-Agent": userAgent,
+        "Sec-Fetch-Dest": "manifest",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        Origin: HTTPS_ORIGIN,
+        ...(cookie ? { Cookie: `${sessionCookieName()}=${cookie}` } : {}),
+      },
+    });
+  const response = await manifestFetch("hello", rawSessionId);
+  expect(response.status).toBe(200);
+  expect(response.headers["content-type"]).toStartWith(
+    "application/manifest+json",
+  );
+  expect(response.headers["cache-control"]).toBe("no-store");
+  const manifest = JSON.parse(response.body);
+  // The app is not running in this office, so its title is its name.
+  expect(manifest).toMatchObject({
+    id: "/hello/",
+    start_url: "/hello/",
+    scope: "/hello/",
+    name: "hello",
+    short_name: "hello",
+    display: "standalone",
+  });
+  const icons = manifest.icons as {
+    src: string;
+    type: string;
+    sizes: string;
+  }[];
+  expect(
+    icons.some(
+      (icon) =>
+        icon.src.startsWith("data:image/svg+xml,") && icon.sizes === "any",
+    ),
+  ).toBe(true);
+  // Android installs only with a raster icon of at least 144px, fetched with
+  // no cookie: each one must load signed out.
+  const rasters = icons.filter((icon) => icon.type === "image/png");
+  expect(rasters.some((icon) => Number(icon.sizes.split("x")[0]) >= 144)).toBe(
+    true,
+  );
+  for (const icon of rasters) {
+    const png = await raw(srv.port, { host: OFFICE_HOST, path: icon.src });
+    expect(png.status).toBe(200);
+    expect(png.headers["content-type"]).toStartWith("image/png");
+  }
+  // Off Android the app's SVG is the only icon: an iPhone would take the
+  // office PNG over its own letter icon, and desktop Chrome installs from
+  // the SVG.
+  for (const userAgent of [IPHONE, DESKTOP_CHROME]) {
+    const other = await manifestFetch("hello", rawSessionId, userAgent);
+    expect(other.status).toBe(200);
+    const types = (JSON.parse(other.body).icons as { type: string }[]).map(
+      (icon) => icon.type,
+    );
+    expect(types.length).toBeGreaterThan(0);
+    expect(types.every((type) => type === "image/svg+xml")).toBe(true);
+  }
+
+  const signedOut = await manifestFetch("hello");
+  expect(signedOut.status).toBe(401);
+  const missing = await manifestFetch("missing", rawSessionId);
+  expect(missing.status).toBe(404);
+  const outsider = await srv.seedMember("Outsider");
+  const hidden = await manifestFetch("hello", outsider.rawSessionId);
+  expect(hidden.status).toBe(404);
+  expect(hidden.body).toBe(missing.body);
+  expect(
+    (
+      await srv.http("/api/apps/hello/manifest", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).status,
+  ).toBe(403);
 });

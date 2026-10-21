@@ -2365,6 +2365,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.menu.archive": "Archive",
   "apps.menu.unarchive": "Unarchive",
   "apps.menu.delete": "Delete...",
+  "apps.menu.install": "Install as app",
   "apps.actionFailed.archive": "Could not archive.",
   "apps.actionFailed.unarchive": "Could not unarchive.",
   "common.untitledConversation": "Untitled conversation",
@@ -3294,6 +3295,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.attach": "Attach image",
   "appWidget.direct": "Open app directly",
   "appWidget.unavailable": "Chat is unavailable.",
+  "appWidget.install": "Install as app",
+  "appWidget.installSteps": "Tap Share, then Add to Home Screen.",
+  "appWidget.installConfirm": "Install {appName}",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

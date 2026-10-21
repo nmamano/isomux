@@ -1537,6 +1537,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Apps tab exists.
   "apps.list": { caps: ["app:read"], emits: [] },
   "apps.widget": { caps: ["app:read"], emits: [] },
+  "apps.manifest": { caps: ["app:read"], emits: [] },
   "apps.get": { caps: ["app:read"], emits: [] },
   "apps.getThumbnail": { caps: ["app:read"], emits: [] },
   "apps.setThumbnail": { caps: ["app:write"], emits: ["app_upserted"] },
@@ -2195,6 +2196,7 @@ const API_REACHABLE_OPIDS = [
   "pager.resolve",
   "apps.list",
   "apps.widget",
+  "apps.manifest",
   "apps.get",
   "apps.getThumbnail",
   "apps.setThumbnail",

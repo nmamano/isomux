@@ -1,7 +1,8 @@
 import type { AppRecord } from "../../../shared/types.ts";
 import type { AppWidgetStatus } from "../../../shared/contract-shapes.ts";
 import type { Identity } from "../../identity/index.ts";
-import { fail, ok, type RouteHandler } from "../executor.ts";
+import { appManifest, type WidgetMetadata } from "../../app-widget-metadata.ts";
+import { bytes, fail, ok, type RouteHandler } from "../executor.ts";
 
 export interface AppWidgetDeps {
   get(name: string): AppRecord | null;
@@ -10,6 +11,8 @@ export interface AppWidgetDeps {
   appUrl(app: AppRecord): string | null;
   sessionExpiresAt(app: AppRecord, sessionHash: string | null): number | null;
   chat(app: AppRecord, identity: Identity): AppWidgetStatus["chat"];
+  // The app's title and icons, read as the short-link page reads them.
+  metadata(app: AppRecord): Promise<WidgetMetadata>;
 }
 
 export function appWidgetHandlers(
@@ -40,6 +43,26 @@ export function appWidgetHandlers(
         chat: deps.chat(app, ctx.identity),
       };
       return ok(status);
+    },
+    // The short-link page's manifest: same 404 as apps.widget for an app the
+    // caller cannot see.
+    "apps.manifest": async (ctx) => {
+      const app = deps.get(ctx.params.name);
+      if (
+        !app ||
+        !ctx.identity.userId ||
+        !deps.canAccess(app, ctx.identity.userId) ||
+        !deps.appUrl(app)
+      )
+        return fail(404, "not_found");
+      const manifest = appManifest(app, await deps.metadata(app), {
+        android: /\bAndroid\b/i.test(ctx.req.headers.get("user-agent") ?? ""),
+      });
+      return bytes(
+        new TextEncoder().encode(JSON.stringify(manifest)),
+        "application/manifest+json",
+        { "Cache-Control": "no-store" },
+      );
     },
   };
 }

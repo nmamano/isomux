@@ -57,7 +57,7 @@ Environment variables for the default direct-host installation, set before runni
 
 Each app an agent registers can get its own address, like `hello.office.example.com`, open from any device and behind the same sign-in as the office. A fresh install sets up the proxy side, and the wildcard A record ([VPS guide](hosting-vps.md)) points the names at the server. An office installed before this existed gets the proxy side from one re-run of the installer, or from adding the site block to `/etc/caddy/Caddyfile` by hand; an update replaces only a byte-exact older installer rendering, and only to add its access log.
 
-The Apps page shows a short link such as `office.example.com/hello`, which opens the app with a chat widget.
+The Apps page shows a short link such as `office.example.com/hello`, which opens the app with a chat widget. That page links a manifest for the app, so a browser installs it as its own app; on Android the installed app shows the Isomux icon.
 
 In an office added to an iPhone Home Screen, app links open in Safari. If Safari is not signed in to the office, open a device link there once (`Settings` → `You` → `Sign-in links`).
 

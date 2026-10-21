@@ -2186,6 +2186,7 @@ App 的一些原则：
   "apps.menu.archive": "归档",
   "apps.menu.unarchive": "取消归档",
   "apps.menu.delete": "删除…",
+  "apps.menu.install": "安装为应用",
   "apps.actionFailed.archive": "无法归档。",
   "apps.actionFailed.unarchive": "无法取消归档。",
   "common.untitledConversation": "无标题对话",
@@ -2983,4 +2984,7 @@ App 的一些原则：
   "appWidget.attach": "附加图片",
   "appWidget.direct": "直接打开应用",
   "appWidget.unavailable": "聊天不可用。",
+  "appWidget.install": "安装为应用",
+  "appWidget.installSteps": "点按“分享”，然后点按“添加到主屏幕”。",
+  "appWidget.installConfirm": "安装 {appName}",
 };

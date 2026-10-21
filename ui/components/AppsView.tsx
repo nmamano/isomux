@@ -37,6 +37,11 @@ import type {
 } from "../../shared/i18n/translate.ts";
 import { readSafariEnv, safariHref } from "../safari-link.ts";
 import type { SafariEnv } from "../safari-link.ts";
+import {
+  appInstallHref,
+  canOfferInstall,
+  readInstallEnv,
+} from "../app-install.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -548,6 +553,7 @@ function AppThumbnail({
 }
 
 type MenuAction =
+  | "install"
   | "start"
   | "stop"
   | "restart"
@@ -580,10 +586,14 @@ export function appMenuActions(
 function AppActionsMenu({
   actions,
   disabled,
+  installHref,
   onAction,
 }: {
   actions: MenuAction[];
   disabled: boolean;
+  // The "install" item is a link: on the iPhone Home Screen office it must
+  // leave for Safari, which only a navigation does.
+  installHref: string | null;
   onAction: (action: MenuAction) => void;
 }) {
   const { t } = useI18n();
@@ -707,15 +717,34 @@ function AppActionsMenu({
                     }}
                   />
                 )}
-                <MenuItem
-                  label={t(MENU_LABELS[action])}
-                  danger={action === "delete"}
-                  disabled={disabled && action !== "log"}
-                  onClick={() => {
-                    setAt(null);
-                    onAction(action);
-                  }}
-                />
+                {action === "install" && installHref ? (
+                  <a
+                    href={installHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setAt(null)}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background =
+                        "rgba(255,255,255,0.04)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "transparent")
+                    }
+                    style={menuLinkStyle}
+                  >
+                    {t(MENU_LABELS[action])}
+                  </a>
+                ) : (
+                  <MenuItem
+                    label={t(MENU_LABELS[action])}
+                    danger={action === "delete"}
+                    disabled={disabled && action !== "log"}
+                    onClick={() => {
+                      setAt(null);
+                      onAction(action);
+                    }}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -724,6 +753,19 @@ function AppActionsMenu({
     </>
   );
 }
+
+// A menu row that is a link, drawn like MenuItem.
+const menuLinkStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  width: "100%",
+  padding: "7px 10px",
+  color: "var(--text-dim)",
+  fontSize: 13,
+  borderRadius: 6,
+  textDecoration: "none",
+  boxSizing: "border-box",
+};
 
 // Section labels share the look of the table headers on the Tasks and
 // Schedules pages.
@@ -1030,6 +1072,18 @@ export function AppsView({
       window.location.hostname,
       features.liveAppPreviews,
     );
+    // Every member who sees an app with a short link may install it.
+    const installHref =
+      features.liveAppPreviews &&
+      typeof app.shortUrl === "string" &&
+      app.shortUrl !== "" &&
+      canOfferInstall(readInstallEnv())
+        ? appInstallHref(app.shortUrl, readSafariEnv())
+        : null;
+    const actions: MenuAction[] = [
+      ...(installHref ? (["install"] as const) : []),
+      ...(app.canManage === true ? appMenuActions(app) : []),
+    ];
     const creatorAgentId = resolveCreatorAgentId(app, agents);
     const creatorName = creatorAgentId
       ? agents.find((agent) => agent.id === creatorAgentId)?.name
@@ -1193,11 +1247,14 @@ export function AppsView({
             </div>
           )}
         </div>
-        {app.canManage === true && (
+        {actions.length > 0 && (
           <AppActionsMenu
-            actions={appMenuActions(app)}
+            actions={actions}
             disabled={isBusy}
+            installHref={installHref}
             onAction={(action) => {
+              // The install item is a link; the rest are a manager's.
+              if (action === "install" || app.canManage !== true) return;
               if (action === "log") void showLogs(app);
               else if (action === "delete") setConfirmDelete(app);
               else void act(app.name, action);
@@ -1579,6 +1636,7 @@ const MENU_LABELS: Record<
   start: "apps.menu.start",
   stop: "apps.menu.stop",
   restart: "apps.menu.restart",
+  install: "apps.menu.install",
   log: "apps.menu.log",
   archive: "apps.menu.archive",
   unarchive: "apps.menu.unarchive",

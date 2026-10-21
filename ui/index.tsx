@@ -5,6 +5,7 @@ import { App } from "./App.tsx";
 import { WidgetOfficeBridge } from "./WidgetOfficeBridge.tsx";
 import type { AppWidgetBoot } from "./app-widget-state.ts";
 import { LanguageProvider } from "./i18n.tsx";
+import { captureInstallPrompt } from "./app-install.ts";
 
 const widgetMeta = document.querySelector<HTMLMetaElement>(
   'meta[name="isomux-app-widget"]',
@@ -12,6 +13,9 @@ const widgetMeta = document.querySelector<HTMLMetaElement>(
 const widgetBoot = widgetMeta
   ? (JSON.parse(widgetMeta.content) as AppWidgetBoot)
   : null;
+// Only the short-link page holds the install event: on the office page
+// Chrome's own install offer for the office stays.
+if (widgetBoot) captureInstallPrompt();
 
 const root = createRoot(document.getElementById("root")!);
 root.render(

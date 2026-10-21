@@ -2,10 +2,11 @@ import { afterEach, expect, it } from "bun:test";
 import {
   readWidgetMetadata,
   applyWidgetMetadata,
+  appManifest,
   WIDGET_METADATA_MAX_BYTES,
 } from "./app-widget-metadata.ts";
 import type { RelayContext } from "./app-proxy.ts";
-import { appFavicon } from "./app-favicon.ts";
+import { appFavicon, appFaviconSvg } from "./app-favicon.ts";
 
 let upstream: ReturnType<typeof Bun.serve> | undefined;
 afterEach(async () => {
@@ -211,3 +212,77 @@ for (const limit of ["bytes", "deadline"] as const) {
     expect(cancelled).toBe(true);
   });
 }
+
+// The install manifest (task 8a07aa4e). The browser fetches its icons with no
+// cookie, and the app host answers such a fetch with 401, so only an inline
+// SVG the app declares can stand for the app. Raster data: icons are dropped
+// as well: apps declare small favicons, and an install icon needs at least
+// 144px. The office's own PNGs are there for Android only, which installs
+// nothing without a raster icon: iOS takes a manifest PNG over its own letter
+// icon (Safari 15.4 and later), so on an iPhone every app would wear the
+// Isomux icon.
+const SVG = "data:image/svg+xml," + encodeURIComponent("<svg/>");
+const SVG_BASE64 = "data:image/svg+xml;base64,PHN2Zy8+";
+const HOST_SVG =
+  "data:image/svg+xml," + encodeURIComponent(appFaviconSvg({ name: "sample" }));
+for (const [label, icons, kept] of [
+  [
+    "keeps the app's inline SVGs at any size",
+    [
+      { href: SVG, type: "image/svg+xml", sizes: "16x16" },
+      { href: SVG_BASE64 },
+    ],
+    [SVG, SVG_BASE64],
+  ],
+  [
+    "drops app-host and raster icons beside an inline SVG",
+    [
+      { href: "https://sample.office.example/logo.svg" },
+      { href: "data:image/png;base64,AA==" },
+      { href: SVG },
+    ],
+    [SVG],
+  ],
+  [
+    "uses the host icon when no app icon is an inline SVG",
+    [
+      { href: "https://sample.office.example/logo.svg" },
+      { href: "data:image/png;base64,AA==" },
+    ],
+    [HOST_SVG],
+  ],
+] as const) {
+  it(`install manifest ${label}`, () => {
+    const manifest = appManifest(
+      { name: "sample" },
+      { title: "Sample board", icons: [...icons] },
+      { android: true },
+    );
+    expect(manifest).toMatchObject({
+      id: "/sample/",
+      start_url: "/sample/",
+      scope: "/sample/",
+      name: "Sample board",
+      short_name: "Sample board",
+      display: "standalone",
+    });
+    const svgs = manifest.icons.filter((icon) => icon.type === "image/svg+xml");
+    expect(svgs.map((icon) => icon.src)).toEqual([...kept]);
+    expect(svgs.every((icon) => icon.sizes === "any")).toBe(true);
+    const rest = manifest.icons.filter((icon) => icon.type !== "image/svg+xml");
+    expect(rest.length).toBeGreaterThan(0);
+    for (const icon of rest) {
+      expect(icon.type).toBe("image/png");
+      expect(icon.src).toStartWith("/icons/");
+    }
+  });
+}
+
+it("install manifest carries no raster icon off Android", () => {
+  const manifest = appManifest(
+    { name: "sample" },
+    { title: "Sample board", icons: [{ href: SVG }] },
+    { android: false },
+  );
+  expect(manifest.icons.map((icon) => icon.type)).toEqual(["image/svg+xml"]);
+});

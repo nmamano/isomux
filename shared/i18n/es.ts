@@ -2415,6 +2415,7 @@ Cosas que puedes hacer por él:
   "apps.menu.archive": "Archivar",
   "apps.menu.unarchive": "Desarchivar",
   "apps.menu.delete": "Eliminar...",
+  "apps.menu.install": "Instalar como app",
   "apps.actionFailed.archive": "No se pudo archivar.",
   "apps.actionFailed.unarchive": "No se pudo desarchivar.",
   "common.untitledConversation": "Conversación sin título",
@@ -3327,4 +3328,8 @@ Cosas que puedes hacer por él:
   "appWidget.attach": "Adjuntar imagen",
   "appWidget.direct": "Abrir la app directamente",
   "appWidget.unavailable": "El chat no está disponible.",
+  "appWidget.install": "Instalar como app",
+  "appWidget.installSteps":
+    "Toca Compartir y luego Añadir a pantalla de inicio.",
+  "appWidget.installConfirm": "Instalar {appName}",
 };

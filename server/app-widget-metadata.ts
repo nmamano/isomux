@@ -14,7 +14,9 @@ export interface WidgetMetadata {
 // The full app shows it when its HTML declares no usable icon link, and it
 // does not depend on whether the app runs. Inline, so the browser fetches
 // nothing.
-function hostIcon(app: AppRecord): WidgetMetadata["icons"][number] {
+function hostIcon(
+  app: Pick<AppRecord, "name">,
+): WidgetMetadata["icons"][number] {
   return {
     href: "data:image/svg+xml," + encodeURIComponent(appFaviconSvg(app)),
     type: "image/svg+xml",
@@ -163,6 +165,65 @@ export async function readWidgetMetadata(
     clearTimeout(timer);
     await reader?.cancel().catch(() => {});
   }
+}
+
+export interface AppManifest {
+  id: string;
+  start_url: string;
+  scope: string;
+  name: string;
+  short_name: string;
+  display: "standalone";
+  theme_color: string;
+  background_color: string;
+  icons: { src: string; sizes: string; type: string; purpose?: string }[];
+}
+
+// The manifest the app's short-link page links, so a browser installs the app
+// as its own app: the app's title and its SVG icons (data: URLs only; the app
+// host answers a cookieless fetch with 401). Android installs nothing without
+// a raster icon, so only there the office PNGs follow. Elsewhere they stay
+// out: iOS takes a manifest PNG over its own letter icon, and every app on an
+// iPhone would wear the Isomux icon.
+export function appManifest(
+  app: Pick<AppRecord, "name">,
+  metadata: WidgetMetadata,
+  { android }: { android: boolean },
+): AppManifest {
+  const path = `/${app.name}/`;
+  const svgs = metadata.icons.filter((icon) =>
+    /^data:image\/svg\+xml[;,]/i.test(icon.href),
+  );
+  return {
+    id: path,
+    start_url: path,
+    scope: path,
+    name: metadata.title,
+    short_name: metadata.title,
+    display: "standalone",
+    theme_color: "#0a0e16",
+    background_color: "#0a0e16",
+    icons: [
+      ...(svgs.length ? svgs : [hostIcon(app)]).map((icon) => ({
+        src: icon.href,
+        sizes: "any",
+        type: "image/svg+xml",
+      })),
+      // ui/manifest.json's PNGs: served without sign-in.
+      ...(android
+        ? [
+            { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+            { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+            {
+              src: "/icons/icon-512-maskable.png",
+              sizes: "512x512",
+              type: "image/png",
+              purpose: "maskable",
+            },
+          ]
+        : []),
+    ],
+  };
 }
 
 // Rewrite only the wrapper shell. App text and attributes are escaped by the

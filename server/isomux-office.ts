@@ -3387,6 +3387,13 @@ function buildExecutorDeps(
           sessionId: agentManager.getCurrentSessionId(target.id),
         };
       },
+      metadata: (app) =>
+        readWidgetMetadata({
+          app,
+          host: new URL(appPublicUrl(app.hostLabel, appHostDomain())!).host,
+          apps: appRegistry.list(),
+          supervisor: appSupervisor,
+        }),
     }),
   );
 
@@ -7582,9 +7589,15 @@ async function serveIndexHtml(
     const boot = escapeHtml(
       JSON.stringify({ name: widget.name, registration: widget.registration }),
     ).replace(/"/g, "&quot;");
+    // The app's own manifest replaces the office's, which applyWidgetMetadata
+    // removed. Chrome fetches a manifest without cookies unless the link asks
+    // for them.
+    const manifest = escapeHtml(
+      `/api/apps/${encodeURIComponent(widget.name)}/manifest`,
+    );
     html = html.replace(
       "</head>",
-      `<meta name="isomux-app-widget" content="${boot}"></head>`,
+      `<meta name="isomux-app-widget" content="${boot}"><link rel="manifest" href="${manifest}" crossorigin="use-credentials"></head>`,
     );
   }
   const res = new Response(html, {
@@ -8012,6 +8025,17 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         if (requestedApp && auth.identity.userId) {
           const app = requestedApp;
           if (app && canUserAccessApp(app, auth.identity.userId)) {
+            // The install manifest's scope is /<app>/: the page moves inside
+            // it. Only here, so a hidden or unknown name gets no redirect.
+            if (!url.pathname.endsWith("/")) {
+              return new Response(null, {
+                status: 302,
+                headers: {
+                  Location: `/${app.name}/${url.search}`,
+                  "Cache-Control": "no-store",
+                },
+              });
+            }
             return serveIndexHtml(req, auth.session, {
               name: app.name,
               registration: appRegistrationGeneration(app),
