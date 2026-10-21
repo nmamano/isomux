@@ -1,6 +1,7 @@
 // The Secrets tab's list and forms (ported from the Settings SecretsList
-// tests): a value is write-only, a preset hides its fields, Other clears what
-// a preset filled, and the server's refusals read as fixed sentences.
+// tests): a value is write-only, the form opens on Other, a preset hides its
+// fields, Other clears what a preset filled, the form says why Save is off,
+// and the server's refusals read as fixed sentences.
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -57,10 +58,64 @@ async function choose(view: ReturnType<typeof render>, value: string) {
   await click(view.container.querySelector(`[data-choice="${value}"]`));
 }
 
+// Task 82b2e5ae: with no address and no app, Save is off and the form says
+// why. The text is checked for presence, not wording.
+function saveWhy(view: ReturnType<typeof render>): boolean {
+  const el = view.container.querySelector("[data-secret-save-why]");
+  if (el) expect(el.textContent.trim()).not.toBe("");
+  return el !== null;
+}
+
+const saveOff = (view: ReturnType<typeof render>) =>
+  view.container.querySelector<HTMLButtonElement>("[data-panel-save]")!
+    .disabled;
+
+it("opens the new-secret form on Other with empty fields, and says why Save is off", async () => {
+  const view = await mount();
+  await click(view.container.querySelector("[data-integrations-add]"));
+  const checked = [
+    ...view.container.querySelectorAll<HTMLElement>("[data-choice]"),
+  ].filter((el) => el.getAttribute("aria-checked") === "true");
+  expect(checked.map((el) => el.dataset.choice)).toEqual(["other"]);
+  const name = view.container.querySelector<HTMLInputElement>(
+    "[data-secret-name-input]",
+  )!;
+  const hosts = view.container.querySelector<HTMLTextAreaElement>(
+    "[data-secret-hosts]",
+  )!;
+  expect(name.value).toBe("");
+  expect(hosts.value).toBe("");
+  // Empty fields explain themselves.
+  expect(saveOff(view)).toBe(true);
+  expect(saveWhy(view)).toBe(false);
+
+  await act(async () => {
+    fireEvent.change(name, { target: { value: "MY_API_KEY" } });
+    fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  });
+  // Only the destination is missing.
+  expect(saveOff(view)).toBe(true);
+  expect(saveWhy(view)).toBe(true);
+
+  await act(async () => {
+    fireEvent.change(hosts, { target: { value: "api.example.com" } });
+  });
+  expect(saveOff(view)).toBe(false);
+  expect(saveWhy(view)).toBe(false);
+
+  // Blank space is no address: the hint and Save agree.
+  await act(async () => {
+    fireEvent.change(hosts, { target: { value: " \n " } });
+  });
+  expect(saveOff(view)).toBe(true);
+  expect(saveWhy(view)).toBe(true);
+});
+
 it("saves a preset secret, lists it without a value, and clears the value field", async () => {
   const view = await mount();
   await click(view.container.querySelector("[data-integrations-add]"));
-  // GitHub is the first preset: its name and addresses stay out of sight.
+  await choose(view, "github");
+  // A preset's name and addresses stay out of sight.
   expect(view.container.querySelector("[data-secret-name-input]")).toBeNull();
   expect(view.container.querySelector("[data-secret-hosts]")).toBeNull();
   expect(view.container.textContent).toContain(
@@ -146,11 +201,22 @@ it("edits the addresses, how the service expects it and the note", async () => {
   });
   const view = await mount();
   await click(view.container.querySelector("[data-secret-edit]"));
+  expect(saveWhy(view)).toBe(false);
+  // With the address gone and no app, Save is off and the form says why.
+  await act(async () => {
+    fireEvent.change(view.container.querySelector("[data-secret-hosts]")!, {
+      target: { value: "" },
+    });
+  });
+  expect(saveOff(view)).toBe(true);
+  expect(saveWhy(view)).toBe(true);
   await act(async () => {
     fireEvent.change(view.container.querySelector("[data-secret-hosts]")!, {
       target: { value: "api.example.com\nuploads.example.com" },
     });
   });
+  expect(saveOff(view)).toBe(false);
+  expect(saveWhy(view)).toBe(false);
   await choose(view, "header");
   await act(async () => {
     fireEvent.change(view.getByLabelText(t("settings.secrets.headerName")), {
@@ -292,11 +358,10 @@ it("clears the preset's name and addresses when the member picks Other", async (
     (view.getByLabelText(t("settings.connections.note")) as HTMLTextAreaElement)
       .value,
   ).toBe("for the CI bot");
-  // Save stays off until the name and an address are back.
-  expect(
-    view.container.querySelector<HTMLButtonElement>("[data-panel-save]")!
-      .disabled,
-  ).toBe(true);
+  // Save stays off until the name and an address are back; the empty name
+  // field says what is missing, so no hint.
+  expect(saveOff(view)).toBe(true);
+  expect(saveWhy(view)).toBe(false);
 });
 
 it("has a Test only for a secret whose hosts have an identity check", async () => {
@@ -375,10 +440,12 @@ describe("apps that read a secret", () => {
     });
     const save =
       view.container.querySelector<HTMLButtonElement>("[data-panel-save]")!;
-    // No address and no app: nothing to save.
+    // No address and no app: nothing to save, and the form says why.
     expect(save.disabled).toBe(true);
+    expect(saveWhy(view)).toBe(true);
     await click(view.container.querySelector('[data-secret-app="bot"]'));
     expect(save.disabled).toBe(false);
+    expect(saveWhy(view)).toBe(false);
     await click(save);
     expect(fake.requests("POST", "/api/users/alice/secrets")[0].body).toEqual(
       expect.objectContaining({ name: "BOT_TOKEN", hosts: [], apps: ["bot"] }),
@@ -451,5 +518,18 @@ describe("apps that read a secret", () => {
     expect(
       fake.requests("PATCH", "/api/users/alice/secrets/MY_KEY")[1].body,
     ).toEqual(expect.objectContaining({ apps: ["bot"] }));
+
+    // An app is enough without an address; with neither, the form says why.
+    await click(view.container.querySelector("[data-secret-edit]"));
+    await act(async () => {
+      fireEvent.change(view.container.querySelector("[data-secret-hosts]")!, {
+        target: { value: "" },
+      });
+    });
+    expect(saveOff(view)).toBe(false);
+    expect(saveWhy(view)).toBe(false);
+    await click(view.container.querySelector('[data-secret-app="bot"]'));
+    expect(saveOff(view)).toBe(true);
+    expect(saveWhy(view)).toBe(true);
   });
 });

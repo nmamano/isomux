@@ -1114,6 +1114,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.secrets.readBySet": "Read by {apps} · set {date}",
   "integrations.secrets.reachesNothing":
     "Goes nowhere. Add an address or an app.",
+  "integrations.secrets.saveNeedsTarget": "To save, add an address or an app.",
   "integrations.secrets.modelKeyWarning":
     "Agents cannot sign in with this secret. Move it to Variables.",
   "integrations.secrets.showFailed": "Could not show the value.",

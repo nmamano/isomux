@@ -834,6 +834,16 @@ export { MoreOptions, HowSent };
 
 const OTHER = "other";
 
+// Says why Save is off when only the address or app is missing.
+function SaveNeedsTarget() {
+  const { t } = useI18n();
+  return (
+    <div data-secret-save-why style={{ ...hintText, marginTop: 10 }}>
+      {t("integrations.secrets.saveNeedsTarget")}
+    </div>
+  );
+}
+
 function AddSecret({
   path,
   target,
@@ -851,17 +861,13 @@ function AddSecret({
   const whoseHeading = useWhose();
   const alive = useAlive();
   const errorFor = useSecretErrorText();
-  const first = SECRET_PRESETS[0];
-  const [service, setService] = useState<string>(first?.id ?? OTHER);
+  // The form starts on Other: a member adds a preset once (Nil, 2026-10-20).
+  const [service, setService] = useState<string>(OTHER);
   const preset = SECRET_PRESETS.find((p) => p.id === service);
-  const [name, setName] = useState(preset?.name ?? "");
-  const [hosts, setHosts] = useState(preset?.hosts.join("\n") ?? "");
-  const [form, setForm] = useState<SecretForm["kind"]>(
-    preset?.form.kind ?? "authorization",
-  );
-  const [header, setHeader] = useState(
-    preset?.form.kind === "header" ? preset.form.header : "",
-  );
+  const [name, setName] = useState("");
+  const [hosts, setHosts] = useState("");
+  const [form, setForm] = useState<SecretForm["kind"]>("authorization");
+  const [header, setHeader] = useState("");
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
   const [apps, setApps] = useState<string[]>([]);
@@ -883,10 +889,9 @@ function AddSecret({
 
   const hostList = hostsOf(hosts);
   // A secret goes to an address, an app, or both.
-  const ready =
-    name.trim().length > 0 &&
-    value.trim().length > 0 &&
-    (hostList.length > 0 || apps.length > 0);
+  const hasTarget = hostList.length > 0 || apps.length > 0;
+  const filled = name.trim().length > 0 && value.trim().length > 0;
+  const ready = filled && hasTarget;
 
   async function save() {
     setBusy(true);
@@ -997,6 +1002,7 @@ function AddSecret({
       <div style={{ marginTop: 4 }}>
         <ConnectionNoteField value={note} onChange={setNote} />
       </div>
+      {filled && !hasTarget && <SaveNeedsTarget />}
       <FormButtons
         ready={ready}
         busy={busy}
@@ -1044,6 +1050,7 @@ function EditSecret({
   const [apps, setApps] = useState<string[]>(secret.apps);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasTarget = hostsOf(hosts).length > 0 || apps.length > 0;
 
   return (
     <Panel heading={heading} data-secret-edit-panel="">
@@ -1070,8 +1077,9 @@ function EditSecret({
         {" · "}
         {t("integrations.secrets.reissueHint")}
       </div>
+      {!hasTarget && <SaveNeedsTarget />}
       <FormButtons
-        ready={hostsOf(hosts).length > 0 || apps.length > 0}
+        ready={hasTarget}
         busy={busy}
         saveLabel={t("common.save")}
         onCancel={onCancel}

@@ -1127,6 +1127,8 @@ Cosas que puedes hacer por él:
   "integrations.secrets.readBySet": "Leído por {apps} · guardado el {date}",
   "integrations.secrets.reachesNothing":
     "No va a ningún sitio. Añade una dirección o una app.",
+  "integrations.secrets.saveNeedsTarget":
+    "Para guardar, añade una dirección o una app.",
   "integrations.secrets.modelKeyWarning":
     "Los agentes no pueden iniciar sesión con este secreto. Muévelo a Variables.",
   "integrations.secrets.showFailed": "No se pudo mostrar el valor.",

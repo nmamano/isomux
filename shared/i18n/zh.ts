@@ -1019,6 +1019,7 @@ App 的一些原则：
   "integrations.secrets.readBy": "由 {apps} 读取",
   "integrations.secrets.readBySet": "由 {apps} 读取 · {date} 设置",
   "integrations.secrets.reachesNothing": "未发往任何地方。请添加地址或 App。",
+  "integrations.secrets.saveNeedsTarget": "要保存，请添加地址或 App。",
   "integrations.secrets.modelKeyWarning":
     "智能体无法用此密钥登录。请把它移到「变量」中。",
   "integrations.secrets.showFailed": "无法显示该值。",

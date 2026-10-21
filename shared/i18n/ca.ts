@@ -1131,6 +1131,8 @@ Coses que pots fer per ell:
   "integrations.secrets.readBySet": "Llegit per {apps} · desat el {date}",
   "integrations.secrets.reachesNothing":
     "No va enlloc. Afegeix una adreça o una app.",
+  "integrations.secrets.saveNeedsTarget":
+    "Per desar, afegeix una adreça o una app.",
   "integrations.secrets.modelKeyWarning":
     "Els agents no poden iniciar la sessió amb aquest secret. Mou-lo a Variables.",
   "integrations.secrets.showFailed": "No s'ha pogut mostrar el valor.",
