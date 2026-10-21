@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { homedir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
+import { homedir, tmpdir } from "node:os";
 import {
   existsSync,
   mkdirSync,
@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import { writeManagedUserEnv, removeManagedUserEnv } from "./user-env.ts";
@@ -147,9 +147,9 @@ describe("ProviderAccountManager", () => {
         "personal",
       );
       expect(probes).toBe(2);
-      expect(personal(manager.cachedList("cloud-member")!)?.accountStatus).toBe(
-        "connected",
-      );
+      expect(
+        personal((await manager.cachedList("cloud-member"))!)?.accountStatus,
+      ).toBe("connected");
       expect((await manager.memberStatuses("cloud-member"))[0].status).toBe(
         "connected",
       );
@@ -1586,18 +1586,36 @@ describe("ProviderAccountManager", () => {
     });
   }
 
-  // The Codex card names where the viewer's agents get OPENAI_API_KEY, which
-  // Codex uses over a stored sign-in (task a704657a). The source is the
+  // The Codex card names where the viewer's agents get OPENAI_API_KEY when
+  // they use it (task a704657a): only when their CODEX_HOME holds no stored
+  // sign-in, which wins over the key (task 23c1992a). The source is the
   // viewer's, read on every read, on Codex wires only.
   describe("Codex API key source", () => {
     type Source = ReturnType<
       NonNullable<ConstructorParameters<typeof ProviderAccountManager>[16]>
     >;
+    const homes: string[] = [];
+    afterAll(() => {
+      for (const dir of homes.splice(0))
+        rmSync(dir, { recursive: true, force: true });
+    });
+    // The CODEX_HOME the viewer's agents use, with or without a stored sign-in.
+    const agentCodexHome = (signedIn: boolean) => {
+      const dir = mkdtempSync(join(tmpdir(), "api-key-source-agents-"));
+      homes.push(dir);
+      if (signedIn) writeFileSync(join(dir, "auth.json"), "{}");
+      return dir;
+    };
     const keyManager = (options: {
       source: (userId: string) => Source;
       personalActive?: boolean;
       codex?: () => unknown;
+      agentEnv?: Record<string, string>;
     }) => {
+      const agentEnv = options.agentEnv ?? {
+        OPENAI_API_KEY: "sk-test",
+        CODEX_HOME: agentCodexHome(false),
+      };
       let probes = 0;
       const codex =
         options.codex ??
@@ -1613,7 +1631,7 @@ describe("ProviderAccountManager", () => {
         codex as never,
         undefined,
         (id) => id,
-        () => ({}),
+        () => agentEnv,
         disconnectedAccountClient as never,
         () => ({}),
         () => ({}),
@@ -1672,7 +1690,7 @@ describe("ProviderAccountManager", () => {
         expect(probes()).toBe(probed);
         expect(sources(second)["codex:office"]).toBe("office_secret");
         expect(sources(second)["codex:personal"]).toBe("office_secret");
-        expect(sources(manager.cachedList("user-a")!)).toEqual({
+        expect(sources((await manager.cachedList("user-a"))!)).toEqual({
           "codex:office": "office_secret",
           "codex:personal": "office_secret",
           "claude:office": null,
@@ -1682,7 +1700,10 @@ describe("ProviderAccountManager", () => {
         current = null;
         const third = await manager.list("user-a");
         expect(probes()).toBe(probed);
-        for (const account of [...third, ...manager.cachedList("user-a")!])
+        for (const account of [
+          ...third,
+          ...(await manager.cachedList("user-a"))!,
+        ])
           expect("apiKeySource" in account).toBe(false);
       });
     }
@@ -1698,7 +1719,7 @@ describe("ProviderAccountManager", () => {
       expect(
         accounts.find((a) => a.provider === "codex" && a.scope === "office"),
       ).toMatchObject({ accountStatus: "connected" });
-      const cached = manager.cachedList("user-a");
+      const cached = await manager.cachedList("user-a");
       expect(cached).toHaveLength(4);
       for (const account of [...accounts, ...cached!])
         expect("apiKeySource" in account).toBe(false);
@@ -1745,12 +1766,61 @@ describe("ProviderAccountManager", () => {
       );
       expect(queued?.loginQueue?.holderName).toBe("Ana");
       expect(queued?.apiKeySource).toBe("office_variable");
-      const cachedQueued = manager
-        .cachedList("user-b")
-        ?.find((a) => a.provider === "codex" && a.scope === "office");
+      const cachedQueued = (await manager.cachedList("user-b"))?.find(
+        (a) => a.provider === "codex" && a.scope === "office",
+      );
       expect(cachedQueued?.loginQueue?.holderName).toBe("Ana");
       expect(cachedQueued?.apiKeySource).toBe("office_variable");
       expect(await manager.cancel("user-a", "codex", "office")).toBe(true);
+    });
+
+    it("leaves the field off while the agents' CODEX_HOME holds a stored sign-in", async () => {
+      const home = agentCodexHome(true);
+      const { manager } = keyManager({
+        source: () => "member_variable",
+        agentEnv: { OPENAI_API_KEY: "sk-test", CODEX_HOME: home },
+        codex: () => ({
+          start: async () => {},
+          login: async () => ({
+            loginId: "login-1",
+            authUrl: "https://auth.openai.com/",
+          }),
+          waitForCompletion: () => new Promise(() => {}),
+          read: async () => ({ connected: true, email: "member@example.com" }),
+          cancel: async () => {},
+          close: async () => {},
+        }),
+      });
+      const listed = await manager.list("user-a");
+      expect(listed.filter((a) => a.provider === "codex")).toHaveLength(2);
+      for (const account of [
+        ...listed,
+        ...(await manager.cachedList("user-a"))!,
+      ])
+        expect("apiKeySource" in account).toBe(false);
+      // A sign-in started (and joined) on the card: the stored one still wins.
+      for (let i = 0; i < 2; i++) {
+        const started = await manager.startLogin(
+          "user-a",
+          "codex",
+          "office",
+          "browser",
+        );
+        expect(started.ok).toBe(true);
+        if (started.ok)
+          expect("apiKeySource" in started.value.account).toBe(false);
+      }
+      expect(await manager.cancel("user-a", "codex", "office")).toBe(true);
+      // Signed out: the key is what the agents use, read now, not cached.
+      rmSync(join(home, "auth.json"));
+      expect(sources(await manager.list("user-a"))).toMatchObject({
+        "codex:office": "member_variable",
+        "codex:personal": "member_variable",
+      });
+      expect(sources((await manager.cachedList("user-a"))!)).toMatchObject({
+        "codex:office": "member_variable",
+        "codex:personal": "member_variable",
+      });
     });
   });
 });

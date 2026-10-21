@@ -414,9 +414,10 @@ function ProviderScopeConnection({
     }
   }
 
-  // Codex uses an OPENAI_API_KEY in the agents' env over a stored sign-in.
-  // Only the personal scope trades "not connected" for it: the office scope
-  // still says whether the office has a sign-in.
+  // apiKeySource is set only when the agents use their OPENAI_API_KEY (no
+  // stored sign-in in their CODEX_HOME). Only the personal scope trades "not
+  // connected" for it: the office scope still says whether the office has a
+  // sign-in.
   const apiKeySource = provider === "codex" ? account?.apiKeySource : undefined;
   const statusState = !account
     ? loaded

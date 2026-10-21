@@ -844,8 +844,11 @@ function createManagers(startOpts: StartServerOpts): void {
         );
         if (options && !options.signal.aborted) {
           // Never start an unrelated provider just to publish a full snapshot.
-          const snapshot = providerAccountManager.cachedList(userId, accounts);
-          if (snapshot)
+          const snapshot = await providerAccountManager.cachedList(
+            userId,
+            accounts,
+          );
+          if (snapshot && !options.signal.aborted)
             liveEmit(
               "provider_accounts_updated",
               { accounts: snapshot },

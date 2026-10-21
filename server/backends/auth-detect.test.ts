@@ -10,7 +10,14 @@
 // login-command generation (wrapper script + paths) is already covered by
 // server/backends/codex/native-bin.test.ts and not repeated.
 import { afterAll, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -26,6 +33,7 @@ import {
 } from "../../shared/i18n/log-message.ts";
 import {
   codexWrapperCommandForShell,
+  ISOMUX_CODEX_HOME,
   isCodexAuthenticated,
 } from "./codex/native-bin.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
@@ -110,8 +118,10 @@ describe("getLoginInstructions - already-authed short-circuit", () => {
 // A dead Codex refresh token leaves auth.json on disk (task 1403b454). Once
 // Codex has rejected it, auth.json is no proof of a sign-in: the member gets
 // the same walkthrough as a signed-out one. A typed /login keeps the /clear
-// hint. A rejected OPENAI_API_KEY wins over any sign-in, so the member must
-// fix or remove the key (task 5e0917f3): no /clear hint, no sign-in commands.
+// hint. A stored sign-in wins over OPENAI_API_KEY (task 23c1992a), so a
+// rejection with auth.json is the sign-in's; with no auth.json the key was
+// used, and the member must fix or remove it (task 5e0917f3): no /clear hint,
+// no sign-in commands.
 describe("codexBackend after the engine rejected its credentials", () => {
   const signedOut = () =>
     codexBackend.getLoginInstructions({
@@ -139,17 +149,44 @@ describe("codexBackend after the engine rejected its credentials", () => {
     expect(r.commands).toBeUndefined();
   });
 
-  it("a rejected OPENAI_API_KEY: fix the key, with no /clear loop and no sign-in", async () => {
-    for (const signedIn of [true, false]) {
+  it("a rejected OPENAI_API_KEY with no auth.json: fix the key, with no /clear loop and no sign-in", async () => {
+    const r = await codexBackend.getLoginInstructions({
+      env: { OPENAI_API_KEY: "sk-test", CODEX_HOME: tempCodexHome(false) },
+      credentialsRejected: true,
+    });
+    expect(r).toEqual({
+      kind: "login",
+      cardEligible: false,
+      text: msg("systemEntries.loginInstructions.codexKeyRejected"),
+    });
+  });
+
+  it("auth.json and an OPENAI_API_KEY: the sign-in was used, so the signed-out walkthrough", async () => {
+    const r = await codexBackend.getLoginInstructions({
+      env: { OPENAI_API_KEY: "sk-test", CODEX_HOME: tempCodexHome(true) },
+      credentialsRejected: true,
+    });
+    const expected = await signedOut();
+    expect(expected.cardEligible).toBe(true);
+    expect(r).toEqual(expected);
+  });
+
+  // An empty CODEX_HOME is unset: the agent runs on the office Codex home
+  // (withIsomuxCodexHome), so a sign-in there is what Codex used.
+  it("an empty CODEX_HOME and a key: a sign-in in the office Codex home was used", async () => {
+    const officeAuth = join(ISOMUX_CODEX_HOME, "auth.json");
+    expect(existsSync(officeAuth)).toBe(false);
+    expect(existsSync("auth.json")).toBe(false);
+    mkdirSync(ISOMUX_CODEX_HOME, { recursive: true });
+    writeFileSync(officeAuth, "{}");
+    try {
       const r = await codexBackend.getLoginInstructions({
-        env: { OPENAI_API_KEY: "sk-test", CODEX_HOME: tempCodexHome(signedIn) },
+        env: { OPENAI_API_KEY: "sk-test", CODEX_HOME: "" },
         credentialsRejected: true,
       });
-      expect(r).toEqual({
-        kind: "login",
-        cardEligible: false,
-        text: msg("systemEntries.loginInstructions.codexKeyRejected"),
-      });
+      expect(r).toEqual(await signedOut());
+    } finally {
+      rmSync(officeAuth);
     }
   });
 });

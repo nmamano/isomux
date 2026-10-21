@@ -12,6 +12,7 @@ import {
   readOfficeEnvFile,
 } from "./env-loader.ts";
 import {
+  codexEnvApiKeyWins,
   ISOMUX_CODEX_HOME,
   withIsomuxCodexHome,
 } from "./backends/codex/native-bin.ts";
@@ -186,8 +187,8 @@ export class ProviderAccountManager {
       const timer = setTimeout(onTimeout, ACCOUNT_STATUS_TIMEOUT_MS);
       return () => clearTimeout(timer);
     },
-    // Where the member's agents get OPENAI_API_KEY, which Codex uses over a
-    // stored sign-in. Read on every read, never cached.
+    // Where the member's agents get OPENAI_API_KEY. Read on every read,
+    // never cached.
     private readonly apiKeySource: (
       userId: string,
     ) => EnvVariableSource | null = (userId) =>
@@ -432,14 +433,23 @@ export class ProviderAccountManager {
   }
 
   // The viewer's OPENAI_API_KEY source on each Codex wire, read now: a
-  // cached or queued wire may carry another read's or member's.
-  private withApiKeySource(
+  // cached or queued wire may carry another read's or member's. Only when
+  // the key is what the viewer's agents use, i.e. their CODEX_HOME holds no
+  // stored sign-in.
+  private async withApiKeySource(
     userId: string,
     wires: ProviderAccountWire[],
-  ): ProviderAccountWire[] {
+  ): Promise<ProviderAccountWire[]> {
     let source: EnvVariableSource | null;
     try {
       source = this.apiKeySource(userId);
+      if (
+        source &&
+        !(await codexEnvApiKeyWins(
+          this.envForUser(userId) ?? getAgentHost().baseEnv(),
+        ))
+      )
+        source = null;
     } catch {
       // An env file waiting for import: the wires say so on their own.
       source = null;
@@ -455,10 +465,10 @@ export class ProviderAccountManager {
 
   // Assemble an existing full snapshot without starting unrelated providers.
   // If any scope is still unknown, leave the browser's current snapshot alone.
-  cachedList(
+  async cachedList(
     userId: string,
     fresh: ProviderAccountWire[] = [],
-  ): ProviderAccountWire[] | null {
+  ): Promise<ProviderAccountWire[] | null> {
     const accounts: ProviderAccountWire[] = [];
     for (const provider of ["codex", "claude"] as const) {
       for (const scope of ["office", "personal"] as const) {
@@ -745,7 +755,7 @@ export class ProviderAccountManager {
       return {
         ok: true,
         value: {
-          account: this.withApiKeySource(userId, [existing.wire])[0],
+          account: (await this.withApiKeySource(userId, [existing.wire]))[0],
           authUrl: existing.authUrl,
           userCode: existing.userCode,
         },
@@ -831,7 +841,9 @@ export class ProviderAccountManager {
       return {
         ok: true,
         value: {
-          account: this.withApiKeySource(active.userId, [active.wire])[0],
+          account: (
+            await this.withApiKeySource(active.userId, [active.wire])
+          )[0],
           authUrl: start.authUrl,
           userCode: active.userCode,
         },

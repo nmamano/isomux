@@ -32,6 +32,7 @@
 import { errMessage } from "../../../shared/errors.ts";
 import { getAgentHost, type AgentChild } from "../../agent-host.ts";
 import {
+  codexEnvApiKeyWins,
   ISOMUX_CODEX_HOME,
   resolveCodexLauncherPath,
   withIsomuxCodexHome,
@@ -100,11 +101,12 @@ export interface JsonRpcLiteClientOptions {
   // this; the default keeps every new spawn site protected by construction.
   skipSafetyPreflightForTestProbe?: boolean;
   // Codex 0.160 reads no API key from its env (task 5e0917f3). With
-  // OPENAI_API_KEY in the env, the app-server keeps its logins in memory only
-  // and initialize() signs it in with the key, so the key wins over a stored
-  // sign-in and never lands in a shared CODEX_HOME. Clients that must read
-  // or write the stored sign-in (the sign-in card, the office plan probe)
-  // pass false.
+  // OPENAI_API_KEY in the env and no stored sign-in in CODEX_HOME
+  // (codexEnvApiKeyWins), the app-server keeps its logins in memory only and
+  // initialize() signs it in with the key, which never lands in a shared
+  // CODEX_HOME. A stored sign-in wins (task 23c1992a). Clients that must
+  // read or write the stored sign-in (the sign-in card, the office plan
+  // probe) pass false.
   envApiKeyLogin?: boolean;
 }
 
@@ -181,12 +183,11 @@ export class JsonRpcLiteClient {
     // Analytics starts with the App Server, before thread config overrides.
     // A launch override also covers per-user CODEX_HOME without file writes.
     const baseArgs = this.opts.args ?? ["app-server", "--listen", "stdio://"];
-    const envApiKey = effectiveEnv.OPENAI_API_KEY;
     this.envApiKey =
       this.opts.envApiKeyLogin !== false &&
       baseArgs[0] === "app-server" &&
-      envApiKey
-        ? envApiKey
+      (await codexEnvApiKeyWins(effectiveEnv))
+        ? effectiveEnv.OPENAI_API_KEY!
         : null;
     const codexArgs = [
       ...baseArgs,

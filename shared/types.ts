@@ -2098,8 +2098,9 @@ export interface ProviderAccountWire {
   accountStatus: ProviderAccountStatus;
   loginStatus: ProviderLoginStatus;
   accountLabel?: string;
-  // Codex only: the viewer's agents get OPENAI_API_KEY from here, and Codex
-  // uses it over the stored sign-in. Absent: no key.
+  // Codex only: the viewer's agents get OPENAI_API_KEY from here and use it,
+  // as their CODEX_HOME holds no stored sign-in. Absent: no key, or a stored
+  // sign-in wins.
   apiKeySource?: EnvVariableSource;
   shared?: boolean;
   canBrowserLogin: boolean;

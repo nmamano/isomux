@@ -1,15 +1,19 @@
 // Codex 0.160 reads neither OPENAI_API_KEY nor CODEX_API_KEY from the
-// environment (task 5e0917f3). An agent whose env holds OPENAI_API_KEY is
-// signed in with it over JSON-RPC, on an app-server that keeps the login in
-// memory only, so one member's key never lands in a shared CODEX_HOME. The
-// sign-in card and the office usage probe read the stored sign-in instead.
+// environment (task 5e0917f3). An agent whose env holds OPENAI_API_KEY and
+// whose CODEX_HOME holds no stored sign-in is signed in with the key over
+// JSON-RPC, on an app-server that keeps the login in memory only, so one
+// member's key never lands in a shared CODEX_HOME. A stored sign-in wins over
+// the key (task 23c1992a), so a subscription is not billed as API use. The
+// sign-in card and the office usage probe always read the stored sign-in.
 //
 // The first block drives JsonRpcLiteClient against a fake app-server (a bun
-// script that records its argv and every frame). The second runs the bundled
-// Codex app-server itself: account/read is local, so no network is used.
+// script that records its argv and every frame). The others run the bundled
+// Codex app-server itself, against local endpoints only: account/read is
+// local, and a turn goes to a fake Responses endpoint on 127.0.0.1.
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -214,5 +218,82 @@ describe("the bundled Codex app-server, an OPENAI_API_KEY and an empty CODEX_HOM
     } finally {
       probe.close();
     }
+  }, 60_000);
+});
+
+// Which credential a turn bills: the bundled app-server sends one turn to a
+// fake Responses endpoint, which records the Authorization header and fails
+// the turn. A ChatGPT sign-in cannot be stored offline (Codex checks it with
+// chatgpt.com), so an auth.json from `codex login --with-api-key` with its
+// own key stands in: any auth.json is a stored sign-in.
+describe("the bundled Codex app-server, an OPENAI_API_KEY and a turn", () => {
+  const STORED = "sk-test-stored-fedcba9876543210";
+
+  async function bearerOfOneTurn(signedIn: boolean): Promise<string | null> {
+    let resolveSeen!: (value: string | null) => void;
+    const seen = new Promise<string | null>((r) => (resolveSeen = r));
+    const mock = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        if (new URL(req.url).pathname.endsWith("/responses"))
+          resolveSeen(req.headers.get("authorization"));
+        return new Response("{}", { status: 400 });
+      },
+    });
+    const home = tempDir("codex-env-login-turn-");
+    writeFileSync(
+      join(home, "config.toml"),
+      [
+        'model_provider = "local"',
+        "[model_providers.local]",
+        'name = "local"',
+        `base_url = "http://127.0.0.1:${mock.port}/v1"`,
+        'wire_api = "responses"',
+        "requires_openai_auth = true",
+        "request_max_retries = 0",
+        "stream_max_retries = 0",
+        "",
+      ].join("\n"),
+    );
+    if (signedIn)
+      writeFileSync(
+        join(home, "auth.json"),
+        JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: STORED }),
+      );
+    const client = new JsonRpcLiteClient({
+      env: { ...process.env, CODEX_HOME: home, OPENAI_API_KEY: KEY },
+      // The safety hook would rewrite this config.toml; no tool runs here.
+      skipSafetyPreflightForTestProbe: true,
+    });
+    try {
+      await client.start();
+      await client.initialize(INIT);
+      const started = await client.request<{ thread: { id: string } }>(
+        "thread/start",
+        { cwd: home },
+      );
+      await client.request("turn/start", {
+        threadId: started.thread.id,
+        input: [{ type: "text", text: "hi", text_elements: [] }],
+      });
+      return await Promise.race([
+        seen,
+        new Promise<null>((r) => setTimeout(() => r(null), 20_000)),
+      ]);
+    } finally {
+      await client.close();
+      await mock.stop(true);
+      // The stored sign-in is read, never replaced by the key.
+      if (signedIn) expect(existsSync(join(home, "auth.json"))).toBe(true);
+    }
+  }
+
+  it("a stored sign-in: the turn uses it, not the key", async () => {
+    expect(await bearerOfOneTurn(true)).toBe(`Bearer ${STORED}`);
+  }, 60_000);
+
+  it("no stored sign-in: the turn uses the key", async () => {
+    expect(await bearerOfOneTurn(false)).toBe(`Bearer ${KEY}`);
   }, 60_000);
 });

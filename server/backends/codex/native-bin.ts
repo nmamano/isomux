@@ -138,9 +138,9 @@ export function withIsomuxCodexHome(
 // walkthrough at a user who's already done their part.
 //
 // Two positive signals, either is enough:
-//   1. OPENAI_API_KEY in the agent's effective env - the app-server client
-//      signs in with it over JSON-RPC and ignores auth.json (client.ts
-//      envApiKeyLogin). Caller passes the agent's resolved env
+//   1. OPENAI_API_KEY in the agent's effective env - without a stored
+//      sign-in, the app-server client signs in with it over JSON-RPC
+//      (codexEnvApiKeyWins). Caller passes the agent's resolved env
 //      (process.env + office variables + managed personal variables, in override order);
 //      defaults to process.env if no env supplied.
 //   2. auth.json exists in the agent's effective CODEX_HOME (a managed
@@ -156,17 +156,23 @@ export function isCodexAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
   const effective = env ?? getAgentHost().baseEnv();
-  if (hasCodexApiKey(effective)) return true;
-  const codexHome = effective.CODEX_HOME ?? ISOMUX_CODEX_HOME;
+  if (effective.OPENAI_API_KEY) return true;
+  const codexHome = effective.CODEX_HOME || ISOMUX_CODEX_HOME;
   return existsSync(join(codexHome, "auth.json"));
 }
 
-// Signal 1 alone: after a rejection, it tells a wrong key from a dead stored
-// sign-in (auth.json is still on disk but proves nothing).
-export function hasCodexApiKey(env?: {
+// Whether a Codex app-server on `env` signs in with OPENAI_API_KEY: only
+// when its CODEX_HOME holds no stored sign-in, so a subscription is never
+// billed as API use (task 23c1992a). Any auth.json counts. The agent host
+// checks, as in split mode the server cannot read agent space.
+// After a rejection, it tells a wrong key from a dead stored sign-in.
+export async function codexEnvApiKeyWins(env?: {
   [key: string]: string | undefined;
-}): boolean {
-  return !!(env ?? getAgentHost().baseEnv()).OPENAI_API_KEY;
+}): Promise<boolean> {
+  const effective = env ?? getAgentHost().baseEnv();
+  if (!effective.OPENAI_API_KEY) return false;
+  const codexHome = effective.CODEX_HOME || ISOMUX_CODEX_HOME;
+  return !(await getAgentHost().fs.exists(join(codexHome, "auth.json")));
 }
 
 // Idempotently materialize the `~/.isomux/bin/codex` wrapper script that

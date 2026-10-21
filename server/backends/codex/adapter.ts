@@ -103,8 +103,8 @@ import type {
 import {
   codexWrapperCommandForShell,
   ensureCodexWrapperScript,
+  codexEnvApiKeyWins,
   getCodexLoginCommands,
-  hasCodexApiKey,
   isCodexAuthenticated,
 } from "./native-bin.ts";
 
@@ -3841,10 +3841,11 @@ export const codexBackend: Backend = {
     env?: { [key: string]: string | undefined };
     credentialsRejected?: boolean;
   }): Promise<LoginInstructions> {
-    // After a rejection, an OPENAI_API_KEY in env is what Codex used (it wins
-    // over a stored sign-in), so the key is wrong: neither a /clear nor a
-    // sign-in helps until the member fixes or removes it.
-    if (opts?.credentialsRejected && hasCodexApiKey(opts.env)) {
+    // After a rejection, an OPENAI_API_KEY in env with no stored sign-in is
+    // what Codex used, so the key is wrong: neither a /clear nor a sign-in
+    // helps until the member fixes or removes it. With a stored sign-in, the
+    // sign-in was rejected: the walkthrough below.
+    if (opts?.credentialsRejected && (await codexEnvApiKeyWins(opts.env))) {
       return {
         kind: "login",
         cardEligible: false,

@@ -70,7 +70,7 @@ describe("fresh scoped Claude account checks", () => {
     });
     expect(claudeProbes).toBe(2);
     expect(codexProbes).toBe(1);
-    const snapshot = manager.cachedList("owner");
+    const snapshot = await manager.cachedList("owner");
     expect(snapshot).toHaveLength(4);
     expect(
       snapshot!.find((a) => a.provider === "codex" && a.scope === "office")
@@ -165,10 +165,9 @@ describe("fresh scoped Claude account checks", () => {
       )?.accountStatus,
     ).toBe("not_connected");
     expect(
-      manager
-        .cachedList("owner")!
-        .find((a) => a.provider === "claude" && a.scope === "office")
-        ?.accountStatus,
+      (await manager.cachedList("owner"))!.find(
+        (a) => a.provider === "claude" && a.scope === "office",
+      )?.accountStatus,
     ).toBe("not_connected");
   });
 
@@ -186,7 +185,7 @@ describe("fresh scoped Claude account checks", () => {
       },
     );
     await manager.list("owner", true, selection());
-    expect(manager.cachedList("owner")).toBeNull();
+    expect(await manager.cachedList("owner")).toBeNull();
     expect(codexProbes).toBe(0);
   });
 
@@ -220,7 +219,7 @@ describe("fresh scoped Claude account checks", () => {
       if (phase === "start") expect(readCount).toBe(0);
       release();
       await Promise.resolve();
-      expect(manager.cachedList("owner")).toBeNull();
+      expect(await manager.cachedList("owner")).toBeNull();
       expect(closeCount).toBe(1);
     });
   }
