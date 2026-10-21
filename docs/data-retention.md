@@ -5,6 +5,8 @@ navTitle: Data retention
 
 # Data retention and deletion
 
+**This page is about the data on your own Isomux server, not data that we keep for you. We keep no copy of your office data, and the Isomux software collects no analytics or metrics.**
+
 Isomux does not delete office data on a schedule. Most deletes in the office remove an item from view and keep its data on the server's disk. To erase data, use the full erase below.
 
 This page makes no compliance claim (HIPAA, GDPR or other). For Hosted Isomux, the [Terms](https://isomux.com/hosted-terms) and the [Privacy Policy](https://isomux.com/hosted-privacy) say what happens to the server at cancellation.
