@@ -1,5 +1,4 @@
-// Model -> visual style mapping (design in
-// internal-docs/model-style-mapping-design.md).
+// Model -> visual style mapping.
 //
 // Single source for everything a model controls visually: the nametag badge
 // tint in the office view, the avatar frame tint in LogView, and the optional

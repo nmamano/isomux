@@ -957,8 +957,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["log_entry"],
   }),
-  // Drive a page in the office browser (internal-docs/
-  // browser-use-exploration.md). Same self:affordance gate as preview-url. It
+  // Drive a page in the manager's desktop Chrome (internal-docs/
+  // browser-extension.md). Same self:affordance gate as preview-url. It
   // emits only for the screenshot action, which puts a card in the chat; the
   // read and interaction actions answer the caller and leave the chat alone.
   defineRoute<AffordanceBrowserReq, AffordanceBrowserResp>({

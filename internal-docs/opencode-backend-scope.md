@@ -209,7 +209,7 @@ for the current session.
 OpenCode model variants use the exact intersection with Isomux effort levels.
 The picker appears only when the selected model exposes at least one matching
 variant. Provider-specific names remain hidden, and models without a match use
-their OpenCode default. See `internal-docs/opencode-efforts.md`.
+their OpenCode default.
 
 Existing agent persistence already stores backend, model, effort, permission,
 working directory, and session ID. The required migration is additive:

@@ -84,6 +84,8 @@ newest verified archive size plus the larger of 25% or 256 MiB. The first run
 needs 2 GiB because there is no prior size. A refusal deletes nothing and the
 hourly retry remains a cheap free-space check. A short write that still occurs
 stays under a hidden partial name and is removed after verification fails.
+On server start, the job deletes the partial files that a killed server left.
+Retention orders verified archives by modification time, not by file name.
 
 Archives made before the restrictive archive mode was added can still be more
 widely readable. On an existing installation, the operator should tighten them:

@@ -36,8 +36,6 @@ not production behavior. `panel-check.ts` additionally exercises fresh bounds
 from ResizeObserver after a real panel resize.
 
 Generated profiles, scratch probes, CSVs and development logs are ignored.
-The evidence tables and implementation notes are in
-`internal-docs/browser-panel-0916.md`.
 
 `transitions.ts` measures time to the first correctly sized JPEG after DPR
 join, CSS resize, and DPR departure, with a remaining DPR-1 watcher.
