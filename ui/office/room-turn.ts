@@ -1,5 +1,6 @@
-// The room turn when a member walks through a wall door between two rooms,
-// as chosen in the Room switch animation device setting (off by default).
+// The room turn when a member walks through a wall door between two rooms.
+// It is off, and no setting turns it on, until task ada9af7b ships it.
+// Tests turn it on with setRoomTurn.
 //
 // At the click the old room is snapshotted (a DOM clone), the room switch
 // dispatches at once, and after React commits the new room is snapshotted
@@ -14,7 +15,17 @@
 // sprites (desks, characters, props) move with their floor anchor and stay
 // upright. Variant "cube" is a screen-space flip of the flat picture.
 
-import { getRoomTurn, type RoomTurn } from "../device-settings.ts";
+export type RoomTurn =
+  | "off"
+  | "turn-350"
+  | "turn-600"
+  | "cube-350"
+  | "cube-600";
+let roomTurn: RoomTurn = "off";
+
+export function setRoomTurn(value: RoomTurn): void {
+  roomTurn = value;
+}
 
 export type TurnSide = "left" | "right";
 type Variant = "turn" | "cube";
@@ -243,14 +254,14 @@ export function cancelRoomTurn(): void {
 }
 
 /** Call from a door click, BEFORE the switch dispatches. The choice and its
- * time are read here, so a settings change mid-turn does not mix them. */
+ * time are read here, so a change mid-turn does not mix them. */
 export function beginRoomTurn(
   content: HTMLElement | null,
   side: TurnSide,
   targetRoomId: string,
 ) {
   cancelRoomTurn();
-  const choice = getRoomTurn();
+  const choice = roomTurn;
   if (!content || choice === "off" || reducedMotion()) return;
   const { variant, ms } = CHOICES[choice];
   pending = {

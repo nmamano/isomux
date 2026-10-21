@@ -5,9 +5,8 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { beginRoomTurn, finishRoomTurn, cancelRoomTurn } =
+const { beginRoomTurn, finishRoomTurn, cancelRoomTurn, setRoomTurn } =
   await import("./room-turn.ts");
-const { setRoomTurn } = await import("../device-settings.ts");
 
 const realRaf = globalThis.requestAnimationFrame;
 const realCaf = globalThis.cancelAnimationFrame;
@@ -46,7 +45,7 @@ beforeEach(() => {
   cancelRoomTurn();
   frames = new Map();
   reduce = false;
-  localStorage.clear();
+  setRoomTurn("off");
   document.body.innerHTML = "";
   parent = document.createElement("div");
   content = document.createElement("div");

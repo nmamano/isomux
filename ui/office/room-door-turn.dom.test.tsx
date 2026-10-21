@@ -1,14 +1,15 @@
 // The room turn is wired to the wall doors only (task fee198a0): a door to
 // the next room starts it, a switch from elsewhere (a tab) never does, and
 // leaving the office mid-turn removes it.
-import { expect, it } from "bun:test";
+import { afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { mount, room, act, fireEvent } = fixture;
-const { setRoomTurn } = await import("../device-settings.ts");
+const { setRoomTurn } = await import("./room-turn.ts");
 fixture.setupRoomDoorTests({ decorations: false });
+afterEach(() => setRoomTurn("off"));
 
 /** Lets the turn's first frame run, so its snapshots are in place. */
 const nextFrame = () =>
