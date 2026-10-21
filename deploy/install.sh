@@ -1964,6 +1964,9 @@ SWAPFILE=/swapfile
 SWAP_SIZE_MIB=8192
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
 OFFICE_MEMORY_DROPIN=/etc/systemd/system/isomux.service.d/20-memory.conf
+# The same cap for an office that runs as a user unit (systemctl --user). The
+# admin directory every user manager reads, so nothing is written into a home.
+OFFICE_USER_MEMORY_DROPIN=/etc/systemd/user/isomux.service.d/20-memory.conf
 MEMINFO_PATH=/proc/meminfo
 CGROUP_ROOT=/sys/fs/cgroup
 OFFICE_MEMORY_MIN_MIB=4096
@@ -2127,7 +2130,7 @@ EOF
 
 # --- office memory bounds --------------------------------------------------
 
-# Keep a hosted office inside the box instead of letting its build and agent
+# Keep the office inside the box instead of letting its build and agent
 # processes consume the operator's last login shell. The 1 GiB reserve is a
 # provisional entry-tier value, pending the release-shaped acceptance run. It
 # is not sensible on a small self-hosted box: below 4 GiB it would remove too
@@ -2138,9 +2141,20 @@ EOF
 # global swap supply binds first, so scaling this cgroup value down would only
 # make the measured exhaustion cliff arrive sooner.
 #
-# This is the system-unit shape installed by deploy/install.sh. A user-level
-# office needs its own user-manager drop-in and reload; writing one here without
-# reloading that manager would be a silent no-op until restart.
+# The cap goes to both install shapes: the system unit deploy/install.sh makes,
+# and the user unit of docs/hosting/blocks/service.md. On a hosted box the user
+# drop-in is inert, since the isomux account has no user unit of that name. It
+# is written even when no office runs, so a box set up before its office
+# starts still gets the cap. Only isomux.service is capped, never the whole
+# user@.service: that slice also holds the office's apps, which the system
+# shape leaves outside the cap too.
+#
+# A drop-in applies to a running unit when its manager reloads, without a
+# restart (measured on systemd 255 for a user unit, 2026-10-21). This reloads
+# the system manager and the user manager of a running user-level office, then
+# reads the cap back from each running office's cgroup. A user manager whose
+# office is loaded but stopped keeps its old config until it reloads; the
+# service.md setup reloads it.
 configure_office_memory_cap() {
   local mem_total_kib mem_total_mib memory_max_mib memory_high_mib
   mem_total_kib=$(awk '$1 == "MemTotal:" { print $2; exit }' "$MEMINFO_PATH" 2>/dev/null || true)
@@ -2156,22 +2170,54 @@ configure_office_memory_cap() {
   memory_max_mib=$((mem_total_mib - OFFICE_MEMORY_RESERVE_MIB))
   memory_high_mib=$((memory_max_mib * 85 / 100))
 
-  write_file "$OFFICE_MEMORY_DROPIN" 644 <<EOF
-# Written by isomux-oom-protect from this box's RAM at the time the tool ran.
+  local dropin
+  dropin="# Written by isomux-oom-protect from this box's RAM at the time the tool ran.
 [Service]
 MemoryMax=${memory_max_mib}M
 MemoryHigh=${memory_high_mib}M
-MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M
-EOF
+MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
+  printf '%s\n' "$dropin" | write_file "$OFFICE_MEMORY_DROPIN" 644
+  printf '%s\n' "$dropin" | write_file "$OFFICE_USER_MEMORY_DROPIN" 644
   run systemctl daemon-reload
-  [[ -n $DRY_RUN ]] && return 0
 
-  local cgroup expected_max expected_high expected_swap actual_max actual_high actual_swap
+  local cgroup user_pid running=""
+  user_pid=$(find_user_isomux_pid) || user_pid=""
+  if [[ -n $user_pid ]]; then
+    running=1
+    apply_user_office_memory_cap "$user_pid" "$memory_max_mib" "$memory_high_mib"
+  fi
+  [[ -n $DRY_RUN ]] && return 0
   cgroup=$(systemctl show isomux.service --property=ControlGroup --value 2>/dev/null || true)
-  if [[ -z $cgroup || ! -d $CGROUP_ROOT$cgroup ]]; then
-    log "office memory cap written; it will take effect when isomux.service starts"
+  if [[ -n $cgroup && -d $CGROUP_ROOT$cgroup ]]; then
+    running=1
+    confirm_office_memory_cap "office" "$cgroup" "$memory_max_mib" "$memory_high_mib"
+  fi
+  [[ -n $running ]] || log "office memory cap written; it takes effect when the office starts"
+}
+
+# Reload the user manager that runs the office at this pid, as its user, so the
+# drop-in reaches the running unit. Through the manager's private socket, with
+# a clean environment: there is no user D-Bus session to reach from root.
+apply_user_office_memory_cap() {
+  local pid=$1 memory_max_mib=$2 memory_high_mib=$3 cgroup uid user
+  cgroup=$(sed -n 's/^0:://p' "$PROC_ROOT/$pid/cgroup" 2>/dev/null | head -n 1) || cgroup=""
+  uid=$(sed -n 's|.*/user@\([0-9][0-9]*\)\.service/.*|\1|p' <<<"$cgroup")
+  if [[ -z $uid ]] || ! user=$(id -nu "$uid" 2>/dev/null); then
+    warn "office memory cap written but not applied: user id ${uid:-unknown} of the user-level office (pid $pid) has no user name. It applies after a reboot."
     return 0
   fi
+  if ! run runuser -u "$user" -- env -i "XDG_RUNTIME_DIR=/run/user/$uid" systemctl --user daemon-reload; then
+    warn "office memory cap written but not applied: could not reload the user manager of $user. To apply it, run 'systemctl --user daemon-reload' as $user."
+    return 0
+  fi
+  [[ -n $DRY_RUN ]] && return 0
+  confirm_office_memory_cap "user-level office" "$cgroup" "$memory_max_mib" "$memory_high_mib"
+}
+
+# Read the cap back from the kernel: what systemd reports is what was asked for.
+confirm_office_memory_cap() {
+  local what=$1 cgroup=$2 memory_max_mib=$3 memory_high_mib=$4
+  local expected_max expected_high expected_swap actual_max actual_high actual_swap
   expected_max=$((memory_max_mib * 1024 * 1024))
   expected_high=$((memory_high_mib * 1024 * 1024))
   expected_swap=$((OFFICE_SWAP_MAX_MIB * 1024 * 1024))
@@ -2179,9 +2225,9 @@ EOF
   actual_high=$(cat "$CGROUP_ROOT$cgroup/memory.high" 2>/dev/null || true)
   actual_swap=$(cat "$CGROUP_ROOT$cgroup/memory.swap.max" 2>/dev/null || true)
   if [[ $actual_max == "$expected_max" && $actual_high == "$expected_high" && $actual_swap == "$expected_swap" ]]; then
-    log "office memory cap confirmed in the running cgroup: MemoryMax=${memory_max_mib}M, MemoryHigh=${memory_high_mib}M, MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
+    log "$what memory cap confirmed in the running cgroup: MemoryMax=${memory_max_mib}M, MemoryHigh=${memory_high_mib}M, MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
   else
-    warn "office memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
+    warn "$what memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
   fi
 }
 

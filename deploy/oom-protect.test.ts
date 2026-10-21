@@ -609,17 +609,26 @@ describe("office memory cap", () => {
         `${6144 * 1024 * 1024}\n`,
       );
     }
+    // The user drop-in, /proc, id and runuser are pointed away from the real
+    // box: this block covers the system unit only, and the user-level office
+    // on the test machine (if any) must not change its result.
+    const procRoot = join(root, "proc");
+    mkdirSync(procRoot);
     const script = `
 source ${testable}
 MEMINFO_PATH=${meminfo}
 OFFICE_MEMORY_DROPIN=${dropin}
+OFFICE_USER_MEMORY_DROPIN=${join(root, "user-20-memory.conf")}
 CGROUP_ROOT=${cgroupRoot}
+PROC_ROOT=${procRoot}
 DRY_RUN=${opts.dryRun ? "1" : '""'}
 systemctl() {
   if [[ $1 == daemon-reload ]]; then echo daemon-reload; return 0; fi
   if [[ $1 == show ]]; then ${opts.running ? `echo ${cgroup}` : "return 1"}; return 0; fi
   return 1
 }
+id() { echo "unexpected id call"; return 1; }
+runuser() { echo "unexpected runuser call"; return 1; }
 configure_office_memory_cap
 `;
     const proc = Bun.spawn(["bash", "-c", script], {
@@ -631,6 +640,7 @@ configure_office_memory_cap
       new Response(proc.stderr).text(),
     ]);
     const out = stdout + stderr;
+    expect(out).not.toContain("unexpected");
     const exit = await proc.exited;
     return {
       out,
@@ -677,6 +687,227 @@ configure_office_memory_cap
     });
     expect(bad.out).toContain("office memory cap NOT confirmed");
     expect(bad.out).toContain("kernel reports 1/");
+  });
+});
+
+// Task c48c6009. A user-level office (systemctl --user isomux, the shape in
+// docs/hosting/blocks/service.md) used to get no cap while the run said one
+// would apply. The cap now also goes into the drop-in directory every user
+// manager reads for isomux.service, and a running user-level office's manager
+// is reloaded so the cap applies without a restart. The run reports what the
+// kernel holds, as on the system-unit shape.
+describe("office memory cap on a user-level office", () => {
+  const UID = 1001;
+  const USER = "operator";
+  const USER_CGROUP = `/user.slice/user-${UID}.slice/user@${UID}.service/app.slice/isomux.service`;
+  const SYSTEM_CGROUP = "/system.slice/isomux.service";
+  // 7941 MiB of RAM: the entry-box values pinned in the block above.
+  const MAX = 6917 * 1024 * 1024;
+  const HIGH = 5879 * 1024 * 1024;
+  const SWAP = 6144 * 1024 * 1024;
+
+  function writeCgroup(d: string, max: string, high: string, swap: string) {
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "memory.max"), `${max}\n`);
+    writeFileSync(join(d, "memory.high"), `${high}\n`);
+    writeFileSync(join(d, "memory.swap.max"), `${swap}\n`);
+  }
+
+  async function runUserCap(opts: {
+    memMib?: number;
+    dryRun?: boolean;
+    userOffice?: boolean;
+    systemOffice?: boolean;
+    reload?: "applies" | "mismatch" | "fails";
+    unknownUid?: boolean;
+  }) {
+    const root = mkdtempSync(join(dir, "user-memory-cap-"));
+    const meminfo = join(root, "meminfo");
+    const systemDropin = join(root, "system", "20-memory.conf");
+    const userDropin = join(root, "user", "20-memory.conf");
+    const cgroupRoot = join(root, "cgroup");
+    const procRoot = join(root, "proc");
+    const calls = join(root, "runuser-calls");
+    mkdirSync(procRoot);
+    writeFileSync(calls, "");
+    writeFileSync(
+      meminfo,
+      `MemTotal:       ${(opts.memMib ?? 7941) * 1024} kB\n`,
+    );
+    const userDir = join(cgroupRoot, USER_CGROUP);
+    if (opts.userOffice) {
+      // The server, whose parent is outside the unit's cgroup.
+      fakeProc(procRoot, 4242, { cgroup: `0::${USER_CGROUP}`, ppid: 1 });
+      // Before the reload the user manager has not applied the drop-in.
+      writeCgroup(userDir, "max", "max", "max");
+    }
+    if (opts.systemOffice) {
+      writeCgroup(
+        join(cgroupRoot, SYSTEM_CGROUP),
+        `${MAX}`,
+        `${HIGH}`,
+        `${SWAP}`,
+      );
+    }
+    // The stub reload does what the real one does on success: the user
+    // manager re-reads the drop-in and writes it into the unit's cgroup. So a
+    // confirmed readback is only possible after a reload that ran.
+    const reload = opts.reload ?? "applies";
+    const onReload =
+      reload === "fails"
+        ? "return 1"
+        : `printf '%s\\n' ${reload === "mismatch" ? 1 : MAX} >${userDir}/memory.max
+  printf '%s\\n' ${HIGH} >${userDir}/memory.high
+  printf '%s\\n' ${SWAP} >${userDir}/memory.swap.max
+  return 0`;
+    const script = `
+source ${testable}
+MEMINFO_PATH=${meminfo}
+OFFICE_MEMORY_DROPIN=${systemDropin}
+OFFICE_USER_MEMORY_DROPIN=${userDropin}
+CGROUP_ROOT=${cgroupRoot}
+PROC_ROOT=${procRoot}
+DRY_RUN=${opts.dryRun ? "1" : '""'}
+systemctl() {
+  if [[ $1 == daemon-reload ]]; then echo daemon-reload; return 0; fi
+  if [[ $1 == show ]]; then ${opts.systemOffice ? `echo ${SYSTEM_CGROUP}` : "return 1"}; return 0; fi
+  return 1
+}
+id() {
+  ${opts.unknownUid ? "return 1" : ""}
+  if [[ $1 == -nu && $2 == ${UID} ]]; then echo ${USER}; return 0; fi
+  return 1
+}
+runuser() {
+  printf '%s\\n' "$*" >>${calls}
+  ${onReload}
+}
+configure_office_memory_cap
+echo "rc=$?"
+`;
+    const proc = Bun.spawn(["bash", "-c", script], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const out = stdout + stderr;
+    const lines = out.split("\n");
+    return {
+      out,
+      exit: await proc.exited,
+      warnings: lines.filter((l) => l.includes("warning:")),
+      // Logged lines that report a cap in effect: they carry the values and
+      // are not warnings. (A dry run prints the drop-in indented, untagged.)
+      confirmations: lines.filter(
+        (l) =>
+          l.startsWith("[isomux-oom-protect]") &&
+          l.includes("MemoryMax=6917M") &&
+          !l.includes("warning:"),
+      ),
+      // Everything the run logged (the stub systemctl and rc= are untagged).
+      tagged: lines.filter((l) => l.startsWith("[isomux-oom-protect]")),
+      runuserCalls: readFileSync(calls, "utf8").split("\n").filter(Boolean),
+      systemDropin: existsSync(systemDropin)
+        ? readFileSync(systemDropin, "utf8")
+        : null,
+      userDropin: existsSync(userDropin)
+        ? readFileSync(userDropin, "utf8")
+        : null,
+    };
+  }
+
+  it("writes the user drop-in with the system drop-in's content, also with no office running", async () => {
+    const r = await runUserCap({});
+    expect(r.out).toContain("rc=0");
+    expect(r.systemDropin).toContain("MemoryMax=6917M");
+    expect(r.userDropin).toBe(r.systemDropin);
+    expect(r.runuserCalls).toEqual([]);
+  });
+
+  it("writes no user drop-in below 4 GiB or on a dry run, and the dry run shows it", async () => {
+    const small = await runUserCap({ memMib: 2048, userOffice: true });
+    expect(small.out).toContain("rc=0");
+    expect(small.userDropin).toBeNull();
+    expect(small.runuserCalls).toEqual([]);
+    const dry = await runUserCap({ dryRun: true });
+    expect(dry.userDropin).toBeNull();
+    expect(dry.out).toContain(join("user", "20-memory.conf"));
+  });
+
+  it("reloads the running office's user manager as its user, then confirms the cap in its cgroup", async () => {
+    const r = await runUserCap({ userOffice: true });
+    expect(r.out).toContain("rc=0");
+    expect(r.runuserCalls).toEqual([
+      `-u ${USER} -- env -i XDG_RUNTIME_DIR=/run/user/${UID} systemctl --user daemon-reload`,
+    ]);
+    expect(r.warnings).toEqual([]);
+    expect(r.confirmations).toHaveLength(1);
+    // The confirmation is the whole report: no "when the office starts".
+    expect(r.tagged).toEqual(r.confirmations);
+  });
+
+  it("warns with the kernel's values when the reload did not apply the cap", async () => {
+    const r = await runUserCap({ userOffice: true, reload: "mismatch" });
+    expect(r.out).toContain("rc=0");
+    expect(r.runuserCalls).toHaveLength(1);
+    expect(r.confirmations).toEqual([]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain(`${MAX}`);
+    expect(r.warnings[0]).toContain("1/");
+  });
+
+  it("warns with the command to run when the reload fails, and does not stop the run", async () => {
+    const r = await runUserCap({ userOffice: true, reload: "fails" });
+    expect(r.out).toContain("rc=0");
+    expect(r.userDropin).toContain("MemoryMax=6917M");
+    expect(r.confirmations).toEqual([]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain("systemctl --user daemon-reload");
+  });
+
+  it("warns and does not reload when the office's uid has no user name", async () => {
+    const r = await runUserCap({ userOffice: true, unknownUid: true });
+    expect(r.out).toContain("rc=0");
+    expect(r.runuserCalls).toEqual([]);
+    expect(r.confirmations).toEqual([]);
+    expect(r.warnings).toHaveLength(1);
+  });
+
+  it("names no unit when no office runs on either shape", async () => {
+    // The old line promised the cap "when isomux.service starts", which never
+    // happens on a box whose office is a user unit.
+    const r = await runUserCap({});
+    expect(r.out).toContain("rc=0");
+    expect(r.out).not.toContain("isomux.service");
+    expect(r.warnings).toEqual([]);
+    expect(r.confirmations).toEqual([]);
+  });
+
+  it("only prints the reload on a dry run", async () => {
+    const r = await runUserCap({ dryRun: true, userOffice: true });
+    expect(r.out).toContain("rc=0");
+    expect(r.runuserCalls).toEqual([]);
+    // Nothing was applied, so nothing is read back or reported as missing.
+    expect(r.warnings).toEqual([]);
+    expect(r.confirmations).toEqual([]);
+    const reloadLines = r.out
+      .split("\n")
+      .filter((l) => l.includes("systemctl --user daemon-reload"));
+    expect(reloadLines).toHaveLength(1);
+    expect(reloadLines[0]).toContain("DRY-RUN");
+    expect(reloadLines[0]).toContain(`/run/user/${UID}`);
+  });
+
+  it("reports both shapes when a system office and a user-level office both run", async () => {
+    const r = await runUserCap({ systemOffice: true, userOffice: true });
+    expect(r.out).toContain("rc=0");
+    expect(r.runuserCalls).toHaveLength(1);
+    expect(r.warnings).toEqual([]);
+    expect(r.confirmations).toHaveLength(2);
+    expect(r.tagged).toEqual(r.confirmations);
   });
 });
 
