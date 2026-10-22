@@ -299,8 +299,9 @@ describe("install.sh escalation: template unit + placement", () => {
   it("deps-only mode installs dependencies and nothing else", () => {
     // scripts/update.sh runs the target release's installer with
     // ISOMUX_DEPS_ONLY=1 runs on a LIVE box. It may refresh and run a read-only
-    // hardening verifier, but box-policy mutation (firewall, SSH, unattended
-    // upgrades), the runtime (bun), and identity changes stay out of it.
+    // hardening verifier and switch to the release's pinned Bun beside the old
+    // one (install-bun.test.ts), but box-policy mutation (firewall, SSH,
+    // unattended upgrades), the code and identity changes stay out of it.
     const fn = SRC.slice(
       SRC.indexOf("deps_only() {"),
       SRC.lastIndexOf("\nmain() {"),

@@ -84,6 +84,7 @@ function runDepsMode(opts: {
   noCaddyUnit?: boolean;
   migrationFails?: boolean;
   frontDoorHealthy?: boolean;
+  convergeFails?: boolean;
 }): Run {
   const stubLog = join(base, "stub.log");
   const activeFile = join(base, "caddy-active");
@@ -135,6 +136,10 @@ migrate_caddy_access_log() { echo "migrate_caddy_access_log"; ${opts.migrationFa
 verify_caddy_front_door() { ${opts.frontDoorHealthy === false ? "return 1" : "return 0"}; }
 write_loopback_bind_if_proxied() { echo "write_loopback_bind_if_proxied"; }
 write_update_outcome() { echo "write_update_outcome"; }
+converge_bun() { echo "converge_bun $*"; ${opts.convergeFails ? "exit 1" : ":"}; }
+BUN_VERSION=7.7.7
+BUN_LINK=/usr/local/bin/bun
+BUN_DIR=/usr/local/lib/isomux/bun
 deps_only
 `;
   const res = spawnSync("bash", ["-c", script], {
@@ -187,6 +192,35 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     expect(r.calls.indexOf("configure_oom_protection update")).toBeGreaterThan(
       r.calls.indexOf("systemctl start caddy"),
     );
+  });
+
+  it("switches the system Bun to the release's pin after the packages are in", () => {
+    // The first update that carries side-by-side Bun installs runs the OLD
+    // installed updater, which only knows deps-only: this call is what moves
+    // those boxes to the pinned Bun on that update rather than the next one.
+    // After install_packages, which installs unzip.
+    const r = runDepsMode({ active: true, enabled: true });
+    const converge = r.out.indexOf(
+      "converge_bun 7.7.7 /usr/local/bin/bun /usr/local/lib/isomux/bun",
+    );
+    expect(converge).toBeGreaterThan(-1);
+    expect(converge).toBeGreaterThan(r.out.indexOf("install_packages"));
+  });
+
+  it("puts the proxy back before a Bun switch that can fail", () => {
+    // converge_bun dies on a failed download or checksum. The package step
+    // may have masked Caddy by then, and a sync that dies before restoring it
+    // leaves the office's public URL down.
+    const r = runDepsMode({
+      active: true,
+      enabled: true,
+      aptDoes: "mask",
+      convergeFails: true,
+    });
+    expect(r.out).toContain("converge_bun");
+    expect(r.code).not.toBe(0);
+    expect(r.active).toBe(true);
+    expect(r.enabled).toBe(true);
   });
 
   it("turns back off a proxy the package step started", () => {

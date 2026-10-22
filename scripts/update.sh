@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Update an installed isomux to a pinned release tag.
 # Git installs roll the code back on failure; containers replace the image on
-# the existing mount.
+# the existing mount. Git installs also switch to the release's pinned Bun and
+# back (sync_bun); a container image carries its own.
 # (Release-channel slice C1, internal-docs/release-design.md.)
 #
 # Usage:  isomux-update vYYYY.M.D[.N] [--allow-downgrade]
@@ -35,6 +36,9 @@
 #
 # SEQUENCE and per-phase recovery (the design doc has the rationale):
 #   fetch/validate     -> nothing to undo
+#   deps: Bun          -> point $BUN back at the old Bun (see sync_bun); every
+#                         later failure below does the same before it
+#                         rebuilds the old code
 #   deps               -> nothing of isomux's to undo; installed system
 #                         packages stay (see sync_system_deps). Finalize
 #                         records the synced commit in $STATUS_DIR/deps-synced;
@@ -88,6 +92,10 @@ TARGET_TAG=""
 ALLOW_DOWNGRADE=""
 OLD_COMMIT=""
 OLD_DESC=""
+# The Bun the target release pins, and the one this box ran before the update.
+TARGET_BUN=""
+OLD_BUN_VERSION=""
+BUN_SWITCH_FAILED=""
 CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
 DEPS_WARNING=""
 # System kind: the office service user can read this directory but not write
@@ -356,6 +364,127 @@ sync_system_deps() {
   return "$rc"
 }
 
+# --- Side-by-side Bun ---------------------------------------------------------
+#
+# Each Bun version lives in $(bun_dir)/<version>/bun, and $BUN (the path the
+# service runs) is a hardlink of one of them. A release whose package.json pins
+# another Bun gets it through ITS OWN installer (ISOMUX_BUN_ONLY=1), read from
+# the root-owned trust repo like the dependency sync: the installer carries the
+# pin and the download checksums, and keeps the old Bun beside the new one.
+# restore_bun points $BUN back at the old one on a rollback.
+#
+# The first update that carries this runs an older installed updater, which
+# has none of it: the target's deps-only mode switches Bun on that update (on a
+# system box with apt), and that update's rollback runs the old code on the new
+# Bun. A user-kind or no-apt box switches on the update after.
+#
+# Container installs never come here: the image carries its own Bun.
+
+# Where the versions live: root-owned on a system box, the user's own on a
+# user-kind box.
+bun_dir() {
+  if [[ $SERVICE_KIND == system ]]; then
+    printf '%s\n' /usr/local/lib/isomux/bun
+  else
+    printf '%s\n' "$STATUS_DIR/bun"
+  fi
+}
+
+bun_running() { "$BUN" --version 2>/dev/null || true; }
+
+# The target's installer, extracted from the trust objects into a new temp file
+# whose path is printed, or nothing when it has no Bun mode. The exact protocol
+# assignment, anchored, as for the deps-only mode: an installer that only
+# mentions the mode would run a FULL install.
+bun_mode_installer() {
+  local installer
+  installer=$(mktemp /tmp/isomux-bun.XXXXXXXXXX) || return 0
+  chmod 700 "$installer"
+  if git -C "$TRUST_REPO" cat-file -p "$target_commit:deploy/install.sh" >"$installer" 2>/dev/null &&
+    grep -qx 'ISOMUX_INSTALL_BUN_MODE_VERSION=1' "$installer"; then
+    printf '%s\n' "$installer"
+  else
+    rm -f "$installer"
+  fi
+}
+
+# True when the target pins a Bun this box does not run and its installer can
+# switch to it.
+bun_switch_needed() {
+  [[ -n $TARGET_BUN && $TARGET_BUN != "$(bun_running)" ]] || return 1
+  local installer
+  installer=$(bun_mode_installer)
+  [[ -n $installer ]] || return 1
+  rm -f "$installer"
+}
+
+# Install the target release's pinned Bun beside the current one and switch
+# $BUN to it, through the target's own installer (ISOMUX_BUN_ONLY=1). A failure
+# returns through the ERR trap, whose deps arm points $BUN back and fails the
+# update before the checkout.
+sync_bun() {
+  local have
+  have=$(bun_running)
+  [[ -n $TARGET_BUN && $TARGET_BUN != "$have" ]] || return 0
+  local installer
+  installer=$(bun_mode_installer)
+  if [[ -z $installer ]]; then
+    log "warning: $TARGET_TAG pins bun@$TARGET_BUN but $BUN is ${have:-unknown}, and its installer cannot install that Bun; if the new version fails to start, that mismatch is the first suspect"
+    return 0
+  fi
+  log "installing bun@$TARGET_BUN beside bun ${have:-unknown}"
+  # Fixed environment, as for the dependency sync: nothing caller-controlled
+  # reaches the installer (an inherited DRY_RUN would report a switch that
+  # never happened).
+  local home=/root rc=0
+  [[ $SERVICE_KIND == system ]] || home=$HOME
+  env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    HOME="$home" ISOMUX_BUN_ONLY=1 ISOMUX_BUN_LINK="$BUN" ISOMUX_BUN_DIR="$(bun_dir)" \
+    /bin/bash "$installer" || rc=$?
+  rm -f "$installer"
+  if ((rc != 0)) || [[ $(bun_running) != "$TARGET_BUN" ]]; then
+    BUN_SWITCH_FAILED=1
+    return 1
+  fi
+}
+
+# Point $BUN back at the Bun the box ran before this update, by rename, so a
+# process that runs the current file keeps it.
+restore_bun() {
+  [[ -n $OLD_BUN_VERSION && $(bun_running) != "$OLD_BUN_VERSION" ]] || return 0
+  local kept tmp
+  kept=$(bun_dir)/$OLD_BUN_VERSION/bun
+  if [[ ! -x $kept ]]; then
+    log "warning: bun $OLD_BUN_VERSION is not in $(bun_dir); $BUN stays on bun $(bun_running)"
+    return 1
+  fi
+  tmp="$(dirname "$BUN")/.bun-restore.$$"
+  rm -f "$tmp"
+  if { ln "$kept" "$tmp" 2>/dev/null || cp -p "$kept" "$tmp"; } && mv -fT "$tmp" "$BUN"; then
+    log "switched $BUN back to bun $OLD_BUN_VERSION"
+  else
+    rm -f "$tmp"
+    log "warning: could not switch $BUN back to bun $OLD_BUN_VERSION; it stays on bun $(bun_running)"
+    return 1
+  fi
+}
+
+# Keep only the Bun $BUN runs and the one before it (for the next rollback).
+# Only directory names that look like versions are touched.
+prune_bun() {
+  local dir cur entry name
+  dir=$(bun_dir)
+  [[ -d $dir ]] || return 0
+  cur=$(bun_running)
+  [[ -n $cur ]] || return 0
+  for entry in "$dir"/*; do
+    name=${entry##*/}
+    [[ -d $entry && ! -L $entry && $name =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.+-]*)?$ ]] || continue
+    [[ $name == "$cur" || $name == "$OLD_BUN_VERSION" ]] && continue
+    rm -rf -- "$entry" || log "warning: could not remove the old bun $name from $dir"
+  done
+}
+
 # $STATUS_DIR/deps-synced holds the commit of the last update that synced its
 # system dependencies and then completed. The already-on-target arm reads it:
 # a box can run the target code with the tag recorded and still never have had
@@ -398,6 +527,7 @@ check_public_front_door() {
 # recovery path; node_modules and ui/dist are dirty from the moment the target
 # install/build started, so recovery must redo both for the OLD commit.
 restore_old_code() {
+  restore_bun || true
   as_repo_user git -C "$REPO_DIR" checkout --detach "$OLD_COMMIT" &&
     as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' install --frozen-lockfile" &&
     as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' run build:ui"
@@ -443,7 +573,11 @@ on_error() {
     die "container update failed during $failed_phase; check the updater and container service logs"
   fi
   case $failed_phase in
-    deps) die "could not install $TARGET_TAG's system dependencies; the checkout, its dependencies, the built UI and the office state are unchanged and the service is still running $OLD_DESC, but system package changes may be partial" ;;
+    deps)
+      restore_bun || true
+      [[ -z $BUN_SWITCH_FAILED ]] ||
+        die "could not switch to bun@$TARGET_BUN, which $TARGET_TAG pins; $BUN is bun $(bun_running), the checkout is unchanged and the service is still running $OLD_DESC"
+      die "could not install $TARGET_TAG's system dependencies; the checkout, its dependencies, the built UI and the office state are unchanged and the service is still running $OLD_DESC, but system package changes may be partial" ;;
     checkout | install | build) fail_build ;;
     start | readiness) fail_ready ;;
     *) die "unexpected failure during $failed_phase" ;;
@@ -460,14 +594,11 @@ git_validate() {
  }
 
 git_prepare() {
-  # Bun-pin heads-up BEFORE any mutation, read from the trusted objects.
-  local pinned have
-  pinned=$(git -C "$TRUST_REPO" cat-file -p "$target_commit:package.json" 2>/dev/null |
-    sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' | head -1)
-  have=$("$BUN" --version 2>/dev/null || true)
-  if [[ -n $pinned && $pinned != "$have" ]]; then
-    log "warning: $TARGET_TAG pins bun@$pinned but $BUN is $have; if the new version fails to start, that mismatch is the first suspect (rollback will still work)"
-  fi
+  # The Bun the target pins, from the trusted objects, and the one to point
+  # $BUN back at on a rollback. Read BEFORE any mutation.
+  TARGET_BUN=$(git -C "$TRUST_REPO" cat-file -p "$target_commit:package.json" 2>/dev/null |
+    sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' | head -1) || TARGET_BUN=""
+  OLD_BUN_VERSION=$(bun_running)
   # Bring the objects into the service checkout from the same upstream
   # (bypassing its tamperable remote config) and hold it to the
   # trust-resolved commit.
@@ -489,9 +620,12 @@ git_prepare() {
   as_repo_user git -C "$REPO_DIR" update-ref "refs/tags/$TARGET_TAG" "$target_commit"
 
   if [[ $target_commit == "$OLD_COMMIT" ]]; then
-    local need_deps=""
+    local need_deps="" need_bun=""
     deps_synced_for "$target_commit" || need_deps=1
-    if [[ $had_tag == "$target_commit" && -z $need_deps ]]; then
+    # A box an older updater moved to this release, or whose Bun a member
+    # upgraded, runs the release with a Bun it does not pin.
+    bun_switch_needed && need_bun=1
+    if [[ $had_tag == "$target_commit" && -z $need_deps && -z $need_bun ]]; then
       log "already on $TARGET_TAG; nothing to do"
       write_status ok "already on $TARGET_TAG"
       exit 0
@@ -515,6 +649,7 @@ git_prepare() {
     local unrecorded=" but is still not recording the release"
     if [[ $had_tag == "$target_commit" ]]; then
       repaired="synced $TARGET_TAG's system dependencies"
+      [[ -n $need_deps ]] || repaired="switched to bun@$TARGET_BUN, which $TARGET_TAG pins"
       undone="the code is unchanged from before this run"
       retry="a retry can finish it"
       unrecorded=""
@@ -557,6 +692,10 @@ git_prepare() {
       esac
     }
     trap repair_error ERR
+    if [[ -n $need_bun ]]; then
+      phase deps
+      sync_bun
+    fi
     if [[ -n $need_deps ]]; then
       phase deps
       sync_system_deps "$target_commit"
@@ -565,7 +704,9 @@ git_prepare() {
     # recovery ladder does not apply. server/version.ts reads the tag once per
     # process, and configure_user_manager's drop-in also takes effect on the
     # restart below.
-    if [[ $had_tag == "$target_commit" ]]; then
+    if [[ $had_tag == "$target_commit" && -z $need_deps ]]; then
+      log "already on $TARGET_TAG, but on bun $OLD_BUN_VERSION; restarting on bun@$TARGET_BUN, which it pins"
+    elif [[ $had_tag == "$target_commit" ]]; then
       log "already on $TARGET_TAG, but its system dependencies were never recorded as synced; restarting so the office runs with them"
     else
       log "already on $TARGET_TAG, which the checkout was not recording; restarting so the office reports it"
@@ -594,7 +735,10 @@ git_prepare() {
     log "downgrading $OLD_DESC -> $TARGET_TAG (--allow-downgrade)"
   fi
 
+  # Bun first, so a dependency failure after it can point $BUN back. It
+  # publishes as the deps phase: a running office knows no other name for it.
   phase deps
+  sync_bun
   sync_system_deps "$target_commit"
 
   phase checkout
@@ -617,6 +761,7 @@ git_ready() {
 
 git_finalize() {
   record_deps_synced "$target_commit"
+  prune_bun || log "warning: could not remove old Bun versions from $(bun_dir)"
   # Refresh the installed updater from the ROOT-OWNED trust objects. The
   # service checkout must never be the source: the service user (which
   # agents run as) could have replaced scripts/update.sh there while the

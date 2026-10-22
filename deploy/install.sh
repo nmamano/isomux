@@ -67,6 +67,12 @@
 #                 release's installer this way, so an update can deliver
 #                 system dependencies the release newly requires (see
 #                 deps_only below).
+#   ISOMUX_BUN_ONLY  set to 1 to install this release's pinned Bun beside the
+#                 installed one and switch ISOMUX_BUN_LINK (default
+#                 /usr/local/bin/bun) to it, keeping the versions under
+#                 ISOMUX_BUN_DIR (default /usr/local/lib/isomux/bun). Needs no
+#                 root when both paths belong to the caller. scripts/update.sh runs the
+#                 TARGET release's installer this way (see bun_only below).
 #
 # Re-running after a failure is safe: every step is idempotent, and the
 # owner-claim step recovers its session from disk or from the isomux admin
@@ -85,6 +91,9 @@ SSH_PORT="${SSH_PORT:-22}"
 INSTALL_CALLBACK_URL="${INSTALL_CALLBACK_URL:-}"
 DRY_RUN="${DRY_RUN:-}"
 ISOMUX_DEPS_ONLY="${ISOMUX_DEPS_ONLY:-}"
+ISOMUX_BUN_ONLY="${ISOMUX_BUN_ONLY:-}"
+ISOMUX_BUN_LINK="${ISOMUX_BUN_LINK:-}"
+ISOMUX_BUN_DIR="${ISOMUX_BUN_DIR:-}"
 ISOMUX_INSTALL_MODE="${ISOMUX_INSTALL_MODE:-host}"
 
 # Protocol marker for scripts/update.sh: the exact assignment below is what the
@@ -94,6 +103,10 @@ ISOMUX_INSTALL_MODE="${ISOMUX_INSTALL_MODE:-host}"
 # install on a live box. Bump only if the mode's contract changes.
 # shellcheck disable=SC2034 # declared for scripts/update.sh to find, not used here
 ISOMUX_INSTALL_DEPS_MODE_VERSION=1
+# The same protocol for ISOMUX_BUN_ONLY=1: an installer without this line would
+# ignore the flag and run a full install.
+# shellcheck disable=SC2034 # declared for scripts/update.sh to find, not used here
+ISOMUX_INSTALL_BUN_MODE_VERSION=1
 
 # --- Constants --------------------------------------------------------------
 
@@ -2815,38 +2828,192 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 }
 
+# --- BEGIN bun-pin (deploy/install-bun.test.ts extracts this range) ---------
+# The Bun this release runs on. package.json "packageManager" declares the same
+# pin (deploy/install-bun.test.ts holds the two equal); the installer carries
+# its own copy because deps-only runs before the checkout, when the target's
+# package.json is not on disk yet. To move the pin, change both and add the
+# three hashes from the release's SHASUMS256.txt to bun_sha256.
+BUN_VERSION=1.4.4
+BUN_DOWNLOAD_BASE=https://github.com/oven-sh/bun/releases/download
+# The Bun the service runs (the unit hardcodes it), and the versions beside it.
+BUN_LINK=/usr/local/bin/bun
+BUN_DIR=/usr/local/lib/isomux/bun
+
+# The Bun build for this CPU: x64, x64-baseline (no AVX2) or aarch64, the same
+# choice bun.sh/install makes.
+bun_arch() {
+  case $(uname -m) in
+    x86_64 | amd64)
+      if grep -qw avx2 /proc/cpuinfo 2>/dev/null; then echo x64; else echo x64-baseline; fi
+      ;;
+    aarch64 | arm64) echo aarch64 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The pinned sha256 of bun-linux-<arch>.zip for <version>; fails when unknown.
+# Append-only: an older version keeps its lines, so a box can still roll back
+# to it or install it again.
+bun_sha256() {
+  awk -v v="$1" -v a="$2" '$1 == v && $2 == a { print $3; found = 1 } END { exit !found }' <<'BUN_SHA256'
+1.4.2 x64 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
+1.4.2 x64-baseline c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f
+1.4.2 aarch64 54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7
+1.4.4 x64 bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
+1.4.4 x64-baseline e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76
+1.4.4 aarch64 baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e
+BUN_SHA256
+}
+
+# The version a Bun binary reports, or nothing.
+bun_version_of() {
+  local v
+  v=$("$1" --version 2>/dev/null) || return 1
+  [[ -n $v ]] || return 1
+  printf '%s\n' "$v"
+}
+
+# Give <src>'s file the name <dest> atomically: a hardlink when both are on one
+# filesystem (no copy, same inode), a copy otherwise. <dest> is replaced by
+# rename, so a process that runs the old file keeps it.
+bun_place() {
+  local src=$1 dest=$2 tmp
+  tmp="$(dirname "$dest")/.bun-place.$$"
+  rm -f "$tmp"
+  if ! ln "$src" "$tmp" 2>/dev/null && ! cp -p "$src" "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! mv -fT "$tmp" "$dest"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+# converge_bun <version> <link> <dir>: install <version> as <dir>/<version>/bun
+# (verified download, or the copy already there) and make <link> that file.
+#
+# <link> is the path the service runs (/usr/local/bin/bun on an installer box)
+# and stays a REGULAR file, a hardlink of <dir>/<version>/bun: Bun's
+# process.execPath resolves a symlink, and the server writes the directory of
+# process.execPath into each app unit's PATH, so a symlink would pin every app
+# registered after a switch to one version directory. The Bun that <link> held
+# before is kept as <dir>/<its version>/bun for a rollback. Every failure
+# leaves <link> as it was.
+converge_bun() {
+  local version=$1 link=$2 dir=$3
+  local target=$dir/$version/bun have="" src="" arch="" sha="" tool tmp
+  # Decide whether a download is needed before anything changes, so a missing
+  # tool or hash fails with the box as it was.
+  local download=1
+  if [[ -x $target && $(bun_version_of "$target" || true) == "$version" ]]; then
+    download=""
+  fi
+  if [[ -n $download ]]; then
+    for tool in curl unzip sha256sum; do
+      command -v "$tool" >/dev/null ||
+        die "installing bun $version needs $tool, which is not on this box; install it and re-run"
+    done
+    arch=$(bun_arch) || die "no Bun build for this CPU ($(uname -m))"
+    sha=$(bun_sha256 "$version" "$arch") ||
+      die "this installer has no checksum for bun $version ($arch); refusing an unverified download"
+  fi
+  install -d -m 755 "$dir" || die "could not create $dir"
+  # A run killed mid-download leaves its temp directory behind.
+  rm -rf "$dir"/.tmp* || die "could not clear old temp directories in $dir"
+
+  # Keep the Bun the box runs now. A symlink is resolved, so the file it
+  # points to is kept and left where it is.
+  if [[ -e $link ]]; then
+    src=$(readlink -f "$link") || src=""
+    have=$(bun_version_of "$link" || true)
+    if [[ -z $have ]]; then
+      log "warning: $link does not report a Bun version; it is not kept for a rollback"
+    elif [[ $(bun_version_of "$dir/$have/bun" || true) != "$have" ]]; then
+      tmp=$(mktemp -d "$dir/.tmp.XXXXXXXX") || die "could not create a temp directory in $dir"
+      if ! { [[ ! -e $dir/$have ]] || mv -T "$dir/$have" "$tmp/old"; } ||
+        ! install -d -m 755 "$dir/$have" ||
+        ! bun_place "$src" "$dir/$have/bun"; then
+        rm -rf "$tmp"
+        die "could not keep bun $have as $dir/$have/bun"
+      fi
+      rm -rf "$tmp"
+      log "kept bun $have as $dir/$have/bun for a rollback"
+    fi
+  fi
+
+  if [[ -n $download ]]; then
+    tmp=$(mktemp -d "$dir/.tmp.XXXXXXXX") || die "could not create a temp directory in $dir"
+    local url=$BUN_DOWNLOAD_BASE/bun-v$version/bun-linux-$arch.zip got
+    log "downloading bun $version ($arch)"
+    if ! curl -fsSL -o "$tmp/bun.zip" "$url"; then
+      rm -rf "$tmp"
+      die "could not download $url"
+    fi
+    got=$(sha256sum "$tmp/bun.zip" | cut -d ' ' -f 1) || got=""
+    if [[ $got != "$sha" ]]; then
+      rm -rf "$tmp"
+      die "bun $version download does not match its pinned checksum; refusing it"
+    fi
+    if ! unzip -q "$tmp/bun.zip" -d "$tmp/zip" || [[ ! -f $tmp/zip/bun-linux-$arch/bun ]]; then
+      rm -rf "$tmp"
+      die "bun $version download did not contain bun-linux-$arch/bun"
+    fi
+    install -d -m 755 "$tmp/$version"
+    mv "$tmp/zip/bun-linux-$arch/bun" "$tmp/$version/bun"
+    chmod 755 "$tmp/$version/bun"
+    if [[ $(bun_version_of "$tmp/$version/bun" || true) != "$version" ]]; then
+      rm -rf "$tmp"
+      die "bun $version download does not report version $version; refusing it"
+    fi
+    # A directory for this version that holds another build goes aside first:
+    # mv -T never replaces a non-empty directory.
+    if { [[ -e $dir/$version ]] && ! mv -T "$dir/$version" "$tmp/old"; } ||
+      ! mv -T "$tmp/$version" "$dir/$version"; then
+      rm -rf "$tmp"
+      die "could not put bun $version in $dir/$version"
+    fi
+    rm -rf "$tmp"
+  fi
+
+  if [[ ! -e $link || -L $link || $(stat -c %i "$link") != "$(stat -c %i "$target")" ]]; then
+    install -d -m 755 "$(dirname "$link")" || die "could not create $(dirname "$link")"
+    bun_place "$target" "$link" || die "could not switch $link to bun $version"
+    log "switched $link to bun $version${have:+ (bun $have is kept in $dir/$have)}"
+  else
+    log "bun $version already installed: $link"
+  fi
+  # bunx is Bun run under that name; bun.sh/install makes it a symlink to bun.
+  local bunx
+  bunx="$(dirname "$link")/bunx"
+  if [[ ! -L $bunx || $(readlink -f "$bunx") != "$(readlink -f "$link")" ]]; then
+    ln -sfn bun "$bunx.new.$$" && mv -fT "$bunx.new.$$" "$bunx" ||
+      { rm -f "$bunx.new.$$"; log "warning: could not point $bunx at $link"; }
+  fi
+}
+# --- END bun-pin -------------------------------------------------------------
+
 # Runs AFTER fetch_isomux so the pin can come from the checkout: the release
 # declares its bun in package.json "packageManager", and installing that
 # exact version is what makes "a tag fully determines the deployment" true
-# (CI tests the same pin via setup-bun's bun-version-file).
+# (CI tests the same pin via setup-bun's bun-version-file). A checkout without
+# a pin gets this installer's own.
 install_bun() {
   step install-bun
   local pinned=""
   if [[ -f $INSTALL_DIR/package.json ]]; then
     pinned=$(sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' "$INSTALL_DIR/package.json" | head -1)
   fi
-  # The systemd unit hardcodes /usr/local/bin/bun, so check that exact path;
-  # a bun elsewhere on root's PATH does not help the service.
-  if [[ -x /usr/local/bin/bun ]]; then
-    local have
-    have=$(/usr/local/bin/bun --version)
-    if [[ -z $pinned || $have == "$pinned" ]]; then
-      log "bun already installed: $have"
-      return 0
-    fi
-    log "bun $have installed but this ref pins bun@$pinned; installing the pinned version"
+  if [[ -z $pinned ]]; then
+    log "warning: no packageManager pin in package.json; installing bun $BUN_VERSION, this installer's pin"
+    pinned=$BUN_VERSION
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would install bun ${pinned:-latest} to /usr/local/bin via bun.sh/install"
+    log "DRY-RUN: would install bun $pinned as $BUN_DIR/$pinned/bun and switch $BUN_LINK to it"
     return 0
   fi
-  if [[ -n $pinned ]]; then
-    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v$pinned"
-  else
-    log "warning: no packageManager pin in package.json; installing latest bun"
-    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
-  fi
-  [[ -x /usr/local/bin/bun ]] || die "bun installation did not produce /usr/local/bin/bun"
+  converge_bun "$pinned" "$BUN_LINK" "$BUN_DIR"
 }
 
 create_service_user() {
@@ -5894,9 +6061,9 @@ ISOMUX_CONTAINER_SECCOMP_LICENSE
 # additive dependencies and installer-owned policy without restarting the
 # office, enabling a disabled firewall, changing UFW defaults, guessing an SSH
 # port, or creating swap.
-#   - NOT install_bun: a release never switches the runtime under a running
-#     box (release-design.md, "Bun invariant" - the updater warns about a pin
-#     change instead, and its rollback has to run on the installed bun).
+#   - converge_bun, not install_bun: the release's pinned Bun goes beside the
+#     old one, which stays for a rollback (release-design.md, "Bun
+#     invariant"). The running office keeps the file it started from.
 #   - NOT the service, Caddy, the owner claim, or the invite: nothing about
 #     this box's identity changes during an update. configure_user_manager is
 #     the one deliberate exception, and a narrow one: it enables linger and
@@ -5923,6 +6090,13 @@ deps_only() {
   # the office would be unreachable and the update would carry on regardless.
   restore_caddy_state ||
     die "installed the system dependencies but could not restore caddy to active=${CADDY_PRIOR_ACTIVE:-no} enabled=${CADDY_PRIOR_ENABLED:-no}; the office's public URL may be down. Check: systemctl status caddy"
+  # After install_packages, which brings unzip, and after the proxy is back, so
+  # a failed switch cannot leave Caddy masked. The first update that carries
+  # side-by-side Bun installs runs an older installed updater that knows only
+  # this mode, so this is where those boxes switch to the release's Bun. Its
+  # rollback then runs the old code on the new Bun; later updaters switch Bun
+  # themselves first and point it back on a rollback.
+  converge_bun "$BUN_VERSION" "$BUN_LINK" "$BUN_DIR"
   # The target release owns this helper. Refresh and apply its policy only
   # after apt's Caddy transaction is complete. Update mode never creates swap
   # and never restarts Caddy or the office.
@@ -5991,6 +6165,13 @@ deps_only() {
   log "system dependencies are up to date"
 }
 
+# ISOMUX_BUN_ONLY=1: the release's pinned Bun only, for scripts/update.sh.
+# Defaults to the system layout; scripts/update.sh names both paths.
+bun_only() {
+  step bun-only
+  converge_bun "$BUN_VERSION" "${ISOMUX_BUN_LINK:-$BUN_LINK}" "${ISOMUX_BUN_DIR:-$BUN_DIR}"
+}
+
 
 main() {
   case $ISOMUX_INSTALL_MODE in
@@ -6012,6 +6193,10 @@ main() {
 
   # Taken before preflight: a dependency sync has no DOMAIN and no business
   # validating full-install parameters.
+  if [[ $ISOMUX_BUN_ONLY == 1 ]]; then
+    bun_only
+    return
+  fi
   if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then
     deps_only
     return

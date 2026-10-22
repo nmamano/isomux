@@ -35,9 +35,10 @@ import {
   chmodSync,
   readdirSync,
   statSync,
+  renameSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 const UPDATE_SH = new URL("./update.sh", import.meta.url).pathname;
 
@@ -119,8 +120,11 @@ async function buildFixture(opts: {
 
   writeFileSync(join(repo, "app.txt"), "new\n");
   writeFileSync(join(repo, "scripts", "update.sh"), "# fake updater v-new\n");
+  // @BASE@ in a file stands for the fixture directory, for a fake target
+  // installer the updater runs with `env -i` (it inherits no paths).
   for (const [name, content] of Object.entries(opts.newFiles ?? {})) {
-    writeFileSync(join(repo, name), content);
+    mkdirSync(dirname(join(repo, name)), { recursive: true });
+    writeFileSync(join(repo, name), content.replaceAll("@BASE@", base));
   }
   await sh(repo, "git add . && git commit -qm c2");
   const newCommit = await sh(repo, "git rev-parse HEAD");
@@ -207,10 +211,13 @@ exit 0
   writeFileSync(
     join(bin, "bun"),
     `#!/usr/bin/env bash
-echo "bun $* (cwd=$PWD)" >> "$STUB_LOG"
-if [[ -f $PROGRESS_FILE ]]; then echo "bun $* $(cat "$PROGRESS_FILE")" >> "$PROGRESS_LOG"; fi
+# The version this stub reports; a fake target installer switches Bun by
+# writing a copy with another V.
+V=1.3.11
+[[ -n \${STUB_LOG:-} ]] && echo "bun $* (cwd=$PWD) v=$V" >> "$STUB_LOG"
+if [[ -f \${PROGRESS_FILE:-} ]]; then echo "bun $* $(cat "$PROGRESS_FILE")" >> "$PROGRESS_LOG"; fi
 case $1 in
-  --version) echo 1.3.11 ;;
+  --version) echo "$V" ;;
   install) [[ -e BREAK_INSTALL ]] && { echo "install broken" >&2; exit 1; } ;;
   run)
     [[ $2 == build:ui && -e BREAK_BUILD ]] && { echo "build broken" >&2; exit 1; }
@@ -1021,5 +1028,230 @@ describe("update.sh public-front-door result", () => {
     expect(result.code).toBe(0);
     expect(result.out).not.toContain("office's public URL may be down");
     expect(status().message).not.toContain("office's public URL may be down");
+  });
+});
+
+// Side-by-side Bun installs (task ffd70e4a). The target release carries a fake
+// installer with the bun-mode marker that does what converge_bun does to the
+// layout (adopt the current Bun into <dir>/<version>/bun, add the pinned one,
+// swap $BUN), and logs how the updater ran it. converge_bun itself is covered
+// in deploy/install-bun.test.ts.
+const PIN = "1.4.9";
+const OLD_BUN = "1.3.11";
+
+function bunModeInstaller(opts: { failAfterSwitch?: boolean } = {}): string {
+  return `#!/usr/bin/env bash
+ISOMUX_INSTALL_BUN_MODE_VERSION=1
+ISOMUX_INSTALL_DEPS_MODE_VERSION=1
+set -e
+{
+  printf 'ISOMUX_BUN_ONLY=%s\\n' "\${ISOMUX_BUN_ONLY:-unset}"
+  printf 'ISOMUX_DEPS_ONLY=%s\\n' "\${ISOMUX_DEPS_ONLY:-unset}"
+  printf 'LINK=%s\\n' "\${ISOMUX_BUN_LINK:-unset}"
+  printf 'DIR=%s\\n' "\${ISOMUX_BUN_DIR:-unset}"
+  printf 'DRY_RUN=%s\\n' "\${DRY_RUN:-unset}"
+} >> "@BASE@/bun-mode.log"
+[[ \${ISOMUX_BUN_ONLY:-} == 1 ]] || exit 0
+cur=$("$ISOMUX_BUN_LINK" --version)
+mkdir -p "$ISOMUX_BUN_DIR/$cur" "$ISOMUX_BUN_DIR/${PIN}"
+[[ -e $ISOMUX_BUN_DIR/$cur/bun ]] || cp "$ISOMUX_BUN_LINK" "$ISOMUX_BUN_DIR/$cur/bun"
+sed "s/^V=.*/V=${PIN}/" "$ISOMUX_BUN_LINK" > "$ISOMUX_BUN_DIR/${PIN}/bun"
+chmod 755 "$ISOMUX_BUN_DIR/${PIN}/bun"
+cp "$ISOMUX_BUN_DIR/${PIN}/bun" "$ISOMUX_BUN_LINK.new"
+mv -f "$ISOMUX_BUN_LINK.new" "$ISOMUX_BUN_LINK"
+${opts.failAfterSwitch ? 'echo "bun switch broke" >&2; exit 1' : "exit 0"}
+`;
+}
+
+function pinnedRelease(
+  extra: Record<string, string> = {},
+  installer = bunModeInstaller(),
+): Record<string, string> {
+  return {
+    "package.json": JSON.stringify({
+      name: "fake",
+      packageManager: `bun@${PIN}`,
+    }),
+    "deploy/install.sh": installer,
+    ...extra,
+  };
+}
+
+function bunPath(): string {
+  return join(fx.base, "bin", "bun");
+}
+
+function bunDir(): string {
+  return join(fx.statusDir, "bun");
+}
+
+function bunVersion(): string {
+  const r = Bun.spawnSync([bunPath(), "--version"]);
+  return r.stdout.toString().trim();
+}
+
+function bunModeLog(): string | null {
+  const path = join(fx.base, "bun-mode.log");
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
+}
+
+// The Bun version each target or rollback `bun install` / `bun run build:ui`
+// ran on, in call order.
+function buildSteps(): string[] {
+  return stubCalls()
+    .filter(
+      (l) => / (stop|start) /.test(l) || /^bun (install|run build:ui)/.test(l),
+    )
+    .map((l) =>
+      l.startsWith("bun")
+        ? `${l.split(" ")[1] === "install" ? "install" : "build"} ${l.slice(l.lastIndexOf("v=") + 2)}`
+        : l.includes(" stop ")
+          ? "stop"
+          : "start",
+    );
+}
+
+describe("update.sh side-by-side Bun", () => {
+  it("switches to the target's pinned Bun through the target's installer before building it", async () => {
+    fx = await buildFixture({ newFiles: pinnedRelease() });
+    // An unrelated old version and a file that is not a version: the prune
+    // removes the first and never touches the second.
+    mkdirSync(join(bunDir(), "0.0.9"), { recursive: true });
+    writeFileSync(join(bunDir(), "0.0.9", "bun"), "#!/bin/sh\necho 0.0.9\n");
+    writeFileSync(join(bunDir(), "notes.txt"), "kept\n");
+    fx.env.DRY_RUN = "1";
+
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(status().result).toBe("ok");
+    expect(bunVersion()).toBe(PIN);
+    // Built and started on the new Bun only.
+    expect(buildSteps()).toEqual([
+      `install ${PIN}`,
+      `build ${PIN}`,
+      "stop",
+      "start",
+    ]);
+    // The mode, its paths, and a fixed environment (an inherited DRY_RUN
+    // would turn the switch into a reported success that did nothing).
+    const log = bunModeLog();
+    expect(log).toContain("ISOMUX_BUN_ONLY=1\n");
+    expect(log).toContain(`LINK=${bunPath()}\n`);
+    expect(log).toContain(`DIR=${bunDir()}\n`);
+    expect(log).toContain("DRY_RUN=unset\n");
+    // The old Bun stays for the next rollback; nothing else of the past does.
+    expect(readdirSync(bunDir()).sort()).toEqual([OLD_BUN, PIN, "notes.txt"]);
+  });
+
+  it("a failed build switches Bun back before the old code is rebuilt", async () => {
+    fx = await buildFixture({ newFiles: pinnedRelease({ BREAK_BUILD: "1" }) });
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    expect(status().result).toBe("failed");
+    expect(await head()).toBe(fx.oldCommit);
+    expect(bunVersion()).toBe(OLD_BUN);
+    // The target was built on the new Bun (the switch happened), and the
+    // old code was reinstalled and rebuilt on its own Bun.
+    expect(buildSteps()).toEqual([
+      `install ${PIN}`,
+      `build ${PIN}`,
+      `install ${OLD_BUN}`,
+      `build ${OLD_BUN}`,
+    ]);
+  });
+
+  it("a failed readiness switches Bun back before the old code restarts", async () => {
+    fx = await buildFixture({
+      newFiles: pinnedRelease(),
+      readyAfterStarts: 2,
+    });
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("rolled the code back");
+    expect(await head()).toBe(fx.oldCommit);
+    expect(bunVersion()).toBe(OLD_BUN);
+    expect(buildSteps()).toEqual([
+      `install ${PIN}`,
+      `build ${PIN}`,
+      "stop",
+      "start",
+      "stop",
+      `install ${OLD_BUN}`,
+      `build ${OLD_BUN}`,
+      "start",
+    ]);
+  });
+
+  it("a failed Bun switch fails the update before the checkout and puts Bun back", async () => {
+    // The installer swaps $BUN and then fails, so the updater's own restore
+    // is what puts the old Bun back.
+    fx = await buildFixture({
+      newFiles: pinnedRelease({}, bunModeInstaller({ failAfterSwitch: true })),
+    });
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    expect(status().result).toBe("failed");
+    expect(bunModeLog()).toContain("ISOMUX_BUN_ONLY=1\n");
+    expect(await head()).toBe(fx.oldCommit);
+    expect(bunVersion()).toBe(OLD_BUN);
+    expect(buildSteps()).toEqual([]);
+  });
+
+  it("never runs a target installer that only mentions the Bun mode", async () => {
+    // Running an installer without the mode would run a FULL install on a
+    // live box. The update itself goes on, on the installed Bun.
+    fx = await buildFixture({
+      newFiles: pinnedRelease(
+        {},
+        `#!/usr/bin/env bash
+# ISOMUX_BUN_ONLY=1 installs only the pinned Bun.
+# ISOMUX_INSTALL_BUN_MODE_VERSION=1 is the marker the updater looks for.
+echo "  ISOMUX_INSTALL_BUN_MODE_VERSION=1"
+touch "@BASE@/bun-mode.log"
+`,
+      ),
+    });
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(bunModeLog()).toBeNull();
+    expect(bunVersion()).toBe(OLD_BUN);
+    expect(r.out).toContain(`bun@${PIN}`);
+  });
+
+  it("a box already on the target but on another Bun switches and restarts", async () => {
+    // A box an older updater moved to this release, or a member's
+    // `bun upgrade`: the release and its dependency record are in place, so
+    // only the Bun check can tell this from a no-op.
+    fx = await buildFixture({ newFiles: pinnedRelease() });
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    expect(bunVersion()).toBe(PIN);
+    // Replaced by rename, as `bun upgrade` does, so the file in the Bun
+    // directory keeps its bytes.
+    writeFileSync(
+      `${bunPath()}.upgrade`,
+      readFileSync(bunPath(), "utf8").replace(/^V=.*$/m, `V=${OLD_BUN}`),
+      { mode: 0o755 },
+    );
+    renameSync(`${bunPath()}.upgrade`, bunPath());
+    expect(bunVersion()).toBe(OLD_BUN);
+    const before = buildSteps().length;
+
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(status().result).toBe("ok");
+    expect(await head()).toBe(fx.newCommit);
+    expect(bunVersion()).toBe(PIN);
+    expect(buildSteps().slice(before)).toEqual(["stop", "start"]);
+  });
+
+  it("a box already on the target and on its Bun stays a no-op", async () => {
+    fx = await buildFixture({ newFiles: pinnedRelease() });
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    const before = buildSteps().length;
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(status().result).toBe("ok");
+    expect(bunVersion()).toBe(PIN);
+    expect(buildSteps().slice(before)).toEqual([]);
   });
 });

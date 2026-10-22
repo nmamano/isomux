@@ -102,17 +102,43 @@ adds two manual conditions:
 2. Nil or a delegated agent runs a small `scripts/release.sh` that verifies
    the Build workflow itself is green for the commit (not merely "some
    check"), that the Install smoke workflow is green for it too (and starts
-   that run when the commit has none), refuses to reuse an existing tag, refuses a bun-pin change
-   since the previous release (see the invariant below), tags (annotated),
+   that run when the commit has none), refuses to reuse an existing tag, tags (annotated),
    and pushes the tag. The script prints the path of a timestamped log and
    tees its complete release and pre-push output there.
 
-**Bun invariant.** Customer updaters warn - they do not switch runtimes -
-when a release pins a different bun than the box runs, and rollback runs on
-the installed bun. So until versioned side-by-side bun installs exist, a
-release must pin the same bun as the previous release; `release.sh`
-enforces this mechanically (`RELEASE_ALLOW_BUN_CHANGE=1` overrides, which
-means a deliberate fleet plan).
+**Bun invariant.** A box runs the Bun its release pins. Each version lives in
+its own directory, `<dir>/<version>/bun` (`/usr/local/lib/isomux/bun` on a
+system box, `$STATUS_DIR/bun` on a user-kind box), and the path the service
+runs (`/usr/local/bin/bun`, the `BUN` of `update.conf`) is a hardlink of one of
+them. Not a symlink: Bun's `process.execPath` resolves a symlink, and the
+server writes the directory of `process.execPath` into each app unit's PATH
+and the codex wrapper, so a symlink would pin those to one version directory.
+When the target pins another Bun, the updater runs the target's installer with
+`ISOMUX_BUN_ONLY=1` before the dependency sync (the exact
+`ISOMUX_INSTALL_BUN_MODE_VERSION=1` line is required, and the call is under
+`env -i`, as for deps-only). The installer keeps the current Bun as
+`<dir>/<its version>/bun` (by hardlink: the running server's file is never
+rewritten), downloads the pinned one from Bun's GitHub release, checks it
+against the sha256 the installer carries, and switches the path by rename. A
+failure at any point leaves the path as it was. A rollback (failed build or
+readiness, or a failed dependency sync) points the path back at the old version
+before it rebuilds the old code. A successful update keeps the current and the
+previous version and removes the rest. An already-on-target box on another Bun
+switches and restarts. Container installs need none of this: the image carries
+its Bun.
+
+The installer carries the pin itself (`BUN_VERSION`) because deps-only runs
+before the checkout, when the target's `package.json` is not on disk.
+`deploy/install-bun.test.ts` holds it equal to `package.json`
+`"packageManager"` and requires a hash for each Linux build (x64,
+x64-baseline, aarch64). To move the pin, change both and add the three lines
+from the release's `SHASUMS256.txt` to `bun_sha256`; keep the old lines.
+
+The first update that carries this ran an older installed updater that only
+warned. On a system box with apt, the target's deps-only mode switches Bun on
+that update, but that update's rollback runs the old code on the new Bun.
+User-kind and no-apt boxes, where the old updater skips deps-only, switch on
+the update after.
 
 Cadence: on demand, when hosted boxes need something.
 
@@ -200,10 +226,10 @@ updater copy the same way.
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
    (packages, the browser, the codex sandbox, the user-manager setup
-   agents' apps run on, the installed memory-pressure policy, and on a
+   agents' apps run on, the installed memory-pressure policy, the release's
+   pinned Bun (see the Bun invariant), and on a
    hosted office the certificate renewal helper and its units - not SSH
-   mutation, unattended upgrades,
-   bun, or anything that decides the box's identity). It refreshes and runs a
+   mutation, unattended upgrades, or anything that decides the box's identity). It refreshes and runs a
    hardening verifier on installer-managed VPSes. The installer records the
    firewall rules it opens. During updates it restores only missing recorded
    rules while ufw is active; it never enables ufw or changes its defaults.
@@ -318,8 +344,9 @@ updater copy the same way.
    output and the durable status file. It does not trigger a rollback:
    the code rollback cannot repair Caddy.
 7. On failed readiness, roll back the code: stop and wait inactive (never
-   rebuild under a live or crash-looping process), check out the previous
-   tag, reinstall, build, start, report in the status file. The state root
+   rebuild under a live or crash-looping process), point Bun back at the old
+   version, check out the previous tag, reinstall, build, start, report in the
+   status file. The state root
    stays as the new version left it.
 
 The code-only rollback rests on three things: releases keep state readable
@@ -384,9 +411,9 @@ Shipped (the shell-drivable slice):
   Failure paths are exercised in `scripts/update-sh.test.ts` /
   `scripts/release-sh.test.ts` against sandboxed fixtures.
 - Installer integration: `deploy/install.sh` writes
-  `/etc/isomux/update.conf`, installs `isomux-update`, pins bun from
-  `package.json` `"packageManager"` (CI pins the same via setup-bun's
-  `bun-version-file`), and defaults `ISOMUX_REF` to the latest GitHub
+  `/etc/isomux/update.conf`, installs `isomux-update`, installs the bun
+  `package.json` `"packageManager"` pins in the side-by-side layout of the Bun
+  invariant (CI pins the same via setup-bun's `bun-version-file`), and defaults `ISOMUX_REF` to the latest GitHub
   release. The `main` fallback is bootstrap-only: the official repo falls
   back solely on a genuine no-releases 404 and fails closed on
   transport/parse errors (a GitHub hiccup must not silently install

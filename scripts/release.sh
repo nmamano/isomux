@@ -17,10 +17,9 @@
 # Build workflow (.github/workflows/build.yml) completed green for HEAD - 
 # specifically that workflow, so an unrelated green check can never stand in
 # for CI; the Install smoke workflow (.github/workflows/install-smoke.yml)
-# completed green for HEAD, started here when it has no run yet; the bun pin unchanged since the previous release (customer
-# updaters only WARN on a bun mismatch and roll back on the installed bun,
-# so a pin change needs a fleet plan - override with
-# RELEASE_ALLOW_BUN_CHANGE=1); tag free both locally and on origin.
+# completed green for HEAD, started here when it has no run yet; tag free both
+# locally and on origin. A Bun pin change needs no gate: updaters install the
+# release's pinned Bun beside the old one and roll back to it.
 #
 # RELEASE_SKIP_CI=1 skips both workflow gates AND the GitHub Release step so the
 # script can run against a local bare origin (sandbox testing). Never set it
@@ -142,34 +141,6 @@ else
   fi
   [[ $latest == "completed/success" ]] || die "the Install smoke workflow for $HEAD_SHA is not green: $latest"
   log "install smoke green for $HEAD_SHA (Install smoke workflow completed/success)"
-fi
-
-# Bun-pin invariant: customer updaters only warn when a release pins a
-# different bun than the box runs, and a failed start rolls back on the
-# INSTALLED bun - so until versioned side-by-side runtimes exist, a release
-# must not change the pin silently.
-bun_pin_at() {
-  # || true: a ref without package.json is "no pin", not a fatal error
-  # (pipefail would otherwise propagate git's failure).
-  { git show "$1:package.json" 2>/dev/null || true; } |
-    sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' | head -1
-}
-# The previous release comes from ORIGIN's tag namespace, and is read via
-# its remote-reported commit sha - a CalVer tag planted locally (higher, or
-# shadowing the real name) must not become the comparison baseline. Peeled
-# ^{} lines give the commit for annotated tags; a bare line covers a
-# lightweight tag.
-REMOTE_TAGS=$(git ls-remote --tags origin)
-PREV_TAG=$(sed -n 's#^[0-9a-f]*\trefs/tags/\(v[0-9][^^]*\)$#\1#p' <<<"$REMOTE_TAGS" |
-  grep -E "$CALVER_RE" | sort -V | tail -1) || PREV_TAG=""
-if [[ -n $PREV_TAG ]]; then
-  PREV_SHA=$(awk -v t="refs/tags/$PREV_TAG^{}" '$2 == t { print $1 }' <<<"$REMOTE_TAGS")
-  [[ -n $PREV_SHA ]] || PREV_SHA=$(awk -v t="refs/tags/$PREV_TAG" '$2 == t { print $1 }' <<<"$REMOTE_TAGS")
-  prev_pin=$(bun_pin_at "$PREV_SHA")
-  new_pin=$(bun_pin_at HEAD)
-  if [[ $prev_pin != "$new_pin" && -z ${RELEASE_ALLOW_BUN_CHANGE:-} ]]; then
-    die "the bun pin changed since $PREV_TAG (bun@${prev_pin:-none} -> bun@${new_pin:-none}); updaters warn-only on mismatch, so ship this only with a fleet plan (RELEASE_ALLOW_BUN_CHANGE=1 to proceed)"
-  fi
 fi
 
 git tag -a "$TAG" -m "isomux $TAG"

@@ -334,7 +334,9 @@ describe("release.sh", () => {
     expect(sh(base, "git -C origin.git tag -l")).toBe("");
   });
 
-  it("bun-pin gate: a pin change since the previous release refuses without the override", () => {
+  it("a Bun pin change since the previous release is released like any other change", () => {
+    // Updaters install a release's pinned Bun beside the old one and roll
+    // back to it (task ffd70e4a), so a pin bump needs no override.
     writeFileSync(
       join(repo, "package.json"),
       JSON.stringify({ name: "fake", packageManager: "bun@1.0.0" }),
@@ -346,30 +348,8 @@ describe("release.sh", () => {
       JSON.stringify({ name: "fake", packageManager: "bun@2.0.0" }),
     );
     sh(repo, "git add . && git commit -qm pin2 && git push -q origin main");
-    const refused = runRelease(["v2026.7.2"]);
-    expect(refused.code).not.toBe(0);
-    expect(refused.out).toContain("bun pin changed");
-    const allowed = runRelease(["v2026.7.2"], {
-      RELEASE_SKIP_CI: "1",
-      RELEASE_ALLOW_BUN_CHANGE: "1",
-    });
-    expect(allowed.code).toBe(0);
-  });
-
-  it("bun-pin gate: a locally planted higher tag is not the comparison baseline", () => {
-    // Reviewer regression: prev-release selection must come from origin's
-    // tag namespace. The planted v2099.1.1 points at the pin-less first
-    // commit; if it were treated as the previous release, the unchanged-pin
-    // release below would be refused.
-    const firstCommit = sh(repo, "git rev-parse HEAD");
-    writeFileSync(
-      join(repo, "package.json"),
-      JSON.stringify({ name: "fake", packageManager: "bun@1.0.0" }),
-    );
-    sh(repo, "git add . && git commit -qm pin1 && git push -q origin main");
-    expect(runRelease(["v2026.7.1"]).code).toBe(0);
-    sh(repo, `git tag v2099.1.1 ${firstCommit}`);
     const r = runRelease(["v2026.7.2"]);
     expect(r.code).toBe(0);
+    expect(sh(base, "git -C origin.git tag -l v2026.7.2")).toBe("v2026.7.2");
   });
 });
