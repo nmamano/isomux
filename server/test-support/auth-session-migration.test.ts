@@ -89,7 +89,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
   it("migrates a legacy row, evicts an orphan, and leaves a modern row alone", async () => {
     let srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
 
@@ -132,7 +132,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
     ).toBe(false);
 
     // The modern row survived the reload untouched.
-    expect(validateSession(owner.rawSessionId)?.username).toBe("Boss");
+    expect(validateSession(owner.rawSessionId)?.username).toBe("Morgan");
 
     // The upgraded shape was written back: userId present, username stripped.
     const after = readSessions(srv);
@@ -144,7 +144,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
   it("is idempotent: the second boot has nothing left to migrate", async () => {
     let srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
 
     const alice = legacySession("Alice");
@@ -172,7 +172,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
   it("a legacy row with no expiry stamps fails closed", async () => {
     let srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
 
     // Pre-migration rows that predate the expiry fields entirely. The loader
@@ -203,7 +203,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
   it("a stale username alongside a userId is stripped, not trusted", async () => {
     let srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
 
@@ -211,7 +211,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
     // somebody else. The userId branch must win and the name must be dropped.
     const onDisk = readSessions(srv);
     const key = hashOf(alice.rawSessionId);
-    onDisk[key] = { ...onDisk[key], username: "Boss" };
+    onDisk[key] = { ...onDisk[key], username: "Morgan" };
     writeFileSync(sessionsPath(srv), JSON.stringify(onDisk, null, 2));
 
     srv = await srv.restart();

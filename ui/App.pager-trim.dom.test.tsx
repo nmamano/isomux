@@ -23,7 +23,7 @@ const resolved = (from: number, to: number) =>
     page(`r${from + i}`, {
       state: "resolved",
       lastRaisedAt: 100_000 - (from + i),
-      resolved: { by: "Boss", at: 100_000 - (from + i) },
+      resolved: { by: "Morgan", at: 100_000 - (from + i) },
     }),
   );
 
@@ -48,7 +48,7 @@ describe("the bound on resolved pages", () => {
           entry: page(id, {
             state: "resolved",
             lastRaisedAt: 200_000,
-            resolved: { by: "Boss", at: 200_000 },
+            resolved: { by: "Morgan", at: 200_000 },
           }),
         }),
       );
@@ -88,7 +88,7 @@ describe("the bound on resolved pages", () => {
         type: "pager_upserted",
         entry: page("n1", {
           state: "resolved",
-          resolved: { by: "Boss", at: 200_000 },
+          resolved: { by: "Morgan", at: 200_000 },
         }),
       }),
     );

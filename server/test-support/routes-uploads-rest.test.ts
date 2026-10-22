@@ -105,7 +105,7 @@ describe("routes/uploads REST: upload + getFile happy path + room-ACL", () => {
   it("owner uploads, then getFile serves the bytes with a private cache header", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
 
@@ -137,7 +137,7 @@ describe("routes/uploads REST: upload + getFile happy path + room-ACL", () => {
   it("a member WITH a room grant can upload + getFile (access-by-grant, not just owner-rule)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -165,7 +165,7 @@ describe("routes/uploads REST: upload + getFile happy path + room-ACL", () => {
   it("a member WITHOUT access is 403 on BOTH upload and getFile (the [behavior-change])", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory"); // allowedRooms []
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -203,7 +203,7 @@ describe("routes/uploads REST: validation + resolver safety", () => {
   it("more than 5 files -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const files = Array.from({ length: 6 }, (_, i) => ({
@@ -219,7 +219,7 @@ describe("routes/uploads REST: validation + resolver safety", () => {
   it("unknown filename -> 404; path-traversal filename -> 404 (getFilePath is the only resolver)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     expect(
@@ -242,7 +242,7 @@ describe("routes/uploads REST: agent token is a 403 (browser surfaces)", () => {
   it("an AGENT token cannot upload or getFile (lacks file:upload / office:read)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -263,7 +263,7 @@ describe("routes/uploads REST: legacy paths untouched (no collision)", () => {
   it("legacy /api/upload + /api/files + /api/images still serve with the old paths/auth", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
 
@@ -308,7 +308,7 @@ describe("routes/uploads REST: agent files cannot run as office content", () => 
   it("a file planted through read-file is served sandboxed on every file route, and SVG renders as an image", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -372,7 +372,7 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
   it("a member without access is refused whether or not the file exists; a grant opens it", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory"); // allowedRooms []
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -410,7 +410,7 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
   it("an unknown agent id is refused like a denial, even when its files dir exists", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const att = saveFile(
       "agent-gone",
       Buffer.from("x"),
@@ -427,7 +427,7 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
   it("a cronjob run's files follow the job's room: a member of it reads them; another member and an ordinary agent do not", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const granted = await srv.seedMember("Grace");
     const other = await srv.seedMember("Mallory"); // allowedRooms []
     const roomId = srv.agentManager.createRoom("Lab");
@@ -442,8 +442,8 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
       modelFamily: "opus",
       effort: "medium",
       permissionMode: "bypassPermissions",
-      username: "Boss",
-      userId: getUserByName("Boss")!.id,
+      username: "Morgan",
+      userId: getUserByName("Morgan")!.id,
       roomId,
     });
     saveRuns(job.id, [
@@ -471,7 +471,7 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
   it("a member with the room's grant reads them; one without does not", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const granted = await srv.seedMember("Grace");
     const other = await srv.seedMember("Mallory"); // allowedRooms []
     const roomId = srv.agentManager.createRoom("Lab");
@@ -492,7 +492,7 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
   it("once that room is gone, only office owners read them", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Grace");
     const roomId = srv.agentManager.createRoom("Lab");
     const agent = await spawnAgent(srv, "Worker", roomId);
@@ -515,7 +515,7 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
   it("a member without access gets the unknown-agent refusal; a grant opens it", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory"); // allowedRooms []
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -551,7 +551,7 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
   it("refuses an upload to a killed agent or a cronjob run, even for an office owner", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const job = srv.cronjobManager.addCronjob({
@@ -563,8 +563,8 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
       modelFamily: "opus",
       effort: "medium",
       permissionMode: "bypassPermissions",
-      username: "Boss",
-      userId: getUserByName("Boss")!.id,
+      username: "Morgan",
+      userId: getUserByName("Morgan")!.id,
       roomId: room.id,
     });
     saveRuns(job.id, [

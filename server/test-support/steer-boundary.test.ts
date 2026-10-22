@@ -692,9 +692,16 @@ describe("steer at a push session (Codex turn/steer)", () => {
       id: string,
       beforeTurnEnd: () => void,
     ) {
-      void mgr.sendMessage(id, "change of plan", "Boss", undefined, undefined, {
-        sendNow: true,
-      });
+      void mgr.sendMessage(
+        id,
+        "change of plan",
+        "Morgan",
+        undefined,
+        undefined,
+        {
+          sendNow: true,
+        },
+      );
       await waitUntil(() => session.abortCount === 1, 2000, "interrupt sent");
       beforeTurnEnd();
       session.completeTurn({ status: "interrupted" });
@@ -796,7 +803,7 @@ describe("paths that still abort name the cause", () => {
     void mgr.sendMessage(
       info.id,
       "change of plan",
-      "Boss",
+      "Morgan",
       undefined,
       undefined,
       {

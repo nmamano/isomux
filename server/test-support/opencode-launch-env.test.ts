@@ -59,7 +59,7 @@ describe("OpenCode launch env", () => {
         return "Topic";
       },
       sessionMessages: [
-        { uuid: "u-first", role: "user", text: "[Boss] first" },
+        { uuid: "u-first", role: "user", text: "[Morgan] first" },
         { uuid: "a-1", role: "assistant", text: "ok" },
       ],
       forkResult: {
@@ -78,7 +78,7 @@ describe("OpenCode launch env", () => {
     try {
       const srv = await startTestServer({ fakeBackend: fake });
       server = srv;
-      const owner = await srv.seedOwner("Boss");
+      const owner = await srv.seedOwner("Morgan");
       userId = getUserByName(owner.username)!.id;
       // A saved variable gives the member an environment of their own.
       writeManagedUserEnv(userId, { TZ: "Europe/Madrid" });

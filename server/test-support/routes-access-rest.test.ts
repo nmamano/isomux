@@ -100,7 +100,7 @@ describe("routes/office access REST: getAccess", () => {
   it("reports outside reachability instead of the proxy-fronted socket bind", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     writeFileSync(
       join(STATE_ROOT, "office-config.json"),
       JSON.stringify({
@@ -123,7 +123,7 @@ describe("routes/office access REST: getAccess", () => {
   it("owner -> 200 with all six fields; member/agent -> 403; no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -157,7 +157,7 @@ describe("routes/office access REST: setAccess", () => {
   it("preserves the deployment-authored networkBind setting", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const configPath = join(STATE_ROOT, "office-config.json");
     writeFileSync(
       configPath,
@@ -179,7 +179,7 @@ describe("routes/office access REST: setAccess", () => {
   it("enable: 200 {signInUrl, restartRequired}, persists, mints owner self-invite, fans out invites_list", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerSock = await srv.connectWs(owner.rawSessionId);
 
     const r = await api(srv, "/api/office/access", {
@@ -205,7 +205,7 @@ describe("routes/office access REST: setAccess", () => {
       (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId }))
         .body as { invites: InviteWire[] }
     ).invites;
-    expect(invites.some((i) => i.username === "Boss")).toBe(true);
+    expect(invites.some((i) => i.username === "Morgan")).toBe(true);
 
     // Double-signal: the connected owner received the scoped invites_list fanout.
     await waitUntil(
@@ -221,7 +221,7 @@ describe("routes/office access REST: setAccess", () => {
   it("disable: 200, persists false/null, no signInUrl", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/office/access", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
@@ -237,7 +237,7 @@ describe("routes/office access REST: setAccess", () => {
   it("invalid origin -> 400; enable-without-origin -> 400; member/agent -> 403; no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -292,7 +292,7 @@ describe("routes/office access REST: setAccess", () => {
   it("a leftover ISOMUX_PUBLIC_ORIGIN does not block a save", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const prevEnv = process.env.ISOMUX_PUBLIC_ORIGIN;
     process.env.ISOMUX_PUBLIC_ORIGIN = "https://env.example";
     try {
@@ -318,7 +318,7 @@ describe("hosted access policy", () => {
     async (installKind) => {
       const srv = await startTestServer({ startServer: { installKind } });
       server = srv;
-      const owner = await srv.seedOwner("Boss");
+      const owner = await srv.seedOwner("Morgan");
       const origin =
         installKind === "hosted"
           ? "https://custom.example"
@@ -393,7 +393,7 @@ it.each(["https://custom.example", "https://isomux.app.evil.com"])(
       startServer: { installKind: "self-hosted" },
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     writeFileSync(
       join(STATE_ROOT, "office-config.json"),
       JSON.stringify({ externalAccess: true, publicOrigin: origin }),
@@ -428,7 +428,7 @@ it("a leftover ISOMUX_PUBLIC_ORIGIN is not the hosted address; the stored one is
     startServer: { installKind: "self-hosted" },
   });
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const configPath = join(STATE_ROOT, "office-config.json");
   writeFileSync(
     configPath,
@@ -484,7 +484,7 @@ it("refuses enabling an already-disabled hosted office without writes or invites
     startServer: { installKind: "self-hosted" },
   });
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const configPath = join(STATE_ROOT, "office-config.json");
   writeFileSync(
     configPath,
@@ -515,7 +515,7 @@ describe("hosted first enable", () => {
       startServer: { installKind: "hosted" },
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const put = (body: unknown) =>
       api(srv, "/api/office/access", {
         method: "PUT",

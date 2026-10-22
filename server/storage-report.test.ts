@@ -237,7 +237,7 @@ describe("renderStorageReport", () => {
   it("renders inline markdown in a name as literal text", () => {
     // Emphasis, code, a link, and raw HTML: none of it may reach the renderer
     // as markup, because none of it is the report's own.
-    expect(rowFor("**boss**")).toContain("| \\*\\*boss\\*\\* |");
+    expect(rowFor("**morgan**")).toContain("| \\*\\*morgan\\*\\* |");
     expect(rowFor("`rm -rf`")).toContain("| \\`rm \\-rf\\` |");
     expect(rowFor("[click](http://evil.test)")).toContain(
       "| \\[click\\]\\(http\\:\\/\\/evil\\.test\\) |",

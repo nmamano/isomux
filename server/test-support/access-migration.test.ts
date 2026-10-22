@@ -144,7 +144,7 @@ describe("owner-access migration at boot (real persisted state)", () => {
     // boot 1: clean office. The boot migration runs against NO users (owner is
     // seeded after boot), a no-op - exactly today's harness gap this test fills.
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss"); // seeded grants=[] (post-3b)
+    const owner = await server.seedOwner("Morgan"); // seeded grants=[] (post-3b)
     const r1 = server.agentManager.getOrdinaryRooms()[0].id; // default "Room 1"
     const r2 = server.agentManager.createRoom("R2");
     const r3 = server.agentManager.createRoom("R3");

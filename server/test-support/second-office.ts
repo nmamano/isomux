@@ -13,7 +13,7 @@ import { mintMemberLink } from "./member-link.ts";
 import { buildPublicOrigin } from "../auth.ts";
 
 const first = await startTestServer();
-const owner = await first.seedOwner("Boss");
+const owner = await first.seedOwner("Morgan");
 const put = await first.http("/api/office/access", {
   method: "PUT",
   rawSessionId: owner.rawSessionId,

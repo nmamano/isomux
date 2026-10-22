@@ -90,20 +90,20 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
   it("counts a user's skill invocations per-user and serves only the caller's own", async () => {
     const srv = await startTestServer({});
     server = srv;
-    const boss = await srv.seedOwner("Boss");
+    const morgan = await srv.seedOwner("Morgan");
     const friend = await srv.seedMember("Friend");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
 
     // Nothing used yet: both users read empty maps.
-    let r = await getCounts(srv, { rawSessionId: boss.rawSessionId });
+    let r = await getCounts(srv, { rawSessionId: morgan.rawSessionId });
     expect(r.status).toBe(200);
     expect(r.counts?.["grill-me"]).toBeUndefined();
 
-    // Boss invokes a bundled skill twice (each expands to a prompt and runs a
+    // Morgan invokes a bundled skill twice (each expands to a prompt and runs a
     // FakeBackend turn; wait for idle between so the second isn't queued).
     for (let i = 0; i < 2; i++) {
-      await srv.agentManager.sendMessage(agent.id, "/grill-me", "Boss");
+      await srv.agentManager.sendMessage(agent.id, "/grill-me", "Morgan");
       await waitUntil(
         () => {
           const s = srv.agentManager.getAgent(agent.id)?.state;
@@ -116,14 +116,14 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
 
     // Built-in COMMANDS count too - the Sk menu ranks across skills and
     // commands (/help dispatches immediately, no turn to await).
-    await srv.agentManager.sendMessage(agent.id, "/help", "Boss");
+    await srv.agentManager.sendMessage(agent.id, "/help", "Morgan");
 
-    r = await getCounts(srv, { rawSessionId: boss.rawSessionId });
+    r = await getCounts(srv, { rawSessionId: morgan.rawSessionId });
     expect(r.status).toBe(200);
     expect(r.counts?.["grill-me"]).toBe(2);
     expect(r.counts?.["help"]).toBe(1);
 
-    // Per-user: Friend's own counts are untouched by Boss's uses.
+    // Per-user: Friend's own counts are untouched by Morgan's uses.
     r = await getCounts(srv, { rawSessionId: friend.rawSessionId });
     expect(r.status).toBe(200);
     expect(r.counts?.["grill-me"]).toBeUndefined();
@@ -131,17 +131,17 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
     // Persistence: a no-wipe restart (cold reboot on the same STATE_ROOT)
     // resets the module cache and re-reads skill-usage.json - the counts
     // survive. (Asserted at the module layer: the harness cookie session does
-    // not survive a restart, so the route can't be probed with boss's cookie.)
-    const bossUserId = getUserByName(boss.username)!.id;
+    // not survive a restart, so the route can't be probed with a member's cookie.)
+    const morganUserId = getUserByName(morgan.username)!.id;
     const restarted = await srv.restart();
     server = restarted;
-    expect(getSkillUseCounts(bossUserId)["grill-me"]).toBe(2);
+    expect(getSkillUseCounts(morganUserId)["grill-me"]).toBe(2);
   });
 
   it("rejects a plain agent bearer (403) and anonymous callers (401); a wiped boot starts at zero", async () => {
     const srv = await startTestServer({});
     server = srv;
-    const boss = await srv.seedOwner("Boss");
+    const morgan = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -151,7 +151,7 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
 
     // Isolation: this boot wiped STATE_ROOT and reset the module cache, so the
     // previous test's counts are gone (pins the harness _testResetSkillUsage).
-    const r = await getCounts(srv, { rawSessionId: boss.rawSessionId });
+    const r = await getCounts(srv, { rawSessionId: morgan.rawSessionId });
     expect(r.status).toBe(200);
     expect(r.counts).toEqual({});
   });

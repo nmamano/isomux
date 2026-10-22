@@ -16,7 +16,7 @@ describe("unsupportedMessage", () => {
     // by Nil's ruling of 2026-09-05 and for the Automations rename (task
     // fe0c21fd) - /loop is deliberately not supported
     // natively; the message redirects to isomux's own recurring-work
-    // primitives. Do not reword without boss sign-off.
+    // primitives. Do not reword without Nil's sign-off.
     expect(unsupportedText("loop")).toBe(
       "not supported natively; see if the Automations page or scheduled messages satisfy your use case",
     );

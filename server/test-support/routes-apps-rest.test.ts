@@ -118,8 +118,8 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
   it("an ordinary agent registers an app and is told its port and data dir", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -166,8 +166,8 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
   it("a delete frees the name AND the port for the next registration", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -195,8 +195,8 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
   it("a live name collision is 409 name_taken", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -217,8 +217,8 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
   it("two apps never share a port", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -240,8 +240,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("registering installs the app under its allocated port and data dir", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -263,8 +263,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("an app that installs and then dies is still registered, and says so", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     // systemd took the unit; the app's own process did not survive.
@@ -285,8 +285,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("a supervisor that refuses is still a 201, and says why on the record", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     srv.appSupervisor.failInstall = "systemd is not available";
@@ -315,8 +315,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("even a RAW filesystem failure stays a 201 with the app retained", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     // Not an AppSupervisorError: a plain fs error, the kind an unwritable unit
@@ -340,8 +340,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("a healthy app carries no startError at all", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -358,8 +358,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("a delete that cannot stop the app does NOT free its name", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -393,8 +393,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("a successful delete stops the app before the record goes", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -414,8 +414,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("state and restart count come from the supervisor on every read", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -438,8 +438,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("an app the supervisor knows nothing about reads unknown, not stopped", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -461,8 +461,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
   it("keeps running across an isomux restart, with nothing re-installed", async () => {
     let srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     await api(srv, "/api/apps", {
       method: "POST",
@@ -494,8 +494,8 @@ describe("routes/apps REST: the recovery verbs", () => {
   const seed = async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -598,8 +598,8 @@ describe("routes/apps REST: logs", () => {
   it("returns the app's journald tail, and defaults the line count", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -624,8 +624,8 @@ describe("routes/apps REST: logs", () => {
   it("refuses a nonsense line count rather than quietly using the default", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/apps", {
@@ -658,7 +658,7 @@ describe("routes/apps REST: logs", () => {
   it("are readable by the app's owner and an office owner, nobody else", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const aliceId = getUserByName("Alice")!.id;
@@ -699,7 +699,7 @@ describe("routes/apps REST: ownership comes from the token", () => {
   it("the app belongs to the agent's MANAGER, with the agent as attribution", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName(alice.username)!.id;
     const bot = await spawnAgent(srv, "AppBot");
@@ -713,8 +713,8 @@ describe("routes/apps REST: ownership comes from the token", () => {
       // could register an app onto somebody else.
       body: body(srv, "hello", {
         userId: "u-somebody-else",
-        username: "Boss",
-        createdBy: "Boss",
+        username: "Morgan",
+        createdBy: "Morgan",
         createdByAgentId: "agent-spoofed",
       }),
     });
@@ -731,8 +731,8 @@ describe("routes/apps REST: ownership comes from the token", () => {
   it("a human registering through the UI owns the app themselves", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
 
     const reg = await api(srv, "/api/apps", {
       method: "POST",
@@ -742,7 +742,7 @@ describe("routes/apps REST: ownership comes from the token", () => {
     expect(reg.status).toBe(201);
     const app = reg.body as AppWire;
     expect(app.userId).toBe(ownerId);
-    expect(app.createdBy).toBe("Boss");
+    expect(app.createdBy).toBe("Morgan");
     expect(app.createdByAgentId).toBeUndefined();
   });
 });
@@ -751,7 +751,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
   it("another member cannot read or delete it; its owner and an office owner can", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const aliceId = getUserByName("Alice")!.id;
@@ -810,7 +810,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
   it("list gives room viewers a launch-only row while management stays owner-only", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const aliceId = getUserByName("Alice")!.id;
@@ -828,7 +828,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
     await api(srv, "/api/apps", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
-      body: body(srv, "boss-app"),
+      body: body(srv, "morgan-app"),
     });
 
     const aliceList = await api(srv, "/api/apps", {
@@ -864,17 +864,17 @@ describe("routes/apps REST: who can see and delete an app", () => {
     });
     expect((ownerList.body as AppWire[]).map((a) => a.name).sort()).toEqual([
       "alice-app",
-      "boss-app",
+      "morgan-app",
     ]);
     const ownerAgent = await spawnAgent(srv, "OwnerBot");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const ownerAgentToken = mintAgentToken(ownerAgent.id, ownerId);
     const ownerAgentList = await api(srv, "/api/apps", {
       bearer: ownerAgentToken,
     });
     expect(
       (ownerAgentList.body as AppWire[]).map((a) => a.name).sort(),
-    ).toEqual(["alice-app", "boss-app"]);
+    ).toEqual(["alice-app", "morgan-app"]);
     const foreignRow = (ownerAgentList.body as AppWire[]).find(
       (app) => app.name === "alice-app",
     )!;
@@ -888,7 +888,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
     });
     expect(ownerAgentControl.status).toBe(200);
 
-    const memberAgentControl = await api(srv, "/api/apps/boss-app", {
+    const memberAgentControl = await api(srv, "/api/apps/morgan-app", {
       method: "PATCH",
       bearer: mintAgentToken(bot.id, aliceId),
       body: { description: "must stay blocked" },
@@ -911,7 +911,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
     });
     expect(
       (ownerApiList.body as AppWire[]).map((app) => app.name).sort(),
-    ).toEqual(["alice-app", "boss-app"]);
+    ).toEqual(["alice-app", "morgan-app"]);
     const ownerApiForeignRow = ownerApiRead.body as AppWire;
     expect(ownerApiForeignRow.command).toBe("bun run serve.ts");
     expect(ownerApiForeignRow.cwd).toBe(srv.stateRoot);
@@ -935,7 +935,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
     expect((memberApiList.body as AppWire[]).map((app) => app.name)).toEqual([
       "alice-app",
     ]);
-    const memberApiControl = await api(srv, "/api/apps/boss-app", {
+    const memberApiControl = await api(srv, "/api/apps/morgan-app", {
       method: "PATCH",
       bearer: memberApiRaw,
       body: { description: "must stay blocked" },
@@ -963,18 +963,18 @@ describe("routes/apps REST: who can see and delete an app", () => {
   it("an unknown name denies exactly like somebody else's app (no existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const bob = await srv.seedMember("Bob");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
 
     await api(srv, "/api/apps", {
       method: "POST",
       bearer: mintAgentToken(bot.id, ownerId),
-      body: body(srv, "boss-app"),
+      body: body(srv, "morgan-app"),
     });
 
-    const taken = await api(srv, "/api/apps/boss-app", {
+    const taken = await api(srv, "/api/apps/morgan-app", {
       rawSessionId: bob.rawSessionId,
     });
     const free = await api(srv, "/api/apps/never-registered", {
@@ -999,8 +999,8 @@ describe("routes/apps REST: auth wall", () => {
   it("anonymous is 401; a cron-run token is refused", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
 
     const anon = await api(srv, "/api/apps");
     expect(anon.status).toBe(401);
@@ -1027,7 +1027,7 @@ describe("routes/apps REST: an app must have an owner", () => {
   it("an agent token with a NULL userId cannot register, and registers nothing", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const bot = await spawnAgent(srv, "AppBot");
     // mintAgentToken's userId is nullable, so this token is a real shape, not a
     // hypothetical one. The app it would create would belong to nobody: its
@@ -1056,8 +1056,8 @@ describe("routes/apps REST: registration validation", () => {
   it("rejects bad names, reserved names, and an unusable cwd - each with its own code", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -1104,8 +1104,8 @@ describe("routes/apps REST: registration validation", () => {
   it("expands ~/ in cwd and stores it resolved", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
 
     const r = await api(srv, "/api/apps", {
@@ -1132,8 +1132,8 @@ describe("routes/apps REST: updating an app", () => {
   async function withApp(name = "hello", over: Record<string, unknown> = {}) {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const token = mintAgentToken(bot.id, ownerId);
     const reg = await api(srv, "/api/apps", {
@@ -1257,7 +1257,7 @@ describe("routes/apps REST: updating an app", () => {
   it("reassigns messages only to a live agent the app owner can access", async () => {
     const srv = await startTestServer();
     server = srv;
-    const officeOwner = await srv.seedOwner("Boss");
+    const officeOwner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
     const creator = await spawnAgent(srv, "Creator");
@@ -1307,9 +1307,9 @@ describe("routes/apps REST: updating an app", () => {
   it("retargeting does not move the app's viewer set", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const viewer = await srv.seedMember("Viewer");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const viewerId = getUserByName("Viewer")!.id;
     const creator = await spawnAgent(srv, "Creator");
     expect(
@@ -1430,7 +1430,7 @@ describe("routes/apps REST: updating an app", () => {
   it("is app:write and owner-scoped, like every other change to an app", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const aliceId = getUserByName("Alice")!.id;
@@ -1522,9 +1522,9 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("removes a viewer row on kill and restores it on revive", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const viewer = await srv.seedMember("Viewer");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const viewerId = getUserByName("Viewer")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     expect(updateUserById(viewerId, { allowedRooms: [bot.roomId] }).ok).toBe(
@@ -1571,9 +1571,9 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("removes a viewer row immediately when its creator moves out of view", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Viewer");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const memberId = getUserByName("Viewer")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     expect(updateUserById(memberId, { allowedRooms: [bot.roomId] }).ok).toBe(
@@ -1608,7 +1608,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("register announces to the owning user and to office owners, and to nobody else", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
@@ -1644,7 +1644,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("announces the SAME wire object the caller was handed", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
 
     const reg = await api(srv, "/api/apps", {
@@ -1665,7 +1665,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("start, stop and restart each announce the app's fresh state", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
     await api(srv, "/api/apps", {
       method: "POST",
@@ -1698,7 +1698,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("a description-only update announces, and delete announces just the name", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
@@ -1750,7 +1750,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("announces nothing for a refusal: unknown names and a verb that threw", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
     await api(srv, "/api/apps", {
       method: "POST",
@@ -1808,7 +1808,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   it("a register whose supervisor failed still announces - the record committed", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
     srv.appSupervisor.failInstall = "no systemd here";
 
@@ -1846,8 +1846,8 @@ describe("routes/apps REST: app tokens", () => {
     srv: TestServer,
     name = "hello",
   ): Promise<{ bearer: string; app: AppWire; raw: string }> {
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const bearer = mintAgentToken(bot.id, ownerId);
     const reg = await api(srv, "/api/apps", {
@@ -2003,8 +2003,8 @@ describe("routes/apps REST: app tokens", () => {
     let srv = await startTestServer();
     server = srv;
     srv.appSupervisor.failInstall = "no systemd here";
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const bearer = mintAgentToken(bot.id, ownerId);
     expect(
@@ -2047,8 +2047,8 @@ describe("routes/apps REST: app tokens", () => {
     let srv = await startTestServer();
     server = srv;
     srv.appSupervisor.failInstallAfterFiles = "daemon-reload refused";
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const bearer = mintAgentToken(bot.id, ownerId);
     expect(
@@ -2139,8 +2139,8 @@ describe("routes/apps REST: app tokens", () => {
     const srv = await startTestServer();
     server = srv;
     srv.appSupervisor.failProvisionToken = "no room on the disk";
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const bearer = mintAgentToken(bot.id, ownerId);
 
@@ -2163,8 +2163,8 @@ describe("routes/apps REST: app tokens", () => {
     const srv = await startTestServer();
     server = srv;
     srv.appSupervisor.failInstall = "no systemd here";
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const bearer = mintAgentToken(bot.id, ownerId);
 
@@ -2184,8 +2184,8 @@ describe("routes/apps REST: app tokens", () => {
 
 describe("routes/apps REST: an app token reaches nothing", () => {
   async function appToken(srv: TestServer): Promise<string> {
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const agentToken = mintAgentToken(bot.id, ownerId);
     const reg = await api(srv, "/api/apps", {
@@ -2545,7 +2545,7 @@ describe("routes/apps REST: move to another creator", () => {
   it("persists the new creator and matching message target without changing app identity or runtime", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const creator = await spawnAgent(srv, "Creator");
     const target = await spawnAgent(
       srv,
@@ -2554,7 +2554,7 @@ describe("routes/apps REST: move to another creator", () => {
     );
     const registered = await api(srv, "/api/apps", {
       method: "POST",
-      bearer: mintAgentToken(creator.id, getUserByName("Boss")!.id),
+      bearer: mintAgentToken(creator.id, getUserByName("Morgan")!.id),
       body: body(srv, "moving"),
     });
     expect(registered.status).toBe(201);
@@ -2603,11 +2603,11 @@ describe("routes/apps REST: move to another creator", () => {
   it("preserves a separate target and lets an explicit target win during a move", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const creator = await spawnAgent(srv, "Creator");
     const target = await spawnAgent(srv, "NewCreator");
     const messenger = await spawnAgent(srv, "Messenger");
-    const token = mintAgentToken(creator.id, getUserByName("Boss")!.id);
+    const token = mintAgentToken(creator.id, getUserByName("Morgan")!.id);
     for (const name of ["separate", "explicit"]) {
       expect(
         (
@@ -2650,14 +2650,14 @@ describe("routes/apps REST: move to another creator", () => {
   it("keeps a legacy target absent so its fallback follows the new creator", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const creator = await spawnAgent(srv, "Creator");
     const target = await spawnAgent(srv, "NewCreator");
     expect(
       (
         await api(srv, "/api/apps", {
           method: "POST",
-          bearer: mintAgentToken(creator.id, getUserByName("Boss")!.id),
+          bearer: mintAgentToken(creator.id, getUserByName("Morgan")!.id),
           body: body(srv, "legacy"),
         })
       ).status,
@@ -2707,7 +2707,7 @@ describe("routes/apps REST: move to another creator", () => {
   it("refuses unreachable, missing, dead and malformed creators without a partial write", async () => {
     const srv = await startTestServer();
     server = srv;
-    const boss = await srv.seedOwner("Boss");
+    const morgan = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
     const creator = await spawnAgent(srv, "Creator");
@@ -2730,8 +2730,8 @@ describe("routes/apps REST: move to another creator", () => {
     ).toBe(201);
     const path = join(srv.stateRoot, "apps", "apps.json");
     const before = readFileSync(path, "utf8");
-    const watcher = await srv.connectWs(boss.rawSessionId);
-    for (const rawSessionId of [boss.rawSessionId, alice.rawSessionId]) {
+    const watcher = await srv.connectWs(morgan.rawSessionId);
+    for (const rawSessionId of [morgan.rawSessionId, alice.rawSessionId]) {
       const denied = await api(srv, "/api/apps/guarded", {
         method: "PATCH",
         rawSessionId,
@@ -2753,7 +2753,7 @@ describe("routes/apps REST: move to another creator", () => {
       (
         await api(srv, `/api/agents/${hidden.id}`, {
           method: "DELETE",
-          rawSessionId: boss.rawSessionId,
+          rawSessionId: morgan.rawSessionId,
         })
       ).status,
     ).toBe(204);
@@ -2767,7 +2767,7 @@ describe("routes/apps REST: move to another creator", () => {
     ]) {
       const denied = await api(srv, "/api/apps/guarded", {
         method: "PATCH",
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
         body: { createdByAgentId, command: "must not persist" },
       });
       expect(denied.status).toBe(
@@ -2798,7 +2798,7 @@ describe("routes/apps REST: move to another creator", () => {
   it("removes the app from the old room and adds it to the new room over live sockets", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const appOwner = await srv.seedMember("AppOwner");
     const bothViewer = await srv.seedMember("BothViewer");
     const oldViewer = await srv.seedMember("OldViewer");

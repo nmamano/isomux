@@ -61,17 +61,17 @@ interface Settings {
 async function office() {
   server = await startTestServer();
   const srv = server;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
-  const bossId = getUserByName(boss.username)!.id;
+  const morganId = getUserByName(morgan.username)!.id;
   const memberId = getUserByName(member.username)!.id;
   return {
     srv,
-    boss,
+    morgan,
     member,
-    bossId,
-    ownerAgent: mintAgentToken("boss-privileged", bossId, true),
-    ownerPlain: mintAgentToken("boss-plain", bossId, false),
+    morganId,
+    ownerAgent: mintAgentToken("morgan-privileged", morganId, true),
+    ownerPlain: mintAgentToken("morgan-plain", morganId, false),
     memberAgent: mintAgentToken("member-privileged", memberId, true),
   };
 }
@@ -144,7 +144,7 @@ describe("an owner's privileged agent", () => {
       o.srv,
       "GET",
       "/api/audit-log?operation=office.setSettings",
-      { session: o.boss.rawSessionId },
+      { session: o.morgan.rawSessionId },
     );
     const [row] = (audit.body as { items: { promptContent?: string }[] }).items;
     expect(row.promptContent).toBe(prompt ?? "");
@@ -178,7 +178,7 @@ describe("an owner's privileged agent", () => {
     const o = await office();
     expect(await change(o.srv, o.ownerAgent, { name: "Before" })).toBe(204);
     const { version } = await read(o.srv, o.ownerAgent);
-    expect(setUserRoleById(o.bossId, "member")).toBe(true);
+    expect(setUserRoleById(o.morganId, "member")).toBe(true);
     expect(
       (
         await call(o.srv, "GET", "/api/office/settings", {
@@ -219,7 +219,7 @@ describe("an owner's privileged agent", () => {
       o.srv,
       "GET",
       "/api/audit-log?operation=office.setSettings",
-      { session: o.boss.rawSessionId },
+      { session: o.morgan.rawSessionId },
     );
     const row = (
       audit.body as {
@@ -229,8 +229,8 @@ describe("an owner's privileged agent", () => {
     expect(row.actor).toEqual(
       expect.objectContaining({
         kind: "agent",
-        id: "boss-privileged",
-        ownerId: o.bossId,
+        id: "morgan-privileged",
+        ownerId: o.morganId,
       }),
     );
   });
@@ -240,15 +240,15 @@ describe("an owner's API token", () => {
   it("reads and changes the office settings, as its owner's privileged agent does", async () => {
     const o = await office();
     const { token } = await mintApiToken({
-      userId: o.bossId,
-      name: "Boss token",
+      userId: o.morganId,
+      name: "Morgan token",
       expiresInDays: null,
     });
     const settings = await read(o.srv, token);
     expect(Object.keys(settings)).not.toContain("envFile");
     expect(await change(o.srv, token, { name: "Via token" })).toBe(204);
     expect(o.srv.agentManager.getOfficeSettings().name).toBe("Via token");
-    expect(setUserRoleById(o.bossId, "member")).toBe(true);
+    expect(setUserRoleById(o.morganId, "member")).toBe(true);
     expect(
       (await call(o.srv, "GET", "/api/office/settings", { bearer: token }))
         .status,

@@ -305,7 +305,7 @@ function boardTask(id: string, title: string, roomId?: string): TaskItem {
     id,
     title,
     status: "open",
-    createdBy: "Boss",
+    createdBy: "Morgan",
     createdAt: 1,
     ...(roomId ? { roomId } : {}),
     version: "v1",
@@ -1120,7 +1120,7 @@ describe("settings page: panes and initialTarget routing", () => {
               },
             ],
             sessionContext: {
-              username: "Boss",
+              username: "Morgan",
               userId: "u1",
               role: "owner",
               connectionId: "c1",

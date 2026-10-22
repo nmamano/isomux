@@ -819,11 +819,12 @@ export interface AgentInfo {
   // on session recreate. Set at spawn; an office owner can give the agent
   // another manager (agents.setManager), and a deleted member's agents pass
   // to the oldest office owner. Both fields change together.
-  // `username` is the matching display snapshot; goes stale
-  // across renames but isn't authoritative for any behavior. Both null
-  // on legacy unowned agents that pre-date the user/device split.
+  // `manager` is the matching display snapshot of the manager's name; it goes
+  // stale across renames, so code that needs the manager reads the record by
+  // userId. Both null on legacy unowned agents that pre-date the user/device
+  // split.
   userId: string | null;
-  username: string | null;
+  manager: string | null;
   // Privileged agents carry their spawning user's room-scoped operator
   // capabilities in their bearer token (drive other agents' sessions: resume,
   // listSessions, sendNow, newConversation, lifecycle, cron over their own
@@ -1122,7 +1123,7 @@ export interface TaskItem {
 // isomux-memory - one durable, attributed fact line. Persisted as a single raw
 // markdown line ("- {Creator}, {date}: {text}") under STATE_ROOT/memory/. See
 // internal-docs/isomux-memory-design.md.
-export type MemoryScope = "office" | "room" | "agent" | "boss";
+export type MemoryScope = "office" | "room" | "agent" | "member";
 
 export interface MemoryItem {
   scope: MemoryScope;

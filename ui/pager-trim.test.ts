@@ -34,7 +34,7 @@ it("a thousand live resolves leave the list at its loaded size, oldest dropped",
       type: "pager_upserted",
       entry: page(`live${i}`, {
         state: "resolved",
-        resolved: { by: "Boss", at: 300_000 + i },
+        resolved: { by: "Morgan", at: 300_000 + i },
       }),
     });
   }
@@ -52,7 +52,7 @@ it("Load more raises the bound by one slice, and a snapshot resets it", () => {
     Array.from({ length: to - from }, (_, i) =>
       page(`r${from + i}`, {
         state: "resolved",
-        resolved: { by: "Boss", at: 1_000 - (from + i) },
+        resolved: { by: "Morgan", at: 1_000 - (from + i) },
       }),
     );
   let state = reducer(initialState, {
@@ -71,7 +71,7 @@ it("Load more raises the bound by one slice, and a snapshot resets it", () => {
     type: "pager_upserted",
     entry: page("n1", {
       state: "resolved",
-      resolved: { by: "Boss", at: 5_000 },
+      resolved: { by: "Morgan", at: 5_000 },
     }),
   });
   expect(state.pager).toHaveLength(100);
@@ -86,7 +86,7 @@ it("Load more raises the bound by one slice, and a snapshot resets it", () => {
     type: "pager_upserted",
     entry: page("n2", {
       state: "resolved",
-      resolved: { by: "Boss", at: 6_000 },
+      resolved: { by: "Morgan", at: 6_000 },
     }),
   });
   expect(state.pager).toHaveLength(50);
@@ -97,7 +97,7 @@ it("a slice read before a drop is refused, so the dropped page is not skipped", 
     Array.from({ length: to - from }, (_, i) =>
       page(`r${from + i}`, {
         state: "resolved",
-        resolved: { by: "Boss", at: 1_000 - (from + i) },
+        resolved: { by: "Morgan", at: 1_000 - (from + i) },
       }),
     );
   let state = reducer(initialState, {
@@ -112,7 +112,7 @@ it("a slice read before a drop is refused, so the dropped page is not skipped", 
     type: "pager_upserted",
     entry: page("n1", {
       state: "resolved",
-      resolved: { by: "Boss", at: 5_000 },
+      resolved: { by: "Morgan", at: 5_000 },
     }),
   });
   expect(state.pager.map((e) => e.id)).not.toContain("r49");

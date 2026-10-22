@@ -89,7 +89,7 @@ const userOf = (r: Res) => (r.body as { user: Record<string, unknown> }).user;
 describe("routes/users REST - create (owner creates a member before any link)", () => {
   it("owner creates a pending member -> 201 { user } with profile + grants; a link then signs them in keeping them", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Grants B");
 
@@ -136,7 +136,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 
   it("an owner-role member gets no grants but notifications for every room", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const rooms = srv.agentManager.getRooms().map((room) => room.id);
 
     const r = await api(srv, "/api/users", {
@@ -155,7 +155,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 
   it("refuses: taken name 409, bad name 400, grants on an owner or an unknown room 400, malformed 422 - creating no one", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
     const roomA = srv.agentManager.getRooms()[0].id;
     const cases: [unknown, number, string][] = [
@@ -202,7 +202,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 
   it("a member -> 403 (officeOwner); AGENT bearer -> 403; unauth -> 401", async () => {
     const srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const roomId = srv.agentManager.getRooms()[0].id;
     const info = await srv.agentManager.spawn(
@@ -246,9 +246,9 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 
   it("an owner's privileged agent and API token create a plain member, and cannot mint its link", async () => {
     const srv = (server = await startTestServer());
-    const boss = await srv.seedOwner("Boss");
+    const morgan = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
-    const bossId = getUserByName("Boss")!.id;
+    const morganId = getUserByName("Morgan")!.id;
     const aliceId = getUserByName("Alice")!.id;
     const roomId = srv.agentManager.getRooms()[0].id;
     const spawn = async (name: string) => {
@@ -278,18 +278,22 @@ describe("routes/users REST - create (owner creates a member before any link)", 
       expect(r.status).toBe(201);
       return ((await r.json()) as ApiTokenCreateRes).token;
     };
-    const bossAgent = mintAgentToken((await spawn("BossBot")).id, bossId, true);
+    const morganAgent = mintAgentToken(
+      (await spawn("MorganBot")).id,
+      morganId,
+      true,
+    );
     const aliceAgent = mintAgentToken(
       (await spawn("AliceBot")).id,
       aliceId,
       true,
     );
-    const bossApi = await apiToken(boss.rawSessionId);
+    const morganApi = await apiToken(morgan.rawSessionId);
     const aliceApi = await apiToken(alice.rawSessionId);
     const create = (bearer: string, body: unknown) =>
       api(srv, "/api/users", { method: "POST", bearer, body });
 
-    const byAgent = await create(bossAgent, { name: "Yu", role: "member" });
+    const byAgent = await create(morganAgent, { name: "Yu", role: "member" });
     expect(byAgent.status).toBe(201);
     expect(userOf(byAgent)).toMatchObject({
       name: "Yu",
@@ -297,14 +301,14 @@ describe("routes/users REST - create (owner creates a member before any link)", 
       pendingSignIn: true,
       allowedRooms: [],
     });
-    const byApi = await create(bossApi, { name: "Zed", role: "member" });
+    const byApi = await create(morganApi, { name: "Zed", role: "member" });
     expect(byApi.status).toBe(201);
     expect(userOf(byApi)).toMatchObject({ role: "member", allowedRooms: [] });
     // Room grants are allowed: the member still has no sign-in until a human
     // owner mints the link.
     for (const [bearer, name] of [
-      [bossAgent, "Ola"],
-      [bossApi, "Pia"],
+      [morganAgent, "Ola"],
+      [morganApi, "Pia"],
     ] as const) {
       const granted = await create(bearer, {
         name,
@@ -320,7 +324,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     }
 
     // No sign-in link for a proxy: invites stay with a human owner.
-    for (const bearer of [bossAgent, bossApi]) {
+    for (const bearer of [morganAgent, morganApi]) {
       const link = await api(srv, "/api/invites", {
         method: "POST",
         bearer,
@@ -330,8 +334,8 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     }
 
     const refused: [string, unknown][] = [
-      [bossAgent, { name: "Owen", role: "owner" }],
-      [bossApi, { name: "Owen", role: "owner" }],
+      [morganAgent, { name: "Owen", role: "owner" }],
+      [morganApi, { name: "Owen", role: "owner" }],
       [aliceAgent, { name: "Owen", role: "member" }],
       [aliceApi, { name: "Owen", role: "member" }],
     ];
@@ -346,7 +350,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
   // seed their grants at accept, pruned to rooms that still exist.
   it("a legacy new-member invite prunes a room deleted between mint and accept", async () => {
     const srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Doomed");
     const legacy = await _testMintLegacyInvite({
@@ -367,7 +371,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 describe("routes/users REST - update (record split, Option A)", () => {
   it("owner edits a member's record -> 200 { user }; allowedRooms is NOT touched", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r = await api(server, `/api/users/${member.username}`, {
       method: "PATCH",
@@ -386,7 +390,7 @@ describe("routes/users REST - update (record split, Option A)", () => {
 
   it("a member editing ANOTHER user's record -> 403 (selfOrOwner)", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     await server.seedMember("Bob");
     const r = await api(server, `/api/users/Bob`, {
@@ -399,7 +403,7 @@ describe("routes/users REST - update (record split, Option A)", () => {
 
   it("a member CANNOT escalate by sending allowedRooms on their own record", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const r = await api(server, `/api/users/${mia.username}`, {
       method: "PATCH",
@@ -412,7 +416,7 @@ describe("routes/users REST - update (record split, Option A)", () => {
 
   it("unauth -> 401 (new envelope); malformed name -> 422; envFile is no longer a setting and is ignored", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const unauth = await api(server, `/api/users/${mia.username}`, {
       method: "PATCH",
@@ -443,12 +447,12 @@ describe("routes/users REST - update (record split, Option A)", () => {
 
   it("a rename to an existing name -> 409 name_taken", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await server.seedMember("Mia");
     const r = await api(server, `/api/users/Mia`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { name: "Boss" },
+      body: { name: "Morgan" },
     });
     expect(r.status).toBe(409);
     expect(errCode(r)).toBe("name_taken");
@@ -458,7 +462,7 @@ describe("routes/users REST - update (record split, Option A)", () => {
 describe("routes/users REST - setAccess (owner-only allowedRooms)", () => {
   it("owner sets a member's access -> 200 { user } with the new grants", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r = await api(server, `/api/users/${member.username}/access`, {
@@ -473,7 +477,7 @@ describe("routes/users REST - setAccess (owner-only allowedRooms)", () => {
 
   it("a member CANNOT call setAccess (officeOwner) -> 403, grants unchanged", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r = await api(server, `/api/users/${mia.username}/access`, {
@@ -487,7 +491,7 @@ describe("routes/users REST - setAccess (owner-only allowedRooms)", () => {
 
   it("malformed allowedRooms -> 422; AGENT bearer -> 403", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const bad = await api(server, `/api/users/${member.username}/access`, {
       method: "PUT",
@@ -522,7 +526,7 @@ describe("routes/users REST - setAccess (owner-only allowedRooms)", () => {
 describe("routes/users REST - delete (preconditions + non-leak)", () => {
   it("owner deletes a member -> 204; record gone", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r = await api(server, `/api/users/${member.username}`, {
       method: "DELETE",
@@ -535,7 +539,7 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
   it("deleting a member deletes their secrets, variables and MCP servers, and no one else's", async () => {
     server = await startTestServer();
     const srv = server;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const rawSessionId = owner.rawSessionId;
     // What an owner can give a member on the Integrations page.
     async function equip(username: string): Promise<string[]> {
@@ -606,7 +610,7 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
 
   it("deleting a member revokes their outstanding sign-in link", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const { rawToken } = await mintMemberLink("Mia");
     const r = await api(server, "/api/users/Mia", {
       method: "DELETE",
@@ -622,8 +626,8 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
 
   it("an owner CANNOT delete their own record -> 403 owner_self_delete", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    await addOwner("Boss2"); // a 2nd owner exists, so it's not a last-owner case
+    const owner = await server.seedOwner("Morgan");
+    await addOwner("Morgan2"); // a 2nd owner exists, so it's not a last-owner case
     const r = await api(server, `/api/users/${owner.username}`, {
       method: "DELETE",
       rawSessionId: owner.rawSessionId,
@@ -635,7 +639,7 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
 
   it("a member deletes their OWN record -> 204", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const r = await api(server, `/api/users/${mia.username}`, {
       method: "DELETE",
@@ -647,7 +651,7 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
 
   it("a member deleting ANOTHER user -> 403 (uniform, no oracle); owner deleting a ghost -> idempotent 204", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     await server.seedMember("Bob");
     const foreign = await api(server, `/api/users/Bob`, {
@@ -674,7 +678,7 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
 describe("routes/users member prompt", () => {
   it("checks both writers, rejects every extra agent field, and returns only prompt data", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const mia = await srv.seedMember("Mia");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await srv.agentManager.spawn(
@@ -686,13 +690,13 @@ describe("routes/users member prompt", () => {
       room,
     );
     if (!agent) throw new Error("spawn failed");
-    const bossId = getUserByName("Boss")!.id;
+    const morganId = getUserByName("Morgan")!.id;
     const miaId = getUserByName("Mia")!.id;
-    const read = (bearer: string, name = "Boss") =>
+    const read = (bearer: string, name = "Morgan") =>
       api(srv, `/api/users/${name}/member-prompt`, { bearer });
-    const patch = (bearer: string, body: unknown, name = "Boss") =>
+    const patch = (bearer: string, body: unknown, name = "Morgan") =>
       api(srv, `/api/users/${name}`, { bearer, method: "PATCH", body });
-    const ordinary = mintAgentToken(agent.id, bossId, false);
+    const ordinary = mintAgentToken(agent.id, morganId, false);
     expect((await read(ordinary)).status).toBe(403);
     expect(
       (
@@ -723,7 +727,7 @@ describe("routes/users member prompt", () => {
         )
       ).status,
     ).toBe(200);
-    const privileged = mintAgentToken(agent.id, bossId, true);
+    const privileged = mintAgentToken(agent.id, morganId, true);
     const initial = await read(privileged);
     expect(initial.body).toEqual({
       memberPrompt: null,
@@ -763,7 +767,7 @@ describe("routes/users member prompt", () => {
       });
       expect(r.status).toBe(400);
       expect(errCode(r)).toBe("invalid_version");
-      expect(getUserByName("Boss")!.memberPrompt).toBeNull();
+      expect(getUserByName("Morgan")!.memberPrompt).toBeNull();
     }
     for (const memberPromptVersion of ["stale"]) {
       const r = await patch(privileged, {
@@ -774,7 +778,7 @@ describe("routes/users member prompt", () => {
       expect(r.body).toMatchObject({
         error: { code: "version_conflict", version: versionOf("") },
       });
-      expect(getUserByName("Boss")!.memberPrompt).toBeNull();
+      expect(getUserByName("Morgan")!.memberPrompt).toBeNull();
     }
     const saved = await patch(privileged, {
       memberPrompt: " agent text ",
@@ -785,7 +789,7 @@ describe("routes/users member prompt", () => {
       memberPromptVersion: versionOf("agent text"),
     });
     expect((await read(privileged)).body).toEqual(saved.body);
-    const humanStale = await api(srv, "/api/users/Boss", {
+    const humanStale = await api(srv, "/api/users/Morgan", {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
       body: {
@@ -795,7 +799,7 @@ describe("routes/users member prompt", () => {
       },
     });
     expect(humanStale.status).toBe(409);
-    expect(getUserByName("Boss")!.memberPrompt).toBe("agent text");
+    expect(getUserByName("Morgan")!.memberPrompt).toBe("agent text");
     expect(getUserByName("Wrong")).toBeUndefined();
     const humanMissing = await api(srv, "/api/users/Mia", {
       method: "PATCH",
@@ -814,7 +818,7 @@ describe("routes/users member prompt", () => {
         )
       ).body,
     ).toEqual({ memberPrompt: null, memberPromptVersion: versionOf("") });
-    const humanSave = await api(srv, "/api/users/Boss", {
+    const humanSave = await api(srv, "/api/users/Morgan", {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
       body: {
@@ -831,7 +835,7 @@ describe("routes/users member prompt", () => {
         })
       ).status,
     ).toBe(409);
-    expect(getUserByName("Boss")!.memberPrompt).toBe("human text");
+    expect(getUserByName("Morgan")!.memberPrompt).toBe("human text");
     expect(
       (
         await patch(privileged, {
@@ -840,7 +844,7 @@ describe("routes/users member prompt", () => {
         })
       ).status,
     ).toBe(422);
-    const scalar = await api(srv, "/api/users/Boss", {
+    const scalar = await api(srv, "/api/users/Morgan", {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
       body: { avatarColor: "#000000" },
@@ -855,12 +859,16 @@ describe("routes/users member prompt", () => {
 describe("routes/users member prompt by API token", () => {
   async function office() {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     await srv.seedMember("Mia");
-    const bossId = getUserByName("Boss")!.id;
+    const morganId = getUserByName("Morgan")!.id;
     const miaId = getUserByName("Mia")!.id;
     const ownerToken = (
-      await mintApiToken({ userId: bossId, name: "Boss", expiresInDays: null })
+      await mintApiToken({
+        userId: morganId,
+        name: "Morgan",
+        expiresInDays: null,
+      })
     ).token;
     const memberToken = (
       await mintApiToken({ userId: miaId, name: "Mia", expiresInDays: null })
@@ -872,7 +880,7 @@ describe("routes/users member prompt by API token", () => {
     return {
       srv,
       owner,
-      bossId,
+      morganId,
       miaId,
       ownerToken,
       memberToken,
@@ -915,18 +923,18 @@ describe("routes/users member prompt by API token", () => {
       ).status,
     ).toBe(200);
     expect(getUserByName("Mia")!.memberPrompt).toBe("mine");
-    const boss = structuredClone(getUserByName("Boss"));
-    expect((await o.read(o.memberToken, "Boss")).status).toBe(403);
+    const morgan = structuredClone(getUserByName("Morgan"));
+    expect((await o.read(o.memberToken, "Morgan")).status).toBe(403);
     expect((await o.read(o.memberToken, "Unknown")).status).toBe(403);
     expect(
       (
-        await o.patch(o.memberToken, "Boss", {
+        await o.patch(o.memberToken, "Morgan", {
           memberPrompt: "denied",
           memberPromptVersion: versionOf(""),
         })
       ).status,
     ).toBe(403);
-    expect(getUserByName("Boss")).toEqual(boss);
+    expect(getUserByName("Morgan")).toEqual(morgan);
   });
 
   it("a demoted owner's token is refused on the next request", async () => {
@@ -940,7 +948,7 @@ describe("routes/users member prompt by API token", () => {
         })
       ).status,
     ).toBe(200);
-    expect(setUserRoleById(o.bossId, "member")).toBe(true);
+    expect(setUserRoleById(o.morganId, "member")).toBe(true);
     expect((await o.read(o.ownerToken, "Mia")).status).toBe(403);
     expect(
       (
@@ -978,7 +986,7 @@ describe("routes/users member prompt by API token", () => {
         },
       ],
       ["Mia", { name: "Renamed" }],
-      ["Boss", { name: "Renamed" }],
+      ["Morgan", { name: "Renamed" }],
     ] as const) {
       const before = structuredClone(getUserByName(name));
       const r = await o.patch(o.ownerToken, name, body);
@@ -1010,7 +1018,7 @@ describe("routes/users member prompt by API token", () => {
       }
     ).items[0];
     expect(row.actor).toEqual(
-      expect.objectContaining({ kind: "api_token", ownerId: o.bossId }),
+      expect.objectContaining({ kind: "api_token", ownerId: o.morganId }),
     );
     expect(row.targets).toContain(o.miaId);
     expect(row.promptContent).toBe("Audit me.");

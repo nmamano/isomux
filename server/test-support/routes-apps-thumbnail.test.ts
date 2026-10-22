@@ -115,7 +115,7 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
 async function seed() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const viewer = await srv.seedMember("Viewer");
   const outsider = await srv.seedMember("Outsider");
   const bot = await spawnAgent(srv, "AppBot");
@@ -126,7 +126,7 @@ async function seed() {
   expect(
     updateUserById(getUserByName("Outsider")!.id, { allowedRooms: [] }).ok,
   ).toBe(true);
-  const token = mintAgentToken(bot.id, getUserByName("Boss")!.id);
+  const token = mintAgentToken(bot.id, getUserByName("Morgan")!.id);
   const reg = await api(srv, "/api/apps", {
     method: "POST",
     bearer: token,

@@ -378,7 +378,7 @@ describe("POST /api/api-token-inboxes/:tokenId/messages with Content-Type: text/
   async function inboxSetup() {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName(owner.username)!.id;
     const room = srv.agentManager.getRooms()[0].id;
     const sender = await srv.agentManager.spawn(

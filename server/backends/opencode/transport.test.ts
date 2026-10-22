@@ -782,7 +782,7 @@ describe("OpenCode permission handling", () => {
     }
   });
 
-  it("warns but keeps default-mode fail-open requests for the boss", async () => {
+  it("warns but keeps default-mode fail-open requests for the member", async () => {
     for (const event of [{ ...envelope, permission: undefined }, envelope]) {
       const result = await run({
         autoApprove: false,

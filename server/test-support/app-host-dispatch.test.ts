@@ -232,7 +232,7 @@ describe("app hosts: the office is untouched", () => {
 
     // A REAL app, registered and persisted before the transition, so the
     // assertion after the restart is about an app the office actually has.
-    const owner = await before.seedOwner("Boss");
+    const owner = await before.seedOwner("Morgan");
     const token = await anAgentToken(before);
     expect(await registerApp(before, token, "hello")).toBe("hello");
 
@@ -383,7 +383,7 @@ describe("app hosts: the office is untouched", () => {
     // Turn the office into an HTTPS deployment through the real Access route,
     // which is the whole of what turns app hostnames on, and cold-restart the
     // SAME install.
-    const owner = await before.seedOwner("Boss");
+    const owner = await before.seedOwner("Morgan");
     const r = await before.http("/api/office/access", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,

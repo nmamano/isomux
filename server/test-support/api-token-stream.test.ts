@@ -18,7 +18,7 @@ afterEach(async () => {
 async function setup() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const userId = getUserByName(owner.username)!.id;
   const first = await mintApiToken({
     userId,
@@ -86,7 +86,7 @@ describe("API token live stream", () => {
       undefined,
       undefined,
       undefined,
-      "Boss",
+      "Morgan",
       "claude",
       undefined,
       userId,

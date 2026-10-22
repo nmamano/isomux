@@ -68,7 +68,7 @@ async function setup() {
     fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
   });
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const r1 = srv.agentManager.getRooms()[0].id;
   return { srv, owner, r1 };
 }

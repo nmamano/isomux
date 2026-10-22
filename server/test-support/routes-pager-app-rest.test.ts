@@ -90,7 +90,7 @@ async function spawnAgent(
   srv: TestServer,
   name: string,
   roomId: string,
-  managerName = "Boss",
+  managerName = "Morgan",
 ): Promise<{ agent: AgentInfo; token: string }> {
   const userId = getUserByName(managerName)!.id;
   const agent = await srv.agentManager.spawn(
@@ -142,8 +142,8 @@ async function saveWebhook(
   expect(saved.status).toBe(200);
 }
 
-// One office: owner Boss; member Mia with access to
-// room B only; AppBot in room A, managed by Boss, registered app "uptime".
+// One office: owner Morgan; member Mia with access to
+// room B only; AppBot in room A, managed by Morgan, registered app "uptime".
 async function office() {
   const sent: Array<{
     embeds?: Array<{ title: string; footer?: { text: string } }>;
@@ -157,14 +157,14 @@ async function office() {
     },
   });
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const mia = await srv.seedMember("Mia");
   const roomA = srv.agentManager.getRooms()[0].id;
   const roomB = srv.agentManager.createRoom("Room B");
   updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
   const bot = await spawnAgent(srv, "AppBot", roomA);
   const appToken = await registerApp(srv, bot.token, "uptime");
-  return { srv, boss, mia, roomA, roomB, bot, appToken, sent };
+  return { srv, morgan, mia, roomA, roomB, bot, appToken, sent };
 }
 
 describe("app pager REST: raise", () => {
@@ -185,7 +185,7 @@ describe("app pager REST: raise", () => {
       name: "uptime",
       roomId: roomA,
     });
-    expect(e.targetUserId).toBe(getUserByName("Boss")!.id);
+    expect(e.targetUserId).toBe(getUserByName("Morgan")!.id);
     expect(e.state).toBe("open");
   });
 
@@ -203,19 +203,19 @@ describe("app pager REST: raise", () => {
   });
 
   it("an app whose creator agent is gone still pages its owner, with no room", async () => {
-    const { srv, boss, bot, appToken, sent } = await office();
-    await saveWebhook(srv, boss);
+    const { srv, morgan, bot, appToken, sent } = await office();
+    await saveWebhook(srv, morgan);
     await srv.agentManager.kill(bot.agent.id);
     const r = await appRaise(srv, appToken, { title: "AppBot is gone" });
     expect(r.status).toBe(201);
     const e = r.body as PagerEntry;
     expect(e.source).toMatchObject({ kind: "app", roomId: null });
-    expect(e.targetUserId).toBe(getUserByName("Boss")!.id);
+    expect(e.targetUserId).toBe(getUserByName("Morgan")!.id);
     await sleep(50);
     expect(sent).toHaveLength(1);
     expect(sent[0].embeds?.[0].footer?.text).toBe("uptime");
     const got = await api(srv, `/api/pager/${e.id}`, {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect((got.body as PagerEntry).delivery).toMatchObject({
       state: "delivered",
@@ -224,8 +224,8 @@ describe("app pager REST: raise", () => {
   });
 
   it("the page reaches the app owner's Discord", async () => {
-    const { srv, boss, appToken, sent } = await office();
-    await saveWebhook(srv, boss);
+    const { srv, morgan, appToken, sent } = await office();
+    await saveWebhook(srv, morgan);
     const r = await appRaise(srv, appToken, { title: "AppBot is down" });
     expect(r.status).toBe(201);
     await sleep(50);
@@ -233,7 +233,7 @@ describe("app pager REST: raise", () => {
     expect(sent[0].embeds?.[0].title).toBe("AppBot is down");
     const page = (
       await api(srv, `/api/pager/${(r.body as PagerEntry).id}`, {
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       })
     ).body as PagerEntry;
     expect(page.delivery).toMatchObject({ state: "delivered", sends: 1 });
@@ -396,10 +396,10 @@ describe("app pager REST: who reaches which route", () => {
   });
 
   it("an agent token and a member session reach no app pager route", async () => {
-    const { srv, boss, bot } = await office();
+    const { srv, morgan, bot } = await office();
     for (const auth of [
       { bearer: bot.token },
-      { rawSessionId: boss.rawSessionId },
+      { rawSessionId: morgan.rawSessionId },
     ]) {
       const raise = await api(srv, "/api/app/pager", {
         method: "POST",
@@ -418,7 +418,7 @@ describe("app pager REST: who reaches which route", () => {
 
 describe("app pager REST: members", () => {
   // Kim owns the app (her agent in room A registered it). Lee can access room
-  // A, Mia only room B, Boss is the office owner. Every one has a socket.
+  // A, Mia only room B, Morgan is the office owner. Every one has a socket.
   async function memberApp() {
     const base = await office();
     const { srv, roomA, roomB } = base;
@@ -428,7 +428,7 @@ describe("app pager REST: members", () => {
     updateUserById(getUserByName("Lee")!.id, { allowedRooms: [roomA] });
     const kimBot = await spawnAgent(srv, "KimBot", roomA, "Kim");
     const kimToken = await registerApp(srv, kimBot.token, "kim-app");
-    const who = { boss: base.boss, kim, lee, mia: base.mia };
+    const who = { morgan: base.morgan, kim, lee, mia: base.mia };
     const sockets = Object.fromEntries(
       await Promise.all(
         Object.entries(who).map(
@@ -468,7 +468,7 @@ describe("app pager REST: members", () => {
     // Kim loses room A: she still sees her app's page, as its owner.
     updateUserById(getUserByName("Kim")!.id, { allowedRooms: [] });
     expect(await access(srv, who, page.id)).toEqual({
-      boss: true,
+      morgan: true,
       kim: true,
       lee: true,
       mia: false,
@@ -491,7 +491,7 @@ describe("app pager REST: members", () => {
         pagerEvents(ws).some((e) => e.id === page.id && e.state === "acked"),
       ]),
     );
-    expect(heard).toEqual({ boss: true, kim: true, lee: true, mia: false });
+    expect(heard).toEqual({ morgan: true, kim: true, lee: true, mia: false });
   });
 
   it("a page with no room: the app owner and office owners only", async () => {
@@ -501,7 +501,7 @@ describe("app pager REST: members", () => {
       .body as PagerEntry;
     expect(page.source.roomId).toBeNull();
     expect(await access(srv, who, page.id)).toEqual({
-      boss: true,
+      morgan: true,
       kim: true,
       lee: false,
       mia: false,
@@ -522,7 +522,7 @@ describe("app pager REST: members", () => {
     expect(ack.status).toBe(200);
     const resolve = await api(srv, `/api/pager/${page.id}/resolve`, {
       method: "POST",
-      rawSessionId: who.boss.rawSessionId,
+      rawSessionId: who.morgan.rawSessionId,
     });
     expect(resolve.status).toBe(200);
     await sleep(50);
@@ -532,14 +532,14 @@ describe("app pager REST: members", () => {
         pagerEvents(ws).some((e) => e.id === page.id),
       ]),
     );
-    expect(heard).toEqual({ boss: true, kim: true, lee: false, mia: false });
+    expect(heard).toEqual({ morgan: true, kim: true, lee: false, mia: false });
     // A room filter leaves a page with no room out.
     const all = await api(srv, "/api/pager?state=all", {
-      rawSessionId: who.boss.rawSessionId,
+      rawSessionId: who.morgan.rawSessionId,
     });
     expect((all.body as PagerEntry[]).map((e) => e.id)).toContain(page.id);
     const inA = await api(srv, `/api/pager?state=all&roomId=${roomA}`, {
-      rawSessionId: who.boss.rawSessionId,
+      rawSessionId: who.morgan.rawSessionId,
     });
     expect((inA.body as PagerEntry[]).map((e) => e.id)).not.toContain(page.id);
   });
@@ -555,7 +555,7 @@ describe("app pager REST: members", () => {
     expect(again.id).toBe(page.id);
     expect(again.source.roomId).toBe(roomA);
     expect(await access(srv, who, page.id)).toEqual({
-      boss: true,
+      morgan: true,
       kim: true,
       lee: true,
       mia: false,
@@ -569,7 +569,7 @@ describe("app pager REST: members", () => {
 
 describe("app pager REST: durability", () => {
   it("after a cold restart the same app token dedupes into and resolves its page", async () => {
-    const { srv, boss, appToken } = await office();
+    const { srv, morgan, appToken } = await office();
     const first = (await appRaise(srv, appToken, { title: "down", key: "k" }))
       .body as PagerEntry;
     const restarted = await srv.restart();
@@ -584,7 +584,7 @@ describe("app pager REST: durability", () => {
     expect(r.status).toBe(200);
     expect((r.body as PagerEntry).id).toBe(first.id);
     const list = await api(restarted, "/api/pager?state=resolved", {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect((list.body as PagerEntry[]).map((e) => e.id)).toEqual([first.id]);
   });

@@ -54,7 +54,7 @@ async function api(
 }
 
 async function spawnAgent(srv: TestServer, name: string, roomId: string) {
-  const userId = getUserByName("Boss")!.id;
+  const userId = getUserByName("Morgan")!.id;
   const agent = await srv.agentManager.spawn(
     name,
     srv.stateRoot,
@@ -65,7 +65,7 @@ async function spawnAgent(srv: TestServer, name: string, roomId: string) {
     undefined,
     undefined,
     undefined,
-    "Boss",
+    "Morgan",
     "claude",
     undefined,
     userId,
@@ -74,18 +74,18 @@ async function spawnAgent(srv: TestServer, name: string, roomId: string) {
   return { agent, token: mintAgentToken(agent.id, userId) };
 }
 
-// Owner Boss; member Mia with room B only; Bot in room A, BBot in room B.
+// Owner Morgan; member Mia with room B only; Bot in room A, BBot in room B.
 async function office() {
   const srv = await startTestServer();
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const mia = await srv.seedMember("Mia");
   const roomA = srv.agentManager.getRooms()[0].id;
   const roomB = srv.agentManager.createRoom("Room B");
   updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
   const bot = await spawnAgent(srv, "Bot", roomA);
   const bBot = await spawnAgent(srv, "BBot", roomB);
-  return { srv, boss, mia, bot, bBot };
+  return { srv, morgan, mia, bot, bBot };
 }
 
 const archivedIds = (srv: TestServer): string[] => {
@@ -102,7 +102,7 @@ const archivedIds = (srv: TestServer): string[] => {
 async function raiseAndResolve(
   srv: TestServer,
   token: string,
-  bossSession: string,
+  morganSession: string,
   titles: string[],
 ): Promise<string[]> {
   const out: string[] = [];
@@ -115,7 +115,7 @@ async function raiseAndResolve(
     const id = (r.body as PagerEntry).id;
     await api(srv, `/api/pager/${id}/resolve`, {
       method: "POST",
-      rawSessionId: bossSession,
+      rawSessionId: morganSession,
     });
     const deadline = Date.now() + 5000;
     while (!archivedIds(srv).includes(id)) {
@@ -137,11 +137,11 @@ const listIds = async (srv: TestServer, session: string, q: string) => {
 
 describe("pager REST: resolved slices", () => {
   it("newest-archived first, with limit and before; open and acked pages whole", async () => {
-    const { srv, boss, bot } = await office();
+    const { srv, morgan, bot } = await office();
     const [p1, p2, p3, p4, p5] = await raiseAndResolve(
       srv,
       bot.token,
-      boss.rawSessionId,
+      morgan.rawSessionId,
       ["1", "2", "3", "4", "5"],
     );
     const open = (
@@ -157,7 +157,7 @@ describe("pager REST: resolved slices", () => {
     ) as PagerEntry[];
     expect(onDisk.map((e) => e.id)).toEqual([open.id]);
 
-    const s = boss.rawSessionId;
+    const s = morgan.rawSessionId;
     expect(await listIds(srv, s, "?state=resolved&limit=2")).toEqual([p5, p4]);
     expect(
       await listIds(srv, s, `?state=resolved&limit=2&before=${p4}`),
@@ -174,26 +174,29 @@ describe("pager REST: resolved slices", () => {
   });
 
   it("the default slice is 50", async () => {
-    const { srv, boss, bot } = await office();
+    const { srv, morgan, bot } = await office();
     const titles = Array.from({ length: 51 }, (_, i) => `t${i}`);
     const resolved = await raiseAndResolve(
       srv,
       bot.token,
-      boss.rawSessionId,
+      morgan.rawSessionId,
       titles,
     );
-    const got = await listIds(srv, boss.rawSessionId, "?state=resolved");
+    const got = await listIds(srv, morgan.rawSessionId, "?state=resolved");
     expect(got).toEqual(resolved.slice(1).reverse());
-    const all = await listIds(srv, boss.rawSessionId, "?state=all");
+    const all = await listIds(srv, morgan.rawSessionId, "?state=all");
     expect(all).toHaveLength(50);
   });
 
   it("a bad limit or before is 400, and an unknown and an invisible cursor answer alike", async () => {
-    const { srv, boss, mia, bot, bBot } = await office();
-    const [hidden] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
-      "a",
-    ]);
-    const [seen] = await raiseAndResolve(srv, bBot.token, boss.rawSessionId, [
+    const { srv, morgan, mia, bot, bBot } = await office();
+    const [hidden] = await raiseAndResolve(
+      srv,
+      bot.token,
+      morgan.rawSessionId,
+      ["a"],
+    );
+    const [seen] = await raiseAndResolve(srv, bBot.token, morgan.rawSessionId, [
       "b",
     ]);
     const open = (
@@ -211,14 +214,14 @@ describe("pager REST: resolved slices", () => {
       "?state=resolved&before=",
     ]) {
       const r = await api(srv, `/api/pager${q}`, {
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       });
       expect(r.status).toBe(400);
     }
     expect(
       (
         await api(srv, "/api/pager?state=resolved&limit=200", {
-          rawSessionId: boss.rawSessionId,
+          rawSessionId: morgan.rawSessionId,
         })
       ).status,
     ).toBe(200);
@@ -250,12 +253,12 @@ describe("pager REST: resolved slices", () => {
   });
 
   it("visibility comes before the limit", async () => {
-    const { srv, boss, mia, bot, bBot } = await office();
-    const [q1] = await raiseAndResolve(srv, bBot.token, boss.rawSessionId, [
+    const { srv, morgan, mia, bot, bBot } = await office();
+    const [q1] = await raiseAndResolve(srv, bBot.token, morgan.rawSessionId, [
       "q1",
     ]);
     // Newer pages Mia cannot see.
-    await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+    await raiseAndResolve(srv, bot.token, morgan.rawSessionId, [
       "x1",
       "x2",
       "x3",
@@ -268,11 +271,11 @@ describe("pager REST: resolved slices", () => {
 
 describe("pager REST: archived pages", () => {
   it("keep their GET, ack and resolve answers", async () => {
-    const { srv, boss, mia, bot } = await office();
-    const [id] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+    const { srv, morgan, mia, bot } = await office();
+    const [id] = await raiseAndResolve(srv, bot.token, morgan.rawSessionId, [
       "x",
     ]);
-    const s = boss.rawSessionId;
+    const s = morgan.rawSessionId;
     const got = await api(srv, `/api/pager/${id}`, { rawSessionId: s });
     expect(got.status).toBe(200);
     expect((got.body as PagerEntry).state).toBe("resolved");
@@ -313,17 +316,17 @@ describe("pager REST: archived pages", () => {
   });
 
   it("survive a cold restart", async () => {
-    const { srv, boss, bot } = await office();
-    const [id] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+    const { srv, morgan, bot } = await office();
+    const [id] = await raiseAndResolve(srv, bot.token, morgan.rawSessionId, [
       "x",
     ]);
     const restarted = await srv.restart();
     server = restarted;
     expect(
-      await listIds(restarted, boss.rawSessionId, "?state=resolved"),
+      await listIds(restarted, morgan.rawSessionId, "?state=resolved"),
     ).toEqual([id]);
     const got = await api(restarted, `/api/pager/${id}`, {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(got.status).toBe(200);
   });

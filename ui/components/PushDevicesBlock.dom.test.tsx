@@ -18,7 +18,7 @@ const { setApiShim } = await import("../api.ts");
 const { pushDeviceId, base64UrlDecode } =
   await import("../../shared/web-push.ts");
 
-const PATH = "/api/users/boss/push-devices";
+const PATH = "/api/users/morgan/push-devices";
 // Any 65-byte P-256 point serves as the office key here.
 const KEY =
   "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
@@ -128,7 +128,7 @@ beforeEach(() => {
 });
 
 const mount = async () => {
-  const view = render(<PushDevicesBlock username="boss" />);
+  const view = render(<PushDevicesBlock username="morgan" />);
   await act(async () => {});
   return view;
 };

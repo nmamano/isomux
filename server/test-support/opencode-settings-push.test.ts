@@ -78,7 +78,7 @@ function setup() {
     );
     if (!info) throw new Error("spawn returned null");
     mgr.enqueueMessage(info.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "hi",
     });
     await waitUntil(

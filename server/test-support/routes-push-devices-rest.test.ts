@@ -88,10 +88,10 @@ async function office() {
     },
   });
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const mia = await srv.seedMember("Mia");
   const roomA = srv.agentManager.getRooms()[0].id;
-  const bossId = getUserByName("Boss")!.id;
+  const morganId = getUserByName("Morgan")!.id;
   const agent = await srv.agentManager.spawn(
     "Bot",
     srv.stateRoot,
@@ -102,21 +102,21 @@ async function office() {
     undefined,
     undefined,
     undefined,
-    "Boss",
+    "Morgan",
     "claude",
     undefined,
-    bossId,
+    morganId,
   );
   if (!agent) throw new Error("spawn returned null");
-  const botToken = mintAgentToken(agent.id, bossId);
-  const path = `/api/users/${boss.username}/push-devices`;
-  return { srv, boss, bossId, mia, roomA, botToken, pushed, discord, path };
+  const botToken = mintAgentToken(agent.id, morganId);
+  const path = `/api/users/${morgan.username}/push-devices`;
+  return { srv, morgan, morganId, mia, roomA, botToken, pushed, discord, path };
 }
 
 describe("push devices REST: access", () => {
   it("the member turns a device on, lists, tests and removes it; no endpoint leaves the server", async () => {
-    const { srv, boss, path, pushed } = await office();
-    const first = await api(srv, path, { rawSessionId: boss.rawSessionId });
+    const { srv, morgan, path, pushed } = await office();
+    const first = await api(srv, path, { rawSessionId: morgan.rawSessionId });
     expect(first.status).toBe(200);
     const empty = first.body as PushDevicesRes;
     expect(empty.devices).toEqual([]);
@@ -124,7 +124,7 @@ describe("push devices REST: access", () => {
 
     const added = await api(srv, path, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { ...SUBSCRIBE, label: "iPhone" },
     });
     expect(added.status).toBe(200);
@@ -132,7 +132,7 @@ describe("push devices REST: access", () => {
     expect(device.label).toBe("iPhone");
     expect(added.text).not.toContain("secret");
 
-    const listed = await api(srv, path, { rawSessionId: boss.rawSessionId });
+    const listed = await api(srv, path, { rawSessionId: morgan.rawSessionId });
     expect((listed.body as PushDevicesRes).devices).toEqual([device]);
     // The key pair stays the same.
     expect((listed.body as PushDevicesRes).publicKey).toBe(empty.publicKey);
@@ -140,7 +140,7 @@ describe("push devices REST: access", () => {
 
     const tested = await api(srv, `${path}/${device.id}/test`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(tested.body).toEqual({ delivered: true });
     expect(pushed).toEqual([ENDPOINT]);
@@ -151,62 +151,62 @@ describe("push devices REST: access", () => {
 
     const removed = await api(srv, `${path}/${device.id}`, {
       method: "DELETE",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(removed.status).toBe(204);
-    const after = await api(srv, path, { rawSessionId: boss.rawSessionId });
+    const after = await api(srv, path, { rawSessionId: morgan.rawSessionId });
     expect((after.body as PushDevicesRes).devices).toEqual([]);
     const again = await api(srv, `${path}/${device.id}`, {
       method: "DELETE",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(again.status).toBe(404);
   });
 
   it("refuses an endpoint that is not a browser push service", async () => {
-    const { srv, boss, path } = await office();
+    const { srv, morgan, path } = await office();
     const r = await api(srv, path, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { ...SUBSCRIBE, endpoint: "https://127.0.0.1:4000/api/agents" },
     });
     expect(r.status).toBe(422);
   });
 
   it("refuses a device key that is not on the P-256 curve", async () => {
-    const { srv, boss, path } = await office();
+    const { srv, morgan, path } = await office();
     // Right length and prefix, last byte changed: off the curve.
     const bytes = base64UrlDecode(P256DH)!;
     bytes[64] ^= 1;
     const off = base64UrlEncode(bytes);
     const r = await api(srv, path, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { ...SUBSCRIBE, keys: { p256dh: off, auth: AUTH } },
     });
     expect(r.status).toBe(422);
-    const list = await api(srv, path, { rawSessionId: boss.rawSessionId });
+    const list = await api(srv, path, { rawSessionId: morgan.rawSessionId });
     expect((list.body as PushDevicesRes).devices).toEqual([]);
   });
 
   it("the member's own API token reaches the devices", async () => {
-    const { srv, boss, path } = await office();
+    const { srv, morgan, path } = await office();
     const minted = await srv.http("/api/me/api-tokens", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Laptop", expiresInDays: 30 }),
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     const { token } = (await minted.json()) as ApiTokenCreateRes;
     expect((await api(srv, path, { bearer: token })).status).toBe(200);
   });
 
   it("no agent token and no other member reaches the devices", async () => {
-    const { srv, boss, mia, botToken, path, pushed } = await office();
+    const { srv, morgan, mia, botToken, path, pushed } = await office();
     const device = (
       await api(srv, path, {
         method: "POST",
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
         body: SUBSCRIBE,
       })
     ).body as PushDevice;
@@ -224,7 +224,7 @@ describe("push devices REST: access", () => {
         expect(r.status).toBe(403);
       }
     }
-    // Mia's own route cannot reach Boss's device either.
+    // Mia's own route cannot reach Morgan's device either.
     const miaPath = `/api/users/${mia.username}/push-devices`;
     const r = await api(srv, `${miaPath}/${device.id}/test`, {
       method: "POST",
@@ -237,14 +237,14 @@ describe("push devices REST: access", () => {
 
 describe("push devices REST: delivery", () => {
   it("a raised page reaches the device with no Discord set up, whatever the member's notification rooms", async () => {
-    const { srv, boss, bossId, roomA, botToken, path, pushed, discord } =
+    const { srv, morgan, morganId, roomA, botToken, path, pushed, discord } =
       await office();
     await api(srv, path, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: SUBSCRIBE,
     });
-    expect(getUserByName("Boss")!.notifRooms).toContain(roomA);
+    expect(getUserByName("Morgan")!.notifRooms).toContain(roomA);
     const raised = await api(srv, "/api/pager", {
       method: "POST",
       bearer: botToken,
@@ -255,8 +255,8 @@ describe("push devices REST: delivery", () => {
     expect(pushed).toEqual([ENDPOINT]);
     expect(discord).toHaveLength(0);
 
-    updateUserById(bossId, { notifRooms: [] });
-    expect(getUserByName("Boss")!.notifRooms).not.toContain(roomA);
+    updateUserById(morganId, { notifRooms: [] });
+    expect(getUserByName("Morgan")!.notifRooms).not.toContain(roomA);
     await api(srv, "/api/pager", {
       method: "POST",
       bearer: botToken,
@@ -268,7 +268,7 @@ describe("push devices REST: delivery", () => {
   });
 
   it("deleting the member removes their devices", async () => {
-    const { srv, boss, mia } = await office();
+    const { srv, morgan, mia } = await office();
     const miaPath = `/api/users/${mia.username}/push-devices`;
     await api(srv, miaPath, {
       method: "POST",
@@ -279,7 +279,7 @@ describe("push devices REST: delivery", () => {
     expect(readFileSync(file, "utf8")).toContain(ENDPOINT);
     const del = await api(srv, `/api/users/${mia.username}`, {
       method: "DELETE",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(del.status).toBeLessThan(300);
     expect(readFileSync(file, "utf8")).not.toContain(ENDPOINT);

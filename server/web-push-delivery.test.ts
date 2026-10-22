@@ -52,7 +52,7 @@ function page(over: Partial<PagerEntry> = {}): PagerEntry {
     lastRaisedAt: 0,
     raiseCount: 1,
     source: agentSource,
-    targetUserId: "u-boss",
+    targetUserId: "u-morgan",
     title: "Disk full",
     body: "The data disk is at 99%.",
     state: "open",
@@ -242,7 +242,7 @@ async function setup(
   const time = fakeTime();
   const calls: Call[] = [];
   const pages = new Map((opts.pages ?? []).map((p) => [p.id, p]));
-  const notifRooms = opts.notifRooms ?? { "u-boss": ["room-a"] };
+  const notifRooms = opts.notifRooms ?? { "u-morgan": ["room-a"] };
   const interval = opts.interval ?? {
     minutes: opts.repeatMinutes === undefined ? 5 : opts.repeatMinutes,
   };
@@ -283,8 +283,8 @@ describe("web push delivery: a new page", () => {
     const d1 = await browserDevice(1);
     const d2 = await browserDevice(2);
     const other = await browserDevice(3);
-    await store.upsert("u-boss", d1.input);
-    await store.upsert("u-boss", d2.input);
+    await store.upsert("u-morgan", d1.input);
+    await store.upsert("u-morgan", d2.input);
     await store.upsert("u-other", other.input);
 
     service.onRaised(page(), "created");
@@ -314,10 +314,10 @@ describe("web push delivery: a new page", () => {
 
   it("goes for every page, whatever the member's notification rooms (PM ruling, 2026-10-16)", async () => {
     const { store, calls, service, time } = await setup({
-      notifRooms: { "u-boss": ["room-b"] },
+      notifRooms: { "u-morgan": ["room-b"] },
     });
     const d1 = await browserDevice(1);
-    await store.upsert("u-boss", d1.input);
+    await store.upsert("u-morgan", d1.input);
 
     // The page's room is not among the member's notification rooms.
     service.onRaised(page(), "created");
@@ -346,9 +346,9 @@ describe("web push delivery: a new page", () => {
 
   it("goes for a lobby page, whose room is in nobody's notification rooms", async () => {
     const { store, calls, service, time } = await setup({
-      notifRooms: { "u-boss": [] },
+      notifRooms: { "u-morgan": [] },
     });
-    await store.upsert("u-boss", (await browserDevice(1)).input);
+    await store.upsert("u-morgan", (await browserDevice(1)).input);
     service.onRaised(
       page({ source: { ...agentSource, roomId: LOBBY_ROOM_ID } }),
       "created",
@@ -360,7 +360,7 @@ describe("web push delivery: a new page", () => {
   it("sends nothing for a re-raise or a member who is gone", async () => {
     const { store, calls, service, time } = await setup({ notifRooms: {} });
     const d1 = await browserDevice(1);
-    await store.upsert("u-boss", d1.input);
+    await store.upsert("u-morgan", d1.input);
     service.onRaised(page(), "created");
     service.onRaised(page(), "reraised");
     await time.advance(0);
@@ -375,7 +375,7 @@ describe("web push delivery: repeat and resolve", () => {
       pages: [entry],
     });
     const d1 = await browserDevice(1);
-    await store.upsert("u-boss", d1.input);
+    await store.upsert("u-morgan", d1.input);
     service.onRaised(entry, "created");
     await time.advance(0);
     expect(calls).toHaveLength(1);
@@ -403,13 +403,13 @@ describe("web push delivery: repeat and resolve", () => {
       pages: [entry],
       interval,
     });
-    await store.upsert("u-boss", (await browserDevice(1)).input);
+    await store.upsert("u-morgan", (await browserDevice(1)).input);
     service.onRaised(entry, "created");
     await time.advance(MIN);
     expect(calls).toHaveLength(1);
 
     interval.minutes = 20;
-    service.rescheduleMember("u-boss");
+    service.rescheduleMember("u-morgan");
     // Not at the old 5 minutes; at 20 after the first push.
     await time.advance(19 * MIN - 1);
     expect(calls).toHaveLength(1);
@@ -423,7 +423,7 @@ describe("web push delivery: repeat and resolve", () => {
       pages: [entry],
       repeatMinutes: null,
     });
-    await store.upsert("u-boss", (await browserDevice(1)).input);
+    await store.upsert("u-morgan", (await browserDevice(1)).input);
     service.onRaised(entry, "created");
     await time.advance(60 * MIN);
     expect(calls).toHaveLength(1);
@@ -436,7 +436,7 @@ describe("web push delivery: repeat and resolve", () => {
       pages: [entry],
     });
     const d1 = await browserDevice(1);
-    await store.upsert("u-boss", d1.input);
+    await store.upsert("u-morgan", d1.input);
     service.onRaised(entry, "created");
     await time.advance(0);
     pages.set(entry.id, { ...entry, state: "resolved" });
@@ -455,7 +455,7 @@ describe("web push delivery: repeat and resolve", () => {
   it("on boot, arms open pages one interval out and sends nothing at once", async () => {
     const entry = page();
     const { store, calls, service, time } = await setup({ pages: [entry] });
-    await store.upsert("u-boss", (await browserDevice(1)).input);
+    await store.upsert("u-morgan", (await browserDevice(1)).input);
     service.start();
     await time.advance(5 * MIN - 1);
     expect(calls).toHaveLength(0);
@@ -466,18 +466,18 @@ describe("web push delivery: repeat and resolve", () => {
 
 describe("web push delivery: turn ends", () => {
   const bot = { id: "agent-1", name: "Bot", roomId: "room-a" };
-  const audience = { "room-a": ["u-boss"], [LOBBY_ROOM_ID]: ["u-boss"] };
+  const audience = { "room-a": ["u-morgan"], [LOBBY_ROOM_ID]: ["u-morgan"] };
   // The one member: can see room-a and has it in their push rooms. Each
   // skip case below changes exactly one of these.
   const base = {
-    pushRooms: { "u-boss": ["room-a"] } as Record<string, string[] | null>,
+    pushRooms: { "u-morgan": ["room-a"] } as Record<string, string[] | null>,
     audience,
   };
 
   async function oneDevice(opts: Parameters<typeof setup>[0]) {
     const ctx = await setup(opts);
     const dev = await browserDevice(1);
-    await ctx.store.upsert("u-boss", dev.input);
+    await ctx.store.upsert("u-morgan", dev.input);
     return { ...ctx, dev };
   }
 
@@ -497,7 +497,7 @@ describe("web push delivery: turn ends", () => {
   it("skips a room out of the member's push rooms", async () => {
     const { calls, service, time } = await oneDevice({
       ...base,
-      pushRooms: { "u-boss": ["room-b"] },
+      pushRooms: { "u-morgan": ["room-b"] },
     });
     service.onTurnEnd(bot);
     await time.advance(0);
@@ -507,7 +507,7 @@ describe("web push delivery: turn ends", () => {
   it("does not read the sound's notification rooms", async () => {
     const { calls, service, time, dev } = await oneDevice({
       ...base,
-      notifRooms: { "u-boss": [] },
+      notifRooms: { "u-morgan": [] },
     });
     service.onTurnEnd(bot);
     await time.advance(0);
@@ -527,7 +527,7 @@ describe("web push delivery: turn ends", () => {
   it("skips a member who is gone", async () => {
     const { calls, service, time } = await oneDevice({
       ...base,
-      pushRooms: { "u-boss": null },
+      pushRooms: { "u-morgan": null },
     });
     service.onTurnEnd(bot);
     await time.advance(0);
@@ -544,7 +544,7 @@ describe("web push delivery: turn ends", () => {
   it("sends nothing for the lobby (Lead ruling), even with it in the push rooms", async () => {
     const { calls, service, time } = await oneDevice({
       ...base,
-      pushRooms: { "u-boss": ["room-a", LOBBY_ROOM_ID] },
+      pushRooms: { "u-morgan": ["room-a", LOBBY_ROOM_ID] },
     });
     service.onTurnEnd({ ...bot, roomId: LOBBY_ROOM_ID });
     await time.advance(0);
@@ -567,7 +567,7 @@ describe("web push delivery: failures", () => {
       status: (url) => status[url],
     });
     const recs = [];
-    for (const d of devs) recs.push(await store.upsert("u-boss", d.input));
+    for (const d of devs) recs.push(await store.upsert("u-morgan", d.input));
     service.onRaised(page(), "created");
     await time.advance(0);
     expect(store.get(recs[0].id)).toBeNull();
@@ -580,7 +580,7 @@ describe("web push delivery: failures", () => {
 
     // A later success clears the failure.
     status[devs[2].input.endpoint] = 201;
-    expect(await service.sendTest("u-boss", recs[2].id)).toEqual({
+    expect(await service.sendTest("u-morgan", recs[2].id)).toEqual({
       delivered: true,
     });
     expect(store.get(recs[2].id)?.lastFailure).toBeUndefined();
@@ -589,10 +589,10 @@ describe("web push delivery: failures", () => {
   it("a test goes only to the member's own device", async () => {
     const { store, calls, service } = await setup();
     const d1 = await browserDevice(1);
-    const rec = await store.upsert("u-boss", d1.input);
+    const rec = await store.upsert("u-morgan", d1.input);
     expect(await service.sendTest("u-other", rec.id)).toBeNull();
     expect(calls).toHaveLength(0);
-    expect(await service.sendTest("u-boss", rec.id)).toEqual({
+    expect(await service.sendTest("u-morgan", rec.id)).toEqual({
       delivered: true,
     });
     const payload = await decrypt(calls[0].body, d1);

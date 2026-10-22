@@ -49,7 +49,7 @@ function agentOn(agentType: AgentInfo["agentType"]): AgentInfo {
     agentType,
     capabilities: DEFAULT_AGENT_CAPABILITIES,
     userId: "u1",
-    username: "Tester",
+    manager: "Tester",
     queue: [],
     sessionSwapping: false,
     turnHadHumanInput: false,

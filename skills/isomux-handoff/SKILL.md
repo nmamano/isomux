@@ -1,7 +1,7 @@
 ---
 name: isomux-handoff
 alias: handoff
-description: Continue an unfinished task on a fresh session. The agent writes a short forward-looking brief of what's left, the boss approves it, and the agent then hands off to a fresh copy of itself that resumes on just that brief.
+description: Continue an unfinished task on a fresh session. The agent writes a short forward-looking brief of what's left, the member approves it, and the agent then hands off to a fresh copy of itself that resumes on just that brief.
 ---
 
 Continue your unfinished task on a fresh session. Use this when your context is
@@ -21,7 +21,7 @@ Include:
 - Working state that isn't obvious from disk: dirty files, active
   worktrees/branches, paths, commits, anything uncommitted, in-flight commands.
 - Decisions already made that the fresh session shouldn't relitigate, and any
-  open questions or unconfirmed assumptions to revisit with the boss.
+  open questions or unconfirmed assumptions to revisit with the member.
 - Pointers: the specific files, docs, or task IDs the work touches.
 
 Deliberately leave OUT:
@@ -33,9 +33,9 @@ Deliberately leave OUT:
 
 Keep it tight.
 
-### 2. Get the boss's approval
+### 2. Get the member's approval
 
-Show the boss the exact brief you intend to hand off and wait for their
+Show the member the exact brief you intend to hand off and wait for their
 confirmation.
 
 ### 3. Hand off

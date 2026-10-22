@@ -2187,7 +2187,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           as chosen until the owner picks a member. */}
                       {!managerChoices.some((u) => u.id === agent!.userId) && (
                         <option value={agent!.userId ?? ""}>
-                          {agent!.username ?? t("dialogs.agent.managerUnowned")}
+                          {agent!.manager ?? t("dialogs.agent.managerUnowned")}
                         </option>
                       )}
                       {managerChoices.map((u) => (
@@ -2216,7 +2216,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     >
                       {isSpawn
                         ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
-                        : (agent!.username ??
+                        : (agent!.manager ??
                           agent!.userId ??
                           t("dialogs.agent.managerUnowned"))}
                     </div>

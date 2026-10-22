@@ -34,7 +34,7 @@ afterEach(async () => {
 async function setup() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const ownerUser = getUserByName(owner.username);
   if (!ownerUser) throw new Error("owner missing");
   const room = srv.agentManager.getRooms()[0].id;

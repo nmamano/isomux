@@ -94,18 +94,18 @@ const pagerEvents = (s: TestSocket): PagerEntry[] =>
     .filter((m) => (m as { type?: string }).type === "pager_upserted")
     .map((m) => (m as { entry: PagerEntry }).entry);
 
-// One office: owner Boss; member Mia with access to room B only; Bot in room A
-// managed by Boss.
+// One office: owner Morgan; member Mia with access to room B only; Bot in room A
+// managed by Morgan.
 async function office() {
   const srv = await startTestServer();
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const mia = await srv.seedMember("Mia");
   const roomA = srv.agentManager.getRooms()[0].id;
   const roomB = srv.agentManager.createRoom("Room B");
   updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
-  const bot = await spawnAgent(srv, "Bot", roomA, "Boss");
-  return { srv, boss, mia, roomA, roomB, bot };
+  const bot = await spawnAgent(srv, "Bot", roomA, "Morgan");
+  return { srv, morgan, mia, roomA, roomB, bot };
 }
 
 describe("pager REST: raise", () => {
@@ -130,14 +130,14 @@ describe("pager REST: raise", () => {
       name: "Bot",
       roomId: roomA,
     });
-    expect(e.targetUserId).toBe(getUserByName("Boss")!.id);
+    expect(e.targetUserId).toBe(getUserByName("Morgan")!.id);
     expect(e.state).toBe("open");
     expect(e.delivery.state).toBe("not_delivered");
   });
 
   it("the target is the agent's recorded manager, not the token's user", async () => {
     const { srv, roomA } = await office();
-    const { agent } = await spawnAgent(srv, "Bot2", roomA, "Boss");
+    const { agent } = await spawnAgent(srv, "Bot2", roomA, "Morgan");
     const token = mintAgentToken(agent.id, getUserByName("Mia")!.id);
     const r = await api(srv, "/api/pager", {
       method: "POST",
@@ -145,7 +145,9 @@ describe("pager REST: raise", () => {
       body: { title: "x" },
     });
     expect(r.status).toBe(201);
-    expect((r.body as PagerEntry).targetUserId).toBe(getUserByName("Boss")!.id);
+    expect((r.body as PagerEntry).targetUserId).toBe(
+      getUserByName("Morgan")!.id,
+    );
   });
 
   it("the same key dedupes into the open page (200, not 201)", async () => {
@@ -167,13 +169,13 @@ describe("pager REST: raise", () => {
   });
 
   it("only an agent can raise; bad fields are 400; no manager is 409", async () => {
-    const { srv, boss, roomA, bot } = await office();
-    const asBoss = await api(srv, "/api/pager", {
+    const { srv, morgan, roomA, bot } = await office();
+    const asMorgan = await api(srv, "/api/pager", {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { title: "x" },
     });
-    expect(asBoss.status).toBe(403);
+    expect(asMorgan.status).toBe(403);
     const bad = await api(srv, "/api/pager", {
       method: "POST",
       bearer: bot.token,
@@ -225,8 +227,8 @@ describe("pager REST: visibility, ack and resolve", () => {
   });
 
   it("a member with access acks and resolves; each change reaches their socket", async () => {
-    const { srv, boss, bot } = await office();
-    const bossWs = await srv.connectWs(boss.rawSessionId);
+    const { srv, morgan, bot } = await office();
+    const morganWs = await srv.connectWs(morgan.rawSessionId);
     const e = (
       await api(srv, "/api/pager", {
         method: "POST",
@@ -236,26 +238,26 @@ describe("pager REST: visibility, ack and resolve", () => {
     ).body as PagerEntry;
     const ack = await api(srv, `/api/pager/${e.id}/ack`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(ack.status).toBe(200);
-    expect((ack.body as PagerEntry).acked?.by).toBe("Boss");
+    expect((ack.body as PagerEntry).acked?.by).toBe("Morgan");
     const res = await api(srv, `/api/pager/${e.id}/resolve`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(res.status).toBe(200);
     expect((res.body as PagerEntry).state).toBe("resolved");
     const again = await api(srv, `/api/pager/${e.id}/ack`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(again.status).toBe(409);
     expect(errCode(again)).toBe("already_resolved");
     await sleep(50);
     // The second "open" and the second "resolved" are delivery attempts (the
-    // page, then the resolved message): the boss has no webhook.
-    const events = pagerEvents(bossWs);
+    // page, then the resolved message): the manager has no webhook.
+    const events = pagerEvents(morganWs);
     expect(events.map((x) => x.state)).toEqual([
       "open",
       "open",
@@ -301,7 +303,7 @@ describe("pager REST: visibility, ack and resolve", () => {
   });
 
   it("an agent without access to the source room cannot resolve another source's page", async () => {
-    const { srv, boss, roomA, bot } = await office();
+    const { srv, morgan, roomA, bot } = await office();
     const raised = await api(srv, "/api/pager", {
       method: "POST",
       bearer: bot.token,
@@ -323,14 +325,14 @@ describe("pager REST: visibility, ack and resolve", () => {
     });
     expect(r.status).toBe(404);
     const after = await api(srv, `/api/pager/${e.id}`, {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect((after.body as PagerEntry).state).toBe("open");
   });
 
   it("another agent with access to the room can ack the page", async () => {
     const { srv, roomA, bot } = await office();
-    const peer = await spawnAgent(srv, "Peer", roomA, "Boss");
+    const peer = await spawnAgent(srv, "Peer", roomA, "Morgan");
     const e = (
       await api(srv, "/api/pager", {
         method: "POST",
@@ -349,8 +351,8 @@ describe("pager REST: visibility, ack and resolve", () => {
 
 describe("pager REST: list filters", () => {
   it("defaults to open+acked, newest raise first; state and roomId filter", async () => {
-    const { srv, boss, roomA, roomB, bot } = await office();
-    const bBot = await spawnAgent(srv, "BBot", roomB, "Boss");
+    const { srv, morgan, roomA, roomB, bot } = await office();
+    const bBot = await spawnAgent(srv, "BBot", roomB, "Morgan");
     const raise = async (token: string, title: string) => {
       const r = await api(srv, "/api/pager", {
         method: "POST",
@@ -365,11 +367,11 @@ describe("pager REST: list filters", () => {
     const p3 = await raise(bot.token, "three");
     await api(srv, `/api/pager/${p3.id}/resolve`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     const ids = async (q: string) => {
       const r = await api(srv, `/api/pager${q}`, {
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       });
       expect(r.status).toBe(200);
       return (r.body as PagerEntry[]).map((e) => e.id);
@@ -380,11 +382,11 @@ describe("pager REST: list filters", () => {
     expect(await ids("?state=resolved")).toEqual([p3.id]);
     expect(await ids(`?roomId=${roomA}`)).toEqual([p1.id]);
     const bad = await api(srv, "/api/pager?state=closed", {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(bad.status).toBe(400);
     const empty = await api(srv, "/api/pager?roomId=", {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(empty.status).toBe(400);
   });
@@ -400,7 +402,7 @@ describe("pager REST: list filters", () => {
 
 describe("pager REST: durability", () => {
   it("pages and their states survive a cold restart, and dedupe continues", async () => {
-    const { srv, boss, bot } = await office();
+    const { srv, morgan, bot } = await office();
     const first = (
       await api(srv, "/api/pager", {
         method: "POST",
@@ -411,16 +413,16 @@ describe("pager REST: durability", () => {
     const acked = (
       await api(srv, `/api/pager/${first.id}/ack`, {
         method: "POST",
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       })
     ).body as PagerEntry;
     const restarted = await srv.restart();
     server = restarted;
     const list = await api(restarted, "/api/pager", {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(list.body).toEqual([acked]);
-    const token = mintAgentToken(bot.agent.id, getUserByName("Boss")!.id);
+    const token = mintAgentToken(bot.agent.id, getUserByName("Morgan")!.id);
     const again = await api(restarted, "/api/pager", {
       method: "POST",
       bearer: token,

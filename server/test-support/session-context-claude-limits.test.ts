@@ -41,7 +41,7 @@ afterEach(async () => {
 
 it("sends each member and each agent the families limited in its own env, again after a save", async () => {
   const srv = (server = await startTestServer());
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const room = srv.agentManager.getRooms()[0];
   const spawn = async (name: string, username: string) => {
@@ -61,7 +61,7 @@ it("sends each member and each agent the families limited in its own env, again 
     if (!info) throw new Error(`spawn ${name} returned null`);
     return info.id;
   };
-  const bossAgent = await spawn("Boss haiku", boss.username);
+  const morganAgent = await spawn("Morgan haiku", morgan.username);
   const memberAgent = await spawn("Member haiku", member.username);
   const agentLimits = (agentId: string) =>
     srv.agentManager.getAgent(agentId)?.limitedClaudeFamilies;
@@ -95,7 +95,7 @@ it("sends each member and each agent the families limited in its own env, again 
     field: "permissionMode" | "model",
   ) => {
     const response = await srv.http("/agents", {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     const find = (entries: Record<string, string>[]) =>
       entries.find((entry) => entry.id === agentId)?.[field];
@@ -114,10 +114,10 @@ it("sends each member and each agent the families limited in its own env, again 
     srv.agentManager.getAgent(agentId)?.claudeFamilyModels;
   const modelsIn = (message: Record<string, unknown>) =>
     (message.context as { claudeFamilyModels?: object }).claudeFamilyModels;
-  const bossSocket = await srv.connectWs(boss.rawSessionId);
+  const morganSocket = await srv.connectWs(morgan.rawSessionId);
   const memberSocket = await srv.connectWs(member.rawSessionId);
   try {
-    const firstContext = await bossSocket.waitFor("session_context");
+    const firstContext = await morganSocket.waitFor("session_context");
     expect(limitedIn(firstContext)).toEqual([]);
     expect(modelsIn(firstContext)).toEqual({});
     expect(limitedIn(await memberSocket.waitFor("session_context"))).toEqual(
@@ -128,20 +128,20 @@ it("sends each member and each agent the families limited in its own env, again 
       "claude-haiku-5-5",
       "claude-haiku-5-5",
     ]);
-    expect(agentLimits(bossAgent)).toEqual([]);
+    expect(agentLimits(morganAgent)).toEqual([]);
     expect(agentLimits(memberAgent)).toEqual([]);
     expect(await reportedModes(memberAgent)).toEqual(["auto", "auto"]);
 
-    bossSocket.messages.length = 0;
+    morganSocket.messages.length = 0;
     memberSocket.messages.length = 0;
     expect(
       (
-        await put("/api/office/env", boss.rawSessionId, {
+        await put("/api/office/env", morgan.rawSessionId, {
           CLAUDE_CODE_USE_VERTEX: "1",
         })
       ).status,
     ).toBe(204);
-    const vertexContext = await bossSocket.waitFor("session_context");
+    const vertexContext = await morganSocket.waitFor("session_context");
     expect(limitedIn(vertexContext)).toEqual(["sonnet", "haiku"]);
     expect(modelsIn(vertexContext)).toEqual({
       sonnet: "claude-sonnet-4-5",
@@ -151,9 +151,9 @@ it("sends each member and each agent the families limited in its own env, again 
       "sonnet",
       "haiku",
     ]);
-    expect(agentLimits(bossAgent)).toEqual(["sonnet", "haiku"]);
+    expect(agentLimits(morganAgent)).toEqual(["sonnet", "haiku"]);
     expect(agentLimits(memberAgent)).toEqual(["sonnet", "haiku"]);
-    expect(agentUpdates(bossSocket.messages, memberAgent)).toHaveLength(1);
+    expect(agentUpdates(morganSocket.messages, memberAgent)).toHaveLength(1);
     // The stored Auto stays; the agent runs it as default.
     expect(srv.agentManager.getAgent(memberAgent)?.permissionMode).toBe("auto");
     expect(await reportedModes(memberAgent)).toEqual(["default", "default"]);
@@ -167,7 +167,7 @@ it("sends each member and each agent the families limited in its own env, again 
     ]);
 
     // A personal 5.5 pin lifts haiku for that member only.
-    bossSocket.messages.length = 0;
+    morganSocket.messages.length = 0;
     memberSocket.messages.length = 0;
     expect(
       (
@@ -180,42 +180,42 @@ it("sends each member and each agent the families limited in its own env, again 
       "sonnet",
     ]);
     expect(
-      bossSocket.messages.some(
+      morganSocket.messages.some(
         (message) => (message as { type?: string }).type === "session_context",
       ),
     ).toBe(false);
     expect(agentLimits(memberAgent)).toEqual(["sonnet"]);
-    expect(agentLimits(bossAgent)).toEqual(["sonnet", "haiku"]);
-    expect(agentUpdates(bossSocket.messages, memberAgent)).toHaveLength(1);
-    expect(agentUpdates(bossSocket.messages, bossAgent)).toEqual([]);
+    expect(agentLimits(morganAgent)).toEqual(["sonnet", "haiku"]);
+    expect(agentUpdates(morganSocket.messages, memberAgent)).toHaveLength(1);
+    expect(agentUpdates(morganSocket.messages, morganAgent)).toEqual([]);
     expect(await reportedModes(memberAgent)).toEqual(["auto", "auto"]);
-    expect(await reportedModes(bossAgent)).toEqual(["default", "default"]);
+    expect(await reportedModes(morganAgent)).toEqual(["default", "default"]);
     expect(await reported(memberAgent, "model")).toEqual([
       "claude-haiku-5-5",
       "claude-haiku-5-5",
     ]);
-    expect(await reported(bossAgent, "model")).toEqual([
+    expect(await reported(morganAgent, "model")).toEqual([
       "claude-haiku-4-5",
       "claude-haiku-4-5",
     ]);
     // A supported office region moves unpinned families to the current models.
-    bossSocket.messages.length = 0;
+    morganSocket.messages.length = 0;
     memberSocket.messages.length = 0;
     expect(
       (
-        await put("/api/office/env", boss.rawSessionId, {
+        await put("/api/office/env", morgan.rawSessionId, {
           CLAUDE_CODE_USE_VERTEX: "1",
           CLOUD_ML_REGION: "global",
         })
       ).status,
     ).toBe(204);
-    const coveredContext = await bossSocket.waitFor("session_context");
+    const coveredContext = await morganSocket.waitFor("session_context");
     expect(limitedIn(coveredContext)).toEqual([]);
     expect(modelsIn(coveredContext)).toEqual({});
-    expect(agentLimits(bossAgent)).toEqual([]);
-    expect(agentModels(bossAgent)).toEqual({});
-    expect(await reportedModes(bossAgent)).toEqual(["auto", "auto"]);
-    expect(await reported(bossAgent, "model")).toEqual([
+    expect(agentLimits(morganAgent)).toEqual([]);
+    expect(agentModels(morganAgent)).toEqual({});
+    expect(await reportedModes(morganAgent)).toEqual(["auto", "auto"]);
+    expect(await reported(morganAgent, "model")).toEqual([
       "claude-haiku-5-5",
       "claude-haiku-5-5",
     ]);
@@ -233,14 +233,14 @@ it("sends each member and each agent the families limited in its own env, again 
       "haiku",
     ]);
     expect(agentLimits(memberAgent)).toEqual(["haiku"]);
-    expect(agentLimits(bossAgent)).toEqual([]);
+    expect(agentLimits(morganAgent)).toEqual([]);
     expect(await reportedModes(memberAgent)).toEqual(["default", "default"]);
     expect(await reported(memberAgent, "model")).toEqual([
       "claude-haiku-4-5@20251001",
       "claude-haiku-4-5@20251001",
     ]);
   } finally {
-    bossSocket.close();
+    morganSocket.close();
     memberSocket.close();
   }
 });

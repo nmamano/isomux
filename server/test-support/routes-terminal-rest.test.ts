@@ -74,7 +74,7 @@ const errCode = (body: unknown): string | undefined =>
 async function ownerOffice() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const roomId = srv.agentManager.getRooms()[0].id;
   const ownerId = getUserByName(owner.username)!.id;
   return { srv, owner, roomId, ownerId };
@@ -103,7 +103,7 @@ describe("agents.terminal reach", () => {
     server = srv;
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const put = await srv.http(
       `/api/users/${encodeURIComponent(member.username)}/access`,

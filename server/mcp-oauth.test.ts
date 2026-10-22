@@ -516,7 +516,7 @@ describe("the callback route", () => {
       auditSignIn: (_ctx, targets) => audits.push(targets),
       isOfficeOwnerUserId: (id) => owners.includes(id),
       userIdForUsername: () => null,
-      usernameForUserId: (id) => ({ u1: "alice", u2: "boss" })[id] ?? null,
+      usernameForUserId: (id) => ({ u1: "alice", u2: "morgan" })[id] ?? null,
     });
     const result = await handlers["mcpOAuth.callback"](
       callbackCtx(userId, query),

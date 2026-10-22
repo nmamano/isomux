@@ -15,14 +15,14 @@ describe("receptionist profile renderer", () => {
     const text = renderReceptionistProfile({
       officeName: "Acme",
       members: [
-        { name: "Boss", role: "owner" },
+        { name: "Morgan", role: "owner" },
         { name: "Mia", role: "member" },
       ],
       publicOrigin: "https://office.example.com",
     });
     expect(text).toContain(ISOMUX_KNOWLEDGE);
     expect(text.startsWith(RECEPTIONIST_INSTRUCTIONS)).toBe(true);
-    expect(text).toContain('Owners: "Boss". Members: "Mia".');
+    expect(text).toContain('Owners: "Morgan". Members: "Mia".');
     expect(text).toContain("Office name: Acme.");
     expect(text).toContain("The office is at https://office.example.com.");
     expect(text).toContain("Never ask for or repeat secrets");

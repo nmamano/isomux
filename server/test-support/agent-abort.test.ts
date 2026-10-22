@@ -287,7 +287,7 @@ describe("agents.abort rate limit for agent callers", () => {
 
   it("does not limit a member", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const [r1] = server.agentManager.getRooms();
     const target = await spawnAgent(server, "Target", r1.id);
     const sender = await spawnAgent(server, "Sender", r1.id);
@@ -320,7 +320,7 @@ describe("the stop notice", () => {
     expect((await abortAs(server, target.id, stopper.id)).status).toBe(204);
     // A member's stop arms nothing, so the third turn carries no notice even
     // though its predecessor was stopped.
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await waitUntil(
       () => agentOf(server!, target.id).state === "waiting_for_response",
     );

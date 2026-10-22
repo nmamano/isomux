@@ -205,7 +205,7 @@ describe("the invite-accept page", () => {
 
   it("reads in the browser's language on a named invite", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const token = await inviteTokenFor("Yu");
     const seen: Record<string, string> = {};
     for (const [label, header, lang] of HEADERS) {
@@ -227,7 +227,7 @@ describe("the invite-accept page", () => {
 describe("the login page", () => {
   it("reads in the browser's language for a visitor with no session", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const seen: Record<string, string> = {};
     for (const [label, header, lang] of HEADERS) {
       const { status, html } = await page(server, "/", header);
@@ -278,7 +278,7 @@ describe("the login page", () => {
 describe("the invite-error page", () => {
   it("reads in the browser's language", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const { status, html: ca } = await page(server, "/i/nosuchtoken", "ca");
     expect(status).toBe(410);
     expect(ca).toContain('<html lang="ca">');
@@ -288,17 +288,17 @@ describe("the invite-error page", () => {
 });
 
 describe("a page that knows its reader", () => {
-  // Boss is signed in and Yu's invite is open. `refusal` is the page Boss
-  // gets on it, with Boss on `language` and the browser asking for `header`.
+  // Morgan is signed in and Yu's invite is open. `refusal` is the page Morgan
+  // gets on it, with Morgan on `language` and the browser asking for `header`.
   async function seedConflict(): Promise<
     (language: "es" | null, header: string) => Promise<string>
   > {
-    const boss = await server!.seedOwner("Boss");
+    const morgan = await server!.seedOwner("Morgan");
     const token = await inviteTokenFor("Yu");
     return async (language, header) => {
-      setLanguage("Boss", language);
+      setLanguage("Morgan", language);
       const { status, html } = await page(server!, `/i/${token}`, header, {
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       });
       expect(status).toBe(409);
       return html;
@@ -307,7 +307,7 @@ describe("a page that knows its reader", () => {
 
   it("gives a signed-in Spanish user Spanish, whatever the browser asks for", async () => {
     // Ruling 8's precedence, on the one pre-sign-in page that can identify its
-    // reader: Boss is signed in and stored on Spanish, the browser says
+    // reader: Morgan is signed in and stored on Spanish, the browser says
     // English, and the invite belongs to someone else.
     server = await startTestServer();
     const refusal = await seedConflict();
@@ -317,7 +317,7 @@ describe("a page that knows its reader", () => {
     expectTranslated(es, en, [H1, INTRO, RETURN_LINK]);
     // Both names reach the sentence in every language.
     for (const html of [en, es]) {
-      expect(slot(html, INTRO)).toContain("Boss");
+      expect(slot(html, INTRO)).toContain("Morgan");
       expect(slot(html, INTRO)).toContain("Yu");
     }
   });
@@ -338,30 +338,30 @@ describe("a page that knows its reader", () => {
     // apostrophe in a display name must still arrive as an entity, exactly as
     // it did when the whole composed sentence went through escapeHtml.
     server = await startTestServer();
-    const boss = await server.seedOwner("O'Boss");
+    const morgan = await server.seedOwner("O'Morgan");
     const token = await inviteTokenFor("O'Hara");
     const { status, html } = await page(server, `/i/${token}`, "en", {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(status).toBe(409);
     // One assertion per slot: the sentence takes two names and each is
     // escaped on its own, so dropping either escape has to fail here.
-    expect(html).toContain("O&#39;Boss");
-    expect(html).not.toContain("O'Boss");
+    expect(html).toContain("O&#39;Morgan");
+    expect(html).not.toContain("O'Morgan");
     expect(html).toContain("O&#39;Hara");
     expect(html).not.toContain("O'Hara");
   });
 
   it("refuses the last owner's sign-out in that owner's language", async () => {
     server = await startTestServer();
-    const boss = await server.seedOwner("Boss");
+    const morgan = await server.seedOwner("Morgan");
     const logout = async (language: "ca" | null) => {
-      setLanguage("Boss", language);
+      setLanguage("Morgan", language);
       const res = await server!.http("/auth/logout", {
         method: "POST",
         redirect: "manual",
         headers: { Accept: "text/html", "Accept-Language": "en" },
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       });
       expect(res.status).toBe(409);
       return res.text();

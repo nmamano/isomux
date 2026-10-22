@@ -226,10 +226,10 @@ export class OfficeState {
     // Stable identity reference for the spawning user. Drives per-user
     // env at session creation. Null for unowned spawns (legacy paths).
     userId?: string | null;
-    // Display snapshot of the spawning user's name. Persisted alongside
-    // userId so the UI can label the agent without an extra lookup. Goes
-    // stale across renames; behavior reads should go through userId.
-    username?: string | null;
+    // Display snapshot of the manager's name. Persisted alongside userId so
+    // the UI can label the agent without an extra lookup. Goes stale across
+    // renames; behavior reads should go through userId.
+    manager?: string | null;
     capabilities?: AgentInfo["capabilities"];
     limitedClaudeFamilies?: string[];
     claudeFamilyModels?: AgentInfo["claudeFamilyModels"];
@@ -318,7 +318,7 @@ export class OfficeState {
         : {}),
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
       userId: opts.userId ?? null,
-      username: opts.username ?? null,
+      manager: opts.manager ?? null,
       // Privilege is never conferred at spawn - it is granted only via the
       // user-gated agents.setPrivileged route (so no agent can self-confer).
       privileged: false,

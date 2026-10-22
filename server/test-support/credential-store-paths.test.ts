@@ -243,7 +243,7 @@ describe("routes that take a path", () => {
   it("the editor neither opens nor saves a credential file", async () => {
     server = await startTestServer();
     const srv = server;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await spawnAgent(srv, room);
     const sock = await srv.connectWs(owner.rawSessionId);
@@ -281,7 +281,7 @@ describe("routes that take a path", () => {
   it("an agent's read-file refuses a credential file and copies nothing", async () => {
     server = await startTestServer();
     const srv = server;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await spawnAgent(srv, room);
     const token = getAgentTokenRaw(agent.id)!;
@@ -303,7 +303,7 @@ describe("routes that take a path", () => {
     server = await startTestServer();
     const srv = server;
     const member = await srv.seedMember("Alice");
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const paths = seedStore(srv.stateRoot);
     for (const path of Object.values(paths)) {
       const res = await call(srv, "POST", "/api/validate/env", {

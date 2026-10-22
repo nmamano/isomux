@@ -297,7 +297,9 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
         return join(base, "rooms", `${scopeId}.md`);
       case "agent":
         return join(base, "agents", `${scopeId}.md`);
-      case "boss":
+      // The folder keeps its name from when the scope was called "boss", so
+      // a rollback still finds every member memory.
+      case "member":
         return join(base, "bosses", `${scopeId}.md`);
     }
   }

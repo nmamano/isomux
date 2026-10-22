@@ -80,7 +80,7 @@ describe("routes/auth: cookie wall (Phase 1.4b)", () => {
   it("a valid cookie clears the wall (GET /api/files -> 403 for an unknown agent, not 401)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await srv.http("/api/files/ghost/x.txt", {
       rawSessionId: owner.rawSessionId,
     });

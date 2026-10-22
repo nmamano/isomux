@@ -24,7 +24,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 it("restores an attempt that was in flight at reload as failed, with its id and payload", async () => {
   setApiShim(() => new Promise(() => {})); // never answers
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   const sent = outbox.sendAttempt({
     agentId: "a1",
     text: "careful prompt",
@@ -33,7 +33,7 @@ it("restores an attempt that was in flight at reload as failed, with its id and 
 
   // A reload: module state is gone, localStorage is not.
   outbox._resetOutboxForTests();
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   const [restored] = outbox.outboxFor("a1");
   expect(restored.id).toBe(sent!.id);
   expect(restored.text).toBe("careful prompt");
@@ -44,18 +44,18 @@ it("restores an attempt that was in flight at reload as failed, with its id and 
 
 it("removes the saved attempt once the server acknowledges it", async () => {
   setApiShim(async () => ({}));
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   outbox.sendAttempt({ agentId: "a1", text: "fine" });
   await settle();
   expect(outbox.outboxFor("a1")).toEqual([]);
   outbox._resetOutboxForTests();
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   expect(outbox.outboxFor("a1")).toEqual([]);
 });
 
 it("keeps the attempts of another member and drops those of a gone agent", async () => {
   setApiShim(() => new Promise(() => {}));
-  outbox.restoreOutbox("Boss", new Set(["a1", "a2"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1", "a2"]));
   outbox.sendAttempt({ agentId: "a1", text: "to a1" });
   outbox.sendAttempt({ agentId: "a2", text: "to a2" });
 
@@ -64,7 +64,7 @@ it("keeps the attempts of another member and drops those of a gone agent", async
   expect(outbox.outboxFor("a1")).toEqual([]);
 
   outbox._resetOutboxForTests();
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   expect(outbox.outboxFor("a1").map((a) => a.text)).toEqual(["to a1"]);
   expect(outbox.outboxFor("a2")).toEqual([]);
 });
@@ -73,7 +73,7 @@ it("takeAttempt hands back the attachments and forgets the attempt", async () =>
   setApiShim(async () => {
     throw new TypeError("Failed to fetch");
   });
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   const sent = outbox.sendAttempt({
     agentId: "a1",
     text: "with file",
@@ -84,7 +84,7 @@ it("takeAttempt hands back the attachments and forgets the attempt", async () =>
   expect(taken?.attachments).toEqual([attachment]);
   expect(outbox.outboxFor("a1")).toEqual([]);
   outbox._resetOutboxForTests();
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   expect(outbox.outboxFor("a1")).toEqual([]);
 });
 
@@ -97,7 +97,7 @@ it("restores a cronjob run attempt and resends it to the run's route", async () 
     paths.push(path);
     throw new TypeError("Failed to fetch");
   });
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   const sent = outbox.sendAttempt({
     agentId: "cronrun-r1",
     cronRun: { jobId: "j1", runId: "r1" },
@@ -106,7 +106,7 @@ it("restores a cronjob run attempt and resends it to the run's route", async () 
   await settle();
 
   outbox._resetOutboxForTests();
-  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  outbox.restoreOutbox("Morgan", new Set(["a1"]));
   const [restored] = outbox.outboxFor("cronrun-r1");
   expect(restored.id).toBe(sent!.id);
   expect(restored.cronRun).toEqual({ jobId: "j1", runId: "r1" });

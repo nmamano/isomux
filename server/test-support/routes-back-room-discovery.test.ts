@@ -62,7 +62,7 @@ async function listAs(srv: TestServer, agentId: string, query = "") {
 async function office() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const r1 = srv.agentManager.getRooms()[0].id;
   srv.agentManager.setRoomBackRoom(r1, true);
   const lead = await spawnAs(srv, "Lead", r1, 0, owner.username);
@@ -138,7 +138,7 @@ describe("GET /agents for an agent: one entry per back room", () => {
   it("a summary counts only rooms the caller can see", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
     srv.agentManager.setRoomBackRoom(r1, true);
@@ -158,7 +158,13 @@ describe("GET /agents for an agent: one entry per back room", () => {
     const mine = await spawnAs(srv, "Mine", r2, 0, member.username);
     const { body } = await listAs(srv, mine.id);
     expect(body.map((e) => e.name)).toEqual(["Mine"]);
-    const ownerAgent = await spawnAs(srv, "Boss Agent", r1, 0, owner.username);
+    const ownerAgent = await spawnAs(
+      srv,
+      "Morgan Agent",
+      r1,
+      0,
+      owner.username,
+    );
     const all = await listAs(srv, ownerAgent.id);
     expect(all.body.map((e) => e.name)).toContain("1 in the back room");
   });

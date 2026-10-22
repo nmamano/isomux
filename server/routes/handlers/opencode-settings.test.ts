@@ -16,7 +16,7 @@ import type { HandlerResult, RouteHandlerContext } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { USER_CAPABILITIES } from "../../identity/index.ts";
 
-// The caller is u1 ("boss"); "member" is u2.
+// The caller is u1 ("morgan"); "member" is u2.
 const identity: Identity = {
   scope: "user",
   userId: "u1",
@@ -24,7 +24,7 @@ const identity: Identity = {
   capabilities: USER_CAPABILITIES,
 };
 const userIdForUsername = (username: string) =>
-  username === "boss" ? "u1" : username === "member" ? "u2" : null;
+  username === "morgan" ? "u1" : username === "member" ? "u2" : null;
 
 function ctx(
   params: Record<string, string>,
@@ -113,7 +113,7 @@ describe("env variable saves", () => {
         ctx({ username: "member", name: "TZ" }),
       ),
       await env.handlers["userEnv.replace"](
-        ctx({ username: "boss" }, { values: { A: "1" } }),
+        ctx({ username: "morgan" }, { values: { A: "1" } }),
       ),
       await env.handlers["officeEnv.set"](ctx({ name: "O" }, { value: "1" })),
       await env.handlers["officeEnv.replace"](ctx({}, { values: { O: "2" } })),
@@ -207,14 +207,14 @@ describe("secret saves", () => {
       },
     });
     const saved = json(
-      await handlers["secrets.create"](ctx({ username: "boss" }, SECRET)),
+      await handlers["secrets.create"](ctx({ username: "morgan" }, SECRET)),
     );
     expect(saved.status).toBe(201);
     expect(Object.keys(saved.body as object)).toEqual(["secret"]);
     expect(
       kindOf(
         await handlers["secrets.delete"](
-          ctx({ username: "boss", name: "GH_TOKEN" }),
+          ctx({ username: "morgan", name: "GH_TOKEN" }),
         ),
       ),
     ).toBe("noContent");
@@ -225,7 +225,7 @@ describe("secret saves", () => {
     ]);
     // A refused change pushes nothing.
     await handlers["secrets.delete"](
-      ctx({ username: "boss", name: "GH_TOKEN" }),
+      ctx({ username: "morgan", name: "GH_TOKEN" }),
     );
     expect(calls).toHaveLength(2);
   });

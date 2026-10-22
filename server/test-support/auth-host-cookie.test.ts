@@ -62,7 +62,7 @@ async function startHttps(): Promise<{
   owner: SeededIdentity;
 }> {
   const srv0 = await startTestServer();
-  const owner = await srv0.seedOwner("Boss");
+  const owner = await srv0.seedOwner("Morgan");
   const r = await srv0.http("/api/office/access", {
     method: "PUT",
     rawSessionId: owner.rawSessionId,
@@ -185,7 +185,7 @@ function clearOf(name: string, secure: boolean): string {
 describe("office cookie names: plain-HTTP office", () => {
   it("login writes the office's plain name, with the pre-slice attribute string and no Secure", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     expect(own().plain).toMatch(/^isomux_session_[0-9a-f]{12}$/);
     const res = await acceptViaHttp(server, await mintFor("Yu"));
     expect(res.status).toBe(302);
@@ -202,7 +202,7 @@ describe("office cookie names: plain-HTTP office", () => {
     "no migration for the write name: shell, safe /api GET, and the WS 101 set no cookie (needs ui/dist - run `bun run build:ui`)",
     async () => {
       server = await startTestServer();
-      const owner = await server.seedOwner("Boss");
+      const owner = await server.seedOwner("Morgan");
       const cookie = `${own().plain}=${owner.rawSessionId}`;
 
       const shell = await server.http("/", { headers: { Cookie: cookie } });
@@ -226,7 +226,7 @@ describe("office cookie names: plain-HTTP office", () => {
   // clear the cookie it might be authenticating with.
   it("logout clears both of the office's names, and the __Host- clear carries Secure so the browser honors it", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Yu");
     const res = await server.http("/auth/logout", {
       method: "POST",
@@ -242,7 +242,7 @@ describe("office cookie names: plain-HTTP office", () => {
 
   it("the office's __Host- cookie left over from an HTTPS past still authenticates, and signing out clears it", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const yu = await server.seedMember("Yu");
     const host = `${own().host}=${yu.rawSessionId}`;
     expect(await whoAmI(server, host)).toBe("Yu");
@@ -265,7 +265,7 @@ describe("office cookie names: plain-HTTP office", () => {
   it("the plain write name wins over a stale __Host- cookie of the same office, in either order", async () => {
     server = await startTestServer();
     expect(buildPublicOrigin().isHttps).toBe(false);
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const stale = `${own().host}=revoked-session`;
     const accepted = await acceptViaHttp(server, await mintFor("Yu"));
     const issued = setCookieLines(accepted)[0]?.split(";", 1)[0] ?? "";
@@ -454,7 +454,7 @@ describe("shared-name fallback (one release, task c9f250af)", () => {
 
   it("a sign-in with a foreign shared __Host- cookie in the jar takes effect on the next request and the WS", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const foreign = `${SHARED_HOST}=from-another-office`;
     const accepted = await acceptViaHttp(server, await mintFor("Yu"));
     expect(accepted.status).toBe(302);
@@ -478,7 +478,7 @@ describe("shared-name fallback (one release, task c9f250af)", () => {
 describe("browser session lockout diagnostics", () => {
   it("reports a request with no cookie while active server rows remain", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     expect(listActiveSessions()).toHaveLength(1);
     expect(browserSessionDiagnostic(cookies(), null, "http")).toEqual({
       outcome: "cookie_absent",
@@ -565,7 +565,7 @@ describe("browser session lockout diagnostics", () => {
 
   it("redacts a live invite credential from a real HEAD diagnostic", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const token = "LIVE-INVITE-CREDENTIAL";
     const original = console.log;
     const lines: string[] = [];
@@ -584,7 +584,7 @@ describe("browser session lockout diagnostics", () => {
 
   it("wires diagnostics through the real HTTP and WebSocket gates", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const ownerLookup = validateSession(owner.rawSessionId);
     expect(ownerLookup).not.toBeNull();
     const original = console.log;
@@ -681,7 +681,7 @@ describe("migration onto the office's write name", () => {
     "step 1 on the shell: a shared-name session gets the same id under the write name, nothing cleared (needs ui/dist - run `bun run build:ui`)",
     async () => {
       server = await startTestServer();
-      await server.seedOwner("Boss");
+      await server.seedOwner("Morgan");
       const yu = await server.seedMember("Yu");
       for (const name of [SHARED, SHARED_HOST]) {
         const res = await server.http("/", {
@@ -909,7 +909,7 @@ describe("sign-out", () => {
 
   it("signing out through a shared name clears that name", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const yu = await server.seedMember("Yu");
     const res = await server.http("/auth/logout", {
       method: "POST",

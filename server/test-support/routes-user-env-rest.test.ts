@@ -76,7 +76,7 @@ async function officeRequest(
 describe("managed user env routes", () => {
   it("admits only the owning cookie or API identity and refuses both agent classes", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const other = await server.seedMember("Other");
     const ownerId = getUserByName(owner.username)!.id;
     const otherId = getUserByName(other.username)!.id;
@@ -139,7 +139,7 @@ describe("managed user env routes", () => {
 
   it("rejects unsafe input without putting values in the error", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const secret = "do-not-echo-this-secret";
     const badKey = await request(server, owner.username, {
       method: "PUT",
@@ -162,7 +162,7 @@ describe("managed user env routes", () => {
 describe("managed office env routes", () => {
   it("allows owner cookies and API tokens without exposing values to members or agents", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Member");
     const ownerId = getUserByName(owner.username)!.id;
     const memberId = getUserByName(member.username)!.id;
@@ -240,7 +240,7 @@ describe("managed user env names route", () => {
           }) as never,
       },
     });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Member");
     const ownerId = getUserByName(owner.username)!.id;
     const memberId = getUserByName(member.username)!.id;
@@ -382,7 +382,7 @@ describe("managed user env names route", () => {
 
   it("answers an empty list for a user who has set nothing", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Member");
     const read = await request(server, member.username, {
       suffix: "/names",
@@ -402,7 +402,7 @@ describe("managed user env names route", () => {
   });
   it("keeps names and the other provider when a personal probe fails", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Member");
     activatePersonalProvider(getUserByName(member.username)!.id, "codex");
     expect(

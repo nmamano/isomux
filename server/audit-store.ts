@@ -8,6 +8,16 @@ export const OFFICE_DATABASE = "office.sqlite";
 export type AuditWrite = Omit<AuditEntry, "sequence" | "time"> & {
   time?: number;
 };
+
+// Member memory rows were targeted memory:boss:<id> before task f41c93e9 and
+// memory:member:<id> since. A filter on either name finds both, so a member
+// memory's whole history stays listable for a restore.
+function memberMemoryTargets(targetId: string): string[] {
+  const match = /^memory:(boss|member):(.*)$/.exec(targetId);
+  if (!match) return [targetId];
+  return [`memory:member:${match[2]}`, `memory:boss:${match[2]}`];
+}
+
 export function openOfficeDatabase(path: string): Database {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { create: true });
@@ -93,10 +103,11 @@ export function createAuditStore(db: Database) {
       }
     }
     if (filter.targetId !== undefined) {
+      const targets = memberMemoryTargets(filter.targetId);
       where.push(
-        "sequence IN (SELECT sequence FROM audit_targets WHERE target=?)",
+        `sequence IN (SELECT sequence FROM audit_targets WHERE target IN (${targets.map(() => "?").join(",")}))`,
       );
-      args.push(filter.targetId);
+      args.push(...targets);
     }
     for (const [key, op, column] of [
       ["from", ">=", "time"],

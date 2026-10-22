@@ -55,7 +55,7 @@ const OFFICE_SECRET_VALUE = "office-secret-value-must-not-leak";
 async function seeded() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const other = await srv.seedMember("Other");
   await putEnv(srv, "/api/office/env", owner.rawSessionId, {

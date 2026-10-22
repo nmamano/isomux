@@ -109,7 +109,7 @@ function expectOfficeSecurityHeaders(response: Response): void {
 describe("auth/wall: WS upgrade gate", () => {
   it("401 without a cookie, 403 on a bad or opaque Origin, 403 on a MISSING Origin, 400 once both pass", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const good = buildPublicOrigin().origin;
 
     expect((await wsProbe(server, { origin: good })).status).toBe(401);
@@ -166,7 +166,7 @@ describe("auth/wall: WS upgrade gate", () => {
 
   it("the missing-Origin rule is stricter on /ws than on a mutating HTTP POST", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     // Same credentials, same absent Origin, two different answers - this
     // asymmetry is deliberate (agent curl posts without an Origin; a browser
@@ -188,7 +188,7 @@ describe("auth/wall: WS upgrade gate", () => {
 
   it("an expired cookie and a revoked session are both refused at the upgrade", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
     const good = buildPublicOrigin().origin;
 
@@ -229,7 +229,7 @@ describe("auth/wall: WS upgrade gate", () => {
 describe("auth/wall: HTTP cookie gate", () => {
   it("an expired cookie 401s exactly like no cookie at all", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     const anonymous = await raw(server, "/api/files");
     expect(anonymous.status).toBe(401);
@@ -255,7 +255,7 @@ describe("auth/wall: HTTP cookie gate", () => {
 describe("auth/wall: public disclosure and response hardening", () => {
   it("serves security.txt without an identity", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
 
     const response = await raw(server, "/.well-known/security.txt");
     expect(response.status).toBe(200);
@@ -272,7 +272,7 @@ describe("auth/wall: public disclosure and response hardening", () => {
 
   it("adds the same baseline headers to HTML, JSON errors, and public assets", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     const responses = [
       await raw(server, "/", { rawSessionId: owner.rawSessionId }),
@@ -295,7 +295,7 @@ describe("auth/wall: PWA assets are the ONLY pre-auth statics", () => {
     "/manifest.json and /icons/* serve anonymously (needs ui/dist - run `bun run build:ui`)",
     async () => {
       server = await startTestServer();
-      await server.seedOwner("Boss");
+      await server.seedOwner("Morgan");
 
       const manifest = await raw(server, "/manifest.json");
       expect(manifest.status).toBe(200);
@@ -312,7 +312,7 @@ describe("auth/wall: PWA assets are the ONLY pre-auth statics", () => {
     server = await startTestServer();
     // An owner must exist, or the office is pre-claim and `/` legitimately
     // serves the claim form to anyone who can reach the (loopback-bound) port.
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
 
     // Everything outside the whitelist still 401s anonymously.
     for (const path of ["/", "/index.html", "/app.js", "/api/files"]) {
@@ -330,7 +330,7 @@ describe("auth/wall: PWA assets are the ONLY pre-auth statics", () => {
 describe("auth/wall: the two-step invite flow over HTTP", () => {
   it("GET /i/<token> renders without consuming; POST /auth/accept consumes once and sets the cookie", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const m = await mintMemberLink("Newbie");
 
     // Two GETs: a link unfurler or a browser prefetch must not burn the token.
@@ -377,7 +377,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
 
   it("an expired invite is 410 on both the peek and the accept; a bad Origin never reaches the token", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const m = await mintMemberLink("Ghost", "member", -1000);
 
     const peek = await raw(server, `/i/${m.rawToken}`);
@@ -410,7 +410,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
 describe("auth/wall: a rename does not disturb live sessions", () => {
   it("the renamed user's cookie keeps working and reports the NEW name", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
 
     expect(validateSession(alice.rawSessionId)?.username).toBe("Alice");
@@ -437,7 +437,7 @@ describe("auth/wall: a rename does not disturb live sessions", () => {
 
   it("a rename that collides only by CASE is refused", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await server.seedMember("Alice");
 
     const collide = await raw(server, "/api/users/Alice", {
@@ -445,7 +445,7 @@ describe("auth/wall: a rename does not disturb live sessions", () => {
       origin: buildPublicOrigin().origin,
       rawSessionId: owner.rawSessionId,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "bOsS" }),
+      body: JSON.stringify({ name: "mOrGaN" }),
     });
     expect(collide.status).toBe(409);
     expect(getUserByName("Alice")?.name).toBe("Alice");

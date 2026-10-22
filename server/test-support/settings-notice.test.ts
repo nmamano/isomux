@@ -194,7 +194,7 @@ describe("settings notice", () => {
   it("a model edit: the next turn tells the agent and the chat, once", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const models = agentOf(srv, id).claudeFamilyModels;
 
@@ -202,7 +202,7 @@ describe("settings notice", () => {
     // Nothing shows before the next turn.
     expect(
       systemEntries(srv, id).some((e) =>
-        String(e.content).startsWith(header("Boss")),
+        String(e.content).startsWith(header("Morgan")),
       ),
     ).toBe(false);
     const logsBefore = srv.agentManager.getAgentLogs(id).length;
@@ -210,7 +210,7 @@ describe("settings notice", () => {
 
     const notice = noticeSentWith(srv, id, "after-model");
     const expected = [
-      header("Boss"),
+      header("Morgan"),
       line(
         t("common.field.model"),
         familyDisplayLabel("opus", models),
@@ -240,7 +240,7 @@ describe("settings notice", () => {
   it("effort and permission mode in one edit go in one notice, named by an agent caller", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const editor = await editorAgent(srv, owner.username);
 
@@ -272,7 +272,7 @@ describe("settings notice", () => {
   it("a Codex sandbox and approval policy edit uses the dialog's words", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const info = await srv.agentManager.spawn(
       "Codex",
       srv.stateRoot,
@@ -300,7 +300,7 @@ describe("settings notice", () => {
 
     expect(noticeSentWith(srv, id, "after-sandbox")).toBe(
       [
-        header("Boss"),
+        header("Morgan"),
         line(
           t("common.field.approvalPolicy"),
           t("dialogs.agent.permission.codexOnRequest"),
@@ -318,7 +318,7 @@ describe("settings notice", () => {
   it("a working folder edit shows the path as typed", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const from = join(srv.stateRoot, "folder-a");
     const to = join(srv.stateRoot, "folder-b");
     mkdirSync(from, { recursive: true });
@@ -332,7 +332,7 @@ describe("settings notice", () => {
 
     expect(noticeSentWith(srv, id, "after-cwd")).toBe(
       [
-        header("Boss"),
+        header("Morgan"),
         line(t("common.field.workingDirectory"), from, typed),
       ].join("\n"),
     );
@@ -341,7 +341,7 @@ describe("settings notice", () => {
   it("two edits before a turn merge: the latest value wins, the oldest old value stays", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const editor = await editorAgent(srv, owner.username);
     const models = agentOf(srv, id).claudeFamilyModels;
@@ -353,7 +353,7 @@ describe("settings notice", () => {
     // Effort is back at its old value, so only the model line is left.
     expect(noticeSentWith(srv, id, "after-merge")).toBe(
       [
-        header("Boss, Editor"),
+        header("Morgan, Editor"),
         line(
           t("common.field.model"),
           familyDisplayLabel("opus", models),
@@ -366,7 +366,7 @@ describe("settings notice", () => {
   it("an edit that stops a running turn says so, on the queued message the restart sends", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const models = agentOf(srv, id).claudeFamilyModels;
 
@@ -385,7 +385,7 @@ describe("settings notice", () => {
 
     expect(noticeSentWith(srv, id, "queued-one")).toBe(
       [
-        header("Boss"),
+        header("Morgan"),
         line(
           t("common.field.model"),
           familyDisplayLabel("opus", models),
@@ -399,7 +399,7 @@ describe("settings notice", () => {
   it("a turn parked on a permission prompt counts as stopped", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
 
     void srv.agentManager.sendMessage(id, "hold", "tester");
@@ -428,7 +428,7 @@ describe("settings notice", () => {
   it("an effort the new model lacks is named with the model", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     // On Vertex, Sonnet is a limited family: it has no "max" effort.
     const id = await liveAgent(srv, srv.stateRoot, {
       effort: "max",
@@ -443,7 +443,7 @@ describe("settings notice", () => {
 
     expect(noticeSentWith(srv, id, "after-downgrade")).toBe(
       [
-        header("Boss"),
+        header("Morgan"),
         line(
           t("common.field.model"),
           familyDisplayLabel("opus", models),
@@ -461,7 +461,7 @@ describe("settings notice", () => {
   it("a setting set back to its old value before the turn leaves no notice", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
 
     await patch(srv, id, { modelFamily: "sonnet" }, owner);
@@ -474,7 +474,7 @@ describe("settings notice", () => {
   it("a working folder edit on a dormant Claude agent arms the notice", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const from = join(srv.stateRoot, "dormant-a");
     const to = join(srv.stateRoot, "dormant-b");
     mkdirSync(from, { recursive: true });
@@ -489,16 +489,17 @@ describe("settings notice", () => {
     await turn(srv, id, "after-dormant");
 
     expect(noticeSentWith(srv, id, "after-dormant")).toBe(
-      [header("Boss"), line(t("common.field.workingDirectory"), from, to)].join(
-        "\n",
-      ),
+      [
+        header("Morgan"),
+        line(t("common.field.workingDirectory"), from, to),
+      ].join("\n"),
     );
   });
 
   it("a Codex working folder edit starts a fresh conversation, with no notice", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const to = join(srv.stateRoot, "codex-b");
     mkdirSync(to, { recursive: true });
     const id = await liveCodex(srv);
@@ -514,7 +515,7 @@ describe("settings notice", () => {
       fakeBackend: holdingBackend("empty"),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveCodex(srv);
 
     await patch(srv, id, { codexSandbox: "read-only" }, owner);
@@ -526,7 +527,7 @@ describe("settings notice", () => {
   it("an edit that does not restart the process arms no notice", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const before = session(srv, id);
 
@@ -540,7 +541,7 @@ describe("settings notice", () => {
   it("an edit with no named caller arms no notice", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const before = session(srv, id);
 
@@ -559,7 +560,7 @@ describe("settings notice", () => {
   it("a /model pick tells the agent who picked it", async () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const id = await liveAgent(srv);
     const models = agentOf(srv, id).claudeFamilyModels;
 

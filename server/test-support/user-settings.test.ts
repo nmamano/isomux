@@ -76,7 +76,7 @@ async function waitForUserField(
 describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
   it("legacy-pref migration (former claim_user) clamps notif to the caller's accessible rooms", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2"); // live but NOT granted
@@ -96,7 +96,7 @@ describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
 
   it("an owner (allowedRooms=[]) saving their OWN notifRooms keeps every live room (rule access)", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
     const ownerId = getUserByName(owner.username)!.id;
@@ -109,7 +109,7 @@ describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
 
   it("a member saving their OWN notifRooms clamps to their current grants", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -124,7 +124,7 @@ describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
 describe("users.setAccess prune-clamps notifRooms to the new access (3d.9b)", () => {
   it("revoking a room prunes the member's existing notif pointing at it", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");

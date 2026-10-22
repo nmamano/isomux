@@ -991,7 +991,7 @@ describe("app-host handshake: the office mint endpoint", () => {
     // there is no origin to send anyone to and the endpoint is not a route.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await srv.http("/auth/app?app=hello&r=%2F", {
       rawSessionId: owner.rawSessionId,
       redirect: "manual",

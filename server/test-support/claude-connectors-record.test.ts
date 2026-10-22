@@ -103,7 +103,7 @@ async function runSession(opts: {
   );
   if (!info) throw new Error("spawn returned null");
   mgr.enqueueMessage(info.id, {
-    sender: { kind: "user", username: "Boss" },
+    sender: { kind: "user", username: "Morgan" },
     text: "hi",
   });
   await waitUntil(
@@ -298,7 +298,7 @@ describe("a status read that sees pending", () => {
       rereadMs,
     });
     mgr.enqueueMessage(agentId, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "next",
     });
     await waitUntil(

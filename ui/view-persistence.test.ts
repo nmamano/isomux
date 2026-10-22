@@ -301,7 +301,7 @@ describe("drafts: per-composer owner-namespaced keys", () => {
 // a WHOLE payload on an unknown panel value, so a value the running build does
 // not recognise takes roomId and agentId down with the panel.
 describe("saved view: the settings panel rename", () => {
-  const owner = "boss";
+  const owner = "morgan";
 
   it("still parses a payload written under the old 'users' name", () => {
     // An older build's saved spot, read by this one. The room and the agent

@@ -16,6 +16,8 @@
 // a system line is found by the member names it carries.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { getAgentTokenRaw, resolveToken } from "../identity/tokens.ts";
@@ -113,6 +115,33 @@ function queueOf(srv: TestServer, id: string): AgentInfo["queue"] {
   return srv.agentManager.getAllAgents().find((a) => a.id === id)!.queue;
 }
 
+// The stored records, read from disk as an older release would read them.
+function persistedAgent(
+  srv: TestServer,
+  id: string,
+): Record<string, unknown> | undefined {
+  const path = join(srv.stateRoot, "agents.json");
+  if (!existsSync(path)) return undefined;
+  const rooms = JSON.parse(readFileSync(path, "utf-8")) as {
+    agents: Record<string, unknown>[];
+  }[];
+  return rooms.flatMap((room) => room.agents).find((a) => a.id === id);
+}
+
+function persistedHistory(
+  srv: TestServer,
+  id: string,
+): Record<string, unknown> | undefined {
+  const path = join(srv.stateRoot, "agent-history.json");
+  if (!existsSync(path)) return undefined;
+  return (
+    JSON.parse(readFileSync(path, "utf-8")) as Record<
+      string,
+      Record<string, unknown>
+    >
+  )[id];
+}
+
 function latestSession(srv: TestServer, agentId: string): FakeSession {
   const session = srv.fakeBackend.sessionForAgent(agentId);
   if (!session) throw new Error("no fake session for agent");
@@ -192,12 +221,12 @@ const setManager = (
     },
   );
 
-// An office: owner Boss, members Alice, Bea and Cleo, each with access to
+// An office: owner Morgan, members Alice, Bea and Cleo, each with access to
 // the first room.
 async function office(backend = completingBackend()) {
   const srv = await startTestServer({ fakeBackend: backend });
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const roomId = srv.agentManager.getRooms()[0].id;
   const alice = await srv.seedMember("Alice");
   await srv.seedMember("Bea");
@@ -206,30 +235,46 @@ async function office(backend = completingBackend()) {
     expect(updateUserById(idOf(name), { allowedRooms: [roomId] }).ok).toBe(
       true,
     );
-  return { srv, boss, alice };
+  return { srv, morgan, alice };
 }
 
 describe("agents.setManager: the agent itself", () => {
   it("changes the manager fields and token, keeps privilege, and the next turn is a fresh session", async () => {
-    const { srv, boss } = await office();
+    const { srv, morgan } = await office();
     const agent = await spawn(srv, "Mover", "Alice");
     await srv.agentManager.setPrivileged(agent.id, true);
     const old = await runTurn(srv, agent.id);
     const oldToken = getAgentTokenRaw(agent.id)!;
     expect(resolveToken(oldToken)?.userId).toBe(idOf("Alice"));
 
-    const res = await setManager(srv, agent.id, idOf("Bea"), boss.rawSessionId);
+    const res = await setManager(
+      srv,
+      agent.id,
+      idOf("Bea"),
+      morgan.rawSessionId,
+    );
     expect(res.status).toBe(200);
     expect((res.body as { agent: AgentInfo }).agent).toMatchObject({
       id: agent.id,
       userId: idOf("Bea"),
-      username: "Bea",
+      manager: "Bea",
       privileged: true,
     });
     expect(agentOf(srv, agent.id)).toMatchObject({
       userId: idOf("Bea"),
-      username: "Bea",
+      manager: "Bea",
       privileged: true,
+    });
+    // agents.json keeps the old `username` key beside `manager`, so a
+    // rollback to an older release still finds the manager (task f41c93e9).
+    await waitUntil(
+      () => persistedAgent(srv, agent.id)?.manager === "Bea",
+      "agents.json names the new manager",
+    );
+    expect(persistedAgent(srv, agent.id)).toMatchObject({
+      userId: idOf("Bea"),
+      manager: "Bea",
+      username: "Bea",
     });
 
     // The token is re-minted for the new manager, with the same privilege.
@@ -244,7 +289,7 @@ describe("agents.setManager: the agent itself", () => {
     expect(old.closed).toBe(true);
     const lines = systemLines(srv, agent.id);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("Boss");
+    expect(lines[0]).toContain("Morgan");
     expect(lines[0]).toContain("Bea");
 
     // The next turn starts a new conversation, not a resume of the old one.
@@ -258,7 +303,7 @@ describe("agents.setManager: the agent itself", () => {
   it("runs a message queued during the transfer under the new manager's token", async () => {
     // Each turn parks in "thinking": the first message holds the agent busy,
     // so the second waits in the queue.
-    const { srv, boss } = await office(
+    const { srv, morgan } = await office(
       new FakeBackend({
         session: {
           onSend: (_t, _a, s) =>
@@ -277,7 +322,12 @@ describe("agents.setManager: the agent itself", () => {
     srv.agentManager.enqueueMessage(agent.id, { sender, text: "second" });
     expect(queueOf(srv, agent.id).some((q) => q.text === "second")).toBe(true);
 
-    const res = await setManager(srv, agent.id, idOf("Bea"), boss.rawSessionId);
+    const res = await setManager(
+      srv,
+      agent.id,
+      idOf("Bea"),
+      morgan.rawSessionId,
+    );
     expect(res.status).toBe(200);
 
     await waitUntil(
@@ -304,7 +354,7 @@ describe("agents.setManager: the agent itself", () => {
   });
 
   it("does nothing when the member already manages the agent", async () => {
-    const { srv, boss } = await office();
+    const { srv, morgan } = await office();
     const agent = await spawn(srv, "Stays", "Alice");
     const session = await runTurn(srv, agent.id);
     const token = getAgentTokenRaw(agent.id);
@@ -315,7 +365,7 @@ describe("agents.setManager: the agent itself", () => {
       srv,
       agent.id,
       idOf("Alice"),
-      boss.rawSessionId,
+      morgan.rawSessionId,
     );
     expect(res.status).toBe(200);
     expect(getAgentTokenRaw(agent.id)).toBe(token);
@@ -324,11 +374,11 @@ describe("agents.setManager: the agent itself", () => {
   });
 
   it("answers a bad body, an unknown member, an unknown agent and a member caller", async () => {
-    const { srv, boss, alice } = await office();
+    const { srv, morgan, alice } = await office();
     const agent = await spawn(srv, "Target", "Alice");
 
     for (const bad of [undefined, 42, ""]) {
-      const r = await setManager(srv, agent.id, bad, boss.rawSessionId);
+      const r = await setManager(srv, agent.id, bad, morgan.rawSessionId);
       expect(r.status).toBe(422);
       expect(errCode(r)).toBe("invalid_request");
     }
@@ -336,7 +386,7 @@ describe("agents.setManager: the agent itself", () => {
       srv,
       agent.id,
       "u-nobody",
-      boss.rawSessionId,
+      morgan.rawSessionId,
     );
     expect(unknown.status).toBe(422);
     expect(errCode(unknown)).toBe("unknown_member");
@@ -345,7 +395,7 @@ describe("agents.setManager: the agent itself", () => {
       srv,
       "agent-nope",
       idOf("Bea"),
-      boss.rawSessionId,
+      morgan.rawSessionId,
     );
     expect(noAgent.status).toBe(404);
     expect(errCode(noAgent)).toBe("agent_not_found");
@@ -365,7 +415,7 @@ describe("agents.setManager: the agent itself", () => {
 
 describe("agents.setManager: what the agent made moves with it", () => {
   it("moves the agent's apps, schedules and webhooks that the old manager owns, and nothing else", async () => {
-    const { srv, boss } = await office();
+    const { srv, morgan } = await office();
     const agent = await spawn(srv, "Maker", "Alice");
     // Only a privileged agent manages schedules.
     await srv.agentManager.setPrivileged(agent.id, true);
@@ -472,7 +522,12 @@ describe("agents.setManager: what the agent made moves with it", () => {
     const third = add("Cleo", { createdByAgentId: agent.id });
     expect(third.createdByAgentId).toBe(agent.id);
 
-    const res = await setManager(srv, agent.id, idOf("Bea"), boss.rawSessionId);
+    const res = await setManager(
+      srv,
+      agent.id,
+      idOf("Bea"),
+      morgan.rawSessionId,
+    );
     expect(res.status).toBe(200);
 
     const beaId = idOf("Bea");
@@ -486,12 +541,12 @@ describe("agents.setManager: what the agent made moves with it", () => {
       srv,
       "GET",
       `/api/webhooks/${(hook.body as WebhookWire).id}`,
-      { rawSessionId: boss.rawSessionId },
+      { rawSessionId: morgan.rawSessionId },
     );
     expect((hookNow.body as WebhookWire).userId).toBe(beaId);
 
     const apps = (
-      await api(srv, "GET", "/api/apps", { rawSessionId: boss.rawSessionId })
+      await api(srv, "GET", "/api/apps", { rawSessionId: morgan.rawSessionId })
     ).body as AppListWire[];
     expect(apps.find((a) => a.name === "maker-app")?.userId).toBe(beaId);
     // The same app token keeps its owner agent's reach.
@@ -503,15 +558,17 @@ describe("agents.setManager: what the agent made moves with it", () => {
 
 describe("resuming a session from an earlier manager", () => {
   it("names the manager each session was born under, by their current name, and nothing for the current manager's", async () => {
-    const { srv, boss } = await office();
+    const { srv, morgan } = await office();
     const agent = await spawn(srv, "Resumer", "Alice");
     const underAlice = (await runTurn(srv, agent.id)).sessionId;
     expect(
-      (await setManager(srv, agent.id, idOf("Bea"), boss.rawSessionId)).status,
+      (await setManager(srv, agent.id, idOf("Bea"), morgan.rawSessionId))
+        .status,
     ).toBe(200);
     const underBea = (await runTurn(srv, agent.id)).sessionId;
     expect(
-      (await setManager(srv, agent.id, idOf("Cleo"), boss.rawSessionId)).status,
+      (await setManager(srv, agent.id, idOf("Cleo"), morgan.rawSessionId))
+        .status,
     ).toBe(200);
     const underCleo = (await runTurn(srv, agent.id)).sessionId;
     expect(new Set([underAlice, underBea, underCleo]).size).toBe(3);
@@ -542,16 +599,16 @@ describe("resuming a session from an earlier manager", () => {
 
 describe("deleting a member passes their agents to the oldest office owner", () => {
   it("moves live and killed agents, with what they made, to the oldest owner, not to the owner who deletes", async () => {
-    const { srv, boss } = await office();
-    // A second owner, newer than Boss, who deletes Alice.
+    const { srv, morgan } = await office();
+    // A second owner, newer than Morgan, who deletes Alice.
     await sleep(2);
     const zed = await srv.seedMember("Zed");
     expect(setUserRoleById(idOf("Zed"), "owner")).toBe(true);
-    const bossId = idOf("Boss");
-    expect(getUserById(bossId)!.createdAt).toBeLessThan(
+    const morganId = idOf("Morgan");
+    expect(getUserById(morganId)!.createdAt).toBeLessThan(
       getUserById(idOf("Zed"))!.createdAt,
     );
-    void boss;
+    void morgan;
 
     const live = await spawn(srv, "Live", "Alice");
     await srv.agentManager.setPrivileged(live.id, true);
@@ -612,32 +669,119 @@ describe("deleting a member passes their agents to the oldest office owner", () 
     expect(getUserByName("Alice")).toBeUndefined();
 
     expect(agentOf(srv, live.id)).toMatchObject({
-      userId: bossId,
-      username: "Boss",
+      userId: morganId,
+      manager: "Morgan",
       privileged: true,
     });
-    expect(resolveToken(getAgentTokenRaw(live.id)!)?.userId).toBe(bossId);
+    // Both stores keep `username` beside `manager` for a rollback.
+    await waitUntil(
+      () =>
+        persistedAgent(srv, live.id)?.manager === "Morgan" &&
+        persistedHistory(srv, killed.id)?.manager === "Morgan",
+      "agents.json and agent-history.json name the new manager",
+    );
+    expect(persistedAgent(srv, live.id)).toMatchObject({
+      userId: morganId,
+      manager: "Morgan",
+      username: "Morgan",
+    });
+    expect(persistedHistory(srv, killed.id)).toMatchObject({
+      userId: morganId,
+      manager: "Morgan",
+      username: "Morgan",
+    });
+    expect(resolveToken(getAgentTokenRaw(live.id)!)?.userId).toBe(morganId);
     expect(old.closed).toBe(true);
-    expect(srv.agentManager.killedAgentManagerUserId(killed.id)).toBe(bossId);
+    expect(srv.agentManager.killedAgentManagerUserId(killed.id)).toBe(morganId);
 
     const job = srv.cronjobManager
       .listCronjobs()
       .find((j) => j.id === (cron.body as Cronjob).id)!;
-    expect(job).toMatchObject({ userId: bossId, username: "Boss" });
+    expect(job).toMatchObject({ userId: morganId, username: "Morgan" });
     const hookNow = await api(
       srv,
       "GET",
       `/api/webhooks/${(hook.body as WebhookWire).id}`,
       { rawSessionId: zed.rawSessionId },
     );
-    expect((hookNow.body as WebhookWire).userId).toBe(bossId);
+    expect((hookNow.body as WebhookWire).userId).toBe(morganId);
     const apps = (
       await api(srv, "GET", "/api/apps", { rawSessionId: zed.rawSessionId })
     ).body as AppListWire[];
-    expect(apps.find((a) => a.name === "live-app")?.userId).toBe(bossId);
+    expect(apps.find((a) => a.name === "live-app")?.userId).toBe(morganId);
 
     // A session from Alice's time still names her after her record is gone.
     const lines = await resumeLines(srv, live.id, old.sessionId);
     expect(lines.filter((l) => l.includes("Alice"))).toHaveLength(1);
+  });
+});
+
+// The manager snapshot on the agent is a display name; the prompt finds the
+// manager by userId, so a rename keeps the manager's section, their special
+// instructions and their memory under the new name (task f41c93e9).
+describe("renaming the manager", () => {
+  it("keeps the manager's special instructions and memory in both prompt paths, under the new name", async () => {
+    const { srv, morgan } = await office();
+    expect(
+      updateUserById(idOf("Alice"), { memberPrompt: "MANAGER_PROMPT_MARKER" })
+        .ok,
+    ).toBe(true);
+    const agent = await spawn(srv, "Renamed", "Alice");
+    const routePrompt = async (): Promise<string> => {
+      const res = await api(
+        srv,
+        "GET",
+        `/api/agents/${agent.id}/system-prompt`,
+        { rawSessionId: morgan.rawSessionId },
+      );
+      expect(res.status).toBe(200);
+      return (res.body as { prompt: string }).prompt;
+    };
+    const sessionPrompt = async (): Promise<string> => {
+      await srv.agentManager.newConversation(agent.id);
+      return (await runTurn(srv, agent.id)).opts.systemPrompt ?? "";
+    };
+
+    // Enabling condition: both paths carry the manager's instructions.
+    for (const prompt of [await routePrompt(), await sessionPrompt()]) {
+      expect(prompt).toContain("MANAGER_PROMPT_MARKER");
+      expect(prompt).toContain(`"Alice"`);
+    }
+
+    const renamed = await api(
+      srv,
+      "PATCH",
+      "/api/users/Alice",
+      { rawSessionId: morgan.rawSessionId },
+      { name: "Alicia" },
+    );
+    expect(renamed.status).toBe(200);
+    expect(getUserById(agentOf(srv, agent.id).userId)?.name).toBe("Alicia");
+
+    for (const prompt of [await routePrompt(), await sessionPrompt()]) {
+      expect(prompt).toContain("MANAGER_PROMPT_MARKER");
+      expect(prompt).toContain(`"Alicia"`);
+      expect(prompt).not.toContain(`"Alice"`);
+    }
+
+    // The member-memory block is labeled with the current name too.
+    const saved = await api(
+      srv,
+      "POST",
+      "/api/memory",
+      { rawSessionId: morgan.rawSessionId },
+      {
+        scope: "member",
+        scopeId: idOf("Alicia"),
+        text: "MANAGER_MEMORY_MARKER",
+      },
+    );
+    expect(saved.status).toBe(201);
+    for (const prompt of [await routePrompt(), await sessionPrompt()]) {
+      const lines = prompt.split("\n");
+      const at = lines.findIndex((l) => l.includes("MANAGER_MEMORY_MARKER"));
+      expect(at).toBeGreaterThan(0);
+      expect(lines[at - 1]).toContain(`"Alicia"`);
+    }
   });
 });

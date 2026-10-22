@@ -110,7 +110,7 @@ describe("a slash command's reply is stored in English and worded per reader", (
   // The typist reads Spanish: the old writer put Spanish into a log every
   // reader of the agent sees.
   async function spanishTypist(srv: TestServer) {
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     setLanguage(owner.username, "es");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "A", room.id, owner.username);
@@ -190,7 +190,7 @@ describe("a slash command's reply is stored in English and worded per reader", (
 
   it("/help lists no skill on any engine and links the Skills page", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const { t } = translatorFor("en");
     for (const engine of ["claude", "codex", "opencode"] as const) {
@@ -264,7 +264,7 @@ function lastSystemEntry(
 describe("a choice card stores English and words itself for each reader", () => {
   it("gives the /effort card English fields and a message for each reader", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
@@ -308,7 +308,7 @@ describe("a line a member caused reads in each reader's language", () => {
   // The owner reads English and the member who types reads Catalan: one
   // entry has to serve both.
   async function mixedOffice(srv: TestServer) {
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     setLanguage(owner.username, null);
     const member = await srv.seedMember("Jordi");
     setLanguage(member.username, "ca");
@@ -360,7 +360,7 @@ describe("a line a member caused reads in each reader's language", () => {
 describe("a line nobody typed reads in each reader's language", () => {
   it("words a backend permission prompt for each reader", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
@@ -433,7 +433,7 @@ describe("a line nobody typed reads in each reader's language", () => {
 
   it("words the API new-conversation entry for each reader", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
@@ -475,7 +475,7 @@ describe("the dormant-wake message is split by reader", () => {
   // S7).
   it("words the logged wake for each reader and sends the agent the English notice", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
@@ -545,7 +545,7 @@ describe("the dormant-wake message is split by reader", () => {
 describe("what stays English", () => {
   it("keeps an API error English for a Spanish user (ruling 2)", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
     const badRequest = async () => {
@@ -575,7 +575,7 @@ describe("what stays English", () => {
 
   it("delivers an agent's message as agent INPUT, with no localized response", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     setLanguage(owner.username, "es");
     const room = server.agentManager.getRooms()[0];
     const receiver = await spawnAgent(

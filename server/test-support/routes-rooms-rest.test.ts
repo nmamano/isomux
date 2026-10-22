@@ -61,7 +61,7 @@ describe("rooms.create REST (Phase 3d slice 6)", () => {
   it("owner -> 201 { room } with a real id present in getRooms()", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const before = srv.agentManager.getRooms().length;
     const res = await req(srv, "POST", "/api/rooms", {
       body: { name: "NewRoom" },
@@ -79,7 +79,7 @@ describe("rooms.create REST (Phase 3d slice 6)", () => {
   it("a member can create (room:manage is a user capability) -> 201", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const res = await req(srv, "POST", "/api/rooms", {
       body: {},
@@ -91,7 +91,7 @@ describe("rooms.create REST (Phase 3d slice 6)", () => {
   it("no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const res = await req(srv, "POST", "/api/rooms", { body: { name: "X" } });
     expect(res.status).toBe(401);
   });
@@ -101,7 +101,7 @@ describe("rooms.close REST (Phase 3d slice 6)", () => {
   it("owner closes an empty room -> 204; room removed", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const extra = srv.agentManager.createRoom("Extra");
     const res = await req(srv, "DELETE", `/api/rooms/${extra}`, {
       rawSessionId: owner.rawSessionId,
@@ -113,7 +113,7 @@ describe("rooms.close REST (Phase 3d slice 6)", () => {
   it("owner + unknown room id -> 404 room_not_found (Follow-up #6)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "DELETE", "/api/rooms/deadbeef", {
       rawSessionId: owner.rawSessionId,
     });
@@ -124,7 +124,7 @@ describe("rooms.close REST (Phase 3d slice 6)", () => {
   it("member with no access -> 403; room untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const extra = srv.agentManager.createRoom("Extra");
     const res = await req(srv, "DELETE", `/api/rooms/${extra}`, {
@@ -139,7 +139,7 @@ describe("rooms.rename REST (Phase 3d slice 6)", () => {
   it("owner rename -> 204; name changes", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { name: "Renamed" },
@@ -152,7 +152,7 @@ describe("rooms.rename REST (Phase 3d slice 6)", () => {
   it("empty/whitespace name -> 422 invalid_name (shape check, not an existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { name: "   " },
@@ -165,7 +165,7 @@ describe("rooms.rename REST (Phase 3d slice 6)", () => {
   it("owner + unknown room id -> 404 room_not_found", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "PATCH", "/api/rooms/deadbeef", {
       body: { name: "Z" },
       rawSessionId: owner.rawSessionId,
@@ -177,7 +177,7 @@ describe("rooms.rename REST (Phase 3d slice 6)", () => {
   it("member with no access -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
@@ -197,7 +197,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("pet alone -> 204; the pet is set and the name is untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const before = srv.agentManager.getRooms()[0].name;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
@@ -215,7 +215,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("name alone still renames and leaves the pet alone", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { pet: { species: "rabbit", coat: 1 } },
@@ -236,7 +236,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("both fields in one body -> 204; both applied", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { name: "Both", pet: { species: "tortoise", coat: 0 } },
@@ -253,7 +253,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("pet null clears back to the default -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { pet: { species: "dog", coat: 0 } },
@@ -270,7 +270,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("a body with neither field -> 422 invalid_request", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: {},
@@ -283,7 +283,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("unknown species and out-of-range coat -> 422 invalid_pet", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     for (const pet of [
       { species: "duck", coat: 0 },
@@ -305,7 +305,7 @@ describe("rooms.rename REST - the pet field", () => {
   it("a rejected pet leaves an accompanying name unwritten", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const before = srv.agentManager.getRooms()[0].name;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
@@ -326,7 +326,7 @@ describe("rooms REST - the skin field", () => {
   it("create with a skin -> 201 and the room carries it", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "POST", "/api/rooms", {
       body: { name: "Ward", skin: "hospital" },
       rawSessionId: owner.rawSessionId,
@@ -344,7 +344,7 @@ describe("rooms REST - the skin field", () => {
   it("create without a skin -> 201 and the field stays off the record", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "POST", "/api/rooms", {
       body: { name: "Plain" },
       rawSessionId: owner.rawSessionId,
@@ -357,7 +357,7 @@ describe("rooms REST - the skin field", () => {
   it("create with an unknown skin -> 422 invalid_skin and no room", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const before = srv.agentManager.getRooms().length;
     const res = await req(srv, "POST", "/api/rooms", {
       body: { name: "Clinic", skin: "clinic" },
@@ -371,7 +371,7 @@ describe("rooms REST - the skin field", () => {
   it("skin alone -> 204; the skin is set and the name is untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const before = srv.agentManager.getRooms()[0].name;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
@@ -386,7 +386,7 @@ describe("rooms REST - the skin field", () => {
   it("name and skin in one body -> 204; both applied", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { name: "Ward", skin: "hospital" },
@@ -400,7 +400,7 @@ describe("rooms REST - the skin field", () => {
   it("skin null clears back to the office look -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: { skin: "hospital" },
@@ -417,7 +417,7 @@ describe("rooms REST - the skin field", () => {
   it("an unknown skin -> 422 invalid_skin, and an accompanying name stays unwritten", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const before = srv.agentManager.getRooms()[0].name;
     for (const skin of ["clinic", "", 7, {}]) {
@@ -436,7 +436,7 @@ describe("rooms REST - the skin field", () => {
   it("the lobby takes no skin -> 422 skin_not_supported, and nothing is written", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     srv.agentManager.ensureLobby();
     const res = await req(srv, "PATCH", "/api/rooms/lobby", {
       body: { skin: "hospital" },
@@ -456,7 +456,7 @@ describe("rooms REST - the skin field", () => {
   it("the lobby refuses before the value is validated", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     srv.agentManager.ensureLobby();
     const res = await req(srv, "PATCH", "/api/rooms/lobby", {
       body: { skin: "clinic" },
@@ -469,7 +469,7 @@ describe("rooms REST - the skin field", () => {
   it("an unknown room is still a 404, not the lobby's answer", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "PATCH", "/api/rooms/deadbeef", {
       body: { skin: "hospital" },
       rawSessionId: owner.rawSessionId,
@@ -481,7 +481,7 @@ describe("rooms REST - the skin field", () => {
   it("a body with none of the three fields -> 422", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
       body: {},
@@ -500,7 +500,7 @@ describe("rooms REST - the decor field", () => {
   async function owned() {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const id = srv.agentManager.getRooms()[0].id;
     const patch = (body: unknown) =>
       req(srv, "PATCH", `/api/rooms/${id}`, {
@@ -574,7 +574,7 @@ describe("rooms REST - the decor field", () => {
   it("the lobby refuses decor before the value is validated", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     srv.agentManager.ensureLobby();
     for (const decor of [{ walls: "clinic" }, { lamp: "on" }]) {
       const res = await req(srv, "PATCH", "/api/rooms/lobby", {

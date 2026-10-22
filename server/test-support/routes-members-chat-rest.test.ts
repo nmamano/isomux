@@ -195,7 +195,7 @@ describe("members chat REST: edit and delete ownership", () => {
 
     const mine = (await post(server, member.rawSessionId, "draft"))
       .body as MembersChatMessage;
-    const theirs = (await post(server, owner.rawSessionId, "boss note"))
+    const theirs = (await post(server, owner.rawSessionId, "morgan note"))
       .body as MembersChatMessage;
 
     // Member edits own: 200, and the edit fans out as an upsert.
@@ -477,7 +477,7 @@ describe("members chat REST: who may enter", () => {
     expect(m.userName).toBe("Bot");
     expect(m.userId).toBe(ownerId);
     expect(m.device).toBeUndefined();
-    // The agent shares its boss's identity for ownership: the boss can edit it.
+    // The agent shares its manager's identity for ownership: the manager can edit it.
     const page = (
       await api(server, "/api/members-chat", { bearer: privileged })
     ).body as MembersChatPageRes;

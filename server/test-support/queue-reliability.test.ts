@@ -234,7 +234,7 @@ function parkingBackend(extra?: {
 describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 L1)", () => {
   it("mid-turn clean stream end settles the turn, surfaces the error, releases the dead session, and the agent recovers", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex: the post-death recovery wake starts a FRESH session instead of
     // tripping Claude's resume preflight on the fake session id.
@@ -294,7 +294,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     // new turn." flush error, two concurrent sends). The queued item stays
     // durable, waits out the revive turn, and delivers exactly once after it.
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const a = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -366,7 +366,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     server = await startTestServer({
       fakeBackend: parkingBackend({ manualSend: true, abortInPlace: true }),
     });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex receiver: any session replacement on the way starts a FRESH
     // session instead of tripping Claude's resume preflight on the fake
@@ -432,7 +432,7 @@ describe("queue reliability: bounded consumer drain (da065287 L2)", () => {
     server = await startTestServer({
       fakeBackend: parkingBackend({ hangOnClose: true }),
     });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -490,7 +490,7 @@ describe("queue reliability: activity after a completed turn", () => {
         },
       }),
     });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
 
@@ -707,7 +707,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
 
   it("recovers a quiescent Claude tool turn, clears leaked prior-turn tools, normalizes state, and delivers the queue", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "claude");
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -927,7 +927,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
 
   it("forced path: attempts a session-replacement recovery once, then respects the cooldown (never force-clears flushInProgress)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex: forced recovery's auto-resume starts a fresh session (no Claude
     // resume preflight on the fake session id).
@@ -1037,7 +1037,7 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
     server = await startTestServer({
       fakeBackend: parkingBackend({ hangOnClose: true }),
     });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
 
@@ -1136,7 +1136,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
 
   it("a restart replays queued messages in order (one coalesced prompt) and the dedupe window survives", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex: the boot-replay wake starts a fresh session (no Claude resume
     // preflight against the fake session id).
@@ -1211,7 +1211,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
 
   it("explicit clears persist (newConversation) and kill removes the record", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const other = await spawnAgent(server, "Other", room.id);
@@ -1284,7 +1284,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
 
   it("a failed durable write rejects the send with 500 persist_failed and rolls back cleanly (dedupe key reusable)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1336,7 +1336,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
     // serialized the whole cache - resurrecting a message whose sender was
     // told 500.
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recvA = await spawnAgent(server, "ReceiverA", room.id, "codex");
     const recvB = await spawnAgent(server, "ReceiverB", room.id, "codex");

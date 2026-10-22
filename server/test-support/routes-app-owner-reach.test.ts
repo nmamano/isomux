@@ -103,8 +103,8 @@ describe("app owner reach: the same token follows the owner agent live", () => {
   it("loses the privileged routes when its owner is demoted", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "PrivBot", "Boss");
+    await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "PrivBot", "Morgan");
     await srv.agentManager.setPrivileged(owner.id, true);
     const { appToken } = await register(srv, owner, "priv-app");
 
@@ -124,8 +124,8 @@ describe("app owner reach: the same token follows the owner agent live", () => {
   it("files a task in its owner agent's current room, which moves with the agent", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "Mover", "Boss");
+    await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "Mover", "Morgan");
     const { appToken } = await register(srv, owner, "mover-app");
     const before = await call(srv, "POST", "/api/tasks", appToken, {
       title: "before the move",
@@ -146,7 +146,7 @@ describe("app owner reach: the same token follows the owner agent live", () => {
   it("loses a room when its owner agent's manager loses the room grant", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const created = createMember("Mia", {
       role: "member",
@@ -168,8 +168,8 @@ describe("app owner reach: the same token follows the owner agent live", () => {
   it("falls back to the app-self routes when its owner agent is killed", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "Doomed", "Boss");
+    await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "Doomed", "Morgan");
     const { appToken } = await register(srv, owner, "orphan-app");
 
     expect(srv.agentManager.getAgent(owner.id)).toBeDefined();
@@ -185,10 +185,10 @@ describe("app owner reach: GET /agents", () => {
   it("answers the app as it answers its owner agent, for the live, back-room and killed rosters", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     expect(srv.agentManager.setRoomBackRoom(room, true).ok).toBe(true);
-    const owner = await spawn(srv, "Lister", "Boss", room);
+    const owner = await spawn(srv, "Lister", "Morgan", room);
     const back = await srv.agentManager.spawn(
       "BackSeat",
       srv.stateRoot,
@@ -199,11 +199,11 @@ describe("app owner reach: GET /agents", () => {
       undefined,
       undefined,
       undefined,
-      "Boss",
+      "Morgan",
       "codex",
     );
     expect(back?.desk).toBeGreaterThanOrEqual(8);
-    const gone = await spawn(srv, "Gone", "Boss", room);
+    const gone = await spawn(srv, "Gone", "Morgan", room);
     await srv.agentManager.kill(gone.id);
     const { appToken, builderToken } = await register(srv, owner, "lister");
 
@@ -224,8 +224,8 @@ describe("app owner reach: writes name the app", () => {
   it("records the app on a task and in the audit row, never the owner agent or the member", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "LoopOwner", "Boss");
+    await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "LoopOwner", "Morgan");
     const { appToken } = await register(srv, owner, "loop");
 
     const made = await call(srv, "POST", "/api/tasks", appToken, {
@@ -235,7 +235,7 @@ describe("app owner reach: writes name the app", () => {
     const task = made.body as TaskItem;
     expect(task.createdBy).toContain("loop");
     expect(task.createdBy).not.toBe(owner.name);
-    expect(task.createdBy).not.toBe("Boss");
+    expect(task.createdBy).not.toBe("Morgan");
     expect(latestAudit("tasks.create")?.actor).toMatchObject({
       kind: "app",
       name: "loop",
@@ -258,8 +258,8 @@ describe("app owner reach: writes name the app", () => {
   it("records the app as the author of a memory line", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "MemOwner", "Boss");
+    await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "MemOwner", "Morgan");
     const { appToken } = await register(srv, owner, "notes");
     const r = await call(srv, "POST", "/api/memory", appToken, {
       scope: "office",
@@ -279,9 +279,9 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
   it("refuses an ordinary agent, and passes a human and a privileged agent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const boss = await srv.seedOwner("Boss");
-    const ordinary = await spawn(srv, "Plain", "Boss");
-    const privileged = await spawn(srv, "Priv", "Boss");
+    const morgan = await srv.seedOwner("Morgan");
+    const ordinary = await spawn(srv, "Plain", "Morgan");
+    const privileged = await spawn(srv, "Priv", "Morgan");
     await srv.agentManager.setPrivileged(privileged.id, true);
     expect(isPrivileged(srv, privileged.id)).toBe(true);
     expect(isPrivileged(srv, ordinary.id)).toBe(false);
@@ -319,7 +319,7 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ createdByAgentId: privileged.id }),
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(byHuman.status).toBe(200);
 
@@ -343,9 +343,9 @@ describe("app owner reach: the raise check reads the owner's flag live", () => {
   it("lets an ordinary agent change command until the owner is made privileged", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "OwnerBot", "Boss");
-    const other = await spawn(srv, "OtherBot", "Boss");
+    await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "OwnerBot", "Morgan");
+    const other = await spawn(srv, "OtherBot", "Morgan");
     await register(srv, owner, "flip");
     const otherToken = mintAgentToken(other.id, other.userId);
     const change = () =>
@@ -366,14 +366,14 @@ describe("app owner reach: an owner agent of another member gives no reach", () 
   it("falls back once a human repoints the app at another member's agent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const boss = await srv.seedOwner("Boss");
+    const morgan = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const created = createMember("Mia", {
       role: "member",
       allowedRooms: [room],
     });
     if (!created.ok) throw new Error(created.error);
-    const owner = await spawn(srv, "BossBot", "Boss", room);
+    const owner = await spawn(srv, "MorganBot", "Morgan", room);
     const miaBot = await spawn(srv, "MiaBot", "Mia", room);
     const { appToken } = await register(srv, owner, "crossed");
     expect((await call(srv, "GET", "/api/tasks", appToken)).status).toBe(200);
@@ -382,7 +382,7 @@ describe("app owner reach: an owner agent of another member gives no reach", () 
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ createdByAgentId: miaBot.id }),
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(repoint.status).toBe(200);
     expect(miaBot.userId).not.toBe(owner.userId);
@@ -399,17 +399,17 @@ describe("app owner reach: integrations as an agent, never as a human", () => {
   it("cannot add a host to a saved secret, and reads an MCP server's host only", async () => {
     const srv = await startTestServer();
     server = srv;
-    const boss = await srv.seedOwner("Boss");
-    const owner = await spawn(srv, "IntegBot", "Boss");
+    const morgan = await srv.seedOwner("Morgan");
+    const owner = await spawn(srv, "IntegBot", "Morgan");
     await srv.agentManager.setPrivileged(owner.id, true);
     const { appToken } = await register(srv, owner, "integ");
-    const own = "/api/users/Boss";
-    const asBoss = (method: string, path: string, body?: unknown) =>
+    const own = "/api/users/Morgan";
+    const asMorgan = (method: string, path: string, body?: unknown) =>
       srv.http(path, {
         method,
         headers: body ? { "Content-Type": "application/json" } : {},
         ...(body ? { body: JSON.stringify(body) } : {}),
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
       });
 
     const created = await call(srv, "POST", `${own}/secrets`, appToken, {
@@ -426,7 +426,7 @@ describe("app owner reach: integrations as an agent, never as a human", () => {
     ).toBe(403);
     // The enabling condition: the same change is open to the member.
     expect(
-      (await asBoss("PATCH", `${own}/secrets/APP_TOKEN`, widened)).status,
+      (await asMorgan("PATCH", `${own}/secrets/APP_TOKEN`, widened)).status,
     ).toBe(200);
 
     const url = "https://mcp.example.com/path-token-APPSEKRIT/mcp";
@@ -443,7 +443,7 @@ describe("app owner reach: integrations as an agent, never as a human", () => {
     expect(byApp.status).toBe(200);
     expect(JSON.stringify(byApp.body)).not.toContain("APPSEKRIT");
     expect(JSON.stringify(byApp.body)).toContain("mcp.example.com");
-    const byBoss = await asBoss("GET", `${own}/mcp-servers`);
-    expect(await byBoss.text()).toContain("APPSEKRIT");
+    const byMorgan = await asMorgan("GET", `${own}/mcp-servers`);
+    expect(await byMorgan.text()).toContain("APPSEKRIT");
   });
 });

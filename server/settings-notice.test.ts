@@ -15,7 +15,7 @@ const claude = { agentType: "claude" as const, claudeFamilyModels: {} };
 
 const arm = (
   changes: SettingsNoticeArm["changes"],
-  by = "Boss",
+  by = "Morgan",
   interrupted = false,
 ): SettingsNoticeArm => ({ changes, by: [by], interrupted });
 
@@ -33,7 +33,7 @@ describe("mergeSettingsNotice", () => {
   it("an interruption stays when the changes cancel out", () => {
     const first = mergeSettingsNotice(
       null,
-      arm({ effort: { from: "high", to: "low" } }, "Boss", true),
+      arm({ effort: { from: "high", to: "low" } }, "Morgan", true),
     );
     const merged = mergeSettingsNotice(
       first,
@@ -41,7 +41,7 @@ describe("mergeSettingsNotice", () => {
     );
     expect(merged).toEqual({
       changes: {},
-      by: ["Boss", "Lead"],
+      by: ["Morgan", "Lead"],
       interrupted: true,
     });
   });
@@ -50,13 +50,13 @@ describe("mergeSettingsNotice", () => {
     let a = mergeSettingsNotice(null, arm({ effort: { from: "a", to: "b" } }));
     a = mergeSettingsNotice(a, arm({ effort: { from: "b", to: "c" } }, "Lead"));
     a = mergeSettingsNotice(a, arm({ effort: { from: "c", to: "d" } }));
-    expect(a?.by).toEqual(["Boss", "Lead"]);
+    expect(a?.by).toEqual(["Morgan", "Lead"]);
     expect(a?.changes.effort).toEqual({ from: "a", to: "d" });
   });
 });
 
 describe("renderSettingsNotice", () => {
-  const interrupted = arm({}, "Boss", true);
+  const interrupted = arm({}, "Morgan", true);
 
   it("adds the rejection sentence only when the transcript proves it", () => {
     const without = render(renderSettingsNotice(interrupted, claude, false));

@@ -44,6 +44,7 @@ import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
 import {
   loadAgents,
+  loadAgentHistory,
   loadTasks,
   loadOfficeConfig,
   loadLog,
@@ -252,53 +253,72 @@ describe("agents.json field migrations (Phase 1.3)", () => {
       lastSessionId: null,
       topic: null,
       customInstructions: null,
-      username: "Boss",
+      username: "Morgan",
     });
     const agent = loadAgents()[0].agents[0];
     expect(agent.modelFamily).toBe("opus");
     expect(Object.hasOwn(agent, "model")).toBe(false);
   });
 
-  it("stamps username:null on a legacy agent missing the field, preserves it when present", () => {
+  // The manager snapshot was stored as `username` before task f41c93e9 and is
+  // written as both keys until the alias is removed. A present `manager` key
+  // wins even when null; only a record with neither key is stamped null.
+  const MANAGER_CASES: [string, Record<string, unknown>, string | null][] = [
+    ["neither key (pre user/device split)", {}, null],
+    ["username only (older release)", { username: "Nil" }, "Nil"],
+    ["manager only", { manager: "Nil" }, "Nil"],
+    ["both keys", { manager: "Nil", username: "Nil" }, "Nil"],
+    [
+      "manager null beside a username",
+      { manager: null, username: "Nil" },
+      null,
+    ],
+  ];
+
+  it("loadAgents resolves the manager snapshot from manager, else username", () => {
     seed("agents.json", [
       {
         id: "aaaa0001",
         name: "Room 1",
         prompt: null,
-        agents: [
-          // No `username` key at all -> backfilled to null.
-          {
-            id: "a1",
-            name: "Legacy",
-            desk: 0,
-            cwd: "/",
-            outfit: {},
-            permissionMode: "default",
-            modelFamily: "opus",
-            lastSessionId: null,
-            topic: null,
-            customInstructions: null,
-          },
-          // Has `username` -> preserved verbatim.
-          {
-            id: "a2",
-            name: "Owned",
-            desk: 1,
-            cwd: "/",
-            outfit: {},
-            permissionMode: "default",
-            modelFamily: "opus",
-            lastSessionId: null,
-            topic: null,
-            customInstructions: null,
-            username: "Nil",
-          },
-        ],
+        agents: MANAGER_CASES.map(([, keys], desk) => ({
+          id: `a${desk}`,
+          name: `Agent ${desk}`,
+          desk,
+          cwd: "/",
+          outfit: {},
+          permissionMode: "default",
+          modelFamily: "opus",
+          lastSessionId: null,
+          topic: null,
+          customInstructions: null,
+          ...keys,
+        })),
       },
     ]);
-    const [legacy, owned] = loadAgents()[0].agents;
-    expect(legacy.username).toBeNull();
-    expect(owned.username).toBe("Nil");
+    const loaded = loadAgents()[0].agents;
+    expect(loaded.map((a) => a.id)).toEqual(
+      MANAGER_CASES.map((_, i) => `a${i}`),
+    );
+    expect(loaded.map((a) => a.manager)).toEqual(
+      MANAGER_CASES.map(([, , manager]) => manager),
+    );
+  });
+
+  it("loadAgentHistory resolves the manager snapshot the same way", () => {
+    seed(
+      "agent-history.json",
+      Object.fromEntries(
+        MANAGER_CASES.map(([, keys], i) => [
+          `h${i}`,
+          { name: `Killed ${i}`, cwd: "/", userId: null, ...keys },
+        ]),
+      ),
+    );
+    const history = loadAgentHistory();
+    expect(MANAGER_CASES.map((_, i) => history[`h${i}`]?.manager)).toEqual(
+      MANAGER_CASES.map(([, , manager]) => manager),
+    );
   });
 
   it("backfills a missing room id (generated hex) and coerces a non-string prompt to null", () => {
@@ -339,7 +359,7 @@ describe("tasks.json migration (Phase 1.3)", () => {
         id: "t1",
         title: "Old",
         status: "open",
-        createdBy: "Boss",
+        createdBy: "Morgan",
         createdAt: 1,
         device: "Nil",
       },
@@ -347,7 +367,7 @@ describe("tasks.json migration (Phase 1.3)", () => {
         id: "t2",
         title: "New",
         status: "open",
-        createdBy: "Boss",
+        createdBy: "Morgan",
         createdAt: 2,
         username: "Marc",
       },
@@ -376,7 +396,7 @@ describe("cronjobs.json / runs.json migrations (Phase 1.3)", () => {
         effort: "high",
         permissionMode: "auto", // legacy -> bypassPermissions
         enabled: true,
-        createdBy: "Boss",
+        createdBy: "Morgan",
         userId: null,
         device: "Nil", // legacy -> username
         createdAt: 1,

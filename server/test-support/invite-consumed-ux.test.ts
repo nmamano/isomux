@@ -68,7 +68,7 @@ function sessionCookieOf(res: Response): string {
 describe("invite consumption - owner roster fanout", () => {
   it("HTTP accept pushes users_list/users_admin_list to an already-open owner socket", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const sock = await server.connectWs(owner.rawSessionId);
     // Drain to a known point so the assertion below can't match hydration.
     sock.send({ type: "ping" });
@@ -99,7 +99,7 @@ describe("invite consumption - owner roster fanout", () => {
 describe("consumed invite - signed-in visitor is redirected, not dead-ended", () => {
   it("GET /i/<token> after a successful accept: with the session cookie -> 302 /; anonymous -> 410", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const rawToken = await mintFor("Yu");
     const acc = await acceptViaHttp(server, rawToken);
     expect(acc.status).toBe(302);
@@ -123,7 +123,7 @@ describe("consumed invite - signed-in visitor is redirected, not dead-ended", ()
 
   it("duplicate POST /auth/accept: with the session cookie -> 302 /; anonymous -> 410", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const rawToken = await mintFor("Yu");
     const first = await acceptViaHttp(server, rawToken);
     expect(first.status).toBe(302);

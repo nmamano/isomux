@@ -195,7 +195,7 @@ describe("agents.sendMessage deliverAt branch", () => {
       "POST",
       `/api/agents/${b.id}/messages`,
       { rawSessionId: owner.rawSessionId },
-      { text: "boss send", deliverAt: inOneHour() },
+      { text: "morgan send", deliverAt: inOneHour() },
     );
     expect(r.status).toBe(400);
     expect(r.body.error?.code).toBe("deliver_at_not_supported");
@@ -321,8 +321,8 @@ describe("outbox routes (list / cancel)", () => {
       { agentId: b.id },
     );
     expect(foreign.status).toBe(403);
-    // A user with room access may (boss oversight).
-    const boss = await call(
+    // A user with room access may (member oversight).
+    const morgan = await call(
       srv,
       "GET",
       `/api/agents/${a.id}/scheduled-messages`,
@@ -330,8 +330,8 @@ describe("outbox routes (list / cancel)", () => {
         rawSessionId: owner.rawSessionId,
       },
     );
-    expect(boss.status).toBe(200);
-    expect(boss.body.scheduled).toHaveLength(1);
+    expect(morgan.status).toBe(200);
+    expect(morgan.body.scheduled).toHaveLength(1);
     // No bearer at all → 401.
     const anon = await call(
       srv,

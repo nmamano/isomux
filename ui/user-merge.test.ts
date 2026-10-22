@@ -53,7 +53,7 @@ describe("isFullUserView", () => {
     expect(isFullUserView(pub("Alice"))).toBe(false);
   });
   it("is shape-based, not role-based (an owner's PUBLIC view is still not full)", () => {
-    expect(isFullUserView(pub("Boss", { role: "owner" }))).toBe(false);
+    expect(isFullUserView(pub("Morgan", { role: "owner" }))).toBe(false);
   });
   it("is false when ANY single sensitive field is missing", () => {
     const sensitive = [

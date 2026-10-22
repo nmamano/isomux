@@ -179,7 +179,7 @@ async function diRunTurn(
   text: string,
 ): Promise<void> {
   const r = mgr.enqueueMessage(id, {
-    sender: { kind: "user", username: "Boss" },
+    sender: { kind: "user", username: "Morgan" },
     text,
   });
   if (!r.ok) throw new Error(`enqueue failed: ${r.error}`);
@@ -233,7 +233,7 @@ async function runTurn(
   text: string,
 ): Promise<void> {
   const r = srv.agentManager.enqueueMessage(agentId, {
-    sender: { kind: "user", username: "Boss" },
+    sender: { kind: "user", username: "Morgan" },
     text,
   });
   if (!r.ok) throw new Error(`enqueue failed: ${r.error}`);
@@ -282,7 +282,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
   it("blank agent -> no_session; after a turn -> available; survives session release via the snapshot fallback", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith(usage(42)) });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -317,14 +317,14 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     // when the session process is released, so no lifecycle note (Nil).
     const srv = await startTestServer({ fakeBackend: backendWith(usage(63)) });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
 
     await runTurn(srv, agent.id, "hi"); // turn_completed commits 63
     await releaseSession(srv, agent.id); // dormant: session === null
 
-    await srv.agentManager.sendMessage(agent.id, "/context", "Boss");
+    await srv.agentManager.sendMessage(agent.id, "/context", "Morgan");
     const sys = srv.agentManager
       .getAgentLogs(agent.id)
       .filter((e) => e.kind === "system")
@@ -347,7 +347,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
   it("/context stores English and words the token counts for each reader", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith(usage(63)) });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const user = getUserByName(owner.username)!;
     expect(updateUserById(user.id, { language: "es" }).ok).toBe(true);
     // The ENABLING CONDITION: the typist reads Spanish.
@@ -383,12 +383,12 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     // can't contradict the token counts printed beside it.
     const srv = await startTestServer({ fakeBackend: backendWith(usage(130)) });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
 
     await runTurn(srv, agent.id, "hi");
-    await srv.agentManager.sendMessage(agent.id, "/context", "Boss");
+    await srv.agentManager.sendMessage(agent.id, "/context", "Morgan");
 
     const reading = srv.agentManager
       .getAgentLogs(agent.id)
@@ -404,7 +404,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
   it("live session reporting null (Codex-before-first-tokenUsage shape) -> not_yet_measured", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith() });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -423,7 +423,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       ),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -451,7 +451,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       ),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -513,7 +513,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       );
       if (!info) throw new Error("spawn returned null");
       const enq = mgr.enqueueMessage(info.id, {
-        sender: { kind: "user", username: "Boss" },
+        sender: { kind: "user", username: "Morgan" },
         text: "hi",
       });
       expect(enq.ok).toBe(true);
@@ -662,10 +662,10 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
         },
       },
       // The backend transcript records the sent form, which carries the
-      // "[Boss]" sender prefix diRunTurn applies - editMessage matches the log
+      // "[Morgan]" sender prefix diRunTurn applies - editMessage matches the log
       // entry against this exact text, so it must include the prefix.
       sessionMessages: [
-        { uuid: "u-first", role: "user", text: "[Boss] first" },
+        { uuid: "u-first", role: "user", text: "[Morgan] first" },
         { uuid: "a-1", role: "assistant", text: "reply" },
       ],
       forkResult: {
@@ -732,7 +732,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
       }),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -788,7 +788,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
       fakeBackend: backendWith(usage(70, WIDE_WINDOW)),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -830,13 +830,13 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
       }),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
     const send = (text: string) =>
       srv.agentManager.enqueueMessage(agent.id, {
-        sender: { kind: "user", username: "Boss" },
+        sender: { kind: "user", username: "Morgan" },
         text,
       });
     const curSess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
@@ -901,7 +901,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
       }),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -1041,7 +1041,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     // intercept lives (enqueueMessage/flushQueue coalesces raw text straight
     // into an LLM prompt and never dispatches commands).
     captured.length = 0;
-    await mgr.sendMessage(info.id, "/clear", "Boss");
+    await mgr.sendMessage(info.id, "/clear", "Morgan");
     await waitUntil(
       () =>
         ctxBroadcasts(captured).some((e) => e.changes.contextUsage === null),
@@ -1077,7 +1077,7 @@ describe("context-fullness: auth (log:read + logSearchAccess)", () => {
   it("own token and user cookie 200; no identity 401", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith(usage(10)) });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "A", room.id);
     const tokenA = getAgentTokenRaw(a.id)!;
@@ -1091,13 +1091,13 @@ describe("context-fullness: auth (log:read + logSearchAccess)", () => {
   });
 });
 
-// The boss-facing ephemeral chat notice (task 0b12423b, design doc §3): the
+// The member-facing ephemeral chat notice (task 0b12423b, design doc §3): the
 // sample-commit path emits ONE ephemeral system line per threshold band per
 // generation ("Context is NN% full. ..."), tracked by firedUiThresholds - a
 // SEPARATE audience from the agent-facing injected notice, so one audience
 // firing never suppresses the other. Server-authoritative: emitted where the
 // sample commits, so reconnects/multiple clients cannot duplicate it.
-describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", () => {
+describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)", () => {
   function uiNotices(
     mgr: ReturnType<typeof createAgentManager>,
     agentId: string,

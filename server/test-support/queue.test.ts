@@ -260,7 +260,7 @@ async function respondInteraction(
 describe("structured choice interactions", () => {
   it("picks a cronjob by click without persisting its prompt and keeps the typed shortcut", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const job = server.cronjobManager.addCronjob({
       name: "Night report",
@@ -331,7 +331,7 @@ describe("structured choice interactions", () => {
 
   it("reports an empty cronjob list without opening a dead interaction", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "Picker", room.id);
     await sendHuman(
@@ -350,7 +350,7 @@ describe("structured choice interactions", () => {
 
   it("cancels a cronjob pick without swallowing the next message or duplicating a slash pick", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     server.cronjobManager.addCronjob({
       name: "Night report",
@@ -408,7 +408,7 @@ describe("structured choice interactions", () => {
 
   it("does not open a prompt marker when the selected cronjob was deleted", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const job = server.cronjobManager.addCronjob({
       name: "Temporary",
@@ -459,7 +459,7 @@ describe("structured choice interactions", () => {
 
   it("uses semantic values and settles a double response once", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "Receiver", room.id);
     const socket = await server.connectWs(owner.rawSessionId);
@@ -529,7 +529,7 @@ describe("structured choice interactions", () => {
 
   it("keeps typed number replies on the same settlement path", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "Receiver", room.id);
     await sendHuman(server, owner.rawSessionId, agent.id, "/effort");
@@ -553,7 +553,7 @@ describe("structured choice interactions", () => {
 
   it("maps every displayed choice position to the typed choice value", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
 
     for (let index = 0; index < 4; index++) {
@@ -575,7 +575,7 @@ describe("structured choice interactions", () => {
 
   it("derives all three fallback numberings from the choice order", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
 
     for (const command of ["/model", "/effort"]) {
@@ -692,7 +692,7 @@ describe("structured choice interactions", () => {
 
   it("applies a typed menu pick even when the agent becomes busy again", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "Receiver", room.id, "codex");
     await sendHuman(server, owner.rawSessionId, agent.id, "Start a turn");
@@ -730,7 +730,7 @@ describe("structured choice interactions", () => {
 
   it("applies a typed resume pick while the current session is dead", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "Receiver", room.id);
     await sendHuman(server, owner.rawSessionId, agent.id, "First turn");
@@ -864,7 +864,7 @@ describe("queue: entry points (Phase 1.4a)", () => {
         session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
       }),
     });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const a = await spawnAgent(server, "Receiver", room.id);
     const sock = await server.connectWs(owner.rawSessionId);
@@ -935,7 +935,7 @@ describe("queue: entry points (Phase 1.4a)", () => {
 describe("queue: coalescing (Phase 1.4a)", () => {
   it("coalesces queued human + agent messages in FIFO order with busy-note and rendered sender prefixes", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -992,7 +992,7 @@ describe("queue: coalescing (Phase 1.4a)", () => {
     // plural busy note; FIFO order; user prefix then agent prefix; "\n\n" joins.
     const note =
       "[Note: these messages were queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent them.]";
-    const userPrefix = formatPrefix({ username: owner.username }); // "[Boss] "
+    const userPrefix = formatPrefix({ username: owner.username }); // "[Morgan] "
     const agentPrefix = `${formatAgentSenderPrefix(sender.id, "Sender", room.name)} `;
     const expected = [
       note,
@@ -1061,7 +1061,7 @@ describe("queue: coalescing (Phase 1.4a)", () => {
 describe("queue: notifications / turnHadHumanInput (Phase 1.4a)", () => {
   it("isolates each flip: agent-only baseline false -> mixed flush true -> agent-only flush false", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1270,7 +1270,7 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
 describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
   it("cancel_queued (REST) removes a queued item and re-emits the queue without it", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1307,7 +1307,7 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
 
   it("send_now (REST) drains the queue to the backend", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex receiver: send-now on a busy agent aborts, and the slow-path abort
     // (FakeSession.canAbortInPlace()===false) reinstalls a session. Codex's
@@ -1355,7 +1355,7 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
 
   it("new_conversation (REST) carries the queue to the new session, never the old one (df2c820b)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1494,7 +1494,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
       }),
     });
     server.agentManager.configureAgentTurnDeps(1_500);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const { recv, sock } = await parkFlushPreSend(
       server,
       owner.rawSessionId,
@@ -1553,7 +1553,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
       }),
     });
     server.agentManager.configureAgentTurnDeps(1_500);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const { recv, sock } = await parkFlushPreSend(
       server,
       owner.rawSessionId,
@@ -1610,7 +1610,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
 describe("queue: newer turn supersedes an accepted flush (task bc782d34)", () => {
   it("keeps the accepted flush out of error and retries later arrivals", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1703,7 +1703,7 @@ describe("queue: newer turn supersedes an accepted flush (task bc782d34)", () =>
 describe("queue: recoverable provider capacity", () => {
   it("flush owner delivers a message queued behind give-up without entering error", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1744,7 +1744,7 @@ describe("queue: recoverable provider capacity", () => {
 
   it("human-send owner delivers a message queued behind give-up without entering error", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -1795,7 +1795,7 @@ describe("queue: recoverable provider capacity", () => {
 describe("queue: settings-driven swap mid-flush (task 8ba27b27)", () => {
   it("effort change with a queued message words the notice as expected behavior and still delivers", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex receiver for the same reason as the d7c879da tests above: the
     // replace starts a FRESH session instead of tripping Claude's resume
@@ -1860,7 +1860,7 @@ describe("queue: settings-driven swap mid-flush (task 8ba27b27)", () => {
 describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
   it("busy agent: a sendNow send lands in the queue and immediately drains to the backend", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex receiver for the same reason as the send_now (REST) test above:
     // the slow-path abort reinstalls a session, and Codex fresh-starts instead
@@ -1902,7 +1902,7 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
 
   it("idle agent: a sendNow send is a plain send (starts a turn, nothing aborted)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const a = await spawnAgent(server, "Idle", room.id);
     const sock = await server.connectWs(owner.rawSessionId);
@@ -1931,7 +1931,7 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
 
   it("non-boolean sendNow -> 422 invalid_request", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const a = await spawnAgent(server, "Receiver", room.id);
 
@@ -1988,7 +1988,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
 
   it("busy receiver: the ack reports steered and the message drains without the parked turn ending", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     // Codex receiver for the same reason as the send-now tests above: the
     // slow-path abort reinstalls a session, and Codex fresh-starts instead of
@@ -2044,7 +2044,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
 
   it("idle receiver: steer delivers now and interrupts nothing", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -2086,7 +2086,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
 
   it("receiver mid multi-step flow: steer degrades to a plain queue", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -2312,7 +2312,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
   // sender's ability to interrupt.
   it("a send that fails to persist neither interrupts nor spends a slot", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -2373,7 +2373,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
 
   it("a deduped retry never interrupts", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
@@ -2416,7 +2416,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
 
   it("USER-scope steer -> 400 steer_not_supported", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const a = await spawnAgent(server, "Receiver", room.id);
 

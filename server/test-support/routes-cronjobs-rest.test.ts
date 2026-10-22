@@ -152,8 +152,8 @@ describe("routes/cron REST: reads", () => {
   it("GET /api/cronjobs lists; /api/cronjobs/:id gets", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss", "Reporter");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan", "Reporter");
 
     const list = await api(srv, "/api/cronjobs", {
       rawSessionId: owner.rawSessionId,
@@ -179,8 +179,8 @@ describe("routes/cron REST: reads", () => {
   it("GET /api/cronjobs/:id/system-prompt returns both prompt sources under the cron read guard", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss", "Prompt source");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan", "Prompt source");
 
     const response = await api(srv, `/api/cronjobs/${job.id}/system-prompt`, {
       rawSessionId: owner.rawSessionId,
@@ -206,8 +206,8 @@ describe("routes/cron REST: reads", () => {
   it("run reads: listRuns/listAllRuns shapes; getRun unknown -> 404", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan");
 
     const runs = await api(srv, `/api/cronjobs/${job.id}/runs`, {
       rawSessionId: owner.rawSessionId,
@@ -232,8 +232,8 @@ describe("routes/cron REST: reads", () => {
   it("a seeded run appears in listRuns and getRun returns { run, entries }", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan");
     const seeded = seedRun(srv, job, "run00001");
 
     const list = await api(srv, `/api/cronjobs/${job.id}/runs`, {
@@ -258,7 +258,7 @@ describe("routes/cron REST: create + attribution", () => {
   it("POST /api/cronjobs -> 201 with token-derived createdBy/username/userId", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/cronjobs", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -267,15 +267,15 @@ describe("routes/cron REST: create + attribution", () => {
     expect(r.status).toBe(201);
     const job = r.body as Cronjob;
     expect(job.name).toBe("Nightly");
-    expect(job.createdBy).toBe("Boss");
-    expect(job.username).toBe("Boss");
-    expect(job.userId).toBe(getUserByName("Boss")!.id);
+    expect(job.createdBy).toBe("Morgan");
+    expect(job.username).toBe("Morgan");
+    expect(job.userId).toBe(getUserByName("Morgan")!.id);
   });
 
   it("POST /api/cronjobs missing required fields -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/cronjobs", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -289,8 +289,8 @@ describe("routes/cron REST: ownership tightening", () => {
   it("PATCH /api/cronjobs/:id changes the engine and dependent settings together", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss", "EngineSwitch");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan", "EngineSwitch");
 
     const result = await api(srv, `/api/cronjobs/${job.id}`, {
       method: "PATCH",
@@ -317,8 +317,8 @@ describe("routes/cron REST: ownership tightening", () => {
   it("changes a cronjob engine to OpenCode and persists no Codex sandbox", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss", "OpenCodeSwitch");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan", "OpenCodeSwitch");
 
     const result = await api(srv, `/api/cronjobs/${job.id}`, {
       method: "PATCH",
@@ -350,8 +350,8 @@ describe("routes/cron REST: ownership tightening", () => {
   it("accepts unknown Codex-shaped cron models and rejects Claude-shaped ones", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss", "CodexShape");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan", "CodexShape");
 
     const accepted = await api(srv, `/api/cronjobs/${job.id}`, {
       method: "PATCH",
@@ -378,8 +378,8 @@ describe("routes/cron REST: ownership tightening", () => {
   it("rejects an OpenCode engine switch without a provider/model", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss", "OpenCodeWithoutModel");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan", "OpenCodeWithoutModel");
 
     const result = await api(srv, `/api/cronjobs/${job.id}`, {
       method: "PATCH",
@@ -400,9 +400,9 @@ describe("routes/cron REST: ownership tightening", () => {
   it("a member cannot update/delete/run another user's cronjob via REST (403) but can manage their own", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory");
-    const ownersJob = seedJob(srv, "Boss", "OwnersJob");
+    const ownersJob = seedJob(srv, "Morgan", "OwnersJob");
 
     // Member -> owner's job: all blocked.
     expect(
@@ -469,7 +469,7 @@ describe("routes/cron REST: ownership tightening", () => {
   it("cron-prompt is office-owner-only (REST)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory");
 
     expect(
@@ -502,8 +502,8 @@ describe("routes/cron REST: runNow + emit double-signal", () => {
   it("owner POST /api/cronjobs/:id/runs -> 200 {runId}", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan");
     const r = await api(srv, `/api/cronjobs/${job.id}/runs`, {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -516,7 +516,7 @@ describe("routes/cron REST: runNow + emit double-signal", () => {
   it("a REST cron.create fans out cronjob_added through the emit() helper", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
     const created = (
       await api(srv, "/api/cronjobs", {
@@ -566,8 +566,8 @@ describe("routes/cron REST: Codex default model from discovery", () => {
       },
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    return { srv, owner, calls, userId: getUserByName("Boss")!.id };
+    const owner = await srv.seedOwner("Morgan");
+    return { srv, owner, calls, userId: getUserByName("Morgan")!.id };
   }
 
   it("POST a Codex schedule with an empty model -> the login's default", async () => {
@@ -612,7 +612,7 @@ describe("routes/cron REST: Codex default model from discovery", () => {
 
   it("PATCH claude->codex with no model -> the login's default, discovered for the job's owner", async () => {
     const { srv, owner, calls, userId } = await setup();
-    const job = seedJob(srv, "Boss", "EngineSwitch");
+    const job = seedJob(srv, "Morgan", "EngineSwitch");
     const r = await api(srv, `/api/cronjobs/${job.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
@@ -632,7 +632,7 @@ describe("routes/cron REST: Codex default model from discovery", () => {
 
   it("PATCH a Codex schedule that names no model keeps its model and costs no discovery", async () => {
     const { srv, owner, calls } = await setup();
-    const job = seedJob(srv, "Boss", "CodexJob");
+    const job = seedJob(srv, "Morgan", "CodexJob");
     const toCodex = await api(srv, `/api/cronjobs/${job.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,

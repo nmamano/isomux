@@ -37,7 +37,7 @@ it("presence retains lobby seats on repeats and grant changes, and reports a mov
   const p = {
     connectionId: "a",
     userId: "u",
-    username: "Boss",
+    username: "Morgan",
     device: null,
     avatarColor: "#123456",
     avatarVariant: "classic" as const,
@@ -54,7 +54,7 @@ it("presence retains lobby seats on repeats and grant changes, and reports a mov
   expect(
     refreshPresenceForUser(
       "u",
-      { name: "Boss", avatarColor: "#123456", avatarVariant: "classic" },
+      { name: "Morgan", avatarColor: "#123456", avatarVariant: "classic" },
       new Set(),
     ),
   ).toBe(false);
@@ -65,7 +65,7 @@ it("presence retains lobby seats on repeats and grant changes, and reports a mov
   setPresence({ ...p, connectionId: "ordinary", currentRoomId: "closed-room" });
   refreshPresenceForUser(
     "u",
-    { name: "Boss", avatarColor: "#123456", avatarVariant: "classic" },
+    { name: "Morgan", avatarColor: "#123456", avatarVariant: "classic" },
     new Set(),
   );
   expect(getPresence("ordinary")!.currentRoomId).toBeNull();
@@ -79,7 +79,7 @@ it("assigns ten different seats on entry, queues overflow, and clears seats on e
     setPresence({
       connectionId: String(i),
       userId: "u",
-      username: "Boss",
+      username: "Morgan",
       device: null,
       avatarColor: "#123456",
       avatarVariant: "classic",
@@ -120,7 +120,7 @@ it("setPresence accepts entry randomness and returns true for a spot-only change
   const p = {
     connectionId: "a",
     userId: "u",
-    username: "Boss",
+    username: "Morgan",
     device: null,
     avatarColor: "#123456",
     avatarVariant: "classic" as const,

@@ -119,7 +119,7 @@ async function consoleDuring(run: () => Promise<void>): Promise<string> {
 describe("connection test routes", () => {
   it("test a member's secret and MCP server, with the account and the tool count", async () => {
     const srv = await start();
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const session = owner.rawSessionId;
     const base = `/api/users/${owner.username}`;
     await call(srv, "POST", `${base}/secrets`, {
@@ -193,7 +193,7 @@ describe("connection test routes", () => {
 
   it("gate like the routes that edit the same connection", async () => {
     const srv = await start();
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Member");
     const ownerId = getUserByName(owner.username)!.id;
     const memberId = getUserByName(member.username)!.id;
@@ -274,7 +274,7 @@ describe("connection test routes", () => {
 
   it("keep the value and the URL path out of answers, the audit log and the console", async () => {
     const srv = await start();
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const session = owner.rawSessionId;
     const answers: Res[] = [];
     let audit: Res | null = null;

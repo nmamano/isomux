@@ -242,8 +242,8 @@ function appRecord(port: number, over: Partial<AppRecord> = {}): AppRecord {
     cwd: "/tmp",
     dataDir: "/tmp/hello",
     userId: "u1",
-    username: "Boss",
-    createdBy: "Boss",
+    username: "Morgan",
+    createdBy: "Morgan",
     createdAt: 1,
     ...over,
   };

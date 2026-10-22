@@ -52,7 +52,7 @@ export function claudeAgent(
     capabilities: DEFAULT_AGENT_CAPABILITIES,
     limitedClaudeFamilies,
     userId: "member",
-    username: "Member",
+    manager: "Member",
     queue: [],
     sessionSwapping: false,
     turnHadHumanInput: false,

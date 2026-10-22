@@ -179,7 +179,7 @@ On first hub startup, if an existing `~/.isomux/` directory exists and `~/.isomu
 
 > Status: shipped. Code lives in `server/agent-manager.ts`, `server/env-loader.ts`, `server/users.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/UserSettingsView.tsx`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room prompt fields), `~/.isomux/user-env/<userId>.env` (managed per-user variables), `~/.isomux/office-config.json` (office-level env and prompt).
 
-Multiple users share one isomux office (same Linux user). Each user claims a display name; their agents are stamped with `info.username` at spawn time. Isomux keys managed personal variables, including Git/GitHub and provider-auth credentials, by user id. Prompt customization is keyed by room.
+Multiple users share one isomux office (same Linux user). Each user claims a display name; their agents are stamped with `info.userId` and `info.manager` (a display snapshot of the name) at spawn time. Isomux keys managed personal variables, including Git/GitHub and provider-auth credentials, by user id. Prompt customization is keyed by room.
 
 ### Prompt hierarchy: office → room → agent
 
@@ -197,7 +197,7 @@ Three layers. Shallow merge: later layers override matching keys from earlier on
 - **Office env.** Loaded from a user-specified file path in `office-config.json`.
 - **User env.** Loaded from a user-specified file path on each `UserRecord` (`users.json`).
 
-Selection is keyed by `info.username` on agents and `job.username` on cronjobs. Unowned actions (no username) get process + office only.
+Selection is keyed by `userId` on agents and on cronjobs. Unowned actions (no `userId`) get process + office only.
 
 No per-room env. Earlier iterations stored env on `Room`, but identity is naturally per-user (the same person typically uses the same Git/provider credentials across rooms). The room-level field was migrated out in `persistence.ts`; the field is no longer on `Room`.
 

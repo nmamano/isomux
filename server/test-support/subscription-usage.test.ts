@@ -134,7 +134,7 @@ async function runTurn(
   text: string,
 ): Promise<void> {
   const r = mgr.enqueueMessage(id, {
-    sender: { kind: "user", username: "Boss" },
+    sender: { kind: "user", username: "Morgan" },
     text,
   });
   if (!r.ok) throw new Error(`enqueue failed: ${r.error}`);
@@ -589,7 +589,7 @@ describe("subscription usage", () => {
     const mgr = makeManager(fake);
     const info = await spawn(mgr);
     const queued = mgr.enqueueMessage(info.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "stay active",
     });
     expect(queued.ok).toBe(true);
@@ -789,7 +789,7 @@ describe("subscription usage", () => {
     const unknown = await spawn(unknownMgr);
     expect(
       unknownMgr.enqueueMessage(unknown.id, {
-        sender: { kind: "user", username: "Boss" },
+        sender: { kind: "user", username: "Morgan" },
         text: "stay active",
       }).ok,
     ).toBe(true);
@@ -813,7 +813,7 @@ describe("subscription usage", () => {
     const unavailable = await spawn(unavailableMgr);
     expect(
       unavailableMgr.enqueueMessage(unavailable.id, {
-        sender: { kind: "user", username: "Boss" },
+        sender: { kind: "user", username: "Morgan" },
         text: "stay active",
       }).ok,
     ).toBe(true);

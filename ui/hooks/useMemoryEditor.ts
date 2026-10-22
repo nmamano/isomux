@@ -11,7 +11,7 @@ import { useI18n } from "../i18n.tsx";
 import { injectedMemorySize } from "../../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
-export type MemoryScope = "office" | "room" | "agent" | "boss";
+export type MemoryScope = "office" | "room" | "agent" | "member";
 
 export type MemorySaveResult =
   | { ok: true }

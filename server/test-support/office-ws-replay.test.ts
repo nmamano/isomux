@@ -123,7 +123,7 @@ async function spawnIn(srv: TestServer, name: string, roomId: string) {
 describe("office connect replay to a client that stops reading", () => {
   it("arrives whole and in order, fence after the last entry, and a live entry from the stall after the fence, once", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const roomId = server.agentManager.getRooms()[0].id;
     const agent = await spawnIn(server, "Big", roomId);
     server = await seedTranscripts(server, [agent.id]);
@@ -170,7 +170,7 @@ describe("office connect replay to a client that stops reading", () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const hidden = await spawnIn(server, "Hidden", r2);
     const setAccess = async (rooms: string[]) => {

@@ -173,7 +173,7 @@ function seedRun(job: Cronjob, runId: string): CronjobRun {
 async function office() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const roomA = srv.agentManager.createRoom("Alpha");
   const roomB = srv.agentManager.createRoom("Beta");
   const alice = await srv.seedMember("Alice");
@@ -409,7 +409,7 @@ describe("cron rooms: create and move", () => {
 
   it("the room stays put when the maker agent moves", async () => {
     const { srv, roomA, roomB } = await office();
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "Mover", roomA);
     const token = mintAgentToken(bot.id, ownerId, true);
     const created = (
@@ -590,8 +590,8 @@ describe("cron rooms: /isomux-cronjob-system-prompt", () => {
   it("lists and resolves only the jobs the typing member may see", async () => {
     const { srv, alice, roomA, roomB } = await office();
     const makersJob = seedJob(srv, "Maker", roomA, "Makers job");
-    const bossJob = seedJob(srv, "Boss", roomA, "Boss job");
-    const betaJob = seedJob(srv, "Boss", roomB, "Beta job");
+    const morganJob = seedJob(srv, "Morgan", roomA, "Morgan job");
+    const betaJob = seedJob(srv, "Morgan", roomB, "Beta job");
     const agent = await spawnAgent(srv, "Picker", roomA);
     const markerFor = (jobId: string) =>
       srv.agentManager
@@ -621,7 +621,7 @@ describe("cron rooms: /isomux-cronjob-system-prompt", () => {
       .getPendingInteractions()
       .find((item) => item.agentId === agent.id);
     expect(interaction?.choices.map((c) => c.value).sort()).toEqual(
-      [makersJob.id, bossJob.id].sort(),
+      [makersJob.id, morganJob.id].sort(),
     );
 
     await sendHuman(

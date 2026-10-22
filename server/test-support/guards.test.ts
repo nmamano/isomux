@@ -531,7 +531,7 @@ describe("guard: hasOwningUser", () => {
 // --- appOwnerOrOfficeOwner --------------------------------------------------
 // Written as a deliberate CONTRAST to cronjobOwnerOrOfficeOwner below. App
 // access includes the ordinary agent's owner match and, under task 3cd85856
-// (Nil's 2026-08-31 ruling), an agent whose boss is an office owner. Cron access
+// (Nil's 2026-08-31 ruling), an agent whose manager is an office owner. Cron access
 // keeps its narrower privilege + creator rule. Copying either guard without
 // re-deriving its scope is exactly the mistake these cases catch.
 
@@ -584,7 +584,7 @@ describe("guard: appOwnerOrOfficeOwner", () => {
       guard(ctx(privilegedAgent, { name: "hello" }, undefined, deps)),
     ).toEqual(OK);
   });
-  it("denies an agent whose MEMBER boss does not own the app", () => {
+  it("denies an agent whose MEMBER manager does not own the app", () => {
     const deps = makeDeps({
       appOwnerUserId: () => "u-other",
       isOfficeOwnerUserId: () => false,
@@ -629,7 +629,7 @@ describe("guard: appOwnerOrOfficeOwner", () => {
       ),
     ).toEqual(OK);
   });
-  it("denies an agent with no boss even when the owner predicate is permissive", () => {
+  it("denies an agent with no manager even when the owner predicate is permissive", () => {
     const unownedAgent: Identity = { ...agent, userId: null };
     expect(
       guard(
@@ -1088,7 +1088,7 @@ describe("guard: conversationReset", () => {
 
 // --- logSearchAccess, including the KILLED-agent path (task ffb90761) --------
 // The live half is the room rule; the killed half is a different rule entirely
-// (the dead agent's own boss, or an office owner), so both halves are pinned in
+// (the dead agent's own manager, or an office owner), so both halves are pinned in
 // BOTH directions - a room-only implementation and a killed-only one each fail
 // a test here.
 
@@ -1118,7 +1118,7 @@ describe("guard: logSearchAccess", () => {
       logSearchAccess(ctx(userMember, { id: "a-x" }, undefined, hidden)),
     ).toEqual(DENY);
   });
-  it("AGENT: itself, and a target in a room its boss can reach", () => {
+  it("AGENT: itself, and a target in a room its manager can reach", () => {
     const noRoom = makeDeps({ roomIdForAgent: () => null });
     expect(
       logSearchAccess(ctx(agent, { id: "a-1" }, undefined, noRoom)),
@@ -1127,14 +1127,14 @@ describe("guard: logSearchAccess", () => {
       logSearchAccess(ctx(agent, { id: "a-other" }, undefined, liveVisible)),
     ).toEqual(OK);
   });
-  it("KILLED target: its own boss reads it, though the room path denies", () => {
+  it("KILLED target: its own manager reads it, though the room path denies", () => {
     expect(
       logSearchAccess(
         ctx(userMember, { id: "a-dead" }, undefined, killedByMember),
       ),
     ).toEqual(OK);
   });
-  it("KILLED target: an AGENT of the same boss reads it (its userId is that boss)", () => {
+  it("KILLED target: an AGENT of the same manager reads it (its userId is that manager)", () => {
     const killedBySpawner = makeDeps({
       roomIdForAgent: () => null,
       killedAgentManagerUserId: () => "u-spawn", // == agent.userId
@@ -1154,7 +1154,7 @@ describe("guard: logSearchAccess", () => {
       ),
     ).toEqual(OK);
   });
-  it("KILLED target: another boss is denied - a room-mate of the dead agent is NOT enough", () => {
+  it("KILLED target: another manager is denied - a room-mate of the dead agent is NOT enough", () => {
     const killedByOther = makeDeps({
       roomIdForAgent: () => null,
       hasRoomAccess: () => true,
@@ -1165,7 +1165,7 @@ describe("guard: logSearchAccess", () => {
         ctx(userMember, { id: "a-dead" }, undefined, killedByOther),
       ),
     ).toEqual(DENY);
-    // Same for an agent whose boss is not the dead agent's boss.
+    // Same for an agent whose manager is not the dead agent's manager.
     expect(
       logSearchAccess(ctx(agent, { id: "a-dead" }, undefined, killedByOther)),
     ).toEqual(DENY);

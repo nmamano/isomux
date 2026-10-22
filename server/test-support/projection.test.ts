@@ -348,7 +348,7 @@ describe("full_state projection - connect-time ACL (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss"); // full access (all 3 rooms)
+    const owner = await server.seedOwner("Morgan"); // full access (all 3 rooms)
     const member = await server.seedMember("Mia");
 
     const a1 = await spawnIn(server, "A1", r1);
@@ -383,7 +383,7 @@ describe("full_state projection - connect-time ACL (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const a1 = await spawnIn(server, "A1", r1);
@@ -427,7 +427,7 @@ describe("full_state projection - connect-time ACL (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -481,7 +481,7 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const vis = await spawnIn(server, "Vis", r1);
@@ -532,7 +532,7 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const vis = await spawnIn(server, "Vis", r1);
@@ -572,7 +572,7 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     // the last log_entry would commit a partial transcript.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const a = await spawnIn(server, "Vis", r1);
 
     const first = await connectSettled(server, owner.rawSessionId);
@@ -594,7 +594,7 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     // An office with nothing cached sends zero log_entry frames, so "the
     // replay is over" is unobservable without the fence.
     server = await boot();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const sock = await connectSettled(server, owner.rawSessionId);
     const msgs = bag(sock);
     expect(msgs.filter((m) => m.type === "log_entry")).toHaveLength(0);
@@ -612,7 +612,7 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const vis = await spawnIn(server, "Vis", r1);
@@ -653,7 +653,7 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss"); // full access = the requester
+    const owner = await server.seedOwner("Morgan"); // full access = the requester
     const restricted = await server.seedMember("Mia"); // r1 only - can't see Hid
     const visible = await server.seedMember("Val"); // r1 + r2 - CAN see Hid
 
@@ -724,7 +724,7 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
 describe("desktop browser projection", () => {
   it("ignores retired panel commands without browser events or capabilities", async () => {
     server = await boot();
-    const manager = await server.seedOwner("Boss");
+    const manager = await server.seedOwner("Morgan");
     const agent = await spawnIn(
       server,
       "Managed",
@@ -754,7 +754,7 @@ describe("desktop browser projection", () => {
   });
   it("does not emit a panel notification when the extension controls an offered page", async () => {
     server = await boot();
-    const manager = await server.seedOwner("Boss");
+    const manager = await server.seedOwner("Morgan");
     const agent = await spawnIn(
       server,
       "Managed",
@@ -836,7 +836,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const x = await spawnIn(server, "X", r2); // hidden from member
@@ -894,7 +894,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const x = await spawnIn(server, "X", r1); // visible to member
@@ -926,7 +926,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const x = await spawnIn(server, "X", r1);
@@ -970,7 +970,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     await connectSettled(server, owner.rawSessionId);
     await setAccess(server, owner.rawSessionId, member.username, [r1]); // member sees r1 only
@@ -1004,7 +1004,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
   it("closing a visible room sends a bare room_closed delta (no full_state refresh, no dense remap)", async () => {
     server = await boot();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const y = await spawnIn(server, "Y", r3);
@@ -1060,7 +1060,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -1132,7 +1132,7 @@ describe("create_room under rule-based access (Phase 3b flip of the owner fan-ou
     //     a grant change reaches only its own subject (full_state), never the
     //     all-audience broadcast.
     server = await boot();
-    const owner = await server.seedOwner("Boss"); // owner, rule access
+    const owner = await server.seedOwner("Morgan"); // owner, rule access
     const creator = await server.seedMember("Cara"); // member, starts []
     const other = await server.seedMember("Omar"); // member, starts []
 
@@ -1184,7 +1184,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const z = await spawnIn(server, "Z", r2);
@@ -1222,7 +1222,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -1279,7 +1279,7 @@ describe("agent_removed room-ACL (task 03382535 - 3b.3 flip of the broadcast-all
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const hidden = await spawnIn(server, "Hid", r2);
@@ -1324,7 +1324,7 @@ describe("room_pet_updated room-ACL (emitted through the registry, not the bridg
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -1364,7 +1364,7 @@ describe("room_decor_updated room-ACL (emitted through the registry, not the bri
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -1400,7 +1400,7 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const hk = await spawnIn(server, "Hk", r2); // hidden-room kill
@@ -1456,7 +1456,7 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
     });
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const k = await spawnIn(server, "K", r2); // lastRoomId = R2 (hidden)
@@ -1513,7 +1513,7 @@ describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
 
     const sender = await spawnIn(server, "Sender", r2); // a "hidden" room
     const receiver = await spawnIn(server, "Receiver", r1);

@@ -94,7 +94,7 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
   it("owner kills a live agent -> 204; agent leaves the live set", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "DELETE", `/api/agents/${x.id}`, {
@@ -109,7 +109,7 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
   it("no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "DELETE", `/api/agents/${x.id}`);
@@ -122,7 +122,7 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
   it("owner + nonexistent agent -> uniform 403 (no existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "DELETE", "/api/agents/nope", {
       rawSessionId: owner.rawSessionId,
     });
@@ -132,7 +132,7 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
   it("member with no access -> 403; agent untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
@@ -154,7 +154,7 @@ describe("agents.abort REST (Phase 3d slice 7a)", () => {
   it("owner aborts an idle agent -> 409 nothing_to_abort", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "POST", `/api/agents/${x.id}/abort`, {
@@ -171,7 +171,7 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
   it("owner moves an agent -> 200 { agent } with the new roomId", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
     const x = await spawnAt(srv, "X", r1, 0);
@@ -188,7 +188,7 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
   it("no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
     const x = await spawnAt(srv, "X", r1, 0);
@@ -201,7 +201,7 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
   it("same-room move -> 200 { agent } (idempotent no-op, not a 404)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
@@ -217,7 +217,7 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
   it("owner + nonexistent target room -> 404 room_not_found (rule-based access passes the guard; the dep disambiguates)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
@@ -235,7 +235,7 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
   it("target room with a full front -> 200, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
     srv.agentManager.setRoomBackRoom(r2, true);
@@ -256,7 +256,7 @@ describe("rooms.swapDesks REST (Phase 3d slice 7a)", () => {
   it("owner swaps two desks -> 204; the agents trade desks", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const a = await spawnAt(srv, "A", r1, 0);
     const b = await spawnAt(srv, "B", r1, 1);
@@ -272,7 +272,7 @@ describe("rooms.swapDesks REST (Phase 3d slice 7a)", () => {
   it("missing desk indices -> 422 invalid_desks", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", `/api/rooms/${r1}/swap-desks`, {
       body: {},
@@ -285,7 +285,7 @@ describe("rooms.swapDesks REST (Phase 3d slice 7a)", () => {
   it("member with no room access -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const r1 = srv.agentManager.getRooms()[0].id;
     await spawnAt(srv, "A", r1, 0);
@@ -302,7 +302,7 @@ describe("agents.setTopic / regenerateTopic REST (Phase 3d slice 7a)", () => {
   it("owner sets a topic -> 204; the topic lands", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PUT", `/api/agents/${x.id}/topic`, {
@@ -316,7 +316,7 @@ describe("agents.setTopic / regenerateTopic REST (Phase 3d slice 7a)", () => {
   it("owner asks for a regenerated topic -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     srv.agentManager.setTopic(x.id, "to be regenerated");
@@ -329,7 +329,7 @@ describe("agents.setTopic / regenerateTopic REST (Phase 3d slice 7a)", () => {
   it("missing topic -> 422 invalid_topic (malformed body, not an empty-topic write)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PUT", `/api/agents/${x.id}/topic`, {
@@ -359,7 +359,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("owner spawns -> 201 { agent } in the target room", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "Aria", r1, 0),
@@ -379,7 +379,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("agent-driven OpenCode spawn defaults to Bypass while explicit Ask round-trips", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerRecord = getUserByName(owner.username);
     if (!ownerRecord) throw new Error("seeded owner record missing");
     const r1 = srv.agentManager.getRooms()[0].id;
@@ -439,7 +439,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("duplicate name -> 409 name_taken (field hint for the dialog)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     await spawnAt(srv, "Dup", r1, 0);
     const res = await req(srv, "POST", "/api/agents", {
@@ -456,7 +456,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("full front -> 201, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     srv.agentManager.setRoomBackRoom(r1, true);
     for (let d = 0; d < 8; d++) await spawnAt(srv, `Fill${d}`, r1, d);
@@ -476,7 +476,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("desk past the last slot -> 422 invalid_desk, and no agent is created", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "OffGrid", r1, DESK_COUNT),
@@ -490,7 +490,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("negative desk -> 422 invalid_desk (-1 is also the room-full sentinel)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "Negative", r1, -1),
@@ -504,7 +504,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("an out-of-range desk cannot smuggle an agent into a FULL room", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     for (let d = 0; d < DESK_COUNT; d++) await spawnAt(srv, `Fill${d}`, r1, d);
     const res = await req(srv, "POST", "/api/agents", {
@@ -536,7 +536,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("invalid cwd -> 400 invalid_cwd", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -555,7 +555,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("member without access to the target room -> 403 (bodyRoom guard)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
@@ -568,7 +568,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "X", r1, 0),
@@ -579,7 +579,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("malformed optional field -> 422 invalid_request (not a 500)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: { name: "X", cwd: srv.stateRoot, roomId: r1, desk: 0, outfit: 123 },
@@ -595,7 +595,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     // rooms[0]; now it is rejected and the dep disambiguates to room_not_found.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "Ghost", "no-such-room", 0),
       rawSessionId: owner.rawSessionId,
@@ -609,7 +609,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("claude agentType (default) + Codex modelFamily -> 422 invalid_model_family, NOT a silent default-model spawn", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: { ...spawnBody(srv, "Mismatch", r1, 0), modelFamily: "gpt-5.5" },
@@ -623,7 +623,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("codex agentType + Claude family -> 422 invalid_model_family (statically impossible pairing)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -640,7 +640,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("matched agentType + modelFamily still spawns (codex + codex slug -> 201)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -659,7 +659,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("unknown Codex model -> 422 invalid_model_family instead of a broken agent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -678,7 +678,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("spawn rejects a concrete model that disagrees with its Claude family", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -696,7 +696,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("spawn derives modelFamily from a concrete Claude model", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -714,7 +714,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("spawns a dormant OpenCode agent with a composite model through REST", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -742,7 +742,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("preserves an explicit OpenCode bypass mode through REST spawn", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -762,7 +762,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("Codex spawn without permission fields gets the agent defaults", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -786,7 +786,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   it("Claude spawn without a permission field keeps the REST default", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
       body: {
@@ -808,7 +808,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("owner edits -> 200 { agent } with the change applied", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -825,7 +825,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH sets the automatic handoff switch, which persists; a non-boolean is 422", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const x = await spawnAt(srv, "Auto", srv.agentManager.getRooms()[0].id, 0);
     expect(srv.agentManager.getAgent(x.id)?.autoHandoff ?? false).toBe(false);
     const persisted = () =>
@@ -863,7 +863,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH sets the automatic handoff token value in range; it persists only off the default; anything else is 422", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const x = await spawnAt(
       srv,
       "Tokens",
@@ -922,7 +922,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("an engine switch carries the automatic handoff token value saved with it", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const x = await spawnAt(
       srv,
       "Switch",
@@ -948,7 +948,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH sets the resume-after-usage-limit switch, on by default; off persists; a non-boolean is 422", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const x = await spawnAt(
       srv,
       "Resume",
@@ -992,7 +992,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH carries costume through the existing outfit update", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const x = await spawnAt(
       srv,
       "Costume",
@@ -1015,7 +1015,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH flips a dormant OpenCode agent from bypass back to default", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const spawned = await req(srv, "POST", "/api/agents", {
       body: {
@@ -1041,7 +1041,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("invalid cwd -> 400 invalid_cwd", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1055,7 +1055,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("member with no access -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
@@ -1069,7 +1069,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("malformed body field -> 422 invalid_request (not a 500); agent untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1086,7 +1086,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     // PATCH was ignored or, worse, changed the model to the default).
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0); // claude agent
     const before = srv.agentManager.getAgent(x.id)?.modelFamily;
@@ -1102,7 +1102,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH rejects an unknown Codex model and leaves the agent usable", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const spawned = await req(srv, "POST", "/api/agents", {
       body: {
@@ -1129,7 +1129,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH rejects a concrete model that disagrees with its Claude family", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", roomId, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1144,7 +1144,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH derives Claude's family when only a concrete model is sent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", roomId, 0);
     const patched = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1165,7 +1165,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH derives Claude's concrete model when only modelFamily is sent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", roomId, 0);
     const patched = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1185,7 +1185,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH rejects an unmapped Claude model and leaves the agent unchanged", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", roomId, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1202,7 +1202,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     // recorded in the persisted recent-cwd list, and no field may change.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1225,7 +1225,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH customInstructions WITHOUT the version -> 400 invalid_version; blob untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1240,7 +1240,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH customInstructions WITH the current version -> 200; blob + version advance in lockstep on the returned agent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     // Capture the token as a primitive: getAgent returns the LIVE object, so
@@ -1276,7 +1276,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH customInstructions with a STALE version -> 409 version_conflict carrying the CURRENT version; blob untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     // Writer A reads, then writer B saves - A's token is now stale.
@@ -1322,7 +1322,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     // the old token, so their next valid edit would false-409.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     // Wake the agent so it holds a live session with a sessionId: a cwd change
@@ -1380,7 +1380,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("agent_updated broadcast carries the bumped customInstructionsVersion alongside the blob (clients stay current without a refetch)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const sock = await srv.connectWs(owner.rawSessionId);
@@ -1413,7 +1413,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH a valid same-engine modelFamily -> 200 with the change applied (strict check doesn't over-reject)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1429,7 +1429,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     // (the caller almost certainly meant a Codex slug), agent untouched.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0); // claude agent
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1444,7 +1444,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH claude->codex WITH a Codex slug -> 200; the switch lands with that model", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0); // claude agent
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1462,7 +1462,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH claude->codex with the edit dialog's explicit defaults lands full access", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1485,7 +1485,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH claude->codex preserves explicit non-default permission and sandbox values", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -1521,7 +1521,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("a failing session-topic write does NOT strand an engine switch half-applied", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0); // claude agent
     // persistCurrentSessionTopic only writes when there is a session AND a real
@@ -1568,7 +1568,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   it("PATCH codex->claude with a Codex slug -> 422 (validated against the NEW engine, both directions)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await srv.agentManager.spawn(
       "Codexy",
@@ -1606,7 +1606,7 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "K", r1, 0);
     await srv.agentManager.kill(x.id);
@@ -1621,13 +1621,13 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
 
   // Task e87d9c7d: revive shape-checks the desk range like spawn. The core
   // rejected an off-grid desk too, but as "That desk is no longer free." -
-  // telling the boss a desk was occupied when it doesn't exist at all.
+  // telling the member a desk was occupied when it doesn't exist at all.
   it("out-of-range desk -> 422 invalid_desk, and the agent stays dead", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "K", r1, 0);
     await srv.agentManager.kill(x.id);
@@ -1645,7 +1645,7 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
   it("no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents/whatever/revive", {
       body: { roomId: r1, desk: 0 },
@@ -1696,7 +1696,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
   it("a NON-privileged agent bearer reads a room-mate's blob + version -> 200 (reads are not privilege-gated)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const target = await spawnOwnedBy(
       srv,
@@ -1723,7 +1723,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
   it("a null blob reads as { customInstructions: null } with the sentinel version (still echoable)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
     const reader = await spawnOwnedBy(srv, "Reader", r1, 1, owner.username);
@@ -1744,7 +1744,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     // + version, edits, and echoes the version back through agents.update.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
     const read = await req(
@@ -1784,7 +1784,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
   it("an agent bearer without room access to the target -> uniform 403 (same for a nonexistent id - no existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia"); // no room grants
     const r1 = srv.agentManager.getRooms()[0].id;
     const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
@@ -1810,7 +1810,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
   it("no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
     const res = await req(
@@ -1827,7 +1827,7 @@ describe("agents.readSystemPrompt REST (task 08d22e38)", () => {
   it("an authenticated member with room access reads the assembled prompt", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const target = await spawnAt(srv, "Prompt target", roomId, 0);
     const res = await req(
@@ -1845,7 +1845,7 @@ describe("agents.readSystemPrompt REST (task 08d22e38)", () => {
   it("a member without room access gets the instructions-read convention: 403 for existing and missing ids", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomId = srv.agentManager.getRooms()[0].id;
     const target = await spawnAt(srv, "Hidden prompt", roomId, 0);
@@ -1871,7 +1871,7 @@ describe("agents.previewSystemPrompt REST", () => {
   it("previews edits, cleared memory, and a new agent without saving", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
     const manager = await srv.seedMember("Original manager");
     const target = (await srv.agentManager.spawn(
@@ -1938,7 +1938,7 @@ describe("agents.previewSystemPrompt REST", () => {
     const spawned = await preview({ ...draft, agentId: undefined });
     expect(spawned.status).toBe(200);
     expect((spawned.body as { prompt: string }).prompt).toContain("new-agent");
-    expect((spawned.body as { prompt: string }).prompt).toContain("Boss");
+    expect((spawned.body as { prompt: string }).prompt).toContain("Morgan");
     expect((spawned.body as { prompt: string }).prompt).not.toContain(
       "Draft memory sentinel",
     );
@@ -1948,7 +1948,7 @@ describe("agents.previewSystemPrompt REST", () => {
   it("rejects inaccessible rooms, mismatched agents, and malformed draft fields", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomId = srv.agentManager.getRooms()[0].id;
     const draft = {
@@ -1994,7 +1994,7 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
   ) {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerRecord = getUserByName(owner.username);
     if (!ownerRecord) throw new Error("seeded owner record missing");
     const r1 = srv.agentManager.getRooms()[0].id;
@@ -2117,9 +2117,9 @@ describe("Codex default model from discovery", () => {
       },
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomId = srv.agentManager.getRooms()[0].id;
-    const userId = getUserByName("Boss")!.id;
+    const userId = getUserByName("Morgan")!.id;
     return { srv, owner, roomId, userId, calls };
   }
 
@@ -2241,7 +2241,7 @@ describe("Codex default model from discovery", () => {
     const { srv, owner, roomId, userId, calls } = await setup(
       async () => LOGIN_MODELS,
     );
-    // Spawned through the route, so Boss owns it: discovery uses the owner's
+    // Spawned through the route, so Morgan owns it: discovery uses the owner's
     // env stack, the one the agent runs with.
     const spawned = await req(srv, "POST", "/api/agents", {
       body: codexBody(srv, roomId, {

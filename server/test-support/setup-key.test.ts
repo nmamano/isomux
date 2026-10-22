@@ -80,7 +80,7 @@ describe("an office's own setup key", () => {
 
   it("is deleted by a claimed boot that finds one left over", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     expect(existsSync(setupKeyFile())).toBe(true);
     server = await server.restart();
     expect(existsSync(setupKeyFile())).toBe(false);

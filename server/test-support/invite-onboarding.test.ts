@@ -18,7 +18,7 @@ afterEach(async () => {
 describe("invite onboarding", () => {
   it("keeps an owner-created member through an expired link and takes their language at first sign-in", async () => {
     let srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const created = await srv.http("/api/users", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -92,7 +92,7 @@ describe("invite onboarding", () => {
 
   it("refuses an unsupported language at first sign-in without consuming the link", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const { rawToken } = await mintMemberLink("Marc");
     expect(
       await acceptInvite(rawToken, { userAgent: null, language: "fr" }),
@@ -105,12 +105,12 @@ describe("invite onboarding", () => {
   // they expire: the invitee chooses their name.
   it("rejects an existing name without consuming the invite, preserves the form, and permits a retry", async () => {
     const srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const minted = await _testMintLegacyInvite({
       username: null,
       role: "owner",
-      createdBy: "Boss",
+      createdBy: "Morgan",
       language: "es",
     });
     const token = minted.rawToken;
@@ -137,12 +137,12 @@ describe("invite onboarding", () => {
 
   it("allows only one of two simultaneous invites to claim a name", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const mint = () =>
       _testMintLegacyInvite({
         username: null,
         role: "member",
-        createdBy: "Boss",
+        createdBy: "Morgan",
       });
     const a = await mint(),
       b = await mint();
@@ -159,11 +159,11 @@ describe("invite onboarding", () => {
 
   it("refuses a signed-in owner on a legacy new-member invite and an unsupported language", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const minted = await _testMintLegacyInvite({
       username: null,
       role: "member",
-      createdBy: "Boss",
+      createdBy: "Morgan",
     });
     const page = await srv.http(`/i/${minted.rawToken}`, {
       rawSessionId: owner.rawSessionId,

@@ -119,7 +119,7 @@ describe("routes/tasks REST: /api identity required (no loopback bypass)", () =>
   it("loopback no-cookie GET/POST /api/tasks -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
 
     const getApi = await api(srv, "/api/tasks");
     expect(getApi.status).toBe(401);
@@ -144,7 +144,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
   it("GET /api/tasks with an owner cookie lists (200)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/tasks", {
       rawSessionId: owner.rawSessionId,
     });
@@ -155,7 +155,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
   it("POST /api/tasks derives createdBy+username from the TOKEN, ignoring body (behavior-change)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/tasks", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -171,8 +171,8 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     expect(r.status).toBe(201);
     const t = r.body as TaskItem;
     expect(t.title).toBe("Ship 3a");
-    expect(t.createdBy).toBe("Boss");
-    expect(t.username).toBe("Boss");
+    expect(t.createdBy).toBe("Morgan");
+    expect(t.username).toBe("Morgan");
     expect(t.status).toBe("open");
     // A member creates with no agent id, and the body cannot supply one.
     expect(t).not.toHaveProperty("createdByAgentId");
@@ -182,7 +182,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
   it("PATCH/claim/done update the task; DELETE -> 204; unknown id -> 404", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const created = (
       await api(srv, "/api/tasks", {
         method: "POST",
@@ -241,7 +241,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
   it("PATCH priority: null clears it, '' is still a 400, absent leaves it alone", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const created = (
       await api(srv, "/api/tasks", {
         method: "POST",
@@ -306,8 +306,8 @@ describe("routes/tasks REST: agent bearer", () => {
   it("an agent token authenticates and createdBy is the AGENT name, username the owner", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "TaskBot");
     // Mint a token bound to the agent, attributed to the owner user.
     const token = mintAgentToken(bot.id, ownerId);
@@ -323,7 +323,7 @@ describe("routes/tasks REST: agent bearer", () => {
     expect(r.status).toBe(201);
     const t = r.body as TaskItem;
     expect(t.createdBy).toBe("TaskBot");
-    expect(t.username).toBe("Boss");
+    expect(t.username).toBe("Morgan");
     // The creating agent's id rides next to its name (task 83f71be9).
     expect(t.createdByAgentId).toBe(bot.id);
   });
@@ -333,8 +333,8 @@ describe("routes/tasks REST: cron-run bearer", () => {
   it("a run token authenticates and createdBy is the JOB name, username the creator", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const job = srv.cronjobManager.addCronjob({
       name: "Nightly Sweep",
       schedule: { type: "interval", minutes: 60 },
@@ -344,7 +344,7 @@ describe("routes/tasks REST: cron-run bearer", () => {
       modelFamily: "opus",
       effort: "medium",
       permissionMode: "bypassPermissions",
-      username: "Boss",
+      username: "Morgan",
       userId: ownerId,
     });
     const runToken = mintRunToken(job.id, "run-1", ownerId);
@@ -361,7 +361,7 @@ describe("routes/tasks REST: cron-run bearer", () => {
     const t = r.body as TaskItem;
     // The run acts as the job, not as the human who created the job.
     expect(t.createdBy).toBe("Nightly Sweep");
-    expect(t.username).toBe("Boss");
+    expect(t.username).toBe("Morgan");
     expect(t).not.toHaveProperty("createdByAgentId");
   });
 
@@ -371,8 +371,8 @@ describe("routes/tasks REST: cron-run bearer", () => {
   it("a run token cannot DELETE a task -> 403, and the task survives", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const glob = (
       await api(srv, "/api/tasks", {
         method: "POST",
@@ -411,7 +411,7 @@ describe("routes/tasks REST: idempotency + WS double-signal", () => {
   it("a repeated POST with the same Idempotency-Key creates one task", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const before = srv.agentManager.getTasks().length;
     const headers = { "Idempotency-Key": "create-1" };
     const a = await api(srv, "/api/tasks", {
@@ -435,7 +435,7 @@ describe("routes/tasks REST: idempotency + WS double-signal", () => {
   it("a REST create fans out a `task_upserted` DELTA to a connected socket (emit() path)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
     const hydrationCount = () =>
       sock.messages.filter((m) => (m as { type?: string }).type === "tasks")
@@ -481,7 +481,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("owner sees every room + globals; a member sees only granted rooms + globals", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
@@ -567,8 +567,8 @@ describe("routes/tasks REST: room scoping", () => {
   it("an agent create defaults to the agent's OWN room; roomId:'' makes it global", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const roomA = srv.agentManager.getRooms()[0].id;
     const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
     const token = mintAgentToken(bot.id, ownerId);
@@ -595,7 +595,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("PATCH re-rooms: omit=unchanged, accessible id=move, ''=clear-to-global, non-string=400, unknown=404", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
 
@@ -665,7 +665,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("PATCH into a room outside the caller's access is a uniform 404 (no room oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id; // Mia has NO grant
     const roomB = srv.agentManager.createRoom("Room B");
@@ -702,8 +702,8 @@ describe("routes/tasks REST: room scoping", () => {
   it("an agent bearer can re-room a task into its OWN room", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const roomA = srv.agentManager.getRooms()[0].id;
     const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
     const token = mintAgentToken(bot.id, ownerId);
@@ -733,8 +733,8 @@ describe("routes/tasks REST: room scoping", () => {
   it("a CRON-RUN bearer is GLOBALS-ONLY even for an owner's job: hides room tasks and refuses to mutate them", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const roomB = srv.agentManager.createRoom("Room B");
     const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
       .body as TaskItem;
@@ -806,7 +806,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("re-filing a task OUT of a member's rooms reaches them as task_deleted", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
@@ -843,7 +843,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("re-filing a task INTO a member's rooms reaches them as task_upserted", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
@@ -885,7 +885,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("closing a room keeps its tasks on an owner's board and drops them from a member's; the owner's moves on them never reach the member", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id; // Mia has no grant
     const roomB = srv.agentManager.createRoom("Room B");
@@ -996,7 +996,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("deleting a task reaches a recipient who could see it as task_deleted", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
     const t = (await postTask(srv, owner.rawSessionId, "delete me", ""))
       .body as TaskItem;
@@ -1020,7 +1020,7 @@ describe("routes/tasks REST: room scoping", () => {
   it("a mutation fans out per-recipient: a member socket never receives a room task it can't see", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomB = srv.agentManager.createRoom("Room B"); // Mia has no grant
     const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
@@ -1064,7 +1064,7 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
   it("narrows to one room; empty value narrows to office-global only", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
     const inA = (await postTask(srv, owner.rawSessionId, "in A", roomA))
@@ -1102,7 +1102,7 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
   it("composes with ?status= rather than replacing it", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
     const open = (await postTask(srv, owner.rawSessionId, "open one", roomA))
@@ -1142,7 +1142,7 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
   it("composes with ?assignee= and ?title= too", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
     const mine = (await postTask(srv, owner.rawSessionId, "parser work", roomA))
@@ -1179,7 +1179,7 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
   it("an inaccessible OR unknown roomId is a uniform 404, not an empty list", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id; // Mia has no grant
     await postTask(srv, owner.rawSessionId, "in A", roomA);
@@ -1205,8 +1205,8 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
   it("an agent can filter to its own room with the id its prompt hands it", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
     const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
@@ -1252,7 +1252,7 @@ describe("routes/tasks REST: version guard + claim", () => {
   async function setup() {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
     const t = (
       await api(srv, "/api/tasks", {
@@ -1400,7 +1400,7 @@ describe("routes/tasks REST: P4 replaces the backlog status", () => {
   it("the default list hides done and open P4 tasks; filters reach them", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
     const make = async (title: string, priority?: string) =>
       (
@@ -1452,7 +1452,7 @@ describe("routes/tasks REST: P4 replaces the backlog status", () => {
   it('status "backlog" is a 400 that points at priority P4, on a PATCH, a list and a create', async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
     const t = (
       await api(srv, "/api/tasks", {
@@ -1496,7 +1496,7 @@ describe("routes/tasks REST: obsolete status", () => {
   it("a PATCH closes a task as obsolete; lists treat it as closed, like done", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
     const make = async (title: string, priority?: string) =>
       (
@@ -1550,7 +1550,7 @@ describe("routes/tasks REST: obsolete status", () => {
   it("an unknown status is still a 400 that leaves the task as it was", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
     const t = (
       await api(srv, "/api/tasks", {
@@ -1731,9 +1731,9 @@ describe("routes/tasks REST: a closed room's tasks", () => {
   async function setup() {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
     updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
@@ -1781,7 +1781,7 @@ describe("routes/tasks REST: a closed room's tasks", () => {
       undefined,
       undefined,
       undefined,
-      "Boss",
+      "Morgan",
       "claude",
     );
     if (!bot) throw new Error("spawn OwnerBot returned null");
@@ -1876,8 +1876,11 @@ describe("routes/tasks REST: a closed room's tasks", () => {
     // An edit that does not name a room leaves the task in the closed room.
     expect(stored(edited.id)).toMatchObject({ title: "edited", roomId: roomB });
     expect(
-      (await as("POST", `/api/tasks/${edited.id}/claim`, { assignee: "Boss" }))
-        .status,
+      (
+        await as("POST", `/api/tasks/${edited.id}/claim`, {
+          assignee: "Morgan",
+        })
+      ).status,
     ).toBe(200);
     expect((await as("POST", `/api/tasks/${edited.id}/done`, {})).status).toBe(
       200,
@@ -1953,7 +1956,7 @@ describe("routes/tasks REST: the assignee's agent id", () => {
   async function setup() {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
     const stored = (id: string) =>
       srv.agentManager.getTasks().find((x) => x.id === id)!;
@@ -2015,8 +2018,8 @@ describe("routes/tasks REST: the assignee's agent id", () => {
     expect((claimed.body as TaskItem).assigneeAgentId).toBe(worker.id);
 
     // A name no live agent has (a member) stamps no id.
-    expect((await patch(t.id, { assignee: "Boss" })).status).toBe(200);
-    expect(stored(t.id).assignee).toBe("Boss");
+    expect((await patch(t.id, { assignee: "Morgan" })).status).toBe(200);
+    expect(stored(t.id).assignee).toBe("Morgan");
     expect(stored(t.id)).not.toHaveProperty("assigneeAgentId");
 
     expect(
@@ -2184,7 +2187,7 @@ describe("routes/tasks REST: the assignee's agent id", () => {
     expect(stored(deadTask.id).assignee).toBe("Worker");
     expect(stored(legacy.id).assignee).toBe("Worker");
     // createdBy stays as written.
-    expect(stored(open.id).createdBy).toBe("Boss");
+    expect(stored(open.id).createdBy).toBe("Morgan");
   });
 
   it("a rename that rolls back leaves the tasks on the old name", async () => {

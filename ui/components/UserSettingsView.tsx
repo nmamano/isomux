@@ -1255,7 +1255,7 @@ function UserEditPanel({
   // Member-scoped memory for this user, edited via the unified /api/memory verbs
   // (load + version-guarded save), keyed by the stable userId so it survives a
   // rename. Saved separately from the user PATCH.
-  const mem = useMemoryEditor("boss", user.id, !creating);
+  const mem = useMemoryEditor("member", user.id, !creating);
   // Live-avatars: visual identity for the user's ghost in the office
   // scene. Color is stored as #rrggbb (normalized at save time);
   // variant is one of GHOST_VARIANTS. Both default to the user record's

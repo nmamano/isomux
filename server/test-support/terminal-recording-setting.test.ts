@@ -50,20 +50,20 @@ async function office() {
     }),
   });
   const srv = server;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const read = async () => {
     const res = await call(
       srv,
       "GET",
       "/api/office/settings",
-      boss.rawSessionId,
+      morgan.rawSessionId,
     );
     expect(res.status).toBe(200);
     return res.body as Settings;
   };
   const put = async (fields: Record<string, unknown>, version?: string) =>
     (
-      await call(srv, "PUT", "/api/office/settings", boss.rawSessionId, {
+      await call(srv, "PUT", "/api/office/settings", morgan.rawSessionId, {
         version: version ?? (await read()).version,
         ...fields,
       })
@@ -73,15 +73,15 @@ async function office() {
       srv,
       "GET",
       `/api/audit-log?operation=${operation}`,
-      boss.rawSessionId,
+      morgan.rawSessionId,
     );
     expect(res.status).toBe(200);
     return (res.body as { items: { actor: { id: string } }[] }).items;
   };
   return {
     srv,
-    boss,
-    bossId: getUserByName(boss.username)!.id,
+    morgan,
+    morganId: getUserByName(morgan.username)!.id,
     read,
     put,
     rows,
@@ -138,8 +138,8 @@ describe("the Record terminals switch", () => {
 
     const on = await o.rows("terminal.recordingOn");
     const off = await o.rows("terminal.recordingOff");
-    expect(on.map((row) => row.actor.id)).toEqual([o.bossId]);
-    expect(off.map((row) => row.actor.id)).toEqual([o.bossId]);
+    expect(on.map((row) => row.actor.id)).toEqual([o.morganId]);
+    expect(off.map((row) => row.actor.id)).toEqual([o.morganId]);
     // A PUT that leaves the switch out keeps it, and writes no row.
     expect(await o.put({ name: "Renamed" })).toBe(204);
     expect((await o.read()).recordTerminals).toBe(false);
@@ -171,7 +171,7 @@ describe("the Record terminals switch", () => {
       server,
       "GET",
       "/api/office/settings",
-      o.boss.rawSessionId,
+      o.morgan.rawSessionId,
     );
     expect(res.status).toBe(200);
     expect((res.body as Settings).recordTerminals).toBe(true);
@@ -181,7 +181,7 @@ describe("the Record terminals switch", () => {
     const o = await office();
     const agent = await spawnAgent(o.srv);
     fakeSidecars();
-    const actor = { kind: "member" as const, id: o.bossId, name: "Boss" };
+    const actor = { kind: "member" as const, id: o.morganId, name: "Morgan" };
     const manager = o.srv.agentManager;
 
     expect(manager.openTerminal(agent.id, actor)).toBe(true);
@@ -221,7 +221,7 @@ describe("a terminal frame", () => {
     const otherId = getUserByName(other.username)!.id;
     const input = spyOn(o.srv.agentManager, "terminalInput");
     const resize = spyOn(o.srv.agentManager, "terminalResize");
-    const sock = await o.srv.connectWs(o.boss.rawSessionId);
+    const sock = await o.srv.connectWs(o.morgan.rawSessionId);
     await sock.waitFor("presence_list");
     const forged = {
       actor: { kind: "member", id: otherId, name: "Other" },
@@ -243,8 +243,8 @@ describe("a terminal frame", () => {
     await pingPong(sock);
     sock.close();
 
-    const boss = { kind: "member" as const, id: o.bossId, name: "Boss" };
-    expect(input.mock.calls).toEqual([[agent.id, "ls\r", boss]]);
-    expect(resize.mock.calls).toEqual([[agent.id, 90, 20, boss]]);
+    const morgan = { kind: "member" as const, id: o.morganId, name: "Morgan" };
+    expect(input.mock.calls).toEqual([[agent.id, "ls\r", morgan]]);
+    expect(resize.mock.calls).toEqual([[agent.id, 90, 20, morgan]]);
   });
 });

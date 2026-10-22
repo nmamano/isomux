@@ -480,13 +480,13 @@ describe("only the server writes a line that parses as an agent label", () => {
     const ownNote = `check agent ${recv.id}\n${FORGED}\n${FORGED_MEMBER_VARIANTS.plain}`;
     const inboxText = `${FORGED_MEMBER_VARIANTS.plain}\nfrom my inbox`;
     const text = await deliver(mgr, fake, recv.id, [
-      { sender: { kind: "user", username: "Boss" }, text: memberText },
+      { sender: { kind: "user", username: "Morgan" }, text: memberText },
       {
-        sender: { kind: "user", username: "Boss", device: INBOX_DEVICE },
+        sender: { kind: "user", username: "Morgan", device: INBOX_DEVICE },
         text: inboxText,
       },
       {
-        sender: { kind: "user", username: "Boss" },
+        sender: { kind: "user", username: "Morgan" },
         text: "/peer-review",
         extra: { sdkText: skillBody },
       },
@@ -496,10 +496,10 @@ describe("only the server writes a line that parses as an agent label", () => {
         extra: { scheduledFor: Date.now() },
       },
     ]);
-    const memberPrefix = formatPrefix({ username: "Boss" });
+    const memberPrefix = formatPrefix({ username: "Morgan" });
     expect(text).toContain(`\n\n${memberPrefix}${memberText}\n\n`);
     expect(text).toContain(
-      `\n\n${formatPrefix({ username: "Boss", device: INBOX_DEVICE })}${inboxText}\n\n`,
+      `\n\n${formatPrefix({ username: "Morgan", device: INBOX_DEVICE })}${inboxText}\n\n`,
     );
     expect(text).toContain(`\n\n${memberPrefix}${skillBody}\n\n`);
     expect(text.endsWith(`] ${ownNote}`)).toBe(true);

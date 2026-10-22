@@ -131,7 +131,7 @@ async function ownerUpdate(
 describe("user-wire projection leak closure (3b.5)", () => {
   it("a member receives UserPublicWire only on users_list, their OWN full record via self, and NO admin events", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     await server.seedMember("Bob");
 
@@ -158,7 +158,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
   it("an owner receives the full admin roster + their own self record; users_list still public", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -180,7 +180,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
   it("a grant change (setAccess, private-only) fans out self(full) to the subject + admin(full) to owners, and NOTHING to other members", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const bob = await server.seedMember("Bob");
     const r1 = server.agentManager.getRooms()[0].id;
@@ -228,7 +228,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
   it("a private-only record edit (memberPrompt) fans self(full)+admin(full), and NOTHING public to other members (0236f470)", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const bob = await server.seedMember("Bob");
 
@@ -286,7 +286,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
   it("a public record edit (name) DOES fan a public user_updated to other members", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const bob = await server.seedMember("Bob");
 
@@ -309,7 +309,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
   it("office envFile is stripped for members (full_state.office + office_settings_updated) and kept for owners", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     // Seed an office envFile directly (officeState stores it without validation).
     server.agentManager.setOfficeSettings("op", "/seed/env/path", "Acme");
@@ -342,7 +342,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
   it("connect hydration delivers the full self/admin records BEFORE full_state (the UI owner-roster reads depend on this order)", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const idxOf = (s: TestSocket, type: string) =>
       bag(s).findIndex((m) => m.type === type);

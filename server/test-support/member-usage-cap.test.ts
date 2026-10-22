@@ -200,7 +200,7 @@ function expectCappedSetup(cap: { reads: number }) {
 async function boot() {
   const srv = await startTestServer({ fakeBackend: parkingBackend() });
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Alice");
   return { srv, owner, member };
 }
@@ -221,7 +221,7 @@ describe("member usage cap: direct human input", () => {
     expect(stateOf(srv, agent.id)).toBe("waiting_for_response");
 
     // The owner's own input to a member's agent is never capped.
-    void srv.agentManager.sendMessage(agent.id, "owner hello", "Boss");
+    void srv.agentManager.sendMessage(agent.id, "owner hello", "Morgan");
     await waitUntil(
       () =>
         sentTexts(srv, agent.id).some((t) => t.includes("owner hello")) ||
@@ -287,14 +287,14 @@ describe("member usage cap: queued input", () => {
   it("drains only the capped items of a batch and sends the rest", async () => {
     const { srv } = await boot();
     const agent = await spawnFor(srv, "AliceBot", "Alice");
-    const ownerAgent = await spawnFor(srv, "BossBot", "Boss");
+    const ownerAgent = await spawnFor(srv, "MorganBot", "Morgan");
     const cap = installCap();
     cap.reading = BEHIND;
 
     // Hold the agent busy so every message queues.
-    void srv.agentManager.sendMessage(agent.id, "first", "Boss");
+    void srv.agentManager.sendMessage(agent.id, "first", "Morgan");
     await waitUntil(() => sentTexts(srv, agent.id).length === 1);
-    void srv.agentManager.sendMessage(agent.id, "owner queued", "Boss");
+    void srv.agentManager.sendMessage(agent.id, "owner queued", "Morgan");
     void srv.agentManager.sendMessage(agent.id, "member queued", "Alice");
     // No human sent this one, and the receiver's manager is a member.
     const fromAgent = await postAsAgent(
@@ -393,7 +393,7 @@ describe("member usage cap: heads-up", () => {
 
     // Same day: no second entry. The owner is never capped, so never warned.
     await runTurn(srv, agent.id, "member near again", "Alice");
-    await runTurn(srv, agent.id, "owner near", "Boss");
+    await runTurn(srv, agent.id, "owner near", "Morgan");
     expect(headsUps(srv, agent.id)).toHaveLength(1);
 
     // The next day of the window warns again.
@@ -412,7 +412,7 @@ describe("member usage cap: heads-up", () => {
       }),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
     const agent = await spawnFor(srv, "AliceBot", "Alice");
     const cap = installCap();
@@ -454,7 +454,7 @@ describe("member usage cap: heads-up", () => {
     cap.reading = week.behind;
 
     // Hold the agent busy with the owner's turn so the member's message queues.
-    void srv.agentManager.sendMessage(agent.id, "first", "Boss");
+    void srv.agentManager.sendMessage(agent.id, "first", "Morgan");
     await waitUntil(() => sentTexts(srv, agent.id).length === 1);
     void srv.agentManager.sendMessage(agent.id, "member queued", "Alice");
     await waitUntil(() => (queueOf(srv, agent.id) ?? []).length === 1);
@@ -486,7 +486,7 @@ describe("member usage cap: input no human sent", () => {
   it("answers an agent's message to a member's agent with 429 usage_cap", async () => {
     const { srv } = await boot();
     const target = await spawnFor(srv, "AliceBot", "Alice");
-    const sender = await spawnFor(srv, "BossBot", "Boss");
+    const sender = await spawnFor(srv, "MorganBot", "Morgan");
     const cap = installCap();
 
     const refused = await postAsAgent(
@@ -523,7 +523,7 @@ describe("member usage cap: input no human sent", () => {
   it("refuses a handoff before it resets the session", async () => {
     const { srv } = await boot();
     const agent = await spawnFor(srv, "AliceBot", "Alice");
-    void srv.agentManager.sendMessage(agent.id, "start", "Boss");
+    void srv.agentManager.sendMessage(agent.id, "start", "Morgan");
     await waitUntil(() => sentTexts(srv, agent.id).length === 1);
     srv.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
     await waitUntil(() => stateOf(srv, agent.id) === "waiting_for_response");
@@ -545,7 +545,7 @@ describe("member usage cap: input no human sent", () => {
   it("accepts input with no recent reading and refuses it at turn start", async () => {
     const { srv } = await boot();
     const target = await spawnFor(srv, "AliceBot", "Alice");
-    const sender = await spawnFor(srv, "BossBot", "Boss");
+    const sender = await spawnFor(srv, "MorganBot", "Morgan");
     const cap = installCap();
 
     // The scheduled-message tick enqueues with no reading taken first.
@@ -554,7 +554,7 @@ describe("member usage cap: input no human sent", () => {
       sender: {
         kind: "agent",
         agentId: sender.id,
-        agentName: "BossBot",
+        agentName: "MorganBot",
         roomName: "Room",
       },
       text: "scheduled hello",
@@ -572,7 +572,7 @@ describe("member usage cap: unreadable office usage", () => {
   it("lets members' input through when the usage cannot be read", async () => {
     const { srv } = await boot();
     const agent = await spawnFor(srv, "AliceBot", "Alice");
-    const sender = await spawnFor(srv, "BossBot", "Boss");
+    const sender = await spawnFor(srv, "MorganBot", "Morgan");
     const cap = installCap();
     cap.reading = UNREADABLE;
 
@@ -638,14 +638,14 @@ describe("member usage cap: cron runs", () => {
       "failed",
     );
 
-    const ownerJob = seed("Boss");
-    const ownerRun = srv.cronjobManager.runCronjobNow(ownerJob.id, "Boss")!;
+    const ownerJob = seed("Morgan");
+    const ownerRun = srv.cronjobManager.runCronjobNow(ownerJob.id, "Morgan")!;
     expect(ownerRun).not.toBeNull();
     await waitUntil(
       () =>
         srv.fakeBackend.sessions
           .flatMap((s) => s.sent)
-          .some((m) => m.text.includes("Boss prompt")),
+          .some((m) => m.text.includes("Morgan prompt")),
       3000,
       "owner run sent",
     );
@@ -664,13 +664,13 @@ describe("member usage cap: cron run follow-ups", () => {
     });
     const srv = await startTestServer({ fakeBackend: fb });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
     // A temp office Claude home, so the resume precheck never reads ~/.claude.
     const claudeHome = join(srv.stateRoot, "office-claude-home");
     setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
     const job = srv.cronjobManager.addCronjob({
-      name: "Boss job",
+      name: "Morgan job",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
       cwd: srv.stateRoot,
@@ -678,10 +678,10 @@ describe("member usage cap: cron run follow-ups", () => {
       modelFamily: "opus",
       effort: "medium",
       permissionMode: "bypassPermissions",
-      username: "Boss",
-      userId: getUserByName("Boss")?.id ?? null,
+      username: "Morgan",
+      userId: getUserByName("Morgan")?.id ?? null,
     });
-    const run = srv.cronjobManager.runCronjobNow(job.id, "Boss")!;
+    const run = srv.cronjobManager.runCronjobNow(job.id, "Morgan")!;
     await waitUntil(
       () => srv.cronjobManager.findRun(job.id, run.id)?.status === "completed",
       3000,
@@ -707,7 +707,7 @@ describe("member usage cap: cron run follow-ups", () => {
         .entries.filter((e) => e.kind === "error").length,
     ).toBe(errorsBefore + 1);
 
-    await srv.cronjobManager.sendRunMessage(job.id, run.id, "more", "Boss");
+    await srv.cronjobManager.sendRunMessage(job.id, run.id, "more", "Morgan");
     expect(fb.resumeSessionCount).toBe(1);
   });
 });

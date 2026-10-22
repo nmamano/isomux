@@ -86,10 +86,10 @@ const secret = (over: Record<string, unknown> = {}) => ({
 async function office() {
   server = await startTestServer();
   const srv = server;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const other = await srv.seedMember("Other");
-  const bossId = getUserByName(boss.username)!.id;
+  const morganId = getUserByName(morgan.username)!.id;
   const memberId = getUserByName(member.username)!.id;
   const register = async (session: string, name: string) => {
     const res = await call(srv, "POST", "/api/apps", {
@@ -105,12 +105,12 @@ async function office() {
   srv.appSupervisor.calls.length = 0;
   return {
     srv,
-    boss,
+    morgan,
     member,
     other,
     memberBase: `/api/users/${member.username}/secrets`,
     memberAgent: mintAgentToken("member-privileged", memberId, true),
-    ownerAgent: mintAgentToken("boss-privileged", bossId, true),
+    ownerAgent: mintAgentToken("morgan-privileged", morganId, true),
     memberApi: (
       await mintApiToken({
         userId: memberId,
@@ -232,7 +232,7 @@ describe("an office secret", () => {
   it("goes to any member's app, and refuses a name that app already reads from a member secret", async () => {
     const o = await office();
     const res = await call(o.srv, "POST", "/api/office/secrets", {
-      session: o.boss.rawSessionId,
+      session: o.morgan.rawSessionId,
       body: secret({ name: "OFFICE_KEY", apps: ["bot", "web"] }),
     });
     expect(res.status).toBe(201);
@@ -247,7 +247,7 @@ describe("an office secret", () => {
     ).toBe(201);
     expect(appEnv("bot")).toEqual({ BOT_TOKEN: VALUE, OFFICE_KEY: VALUE });
     const clash = await call(o.srv, "POST", "/api/office/secrets", {
-      session: o.boss.rawSessionId,
+      session: o.morgan.rawSessionId,
       body: secret(),
     });
     expect([clash.status, errorOf(clash)]).toEqual([
@@ -344,7 +344,7 @@ describe("member removal", () => {
         body: secret(),
       }),
       await call(o.srv, "POST", "/api/office/secrets", {
-        session: o.boss.rawSessionId,
+        session: o.morgan.rawSessionId,
         body: secret({ name: "OFFICE_KEY" }),
       }),
     ];
@@ -355,7 +355,7 @@ describe("member removal", () => {
       o.srv,
       "DELETE",
       `/api/users/${o.member.username}`,
-      { session: o.boss.rawSessionId },
+      { session: o.morgan.rawSessionId },
     );
     expect(removed.status).toBeLessThan(300);
     expect(appEnv("bot")).toEqual({ OFFICE_KEY: VALUE });
@@ -389,7 +389,7 @@ describe("the app logs route", () => {
     const saved = [
       await call(o.srv, "POST", o.memberBase, { session, body: secret() }),
       await call(o.srv, "POST", "/api/office/secrets", {
-        session: o.boss.rawSessionId,
+        session: o.morgan.rawSessionId,
         body: secret({
           name: "HOSTED",
           value: HOST_VALUE,

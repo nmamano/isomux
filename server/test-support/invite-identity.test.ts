@@ -60,7 +60,7 @@ function cookieFrom(response: Response): string {
 describe("invite identity allow-list", () => {
   it("direct POST: sole owner cannot accept a brand-new member identity", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const token = await mintFor("Newbie");
     expect(listInvites()).toHaveLength(1);
 
@@ -68,13 +68,13 @@ describe("invite identity allow-list", () => {
     const refused = await postAccept(server, token, owner.rawSessionId);
     expect(refused.status).toBe(409);
     expect(refused.headers.get("set-cookie")).toBeNull();
-    expect(validateSession(owner.rawSessionId)?.username).toBe("Boss");
+    expect(validateSession(owner.rawSessionId)?.username).toBe("Morgan");
     expect(peekInvite(token)).toMatchObject({ username: "Newbie" });
     expect(listInvites()).toHaveLength(1);
 
     const body = await refused.text();
     expect(body).toContain("This invite is for a different member");
-    expect(body).toContain("You are signed in as Boss.");
+    expect(body).toContain("You are signed in as Morgan.");
     expect(body).toContain("This invite is for Newbie");
 
     // The refused recipient still has a usable one-time link.
@@ -86,7 +86,7 @@ describe("invite identity allow-list", () => {
 
   it("GET mirrors the cross-user refusal without an accept form", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const token = await mintFor("Newbie");
 
     const page = await server.http(`/i/${token}`, {
@@ -102,7 +102,7 @@ describe("invite identity allow-list", () => {
 
   it("refuses every cross-user role shape, including a second-owner invite", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Bob");
 
     for (const [cookie, username, role] of [
@@ -122,27 +122,27 @@ describe("invite identity allow-list", () => {
 
   it("allows a same-user recovery invite and keeps the stable identity", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const before = validateSession(owner.rawSessionId)!;
     const socket = await server.connectWs(owner.rawSessionId);
     const openContext = (await socket.waitFor("session_context")) as {
       context: { userId: string; username: string };
     };
-    const token = await mintFor("Boss", "owner");
+    const token = await mintFor("Morgan", "owner");
 
     const accepted = await postAccept(server, token, owner.rawSessionId);
     expect(accepted.status).toBe(302);
     const replacement = cookieFrom(accepted);
     const after = validateSession(replacement)!;
     expect(after.userId).toBe(before.userId);
-    expect(after.username).toBe("Boss");
+    expect(after.username).toBe("Morgan");
     expect(replacement).not.toBe(owner.rawSessionId);
 
     // The already-open tab remains the same stable identity. A reload/reconnect
     // uses the replacement cookie and also remains that identity.
     expect(openContext.context).toMatchObject({
       userId: before.userId,
-      username: "Boss",
+      username: "Morgan",
     });
     expect(socket.raw.readyState).toBe(WebSocket.OPEN);
     const reconnected = await server.connectWs(replacement);
@@ -151,7 +151,7 @@ describe("invite identity allow-list", () => {
     };
     expect(reconnectContext.context).toMatchObject({
       userId: before.userId,
-      username: "Boss",
+      username: "Morgan",
     });
     socket.close();
     reconnected.close();
@@ -159,7 +159,7 @@ describe("invite identity allow-list", () => {
 
   it("uses the bootstrap binder's trimmed name for the same-user allow-list", async () => {
     server = await startTestServer();
-    const originalOwner = await server.seedOwner("Boss");
+    const originalOwner = await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
     // Model a migrated pre-owner office that already has member records.
     setUserRoleById(
@@ -195,7 +195,7 @@ describe("invite identity allow-list", () => {
 
   it("treats expired, revoked, and unresolvable cookies as anonymous", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const expired = await server.seedMember("Expired");
     const revoked = await server.seedMember("Revoked");
     _testSetSessionExpiry(expired.rawSessionId, { expiresAt: Date.now() - 1 });
@@ -219,7 +219,7 @@ describe("invite identity allow-list", () => {
 
   it("keeps anonymous acceptance unchanged", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const token = await mintFor("Newbie");
     const accepted = await postAccept(server, token);
     expect(accepted.status).toBe(302);

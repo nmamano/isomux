@@ -100,7 +100,7 @@ describe("routes/legacy-retired: authenticated callers get a JSON 404", () => {
   it("an owner cookie gets 404 JSON, not the SPA shell", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const { method, path } of RETIRED) {
       const res = await srv.http(path, {
         method,
@@ -153,7 +153,7 @@ describe("routes/legacy-retired: path shapes that skirt a naive match", () => {
   it("an owner cookie still gets a JSON 404, never the SPA shell", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const path of SKIRTING) {
       const res = await srv.http(path, { rawSessionId: owner.rawSessionId });
       expect({ path, status: res.status }).toEqual({ path, status: 404 });
@@ -175,7 +175,7 @@ describe("routes/legacy-retired: path shapes that skirt a naive match", () => {
   it("a double-encoded separator is not treated as a retired path", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await srv.http("/tasks%252fabc", {
       rawSessionId: owner.rawSessionId,
     });
@@ -187,7 +187,7 @@ describe("routes/legacy-retired: no wildcard CORS preflight", () => {
   it("OPTIONS on the retired prefixes no longer advertises the old methods", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const path of ["/tasks", "/cronjobs"]) {
       // Anonymous: the preflight used to answer 200 with `*` for anyone.
       const anon = await srv.http(path, { method: "OPTIONS" });
@@ -211,7 +211,7 @@ describe("routes/pages: direct loads and reloads", () => {
   it("serves every page path for owner cookies and agent bearers", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const raw = mintAgentToken("agent-pages", "user-1");
     const identities = [
       { rawSessionId: owner.rawSessionId },

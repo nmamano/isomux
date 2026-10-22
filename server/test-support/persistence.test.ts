@@ -147,7 +147,7 @@ describe("agents persistence round-trip (Phase 1.3)", () => {
       topic: "Working on the thing",
       customInstructions: "be terse",
       userId: "user-1",
-      username: "Boss",
+      manager: "Morgan",
       roomId: "aaaa0001",
     };
     const codex: PersistedAgent = {
@@ -165,7 +165,7 @@ describe("agents persistence round-trip (Phase 1.3)", () => {
       topic: null,
       customInstructions: null,
       userId: "user-2",
-      username: "Nil",
+      manager: "Nil",
       roomId: "bbbb0002",
     };
     const rooms: Room[] = [
@@ -359,9 +359,9 @@ describe("cronjob persistence round-trip (Phase 1.3)", () => {
     effort: "high",
     permissionMode: "bypassPermissions",
     enabled: true,
-    createdBy: "Boss",
+    createdBy: "Morgan",
     userId: "user-1",
-    username: "Boss",
+    username: "Morgan",
     createdAt: 1700000000000,
     lastFireAt: null,
     nextFireAt: 1700003600000,
@@ -480,7 +480,7 @@ describe("agent-history persistence round-trip (Phase 1.3)", () => {
         topic: "topic a",
         customInstructions: "ci",
         userId: "user-1",
-        username: "Boss",
+        manager: "Morgan",
       },
     };
     saveAgentHistory(history);
@@ -746,7 +746,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
             topic: null,
             customInstructions: null,
             userId: "user-1",
-            username: "Boss",
+            username: "Morgan",
           },
         ],
       },
@@ -826,7 +826,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
             topic: null,
             customInstructions: null,
             userId: "user-1",
-            username: "Boss",
+            username: "Morgan",
             roomId: "deadbeef", // WRONG - does not match container aaaa0001
           },
         ],
@@ -846,14 +846,14 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     // Legacy username->userId resolution is agent-manager (restoreAgents)'s job,
     // not persistence's. loadAgents must leave userId absent for Bob.
     expect(Object.hasOwn(bob, "userId")).toBe(false);
-    expect(bob.username).toBe("Nil");
+    expect(bob.manager).toBe("Nil");
   });
 
   it("users' room references (allowedRooms/notifRooms) stay intact and id-based; a legacy defaultRoomId field is tolerated and dropped", () => {
     seed("users.json", {
       "user-1": {
         id: "user-1",
-        name: "Boss",
+        name: "Morgan",
         role: "owner",
         allowedRooms: ["aaaa0001", "bbbb0002"],
         notifRooms: ["aaaa0001"],
@@ -869,11 +869,11 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
       },
     });
     _testResetUsers();
-    const boss = getUserById("user-1");
-    expect(boss?.allowedRooms).toEqual(["aaaa0001", "bbbb0002"]);
-    expect(boss?.notifRooms).toEqual(["aaaa0001"]);
+    const morgan = getUserById("user-1");
+    expect(morgan?.allowedRooms).toEqual(["aaaa0001", "bbbb0002"]);
+    expect(morgan?.notifRooms).toEqual(["aaaa0001"]);
     expect(
-      (boss as unknown as Record<string, unknown>).defaultRoomId,
+      (morgan as unknown as Record<string, unknown>).defaultRoomId,
     ).toBeUndefined();
   });
 
@@ -885,7 +885,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
         lastRoomName: "Room 1",
         killedAt: 1700000005000,
         userId: "user-1",
-        username: "Boss",
+        username: "Morgan",
       },
     });
     const hist = loadAgentHistory();

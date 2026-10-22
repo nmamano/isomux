@@ -63,7 +63,7 @@ test("office API starts a real app, authenticates its hostname, relays WS, and p
     }
   }
   office = await startTestServer({ startServer: { appSupervisor: adapter } });
-  const owner = await office.seedOwner("Boss");
+  const owner = await office.seedOwner("Morgan");
   const configured = await office.http("/api/office/access", {
     method: "PUT",
     rawSessionId: owner.rawSessionId,

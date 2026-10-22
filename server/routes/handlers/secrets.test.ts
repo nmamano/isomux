@@ -21,9 +21,10 @@ const identity: Identity = {
   capabilities: USER_CAPABILITIES,
 };
 
-// "boss" is u1, the caller.
+// "morgan" is u1, the caller.
 const SUBJECT = {
-  userIdForUsername: (username: string) => (username === "boss" ? "u1" : null),
+  userIdForUsername: (username: string) =>
+    username === "morgan" ? "u1" : null,
   isOfficeOwnerUserId: () => true,
   auditReveal: () => {},
 };
@@ -31,7 +32,7 @@ const SUBJECT = {
 function ctx(body: unknown, name = ""): RouteHandlerContext {
   return {
     identity,
-    params: { username: "boss", name },
+    params: { username: "morgan", name },
     body,
     rawBody: "",
     query: new URLSearchParams(),

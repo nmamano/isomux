@@ -55,7 +55,7 @@ async function spawnAgent(
 
 // Run /help (dispatches synchronously, no turn) and return the modal payload.
 async function helpOutput(srv: TestServer, agentId: string): Promise<string> {
-  await srv.agentManager.sendMessage(agentId, "/help", "Boss");
+  await srv.agentManager.sendMessage(agentId, "/help", "Morgan");
   const entry = srv.agentManager
     .getAgentLogs(agentId)
     .filter((e) => e.kind === "system")
@@ -68,7 +68,7 @@ async function helpOutput(srv: TestServer, agentId: string): Promise<string> {
 // Enable external access with a config origin (real Access route), then
 // cold-restart so the boot capture picks it up. Returns the fresh server.
 async function restartWithConfigOrigin(srv: TestServer): Promise<TestServer> {
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const r = await srv.http("/api/office/access", {
     method: "PUT",
     rawSessionId: owner.rawSessionId,
@@ -83,7 +83,7 @@ describe("public-origin-derived copy (C3-a)", () => {
   it("localhost boot: no human-origin prompt line, and /help carries no device line", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
 
     const prompt = buildSystemPrompt("A1", "agent-1", "Test Room", "room-1");
     expect(prompt).not.toContain(HUMAN_LINE);
@@ -132,7 +132,7 @@ describe("public-origin-derived copy (C3-a)", () => {
     try {
       const srv0 = await startTestServer();
       server = srv0;
-      const owner = await srv0.seedOwner("Boss");
+      const owner = await srv0.seedOwner("Morgan");
       const access = async (srv: TestServer) =>
         (
           await srv.http("/api/office/access", {

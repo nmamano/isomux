@@ -68,7 +68,7 @@ describe("routes/backends.listModels REST", () => {
   it("owner + member -> 200 with the static claude family list; agent -> 403; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -94,7 +94,7 @@ describe("routes/backends.listModels REST", () => {
   it("unknown agentType -> 200 with empty models + authError:false (graceful, via the core catch)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/backends/bogus/models", {
       rawSessionId: owner.rawSessionId,
     });

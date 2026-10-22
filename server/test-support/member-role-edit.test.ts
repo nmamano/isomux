@@ -10,7 +10,7 @@ afterEach(async () => {
 
 it("only an owner can edit roles; the edit updates live sessions and cannot remove the last owner", async () => {
   const srv = (server = await startTestServer());
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const patch = (name: string, cookie: string, body: unknown) =>
     srv.http(`/api/users/${name}`, {
@@ -26,13 +26,13 @@ it("only an owner can edit roles; the edit updates live sessions and cannot remo
     ).toBe(403);
     expect(getUserByName("Member")?.role).toBe("member");
     expect(
-      (await patch("Boss", boss.rawSessionId, { role: "member" })).status,
+      (await patch("Morgan", morgan.rawSessionId, { role: "member" })).status,
     ).toBe(409);
     expect(
       (
-        await patch("Member", boss.rawSessionId, {
+        await patch("Member", morgan.rawSessionId, {
           role: "owner",
-          name: "Boss",
+          name: "Morgan",
         })
       ).status,
     ).toBe(409);
@@ -40,7 +40,7 @@ it("only an owner can edit roles; the edit updates live sessions and cannot remo
     await socket.waitFor("session_context");
     socket.messages.length = 0;
     expect(
-      (await patch("Member", boss.rawSessionId, { role: "owner" })).status,
+      (await patch("Member", morgan.rawSessionId, { role: "owner" })).status,
     ).toBe(200);
     expect((await socket.waitFor("session_context")).context).toMatchObject({
       role: "owner",
@@ -52,7 +52,7 @@ it("only an owner can edit roles; the edit updates live sessions and cannot remo
     ).toBe(200);
     socket.messages.length = 0;
     expect(
-      (await patch("Member", boss.rawSessionId, { role: "member" })).status,
+      (await patch("Member", morgan.rawSessionId, { role: "member" })).status,
     ).toBe(200);
     expect((await socket.waitFor("session_context")).context).toMatchObject({
       role: "member",
@@ -69,10 +69,10 @@ it("only an owner can edit roles; the edit updates live sessions and cannot remo
       ).status,
     ).toBe(403);
     expect(
-      (await patch("Boss", boss.rawSessionId, { role: "member" })).status,
+      (await patch("Morgan", morgan.rawSessionId, { role: "member" })).status,
     ).toBe(409);
     expect(
-      (await patch("Member", boss.rawSessionId, { role: "invalid" })).status,
+      (await patch("Member", morgan.rawSessionId, { role: "invalid" })).status,
     ).toBe(422);
   } finally {
     socket.close();

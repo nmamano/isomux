@@ -117,7 +117,7 @@ const hookBody = (target: unknown, over: Record<string, unknown> = {}) => ({
 async function office() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const roomA = srv.agentManager.createRoom("Alpha");
   const roomB = srv.agentManager.createRoom("Beta");
   const alice = await srv.seedMember("Alice");
@@ -255,7 +255,7 @@ describe("webhooks REST: lifecycle", () => {
     // An owner's edit keeps the hook's owner.
     const patched = await api(srv, `/api/webhooks/${id}`, asOwner, {
       method: "PATCH",
-      body: { enabled: false, userId: "someone", username: "Boss" },
+      body: { enabled: false, userId: "someone", username: "Morgan" },
     });
     expect(patched.status).toBe(200);
     expect((patched.body as WebhookWire).userId).toBe(
@@ -403,9 +403,9 @@ describe("webhooks REST: who may point a hook at what", () => {
 
   it("refuses a cronjob that the hook owner did not create, and an unknown cronjob", async () => {
     const { srv, alice } = await office();
-    const bossJob = seedJob(srv, "Boss");
+    const morganJob = seedJob(srv, "Morgan");
     const caller = { rawSessionId: alice.rawSessionId };
-    for (const cronjobId of [bossJob.id, "nope1234"]) {
+    for (const cronjobId of [morganJob.id, "nope1234"]) {
       const res = await api(srv, "/api/webhooks", caller, {
         method: "POST",
         body: hookBody({ kind: "cronjob", cronjobId }),

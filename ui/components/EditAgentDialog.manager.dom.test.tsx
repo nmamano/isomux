@@ -115,7 +115,7 @@ describe("edit dialog manager field", () => {
     const agent = {
       ...claudeAgent("opus", "default", []),
       userId: "gone",
-      username: "Gone",
+      manager: "Gone",
     };
     const view = renderAs("owner", agent);
     try {

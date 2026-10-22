@@ -4762,7 +4762,7 @@ function buildExecutorDeps(
                 await transferAgentManager(agent.id, heir.id, actor);
             agentManager.reassignKilledAgents(target.id, {
               userId: heir.id,
-              username: heir.name,
+              manager: heir.name,
             });
           }
         }
@@ -5067,9 +5067,7 @@ function buildExecutorDeps(
           {
             id: existing?.id ?? "new-agent",
             roomId: room.id,
-            username: existing
-              ? existing.username
-              : (identity.username ?? null),
+            manager: existing ? existing.manager : (identity.username ?? null),
             userId: existing ? existing.userId : identity.userId,
             name: input.name,
             agentType: input.agentType,

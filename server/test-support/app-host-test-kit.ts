@@ -61,7 +61,7 @@ export async function startFlatOffice(
 ): Promise<TestServer> {
   const first = await startTestServer();
   track(first);
-  const owner = await first.seedOwner("Boss");
+  const owner = await first.seedOwner("Morgan");
   const r = await first.http("/api/office/access", {
     method: "PUT",
     rawSessionId: owner.rawSessionId,
@@ -397,8 +397,8 @@ export async function spawnAgent(
 
 // An agent bearer token, seeding the owner first if this office has none.
 export async function anAgentToken(srv: TestServer): Promise<string> {
-  if (!getUserByName("Boss")) await srv.seedOwner("Boss");
-  const ownerId = getUserByName("Boss")!.id;
+  if (!getUserByName("Morgan")) await srv.seedOwner("Morgan");
+  const ownerId = getUserByName("Morgan")!.id;
   const bot = await spawnAgent(srv, `AppBot-${Math.random()}`.slice(0, 20));
   return mintAgentToken(bot.id, ownerId);
 }

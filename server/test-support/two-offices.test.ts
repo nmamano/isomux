@@ -125,7 +125,7 @@ describe("two offices on one host, one browser jar", () => {
   it("a session from before the update survives, and signing out of one office leaves the other signed in", async () => {
     const b = await startB();
     a = await startTestServer();
-    await a.seedOwner("Boss");
+    await a.seedOwner("Morgan");
     expect(buildPublicOrigin().isHttps).toBe(false);
     const officeA: Office = {
       base: a.baseUrl,

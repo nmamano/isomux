@@ -315,6 +315,7 @@ import {
   getAgentTokenIdentity,
 } from "./identity/tokens.ts";
 import { getUserById, getUserByName, listUsers } from "./users.ts";
+import { managerOf } from "./agent-system-prompt.ts";
 import type { SecretScope } from "./secret-store.ts";
 // Backend-option validators live in agent-validators.ts so cron handlers can
 // share them. UI shouldn't send mismatched values, but a stale tab or hand-
@@ -669,17 +670,17 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   // Resolve the stable userId for a persisted agent. New agents carry both
-  // userId and username at spawn time; legacy records had only username,
-  // so we look up the user by name on load and bake the id in. If no user
-  // matches the snapshot (deleted, renamed, etc.), the agent runs unowned
+  // userId and the manager name at spawn time; legacy records had only the
+  // name, so we look up the user by name on load and bake the id in. If no
+  // user matches the snapshot (deleted, renamed, etc.), the agent runs unowned
   // (env selection returns no per-user env).
   function resolveAgentUserId(p: PersistedAgent): string | null {
     if (typeof p.userId === "string" && p.userId) return p.userId;
-    if (!p.username) return null;
-    const owner = getUserByName(p.username);
+    if (!p.manager) return null;
+    const owner = getUserByName(p.manager);
     if (!owner) {
       console.log(
-        `[migration] agent "${p.name}" (username="${p.username}") has no matching user record; running unowned`,
+        `[migration] agent "${p.name}" (manager="${p.manager}") has no matching user record; running unowned`,
       );
       return null;
     }
@@ -2160,7 +2161,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Keep agentType out of the established compact discovery contract.
         // The adjacent sandbox field remains Codex-only state.
         sandbox: a.info.codexSandbox ?? null,
-        username: a.info.username,
+        manager: a.info.manager,
       };
     });
   }
@@ -2245,7 +2246,7 @@ export function createAgentManager(deps: ManagerDeps) {
       topic: a.info.topic,
       customInstructions: a.info.customInstructions,
       userId: a.info.userId,
-      username: a.info.username,
+      manager: a.info.manager,
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
       ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
@@ -2310,7 +2311,7 @@ export function createAgentManager(deps: ManagerDeps) {
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
         userId: a.info.userId,
-        username: a.info.username,
+        manager: a.info.manager,
         privileged: a.info.privileged ?? false,
         ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
         ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
@@ -2583,7 +2584,7 @@ export function createAgentManager(deps: ManagerDeps) {
       limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
       claudeFamilyModels: claudeFamilyModelsForUserId(userId),
       userId,
-      username: p.username ?? null,
+      manager: p.manager ?? null,
       privileged: p.privileged ?? false,
       ...(p.autoHandoff === true ? { autoHandoff: true } : {}),
       ...persistedAutoHandoffTokens(p.autoHandoffTokens),
@@ -5614,7 +5615,7 @@ export function createAgentManager(deps: ManagerDeps) {
   async function setManager(
     agentId: string,
     userId: string,
-    username: string,
+    manager: string,
     changedBy: string,
   ): Promise<AgentInfo | null> {
     const managed = agents.get(agentId);
@@ -5624,11 +5625,11 @@ export function createAgentManager(deps: ManagerDeps) {
       agentId,
       managed.sessionManager.sessionId,
       managed.info.userId,
-      managed.info.username,
+      managed.info.manager,
     );
     for (const event of officeState.updateAgent(agentId, {
       userId,
-      username,
+      manager,
     }))
       emit(event);
     mintAgentToken(
@@ -5647,7 +5648,7 @@ export function createAgentManager(deps: ManagerDeps) {
     await newConversation(agentId, undefined, undefined, {
       notice: msg("systemEntries.managerChanged", {
         actor: changedBy,
-        member: username,
+        member: manager,
       }),
     });
     return managed.info;
@@ -5678,7 +5679,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // changed.
   function reassignKilledAgents(
     fromUserId: string,
-    to: { userId: string; username: string },
+    to: { userId: string; manager: string },
   ): string[] {
     const history = loadAgentHistory();
     const changed: string[] = [];
@@ -5688,9 +5689,9 @@ export function createAgentManager(deps: ManagerDeps) {
         id,
         entry.lastSessionId,
         fromUserId,
-        entry.username ?? null,
+        entry.manager ?? null,
       );
-      history[id] = { ...entry, userId: to.userId, username: to.username };
+      history[id] = { ...entry, userId: to.userId, manager: to.manager };
       changed.push(id);
     }
     if (changed.length > 0) saveAgentHistory(history);
@@ -6541,9 +6542,9 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(managed.info.userId
         ? [
             {
-              scope: "boss" as const,
+              scope: "member" as const,
               scopeId: managed.info.userId,
-              label: `Member "${managed.info.username ?? "member"}"`,
+              label: `Member "${managerOf(managed.info).name ?? "member"}"`,
             },
           ]
         : []),
@@ -6649,9 +6650,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // A live agent's roomId always resolves to a real room; roomById
     // logs loud and we fail fast (vs silently building a prompt for room 0).
     const room = roomById(managed.info.roomId)!;
-    const ownerRecord = managed.info.username
-      ? getUserByName(managed.info.username)
-      : undefined;
+    const manager = managerOf(managed.info);
     // One refs list, two consumers: the rendered layer that goes into the prompt
     // and the per-scope sizing behind the session-start memory notice. They have
     // to agree on which scopes load, so they read the same list.
@@ -6665,12 +6664,12 @@ export function createAgentManager(deps: ManagerDeps) {
       officeState.office.prompt,
       room.prompt,
       managed.info.customInstructions,
-      managed.info.username,
-      ownerRecord?.memberPrompt ?? null,
+      manager.name,
+      manager.record?.memberPrompt ?? null,
       managed.info.privileged ?? false,
       memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
-      ownerRecord?.language ?? null,
+      manager.record?.language ?? null,
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's
@@ -6806,7 +6805,7 @@ export function createAgentManager(deps: ManagerDeps) {
         agentType,
         codexSandbox: validatedCodexSandbox,
         userId: ownerId,
-        username,
+        manager: username,
         capabilities: getBackend(agentType).capabilities,
         limitedClaudeFamilies: limited,
         claudeFamilyModels: claudeFamilyModelsForUserId(ownerId),
@@ -10090,7 +10089,7 @@ export function createAgentManager(deps: ManagerDeps) {
           topic: managed.info.topic,
           customInstructions: managed.info.customInstructions,
           userId: managed.info.userId,
-          username: managed.info.username,
+          manager: managed.info.manager,
           // Snapshot privilege so a kill→revive round-trip restores it (this
           // kill-time entry is authoritative - updateAgentHistory skips killed
           // agents, and revive reads entry.privileged).
@@ -10347,7 +10346,7 @@ export function createAgentManager(deps: ManagerDeps) {
       topic: entry.topic ?? null,
       customInstructions: entry.customInstructions ?? null,
       userId: entry.userId,
-      username: entry.username,
+      manager: entry.manager,
       privileged: entry.privileged ?? false,
       ...(entry.autoHandoff ? { autoHandoff: true } : {}),
       ...persistedAutoHandoffTokens(entry.autoHandoffTokens),

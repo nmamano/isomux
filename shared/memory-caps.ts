@@ -6,5 +6,5 @@ export const MEMORY_CAPS: Record<MemoryScope, number> = {
   office: 2500,
   room: 10_000,
   agent: 5000,
-  boss: 5000,
+  member: 5000,
 };

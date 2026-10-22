@@ -109,7 +109,7 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
     it(`no-bearer legacy POST /agents/:id/${action} -> 401 (fail closed)`, async () => {
       const srv = await startTestServer();
       server = srv;
-      await srv.seedOwner("Boss");
+      await srv.seedOwner("Morgan");
       const room = srv.agentManager.getRooms()[0];
       const a = await spawnAgent(srv, "Worker", room.id);
       const r = await affordance(srv, a.id, action, body);
@@ -120,7 +120,7 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
   it("a valid AGENT bearer to a deleted affordance path -> 404 (no side effect)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(a.id)!;
@@ -159,7 +159,7 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
   it("upload to an unknown agent -> 403, the same as a denial", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const fd = new FormData();
     fd.append("file", new File(["x"], "x.txt", { type: "text/plain" }));
     const res = await srv.http(`/api/upload/ghost`, {
@@ -174,7 +174,7 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
   it("more than 5 files -> 400 too_many_files", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "Worker", room.id);
     const fd = new FormData();
@@ -193,7 +193,7 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
   it("small upload returns attachments, then GET /api/files serves the bytes; unknown filename -> 404", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "Worker", room.id);
     const fd = new FormData();

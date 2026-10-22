@@ -142,7 +142,7 @@ describe("routes/invites REST: direct list scoping (no fan-out on reads)", () =>
   it("owner sees all, each member sees only own", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const pa = await mintFor(srv, alice.rawSessionId);
@@ -172,7 +172,7 @@ describe("routes/invites REST: direct list scoping (no fan-out on reads)", () =>
   it("a list READ does NOT emit invites_list to other connected sockets", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const bob = await srv.seedMember("Bob");
     await mintFor(srv, bob.rawSessionId);
 
@@ -194,7 +194,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
   it("mint fans out a scoped invites_list: owner full, member own, a 2nd member zero cross rows", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
 
@@ -235,7 +235,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
   it("owner mint fans out a scoped invites_list: owner and the target get the row, another member none", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
 
@@ -279,7 +279,7 @@ describe("routes/invites REST: owner sign-in link (invites.mint + mintRecovery a
   it("owner mints by userId: bound to the target's name/role, target sees own row, replaces prior link", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
     const aliceSock = await srv.connectWs(alice.rawSessionId);
@@ -340,7 +340,7 @@ describe("routes/invites REST: owner sign-in link (invites.mint + mintRecovery a
   it("on both paths: member -> 403; unknown userId -> 404; missing userId -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
 
@@ -377,7 +377,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
   it("member: foreign prefix AND nonexistent prefix BOTH 403 with identical body; nothing removed", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const pb = await mintFor(srv, bob.rawSessionId); // Alice does NOT own this
@@ -406,7 +406,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
   it("member revokes OWN invite: 204; invite_revoked reaches OWNER sockets only; invites_list re-emits scoped", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const pa = await mintFor(srv, alice.rawSessionId);
@@ -449,7 +449,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
   it("owner revokes any invite (204 + invite_revoked); owner nonexistent prefix -> 404", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const bob = await srv.seedMember("Bob");
     const pb = await mintFor(srv, bob.rawSessionId);
 
@@ -481,7 +481,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     // one more owner-only event. This freezes the proactive refresh.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const pb = await mintFor(srv, bob.rawSessionId);
@@ -517,7 +517,7 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
   it("mint refuses the retired new-member body with 400 and creates no one", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
 
     for (const body of [
@@ -543,7 +543,7 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
   it("invites.mint is officeOwner-only: a member POST /api/invites -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const r = await api(srv, "/api/invites", {
       method: "POST",
@@ -556,7 +556,7 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
   it("mintSelf: a member mints an own-device invite (200); it lands in their scoped list; replaces the prior one", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
 
     const first = await api(srv, "/api/invites/self", {
@@ -592,7 +592,7 @@ describe("routes/invites REST: record-role projection (Option A) + scope/auth", 
   it("a member promoted in the RECORD (no reconnect) projects + revokes as an owner", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const pb = await mintFor(srv, bob.rawSessionId);
@@ -621,7 +621,7 @@ describe("routes/invites REST: record-role projection (Option A) + scope/auth", 
   it("AGENT bearer -> 403 on every invites route; no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id);

@@ -6,7 +6,7 @@
 // it as if a program had just asked, and its answer goes to the PTY as input.
 //
 // The panel is mounted for real over the WS shim, because the PTY input is what
-// the boss sees and nothing below the panel decides whether a chunk is
+// the member sees and nothing below the panel decides whether a chunk is
 // scrollback. The first test pins the untouched xterm behaviour that makes the
 // bug possible, so a guard that stops working is not mistaken for an xterm that
 // stopped answering.

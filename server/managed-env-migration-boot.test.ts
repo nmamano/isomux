@@ -26,7 +26,7 @@ afterEach(async () => {
 describe("managed env migration at real boot", () => {
   it("preserves the poisoned office import marker and surfaces a safe error", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const roomId = server.agentManager.getRooms()[0].id;
     const officePath = join(server.stateRoot, "office-poison.env");
     const secret1 = "sk-live-abcdef0123456789";
@@ -75,7 +75,7 @@ describe("managed env migration at real boot", () => {
 
   it("ignores stale user envFile values across boot and drops them on the next write", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Legacy User");
     const id = getUserByName(member.username)!.id;
     const usersPath = join(server.stateRoot, "users.json");

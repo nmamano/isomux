@@ -332,7 +332,7 @@ describe("pager delivery: first send", () => {
     const s = setup();
     const page = s.raise("v1", { key: "k" });
     await settle();
-    s.store.ack(page.id, "Boss");
+    s.store.ack(page.id, "Morgan");
     s.raise("v2", { key: "k" });
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(1);
@@ -382,7 +382,7 @@ describe("pager delivery: repeat", () => {
     );
     await s.time.advance(5 * MIN);
     expect(s.net.calls).toHaveLength(3);
-    s.store.ack(page.id, "Boss");
+    s.store.ack(page.id, "Morgan");
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(3);
     expect(s.time.pending()).toBe(0);
@@ -436,8 +436,8 @@ describe("pager delivery: resolve", () => {
     const s = setup();
     const page = s.raise();
     await settle();
-    s.store.ack(page.id, "Boss");
-    s.store.resolve(page.id, "Boss");
+    s.store.ack(page.id, "Morgan");
+    s.store.resolve(page.id, "Morgan");
     await s.time.advance(GAP);
     expect(s.net.calls).toHaveLength(2);
   });
@@ -520,7 +520,7 @@ describe("pager delivery: races with a send in flight", () => {
     const release = s.net.hold();
     await s.time.advance(5 * MIN);
     expect(s.net.calls).toHaveLength(2);
-    s.store.ack(page.id, "Boss");
+    s.store.ack(page.id, "Morgan");
     release();
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(2);
@@ -535,7 +535,7 @@ describe("pager delivery: races with a send in flight", () => {
     const two = s.raise("two");
     await settle();
     expect(s.net.calls).toHaveLength(1);
-    s.store.ack(two.id, "Boss");
+    s.store.ack(two.id, "Morgan");
     release();
     await s.time.advance(60 * MIN);
     expect(s.net.calls.map((c) => c.body.content)).not.toContainEqual(

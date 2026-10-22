@@ -64,7 +64,7 @@ async function start(options: {
   recoveryUidSetting?: string;
 }): Promise<string> {
   server = await startTestServer();
-  await server.seedOwner("Boss");
+  await server.seedOwner("Morgan");
   dir = mkdtempSync(join(tmpdir(), "admin-sock-"));
   const socketPath = join(dir, "admin.sock");
   admin = startAdminSocket({
@@ -84,20 +84,24 @@ describe("admin socket peer check", () => {
   ]) {
     it(`answers a root peer with a live owner sign-in link (${script})`, async () => {
       const socketPath = await start({ peerUid: 0 });
-      const { exitCode, stdout } = await runCaller(script, socketPath, "Boss");
+      const { exitCode, stdout } = await runCaller(
+        script,
+        socketPath,
+        "Morgan",
+      );
       expect(exitCode).toBe(0);
       const body = JSON.parse(stdout) as { ok: boolean; url: string };
       expect(body.ok).toBe(true);
       const token = body.url.split("/i/")[1];
       const peek = peekInvite(token);
       expect("error" in peek).toBe(false);
-      expect(peek).toMatchObject({ username: "Boss" });
+      expect(peek).toMatchObject({ username: "Morgan" });
     });
   }
 
   it("refuses the server's own uid as read from the kernel", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     dir = mkdtempSync(join(tmpdir(), "admin-sock-"));
     const socketPath = join(dir, "admin.sock");
     admin = startAdminSocket({ socketPath, recoveryUidSetting: undefined });
@@ -106,14 +110,14 @@ describe("admin socket peer check", () => {
     const { exitCode } = await runCaller(
       "deploy/install.sh",
       socketPath,
-      "Boss",
+      "Morgan",
     );
     // curl -f exits 22 on an HTTP error status.
     expect(exitCode).toBe(22);
     const response = await fetch("http://localhost/admin/owner-login", {
       unix: socketPath,
       method: "POST",
-      body: JSON.stringify({ name: "Boss" }),
+      body: JSON.stringify({ name: "Morgan" }),
     });
     expect(response.status).toBe(403);
     expect(((await response.json()) as { ok: boolean }).ok).toBe(false);
@@ -122,7 +126,7 @@ describe("admin socket peer check", () => {
   it("refuses a peer whose uid could not be read", async () => {
     const socketPath = await start({ peerUid: null });
     expect(
-      (await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode,
+      (await runCaller("deploy/install.sh", socketPath, "Morgan")).exitCode,
     ).toBe(22);
   });
 
@@ -134,7 +138,7 @@ describe("admin socket peer check", () => {
     });
     expect(statSync(socketPath).mode & 0o777).toBe(0o666);
     expect(
-      (await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode,
+      (await runCaller("deploy/install.sh", socketPath, "Morgan")).exitCode,
     ).toBe(0);
   });
 
@@ -150,7 +154,7 @@ describe("admin socket peer check", () => {
     const response = await fetch("http://localhost/admin/owner-login", {
       unix: socketPath,
       method: "POST",
-      body: JSON.stringify({ name: "Boss" }),
+      body: JSON.stringify({ name: "Morgan" }),
     });
     expect(response.status).toBe(403);
     expect(listInvites().length).toBe(before);
@@ -165,7 +169,7 @@ describe("admin socket peer check", () => {
       });
       expect(statSync(socketPath).mode & 0o777).toBe(0o600);
       expect(
-        (await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode,
+        (await runCaller("deploy/install.sh", socketPath, "Morgan")).exitCode,
       ).toBe(22);
       expect(
         errors.mock.calls.some((call) =>

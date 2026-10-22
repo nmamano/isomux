@@ -150,7 +150,7 @@ interface LiveRun {
   token: string;
   streamId: string;
 }
-async function startLiveRun(name = "Boss"): Promise<LiveRun> {
+async function startLiveRun(name = "Morgan"): Promise<LiveRun> {
   const fb = new FakeBackend({ session: { onSend: () => {} } });
   const srv = await startTestServer({ fakeBackend: fb });
   server = srv;
@@ -301,7 +301,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     });
     const srv = await startTestServer({ fakeBackend: fb });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     // Point CLAUDE_CONFIG_DIR at a temp tree via the office env-file provider (the
     // same hook production uses), so the claude resume precheck checks the temp
@@ -310,8 +310,8 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     const claudeHome = join(srv.stateRoot, "bridge-claude-home");
     setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
 
-    const job = seedJob(srv, "Boss");
-    const run = srv.cronjobManager.runCronjobNow(job.id, "Boss");
+    const job = seedJob(srv, "Morgan");
+    const run = srv.cronjobManager.runCronjobNow(job.id, "Morgan");
     if (!run) throw new Error("runCronjobNow returned null");
     await waitUntil(
       () => srv.cronjobManager.findRun(job.id, run.id)?.status === "completed",
@@ -334,7 +334,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
       job.id,
       run.id,
       "follow up",
-      "Boss",
+      "Morgan",
     );
     await waitUntil(
       () => getRunTokenRaw(job.id, run.id) !== null,
@@ -372,8 +372,8 @@ describe("routes/cron run-affordances: RUN-bearer authz (no active run needed)",
   it("a USER cookie cannot reach a RUN affordance (lacks self:affordance) -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss");
+    const owner = await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan");
     const r = await httpJson(
       srv,
       `/api/cronjobs/${job.id}/runs/anyrun/read-file`,
@@ -385,8 +385,8 @@ describe("routes/cron run-affordances: RUN-bearer authz (no active run needed)",
   it("a RUN token bound to a DIFFERENT {job,run} -> 403 (runParamMustEqualTokenRun)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss");
+    await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan");
     const wrong = mintRunToken("other-job", "other-run", null);
     const r = await httpJson(
       srv,
@@ -399,8 +399,8 @@ describe("routes/cron run-affordances: RUN-bearer authz (no active run needed)",
   it("no identity (no cookie, no bearer) -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const job = seedJob(srv, "Boss");
+    await srv.seedOwner("Morgan");
+    const job = seedJob(srv, "Morgan");
     const r = await httpJson(
       srv,
       `/api/cronjobs/${job.id}/runs/some-run/read-file`,
@@ -414,9 +414,9 @@ describe("routes/cron run-messages: ownership tightening (REST)", () => {
   it("REST: a member cannot message another user's run (403); 400 empty text; 404 unknown run", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory");
-    const ownersJob = seedJob(srv, "Boss", "OwnersJob");
+    const ownersJob = seedJob(srv, "Morgan", "OwnersJob");
 
     // Member -> owner's job run-message: blocked by the route guard.
     expect(
@@ -491,9 +491,9 @@ async function startResumableRun(holdResumed = false, hangOnClose = false) {
   const fb = new FakeBackend({ session: sessionCfg });
   const srv = await startTestServer({ fakeBackend: fb });
   server = srv;
-  const owner = await srv.seedOwner("Boss");
-  const job = seedJob(srv, "Boss");
-  const run = srv.cronjobManager.runCronjobNow(job.id, "Boss");
+  const owner = await srv.seedOwner("Morgan");
+  const job = seedJob(srv, "Morgan");
+  const run = srv.cronjobManager.runCronjobNow(job.id, "Morgan");
   if (!run) throw new Error("runCronjobNow returned null");
   await waitUntil(
     () => srv.cronjobManager.findRun(job.id, run.id)?.status === "completed",
@@ -828,7 +828,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       editRunMessage: () => {},
       emitCronjobRunReadFile: () => ({ ok: true }),
       emitCronjobRunDiff: async () => ({ ok: true }),
-      attributionFor: () => ({ createdBy: "Boss", username: "Boss" }),
+      attributionFor: () => ({ createdBy: "Morgan", username: "Morgan" }),
       validateCwd: () => null,
       saveRecentCwd: () => {},
       modelFamilyError: () => null,

@@ -18,7 +18,7 @@ export async function mintMemberLink(
   }
   const minted = await mintInvite({
     userId: user.id,
-    createdBy: "Boss",
+    createdBy: "Morgan",
     ttlMs,
   });
   if (!minted.ok) throw new Error(`mint failed: ${minted.error}`);

@@ -35,7 +35,7 @@ async function bootClaimed(
 ): Promise<TestServer> {
   const first = await startTestServer();
   server = first;
-  await first.seedOwner("Boss");
+  await first.seedOwner("Morgan");
   writeOfficeConfig(config);
   const restarted = await first.restart();
   server = restarted;
@@ -139,7 +139,7 @@ describe("office network bind and origin-policy split", () => {
     expect(isOutsideReachabilityBlocked()).toBe(true);
     expect(isProcessBoundLoopback()).toBe(true);
     expect(preClaimRestarted.server.hostname).toBe("127.0.0.1");
-    await preClaimRestarted.seedOwner("Boss");
+    await preClaimRestarted.seedOwner("Morgan");
     writeOfficeConfig({ externalAccess: false, networkBind: "all" });
     const externalOff = await preClaimRestarted.restart();
     server = externalOff;

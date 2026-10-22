@@ -114,7 +114,7 @@ async function runTurn(
   text: string,
 ): Promise<void> {
   const r = srv.agentManager.enqueueMessage(agentId, {
-    sender: { kind: "user", username: "Boss" },
+    sender: { kind: "user", username: "Morgan" },
     text,
   });
   if (!r.ok) throw new Error(`enqueue failed: ${r.error}`);
@@ -128,7 +128,7 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
   it("still sends the memory notice to a Codex agent", async () => {
     const srv = await startTestServer({ fakeBackend: backend() });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.9));
     const agent = await spawnAgent(srv, "Codex Worker", room.id, "codex");
@@ -145,7 +145,7 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
     server = srv;
     // After startTestServer: the harness installs its own env provider.
     const claudeHome = wireClaudeHome();
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     // Comfortably over the 0.8 ratio of the room cap, under the cap itself, so
     // the notice is driven by the ratio rather than by truncation.
@@ -193,7 +193,7 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
   it("says nothing when every scope is well under its cap", async () => {
     const srv = await startTestServer({ fakeBackend: backend() });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.3));
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -224,13 +224,13 @@ describe("memory notice: conversation-boundary races", () => {
       fakeBackend: new FakeBackend({ session: { manualSend: true } }),
     });
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.9));
     const agent = await spawnAgent(srv, "Worker", room.id);
     const send = (text: string) =>
       srv.agentManager.enqueueMessage(agent.id, {
-        sender: { kind: "user", username: "Boss" },
+        sender: { kind: "user", username: "Morgan" },
         text,
       });
     const curSess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
@@ -269,7 +269,7 @@ describe("memory notice: conversation-boundary races", () => {
           },
         },
         sessionMessages: [
-          { uuid: "u-first", role: "user", text: "[Boss] first" },
+          { uuid: "u-first", role: "user", text: "[Morgan] first" },
           { uuid: "a-1", role: "assistant", text: "reply" },
         ],
         forkResult: {
@@ -281,7 +281,7 @@ describe("memory notice: conversation-boundary races", () => {
     });
     server = srv;
     const claudeHome = wireClaudeHome();
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.9));
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -330,7 +330,7 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
     const srv = await startTestServer({ fakeBackend: backend() });
     server = srv;
     const claudeHome = wireClaudeHome();
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.9));
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -359,7 +359,7 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
       fakeBackend: new FakeBackend({
         session: { onSend: (_t, _a, s) => s.completeTurn({ text: "reply" }) },
         sessionMessages: [
-          { uuid: "u-first", role: "user", text: "[Boss] first" },
+          { uuid: "u-first", role: "user", text: "[Morgan] first" },
           { uuid: "a-1", role: "assistant", text: "reply" },
         ],
         forkResult: {
@@ -371,7 +371,7 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
     });
     server = srv;
     const claudeHome = wireClaudeHome();
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.9));
     const agent = await spawnAgent(srv, "Worker", room.id);

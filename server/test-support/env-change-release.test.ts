@@ -93,16 +93,16 @@ async function wake(srv: TestServer, id: string): Promise<void> {
 async function office() {
   server = await startTestServer();
   const fake = server.fakeBackend;
-  const boss = await server.seedOwner("Boss");
+  const morgan = await server.seedOwner("Morgan");
   const alice = await server.seedMember("Alice");
-  const bossId = getUserByName(boss.username)!.id;
+  const morganId = getUserByName(morgan.username)!.id;
   const aliceId = getUserByName(alice.username)!.id;
-  return { srv: server, fake, boss, alice, bossId, aliceId };
+  return { srv: server, fake, morgan, alice, morganId, aliceId };
 }
 
 describe("a Variables save releases the agents it reaches", () => {
   it("a member's save releases that member's idle agent, which resumes with the new variables; another member's agent keeps its process", async () => {
-    const { srv, fake, alice, bossId, aliceId } = await office();
+    const { srv, fake, alice, morganId, aliceId } = await office();
     const aliceEnv = `/api/users/${encodeURIComponent(alice.username)}/env`;
     expect(
       await save(srv, aliceEnv, alice.rawSessionId, {
@@ -110,9 +110,9 @@ describe("a Variables save releases the agents it reaches", () => {
       }),
     ).toBe(204);
     const aliceAgent = await spawnLive(srv, "AliceAgent", aliceId);
-    const bossAgent = await spawnLive(srv, "BossAgent", bossId);
+    const morganAgent = await spawnLive(srv, "MorganAgent", morganId);
     const before = fake.sessionForAgent(aliceAgent)!;
-    const bossSession = fake.sessionForAgent(bossAgent)!;
+    const morganSession = fake.sessionForAgent(morganAgent)!;
     const sessionId = srv.agentManager.getCurrentSessionId(aliceAgent);
     expect(before.opts.env?.RELEASE_PROBE).toBe("old");
 
@@ -123,8 +123,8 @@ describe("a Variables save releases the agents it reaches", () => {
       }),
     ).toBe(204);
     expect(released(srv, aliceAgent)).toBe(true);
-    expect(released(srv, bossAgent)).toBe(false);
-    expect(fake.sessionForAgent(bossAgent)).toBe(bossSession);
+    expect(released(srv, morganAgent)).toBe(false);
+    expect(fake.sessionForAgent(morganAgent)).toBe(morganSession);
 
     await wake(srv, aliceAgent);
     const after = fake.sessionForAgent(aliceAgent)!;
@@ -136,45 +136,45 @@ describe("a Variables save releases the agents it reaches", () => {
   });
 
   it("an office save releases every member's agent", async () => {
-    const { srv, boss, bossId, aliceId } = await office();
+    const { srv, morgan, morganId, aliceId } = await office();
     const aliceAgent = await spawnLive(srv, "AliceAgent", aliceId);
-    const bossAgent = await spawnLive(srv, "BossAgent", bossId);
+    const morganAgent = await spawnLive(srv, "MorganAgent", morganId);
 
     expect(
-      await save(srv, "/api/office/env", boss.rawSessionId, {
+      await save(srv, "/api/office/env", morgan.rawSessionId, {
         values: { OFFICE_PROBE: "1" },
       }),
     ).toBe(204);
     expect(released(srv, aliceAgent)).toBe(true);
-    expect(released(srv, bossAgent)).toBe(true);
+    expect(released(srv, morganAgent)).toBe(true);
   });
 
   it("the one-variable routes release too: an owner's set for a member, and an office removal", async () => {
-    const { srv, fake, boss, alice, bossId, aliceId } = await office();
+    const { srv, fake, morgan, alice, morganId, aliceId } = await office();
     const aliceAgent = await spawnLive(srv, "AliceAgent", aliceId);
-    const bossAgent = await spawnLive(srv, "BossAgent", bossId);
+    const morganAgent = await spawnLive(srv, "MorganAgent", morganId);
 
     expect(
       await save(
         srv,
         `/api/users/${encodeURIComponent(alice.username)}/env/ONE_PROBE`,
-        boss.rawSessionId,
+        morgan.rawSessionId,
         { value: "set-by-owner" },
       ),
     ).toBe(204);
     expect(released(srv, aliceAgent)).toBe(true);
-    expect(released(srv, bossAgent)).toBe(false);
+    expect(released(srv, morganAgent)).toBe(false);
     await wake(srv, aliceAgent);
     expect(fake.sessionForAgent(aliceAgent)!.opts.env?.ONE_PROBE).toBe(
       "set-by-owner",
     );
 
     expect(
-      await save(srv, "/api/office/env/OFFICE_ONE", boss.rawSessionId, {
+      await save(srv, "/api/office/env/OFFICE_ONE", morgan.rawSessionId, {
         value: "x",
       }),
     ).toBe(204);
-    for (const id of [aliceAgent, bossAgent]) {
+    for (const id of [aliceAgent, morganAgent]) {
       expect(released(srv, id)).toBe(true);
       await wake(srv, id);
     }
@@ -182,25 +182,25 @@ describe("a Variables save releases the agents it reaches", () => {
       await save(
         srv,
         "/api/office/env/OFFICE_ONE",
-        boss.rawSessionId,
+        morgan.rawSessionId,
         undefined,
         "DELETE",
       ),
     ).toBe(204);
     expect(released(srv, aliceAgent)).toBe(true);
-    expect(released(srv, bossAgent)).toBe(true);
+    expect(released(srv, morganAgent)).toBe(true);
   });
 
   it("a save that changes only notes, or no value at all, releases nothing", async () => {
-    const { srv, fake, boss, alice, bossId, aliceId } = await office();
+    const { srv, fake, morgan, alice, morganId, aliceId } = await office();
     const aliceEnv = `/api/users/${encodeURIComponent(alice.username)}/env`;
     const values = { KEEP_PROBE: "same" };
     expect(await save(srv, aliceEnv, alice.rawSessionId, { values })).toBe(204);
     expect(
-      await save(srv, "/api/office/env", boss.rawSessionId, { values }),
+      await save(srv, "/api/office/env", morgan.rawSessionId, { values }),
     ).toBe(204);
     const aliceAgent = await spawnLive(srv, "AliceAgent", aliceId);
-    const bossAgent = await spawnLive(srv, "BossAgent", bossId);
+    const morganAgent = await spawnLive(srv, "MorganAgent", morganId);
     const sessions = fake.sessions.length;
 
     const quiet: Array<[string, string, unknown, string?]> = [
@@ -208,12 +208,12 @@ describe("a Variables save releases the agents it reaches", () => {
       [aliceEnv, alice.rawSessionId, { values, notes: { KEEP_PROBE: "n" } }],
       [
         "/api/office/env",
-        boss.rawSessionId,
+        morgan.rawSessionId,
         { values, notes: { KEEP_PROBE: "n" } },
       ],
       // The same values again.
       [aliceEnv, alice.rawSessionId, { values }],
-      ["/api/office/env", boss.rawSessionId, { values }],
+      ["/api/office/env", morgan.rawSessionId, { values }],
       // One variable set to the value it has, with a new note.
       [
         `${aliceEnv}/KEEP_PROBE`,
@@ -222,13 +222,13 @@ describe("a Variables save releases the agents it reaches", () => {
       ],
       [
         "/api/office/env/KEEP_PROBE",
-        boss.rawSessionId,
+        morgan.rawSessionId,
         { value: "same", note: "m" },
       ],
     ];
     for (const [path, session, body] of quiet) {
       expect(await save(srv, path, session, body)).toBe(204);
-      expect([released(srv, aliceAgent), released(srv, bossAgent)]).toEqual([
+      expect([released(srv, aliceAgent), released(srv, morganAgent)]).toEqual([
         false,
         false,
       ]);

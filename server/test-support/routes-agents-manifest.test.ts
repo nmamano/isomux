@@ -155,7 +155,7 @@ describe("GET /agents (discovery manifest)", () => {
   it("publishes permission posture with an explicit null Claude sandbox", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
 
@@ -174,7 +174,7 @@ describe("GET /agents (discovery manifest)", () => {
       fakeBackend: new FakeBackend({ session: { onSend() {} } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
     const send = await srv.http(`/api/agents/${agent.id}/messages`, {
@@ -224,7 +224,7 @@ describe("GET /agents (discovery manifest)", () => {
   it("owner-agent bearer gets the full manifest, matching the file on disk", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const rooms = srv.agentManager.getRooms();
     const r1 = rooms[0].id;
     const r2 = srv.agentManager.createRoom("Second Room");
@@ -263,6 +263,9 @@ describe("GET /agents (discovery manifest)", () => {
       effort: DEFAULT_EFFORT,
       permissionMode: "default",
       sandbox: null,
+      // `manager` is the field; `username` is its alias for older readers
+      // until the alias task removes it (task f41c93e9).
+      manager: owner.username,
       username: owner.username,
       logDir: join(srv.stateRoot, "logs", a.id),
       // Live parked-prompt state (task 29daebe2). Null for an agent that is
@@ -291,7 +294,7 @@ describe("GET /agents (discovery manifest)", () => {
   it("reports each agent's own effort", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const a = await spawnOwnedBy(srv, "Alpha", r1, 0, owner.username, "low");
     const b = await spawnOwnedBy(srv, "Beta", r1, 1, owner.username);
@@ -308,7 +311,7 @@ describe("GET /agents (discovery manifest)", () => {
   it("reflects live changes (kill) without waiting on file readers", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const a = await spawnOwnedBy(srv, "Alpha", r1, 0, owner.username);
     const b = await spawnOwnedBy(srv, "Beta", r1, 1, owner.username);
@@ -341,7 +344,7 @@ describe("GET /agents (discovery manifest)", () => {
   it("authenticated but cross-origin Origin -> 403 with no CORS header (hostile web page)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const a = await spawnOwnedBy(srv, "Alpha", r1, 0, owner.username);
 
@@ -372,7 +375,7 @@ describe("GET /agents projection (room ACL)", () => {
   it("gives context and subscription checks the same room reach as logs", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("Members Only");
@@ -397,7 +400,7 @@ describe("GET /agents projection (room ACL)", () => {
   it("bearer identities are projected to their user's rooms", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("Members Only");
@@ -441,7 +444,7 @@ describe("GET /agents projection (room ACL)", () => {
   it("cookie identities are projected the same way (member sees only granted rooms, owner sees all)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("Members Only");
@@ -471,9 +474,9 @@ describe("GET /agents projection (room ACL)", () => {
 // dead agent's transcripts but had no way to learn its id.
 //
 // SCOPED LIKE THE LOG GUARD, deliberately NOT like the live manifest above: the
-// killed agent's own boss plus office owners, never "anyone who shares its last
+// killed agent's own manager plus office owners, never "anyone who shares its last
 // room". These pin exactly that difference - a room-mate managed by a different
-// boss is the case a room projection would wrongly let through.
+// manager is the case a room projection would wrongly let through.
 describe("GET /agents?killed=1 (killed roster)", () => {
   async function killedFor(
     srv: TestServer,
@@ -489,10 +492,10 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     return (await res.json()) as Array<Record<string, unknown>>;
   }
 
-  it("an agent sees its own boss's killed agents, with a logDir it can read", async () => {
+  it("an agent sees its own manager's killed agents, with a logDir it can read", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
     const survivor = await spawnOwnedBy(srv, "Survivor", r1, 1, owner.username);
@@ -512,16 +515,16 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     expect(await manifestNames(live)).toEqual(["Survivor"]);
   });
 
-  it("a room-mate managed by a DIFFERENT boss does not see it", async () => {
+  it("a room-mate managed by a DIFFERENT manager does not see it", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
     await setAccess(srv, owner.rawSessionId, member.username, [r1]);
 
     // Both sat in the SAME room, so a room-scoped rule would let Mem's agent see
-    // Boss's killed one. The boss rule must not.
+    // Morgan's killed one. The manager rule must not.
     const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
     const memberAgent = await spawnOwnedBy(
       srv,
@@ -544,11 +547,11 @@ describe("GET /agents?killed=1 (killed roster)", () => {
   it("a member sees only the killed agents they spawned", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
     await setAccess(srv, owner.rawSessionId, member.username, [r1]);
-    const theirs = await spawnOwnedBy(srv, "BossBot", r1, 0, owner.username);
+    const theirs = await spawnOwnedBy(srv, "MorganBot", r1, 0, owner.username);
     const mine = await spawnOwnedBy(srv, "MemBot", r1, 1, member.username);
     await srv.agentManager.kill(theirs.id);
     await srv.agentManager.kill(mine.id);
@@ -562,7 +565,7 @@ describe("GET /agents?killed=1 (killed roster)", () => {
   it("anonymous is still 401; only killed=1 selects the roster, else 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
     await srv.agentManager.kill(doomed.id);
@@ -595,7 +598,7 @@ describe("GET /agents?killed=1 (killed roster)", () => {
   it("pages newest kill first with limit and before", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const ids: string[] = [];
     for (const [i, name] of ["W1", "W2", "W3"].entries()) {
@@ -639,25 +642,29 @@ describe("GET /agents?killed=1 (killed roster)", () => {
   it("a CRON-RUN token is denied, matching the log route it feeds", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
     await srv.agentManager.kill(doomed.id);
 
     // A run token carries its cronjob CREATOR's userId, so without an explicit
-    // denial it would inherit that boss's killed-agent reach - out-reaching
+    // denial it would inherit that manager's killed-agent reach - out-reaching
     // logSearchAccess, which denies cron-run outright.
-    const runToken = mintRunToken("job-1", "run-1", getUserByName("Boss")!.id);
+    const runToken = mintRunToken(
+      "job-1",
+      "run-1",
+      getUserByName("Morgan")!.id,
+    );
     const res = await srv.http("/agents?killed=1", {
       headers: { Authorization: `Bearer ${runToken}` },
     });
     expect(res.status).toBe(403);
   });
 
-  it("excludes revived agents and legacy records with no recorded boss", async () => {
+  it("excludes revived agents and legacy records with no recorded manager", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const revived = await spawnOwnedBy(srv, "Revived", r1, 0, owner.username);
     const stays = await spawnOwnedBy(srv, "Stays", r1, 1, owner.username);
@@ -673,7 +680,7 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     expect(list.some((k) => k.id === stays.id)).toBe(true);
 
     // A history entry with NO recorded userId - what a legacy record from before
-    // agents stored their boss looks like - must fail CLOSED for everyone but an
+    // agents stored their manager looks like - must fail CLOSED for everyone but an
     // office owner: no real userId can match `undefined`.
     const unowned = await spawnAt(srv, "Unowned", r1, 2); // no username passed
     await srv.agentManager.kill(unowned.id);
@@ -683,7 +690,7 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     ).json()) as Array<{ id: string }>;
     expect(asMember.some((k) => k.id === unowned.id)).toBe(false);
     expect(asMember).toEqual([]); // Mem spawned nothing of their own either
-    // The owner still sees it, so the exclusion above is the boss rule biting,
+    // The owner still sees it, so the exclusion above is the manager rule biting,
     // not the entry being dropped from the roster altogether.
     const asOwner = (await (
       await srv.http("/agents?killed=1", { rawSessionId: owner.rawSessionId })
@@ -695,7 +702,7 @@ describe("GET /agents?killed=1 (killed roster)", () => {
 it("exposes skill deletion to agents with editor authority and refreshes the catalog", async () => {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const room = srv.agentManager.getRooms()[0].id;
   const agent = await spawnOwnedBy(
     srv,
@@ -758,7 +765,7 @@ it("exposes skill deletion to agents with editor authority and refreshes the cat
 
 it("member prompt routes follow the live privilege flag", async () => {
   const srv = (server = await startTestServer());
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const agent = await spawnOwnedBy(
     srv,
     "Prompt editor",
@@ -767,7 +774,7 @@ it("member prompt routes follow the live privilege flag", async () => {
     owner.username,
   );
   const read = () =>
-    fetch(`${srv.baseUrl}/api/users/Boss/member-prompt`, {
+    fetch(`${srv.baseUrl}/api/users/Morgan/member-prompt`, {
       headers: { Authorization: `Bearer ${bearerFor(agent.id)}` },
     });
   expect((await read()).status).toBe(403);
@@ -779,7 +786,7 @@ it("member prompt routes follow the live privilege flag", async () => {
     memberPromptVersion: string;
   };
   const patch = () =>
-    fetch(`${srv.baseUrl}/api/users/Boss`, {
+    fetch(`${srv.baseUrl}/api/users/Morgan`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${bearerFor(agent.id)}`,

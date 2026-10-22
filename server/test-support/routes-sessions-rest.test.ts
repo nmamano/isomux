@@ -151,7 +151,7 @@ describe("routes/sessions REST: direct list scoping (no fan-out on reads)", () =
   it("owner sees all, member sees only own; a list READ does not emit to other sockets", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
 
@@ -160,7 +160,7 @@ describe("routes/sessions REST: direct list scoping (no fan-out on reads)", () =
     });
     expect(ownerList.status).toBe(200);
     const names = sessionsOf(ownerList).map((s) => s.username);
-    expect(names).toContain("Boss");
+    expect(names).toContain("Morgan");
     expect(names).toContain("Alice");
     expect(names).toContain("Bob");
 
@@ -184,7 +184,7 @@ describe("routes/sessions REST: revoke double-signal + bridge", () => {
   it("owner revokes a member session: member session_expired + close; owner session_revoked + re-scoped list; 2nd member zero cross rows", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
     const alicePrefix = await prefixFor(srv, owner.rawSessionId, "Alice");
@@ -232,7 +232,7 @@ describe("routes/sessions REST: revoke double-signal + bridge", () => {
   it("member revokes own session: 204 + session_expired to self (bridge)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const alicePrefix = await prefixFor(srv, alice.rawSessionId, "Alice");
 
@@ -251,7 +251,7 @@ describe("routes/sessions REST: revoke non-leak (+ positive control)", () => {
   it("member foreign AND nonexistent prefix both 403 identical body; own revoke succeeds", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     await srv.seedMember("Bob");
     const bobPrefix = await prefixFor(srv, owner.rawSessionId, "Bob");
@@ -290,11 +290,11 @@ describe("routes/sessions REST: last-owner lockout (+ positive controls)", () =>
   it("sole-owner revoke-self -> 409; with a 2nd owner session -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const bossPrefix = await prefixFor(srv, owner.rawSessionId, "Boss");
+    const owner = await srv.seedOwner("Morgan");
+    const morganPrefix = await prefixFor(srv, owner.rawSessionId, "Morgan");
 
     // Sole owner session: revoking it would strand the office.
-    const blocked = await api(srv, `/api/sessions/${bossPrefix}`, {
+    const blocked = await api(srv, `/api/sessions/${morganPrefix}`, {
       method: "DELETE",
       rawSessionId: owner.rawSessionId,
     });
@@ -304,8 +304,8 @@ describe("routes/sessions REST: last-owner lockout (+ positive controls)", () =>
     );
 
     // POSITIVE CONTROL: add a 2nd owner session → the same revoke now succeeds.
-    await addOwner("Boss2");
-    const ok = await api(srv, `/api/sessions/${bossPrefix}`, {
+    await addOwner("Morgan2");
+    const ok = await api(srv, `/api/sessions/${morganPrefix}`, {
       method: "DELETE",
       rawSessionId: owner.rawSessionId,
     });
@@ -315,7 +315,7 @@ describe("routes/sessions REST: last-owner lockout (+ positive controls)", () =>
   it("logout as sole owner -> 409; with a 2nd owner session -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const blocked = await api(srv, "/api/sessions/current", {
       method: "DELETE",
@@ -326,7 +326,7 @@ describe("routes/sessions REST: last-owner lockout (+ positive controls)", () =>
       "would_strand_office",
     );
 
-    await addOwner("Boss2");
+    await addOwner("Morgan2");
     const ok = await api(srv, "/api/sessions/current", {
       method: "DELETE",
       rawSessionId: owner.rawSessionId,
@@ -337,7 +337,7 @@ describe("routes/sessions REST: last-owner lockout (+ positive controls)", () =>
   it("member logout succeeds (204) and expires the caller's own socket (bridge)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     const aliceSock = await srv.connectWs(alice.rawSessionId);
 
@@ -355,7 +355,7 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
   it("a member promoted in the RECORD (no reconnect) lists + revokes as an owner", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
     await srv.seedMember("Bob");
     const bobPrefix = await prefixFor(srv, owner.rawSessionId, "Bob");
@@ -369,7 +369,7 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
     });
     expect(sessionsOf(list).some((s) => s.username === "Bob")).toBe(true);
 
-    // Record-role revoke: Alice (now owner) may revoke Bob's session. Boss is
+    // Record-role revoke: Alice (now owner) may revoke Bob's session. Morgan is
     // still an owner session, so no lockout interferes.
     const r = await api(srv, `/api/sessions/${bobPrefix}`, {
       method: "DELETE",
@@ -381,7 +381,7 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
   it("AGENT bearer -> 403 (list/revoke missing session:manage, logout missing session); no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id);
@@ -420,7 +420,7 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
 describe("routes/sessions REST: device label stamp (task 557dc8ce)", () => {
   it("presence_update stamps device onto the session; unnamed updates never erase it", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const sock = await server.connectWs(owner.rawSessionId);
     await sock.waitFor("presence_list");
 

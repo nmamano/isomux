@@ -78,7 +78,7 @@ describe("a Test on each sign-in", () => {
       loginStatus: "idle",
       shared: true,
       canBrowserLogin: true,
-      accountLabel: connected ? "boss@example.com" : undefined,
+      accountLabel: connected ? "morgan@example.com" : undefined,
     }) as never;
   // The page reads the accounts from the store, which this harness holds
   // still; the fake answers the Test's refresh.
@@ -92,7 +92,7 @@ describe("a Test on each sign-in", () => {
     const result = office.querySelector('[data-sign-in-test-result="works"]')!;
     expect(result.textContent).toContain(t("settings.connections.test.works"));
     expect(result.querySelector("[data-integrations-data]")!.textContent).toBe(
-      "boss@example.com",
+      "morgan@example.com",
     );
     // What Works means for a Claude sign-in, behind its (?).
     await click(result.querySelector("[data-help-tip]"));
@@ -162,7 +162,7 @@ describe("a Test on each sign-in", () => {
     await click(office.querySelector("[data-sign-in-test]"));
     expect(
       office.querySelector('[data-sign-in-test-result="works"]')!.textContent,
-    ).toContain("boss@example.com");
+    ).toContain("morgan@example.com");
   });
 
   it("is not offered on another member's card", async () => {

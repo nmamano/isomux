@@ -63,7 +63,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
 
   it("connects multiple authenticated sockets (owner tabs + member)", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Member");
 
     const tabA = await server.connectWs(owner.rawSessionId);
@@ -95,7 +95,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
 
   it("persists agents.json on spawn and drives a FakeBackend on first message (zero LLM)", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
 
     const roomId = server.agentManager.getRooms()[0].id;
     const agent = await server.agentManager.spawn(
@@ -115,7 +115,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
     // First message wakes it: the injected FakeBackend is driven (a session is
     // created), proving no real provider/LLM call happened.
     server.agentManager.enqueueMessage(agent!.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "hi",
     });
     const deadline = Date.now() + 2000;

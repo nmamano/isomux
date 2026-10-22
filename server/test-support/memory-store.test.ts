@@ -52,7 +52,7 @@ function freshStore(opts?: { caps?: Record<string, number> }) {
     today: () => DATE,
     now: () => TS,
     caps: opts?.caps as
-      | Record<"office" | "room" | "agent" | "boss", number>
+      | Record<"office" | "room" | "agent" | "member", number>
       | undefined,
   });
   const store = {
@@ -245,7 +245,7 @@ describe("memory-store: caps", () => {
       office: 2500,
       room: 10000,
       agent: 5000,
-      boss: 5000,
+      member: 5000,
     });
   });
   it("injectedSize: counts non-empty lines joined, as the prompt renders them", () => {
@@ -575,7 +575,7 @@ describe("memory-store: render for prompt", () => {
     // Write the over-cap file directly, as a legacy file would exist on disk:
     // the write API itself refuses to create this state.
     const { root, store } = freshStore({
-      caps: { office: 30, room: 30, agent: 30, boss: 30 },
+      caps: { office: 30, room: 30, agent: 30, member: 30 },
     });
     const legacy =
       "- A, 2026-01-01: oldest fact kept\n- A, 2026-01-02: newest fact kept\n";
@@ -588,7 +588,7 @@ describe("memory-store: render for prompt", () => {
 
   it("append refuses a line that would put the scope over its cap", () => {
     const { store } = freshStore({
-      caps: { office: 60, room: 60, agent: 60, boss: 60 },
+      caps: { office: 60, room: 60, agent: 60, member: 60 },
     });
     store.append({ scope: "office", scopeId: null, author: "A", text: "one" });
     let err: unknown;
@@ -609,7 +609,7 @@ describe("memory-store: render for prompt", () => {
 
   it("replace refuses growth over the cap but allows a shrinking trim of a legacy over-cap file", () => {
     const { root, store } = freshStore({
-      caps: { office: 30, room: 30, agent: 30, boss: 30 },
+      caps: { office: 30, room: 30, agent: 30, member: 30 },
     });
     const legacy =
       "- A, 2026-01-01: aaaaaaaaaaaaaaaa\n- A, 2026-01-02: bbbbbbbbbbbbbbbb\n";

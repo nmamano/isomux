@@ -66,7 +66,7 @@ describe("OAuth MCP server routes", () => {
       startServer: { connectionTestFetch: rig.fetch },
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Ann");
     const session = member.rawSessionId;
     const base = `/api/users/${member.username}/mcp-servers`;
@@ -171,7 +171,7 @@ describe("OAuth MCP server routes", () => {
       startServer: { connectionTestFetch: rig.fetch },
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Ann");
     const agent = mintAgentToken(
       "privileged-a2b",

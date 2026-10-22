@@ -101,6 +101,8 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     scope: unknown,
     rawScopeId: unknown,
   ): Target {
+    // "boss" is the scope's name before task f41c93e9, still accepted.
+    if (scope === "boss") scope = "member";
     if (scope === "agent") {
       if (rawScopeId === undefined || rawScopeId === null) {
         if (identity.scope === "agent" && identity.agentId) {
@@ -155,7 +157,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       }
       return { scope: "office", scopeId: null, name: null };
     }
-    if (scope === "boss") {
+    if (scope === "member") {
       if (rawScopeId === undefined || rawScopeId === null) {
         // Default to the caller's own/manager user. An agent token with no
         // manager userId has no default -> 400 (never members/null.md).
@@ -165,7 +167,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
             error: fail(
               400,
               "invalid_scope_id",
-              "boss scope requires a scopeId (caller has no associated user)",
+              "member scope requires a scopeId (caller has no associated user)",
             ),
           };
         }
@@ -173,7 +175,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         if (name === null) {
           return { error: fail(404, "user_not_found", "no such user") };
         }
-        return { scope: "boss", scopeId: own, name };
+        return { scope: "member", scopeId: own, name };
       }
       if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
@@ -182,13 +184,13 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       if (name === null) {
         return { error: fail(404, "user_not_found", "no such user") };
       }
-      return { scope: "boss", scopeId: rawScopeId, name };
+      return { scope: "member", scopeId: rawScopeId, name };
     }
     return {
       error: fail(
         400,
         "unsupported_scope",
-        "scope must be agent, room, office, or boss",
+        "scope must be agent, room, office, or member",
       ),
     };
   }

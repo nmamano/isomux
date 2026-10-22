@@ -252,7 +252,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(APP_CAPABILITIES).not.toContain(cap);
   });
 
-  it("API scope holds the explicit remote-boss operational capabilities", () => {
+  it("API scope holds the explicit remote-member operational capabilities", () => {
     expect([...API_CAPABILITIES]).toEqual([
       "audit:read",
       "user:env",

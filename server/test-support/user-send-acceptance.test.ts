@@ -104,7 +104,7 @@ async function busyAgent(srv: TestServer, owner: SeededIdentity) {
 describe("USER send acceptance (task 51de8814)", () => {
   it("a repeated attempt id on the echo path is acknowledged and delivered once", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
 
     const body = { text: "crafted prompt", clientMessageId: "attempt-1" };
@@ -123,7 +123,7 @@ describe("USER send acceptance (task 51de8814)", () => {
 
   it("concurrent requests with one attempt id deliver once and both succeed", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
 
     const body = { text: "twin", clientMessageId: "attempt-twin" };
@@ -164,7 +164,7 @@ describe("USER send acceptance (task 51de8814)", () => {
     const srv = (server = await startTestServer({
       fakeBackend: parkingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await busyAgent(srv, owner);
 
     const body = { text: "queued prompt", clientMessageId: "attempt-q" };
@@ -179,7 +179,7 @@ describe("USER send acceptance (task 51de8814)", () => {
     const srv = (server = await startTestServer({
       fakeBackend: parkingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await busyAgent(srv, owner);
 
     for (let i = 0; i < 50; i++) {
@@ -208,7 +208,7 @@ describe("USER send acceptance (task 51de8814)", () => {
 
   it("a repeated attempt id on the command path runs the command once", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     const sock = await srv.connectWs(owner.rawSessionId);
     const entriesFor = () =>
@@ -230,7 +230,7 @@ describe("USER send acceptance (task 51de8814)", () => {
 
   it("refuses a message whose transcript write fails, and the repaired resend delivers once", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     expect(
       (await send(srv, owner, agent.id, { text: "bootstrap" })).status,
@@ -273,7 +273,7 @@ describe("USER send acceptance (task 51de8814)", () => {
 
   it("refuses a message that cancels a pick when its transcript write fails", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     expect(
       (await send(srv, owner, agent.id, { text: "bootstrap" })).status,
@@ -318,7 +318,7 @@ describe("USER send acceptance (task 51de8814)", () => {
 
   it("bounds a member's attempt id at 128 characters, and only on the member path", async () => {
     const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
 
     const atBound = await send(srv, owner, agent.id, {

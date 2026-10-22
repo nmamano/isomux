@@ -42,7 +42,7 @@ const agent: AgentInfo = {
   agentType: "claude",
   capabilities: DEFAULT_AGENT_CAPABILITIES,
   userId: "u1",
-  username: "Tester",
+  manager: "Tester",
   queue: [],
   sessionSwapping: false,
   turnHadHumanInput: false,

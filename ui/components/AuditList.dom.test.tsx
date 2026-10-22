@@ -278,3 +278,35 @@ it("shows the prompt text that a prompt row keeps", async () => {
   const text = view.container.querySelector("li pre");
   expect(text?.textContent).toBe("Line one\nLine two");
 });
+// Member-memory rows were written as memory:boss:<id> before task f41c93e9 and
+// as memory:member:<id> after it: both read as the same member memory.
+it("labels member-memory rows of both target names alike", async () => {
+  const row = (sequence: number, target: string) => ({
+    sequence,
+    time: sequence,
+    actor: { kind: "member", id: "u", name: "Member" },
+    operation: "memory.replace",
+    targets: [target],
+    fields: ["content"],
+    memoryContent: "- note\n",
+  });
+  setApiShim(async () => ({
+    items: [
+      row(1, "memory:boss:u9"),
+      row(2, "memory:member:u9"),
+      row(3, "memory:toString:u9"),
+    ],
+    nextBefore: null,
+  }));
+  const view = render(<AuditPane />);
+  await act(async () => {});
+  const label = (target: string) =>
+    view.container.querySelector(`[title="${target}"]`)?.textContent;
+  const legacy = label("memory:boss:u9");
+  expect(legacy).toBeTruthy();
+  expect(legacy).not.toContain("memory:");
+  expect(legacy).toContain("u9");
+  expect(label("memory:member:u9")).toBe(legacy);
+  // A prototype key is not a scope: the raw target id shows.
+  expect(label("memory:toString:u9")).toBe("memory:toString:u9");
+});

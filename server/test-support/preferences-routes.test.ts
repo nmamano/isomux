@@ -56,7 +56,7 @@ async function putPrefs(
 describe("prefs.update - persistence", () => {
   it("round-trips language through a cold restart", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     expect(await putPrefs(server, owner.rawSessionId, { language: "es" })).toBe(
       204,
@@ -64,25 +64,25 @@ describe("prefs.update - persistence", () => {
 
     // Cold reload re-runs the real boot path against persisted users.json.
     server = await server.restart();
-    const reloaded = getUserByName("Boss")!;
+    const reloaded = getUserByName("Morgan")!;
     expect(reloaded.language).toBe("es");
   });
 
   it("language: null clears an earlier pick", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await putPrefs(server, owner.rawSessionId, { language: "es" });
 
     // An explicit null clears it.
     expect(await putPrefs(server, owner.rawSessionId, { language: null })).toBe(
       204,
     );
-    expect(getUserByName("Boss")!.language).toBe(null);
+    expect(getUserByName("Morgan")!.language).toBe(null);
   });
 
   it("new users start with no language", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const rec = getUserByName(member.username)!;
     expect(rec.language).toBe(null);
@@ -92,23 +92,23 @@ describe("prefs.update - persistence", () => {
 describe("prefs.update - self scoping", () => {
   it("a member's write lands on their own record, never the owner's", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     expect(
       await putPrefs(server, member.rawSessionId, { language: "es" }),
     ).toBe(204);
     expect(getUserByName(member.username)!.language).toBe("es");
-    expect(getUserByName("Boss")!.language).toBe(null);
+    expect(getUserByName("Morgan")!.language).toBe(null);
     // And the owner's own write doesn't touch the member's.
     await putPrefs(server, owner.rawSessionId, { language: "en" });
-    expect(getUserByName("Boss")!.language).toBe("en");
+    expect(getUserByName("Morgan")!.language).toBe("en");
     expect(getUserByName(member.username)!.language).toBe("es");
   });
 
   it("rejects an unauthenticated call", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const resp = await server.http("/api/me/preferences", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -121,7 +121,7 @@ describe("prefs.update - self scoping", () => {
 describe("prefs.update - value validation", () => {
   it("rejects an unsupported language code", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     expect(await putPrefs(server, owner.rawSessionId, { language: "fr" })).toBe(
       422,
@@ -130,7 +130,7 @@ describe("prefs.update - value validation", () => {
       422,
     );
     // Nothing was written by any of the rejected calls.
-    const rec = getUserByName("Boss")!;
+    const rec = getUserByName("Morgan")!;
     expect(rec.language).toBe(null);
   });
 
@@ -138,7 +138,7 @@ describe("prefs.update - value validation", () => {
   // a 500 where a 422 belongs. An array is an object but never a valid update.
   it("rejects primitive and array bodies with 422, not 500", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     for (const body of [7, "x", true, ["language"], null]) {
       expect(await putPrefs(server, owner.rawSessionId, body)).toBe(422);
     }
@@ -148,7 +148,7 @@ describe("prefs.update - value validation", () => {
   // nothing happen.
   it("rejects an unknown key and an empty update", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     expect(await putPrefs(server, owner.rawSessionId, { langauge: "es" })).toBe(
       422,
     );
@@ -156,7 +156,7 @@ describe("prefs.update - value validation", () => {
       await putPrefs(server, owner.rawSessionId, { language: "es", nope: 1 }),
     ).toBe(422);
     expect(await putPrefs(server, owner.rawSessionId, {})).toBe(422);
-    expect(getUserByName("Boss")!.language).toBe(null);
+    expect(getUserByName("Morgan")!.language).toBe(null);
   });
 });
 
@@ -169,7 +169,7 @@ describe("prefs.update - live event contract", () => {
 
   it("subject gets user_self_updated, owners get user_admin_updated, and the private fields never ride a public event", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const ownerSock = await server.connectWs(owner.rawSessionId);
     const memberSock = await server.connectWs(member.rawSessionId);
@@ -211,7 +211,7 @@ describe("prefs.update - live event contract", () => {
 
   it("a no-op write emits nothing", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await putPrefs(server, owner.rawSessionId, { language: "es" });
     const sock = await server.connectWs(owner.rawSessionId);
     await sock.waitFor("presence_list");
@@ -237,27 +237,27 @@ describe("prefs.update - voiceInput", () => {
 
   it("round-trips through a cold restart and back to browser", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     expect(
       await putPrefs(server, owner.rawSessionId, { voiceInput: "openai" }),
     ).toBe(204);
     server = await server.restart();
-    expect(getUserByName("Boss")!.voiceInput).toBe("openai");
+    expect(getUserByName("Morgan")!.voiceInput).toBe("openai");
     // Writing voiceInput leaves language alone, and the reverse.
-    expect(getUserByName("Boss")!.language).toBe(null);
+    expect(getUserByName("Morgan")!.language).toBe(null);
     const session = owner.rawSessionId;
     expect(await putPrefs(server, session, { language: "es" })).toBe(204);
-    expect(getUserByName("Boss")!.voiceInput).toBe("openai");
+    expect(getUserByName("Morgan")!.voiceInput).toBe("openai");
     expect(await putPrefs(server, session, { voiceInput: "browser" })).toBe(
       204,
     );
-    expect(getUserByName("Boss")!.voiceInput).toBe("browser");
-    expect(getUserByName("Boss")!.language).toBe("es");
+    expect(getUserByName("Morgan")!.voiceInput).toBe("browser");
+    expect(getUserByName("Morgan")!.language).toBe("es");
   });
 
   it("rejects a value that is not a mic source, and writes nothing", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     for (const voiceInput of ["google", "OpenAI", null, 1, true]) {
       expect({
         voiceInput,
@@ -271,14 +271,14 @@ describe("prefs.update - voiceInput", () => {
         voiceInput: "google",
       }),
     ).toBe(422);
-    const rec = getUserByName("Boss")!;
+    const rec = getUserByName("Morgan")!;
     expect(rec.voiceInput ?? "browser").toBe("browser");
     expect(rec.language).toBe(null);
   });
 
   it("reaches the member's own sockets and no public event", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const memberSock = await server.connectWs(member.rawSessionId);
     await memberSock.waitFor("presence_list");
@@ -304,7 +304,7 @@ describe("prefs.update - voiceInput", () => {
 describe("prefs.update - voiceOutput and voiceName", () => {
   it("round-trips both through a cold restart, each write leaving the other alone", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     expect(
       await putPrefs(server, owner.rawSessionId, {
         voiceOutput: "openai",
@@ -312,19 +312,19 @@ describe("prefs.update - voiceOutput and voiceName", () => {
       }),
     ).toBe(204);
     server = await server.restart();
-    let rec = getUserByName("Boss")!;
+    let rec = getUserByName("Morgan")!;
     expect([rec.voiceOutput, rec.voiceName]).toEqual(["openai", "cedar"]);
 
     expect(
       await putPrefs(server, owner.rawSessionId, { voiceOutput: "browser" }),
     ).toBe(204);
-    rec = getUserByName("Boss")!;
+    rec = getUserByName("Morgan")!;
     expect([rec.voiceOutput, rec.voiceName]).toEqual(["browser", "cedar"]);
   });
 
   it("rejects an unknown output or voice, and writes nothing", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     for (const body of [
       { voiceOutput: "google" },
       { voiceOutput: null },
@@ -338,7 +338,7 @@ describe("prefs.update - voiceOutput and voiceName", () => {
         status: await putPrefs(server, owner.rawSessionId, body),
       }).toEqual({ body, status: 422 });
     }
-    const rec = getUserByName("Boss")!;
+    const rec = getUserByName("Morgan")!;
     expect(rec.voiceOutput ?? "browser").toBe("browser");
     expect(rec.voiceName).toBeUndefined();
   });
@@ -349,12 +349,12 @@ describe("prefs.update - voiceOutput and voiceName", () => {
 describe("prefs.update - turnEndPush is gone", () => {
   it("refuses turnEndPush as an unknown preference", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     expect(
       await putPrefs(server, owner.rawSessionId, { turnEndPush: true }),
     ).toBe(422);
-    expect("turnEndPush" in getUserByName("Boss")!).toBe(false);
-    expect(getUserByName("Boss")!.pushRooms).toEqual([]);
+    expect("turnEndPush" in getUserByName("Morgan")!).toBe(false);
+    expect(getUserByName("Morgan")!.pushRooms).toEqual([]);
   });
 });
 

@@ -162,7 +162,7 @@ function userMessages(srv: TestServer, agentId: string): string[] {
 }
 
 async function ownerOffice(srv: TestServer) {
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const userId = getUserByName(owner.username)!.id;
   const room = srv.agentManager.getRooms()[0].id;
   return { owner, userId, room };

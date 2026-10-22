@@ -2,7 +2,7 @@ import { officeAuditStore } from "../audit-store.ts";
 // isomux-memory on the unified REST surface - three verbs: READ (GET), APPEND
 // (POST), REPLACE (PUT) /api/memory.
 //
-// All scopes (agent/room/office/boss) are permissive on EVERY verb: any
+// All scopes (agent/room/office/member) are permissive on EVERY verb: any
 // authenticated caller may read/append/replace any EXISTING target - no access
 // gate (Nil's product decision; restraint lives in the system-prompt affordance,
 // recovery in the op-log). On APPEND author + date are server-stamped (never
@@ -19,6 +19,7 @@ import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import type { AgentInfo, MemoryItem } from "../../shared/types.ts";
 import { MEMORY_LINE_MAX } from "../memory-store.ts";
+import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -129,7 +130,7 @@ describe("routes/memory REST: identity required", () => {
   it("loopback no-cookie READ/APPEND/REPLACE -> 401 unauthenticated", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
 
     for (const r of [
       await api(srv, "/api/memory?scope=agent"),
@@ -156,8 +157,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("self-note: date-only raw line, body author/date ignored; returns item+version", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -197,8 +198,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("ANOTHER agent writing to this agent's scope stays named", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const other = await spawnAgent(srv, "Nosy");
     const token = mintAgentToken(other.id, ownerId);
@@ -217,7 +218,7 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("a HUMAN writing to an agent's scope stays named", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const bot = await spawnAgent(srv, "MemBot");
 
     const r = await api(srv, "/api/memory", {
@@ -227,15 +228,15 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     });
     expect(r.status).toBe(201);
     const { item } = asAppend(r.body);
-    expect(item.author).toBe("Boss");
-    expect(item.raw).toBe(`- Boss, ${item.date}: ship it by friday`);
+    expect(item.author).toBe("Morgan");
+    expect(item.raw).toBe(`- Morgan, ${item.date}: ship it by friday`);
   });
 
   it("an agent's note to ANOTHER scope (room) stays named", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     const roomId = srv.agentManager.getRooms()[0].id;
@@ -256,8 +257,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("a self-note still participates in the duplicate guard", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     const body = { scope: "agent", text: "prefer a named constant" };
@@ -281,8 +282,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("scopeId omitted defaults to the caller's own agent", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     const r = await api(srv, "/api/memory", {
@@ -297,8 +298,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("rejects missing/multiline/blank text", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     for (const text of [undefined, "a\nb", "   "]) {
@@ -315,8 +316,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
   it("rejects a line over 400 characters with trigger guidance", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     const size = MEMORY_LINE_MAX + 1;
@@ -338,8 +339,8 @@ describe("routes/memory REST: APPEND dedup guard", () => {
   it("rejects an exact restatement 409 (matched text); first write 201; reword allowed", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -372,8 +373,8 @@ describe("routes/memory REST: APPEND hard cap", () => {
   it("a line that would put the scope over its cap -> 422 memory_over_cap, nothing written", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "CapBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -408,8 +409,8 @@ describe("routes/memory REST: APPEND permissive + existence gates", () => {
   it("an agent may append to ANOTHER agent's scope (explicit id); nonexistent -> 404; malformed -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const a = await spawnAgent(srv, "A");
     const b = await spawnAgent(srv, "B");
     const tokenA = mintAgentToken(a.id, ownerId);
@@ -442,7 +443,7 @@ describe("routes/memory REST: APPEND permissive + existence gates", () => {
   it("a USER cookie on agent scope must pass an explicit id (omitted -> 400)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const bot = await spawnAgent(srv, "MemBot");
 
     const omitted = await api(srv, "/api/memory", {
@@ -456,10 +457,10 @@ describe("routes/memory REST: APPEND permissive + existence gates", () => {
     const explicit = await api(srv, "/api/memory", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
-      body: { scope: "agent", scopeId: bot.id, text: "from the boss" },
+      body: { scope: "agent", scopeId: bot.id, text: "from the morgan" },
     });
     expect(explicit.status).toBe(201);
-    expect(asAppend(explicit.body).item.author).toBe("Boss");
+    expect(asAppend(explicit.body).item.author).toBe("Morgan");
   });
 });
 
@@ -467,8 +468,8 @@ describe("routes/memory REST: READ", () => {
   it("returns text, version, exact injected size, and the scope cap", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -493,8 +494,8 @@ describe("routes/memory REST: READ", () => {
   it("uses prompt-injected size, excluding blank lines", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     const empty = asRead(
@@ -516,8 +517,8 @@ describe("routes/memory REST: REPLACE (whole-file, version-guarded)", () => {
   async function seedAgent() {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     await api(srv, "/api/memory", {
@@ -577,8 +578,8 @@ describe("routes/memory REST: REPLACE (whole-file, version-guarded)", () => {
   it("ANY authenticated agent can REPLACE office memory (permissive, Nil's decision)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId); // a plain agent, NOT the owner
 
@@ -607,65 +608,69 @@ describe("routes/memory REST: REPLACE (whole-file, version-guarded)", () => {
   });
 });
 
-describe("routes/memory REST: boss scope", () => {
-  it("agent omitted -> manager boss; user omitted -> own; explicit other boss is permissive; GET open to any caller", async () => {
+describe("routes/memory REST: member scope", () => {
+  it("agent omitted -> its manager; user omitted -> own; explicit other member is permissive; GET open to any caller", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Member");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const memberId = getUserByName("Member")!.id;
     const bot = await spawnAgent(srv, "MemBot");
-    const token = mintAgentToken(bot.id, ownerId); // manager boss = Boss
+    const token = mintAgentToken(bot.id, ownerId); // manager = Morgan
 
-    // agent omitted -> manager boss file (ownerId)
+    // agent omitted -> its manager's file (ownerId)
     const a = await api(srv, "/api/memory", {
       method: "POST",
       bearer: token,
-      body: { scope: "boss", text: "boss likes linear history" },
+      body: { scope: "member", text: "manager likes linear history" },
     });
     expect(a.status).toBe(201);
     expect(readMem(srv, "bosses", `${ownerId}.md`)).toContain(
-      "boss likes linear history",
+      "manager likes linear history",
     );
 
-    // member (user cookie) omitted -> own boss file
+    // member (user cookie) omitted -> own member file
     const m = await api(srv, "/api/memory", {
       method: "POST",
       rawSessionId: member.rawSessionId,
-      body: { scope: "boss", text: "member fact" },
+      body: { scope: "member", text: "member fact" },
     });
     expect(m.status).toBe(201);
     expect(readMem(srv, "bosses", `${memberId}.md`)).toContain("member fact");
 
-    // agent explicitly targets ANOTHER boss (member) -> permitted
+    // agent explicitly targets ANOTHER member -> permitted
     const cross = await api(srv, "/api/memory", {
       method: "POST",
       bearer: token,
-      body: { scope: "boss", scopeId: memberId, text: "about the member" },
+      body: { scope: "member", scopeId: memberId, text: "about the member" },
     });
     expect(cross.status).toBe(201);
 
-    // GET another boss's file works for any authenticated caller (intentional)
-    const read = await api(srv, `/api/memory?scope=boss&scopeId=${memberId}`, {
-      bearer: token,
-    });
+    // GET another member's file works for any authenticated caller (intentional)
+    const read = await api(
+      srv,
+      `/api/memory?scope=member&scopeId=${memberId}`,
+      {
+        bearer: token,
+      },
+    );
     expect(read.status).toBe(200);
     expect(asRead(read.body).text).toContain("member fact");
     void owner;
   });
 
-  it("agent with null manager + omitted boss -> 400, and NO bosses/null.md", async () => {
+  it("agent with null manager + omitted member scopeId -> 400, and NO bosses/null.md", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const bot = await spawnAgent(srv, "Orphan");
     const orphan = mintAgentToken(bot.id, null); // no manager userId
 
     const r = await api(srv, "/api/memory", {
       method: "POST",
       bearer: orphan,
-      body: { scope: "boss", text: "x" },
+      body: { scope: "member", text: "x" },
     });
     expect(r.status).toBe(400);
     expect(errCode(r.body)).toBe("invalid_scope_id");
@@ -675,12 +680,131 @@ describe("routes/memory REST: boss scope", () => {
   });
 });
 
+// Task f41c93e9 renamed the scope `boss` to `member`. `boss` stays an alias at
+// parse time: agents and members still send it, and audit rows and transcripts
+// written before the rename carry it.
+describe("routes/memory REST: the boss alias of member scope", () => {
+  it("scope=boss reads, appends and replaces the member file, and audits as member", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+
+    // APPEND through the alias, scopeId omitted -> the manager's file.
+    const a = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "boss", text: "written through the alias" },
+    });
+    expect(a.status).toBe(201);
+    expect(readMem(srv, "bosses", `${ownerId}.md`)).toContain(
+      "written through the alias",
+    );
+
+    // READ: both names resolve to the same file, version, target and cap.
+    const viaMember = await api(srv, "/api/memory?scope=member", {
+      bearer: token,
+    });
+    const viaAlias = await api(srv, "/api/memory?scope=boss", {
+      bearer: token,
+    });
+    expect(viaMember.status).toBe(200);
+    expect(viaAlias.status).toBe(200);
+    expect(asRead(viaMember.body).text).toContain("written through the alias");
+    expect(viaAlias.body).toEqual(viaMember.body);
+    expect(asRead(viaAlias.body).cap).toBe(MEMORY_CAPS.member);
+
+    // REPLACE through the alias with the version from the member read.
+    const rep = await api(srv, "/api/memory", {
+      method: "PUT",
+      bearer: token,
+      body: {
+        scope: "boss",
+        text: "- replaced through the alias\n",
+        version: asRead(viaMember.body).version,
+      },
+    });
+    expect(rep.status).toBe(200);
+    expect(readMem(srv, "bosses", `${ownerId}.md`)).toBe(
+      "- replaced through the alias\n",
+    );
+
+    // New audit rows name the member scope, whichever name the caller used.
+    const rows = opLog(srv);
+    expect(rows.map((row) => row.operation)).toEqual([
+      "memory.append",
+      "memory.replace",
+    ]);
+    for (const row of rows)
+      expect(row.targets).toEqual([`memory:member:${ownerId}`]);
+
+    // A scope that is neither name is still refused.
+    const bad = await api(srv, "/api/memory?scope=bosses", { bearer: token });
+    expect(bad.status).toBe(400);
+    expect(errCode(bad.body)).toBe("unsupported_scope");
+  });
+
+  it("an audit targetId filter on either name finds member-memory rows of both names", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Member");
+    const ownerId = getUserByName("Morgan")!.id;
+    const memberId = getUserByName("Member")!.id;
+    // A row an older release wrote, before the rename.
+    officeAuditStore().append({
+      actor: { kind: "member", id: ownerId, name: "Morgan" },
+      operation: "memory.replace",
+      targets: [`memory:boss:${ownerId}`],
+      fields: ["content"],
+      memoryContent: "- legacy version\n",
+    });
+    for (const [scopeId, text] of [
+      [ownerId, "current version"],
+      [memberId, "another member's note"],
+    ]) {
+      const r = await api(srv, "/api/memory", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { scope: "member", scopeId, text },
+      });
+      expect(r.status).toBe(201);
+    }
+
+    const history = async (targetId: string) => {
+      const res = await api(
+        srv,
+        `/api/audit-log?targetId=${encodeURIComponent(targetId)}`,
+        { rawSessionId: owner.rawSessionId },
+      );
+      expect(res.status).toBe(200);
+      return (
+        res.body as { items: { targets: string[]; memoryContent?: string }[] }
+      ).items;
+    };
+    const byNew = await history(`memory:member:${ownerId}`);
+    expect(byNew.map((row) => row.targets[0]).sort()).toEqual([
+      `memory:boss:${ownerId}`,
+      `memory:member:${ownerId}`,
+    ]);
+    expect(
+      byNew.some((row) => row.memoryContent?.includes("legacy version")),
+    ).toBe(true);
+    expect(
+      byNew.some((row) => row.memoryContent?.includes("current version")),
+    ).toBe(true);
+    expect(await history(`memory:boss:${ownerId}`)).toEqual(byNew);
+  });
+});
+
 describe("routes/memory REST: room/office scope resolution", () => {
   it("room requires an existing scopeId; office takes none", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
     const roomId = srv.agentManager.getRooms()[0].id;
@@ -714,8 +838,8 @@ describe("routes/memory REST: op-log", () => {
   it("records a server-stamped entry per append and replace", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
 
@@ -769,8 +893,8 @@ describe("routes/memory REST: READ names the resolved scope", () => {
   it("a room or member read carries the name its injected block shows; another room's valid id reads as that other room", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const alpha = srv.agentManager.createRoom("Alpha Lab");
     const beta = srv.agentManager.createRoom("Beta Lab");
     const bot = await srv.agentManager.spawn(
@@ -783,7 +907,7 @@ describe("routes/memory REST: READ names the resolved scope", () => {
       undefined,
       undefined,
       undefined,
-      "Boss",
+      "Morgan",
       "claude",
       undefined,
       ownerId,
@@ -793,7 +917,7 @@ describe("routes/memory REST: READ names the resolved scope", () => {
     for (const [scope, scopeId, text] of [
       ["room", alpha, "alpha room note"],
       ["room", beta, "beta room note"],
-      ["boss", ownerId, "boss member note"],
+      ["member", ownerId, "member scope note"],
     ]) {
       const r = await api(srv, "/api/memory", {
         method: "POST",
@@ -830,12 +954,16 @@ describe("routes/memory REST: READ names the resolved scope", () => {
     expect(roomLabel).not.toContain(`"${otherName}"`);
 
     // Member scope, defaulted from the agent's manager.
-    const boss = await api(srv, "/api/memory?scope=boss", { bearer: token });
-    expect(boss.status).toBe(200);
-    expect(asNamed(boss.body).scopeId).toBe(ownerId);
-    const bossName = asNamed(boss.body).name;
-    expect(typeof bossName).toBe("string");
-    expect(labelAbove(prompt, "boss member note")).toContain(`"${bossName}"`);
+    const managerRead = await api(srv, "/api/memory?scope=member", {
+      bearer: token,
+    });
+    expect(managerRead.status).toBe(200);
+    expect(asNamed(managerRead.body).scopeId).toBe(ownerId);
+    const managerName = asNamed(managerRead.body).name;
+    expect(typeof managerName).toBe("string");
+    expect(labelAbove(prompt, "member scope note")).toContain(
+      `"${managerName}"`,
+    );
 
     // The name is read live: after a rename the read and the next prompt agree.
     expect(srv.agentManager.renameRoom(alpha, "Gamma Lab")).toBe(true);
@@ -856,9 +984,9 @@ describe("routes/memory REST: READ names the resolved scope", () => {
   it("agent, member and office reads name their resolved target; unknown ids keep their 404 codes", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Member");
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const memberId = getUserByName("Member")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const peer = await spawnAgent(srv, "PeerBot");
@@ -880,7 +1008,7 @@ describe("routes/memory REST: READ names the resolved scope", () => {
 
     // A member cookie: omitted scopeId defaults to its own user; explicit
     // other user resolves to that user.
-    const mine = await api(srv, "/api/memory?scope=boss", {
+    const mine = await api(srv, "/api/memory?scope=member", {
       rawSessionId: member.rawSessionId,
     });
     expect(mine.status).toBe(200);
@@ -888,12 +1016,16 @@ describe("routes/memory REST: READ names the resolved scope", () => {
       scopeId: memberId,
       name: getUserByName("Member")!.name,
     });
-    const theirs = await api(srv, `/api/memory?scope=boss&scopeId=${ownerId}`, {
-      rawSessionId: member.rawSessionId,
-    });
+    const theirs = await api(
+      srv,
+      `/api/memory?scope=member&scopeId=${ownerId}`,
+      {
+        rawSessionId: member.rawSessionId,
+      },
+    );
     expect(asNamed(theirs.body)).toMatchObject({
       scopeId: ownerId,
-      name: getUserByName("Boss")!.name,
+      name: getUserByName("Morgan")!.name,
     });
 
     const office = await api(srv, "/api/memory?scope=office", {
@@ -905,7 +1037,7 @@ describe("routes/memory REST: READ names the resolved scope", () => {
     for (const [query, code] of [
       ["scope=room&scopeId=deadbeef", "room_not_found"],
       ["scope=agent&scopeId=deadbeef", "agent_not_found"],
-      ["scope=boss&scopeId=deadbeef", "user_not_found"],
+      ["scope=member&scopeId=deadbeef", "user_not_found"],
     ]) {
       const r = await api(srv, `/api/memory?${query}`, { bearer: token });
       expect(r.status).toBe(404);

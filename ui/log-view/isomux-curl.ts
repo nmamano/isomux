@@ -892,7 +892,11 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
     "/api/me/provider-accounts/:provider/callback",
     "apiCall.providerAccounts.signInCode",
   ],
-  ["POST", "/api/api-token-inboxes/*/messages", "apiCall.inbox.messageBoss"],
+  [
+    "POST",
+    "/api/api-token-inboxes/*/messages",
+    "apiCall.inbox.messageTokenInbox",
+  ],
   ["POST", "/api/me/api-token-inbox/drain", "apiCall.inbox.drain"],
   ["GET", "/api/agent-reference", "apiCall.agentReference.read"],
   ["GET", "/api/agent-reference/*", "apiCall.agentReference.read"],
@@ -986,24 +990,28 @@ function truncateLabel(s: string, max: number): string {
 }
 
 // One whole sentence per scope, never a scope word glued into a frame: word
-// order and article differ per language (ruling 16).
+// order and article differ per language (ruling 16). "boss" is the member
+// scope's name before task f41c93e9, still accepted by the route.
 const MEMORY_READ_KEYS: Record<string, RouteLabelKey> = {
   agent: "apiCall.memory.readAgent",
   room: "apiCall.memory.readRoom",
   office: "apiCall.memory.readOffice",
-  boss: "apiCall.memory.readBoss",
+  member: "apiCall.memory.readMember",
+  boss: "apiCall.memory.readMember",
 };
 const MEMORY_SAVE_KEYS: Record<string, RouteLabelKey> = {
   agent: "apiCall.memory.saveAgent",
   room: "apiCall.memory.saveRoom",
   office: "apiCall.memory.saveOffice",
-  boss: "apiCall.memory.saveBoss",
+  member: "apiCall.memory.saveMember",
+  boss: "apiCall.memory.saveMember",
 };
 const MEMORY_REWRITE_KEYS: Record<string, RouteLabelKey> = {
   agent: "apiCall.memory.rewriteAgent",
   room: "apiCall.memory.rewriteRoom",
   office: "apiCall.memory.rewriteOffice",
-  boss: "apiCall.memory.rewriteBoss",
+  member: "apiCall.memory.rewriteMember",
+  boss: "apiCall.memory.rewriteMember",
 };
 
 /**
@@ -1039,7 +1047,7 @@ export function humanizeIsomuxRequest(
 
   if (segs.length === 1 && segs[0] === "memory") {
     const scope = query.get("scope") ?? field("scope") ?? "";
-    const known = scope in MEMORY_READ_KEYS;
+    const known = Object.hasOwn(MEMORY_READ_KEYS, scope);
     if (m === "GET")
       return t(known ? MEMORY_READ_KEYS[scope] : "apiCall.memory.readAny");
     if (m === "POST")
@@ -2056,7 +2064,7 @@ function plainTextParams(
 ): Readonly<Record<string, PlainTextParamKind>> | null {
   const key = describeIsomuxRoute(method, path);
   if (key === "apiCall.agents.sendMessage") return MESSAGE_PLAIN_TEXT_PARAMS;
-  if (key === "apiCall.inbox.messageBoss") return INBOX_PLAIN_TEXT_PARAMS;
+  if (key === "apiCall.inbox.messageTokenInbox") return INBOX_PLAIN_TEXT_PARAMS;
   if (key === "apiCall.asks.create") return ASK_CREATE_PLAIN_TEXT_PARAMS;
   if (key === "apiCall.asks.edit") return ASK_EDIT_PLAIN_TEXT_PARAMS;
   return null;

@@ -117,7 +117,7 @@ describe("identity: agent token redaction (Phase 2.1)", () => {
   it("the raw token never appears in WS messages, log entries, or the system prompt", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ws = await srv.connectWs(owner.rawSessionId);
 
     const { info } = await spawnAgent(srv, "RedactAgent");

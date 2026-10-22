@@ -54,7 +54,7 @@ async function setup(): Promise<World> {
     }),
   });
   server = srv;
-  const seeded = await srv.seedOwner("Boss");
+  const seeded = await srv.seedOwner("Morgan");
   const ownerId = getUserByName(seeded.username)!.id;
   const room = srv.agentManager.getRooms()[0].id;
   const spawn = async (name: string) => {

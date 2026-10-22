@@ -77,8 +77,8 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
   it("refuses each machine token behind every forwarding header, and logs once without the token", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const agent = await srv.agentManager.spawn(
       "AppBot",
       srv.stateRoot,
@@ -126,9 +126,9 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
   it("leaves a personal API token working through a proxy", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const { token: raw } = await mintApiToken({
-      userId: getUserByName("Boss")!.id,
+      userId: getUserByName("Morgan")!.id,
       name: "Laptop",
       expiresInDays: 30,
     });
@@ -139,8 +139,8 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
   it("lets a valid cookie pass beside a refused agent token", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const agentToken = mintAgentToken("agent-x", getUserByName("Boss")!.id);
+    const owner = await srv.seedOwner("Morgan");
+    const agentToken = mintAgentToken("agent-x", getUserByName("Morgan")!.id);
     const warnings = captureWarnings();
     let res: Response;
     try {

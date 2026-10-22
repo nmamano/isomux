@@ -70,7 +70,7 @@ async function spawnCore(
 async function setup() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const r1 = srv.agentManager.getRooms()[0].id;
   srv.agentManager.setRoomBackRoom(r1, true);
   return { srv, owner, r1 };
@@ -204,7 +204,7 @@ describe("revive into the back room", () => {
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     srv.agentManager.setRoomBackRoom(r1, true);
     const x = await spawnCore(srv, "K", r1, 0);
@@ -258,7 +258,7 @@ describe("the lobby with no desk", () => {
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
     server = srv;
-    const rawSessionId = await claimOwner(srv, "Boss");
+    const rawSessionId = await claimOwner(srv, "Morgan");
     const receptionist = srv.agentManager
       .getAllAgents()
       .find((a) => a.roomId === "lobby");

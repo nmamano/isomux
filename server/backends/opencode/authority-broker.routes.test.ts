@@ -17,7 +17,7 @@ afterEach(async () => {
 async function fixture(privileged = true) {
   const srv = await startTestServer();
   cleanup.push(() => srv.stop());
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const token = mintAgentToken(
     "broker-agent",
     getUserByName(owner.username)!.id,

@@ -65,7 +65,7 @@ const FAKE = {
 async function seeded() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const other = await srv.seedMember("Other");
   const o = owner.rawSessionId;

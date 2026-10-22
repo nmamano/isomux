@@ -106,10 +106,10 @@ async function run(
   // The session is created on the first message, not at spawn.
   const typed = { send: "hi", skill: `/${SKILL}`, plan: "/plan hi" } as const;
   if (via === "send" || via === "skill" || via === "plan")
-    void mgr.sendMessage(info.id, typed[via], "Boss").catch(() => {});
+    void mgr.sendMessage(info.id, typed[via], "Morgan").catch(() => {});
   else
     mgr.enqueueMessage(info.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "hi",
     });
   await waitUntil(

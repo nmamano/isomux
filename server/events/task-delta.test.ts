@@ -20,7 +20,7 @@ function task(id: string, roomId?: string): TaskItem {
     id,
     title: `task ${id}`,
     status: "open",
-    createdBy: "Boss",
+    createdBy: "Morgan",
     createdAt: 1,
     ...(roomId ? { roomId } : {}),
     version: "v1",

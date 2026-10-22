@@ -74,7 +74,7 @@ it("gives each member's sessions the office servers and their own, never in the 
   const fake = new FakeBackend();
   server = await startTestServer({ fakeBackend: fake });
   const srv = server;
-  await srv.seedOwner("Boss");
+  await srv.seedOwner("Morgan");
   await srv.seedMember("Ann");
   const annId = getUserByName("Ann")!.id;
   const sources = createMcpServerSources();
@@ -110,9 +110,14 @@ it("gives each member's sessions the office servers and their own, never in the 
   );
 
   const ann = await spawnFor(srv, "AnnAgent", "Ann");
-  const boss = await spawnFor(srv, "BossAgent", "Boss");
+  const morgan = await spawnFor(srv, "MorganAgent", "Morgan");
   const annSession = await sessionAfterMessage(srv, fake, ann.id, "Ann");
-  const bossSession = await sessionAfterMessage(srv, fake, boss.id, "Boss");
+  const morganSession = await sessionAfterMessage(
+    srv,
+    fake,
+    morgan.id,
+    "Morgan",
+  );
 
   expect(annSession.opts.mcpServers).toEqual([
     {
@@ -126,10 +131,10 @@ it("gives each member's sessions the office servers and their own, never in the 
       headers: { Authorization: "Bearer placeholder-member-ANN_TOKEN" },
     },
   ]);
-  expect(bossSession.opts.mcpServers?.map((s) => s.name)).toEqual([
+  expect(morganSession.opts.mcpServers?.map((s) => s.name)).toEqual([
     "isomux-office",
   ]);
-  for (const session of [annSession, bossSession]) {
+  for (const session of [annSession, morganSession]) {
     // Neither the environment nor the MCP headers hold a value (B2).
     expect(JSON.stringify(session.opts.mcpServers)).not.toContain(OFFICE_VALUE);
     expect(JSON.stringify(session.opts.mcpServers)).not.toContain(MEMBER_VALUE);
@@ -144,7 +149,7 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
   server = await startTestServer({ fakeBackend: fake });
   const srv = server;
   const ann = await srv.seedMember("Ann");
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const agent = await spawnFor(srv, "AnnAgent", "Ann");
   const session = await sessionAfterMessage(srv, fake, agent.id, "Ann");
   // A report with no claude.ai connector still records the engine's own
@@ -196,5 +201,5 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
   expect(forAnn.text).not.toContain("secret-path");
   expect(forAnn.text).not.toContain("fake-engine-header");
   // Another member's sessions are not theirs.
-  expect((await list(boss.rawSessionId)).body.engineMcpServers).toEqual([]);
+  expect((await list(morgan.rawSessionId)).body.engineMcpServers).toEqual([]);
 });

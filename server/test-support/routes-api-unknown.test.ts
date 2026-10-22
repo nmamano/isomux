@@ -63,7 +63,7 @@ describe("routes/api-unknown: an unmatched /api path is a JSON 404", () => {
   it("an owner cookie gets the /api 404 envelope", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const { method, path } of UNKNOWN) {
       const res = await send(srv, method, path, {
         rawSessionId: owner.rawSessionId,
@@ -87,7 +87,7 @@ describe("routes/api-unknown: an unmatched /api path is a JSON 404", () => {
   it("the 404 matches what a known /api route answers for a miss", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const known = await srv.http("/api/tasks/deadbeef", {
       rawSessionId: owner.rawSessionId,
     });
@@ -118,7 +118,7 @@ describe("routes/api-unknown: other paths keep the SPA fallback", () => {
   it("serves the shell for a client route and an /api look-alike", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const path of ["/rooms/some-room", "/apiary", "/api"]) {
       const res = await srv.http(path, { rawSessionId: owner.rawSessionId });
       expect({ path, status: res.status }).toEqual({ path, status: 200 });

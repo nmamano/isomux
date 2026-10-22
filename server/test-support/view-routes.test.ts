@@ -111,7 +111,7 @@ async function waitForFullState(
 describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
   it("setOrder dedupes (first occurrence wins), filters inaccessible, keeps hidden-but-accessible", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -133,7 +133,7 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
     // view write - the same clampViewFields path the retired setShown used, and
     // the same one users.setAccess uses on revoke (covered in user-settings.test).
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -150,7 +150,7 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
 
   it("rejects a malformed body SHAPE (422) but silently accepts an unknown room id", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     grant(member.username, [r1]);
@@ -173,7 +173,7 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
 
   it("multi-socket: an order-only change sends room_order_updated with the projected rooms to ALL the caller's sockets, replays nothing, and reaches no other user", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -247,7 +247,7 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
 describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
   it("setShown: hidden = accessible minus shown; notifRooms pruned; unknown ids no-oracle-filtered; re-show works", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -282,7 +282,7 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
 
   it("setShown fans out the projected full_state (hidden room gone) with the transcript replay, and refreshes the self record", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -333,7 +333,7 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
 
   it("listRooms returns id+name for every ACCESSIBLE room - hidden included, inaccessible excluded", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -390,7 +390,7 @@ describe("view.setTucked (task 6c23d908)", () => {
 
   it("stores the full list: dedupes, drops unknown and inaccessible ids, keeps hidden-but-accessible ones", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -418,7 +418,7 @@ describe("view.setTucked (task 6c23d908)", () => {
 
   it("sends the member's own record and no full_state; other members get nothing", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const other = await server.seedMember("Ola");
     const r1 = server.agentManager.getRooms()[0].id;
@@ -450,7 +450,7 @@ describe("view.setTucked (task 6c23d908)", () => {
 
   it("never puts tucked on the public user wire", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const other = await server.seedMember("Ola");
     const r1 = server.agentManager.getRooms()[0].id;
@@ -475,7 +475,7 @@ describe("view.setTucked (task 6c23d908)", () => {
 
   it("a hidden room keeps its tucked flag and comes back tucked when shown again", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -526,7 +526,7 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
 
   it("stores the full list within the shown rooms: dedupes, drops unknown, inaccessible and hidden ids", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -555,7 +555,7 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
 
   it("hiding a room, losing access to it and closing it each drop it", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -589,7 +589,7 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
 
   it("a demotion drops the rooms the member no longer reaches", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
@@ -619,7 +619,7 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
 
   it("sends the member's own record and the owners' admin record, no full_state and nothing public", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const other = await server.seedMember("Ola");
     const r1 = server.agentManager.getRooms()[0].id;

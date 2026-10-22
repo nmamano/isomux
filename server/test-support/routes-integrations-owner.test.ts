@@ -66,7 +66,7 @@ async function office() {
     startServer: { connectionTestFetch: testFetch },
   });
   const srv = server;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const other = await srv.seedMember("Other");
   const ownerId = getUserByName(owner.username)!.id;

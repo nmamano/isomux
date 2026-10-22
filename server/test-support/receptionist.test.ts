@@ -112,7 +112,7 @@ describe("receptionist profile and lobby", () => {
     expect(srv.agentManager.getRooms().some((r) => r.type === "lobby")).toBe(
       false,
     );
-    await claimOwner(srv, "Boss");
+    await claimOwner(srv, "Morgan");
     expect(
       srv.agentManager
         .getAllAgents()
@@ -127,10 +127,10 @@ describe("receptionist profile and lobby", () => {
     const r = receptionistOf(srv);
     expect(r.cwd).toBe(homedir());
     expect(r.permissionMode).toBe("bypassPermissions");
-    expect(r.username).toBe("Boss");
+    expect(r.manager).toBe("Morgan");
     expect(r.userId).toBeTruthy();
     expect(r.customInstructions).toContain(ISOMUX_KNOWLEDGE);
-    expect(r.customInstructions).toContain('Owners: "Boss". Members: none.');
+    expect(r.customInstructions).toContain('Owners: "Morgan". Members: none.');
     expect("receptionist" in r).toBe(false);
     expect(srv.agentManager.getOrdinaryRooms()[0].canCloseWhenEmpty).toBe(
       false,
@@ -154,7 +154,7 @@ describe("receptionist profile and lobby", () => {
       if (failure === "null") spawn.mockResolvedValueOnce(null);
       else spawn.mockRejectedValueOnce(new Error("seed failed once"));
       try {
-        await claimOwner(srv, "Boss");
+        await claimOwner(srv, "Morgan");
       } finally {
         spawn.mockRestore();
       }
@@ -176,7 +176,7 @@ describe("receptionist profile and lobby", () => {
           .defaultAgentPending,
       ).toBe(true);
       srv = server = await srv.restart();
-      expect(receptionistOf(srv).username).toBe("Boss");
+      expect(receptionistOf(srv).manager).toBe("Morgan");
       expect(srv.agentManager.getAllAgents()).toHaveLength(4);
       const complete = JSON.parse(
         readFileSync(join(srv.stateRoot, "agents.json"), "utf8"),
@@ -190,7 +190,7 @@ describe("receptionist profile and lobby", () => {
 
   it("settles a pending seed that already has an occupant before a later move", async () => {
     let srv = (server = await startTestServer());
-    await claimOwner(srv, "Boss");
+    await claimOwner(srv, "Morgan");
     const r = receptionistOf(srv);
     const file = join(srv.stateRoot, "agents.json");
     const rooms = JSON.parse(readFileSync(file, "utf8"));
@@ -226,7 +226,7 @@ describe("receptionist profile and lobby", () => {
         ],
       },
     }));
-    await claimOwner(srv, "Boss");
+    await claimOwner(srv, "Morgan");
     expect(receptionistOf(srv).modelFamily).toBe("opencode/available-free");
     expect(
       srv.agentManager
@@ -258,7 +258,7 @@ describe("receptionist profile and lobby", () => {
           },
         },
       }));
-      await claimOwner(srv, "Boss");
+      await claimOwner(srv, "Morgan");
       return { srv, discovery };
     }
     const freeWelcomeOf = (srv: TestServer) =>
@@ -313,7 +313,7 @@ describe("receptionist profile and lobby", () => {
         undefined,
         OPENCODE_DEFAULT_MODEL,
         undefined,
-        "Boss",
+        "Morgan",
         "opencode",
       );
       expect(other).not.toBeNull();
@@ -347,7 +347,7 @@ describe("receptionist profile and lobby", () => {
           welcomeModelTiming: { discoveryTimeoutMs: 20, delayMs: 10, windowMs },
         },
       }));
-      await claimOwner(srv, "Boss");
+      await claimOwner(srv, "Morgan");
       return { srv, discovery };
     }
 
@@ -417,7 +417,7 @@ describe("receptionist profile and lobby", () => {
           },
         },
       }));
-      await claimOwner(srv, "Boss");
+      await claimOwner(srv, "Morgan");
       await sleep(100);
       return { srv, discovery };
     }
@@ -439,7 +439,7 @@ describe("receptionist profile and lobby", () => {
 
   it("keeps lobby access at the id boundary before the canonical room exists", async () => {
     const srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     expect(
       srv.agentManager.getRooms().some((room) => room.id === "lobby"),
@@ -462,7 +462,7 @@ describe("receptionist profile and lobby", () => {
 
   it("allows name/cwd edits, move out and in, kill and revive; persists empty lobby", async () => {
     let srv = (server = await startTestServer());
-    const cookie = await claimOwner(srv, "Boss");
+    const cookie = await claimOwner(srv, "Morgan");
     const r = receptionistOf(srv);
     const room = srv.agentManager.getOrdinaryRooms()[0].id;
     const edit = await api(srv, "PATCH", `/api/agents/${r.id}`, {
@@ -505,14 +505,14 @@ describe("receptionist profile and lobby", () => {
 
   it("seeds an upgraded office with an owner and no lobby at boot", async () => {
     let srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     srv = server = await srv.restart();
-    expect(receptionistOf(srv).username).toBe("Boss");
+    expect(receptionistOf(srv).manager).toBe("Morgan");
   });
 
   it("renders a validated profile at spawn and enforces the target desk range", async () => {
     const srv = (server = await startTestServer());
-    const cookie = await claimOwner(srv, "Boss");
+    const cookie = await claimOwner(srv, "Morgan");
     const room = srv.agentManager.getOrdinaryRooms()[0].id;
     const body = {
       name: "Fresh Receptionist",
@@ -553,7 +553,7 @@ describe("receptionist profile and lobby", () => {
 
   it("shows the current lobby occupant to a member, and keeps ordinary grants separate", async () => {
     const srv = (server = await startTestServer());
-    await claimOwner(srv, "Boss");
+    await claimOwner(srv, "Morgan");
     const r = receptionistOf(srv);
     const member = await srv.seedMember("Mia");
     const sock = await connectAndSettle(srv, member.rawSessionId);
@@ -576,7 +576,7 @@ describe("receptionist profile and lobby", () => {
     await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
     const prompt = srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt;
     expect(prompt).toContain(ISOMUX_KNOWLEDGE);
-    expect(prompt).toContain('Owners: "Boss". Members: none.');
+    expect(prompt).toContain('Owners: "Morgan". Members: none.');
     expect(prompt).toContain("curl");
     expect(prompt).not.toContain("What you can and cannot see");
     expect(
@@ -599,7 +599,7 @@ describe("receptionist profile and lobby", () => {
 
   it("omits lobby room memory in session prompts and logs only a system-prompt marker", async () => {
     const srv = (server = await startTestServer());
-    const cookie = await claimOwner(srv, "Boss");
+    const cookie = await claimOwner(srv, "Morgan");
     const r = receptionistOf(srv);
     const memoryDir = join(srv.stateRoot, "memory", "rooms");
     mkdirSync(memoryDir, { recursive: true });
@@ -643,14 +643,14 @@ describe("receptionist profile and lobby", () => {
 
   it("uses the first owner's normal token reach for rooms, agents, tasks and messages", async () => {
     const srv = (server = await startTestServer());
-    const cookie = await claimOwner(srv, "Boss");
+    const cookie = await claimOwner(srv, "Morgan");
     const r = receptionistOf(srv);
     const saved = await api(srv, "POST", "/api/memory", {
       rawSessionId: cookie,
       body: {
-        scope: "boss",
+        scope: "member",
         scopeId: r.userId,
-        text: "Boss memory marker for receptionist profile.",
+        text: "Morgan memory marker for receptionist profile.",
       },
     });
     expect(saved.status).toBe(201);
@@ -665,7 +665,7 @@ describe("receptionist profile and lobby", () => {
     ).toBe(200);
     await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
     expect(srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt).toContain(
-      "Boss memory marker for receptionist profile.",
+      "Morgan memory marker for receptionist profile.",
     );
     const bearer = getAgentTokenRaw(r.id)!;
     const other = srv.agentManager.getAllAgents().find((a) => a.id !== r.id)!;

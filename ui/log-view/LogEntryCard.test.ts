@@ -1,6 +1,6 @@
 // Who a `user_message` came from, and whether the reader should treat it as a
 // person. Three senders reach an agent through one queue and land in one log -
-// a boss, another agent, and one of the agent's own apps - and the log is what
+// a manager, another agent, and one of the agent's own apps - and the log is what
 // anyone reads AFTERWARDS, so the distinction has to survive the trip. Pinned as
 // a pure function because the UI has no React render harness (same reason as
 // ContextBattery's bandColor).
@@ -46,7 +46,7 @@ describe("serializeEntries", () => {
 });
 
 describe("describeMessageSender", () => {
-  it("a boss is a human, labelled by name and device", () => {
+  it("a member is a human, labelled by name and device", () => {
     expect(
       describeMessageSender(EN, { username: "Nil", device: "Phone" }),
     ).toEqual({
@@ -77,7 +77,7 @@ describe("describeMessageSender", () => {
   it("an APP sender is labelled as an app, and is not human", () => {
     // The metadata the server stamps for POST /api/app/message (senderMeta's
     // app arm). Without this branch an app's message renders exactly like the
-    // boss typing - which is the one reading it must never get wrong.
+    // member typing - which is the one reading it must never get wrong.
     expect(describeMessageSender(EN, { sender_app_name: "habits" })).toEqual({
       label: "habits · app",
       fromHuman: false,

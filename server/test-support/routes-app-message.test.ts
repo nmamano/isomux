@@ -113,9 +113,9 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
     undefined,
     undefined,
     undefined,
-    // Boss manages it, as the app owner: an app has its owner agent's reach
+    // Morgan manages it, as the app owner: an app has its owner agent's reach
     // only when they share the manager.
-    "Boss",
+    "Morgan",
     // Codex: a boot-replay wake starts a FRESH session instead of tripping
     // Claude's resume preflight on the fake session id.
     "codex",
@@ -136,8 +136,8 @@ async function seedApp(
   agentToken: string;
   ownerSessionId: string;
 }> {
-  const owner = await srv.seedOwner("Boss");
-  const ownerId = getUserByName("Boss")!.id;
+  const owner = await srv.seedOwner("Morgan");
+  const ownerId = getUserByName("Morgan")!.id;
   const agent = await spawnAgent(srv, "AppBot");
   const agentToken = mintAgentToken(agent.id, ownerId);
   const reg = await post(srv, "/api/apps", agentToken, {
@@ -248,15 +248,15 @@ describe("POST /api/app/message: an app messages the agent that built it", () =>
     expect(prompt).toContain(
       `${formatAppSenderPrefix("habits")} nightly run finished: 3 habits logged`,
     );
-    // Not a boss, and not an agent.
-    expect(prompt).not.toContain("[Boss]");
+    // Not a member, and not an agent.
+    expect(prompt).not.toContain("[Morgan]");
     expect(prompt).not.toContain("agent id:");
 
     // THE LABEL, in the PERSISTENT log - the surface a human scrolls back
     // through, read off disk rather than off the wire. sender_app_name is what
     // the UI maps to the app label and to "not editable"
     // (describeMessageSender), so a delivery that reached the model correctly
-    // but persisted as an anonymous user_message would still read as the boss
+    // but persisted as an anonymous user_message would still read as the member
     // asking for something.
     await waitUntil(
       () => appMessageLogEntries(srv, agent.id).length === 1,
@@ -350,7 +350,7 @@ async function spawnIn(
     undefined,
     undefined,
     undefined,
-    "Boss",
+    "Morgan",
     "codex",
   );
   if (!info) throw new Error(`spawn ${name} returned null`);
@@ -606,7 +606,7 @@ describe("POST /api/app/message: nobody to message", () => {
   it("409s when a PERSON registered the app - there is no agent attached", async () => {
     const srv = await startTestServer();
     server = srv;
-    const ownerSession = await srv.seedOwner("Boss");
+    const ownerSession = await srv.seedOwner("Morgan");
     const reg = await srv.http("/api/apps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

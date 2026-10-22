@@ -205,7 +205,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
   it("seeds Claude, Codex, and free-model OpenCode welcome agents on the first-owner claim", async () => {
     // Default harness backend; the seed never sends, so its onSend is irrelevant.
     server = await startTestServer();
-    await claimOwner(server, "Boss");
+    await claimOwner(server, "Morgan");
 
     const agents = server.agentManager.getAllAgents();
     // Three welcome agents plus the receptionist (receptionist.test.ts).
@@ -279,23 +279,23 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
         },
       },
     });
-    await claimOwner(server, "Boss");
+    await claimOwner(server, "Morgan");
     expect(requireAgentByName(server, CODEX_WELCOME).modelFamily).toBe(
       "gpt-login-default",
     );
-    expect(calls).toEqual([getUserByName("Boss")!.id]);
+    expect(calls).toEqual([getUserByName("Morgan")!.id]);
   });
 
   it("does not add welcome agents when the first-owner hook runs again", async () => {
     server = await startTestServer();
-    await claimOwner(server, "Boss");
+    await claimOwner(server, "Morgan");
     const openCode = requireAgentByName(server, OPENCODE_WELCOME);
     await server.agentManager.editAgent(openCode.id, {
       name: "Renamed Welcome Agent",
     });
     const before = server.agentManager.getAllAgents().map((agent) => agent.id);
 
-    await _testRunOwnerCreatedHook("Boss");
+    await _testRunOwnerCreatedHook("Morgan");
 
     expect(server.agentManager.getAllAgents().map((agent) => agent.id)).toEqual(
       before,
@@ -317,7 +317,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     );
     expect(existing).not.toBeNull();
 
-    await claimOwner(server, "Boss");
+    await claimOwner(server, "Morgan");
 
     // No welcome agents; the receptionist joins any office that gets an owner.
     const agents = server.agentManager
@@ -338,7 +338,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       },
     });
     server = await startTestServer({ fakeBackend });
-    const rawSessionId = await claimOwner(server, "Boss");
+    const rawSessionId = await claimOwner(server, "Morgan");
 
     const opencode = requireAgentByName(server, OPENCODE_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
@@ -371,7 +371,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       oneShot: "Resolved topic",
     });
     server = await startTestServer({ fakeBackend });
-    const rawSessionId = await claimOwner(server, "Boss");
+    const rawSessionId = await claimOwner(server, "Morgan");
     const opencode = requireAgentByName(server, OPENCODE_WELCOME);
 
     await server.http(`/api/agents/${opencode.id}/messages`, {
@@ -406,7 +406,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       oneShot: () => topicResult,
     });
     server = await startTestServer({ fakeBackend });
-    const rawSessionId = await claimOwner(server, "Boss");
+    const rawSessionId = await claimOwner(server, "Morgan");
     const opencode = requireAgentByName(server, OPENCODE_WELCOME);
 
     await server.http(`/api/agents/${opencode.id}/messages`, {
@@ -470,7 +470,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       CLAUDE_CONFIG_DIR: join(STATE_ROOT, "onboarding-no-claude-credentials"),
       ANTHROPIC_API_KEY: "",
     });
-    const rawSessionId = await claimOwner(server, "Boss");
+    const rawSessionId = await claimOwner(server, "Morgan");
 
     const claude = requireAgentByName(server, CLAUDE_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
@@ -518,7 +518,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       },
     });
     server = await startTestServer({ fakeBackend });
-    const rawSessionId = await claimOwner(server, "Boss");
+    const rawSessionId = await claimOwner(server, "Morgan");
 
     const codex = requireAgentByName(server, CODEX_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
@@ -555,7 +555,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 describe("onboarding by host platform", () => {
   async function claimOn(platform: NodeJS.Platform) {
     server = await startTestServer({ startServer: { hostPlatform: platform } });
-    const session = await claimOwner(server, "Boss");
+    const session = await claimOwner(server, "Morgan");
     const sock = await server.connectWs(session);
     const fullState = await sock.waitFor("full_state");
     const agents = server.agentManager.getAllAgents();

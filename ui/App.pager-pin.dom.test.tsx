@@ -29,7 +29,7 @@ const resolved = (from: number, to: number) =>
     page(`r${from + i}`, {
       state: "resolved",
       lastRaisedAt: 100_000 - (from + i),
-      resolved: { by: "Boss", at: 100_000 - (from + i) },
+      resolved: { by: "Morgan", at: 100_000 - (from + i) },
     }),
   );
 
@@ -45,7 +45,7 @@ describe("the Discord-linked page", () => {
       pending[1].resolve(
         page("ancient", {
           state: "resolved",
-          resolved: { by: "Boss", at: 5 },
+          resolved: { by: "Morgan", at: 5 },
         }) as never,
       ),
     );
@@ -54,7 +54,7 @@ describe("the Discord-linked page", () => {
         type: "pager_upserted",
         entry: page("n1", {
           state: "resolved",
-          resolved: { by: "Boss", at: 200_000 },
+          resolved: { by: "Morgan", at: 200_000 },
         }),
       }),
     );
@@ -78,7 +78,7 @@ describe("the Discord-linked page", () => {
           type: "pager_upserted",
           entry: page(id, {
             state: "resolved",
-            resolved: { by: "Boss", at: 200_000 },
+            resolved: { by: "Morgan", at: 200_000 },
           }),
         }),
       );

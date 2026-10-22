@@ -125,7 +125,7 @@ const hookBody = (target: unknown) => ({
 async function office() {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const roomA = srv.agentManager.createRoom("Alpha");
   const roomB = srv.agentManager.createRoom("Beta");
   const alice = await srv.seedMember("Alice");

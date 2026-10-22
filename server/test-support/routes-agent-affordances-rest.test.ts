@@ -131,7 +131,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
   it("read-file: 200 + a file-view log_entry that rides room-ACL - owner sees it, a no-access member does NOT", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mallory"); // fresh member: allowedRooms []
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -169,7 +169,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
   it("edit-file existing -> 200 + edit-request log_entry", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -193,7 +193,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
   it("terminal-command single-line -> 200 + terminal-command log_entry", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -216,7 +216,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
   it("diff non-repo cwd -> 200 + system log_entry 'not a git repository'", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     // The agent cwd is the throwaway temp stateRoot, not a git repo.
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -236,7 +236,7 @@ describe("routes/agent-affordances REST: validation + manager-error mapping", ()
   it("read-file missing path -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -253,7 +253,7 @@ describe("routes/agent-affordances REST: validation + manager-error mapping", ()
   it("terminal-command missing command -> 400; multiline -> 400 (mapped from the manager result)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -285,7 +285,7 @@ describe("routes/agent-affordances REST: idempotency", () => {
   it("same Idempotency-Key replays read-file (200) but writes exactly one log_entry", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -349,7 +349,7 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
   it("happy path: 200 + file-view log_entry whose content is the sanitized URL caption", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -390,7 +390,7 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
   it("an authenticated agent can preview the office host through the same capture path", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const agent = await spawnAgent(
       srv,
       "Worker",
@@ -417,7 +417,7 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
   it("missing url -> 400; embedded credentials -> 400 invalid_request", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -448,7 +448,7 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
   it("an agent token cannot preview into a DIFFERENT agent's chat -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "Alice", room.id);
     const b = await spawnAgent(srv, "Bob", room.id);
@@ -473,7 +473,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   it("rejects a missing or unknown action -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -504,7 +504,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   it("rejects a non-http URL and credentials in the URL before any browser work -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -528,7 +528,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   it("the close action succeeds when the agent holds no context", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -546,7 +546,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   it("requires Chrome pairing even when server Chromium is configured -> 500", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -571,7 +571,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   it("a failed action keeps the dialogs it opened in the error body", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -606,7 +606,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   it("an agent token cannot drive a DIFFERENT agent's browser -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "Alice", room.id);
     const b = await spawnAgent(srv, "Bob", room.id);
@@ -626,7 +626,7 @@ describe("routes/agent-affordances REST: authz", () => {
   it("an agent token cannot affordance a DIFFERENT agent's chat -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "Alice", room.id);
     const b = await spawnAgent(srv, "Bob", room.id);
@@ -644,7 +644,7 @@ describe("routes/agent-affordances REST: authz", () => {
   it("a USER cookie cannot reach an agent affordance (no self:affordance) -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const r = await affordance(
@@ -660,7 +660,7 @@ describe("routes/agent-affordances REST: authz", () => {
   it("no identity (no cookie, no bearer) -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const r = await affordance(srv, agent.id, "read-file", { path: "x" });

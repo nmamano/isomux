@@ -34,7 +34,7 @@ function sources(
     accounts: async () => [
       account("codex", "office", true, "team@example.com"),
       account("codex", "personal", false),
-      account("claude", "office", true, "boss@example.com"),
+      account("claude", "office", true, "morgan@example.com"),
       account("claude", "personal", true),
     ],
     claudeConnectorDir: (scope) => `/claude/${scope}`,
@@ -59,7 +59,7 @@ describe("buildConnectionsList", () => {
       ],
       signIns: [
         { scope: "office", engine: "codex", account: "team@example.com" },
-        { scope: "office", engine: "claude", account: "boss@example.com" },
+        { scope: "office", engine: "claude", account: "morgan@example.com" },
         { scope: "personal", engine: "claude", account: null },
       ],
       claudeConnectors: [

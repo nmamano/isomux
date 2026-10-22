@@ -1,5 +1,5 @@
 // S10 of the office i18n loop (internal-docs/i18n-loop.md): the neon isomux
-// sign on the office wall sends a boss to the public site in the language they
+// sign on the office wall sends a member to the public site in the language they
 // read the office in.
 //
 // The sign is drawn twice, once for each theme mode (`.neon-sign-on` for dark,
@@ -87,22 +87,22 @@ describe("the office's link to the public site", () => {
     ).toBe(2);
   });
 
-  it("opens the English landing for a boss on English", () => {
+  it("opens the English landing for a member on English", () => {
     expect(openedBy("en", "on")).toEqual(["https://isomux.com"]);
     expect(openedBy("en", "off")).toEqual(["https://isomux.com"]);
   });
 
-  it("opens the Spanish landing for a boss on Spanish", () => {
+  it("opens the Spanish landing for a member on Spanish", () => {
     expect(openedBy("es", "on")).toEqual(["https://isomux.com/es"]);
     expect(openedBy("es", "off")).toEqual(["https://isomux.com/es"]);
   });
 
-  it("opens the Catalan landing for a boss on Catalan", () => {
+  it("opens the Catalan landing for a member on Catalan", () => {
     expect(openedBy("ca", "on")).toEqual(["https://isomux.com/ca"]);
     expect(openedBy("ca", "off")).toEqual(["https://isomux.com/ca"]);
   });
 
-  it("opens the Chinese landing for a boss on Chinese", () => {
+  it("opens the Chinese landing for a member on Chinese", () => {
     expect(openedBy("zh", "on")).toEqual(["https://isomux.com/zh"]);
     expect(openedBy("zh", "off")).toEqual(["https://isomux.com/zh"]);
   });

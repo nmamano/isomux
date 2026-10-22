@@ -84,7 +84,7 @@ describe("routes/office.updateInfo REST", () => {
     process.env.ISOMUX_UPDATE_CONF = join(dir, "missing.conf");
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -116,7 +116,7 @@ describe("routes/office.updateInfo REST", () => {
     process.env.ISOMUX_UPDATE_CONF = conf;
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const r = await api(srv, "GET", { rawSessionId: owner.rawSessionId });
     expect(r.status).toBe(200);
@@ -132,7 +132,7 @@ describe("routes/office.updateInfo REST", () => {
     process.env.ISOMUX_UPDATE_CONF = conf;
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const r = await api(srv, "GET", { rawSessionId: owner.rawSessionId });
     expect(r.status).toBe(200);
@@ -171,17 +171,17 @@ describe("office.updateInfo busyAgents is office-wide", () => {
       fakeBackend: new FakeBackend({ session: { onSend: () => {} } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const visibleRoom = srv.agentManager.getRooms()[0];
     const hiddenRoomId = srv.agentManager.createRoom("Hidden");
     const agent = await spawnAgent(srv, "HiddenWorker", hiddenRoomId);
     // Restrict the owner's view to the first room only - the busy agent lives
     // in a room this owner cannot see, so a client-store count would be 0.
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     updateUserById(ownerId, { allowedRooms: [visibleRoom.id] });
 
     const r = srv.agentManager.enqueueMessage(agent.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "park mid-turn",
     });
     if (!r.ok) throw new Error(`enqueue failed: ${r.error}`);
@@ -209,7 +209,7 @@ describe("update_status hydration on WS connect", () => {
     process.env.ISOMUX_UPDATE_CONF = join(dir, "missing.conf");
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const ws = await srv.connectWs(owner.rawSessionId);
     const msg = await ws.waitFor("update_status");
@@ -225,7 +225,7 @@ describe("routes/office.triggerUpdate REST", () => {
     process.env.ISOMUX_UPDATE_CONF = join(dir, "missing.conf");
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -279,7 +279,7 @@ describe("routes/office.triggerUpdate REST", () => {
     process.env.ISOMUX_UPDATE_CONF = conf;
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const r = await api(srv, "POST", {
       rawSessionId: owner.rawSessionId,
@@ -302,7 +302,7 @@ describe("container update request boundary", () => {
     );
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Member");
     expect(
       (

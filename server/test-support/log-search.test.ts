@@ -60,7 +60,7 @@ function entry(
 // The decode-before-match fixtures. Each of these is written to disk through
 // JSON.stringify, so on the raw line the marked characters appear ESCAPED - a
 // grep for the literal the caller typed would not find them.
-const QUOTED = `The boss said "ship it on Friday" and left`;
+const QUOTED = `The morgan said "ship it on Friday" and left`;
 const NEWLINED = `alpha\nbeta gamma`;
 const TABBED = `col-one\tcol-two`;
 const UNICODE = `café ☕ móvil`;

@@ -2074,7 +2074,7 @@ describe("agents.listSessions / readQueue / cancelQueued / terminal non-agent se
 });
 
 // Written before the API guards were widened (task d1908202). This is the
-// intended remote-boss surface, not a snapshot of whatever today's guards let
+// intended remote-member surface, not a snapshot of whatever today's guards let
 // through. The first run against the old guards is deliberately red.
 const API_REACHABLE_OPIDS = [
   "audit.list",
@@ -2319,7 +2319,7 @@ describe("route table: usage checks use log-read scope", () => {
   });
 });
 
-describe("route table: an API identity authorizes exactly the remote-boss surface", () => {
+describe("route table: an API identity authorizes exactly the remote-member surface", () => {
   const apiIdentity: Identity = {
     scope: "api",
     userId: "u-owner",

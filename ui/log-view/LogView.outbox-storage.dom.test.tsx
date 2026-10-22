@@ -26,7 +26,7 @@ afterEach(() => {
 
 it("keeps the text and attachments in the composer and sends nothing when the attempt cannot be saved", async () => {
   // The member is known, so attempts are saved under their keys.
-  restoreOutbox("Boss", new Set(["a1"]));
+  restoreOutbox("Morgan", new Set(["a1"]));
   // The prototype method, read without binding: Storage writes go through it.
   const realSetItem = Object.getOwnPropertyDescriptor(
     Storage.prototype,

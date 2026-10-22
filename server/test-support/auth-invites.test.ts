@@ -73,7 +73,11 @@ async function mintOk(
   name: string,
   ttlMs: number = INVITE_TTL_MS,
 ): Promise<{ rawToken: string; prefix: string; expiresAt: number }> {
-  const m = await mintInvite({ userId: idOf(name), createdBy: "Boss", ttlMs });
+  const m = await mintInvite({
+    userId: idOf(name),
+    createdBy: "Morgan",
+    ttlMs,
+  });
   if (!m.ok) throw new Error(`mint failed: ${m.code} ${m.error}`);
   return {
     rawToken: m.rawToken,
@@ -89,7 +93,7 @@ function outstandingPrefixes(): string[] {
 describe("auth/invites: expiry window", () => {
   it("stamps exactly the caller's window: 24h, the 1h self-invite, 15min", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     await server.seedMember("Alice");
     await server.seedMember("Bob");
     await server.seedMember("Carol");
@@ -116,7 +120,7 @@ describe("auth/invites: expiry window", () => {
 
   it("an already-expired link is refused by BOTH peek and accept, and the member stays", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
 
     const stale = await mintMemberLink("Ghost", "member", -1000);
 
@@ -133,7 +137,7 @@ describe("auth/invites: expiry window", () => {
 describe("auth/invites: a mint replaces the member's outstanding links", () => {
   it("replaces only the same member's OUTSTANDING links - consumed, expired and foreign rows survive", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     await server.seedMember("Alice");
     await server.seedMember("Bob");
 
@@ -170,11 +174,11 @@ describe("auth/invites: a mint replaces the member's outstanding links", () => {
 describe("auth/invites: a link targets an existing member", () => {
   it("mint refuses an unknown member id and stores nothing", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
 
     const r = await mintInvite({
       userId: "deadbeef",
-      createdBy: "Boss",
+      createdBy: "Morgan",
       ttlMs: INVITE_TTL_MS,
     });
     expect(r.ok).toBe(false);
@@ -184,7 +188,7 @@ describe("auth/invites: a link targets an existing member", () => {
 
   it("a rename between mint and accept signs in the renamed member and creates no one", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const { rawToken, userId } = await mintMemberLink("Marc");
     const usersBefore = listUsers().length;
 
@@ -202,7 +206,7 @@ describe("auth/invites: a link targets an existing member", () => {
 
   it("a deleted member's link signs nobody in, even after the name is reused", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const { rawToken, userId } = await mintMemberLink("Marc");
 
     deleteUserById(userId);
@@ -219,7 +223,7 @@ describe("auth/invites: a link targets an existing member", () => {
 
   it("revokeInvitesForUser removes every unconsumed link of that member only", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     await server.seedMember("Alice");
     await server.seedMember("Bob");
     const alice = await mintOk("Alice");
@@ -261,7 +265,7 @@ describe("auth/invites: legacy name-bound links bind to ids at boot", () => {
 
   it("a rename chain after boot keeps the link on its member: Marc -> Marco, then another member -> Marc", async () => {
     let srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Marc");
     await srv.seedMember("Alice");
     const token = plantLegacyLink(srv.stateRoot, "marc");
@@ -281,7 +285,7 @@ describe("auth/invites: legacy name-bound links bind to ids at boot", () => {
 
   it("the binding persists across restarts; a name with no member is dropped and stays refused", async () => {
     let srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Marc");
     const token = plantLegacyLink(srv.stateRoot, "Marc");
     const orphan = plantLegacyLink(srv.stateRoot, "Ghost");
@@ -316,7 +320,7 @@ describe("auth/invites: legacy name-bound links bind to ids at boot", () => {
 describe("auth/invites: a failed binding save stops the boot", () => {
   it("refuses to boot, retries the save on every load, and binds to the right member once the save works", async () => {
     let srv = (server = await startTestServer());
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Marc");
     await srv.seedMember("Alice");
     const marcId = idOf("Marc");
@@ -389,7 +393,7 @@ describe("auth/invites: a failed binding save stops the boot", () => {
 describe("auth/invites: peek never consumes", () => {
   it("two peeks then an accept still succeeds; the accept is what flips it consumed", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const inv = await mintMemberLink("Newbie");
 
     const first = peekInvite(inv.rawToken);
@@ -415,7 +419,7 @@ describe("auth/invites: peek never consumes", () => {
 describe("auth/invites: accept happy path + refusal matrix", () => {
   it("accept signs the existing member in, ends their pending state, and consumes the link", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const inv = await mintMemberLink("Newbie");
     expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
 
@@ -442,7 +446,7 @@ describe("auth/invites: accept happy path + refusal matrix", () => {
 
   it("role_mismatch: the record's role changed between mint and accept", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     await server.seedMember("Alice");
 
     // Minted while Alice is a member...
@@ -512,7 +516,7 @@ describe("auth/invites: accept happy path + refusal matrix", () => {
 describe("auth/invites: concurrent acceptance of one token", () => {
   it("exactly one of two simultaneous accepts wins; the loser sees consumed", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const inv = await mintMemberLink("Newbie");
 
     // Both calls are in flight before either resolves - the mutex, not call
@@ -550,7 +554,7 @@ describe("auth/invites: bootstrap invites go stale once an owner exists", () => 
     // The first one claims the office.
     const claimed = await acceptInvite(a.rawToken, {
       userAgent: "t",
-      chosenName: "Boss",
+      chosenName: "Morgan",
     });
     expect(claimed.ok).toBe(true);
     expect(hasOwner()).toBe(true);

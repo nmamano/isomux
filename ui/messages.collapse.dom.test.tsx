@@ -132,7 +132,7 @@ describe("inbound message height", () => {
     const logs = [
       peer,
       app,
-      message("boss", { username: "Nil" }),
+      message("morgan", { username: "Nil" }),
       message("reply", {}, "text"),
       message("cron", { sender_cronjob_name: "Nightly" }),
     ];
@@ -157,7 +157,7 @@ describe("inbound message height", () => {
     expect(
       view.getAllByRole("button", { name: "Expand message" }),
     ).toHaveLength(2);
-    for (const id of ["boss", "cron"])
+    for (const id of ["morgan", "cron"])
       expect(
         view.getByText(`Long ${id} message`).parentElement!.parentElement!.style
           .maxHeight,

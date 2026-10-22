@@ -47,11 +47,11 @@ interface Item {
 async function office() {
   server = await startTestServer();
   const srv = server;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
-  const bossId = getUserByName(boss.username)!.id;
+  const morganId = getUserByName(morgan.username)!.id;
   const memberId = getUserByName(member.username)!.id;
-  const alice = { kind: "member" as const, id: bossId, name: "Boss" };
+  const alice = { kind: "member" as const, id: morganId, name: "Morgan" };
   const record = (agentId: string, start: number) => {
     const recording = startTerminalRecording({
       agentId,
@@ -65,8 +65,8 @@ async function office() {
     return recording;
   };
   const { token: ownerApi } = await mintApiToken({
-    userId: bossId,
-    name: "Boss token",
+    userId: morganId,
+    name: "Morgan token",
     expiresInDays: null,
   });
   const { token: memberApi } = await mintApiToken({
@@ -76,14 +76,14 @@ async function office() {
   });
   return {
     srv,
-    boss,
+    morgan,
     member,
-    bossId,
+    morganId,
     record,
     readers: {
-      owner: { session: boss.rawSessionId },
+      owner: { session: morgan.rawSessionId },
       "owner's privileged agent": {
-        bearer: mintAgentToken("boss-privileged", bossId, true),
+        bearer: mintAgentToken("morgan-privileged", morganId, true),
       },
       "owner's API token": { bearer: ownerApi },
     },
@@ -94,7 +94,7 @@ async function office() {
       },
       "member's API token": { bearer: memberApi },
       "owner's ordinary agent": {
-        bearer: mintAgentToken("boss-plain", bossId, false),
+        bearer: mintAgentToken("morgan-plain", morganId, false),
       },
     },
   };
@@ -158,7 +158,7 @@ describe("the list", () => {
     expect(byId.get(first.id)).toMatchObject({
       agentId: "agent-a",
       startedAt: t0,
-      startedBy: { id: o.bossId },
+      startedBy: { id: o.morganId },
       endedAt: t0,
     });
     expect(byId.get(live.id)).not.toHaveProperty("endedAt");

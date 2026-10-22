@@ -1227,7 +1227,7 @@ describe("parseIsomuxCurl text/plain message bodies", () => {
     const req = parseIsomuxCurl(
       `curl -s -X POST localhost:4000/api/api-token-inboxes/pat-1/messages ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nreport ready\nEOF`,
     );
-    expect(req!.actionKey).toBe("apiCall.inbox.messageBoss");
+    expect(req!.actionKey).toBe("apiCall.inbox.messageTokenInbox");
     expect(req!.bodyFields).toEqual([{ key: "text", value: "report ready" }]);
   });
 
@@ -1372,6 +1372,29 @@ describe("humanizeIsomuxRequest", () => {
     expect(named).toContain("Marmalade");
     expect(unnamed).not.toContain("Marmalade");
     expect(unnamed).not.toBe(named);
+  });
+
+  // Task f41c93e9: `boss` is the old name of the member scope, and old
+  // transcripts carry it. Both names phrase the same way on every verb, and not
+  // as the scope-less fallback an unknown scope gets.
+  test("member memory calls phrase the scope under both names", () => {
+    const say = (cmd: string) => humanizeIsomuxRequest(EN, parse(cmd));
+    const read = (scope: string) =>
+      say(`curl -s 'localhost:4000/api/memory?scope=${scope}'`);
+    const write = (method: string, scope: string) =>
+      say(
+        `curl -s -X ${method} localhost:4000/api/memory -H 'Content-Type: application/json' -d '{"scope":"${scope}","text":"x"}'`,
+      );
+    expect(read("member")).toBe(read("boss"));
+    expect(read("member")).not.toBe(read("unknown"));
+    // A scope named like an Object.prototype key is an unknown scope too.
+    expect(read("toString")).toBe(read("unknown"));
+    for (const method of ["POST", "PUT"]) {
+      expect(write(method, "constructor")).toBe(write(method, "unknown"));
+      expect(write(method, "member")).toBe(write(method, "boss"));
+      expect(write(method, "member")).not.toBe(write(method, "unknown"));
+      expect(write(method, "member")).not.toBe(write(method, "room"));
+    }
   });
 
   test("memory append uses the body scope", () => {

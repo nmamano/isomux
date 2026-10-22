@@ -809,7 +809,7 @@ describe("skill dispatch on a dormant agent", () => {
 
 // Task e06b7e23. A SIGTERMed Claude CLI hands the resumed model hardcoded text
 // claiming the USER rejected the tool that was running, so the agent wakes up
-// believing its boss countermanded it (ad86462c: 18 occurrences, 16 of them our
+// believing its manager countermanded it (ad86462c: 18 occurrences, 16 of them our
 // own service restarts). The wake-up message has to say what actually happened.
 describe("idle eviction - truthful wake-up after a shutdown", () => {
   // Boot lazy-restore with a persisted session id, i.e. the state every agent
@@ -850,7 +850,7 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
               topic: null,
               customInstructions: null,
               userId: null,
-              username: null,
+              manager: null,
             },
           ],
         },

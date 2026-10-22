@@ -7,9 +7,9 @@
 // capability (`log:read`) widened what an ordinary agent token can reach.
 //
 // The scope Nil chose supersedes an earlier self-only design: an agent may read
-// the logs of any agent in a room its BOSS can access. So the matrix has to
+// the logs of any agent in a room its MANAGER can access. So the matrix has to
 // pin both halves - that a room-mate IS reachable (the widening actually works)
-// and that an agent in a room the boss cannot access is NOT (the widening
+// and that an agent in a room the manager cannot access is NOT (the widening
 // stops where room access stops). A test that only checked the second half
 // would pass just as well on a self-only implementation.
 //
@@ -162,7 +162,7 @@ describe("routes/logs REST: the three modes", () => {
   it("no query lists the agent's sessions", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -189,7 +189,7 @@ describe("routes/logs REST: the three modes", () => {
   it("index and retrieve carry live state; search does not", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -225,7 +225,7 @@ describe("routes/logs REST: the three modes", () => {
       fakeBackend: new FakeBackend({ session: { onSend() {} } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
     seedLog(srv, agent.id, "old-session");
@@ -288,7 +288,7 @@ describe("routes/logs REST: the three modes", () => {
   it("?q= searches and returns a context handle for each hit", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -330,7 +330,7 @@ describe("routes/logs REST: the three modes", () => {
   it("?session= retrieves the conversation, with thinking gated behind the tier", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -356,7 +356,7 @@ describe("routes/logs REST: the three modes", () => {
   it("rejects a bad query with a 400 and a specific code", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     const bearer = mintAgentToken(agent.id, getUserByName(owner.username)!.id);
@@ -385,7 +385,7 @@ describe("routes/logs REST: the three modes", () => {
   it("an unknown session is a 404, and a traversal attempt never reaches the filesystem", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -418,7 +418,7 @@ describe("routes/logs REST: the three modes", () => {
   it("carries summaries in all three modes, and the index cuts only on limit=", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     const bearer = mintAgentToken(agent.id, getUserByName(owner.username)!.id);
@@ -498,7 +498,7 @@ describe("routes/logs REST: authorization matrix", () => {
   it("an agent reads its OWN logs", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -512,7 +512,7 @@ describe("routes/logs REST: authorization matrix", () => {
   it("an agent reads a ROOM-MATE's logs - the widening past self-only actually works", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const alpha = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     const beta = await spawnOwnedBy(srv, "Beta", roomA, 1, owner.username);
@@ -525,10 +525,10 @@ describe("routes/logs REST: authorization matrix", () => {
     expect(r.body.totalMatches).toBe(2);
   });
 
-  it("an agent reads an agent in ANOTHER room its boss can access", async () => {
+  it("an agent reads an agent in ANOTHER room its manager can access", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
     const alpha = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
@@ -542,10 +542,10 @@ describe("routes/logs REST: authorization matrix", () => {
     expect(r.status).toBe(200);
   });
 
-  it("an agent CANNOT read an agent in a room its boss cannot access", async () => {
+  it("an agent CANNOT read an agent in a room its manager cannot access", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
@@ -559,16 +559,16 @@ describe("routes/logs REST: authorization matrix", () => {
       0,
       member.username,
     );
-    const bosses = await spawnOwnedBy(
+    const morgans = await spawnOwnedBy(
       srv,
-      "BossAgent",
+      "MorganAgent",
       roomA,
       0,
       owner.username,
     );
-    seedLog(srv, bosses.id);
+    seedLog(srv, morgans.id);
 
-    const r = await api(srv, `/api/agents/${bosses.id}/logs?q=marmalade`, {
+    const r = await api(srv, `/api/agents/${morgans.id}/logs?q=marmalade`, {
       bearer: mintAgentToken(mias.id, getUserByName("Mia")!.id),
     });
     expect(r.status).toBe(403);
@@ -578,7 +578,7 @@ describe("routes/logs REST: authorization matrix", () => {
   it("a human reads an agent in a room they can access, and is refused elsewhere", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
@@ -613,13 +613,13 @@ describe("routes/logs REST: authorization matrix", () => {
     ).toBe(200);
   });
 
-  it("an agent keeps its OWN history when its boss loses access to the room", async () => {
+  it("an agent keeps its OWN history when its manager loses access to the room", async () => {
     // The self branch is checked FIRST and independently of room access, so an
     // agent can never be locked out of its own past by a grant change it had no
-    // part in. Only its reach into OTHER agents follows its boss.
+    // part in. Only its reach into OTHER agents follows its manager.
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomB = srv.agentManager.createRoom("Room B");
     updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
@@ -660,7 +660,7 @@ describe("routes/logs REST: authorization matrix", () => {
   it("a CRON-RUN token is refused - a run has no history and holds no log:read", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     seedLog(srv, agent.id);
@@ -679,7 +679,7 @@ describe("routes/logs REST: authorization matrix", () => {
   it("an unknown agent denies exactly like an inaccessible one (non-leak)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const alpha = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
     const bearer = mintAgentToken(alpha.id, getUserByName(owner.username)!.id);
@@ -694,7 +694,7 @@ describe("routes/logs REST: authorization matrix", () => {
   it("no identity at all is a 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
 
@@ -707,13 +707,13 @@ describe("routes/logs REST: authorization matrix", () => {
 // A killed agent's logs stay on disk, and until task ffb90761 they were
 // unreachable: the room lookup runs over the LIVE roster, so a dead agent
 // denied exactly like an id that never existed. The rule for a dead one is not
-// the room rule - it is the boss that spawned it, plus office owners - so the
+// the room rule - it is the manager that spawned it, plus office owners - so the
 // matrix below pins each half in both directions.
 describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
-  it("the boss who spawned it still reads its logs; a killed agent is not a 403 wall", async () => {
+  it("the manager who spawned it still reads its logs; a killed agent is not a 403 wall", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const roomA = srv.agentManager.getRooms()[0].id;
     updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomA] });
@@ -740,10 +740,10 @@ describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
     ).toBe(200);
   });
 
-  it("an agent reads a killed agent of the SAME boss, and a stranger's is refused", async () => {
+  it("an agent reads a killed agent of the SAME manager, and a stranger's is refused", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const mia = await srv.seedMember("Mia");
     const rex = await srv.seedMember("Rex");
     const roomA = srv.agentManager.getRooms()[0].id;
@@ -767,7 +767,7 @@ describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
     ).toBe(200);
 
     // Rex shared the ROOM with the dead agent and is still refused: sharing a
-    // room with a corpse is not the rule, being its boss is.
+    // room with a corpse is not the rule, being its manager is.
     const refused = await api(srv, `/api/agents/${dead.id}/logs`, {
       rawSessionId: rex.rawSessionId,
     });
@@ -775,10 +775,10 @@ describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
     expect(errCode(refused)).toBe("forbidden");
   });
 
-  it("a killed agent whose boss you are not denies exactly like an unknown id (non-leak)", async () => {
+  it("a killed agent whose manager you are not denies exactly like an unknown id (non-leak)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const mia = await srv.seedMember("Mia");
     const rex = await srv.seedMember("Rex");
     const roomA = srv.agentManager.getRooms()[0].id;
@@ -803,7 +803,7 @@ describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
   it("a CRON-RUN token is still refused, even for a killed agent its user spawned", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
     const ownerId = getUserByName(owner.username)!.id;
 

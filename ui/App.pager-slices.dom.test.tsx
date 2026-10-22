@@ -30,7 +30,7 @@ const resolved = (from: number, to: number) =>
     page(`r${from + i}`, {
       state: "resolved",
       lastRaisedAt: 100_000 - (from + i),
-      resolved: { by: "Boss", at: 100_000 - (from + i) },
+      resolved: { by: "Morgan", at: 100_000 - (from + i) },
     }),
   );
 

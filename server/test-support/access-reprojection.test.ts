@@ -5,7 +5,7 @@
 // (bootstrap promotion, rollback) - and checks a connected socket of the
 // subject converges to the new access without a reconnect.
 //
-// One fixture for every row: owner Boss, member Mia, room B holding a task
+// One fixture for every row: owner Morgan, member Mia, room B holding a task
 // and a cronjob. A row starts Mia with or without access to B, asserts that
 // connect hydration agrees, runs the path, and asserts the board, the
 // cronjob list (and, where the path keeps room B open, the room list) Mia's
@@ -214,12 +214,12 @@ describe("an access change re-projects the subject's live board and cronjobs", (
     it(`${row.path}: room B ${before ? "drops out" : "comes in"} live`, async () => {
       const srv = await startTestServer();
       server = srv;
-      const owner = await srv.seedOwner("Boss");
+      const owner = await srv.seedOwner("Morgan");
       const mia = await srv.seedMember("Mia");
       const miaId = getUserByName("Mia")!.id;
       const roomB = srv.agentManager.createRoom("Room B");
       const task = seedTask(srv, "in B", roomB);
-      const job = seedJob(srv, "Boss", roomB);
+      const job = seedJob(srv, "Morgan", roomB);
       if (row.start.grantB) updateUserById(miaId, { allowedRooms: [roomB] });
       if (row.start.role === "owner") setUserRoleById(miaId, "owner");
 
@@ -275,7 +275,7 @@ describe("an access change re-projects the subject's live board and cronjobs", (
   it("a write that changes no room access re-projects nothing", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const mia = await srv.seedMember("Mia");
     const miaId = getUserByName("Mia")!.id;
     const roomA = srv.agentManager.createRoom("Room A");

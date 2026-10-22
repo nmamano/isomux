@@ -1,7 +1,25 @@
-import type { AgentInfo, OfficeSettings, RoomWire } from "../shared/types.ts";
+import type {
+  AgentInfo,
+  OfficeSettings,
+  RoomWire,
+  UserRecord,
+} from "../shared/types.ts";
 import { memoryStore } from "./memory-store.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
-import { getUserByName } from "./users.ts";
+import { getUserById, getUserByName } from "./users.ts";
+
+// The agent's manager, for the system prompt. Found by userId, so a member's
+// rename keeps their name, special instructions and memory label current. The
+// `manager` name snapshot is used only for a legacy agent with no userId.
+export function managerOf(agent: Pick<AgentInfo, "userId" | "manager">): {
+  record: UserRecord | undefined;
+  name: string | null;
+} {
+  const record = agent.userId
+    ? getUserById(agent.userId)
+    : getUserByName(agent.manager);
+  return { record, name: record?.name ?? agent.manager };
+}
 
 /** Build the exact system prompt used for the agent's next conversation. */
 export function buildAgentSystemPrompt(
@@ -10,7 +28,7 @@ export function buildAgentSystemPrompt(
     | "name"
     | "id"
     | "roomId"
-    | "username"
+    | "manager"
     | "userId"
     | "customInstructions"
     | "privileged"
@@ -20,9 +38,7 @@ export function buildAgentSystemPrompt(
   officeConfig: OfficeSettings,
   agentMemory?: string,
 ): string {
-  const ownerRecord = agent.username
-    ? getUserByName(agent.username)
-    : undefined;
+  const manager = managerOf(agent);
   return buildSystemPrompt(
     agent.name,
     agent.id,
@@ -31,8 +47,8 @@ export function buildAgentSystemPrompt(
     officeConfig.prompt,
     room.prompt,
     agent.customInstructions,
-    agent.username,
-    ownerRecord?.memberPrompt ?? null,
+    manager.name,
+    manager.record?.memberPrompt ?? null,
     agent.privileged ?? false,
     [
       memoryStore.renderForPromptMulti([
@@ -49,9 +65,9 @@ export function buildAgentSystemPrompt(
         ...(agent.userId
           ? [
               {
-                scope: "boss" as const,
+                scope: "member" as const,
                 scopeId: agent.userId,
-                label: `Member "${agent.username ?? "member"}"`,
+                label: `Member "${manager.name ?? "member"}"`,
               },
             ]
           : []),
@@ -70,6 +86,6 @@ export function buildAgentSystemPrompt(
       .filter(Boolean)
       .join("\n\n") || null,
     agent.agentType,
-    ownerRecord?.language ?? null,
+    manager.record?.language ?? null,
   );
 }

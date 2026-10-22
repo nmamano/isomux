@@ -87,7 +87,7 @@ describe("routes/validate.cwd REST", () => {
   it("valid dir -> {ok:true}; bad dir -> {ok:false,error}; member allowed; agent 403; no id 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -152,7 +152,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
   it("member validates OWN user env (username omitted AND username=self) -> 200 allowed", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
 
     // username omitted: subject defaults to self.
@@ -177,7 +177,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
   it("member office scope -> 403; member another user's env -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
 
     expect(
@@ -195,7 +195,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
         await api(srv, "/api/validate/env", {
           method: "POST",
           rawSessionId: member.rawSessionId,
-          body: { scope: "user", username: "Boss" },
+          body: { scope: "user", username: "Morgan" },
         })
       ).status,
     ).toBe(403);
@@ -204,7 +204,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
   it("nonexistent username is non-leaking: member -> 403; owner -> 200 {ok:true} (indistinguishable from a no-env user)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
 
     // Member targeting a user that does not exist: SAME 403 as a foreign user -
@@ -240,7 +240,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
   it("owner validates office scope AND another user's env -> 200 allowed", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
 
     const office = await api(srv, "/api/validate/env", {
@@ -263,7 +263,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
   it("AGENT scope -> 403 at stage 1 (lacks office:read); no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -290,9 +290,9 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
   it("PRIVILEGED agent (owner-spawned, HAS office:read) -> 403: the scope gate blocks env probing (task 98d63ef7)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
-    // Owned by the owner (userId resolves from the "Boss" username snapshot), so
+    // Owned by the owner (userId resolves from the "Morgan" username snapshot), so
     // its identity resolves to an OWNER record. WITHOUT the scope gate, the
     // role-based subject policy would grant it owner reach and let it probe any
     // env file's metadata. A privileged agent clears stage 1 (office:read is in
@@ -307,7 +307,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
       undefined,
       undefined,
       undefined,
-      "Boss", // username -> resolves the agent's userId to the owner record
+      "Morgan", // username -> resolves the agent's userId to the owner record
       "claude",
     );
     if (!agent) throw new Error("spawn returned null");
@@ -318,7 +318,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     // env are all 403 - a privileged agent never validates env files.
     for (const body of [
       { scope: "office" },
-      { scope: "user", username: "Boss" },
+      { scope: "user", username: "Morgan" },
       { scope: "user" },
     ]) {
       const res = await api(srv, "/api/validate/env", {
@@ -335,7 +335,7 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
   it("office scope with a real env file -> {ok:true,keyCount}; missing file -> {ok:false,error}; resolved path is DROPPED", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const envPath = join(srv.stateRoot, "office.env");
     writeFileSync(envPath, "ALPHA=1\nBETA=2\n");
@@ -375,7 +375,7 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
   it("member omitted username resolves to OWN env: {scope:'user'} validates self like {scope:'user',username:self}", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
 
     // Give Alice managed variables with 3 keys.
@@ -420,7 +420,7 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
   it("member validates a TYPED path for self: overrides the stored env; missing file -> {ok:false}; provided-blank path is rejected", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
 
     // Stored env: 3 keys. Typed candidate: 2 keys. The response keyCount tells
@@ -469,7 +469,7 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
   it("owner validates a TYPED path for ANOTHER user; path with scope 'office' is rejected", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
 
     const typedPath = join(srv.stateRoot, "candidate.env");
@@ -500,7 +500,7 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
   it("typed path does NOT widen the subject policy: member + another user's subject stays 403 even with a path", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
 
     const anyPath = join(srv.stateRoot, "whatever.env");
@@ -510,7 +510,7 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
         await api(srv, "/api/validate/env", {
           method: "POST",
           rawSessionId: member.rawSessionId,
-          body: { scope: "user", username: "Boss", path: anyPath },
+          body: { scope: "user", username: "Morgan", path: anyPath },
         })
       ).status,
     ).toBe(403);

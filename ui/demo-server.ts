@@ -638,7 +638,7 @@ function seedOffice() {
       capabilities: backend.capabilities,
       codexSandbox: backend.codexSandbox,
       userId: null,
-      username: null,
+      manager: null,
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -678,7 +678,7 @@ function seedOffice() {
       agentType: "opencode",
       capabilities: backend.capabilities,
       userId: null,
-      username: null,
+      manager: null,
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -3215,7 +3215,7 @@ export async function demoApi(
         codexSandbox: b.codexSandbox,
         capabilities:
           DEMO_BACKEND_DEFAULTS[b.agentType ?? "claude"].capabilities,
-        username: "Ricky",
+        manager: "Ricky",
       });
       if (!result) {
         throw new ApiError(409, "spawn_failed", "Could not spawn the agent.");

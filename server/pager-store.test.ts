@@ -136,7 +136,7 @@ describe("pager store: raise and dedupe", () => {
   it("a raise on an acked page updates it and does not re-open it", () => {
     const store = createPagerStore({ persistence: memPersistence() });
     const e = created(raise(store, fields("x", { key: "k" })));
-    store.ack(e.id, "Boss");
+    store.ack(e.id, "Morgan");
     const r = raise(store, fields("x again", { key: "k" }));
     expect(r.outcome).toBe("updated");
     if (r.outcome !== "updated") return;
@@ -185,7 +185,7 @@ describe("pager store: raise and dedupe", () => {
     for (let i = 0; i < PAGER_MAX_ACTIVE_PER_SOURCE; i++) {
       ids.push(created(raise(store, fields(`p${i}`, { key: `k${i}` }))).id);
     }
-    store.ack(ids[0], "Boss"); // acked still counts
+    store.ack(ids[0], "Morgan"); // acked still counts
     expect(raise(store, fields("over")).outcome).toBe("too_many");
     expect(raise(store, fields("p1", { key: "k1" })).outcome).toBe("updated");
     // Another source is not affected.
@@ -206,31 +206,31 @@ describe("pager store: ack and resolve", () => {
     });
     const e = created(raise(store, fields("x")));
     t = 2;
-    const a = store.ack(e.id, "Boss");
+    const a = store.ack(e.id, "Morgan");
     expect(a.outcome).toBe("changed");
     if (a.outcome !== "changed") return;
     expect(a.entry.state).toBe("acked");
-    expect(a.entry.acked).toEqual({ by: "Boss", at: 2 });
+    expect(a.entry.acked).toEqual({ by: "Morgan", at: 2 });
     t = 3;
     const r = store.resolve(e.id, "Bot");
     expect(r.outcome).toBe("changed");
     if (r.outcome !== "changed") return;
     expect(r.entry.state).toBe("resolved");
     expect(r.entry.resolved).toEqual({ by: "Bot", at: 3 });
-    expect(r.entry.acked).toEqual({ by: "Boss", at: 2 });
+    expect(r.entry.acked).toEqual({ by: "Morgan", at: 2 });
   });
 
   it("repeats are no-ops; an ack after resolve is refused", () => {
     const p = memPersistence();
     const store = createPagerStore({ persistence: p });
     const e = created(raise(store, fields("x")));
-    store.ack(e.id, "Boss");
+    store.ack(e.id, "Morgan");
     const saves = p.saves;
     expect(store.ack(e.id, "Other").outcome).toBe("unchanged");
-    expect(store.get(e.id)?.acked?.by).toBe("Boss");
-    store.resolve(e.id, "Boss");
+    expect(store.get(e.id)?.acked?.by).toBe("Morgan");
+    store.resolve(e.id, "Morgan");
     expect(store.resolve(e.id, "Other").outcome).toBe("unchanged");
-    expect(store.ack(e.id, "Boss").outcome).toBe("already_resolved");
+    expect(store.ack(e.id, "Morgan").outcome).toBe("already_resolved");
     expect(store.get(e.id)?.state).toBe("resolved");
     expect(p.saves).toBe(saves + 1);
   });
@@ -264,7 +264,7 @@ describe("pager store: commit order and hand-offs", () => {
     p.failNextSave = true;
     expect(() => raise(store, fields("x2", { key: "k" }))).toThrow();
     p.failNextSave = true;
-    expect(() => store.ack(e.id, "Boss")).toThrow();
+    expect(() => store.ack(e.id, "Morgan")).toThrow();
     expect(store.list()).toEqual([e]);
     expect(changes).toHaveLength(1);
   });
@@ -279,9 +279,9 @@ describe("pager store: commit order and hand-offs", () => {
     });
     const e = created(raise(store, fields("x", { key: "k" })));
     raise(store, fields("x", { key: "k" }));
-    store.ack(e.id, "Boss");
+    store.ack(e.id, "Morgan");
     raise(store, fields("x", { key: "k" }));
-    store.resolve(e.id, "Boss");
+    store.resolve(e.id, "Morgan");
     expect(handed).toEqual([
       [e.id, "created"],
       [e.id, "reraised"],
@@ -316,10 +316,10 @@ describe("pager store: commit order and hand-offs", () => {
       },
     });
     const e = created(raise(store, fields("x")));
-    store.ack(e.id, "Boss");
-    store.ack(e.id, "Boss");
-    expect(store.resolve(e.id, "Boss").outcome).toBe("changed");
-    store.resolve(e.id, "Boss");
+    store.ack(e.id, "Morgan");
+    store.ack(e.id, "Morgan");
+    expect(store.resolve(e.id, "Morgan").outcome).toBe("changed");
+    store.resolve(e.id, "Morgan");
     expect(seen).toEqual([
       ["acked", "acked"],
       ["resolved", "resolved"],
@@ -330,9 +330,9 @@ describe("pager store: commit order and hand-offs", () => {
     const p = memPersistence();
     const store = createPagerStore({ persistence: p });
     const e = created(raise(store, fields("x")));
-    store.ack(e.id, "Boss");
+    store.ack(e.id, "Morgan");
     expect(p.saved![0].delivery.resolvedNotice).toBeUndefined();
-    store.resolve(e.id, "Boss");
+    store.resolve(e.id, "Morgan");
     expect(p.saved![0].delivery.resolvedNotice).toBe("pending");
   });
 
@@ -379,7 +379,7 @@ describe("pager store: load posture", () => {
     title: "t",
     key: "k",
     state: "acked",
-    acked: { by: "Boss", at: 2 },
+    acked: { by: "Morgan", at: 2 },
     delivery: { state: "not_delivered", sends: 0 },
   };
 
@@ -479,7 +479,7 @@ describe("pager store: file persistence", () => {
       persistence: createPagerFilePersistence(path),
     });
     const e = created(raise(a, fields("x", { key: "k", body: "b" })));
-    a.ack(e.id, "Boss");
+    a.ack(e.id, "Morgan");
     const b = createPagerStore({
       persistence: createPagerFilePersistence(path),
     });

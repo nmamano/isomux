@@ -89,7 +89,7 @@ describe("routes/system.backupStatus REST", () => {
   it("owner + member -> 200 normalized shape; agent -> 403; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -145,7 +145,7 @@ describe("routes/system.backupStatus REST", () => {
       },
     });
     server = srv;
-    let owner = await srv.seedOwner("First Boss");
+    let owner = await srv.seedOwner("First Morgan");
     let result = await api(srv, "/api/backup/status", {
       rawSessionId: owner.rawSessionId,
     });
@@ -163,7 +163,7 @@ describe("routes/system.backupStatus REST", () => {
     server = null;
     srv = await startTestServer();
     server = srv;
-    owner = await srv.seedOwner("Second Boss");
+    owner = await srv.seedOwner("Second Morgan");
     result = await api(srv, "/api/backup/status", {
       rawSessionId: owner.rawSessionId,
     });
@@ -191,7 +191,7 @@ describe("routes/system.setBackupSettings REST", () => {
   it("owner saves and gets the new status back; no backup runs in a test boot", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const root = mkdtempSync(join(tmpdir(), "isomux-backup-settings-"));
     dirs.push(root);
     const dir = join(root, "backups");
@@ -224,7 +224,7 @@ describe("routes/system.setBackupSettings REST", () => {
   it("rejects a malformed or refused value with 400 and saves nothing", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const body of [
       { intervalHours: 0 },
       { intervalHours: "6" },
@@ -246,7 +246,7 @@ describe("routes/system.setBackupSettings REST", () => {
   it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const ops = await spawnAgent(srv, "Ops", room.id);
@@ -268,7 +268,7 @@ describe("routes/system.version REST", () => {
   it("user -> 200 {version, commit, release}; agent -> 200; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
@@ -306,7 +306,7 @@ describe("GET /readyz", () => {
     expect(pre.status).toBe(200);
     expect(await pre.text()).toBe("ok\n");
 
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const post = await srv.http("/readyz", { method: "GET" });
     expect(post.status).toBe(200);
     expect(await post.text()).toBe("ok\n");

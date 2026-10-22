@@ -118,7 +118,7 @@ describe("routes/storage.usage REST", () => {
   it("owner -> 200 with per-agent detail; member -> aggregates only", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     seedOldLogs(srv.stateRoot);
 
@@ -170,7 +170,7 @@ describe("routes/storage.usage REST", () => {
   it("plain agent -> 403; privileged agent -> 200 without per-agent detail; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
 
     const plain = await spawnAgent(srv, "Worker", room.id);
@@ -200,7 +200,7 @@ describe("routes/storage.usage REST", () => {
   it("measures the harness roots, never the host's backup or snapshot dir", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const injected = join(srv.stateRoot, "test-backups");
     const hostBackups = getBackupStatus().backupDir;
     expect(hostBackups).not.toBe(injected);
@@ -237,7 +237,7 @@ describe("routes/storage.usage REST", () => {
 
       const room = srv.agentManager.getRooms()[0];
       const agent = await spawnAgent(srv, "Worker", room.id);
-      await srv.agentManager.sendMessage(agent.id, "/isomux-storage", "Boss");
+      await srv.agentManager.sendMessage(agent.id, "/isomux-storage", "Morgan");
       const report = srv.agentManager
         .getAgentLogs(agent.id)
         .filter((e) => e.kind === "system")
@@ -258,7 +258,7 @@ describe("routes/storage.prune REST", () => {
   it("is a dry run by default: returns a plan, deletes nothing", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
 
     const r = await api(srv, "/api/storage/prune", {
@@ -281,7 +281,7 @@ describe("routes/storage.prune REST", () => {
   it("deletes only when apply is true, and only the planned files", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
 
     const r = await api(srv, "/api/storage/prune", {
@@ -310,7 +310,7 @@ describe("routes/storage.prune REST", () => {
   it("rejects a bad target, a zero age, and a non-boolean apply", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     const bad = async (body: unknown) =>
       api(srv, "/api/storage/prune", {
@@ -346,7 +346,7 @@ describe("routes/storage.prune REST", () => {
   it("refuses a transcript apply that omits keepPerAgent", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
 
     // A dry run may omit it (0 is fine to explore with)...
@@ -373,7 +373,7 @@ describe("routes/storage.prune REST", () => {
   it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const ops = await spawnAgent(srv, "Ops", room.id);
@@ -407,7 +407,7 @@ describe("routes/storage.prune REST", () => {
   it("refuses an attachment apply while message-queues.json is unreadable", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
     const attachment = join(dir, "files", "old.png");
 
@@ -456,12 +456,12 @@ describe("routes/storage.prune REST", () => {
   it("never proposes a live agent's active session", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     // Spawn is lazy - no session until a message wakes it.
     const enq = srv.agentManager.enqueueMessage(agent.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "wake",
     });
     expect(enq.ok).toBe(true);
@@ -504,7 +504,7 @@ describe("routes/storage.prune REST", () => {
   it("keeps the file an open ask copied, and prunes it once the ask closes", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName(owner.username)!.id;
     const room = srv.agentManager.getRooms()[0];
     const agent = await srv.agentManager.spawn(
@@ -573,7 +573,7 @@ describe("routes/storage.prune REST", () => {
 it("drops the keepPerAgent floor only for agents proven killed", async () => {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const room = srv.agentManager.getRooms()[0].id;
   const live = await spawnAgent(srv, "Live", room);
   const dead = await spawnAgent(srv, "Dead", room);
@@ -612,7 +612,7 @@ it("drops the keepPerAgent floor only for agents proven killed", async () => {
 it("counts and prunes token logs only on explicit owner apply, including revoked logs", async () => {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const dir = join(srv.stateRoot, "token-logs");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, "0123456789abcdef.jsonl");
@@ -649,8 +649,8 @@ it("counts and prunes token logs only on explicit owner apply, including revoked
 it("counts terminal recordings, and prunes old ones but never a live one", async () => {
   const srv = await startTestServer();
   server = srv;
-  const owner = await srv.seedOwner("Boss");
-  const startedBy = { kind: "member" as const, id: "u-boss", name: "Boss" };
+  const owner = await srv.seedOwner("Morgan");
+  const startedBy = { kind: "member" as const, id: "u-morgan", name: "Morgan" };
   const start = (agentId: string) =>
     startTerminalRecording({ agentId, cols: 80, rows: 24, startedBy });
   const old = start("agent-old");
@@ -728,7 +728,7 @@ describe("routes/storage.compress REST", () => {
   it("is a dry run by default, and apply gzips what still reads the same", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
     const before = loadLog("agent-ghost", "old-a");
     expect(before.map((e) => e.id)).toEqual(["1"]);
@@ -762,7 +762,7 @@ describe("routes/storage.compress REST", () => {
   it("rejects a missing, zero, fractional or string age and a non-boolean apply", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
     for (const body of [
       {},
@@ -780,7 +780,7 @@ describe("routes/storage.compress REST", () => {
   it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const ops = await spawnAgent(srv, "Ops", room.id);
@@ -803,11 +803,11 @@ describe("routes/storage.compress REST", () => {
   it("never compresses a live agent's active session", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const enq = srv.agentManager.enqueueMessage(agent.id, {
-      sender: { kind: "user", username: "Boss" },
+      sender: { kind: "user", username: "Morgan" },
       text: "wake",
     });
     expect(enq.ok).toBe(true);

@@ -73,7 +73,7 @@ describe("app URLs: an office with no app hostnames", () => {
   it("gives an app no address at all - in its unit or on the wire", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const token = await anAgentToken(srv);
     await registerApp(srv, token, "hello");
 
@@ -92,7 +92,7 @@ describe("app URLs: the office gains a domain", () => {
   it("re-renders the unit, restarts the running app once, and reports the address", async () => {
     const first = await startTestServer();
     server = first;
-    const owner = await first.seedOwner("Boss");
+    const owner = await first.seedOwner("Morgan");
     const token = await anAgentToken(first);
     await registerApp(first, token, "hello");
     expect(first.appSupervisor.unitFiles.get("hello")).not.toContain(
@@ -117,7 +117,7 @@ describe("app URLs: the office gains a domain", () => {
     // office restarts.
     const first = await startTestServer();
     server = first;
-    const owner = await first.seedOwner("Boss");
+    const owner = await first.seedOwner("Morgan");
     const token = await anAgentToken(first);
     await registerApp(first, token, "hello");
     const converged = await goHttpsAndRestart(first, owner.rawSessionId);
@@ -134,7 +134,7 @@ describe("app URLs: the office gains a domain", () => {
   it("keeps a re-registered name at its stable address", async () => {
     const first = await startTestServer();
     server = first;
-    const owner = await first.seedOwner("Boss");
+    const owner = await first.seedOwner("Morgan");
     const token = await anAgentToken(first);
     await registerApp(first, token, "hello");
     await deleteApp(first, token, "hello");
@@ -152,7 +152,7 @@ describe("app URLs: the office gains a domain", () => {
   it("gives a stopped app the new unit and leaves it stopped", async () => {
     const first = await startTestServer();
     server = first;
-    const owner = await first.seedOwner("Boss");
+    const owner = await first.seedOwner("Morgan");
     const token = await anAgentToken(first);
     await registerApp(first, token, "hello");
     const stop = await first.http("/api/apps/hello/stop", {

@@ -8,7 +8,7 @@ const { setApiShim } = await import("../api");
 afterAll(() => setApiShim(null));
 
 type Res = import("../../shared/contract-shapes").PagerSettingsRes;
-const PATH = "/api/users/boss/pager-settings";
+const PATH = "/api/users/morgan/pager-settings";
 const URL_ = "https://discord.com/api/webhooks/1234/abcdWXYZ";
 
 test("the pane saves only what changed, never shows the saved URL, and runs the test send", async () => {
@@ -22,7 +22,7 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
   setApiShim(async (method, path, body) => {
     if (method === "GET" && path === PATH) return res;
     // The push devices block below the form reads its own route.
-    if (method === "GET" && path === "/api/users/boss/push-devices") {
+    if (method === "GET" && path === "/api/users/morgan/push-devices") {
       return { publicKey: "", devices: [] };
     }
     writes.push([method, path, body]);
@@ -48,7 +48,7 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
     }
     if (method === "POST") return testRes;
   });
-  const view = render(<PagerSettingsPane username="boss" />);
+  const view = render(<PagerSettingsPane username="morgan" />);
   await act(async () => {});
   const save = view.getByTestId("pager-save") as HTMLButtonElement;
   const send = view.getByTestId("pager-test") as HTMLButtonElement;
@@ -124,7 +124,7 @@ test("while the settings load, the pane shows its form with nothing to act on, a
         resolve = done;
       }),
   );
-  const mount = () => render(<PagerSettingsPane username="boss" />);
+  const mount = () => render(<PagerSettingsPane username="morgan" />);
   const busy = (view: ReturnType<typeof mount>) =>
     view.container.querySelector('[aria-busy="true"]');
   const heldRemove = (view: ReturnType<typeof mount>) =>

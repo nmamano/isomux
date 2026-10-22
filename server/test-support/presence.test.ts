@@ -133,7 +133,7 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
   it("currentRoomId is the stable global id, identical across recipients", async () => {
     server = await startTestServer();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -165,7 +165,7 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -195,7 +195,7 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -227,7 +227,7 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     const ownerCid = connectionIdOf(ownerSock);
@@ -266,7 +266,7 @@ describe("presence - onlineUserIds roster aggregate (users-page follow-up 8e882c
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
@@ -275,7 +275,7 @@ describe("presence - onlineUserIds roster aggregate (users-page follow-up 8e882c
     const ownerCid = connectionIdOf(ownerSock);
     const memberCid = connectionIdOf(memberSock);
 
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const memberId = getUserByName("Mia")!.id;
     const want = [ownerId, memberId].sort();
 
@@ -306,14 +306,14 @@ describe("presence - onlineUserIds roster aggregate (users-page follow-up 8e882c
   it("a disconnect drops the user from onlineUserIds on the next broadcast", async () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     await setAccess(server, owner.rawSessionId, member.username, [r1]);
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     const memberSock = await connectSettled(server, member.rawSessionId);
 
-    const ownerId = getUserByName("Boss")!.id;
+    const ownerId = getUserByName("Morgan")!.id;
     const memberId = getUserByName("Mia")!.id;
     const both = [ownerId, memberId].sort();
 
@@ -344,7 +344,7 @@ describe("lobby presence", () => {
     const { LOBBY_SPOT_IDS } = await import("../../shared/types.ts");
     const lobbySpotIds: readonly string[] = LOBBY_SPOT_IDS;
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
     const a = await connectSettled(server, owner.rawSessionId);
     const b = await connectSettled(server, member.rawSessionId);
@@ -423,7 +423,7 @@ describe("lobby presence", () => {
     const claim = await server.http("/auth/claim", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `name=Boss&key=${encodeURIComponent(server.setupKey())}`,
+      body: `name=Morgan&key=${encodeURIComponent(server.setupKey())}`,
       redirect: "manual",
     });
     expect(claim.status).toBe(302);

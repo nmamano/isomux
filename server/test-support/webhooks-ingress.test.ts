@@ -90,7 +90,7 @@ const sign = (secret: string, body: Uint8Array) =>
 
 interface Office {
   srv: TestServer;
-  bossSession: string;
+  morganSession: string;
   aliceSession: string;
   aliceId: string;
   agent: AgentInfo;
@@ -113,7 +113,7 @@ async function office(
     startServer: { webhookNow: () => clock },
   });
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const roomA = srv.agentManager.createRoom("Alpha");
   const alice = await srv.seedMember("Alice");
   const aliceId = getUserByName("Alice")!.id;
@@ -153,7 +153,7 @@ async function office(
   const { secret } = (await secretRes.json()) as { secret: string };
   return {
     srv,
-    bossSession: boss.rawSessionId,
+    morganSession: morgan.rawSessionId,
     aliceSession: alice.rawSessionId,
     aliceId,
     agent,
@@ -824,26 +824,29 @@ describe("POST /hooks/:id: verified deliveries", () => {
   it("an office owner's hook runs a member's cronjob", async () => {
     const o = await office({ fakeBackend: parkingBackend() });
     const job = await cronjobTarget(o);
-    // Boss did not make the cronjob; Boss's own hook targets it.
+    // Morgan did not make the cronjob; Morgan's own hook targets it.
     const made = await o.srv.http("/api/webhooks", {
       method: "POST",
-      rawSessionId: o.bossSession,
+      rawSessionId: o.morganSession,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: "boss-hook",
+        name: "morgan-hook",
         scheme: "github-hmac-sha256",
         rules: RULES,
         target: { kind: "cronjob", cronjobId: job.id },
       }),
     });
     expect(made.status).toBe(201);
-    const bossHook = (await made.json()) as WebhookWire;
-    expect(bossHook.userId).not.toBe(job.userId);
-    const secretRes = await o.srv.http(`/api/webhooks/${bossHook.id}/secret`, {
-      rawSessionId: o.bossSession,
-    });
+    const morganHook = (await made.json()) as WebhookWire;
+    expect(morganHook.userId).not.toBe(job.userId);
+    const secretRes = await o.srv.http(
+      `/api/webhooks/${morganHook.id}/secret`,
+      {
+        rawSessionId: o.morganSession,
+      },
+    );
     const { secret } = (await secretRes.json()) as { secret: string };
-    const res = await deliver({ ...o, hook: bossHook, secret });
+    const res = await deliver({ ...o, hook: morganHook, secret });
     expect(res.status).toBe(202);
     expect(runIds(o, job.id)).toHaveLength(1);
   });

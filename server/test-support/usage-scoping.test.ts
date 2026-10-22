@@ -295,7 +295,7 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
   // The command's report lands as a `system` entry in the agent's log. Read the
   // live log rather than the JSONL: a freshly spawned agent has no session yet
   // (the command is answered locally, without waking the backend), so nothing is
-  // persisted - which is exactly the state a boss typing /isomux-usage first
+  // persisted - which is exactly the state a member typing /isomux-usage first
   // thing is in.
   function lastReport(srv: TestServer, agentId: string): string {
     const entries = srv.agentManager
@@ -313,7 +313,7 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     server = srv;
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     await srv.http(`/api/users/${encodeURIComponent(member.username)}/access`, {
       method: "PUT",
@@ -381,7 +381,7 @@ describe("GET /api/usage caller scoping", () => {
     server = srv;
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     await srv.http(`/api/users/${encodeURIComponent(member.username)}/access`, {
       method: "PUT",

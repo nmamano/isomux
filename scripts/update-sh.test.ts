@@ -132,7 +132,7 @@ async function buildFixture(opts: {
 
   const stateRoot = join(base, "state", ".isomux");
   mkdirSync(stateRoot, { recursive: true });
-  writeFileSync(join(stateRoot, "users.json"), '{"u1":{"name":"Boss"}}\n');
+  writeFileSync(join(stateRoot, "users.json"), '{"u1":{"name":"Morgan"}}\n');
   const profile = join(
     stateRoot,
     "opencode",
@@ -384,7 +384,7 @@ describe("update.sh happy path", () => {
     expect(existsSync(fx.snapshotDir)).toBe(false);
     expect(r.out).not.toContain("--- snapshot");
     expect(readFileSync(join(fx.stateRoot, "users.json"), "utf8")).toBe(
-      '{"u1":{"name":"Boss"}}\n',
+      '{"u1":{"name":"Morgan"}}\n',
     );
     expect(
       readFileSync(

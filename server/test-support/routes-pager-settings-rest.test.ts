@@ -88,10 +88,10 @@ async function office() {
     },
   });
   server = srv;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const mia = await srv.seedMember("Mia");
   const roomA = srv.agentManager.getRooms()[0].id;
-  const bossId = getUserByName("Boss")!.id;
+  const morganId = getUserByName("Morgan")!.id;
   const agent = await srv.agentManager.spawn(
     "Bot",
     srv.stateRoot,
@@ -102,22 +102,22 @@ async function office() {
     undefined,
     undefined,
     undefined,
-    "Boss",
+    "Morgan",
     "claude",
     undefined,
-    bossId,
+    morganId,
   );
   if (!agent) throw new Error("spawn returned null");
-  const botToken = mintAgentToken(agent.id, bossId);
-  const settingsPath = `/api/users/${boss.username}/pager-settings`;
-  return { srv, boss, mia, agent, botToken, sent, settingsPath };
+  const botToken = mintAgentToken(agent.id, morganId);
+  const settingsPath = `/api/users/${morgan.username}/pager-settings`;
+  return { srv, morgan, mia, agent, botToken, sent, settingsPath };
 }
 
 describe("pager settings REST: access", () => {
   it("the member reads defaults and saves; responses carry only the mask", async () => {
-    const { srv, boss, settingsPath } = await office();
+    const { srv, morgan, settingsPath } = await office();
     const first = await api(srv, settingsPath, {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(first.status).toBe(200);
     expect(first.body).toEqual({
@@ -127,7 +127,7 @@ describe("pager settings REST: access", () => {
     });
     const saved = await api(srv, settingsPath, {
       method: "PATCH",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { webhookUrl: URL_, discordUserId: DISCORD_ID },
     });
     expect(saved.status).toBe(200);
@@ -136,14 +136,14 @@ describe("pager settings REST: access", () => {
     expect(res.discordUserId).toBe(DISCORD_ID);
     expect(saved.text).not.toContain(TOKEN);
     const read = await api(srv, settingsPath, {
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(read.body).toEqual(res);
     expect(read.text).not.toContain(TOKEN);
     // A partial save keeps the URL.
     const interval = await api(srv, settingsPath, {
       method: "PATCH",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { repeatMinutes: null },
     });
     expect(interval.body).toEqual({ ...res, repeatMinutes: null });
@@ -151,20 +151,20 @@ describe("pager settings REST: access", () => {
     const file = join(srv.stateRoot, "pager-settings.json");
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(readFileSync(file, "utf8")).toContain(TOKEN);
-    const env = await api(srv, `/api/users/${boss.username}/env`, {
-      rawSessionId: boss.rawSessionId,
+    const env = await api(srv, `/api/users/${morgan.username}/env`, {
+      rawSessionId: morgan.rawSessionId,
     });
     expect(env.status).toBe(200);
     expect(env.text).not.toContain(TOKEN);
   });
 
   it("the member's own API token reaches the settings", async () => {
-    const { srv, boss, settingsPath } = await office();
+    const { srv, morgan, settingsPath } = await office();
     const minted = await srv.http("/api/me/api-tokens", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Laptop", expiresInDays: 30 }),
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     const { token } = (await minted.json()) as ApiTokenCreateRes;
     const r = await api(srv, settingsPath, { bearer: token });
@@ -201,7 +201,7 @@ describe("pager settings REST: access", () => {
   });
 
   it("refuses a URL that is not a Discord webhook", async () => {
-    const { srv, boss, settingsPath } = await office();
+    const { srv, morgan, settingsPath } = await office();
     for (const webhookUrl of [
       "https://example.com/api/webhooks/1/x",
       URL_.replace("https:", "http:"),
@@ -209,7 +209,7 @@ describe("pager settings REST: access", () => {
     ]) {
       const r = await api(srv, settingsPath, {
         method: "PATCH",
-        rawSessionId: boss.rawSessionId,
+        rawSessionId: morgan.rawSessionId,
         body: { webhookUrl },
       });
       expect(r.status).toBe(422);
@@ -219,21 +219,21 @@ describe("pager settings REST: access", () => {
 
 describe("pager settings REST: delivery", () => {
   it("the test button sends one message to the saved webhook", async () => {
-    const { srv, boss, settingsPath, sent } = await office();
+    const { srv, morgan, settingsPath, sent } = await office();
     const none = await api(srv, `${settingsPath}/test`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(none.body).toEqual({ delivered: false, failure: "no_webhook" });
     expect(sent).toHaveLength(0);
     await api(srv, settingsPath, {
       method: "PATCH",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { webhookUrl: URL_, discordUserId: DISCORD_ID },
     });
     const r = await api(srv, `${settingsPath}/test`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ delivered: true });
@@ -246,11 +246,11 @@ describe("pager settings REST: delivery", () => {
   });
 
   it("a raised page reaches the webhook once with the mention and the link; the URL stays server-side", async () => {
-    const { srv, boss, botToken, settingsPath, sent } = await office();
-    const ws = await srv.connectWs(boss.rawSessionId);
+    const { srv, morgan, botToken, settingsPath, sent } = await office();
+    const ws = await srv.connectWs(morgan.rawSessionId);
     await api(srv, settingsPath, {
       method: "PATCH",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { webhookUrl: URL_, discordUserId: DISCORD_ID },
     });
     const raised = await api(srv, "/api/pager", {
@@ -273,7 +273,7 @@ describe("pager settings REST: delivery", () => {
     });
     const ack = await api(srv, `/api/pager/${page.id}/ack`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     expect(ack.status).toBe(200);
     await sleep(50);
@@ -287,8 +287,8 @@ describe("pager settings REST: delivery", () => {
   // A page the member acked before any webhook existed: the resolve is the
   // first request to the webhook, so nothing waits for the send spacing.
   it("a resolve sends the resolved message in the member's language", async () => {
-    const { srv, boss, botToken, settingsPath, sent } = await office();
-    updateUserById(getUserByName("Boss")!.id, { language: "es" });
+    const { srv, morgan, botToken, settingsPath, sent } = await office();
+    updateUserById(getUserByName("Morgan")!.id, { language: "es" });
     const page = (
       await api(srv, "/api/pager", {
         method: "POST",
@@ -298,11 +298,11 @@ describe("pager settings REST: delivery", () => {
     ).body as PagerEntry;
     await api(srv, `/api/pager/${page.id}/ack`, {
       method: "POST",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
     });
     await api(srv, settingsPath, {
       method: "PATCH",
-      rawSessionId: boss.rawSessionId,
+      rawSessionId: morgan.rawSessionId,
       body: { webhookUrl: URL_, discordUserId: DISCORD_ID },
     });
     expect(sent).toHaveLength(0);

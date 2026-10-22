@@ -53,8 +53,8 @@ async function office(opts: { pushRoom: boolean }) {
     },
   });
   server = srv;
-  const boss = await srv.seedOwner("Boss");
-  const bossId = getUserByName("Boss")!.id;
+  const morgan = await srv.seedOwner("Morgan");
+  const morganId = getUserByName("Morgan")!.id;
   const roomA = srv.agentManager.getRooms()[0].id;
   const spawn = async (name: string) => {
     const agent = await srv.agentManager.spawn(
@@ -67,10 +67,10 @@ async function office(opts: { pushRoom: boolean }) {
       undefined,
       undefined,
       undefined,
-      "Boss",
+      "Morgan",
       "claude",
       undefined,
-      bossId,
+      morganId,
     );
     if (!agent) throw new Error("spawn returned null");
     return agent;
@@ -88,20 +88,26 @@ async function office(opts: { pushRoom: boolean }) {
         "Content-Type": "application/json",
         ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
       },
-      rawSessionId: bearer ? undefined : boss.rawSessionId,
+      rawSessionId: bearer ? undefined : morgan.rawSessionId,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  const added = await http(`/api/users/${boss.username}/push-devices`, "POST", {
-    endpoint: ENDPOINT,
-    keys: { p256dh: P256DH, auth: AUTH },
-  });
+  const added = await http(
+    `/api/users/${morgan.username}/push-devices`,
+    "POST",
+    {
+      endpoint: ENDPOINT,
+      keys: { p256dh: P256DH, auth: AUTH },
+    },
+  );
   expect(added.status).toBe(200);
   const saved = await http("/api/me/view/push-rooms", "PUT", {
     pushRooms: opts.pushRoom ? [roomA] : [],
   });
   expect(saved.status).toBe(204);
-  expect(getUserByName("Boss")!.pushRooms.includes(roomA)).toBe(opts.pushRoom);
-  expect(getUserByName("Boss")!.notifRooms).toContain(roomA);
+  expect(getUserByName("Morgan")!.pushRooms.includes(roomA)).toBe(
+    opts.pushRoom,
+  );
+  expect(getUserByName("Morgan")!.notifRooms).toContain(roomA);
   const stateOf = (id: string) =>
     srv.agentManager.getAgent(id)?.state ?? "missing";
   return { srv, bot, spawn, http, pushed, stateOf, roomA };
@@ -126,8 +132,8 @@ describe("turn-end push", () => {
       (await http("/api/me/view/notif-rooms", "PUT", { notifRooms: [] }))
         .status,
     ).toBe(204);
-    expect(getUserByName("Boss")!.notifRooms).not.toContain(roomA);
-    expect(getUserByName("Boss")!.pushRooms).toContain(roomA);
+    expect(getUserByName("Morgan")!.notifRooms).not.toContain(roomA);
+    expect(getUserByName("Morgan")!.pushRooms).toContain(roomA);
     await http(`/api/agents/${bot.id}/messages`, "POST", { text: "hello" });
     await waitUntil(() => pushed.length === 1);
     await sleep(50);

@@ -82,7 +82,7 @@ function saved(id: string, patch: Partial<PagerEntry> = {}): PagerEntry {
 const done = (id: string, at = 1) =>
   saved(id, {
     state: "resolved",
-    resolved: { by: "Boss", at },
+    resolved: { by: "Morgan", at },
     delivery: { state: "delivered", sends: 1, resolvedNotice: "done" },
   });
 
@@ -93,7 +93,7 @@ const all = () => true;
 
 // Resolve a page and record its "resolved" message as sent.
 function resolveDone(store: ReturnType<typeof createPagerStore>, id: string) {
-  store.resolve(id, "Boss");
+  store.resolve(id, "Morgan");
   const e = store.get(id)!;
   return store.recordDelivery(id, { ...e.delivery, resolvedNotice: "done" });
 }
@@ -122,7 +122,7 @@ describe("pager archive: the move", () => {
     const a = createMemoryPagerArchive();
     const store = createPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
-    store.resolve(e.id, "Boss");
+    store.resolve(e.id, "Morgan");
     // Owed: still here, for delivery to find.
     expect(ids(p.saved)).toEqual([e.id]);
     expect(a.lines).toEqual([]);
@@ -143,7 +143,7 @@ describe("pager archive: the move", () => {
     const a = createMemoryPagerArchive();
     const store = createPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
-    store.resolve(e.id, "Boss");
+    store.resolve(e.id, "Morgan");
     a.failNextAppend = true;
     const last = store.get(e.id)!;
     store.recordDelivery(e.id, { ...last.delivery, resolvedNotice: "done" });
@@ -163,7 +163,7 @@ describe("pager archive: the move", () => {
     const a = createMemoryPagerArchive();
     const store = createPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
-    store.resolve(e.id, "Boss");
+    store.resolve(e.id, "Morgan");
     const last = store.get(e.id)!;
     p.failNextSave = true;
     expect(() =>
@@ -192,7 +192,7 @@ describe("pager archive: the move", () => {
     const a = createMemoryPagerArchive();
     const first = createPagerStore({ persistence: p, archive: a });
     const e = raiseOne(first, "x");
-    first.resolve(e.id, "Boss");
+    first.resolve(e.id, "Morgan");
     const last = first.get(e.id)!;
     p.failNextSave = true;
     expect(() =>
@@ -230,8 +230,8 @@ describe("pager archive: the move", () => {
     });
     const e1 = raiseOne(store, "x1");
     const e2 = raiseOne(store, "x2");
-    store.resolve(e1.id, "Boss");
-    store.resolve(e2.id, "Boss");
+    store.resolve(e1.id, "Morgan");
+    store.resolve(e2.id, "Morgan");
     a.tornNextAppend = true;
     const d1 = store.get(e1.id)!;
     store.recordDelivery(e1.id, { ...d1.delivery, resolvedNotice: "done" });
@@ -279,7 +279,7 @@ describe("pager archive: resolve order", () => {
   const owed = (id: string, at: number) =>
     saved(id, {
       state: "resolved",
-      resolved: { by: "Boss", at },
+      resolved: { by: "Morgan", at },
       delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
     });
 
@@ -371,7 +371,7 @@ describe("pager archive: resolve order", () => {
       now: () => 100,
     });
     for (const id of ["z", "a"]) {
-      first.resolve(id, "Boss");
+      first.resolve(id, "Morgan");
       const e = first.get(id)!;
       first.recordDelivery(id, { ...e.delivery, resolvedNotice: "done" });
     }
@@ -381,7 +381,7 @@ describe("pager archive: resolve order", () => {
       archive: a,
       now: () => 100,
     });
-    again.resolve("m", "Boss");
+    again.resolve("m", "Morgan");
     const m = again.get("m")!;
     again.recordDelivery("m", { ...m.delivery, resolvedNotice: "done" });
     const pages = a.lines.map((l) => JSON.parse(l) as PagerEntry);
@@ -420,13 +420,13 @@ describe("pager archive: update and rollback", () => {
     const a = createMemoryPagerArchive();
     const owed = saved("owed", {
       state: "resolved",
-      resolved: { by: "Boss", at: 3 },
+      resolved: { by: "Morgan", at: 3 },
       delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
     });
     // A page resolved before resolvedNotice existed has none.
     const legacy = saved("ab12cd34", {
       state: "resolved",
-      resolved: { by: "Boss", at: 1 },
+      resolved: { by: "Morgan", at: 1 },
     });
     const p = memPersistence([saved("o1"), legacy, done("d2", 2), owed]);
     const store = createPagerStore({ persistence: p, archive: a });
@@ -475,7 +475,7 @@ describe("pager archive: update and rollback", () => {
     const p = memPersistence([saved("ab12cd34")]);
     const store = createPagerStore({ persistence: p, archive: a });
     expect(store.get("ab12cd34")?.title).toBe("t-ab12cd34");
-    expect(store.ack("ab12cd34", "Boss").outcome).toBe("changed");
+    expect(store.ack("ab12cd34", "Morgan").outcome).toBe("changed");
     resolveDone(store, "ab12cd34");
     expect(store.get("ab12cd34")).toBeNull();
     expect((await store.findArchived("ab12cd34"))?.state).toBe("resolved");
@@ -489,7 +489,7 @@ describe("pager archive: reads", () => {
     const owed = (id: string, at: number) =>
       saved(id, {
         state: "resolved",
-        resolved: { by: "Boss", at },
+        resolved: { by: "Morgan", at },
         delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
       });
     const p = memPersistence([owed("o1", 10), saved("open"), owed("o2", 20)]);
@@ -541,7 +541,7 @@ describe("pager archive: reads", () => {
     const p = memPersistence();
     const store = createPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
-    store.resolve(e.id, "Boss");
+    store.resolve(e.id, "Morgan");
     const first = await store.listResolved({ accept: all, limit: 2 });
     expect(first.ok && ids(first.entries)).toEqual([e.id, "a2"]);
     // The owed message goes out: the page moves to the archive's end.
@@ -582,7 +582,7 @@ describe("pager archive: reads", () => {
     const p = memPersistence([
       saved("p1", {
         state: "resolved",
-        resolved: { by: "Boss", at: 1 },
+        resolved: { by: "Morgan", at: 1 },
         delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
       }),
     ]);

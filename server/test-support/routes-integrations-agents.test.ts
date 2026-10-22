@@ -114,7 +114,7 @@ describe("integration routes at the guard", () => {
     cronjobCreatorUserId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
-    isOfficeOwnerUserId: (userId) => userId === "boss",
+    isOfficeOwnerUserId: (userId) => userId === "morgan",
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
     killedAgentLastRoomId: () => null,
@@ -141,9 +141,9 @@ describe("integration routes at the guard", () => {
     ).ok;
 
   it("refuses an owner's ordinary agent on every integration route", () => {
-    const plain = agent("boss", AGENT_CAPABILITIES);
+    const plain = agent("morgan", AGENT_CAPABILITIES);
     for (const route of integrationRoutes)
-      for (const username of ["boss", "member"])
+      for (const username of ["morgan", "member"])
         expect([
           route.opId,
           username,
@@ -152,7 +152,7 @@ describe("integration routes at the guard", () => {
   });
 
   it("refuses every agent, an owner's or a member's, on every value route", () => {
-    for (const userId of ["boss", "member"])
+    for (const userId of ["morgan", "member"])
       for (const caps of [AGENT_CAPABILITIES, PRIVILEGED_AGENT_CAPABILITIES])
         for (const route of valueRoutes)
           expect([
@@ -163,13 +163,13 @@ describe("integration routes at the guard", () => {
   });
 
   it("gives a privileged agent its manager's reach", () => {
-    const owners = agent("boss", PRIVILEGED_AGENT_CAPABILITIES);
+    const owners = agent("morgan", PRIVILEGED_AGENT_CAPABILITIES);
     const members = agent("member", PRIVILEGED_AGENT_CAPABILITIES);
     for (const route of integrationRoutes) {
       const office = route.path.startsWith("/api/office/");
       const names = route.opId === "userEnv.names";
       // An owner's agent: everything.
-      for (const username of ["boss", "member"])
+      for (const username of ["morgan", "member"])
         expect([
           route.opId,
           username,
@@ -232,19 +232,19 @@ async function office() {
     },
   });
   const srv = server;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
   const other = await srv.seedMember("Other");
-  const bossId = getUserByName(boss.username)!.id;
+  const morganId = getUserByName(morgan.username)!.id;
   const memberId = getUserByName(member.username)!.id;
   return {
     srv,
-    boss,
+    morgan,
     member,
     other,
-    bossId,
-    ownerAgent: mintAgentToken("boss-privileged", bossId, true),
-    ownerPlain: mintAgentToken("boss-plain", bossId, false),
+    morganId,
+    ownerAgent: mintAgentToken("morgan-privileged", morganId, true),
+    ownerPlain: mintAgentToken("morgan-plain", morganId, false),
     memberAgent: mintAgentToken("member-privileged", memberId, true),
   };
 }
@@ -267,7 +267,7 @@ function pathOf(route: (typeof API_ROUTES)[number], username: string): string {
 
 async function auditRows(o: Office) {
   const audit = await call(o.srv, "GET", "/api/audit-log?limit=500", {
-    session: o.boss.rawSessionId,
+    session: o.morgan.rawSessionId,
   });
   expect(audit.status).toBe(200);
   return (
@@ -285,7 +285,7 @@ describe("integration routes on the wire", () => {
   it("refuses an owner's ordinary agent on every integration route, and every agent on every value route", async () => {
     const o = await office();
     for (const route of integrationRoutes)
-      for (const username of [o.boss.username, o.member.username]) {
+      for (const username of [o.morgan.username, o.member.username]) {
         const res = await call(o.srv, route.method, pathOf(route, username), {
           bearer: o.ownerPlain,
           body: route.method === "GET" ? undefined : {},
@@ -363,17 +363,17 @@ describe("integration routes on the wire", () => {
 
   it("gives a member's privileged agent the member's summary of the office lists", async () => {
     const o = await office();
-    const boss = { session: o.boss.rawSessionId };
+    const morgan = { session: o.morgan.rawSessionId };
     await call(o.srv, "POST", "/api/office/secrets", {
-      ...boss,
+      ...morgan,
       body: secretBody("OFFICE_TOKEN"),
     });
     await call(o.srv, "POST", "/api/office/mcp-servers", {
-      ...boss,
+      ...morgan,
       body: { name: "mail", url: MCP_URL, secret: null },
     });
     await call(o.srv, "PUT", "/api/office/env/OFFICE_VAR", {
-      ...boss,
+      ...morgan,
       body: { value: FAKE },
     });
     const auth = { bearer: o.memberAgent };
@@ -477,7 +477,7 @@ describe("integration routes on the wire", () => {
       expect([operation, row?.actor.kind, row?.actor.id]).toEqual([
         operation,
         "agent",
-        "boss-privileged",
+        "morgan-privileged",
       ]);
     }
     expect(
@@ -494,7 +494,7 @@ describe("integration routes on the wire", () => {
         body: { value: "a" },
       });
     expect((await put()).status).toBe(204);
-    expect(setUserRoleById(o.bossId, "member")).toBe(true);
+    expect(setUserRoleById(o.morganId, "member")).toBe(true);
     expect((await put()).status).toBe(403);
     const memberPath = `/api/users/${o.member.username}/env/B`;
     expect(
@@ -595,7 +595,7 @@ describe("an agent never receives an MCP server's URL path", () => {
     }
     for (const [session, base] of [
       [o.member.rawSessionId, member],
-      [o.boss.rawSessionId, "/api/office/mcp-servers"],
+      [o.morgan.rawSessionId, "/api/office/mcp-servers"],
     ] as const) {
       const human = await call(o.srv, "GET", base, { session });
       expect(
@@ -608,7 +608,7 @@ describe("an agent never receives an MCP server's URL path", () => {
 describe("office variables one at a time", () => {
   it("sets, keeps or clears the note, removes, and refuses a bad name or body and a member", async () => {
     const o = await office();
-    const auth = { session: o.boss.rawSessionId };
+    const auth = { session: o.morgan.rawSessionId };
     const put = (name: string, body: unknown) =>
       call(o.srv, "PUT", `/api/office/env/${name}`, { ...auth, body });
     const read = async () =>

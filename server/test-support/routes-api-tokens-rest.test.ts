@@ -92,7 +92,7 @@ describe("personal API tokens", () => {
   it("accepts agent replies, echoes them live, and retains them after reads", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName(owner.username)!.id;
     const room = srv.agentManager.getRooms()[0].id;
     const sender = await spawn(srv, "Worker", room, 0, owner.username, ownerId);
@@ -100,7 +100,7 @@ describe("personal API tokens", () => {
     const minted = await mintThroughApi(
       srv,
       owner.rawSessionId,
-      'Remote\n"Boss',
+      'Remote\n"Morgan',
       null,
     );
     srv.agentManager.setTopic(sender.id, "Current work");
@@ -121,7 +121,7 @@ describe("personal API tokens", () => {
       // The recipient lives in metadata, not the text: the UI renders it as
       // the card header, so baking it into content would double it.
       content: "result ready",
-      metadata: { recipient_api_token_name: "Remote 'Boss" },
+      metadata: { recipient_api_token_name: "Remote 'Morgan" },
     });
     expect(srv.agentManager.getAgent(sender.id)).toMatchObject({
       state: stateBeforeReply,
@@ -200,7 +200,7 @@ describe("personal API tokens", () => {
       fakeBackend: new FakeBackend({ session: { manualSend: true } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const target = await spawn(srv, "Target", room);
     const minted = await mintThroughApi(
@@ -258,7 +258,7 @@ describe("personal API tokens", () => {
       },
     ]);
     expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
-      `[Boss (API token "Phone 'alerts" (${minted.body.apiToken.id}))] off-office alert`,
+      `[Morgan (API token "Phone 'alerts" (${minted.body.apiToken.id}))] off-office alert`,
     );
     srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
     srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
@@ -289,7 +289,7 @@ describe("personal API tokens", () => {
       fakeBackend: new FakeBackend({ session: { manualSend: true } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName(owner.username)!.id;
     const room = srv.agentManager.getRooms()[0].id;
     const target = await spawn(srv, "Target", room, 0, owner.username, ownerId);
@@ -345,7 +345,7 @@ describe("personal API tokens", () => {
   it("lets an office owner list and revoke one member's tokens, with self-revoke's effect", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName(owner.username)!.id;
     const member = await srv.seedMember("Mia");
     const other = await srv.seedMember("Otto");
@@ -460,7 +460,7 @@ describe("personal API tokens", () => {
       fakeBackend: new FakeBackend({ session: { manualSend: true } }),
     });
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
     const target = await spawn(srv, "Target", room);
     const minted = await mintThroughApi(srv, owner.rawSessionId);
@@ -498,7 +498,7 @@ describe("personal API tokens", () => {
   it("allows both agent manifests while legacy file and UI surfaces stay blocked", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const minted = await mintThroughApi(srv, owner.rawSessionId);
     const token = minted.body.token;
     const roomId = srv.agentManager.getRooms()[0].id;
@@ -554,7 +554,7 @@ describe("personal API tokens", () => {
   it("accepts a never-expiring mint and rejects retired expiry presets", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const unlimited = await mintThroughApi(
       srv,
       owner.rawSessionId,
@@ -580,7 +580,7 @@ describe("personal API tokens", () => {
   it("rejects expired, invalid, leaked-prefix, and API-attribution fields", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName(owner.username)!.id;
     const room = srv.agentManager.getRooms()[0].id;
     const target = await spawn(srv, "Target", room);
@@ -624,7 +624,7 @@ describe("personal API tokens", () => {
   it("uses accessible rooms despite view hiding and loses access on demotion or deletion", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Member");
     const memberId = getUserByName(member.username)!.id;
     const hiddenRoom = srv.agentManager.createRoom("Hidden by preference");
@@ -694,7 +694,7 @@ describe("API token channel contract", () => {
   it("validates cursors, retains replies and replays a drain", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const userId = getUserByName(owner.username)!.id;
     const minted = await mintThroughApi(srv, owner.rawSessionId, "Ack", null);
     expect(minted.response.status).toBe(201);
@@ -753,7 +753,7 @@ describe("API token channel contract", () => {
   it("ignores extra ackMode fields when minting tokens", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     for (const ackMode of [true, false, null, "true", 1, {}]) {
       const response = await srv.http("/api/me/api-tokens", {
         method: "POST",
@@ -785,7 +785,7 @@ describe("API token channel contract", () => {
   it("records token sends and replies once when the send is replayed", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const target = await spawn(
       srv,
       "Target",
@@ -852,7 +852,7 @@ describe("API token channel contract", () => {
   it("rejects clientMessageId for API token sends and names Idempotency-Key", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const target = await spawn(
       srv,
       "Target",

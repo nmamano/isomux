@@ -1647,7 +1647,7 @@ describe("Claude auth-error status checks", () => {
       scope: "office",
       wire: {
         loginStatus: "waiting_external",
-        loginQueue: { holderName: "Boss", startedAt: 1 },
+        loginQueue: { holderName: "Morgan", startedAt: 1 },
       },
       key: SIGNING_IN,
     },

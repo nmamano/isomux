@@ -88,7 +88,7 @@ describe("webhookViewerForIdentity", () => {
     capabilities: USER_CAPABILITIES,
     ...over,
   });
-  const owners = (userId: string) => userId === "u-boss";
+  const owners = (userId: string) => userId === "u-morgan";
 
   it("a user, an API token and an agent participate; a cron run and an agent without webhook:read do not", () => {
     const at = (i: Identity) =>
@@ -123,7 +123,7 @@ describe("webhookViewerForIdentity", () => {
   it("office-wide reach follows the live owner record, for an agent of an owner too", () => {
     expect(
       webhookViewerForIdentity(
-        identity({ userId: "u-boss" }),
+        identity({ userId: "u-morgan" }),
         owners,
         () => false,
       ).officeWide,
@@ -133,7 +133,7 @@ describe("webhookViewerForIdentity", () => {
         identity({
           scope: "agent",
           agentId: "agent-1",
-          userId: "u-boss",
+          userId: "u-morgan",
           capabilities: AGENT_CAPABILITIES,
         }),
         owners,

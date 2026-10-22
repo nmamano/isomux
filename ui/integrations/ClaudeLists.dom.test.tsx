@@ -32,7 +32,7 @@ it("lists each connector with its own status pill, and Pending explains itself",
     {
       ...EMPTY_CONNECTIONS,
       signIns: [
-        { scope: "office", engine: "claude", account: "boss@example.com" },
+        { scope: "office", engine: "claude", account: "morgan@example.com" },
       ],
       claudeConnectors: [
         {
@@ -52,11 +52,11 @@ it("lists each connector with its own status pill, and Pending explains itself",
     '[data-claude-connectors="office"]',
   )!;
   expect(block.textContent).toContain(
-    t("integrations.connectors.title", { account: "boss@example.com" }),
+    t("integrations.connectors.title", { account: "morgan@example.com" }),
   );
   // The account is data, in its own element.
   expect(block.querySelector("[data-integrations-data]")!.textContent).toBe(
-    "boss@example.com",
+    "morgan@example.com",
   );
   const item = (name: string) =>
     block.querySelector(`[data-claude-connector="${name}"]`)!;

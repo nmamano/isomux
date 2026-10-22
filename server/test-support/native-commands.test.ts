@@ -102,7 +102,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     seedRoomMemory(
       srv.agentManager.getRooms()[0].id,
       Math.round(MEMORY_CAPS.room * 0.9),
@@ -127,7 +127,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv, "codex");
 
     await srv.agentManager.sendMessage(agent.id, "/simplify", owner.username);
@@ -170,7 +170,7 @@ describe("native Claude Code commands", () => {
   ) {
     const { fake, parked } = firstTurnParks(slashCommands);
     const srv = (server = await startTestServer({ fakeBackend: fake }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     void srv.agentManager.sendMessage(agent.id, "kickoff", owner.username);
     await waitUntil(
@@ -221,7 +221,7 @@ describe("native Claude Code commands", () => {
         },
       }),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     // The first message starts the session that reports the command.
     await srv.agentManager.sendMessage(agent.id, "hello", owner.username);
@@ -234,7 +234,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     await srv.agentManager.sendMessage(agent.id, "/review 57", owner.username);
     await waitUntil(() => sentTexts(srv, agent.id).length >= 1, "a send");
@@ -246,7 +246,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     const attachment = {
       filename: "a1b2c3.txt",
@@ -280,7 +280,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const skillDir = join(STATE_ROOT, "skills", "simplify");
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, "SKILL.md"), "user skill body marker");
@@ -297,7 +297,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const help = async (agentType: AgentInfo["agentType"]) => {
       const agent = await spawnAgent(srv, agentType);
       await srv.agentManager.sendMessage(agent.id, "/help", owner.username);
@@ -321,7 +321,7 @@ describe("native Claude Code commands", () => {
     const srv = (server = await startTestServer({
       fakeBackend: completingBackend(),
     }));
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     const help = async () => {
       await srv.agentManager.sendMessage(agent.id, "/help", owner.username);

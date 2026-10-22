@@ -103,7 +103,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("owner save returns 204, persists the room prompt, and broadcasts room_settings_updated", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const sock = await srv.connectWs(owner.rawSessionId);
     const version = await versionFor(srv, room.id, owner.rawSessionId);
@@ -122,7 +122,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("owner + unknown room id -> 404 Room not found (rule access passes the guard, reaching the existence check; Follow-up #6)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     // Any version: existence is checked BEFORE the version guard, so an unknown
     // room is a 404, never a bogus version_conflict.
     const res = await putSettings(
@@ -141,7 +141,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("member with no access -> 403 (uniform FORBIDDEN, no oracle), prompt untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const room = srv.agentManager.getRooms()[0];
     const version = await versionFor(srv, room.id, owner.rawSessionId);
@@ -159,7 +159,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("missing version -> 400 invalid_version, prompt untouched (write must carry the GET's version)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const res = await putSettings(srv, room.id, "x", owner.rawSessionId);
     expect(res.status).toBe(400);
@@ -172,7 +172,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("stale version -> 409 version_conflict with the CURRENT version, nothing written or broadcast", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     // Writer A reads, then writer B saves - A's version is now stale.
     const staleVersion = await versionFor(srv, room.id, owner.rawSessionId);
@@ -216,7 +216,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("round-trip: the version returned by the post-save GET lets the next save through", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const v1 = await versionFor(srv, room.id, owner.rawSessionId);
     expect(
@@ -236,7 +236,7 @@ describe("rooms.getSettings REST (settings read pair)", () => {
   it("owner read -> 200 { prompt: null, version } before any save, then round-trips the PUT value", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const before = await getSettings(srv, room.id, owner.rawSessionId);
     expect(before.status).toBe(200);
@@ -267,7 +267,7 @@ describe("rooms.getSettings REST (settings read pair)", () => {
   it("owner + unknown room id -> 404 room_not_found (mirrors the PUT; Follow-up #6)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const res = await getSettings(srv, "deadbeef", owner.rawSessionId);
     expect(res.status).toBe(404);
     expect((res.body as { error?: { code?: string } }).error?.code).toBe(
@@ -278,7 +278,7 @@ describe("rooms.getSettings REST (settings read pair)", () => {
   it("member with no access -> 403 (uniform FORBIDDEN, no oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mia");
     const room = srv.agentManager.getRooms()[0];
     const res = await getSettings(srv, room.id, member.rawSessionId);

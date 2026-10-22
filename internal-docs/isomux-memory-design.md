@@ -49,7 +49,7 @@ by vector similarity. Three reasons rule that out for our use case:
 about the _task_; they are about _people, projects, environment, and rules_,
 which have a small, stable shape regardless of what agents are working on. isomux
 is a **general meta-harness**, so we cannot schema the task. But we **can** schema
-the one thing that is always constant: the **office / room / `boss` / agent**
+the one thing that is always constant: the **office / room / `member` / agent**
 structure.
 
 **Why shared scope is the whole point.** Claude's built-in memory already gives each repo its own durable file. If isomux memory were agent-only, it would be a
@@ -67,7 +67,7 @@ Memory is **plain markdown files on disk**. The directory tree _is_ the schema.
   office.md                  # office-wide, visible to everyone
   rooms/<roomId>.md          # a room/project, visible to anyone in that room
   agents/<agentId>.md        # an agent's standing facts, visible with that agent
-  bosses/<userId>.md         # one member's scoped facts
+  bosses/<userId>.md         # one member's scoped facts (scope `member`; the folder keeps its old name)
   .oplog.jsonl               # legacy file, retained untouched; new rows use office.sqlite
 ```
 
@@ -101,12 +101,12 @@ enforced schema (no `factType` is persisted):
 
 | Kind                     | Example                              | Natural scope |
 | ------------------------ | ------------------------------------ | ------------- |
-| preference               | "no em dashes in prose"              | `boss`        |
+| preference               | "no em dashes in prose"              | `member`      |
 | convention               | "this room uses Bun"                 | room          |
 | rule / prohibition       | "never touch the 8788 daemon"        | room/office   |
 | environment / infra fact | "context composer runs on port 3456" | office        |
 | role                     | "Isomuxer4 pairs with Reviewer4"     | agent         |
-| contact / external       | "DNS for chess: A 66.241.124.181"    | `boss`/office |
+| contact / external       | "DNS for chess: A 66.241.124.181"    | `member`/office |
 
 The durability gate is **behavioral, not typed**: write lasting facts about
 people/projects/environment/rules; do NOT write work-in-progress (the session
@@ -114,9 +114,12 @@ transcript already holds that).
 
 ## 2. Scope model and trust boundary (same-user reality)
 
-Four scopes, but **the `boss` member scope is "context-scoped for auto-load," NOT a
+Four scopes, but **the `member` scope is "context-scoped for auto-load," NOT a
 confidentiality guarantee or a REST-private read**:
 
+- The `member` scope was called `boss` before task f41c93e9. The routes still
+  accept `boss`, and old audit rows name `memory:boss:<id>`; an audit filter on
+  either name finds both.
 - `office`, `room`, `agent` are cross-member visible by scope.
 - `bosses/<userId>.md` is structurally scoped only at **auto-load** time (below),
   not over REST.
@@ -172,14 +175,14 @@ attributed. This separation shrinks the blast radius of a bad agent write from
 shared pool."
 
 **Each scope has a hard maximum injected size** (`MEMORY_CAPS`: office 2500 / room
-10000 / agent 5000 / `boss` 5000 chars). APPEND refuses a write that would exceed
+10000 / agent 5000 / `member` 5000 chars). APPEND refuses a write that would exceed
 the scope cap. REPLACE refuses growth over the cap, but remains raw-in-raw-out and
 allows an over-cap legacy file to shrink. Legacy over-cap scopes still load in
 full and refuse further APPENDs. The REST READ is uncapped and reports the current
 injected size and cap.
 
 **2. On-demand (the long tail).** The REST **READ** (`GET /api/memory`) returns the
-**whole raw file plus its `version`**, for any scope (including `boss`) for any
+**whole raw file plus its `version`**, for any scope (including `member`) for any
 authenticated caller - member reads are NOT caller-scoped over REST (section 2). READ
 is also the first half of the read-modify-REPLACE edit flow. Raw `grep` over the
 files remains a documented _convenience, not a policy boundary_.
@@ -262,7 +265,7 @@ settings menu has a memory field** next to its prompt field.
 | office | office prompt modal                      | office memory |
 | room   | room settings modal                      | room memory   |
 | agent  | edit-agent dialog                        | agent memory  |
-| `boss` | member management (next to `memberPrompt`) | member memory |
+| `member` | member management (next to `memberPrompt`) | member memory |
 
 The field uses the **same READ/REPLACE verbs** as agents (a shared
 `useMemoryEditor` hook): on open it READs `{ text, version }`; on save it PUTs the
@@ -388,7 +391,7 @@ Deferred. Add only if real scale demands:
   read-modify-write within one store call is serialized by the single-threaded
   event loop, and the cross-request edit flow is guarded by the version.
 - **Per-scope hard injected-size caps** (office 2500 / room 10000 / agent 5000 /
-  `boss` 5000); APPEND cannot exceed them, REPLACE can shrink a legacy over-cap
+  `member` 5000); APPEND cannot exceed them, REPLACE can shrink a legacy over-cap
   scope, auto-load remains complete, and READ remains uncapped.
 - **Humans curate via each scope's settings field**, a thin client of the same
   READ/REPLACE verbs (`useMemoryEditor`); raw in, raw out.

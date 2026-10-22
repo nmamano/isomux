@@ -60,16 +60,16 @@ async function call(
 async function office() {
   server = await startTestServer();
   const srv = server;
-  const boss = await srv.seedOwner("Boss");
+  const morgan = await srv.seedOwner("Morgan");
   const member = await srv.seedMember("Member");
-  const bossId = getUserByName(boss.username)!.id;
+  const morganId = getUserByName(morgan.username)!.id;
   return {
     srv,
-    boss,
+    morgan,
     member,
-    bossId,
+    morganId,
     roomId: srv.agentManager.getRooms()[0].id,
-    agent: mintAgentToken("boss-privileged", bossId, true),
+    agent: mintAgentToken("morgan-privileged", morganId, true),
   };
 }
 type Office = Awaited<ReturnType<typeof office>>;
@@ -79,7 +79,7 @@ async function rows(o: Office, operation: string): Promise<Row[]> {
     o.srv,
     "GET",
     `/api/audit-log?operation=${operation}`,
-    { session: o.boss.rawSessionId },
+    { session: o.morgan.rawSessionId },
   );
   expect(res.status).toBe(200);
   return (res.body as { items: Row[] }).items;
@@ -96,7 +96,7 @@ interface Surface {
 async function bodyOf<T>(
   o: Office,
   path: string,
-  auth: Auth = { session: o.boss.rawSessionId },
+  auth: Auth = { session: o.morgan.rawSessionId },
 ): Promise<T> {
   const res = await call(o.srv, "GET", path, auth);
   expect(res.status).toBe(200);
@@ -177,7 +177,7 @@ const memberPrompt: Surface = {
 
 async function spawnTarget(o: Office): Promise<void> {
   const res = await call(o.srv, "POST", "/api/agents", {
-    session: o.boss.rawSessionId,
+    session: o.morgan.rawSessionId,
     body: {
       name: "Target",
       cwd: o.srv.stateRoot,
@@ -200,7 +200,7 @@ describe.each([
     const o = await office();
     await spawnTarget(o);
     const asAgent = { bearer: o.agent };
-    const asOwner = { session: o.boss.rawSessionId };
+    const asOwner = { session: o.morgan.rawSessionId };
 
     expect(await surface.write(o, asAgent, "Text A")).toBeLessThan(300);
     expect(await surface.write(o, asOwner, "Text B")).toBeLessThan(300);
@@ -216,12 +216,12 @@ describe.each([
     expect(written[1].actor).toEqual(
       expect.objectContaining({
         kind: "agent",
-        id: "boss-privileged",
-        ownerId: o.bossId,
+        id: "morgan-privileged",
+        ownerId: o.morganId,
       }),
     );
     expect(written[0].actor).toEqual(
-      expect.objectContaining({ kind: "member", id: o.bossId }),
+      expect.objectContaining({ kind: "member", id: o.morganId }),
     );
 
     // Restore: the agent writes row A's text back through the same route.
@@ -278,7 +278,7 @@ describe("rows that keep no prompt text", () => {
     expect(
       (
         await call(o.srv, "PATCH", `/api/users/${o.member.username}`, {
-          session: o.boss.rawSessionId,
+          session: o.morgan.rawSessionId,
           body: { avatarColor: "#336699" },
         })
       ).status,
@@ -317,8 +317,8 @@ describe("rows that keep no prompt text", () => {
     expect(byName("Briefed").actor).toEqual(
       expect.objectContaining({
         kind: "agent",
-        id: "boss-privileged",
-        ownerId: o.bossId,
+        id: "morgan-privileged",
+        ownerId: o.morganId,
       }),
     );
     expect(Object.keys(byName("Plain"))).not.toContain("promptContent");

@@ -27,7 +27,7 @@ describe("office static files", () => {
     "a hashed chunk comes compressed and immutable, and xterm.css revalidates to a 304 (needs ui/dist - run `bun run build:ui`)",
     async () => {
       server = await startTestServer();
-      const owner = await server.seedOwner("Boss");
+      const owner = await server.seedOwner("Morgan");
       const fetchAs = (path: string, headers: Record<string, string>) =>
         server!.http(path, {
           rawSessionId: owner.rawSessionId,

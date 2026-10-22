@@ -36,10 +36,13 @@ const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   secret_proxy: "audit.kind.secretProxy",
   auto_handoff: "audit.kind.autoHandoff",
 };
-const MEMORY_LABEL: Record<MemoryScope, PlainMessageKey> = {
+// Keyed by the scope in a memory:<scope>:<id> target. Rows written before
+// task f41c93e9 name the member scope "boss".
+const MEMORY_LABEL: Record<MemoryScope | "boss", PlainMessageKey> = {
   office: "audit.memory.office",
   room: "audit.memory.room",
   agent: "audit.memory.agent",
+  member: "audit.memory.member",
   boss: "audit.memory.member",
 } as const;
 
@@ -60,7 +63,7 @@ function targetName(
   if (id.startsWith("memory:")) {
     const [, scope, ...parts] = id.split(":");
     const scopeId = parts.join(":");
-    if (scope && scope in MEMORY_LABEL)
+    if (scope && Object.hasOwn(MEMORY_LABEL, scope))
       return (
         <>
           <span style={HINT}>

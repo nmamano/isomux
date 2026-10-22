@@ -102,7 +102,7 @@ function stubSocket() {
 describe("auth/sessions: expiry invalidates and evicts", () => {
   it("a lapsed ROLLING window stops validating and drops the row", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     expect(validateSession(owner.rawSessionId)).not.toBeNull();
     expect(listActiveSessions().length).toBe(1);
 
@@ -118,7 +118,7 @@ describe("auth/sessions: expiry invalidates and evicts", () => {
 
   it("a lapsed ABSOLUTE cap stops validating even with the rolling window wide open", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
 
     // Rolling window deliberately far in the future - only the absolute cap
     // has lapsed, so this fails only if the two clocks are checked together.
@@ -135,7 +135,7 @@ describe("auth/sessions: expiry invalidates and evicts", () => {
 
   it("the rolling refresh is clamped to the absolute cap, never past it", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const cap = Date.now() + 60 * 60 * 1000; // 1h left on the absolute cap
 
     // Rolling window nearly exhausted, absolute cap an hour out. An unclamped
@@ -159,7 +159,7 @@ describe("auth/sessions: expiry invalidates and evicts", () => {
 
   it("a session whose user record vanished stops validating (orphan sweep)", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
     expect(validateSession(alice.rawSessionId)).not.toBeNull();
 
@@ -177,7 +177,7 @@ describe("auth/sessions: expiry invalidates and evicts", () => {
 describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
   it("revoke by prefix notifies the socket, THEN closes it, and the cookie stops working", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
 
     const lookup = validateSession(alice.rawSessionId);
@@ -202,7 +202,7 @@ describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
 
   it("logout by hash and evict-by-user each close their own sockets only", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const alice1 = await server.seedMember("Alice");
 
     // A second device for Alice: accept a self-invite as her.
@@ -251,7 +251,7 @@ describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
 describe("auth/sessions: lockout-prevention arithmetic", () => {
   it("counts by RECORD role, so a promotion/demotion moves the last-owner line", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     await server.seedMember("Alice");
 
     const lOwner = validateSession(owner.rawSessionId)!;
@@ -267,7 +267,7 @@ describe("auth/sessions: lockout-prevention arithmetic", () => {
     expect(countActiveOwnerSessions()).toBe(2);
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(false);
 
-    // Demote her again and Boss is back to being the only way in.
+    // Demote her again and Morgan is back to being the only way in.
     expect(setUserRole("Alice", "member")).toBe(true);
     expect(countActiveOwnerSessions()).toBe(1);
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(true);
@@ -275,17 +275,17 @@ describe("auth/sessions: lockout-prevention arithmetic", () => {
 
   it("an EXPIRED owner session is not counted as a rescue session", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
     expect(setUserRole("Alice", "owner")).toBe(true);
     const lOwner = validateSession(owner.rawSessionId)!;
 
-    // Two live owner sessions: Boss's is not the last.
+    // Two live owner sessions: Morgan's is not the last.
     expect(countActiveOwnerSessions()).toBe(2);
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(false);
 
     // Lapse Alice's without revoking it - the row is still in the map, so a
-    // count that ignored the clock would keep reporting two and let Boss
+    // count that ignored the clock would keep reporting two and let Morgan
     // revoke the office's only usable way back in.
     expect(
       _testSetSessionExpiry(alice.rawSessionId, { expiresAt: Date.now() - 1 }),
@@ -297,24 +297,24 @@ describe("auth/sessions: lockout-prevention arithmetic", () => {
 
   it("wouldDeleteLeaveNoOwner guards the RECORD side of the same invariant", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     await server.seedMember("Alice");
 
     expect(countOwners()).toBe(1);
-    expect(wouldDeleteLeaveNoOwner(userIdOf("Boss"))).toBe(true);
+    expect(wouldDeleteLeaveNoOwner(userIdOf("Morgan"))).toBe(true);
     expect(wouldDeleteLeaveNoOwner(userIdOf("Alice"))).toBe(false); // not an owner
     expect(wouldDeleteLeaveNoOwner("no-such-id")).toBe(false);
 
     expect(setUserRole("Alice", "owner")).toBe(true);
     expect(countOwners()).toBe(2);
-    expect(wouldDeleteLeaveNoOwner(userIdOf("Boss"))).toBe(false);
+    expect(wouldDeleteLeaveNoOwner(userIdOf("Morgan"))).toBe(false);
   });
 });
 
 describe("auth/sessions: scoped revoke - lockout check runs AFTER the scope test", () => {
   it("a member probing the last owner's prefix gets the SAME answer as a prefix that never existed", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Morgan");
     const alice = await server.seedMember("Alice");
 
     const lOwner = validateSession(owner.rawSessionId)!;
@@ -350,7 +350,7 @@ describe("auth/sessions: scoped revoke - lockout check runs AFTER the scope test
     expect(
       await revokeActiveSessionByPrefixForUserId(
         lOwner.sessionPrefix,
-        userIdOf("Boss"),
+        userIdOf("Morgan"),
       ),
     ).toBe("would_strand_office");
     //   (b) Alice can revoke her own session.
@@ -362,7 +362,7 @@ describe("auth/sessions: scoped revoke - lockout check runs AFTER the scope test
 
   it("the scoped INVITE revoker hides foreign rows behind not_found too", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    await server.seedOwner("Morgan");
     await server.seedMember("Alice");
     await server.seedMember("Bob");
 
@@ -403,10 +403,10 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
   it("two sessions sharing a prefix: every revoke path answers ambiguous", async () => {
     let srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const lOwner = validateSession(owner.rawSessionId)!;
     const sharedPrefix = lOwner.sessionPrefix;
-    const ownerId = userIdOf("Boss");
+    const ownerId = userIdOf("Morgan");
 
     const file = join(srv.stateRoot, "sessions.json");
     const rows = JSON.parse(readFileSync(file, "utf-8")) as Record<
@@ -450,7 +450,7 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
   it("two invites sharing a prefix: both revoke paths answer ambiguous", async () => {
     let srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     await srv.seedMember("Alice");
 
     const m = await mintInvite({

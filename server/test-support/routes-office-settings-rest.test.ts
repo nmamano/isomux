@@ -114,7 +114,7 @@ describe("routes/office.getSettings REST", () => {
   it("owner -> 200 without envFile; member/agent -> 403; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -153,7 +153,7 @@ describe("routes/office.setSettings REST", () => {
   it("owner valid save -> 204, ignores stale envFile, and broadcasts", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     srv.agentManager.setOfficeSettings(null, "/legacy/office.env", null);
     const sock = await srv.connectWs(owner.rawSessionId);
 
@@ -206,7 +206,7 @@ describe("routes/office.setSettings REST", () => {
   it("retired panel settings are ignored", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     srv.agentManager.setOfficeSettings(null, null, null);
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
@@ -226,7 +226,7 @@ describe("routes/office.setSettings REST", () => {
   it("name over 60 chars -> 400, state untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const version = await officeVersion(srv, owner.rawSessionId);
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
@@ -240,7 +240,7 @@ describe("routes/office.setSettings REST", () => {
   it("missing version -> 400 invalid_version, state untouched (write must carry the GET's version)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
@@ -256,7 +256,7 @@ describe("routes/office.setSettings REST", () => {
   it("stale version -> 409 version_conflict with the CURRENT version, nothing written or emitted (checked before field validation)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
     // Writer A reads, then writer B saves - A's version is now stale.
     const staleVersion = await officeVersion(srv, owner.rawSessionId);
     expect(
@@ -306,7 +306,7 @@ describe("routes/office.setSettings REST", () => {
   it("name omitted preserves; explicit null clears (shared core, mirrors WS arm)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const owner = await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Morgan");
 
     expect(
       (
@@ -360,7 +360,7 @@ describe("routes/office.setSettings REST", () => {
   it("member/agent -> 403; no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);

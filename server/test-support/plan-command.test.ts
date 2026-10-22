@@ -41,7 +41,7 @@ async function setup(
 ): Promise<{ srv: TestServer; agent: AgentInfo; username: string }> {
   const srv = await startTestServer({ fakeBackend: backend });
   server = srv;
-  const owner = await srv.seedOwner("Boss");
+  const owner = await srv.seedOwner("Morgan");
   const room = srv.agentManager.getRooms()[0];
   const agent = await srv.agentManager.spawn(
     "A",
