@@ -97,7 +97,7 @@ it("creates a member from the editor with only record fields, then leaves create
       body: {
         name: "Pia",
         role: "member",
-        memberPrompt: "Explain each step.",
+        instructions: "Explain each step.",
         avatarColor: expect.stringMatching(/^#[0-9a-f]{6}$/),
         avatarVariant: "classic",
       },

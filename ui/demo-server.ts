@@ -20,6 +20,7 @@ import type {
   CronCreateReq,
   CronUpdateReq,
   CronPromptReq,
+  InstructionsReq,
   BackupStatusWire,
   OfficeSettingsReq,
   TaskCreateReq,
@@ -113,6 +114,43 @@ import { demoSecretsRoute } from "./demo-secrets.ts";
 import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { nextVariableNotes } from "../shared/connection-notes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
+
+// Every instruction layer's read answer: the text and its version.
+function demoInstructions(text: string | null) {
+  return { instructions: text, version: versionOf(text ?? "") };
+}
+
+// Every instruction layer's PUT, with the server's version rule. `write`
+// stores the text (null clears) and returns what it stored.
+function demoInstructionsPut(
+  body: unknown,
+  current: string | null,
+  write: (text: string | null) => string | null,
+) {
+  const b = (body ?? {}) as Partial<InstructionsReq>;
+  if (typeof b.version !== "string" || b.version.length === 0)
+    throw new ApiError(
+      400,
+      "invalid_version",
+      "version is required (from a preceding GET of the instructions)",
+    );
+  if (b.instructions !== null && typeof b.instructions !== "string")
+    throw new ApiError(
+      422,
+      "invalid_request",
+      "instructions must be a string, or null to clear",
+    );
+  if (b.version !== versionOf(current ?? ""))
+    throw new ApiError(
+      409,
+      "version_conflict",
+      "the instructions changed since your read; re-read and retry",
+      { version: versionOf(current ?? "") },
+    );
+  return demoInstructions(
+    write(b.instructions && b.instructions.trim() ? b.instructions : null),
+  );
+}
 
 const state = new OfficeState();
 const demoAudit: AuditEntry[] = [];
@@ -2833,6 +2871,29 @@ export async function demoApi(
       shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
       return undefined;
     }
+    // cron.{read,set}Instructions - the schedule instructions dialog.
+    case "GET /api/cron-instructions":
+      return demoInstructions(cronjobsPrompt);
+    case "PUT /api/cron-instructions":
+      return demoInstructionsPut(body, cronjobsPrompt, (text) => {
+        cronjobsPrompt = text;
+        shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
+        return cronjobsPrompt;
+      });
+    // office.{read,set}Instructions - the office pane's text.
+    case "GET /api/office/instructions":
+      return demoInstructions(state.office.prompt);
+    case "PUT /api/office/instructions":
+      return demoInstructionsPut(body, state.office.prompt, (text) => {
+        emitEvents(
+          state.setOfficeSettings(
+            text,
+            state.office.envFile,
+            state.office.name,
+          ),
+        );
+        return state.office.prompt;
+      });
     // office.getSettings - the settings modal reads the optimistic-concurrency
     // version on open (production requires it back on the PUT). The demo is
     // single-writer so conflicts can't happen: serve a fixed token and let the
@@ -3207,7 +3268,7 @@ export async function demoApi(
             ? null
             : b.desk,
         roomId: b.roomId,
-        customInstructions: b.customInstructions,
+        customInstructions: b.instructions ?? b.customInstructions,
         outfit: b.outfit,
         modelFamily: b.modelFamily,
         effort: b.effort,
@@ -3574,6 +3635,22 @@ export async function demoApi(
     shimEmit({ type: "users_list", users: [...users.values()] });
     return { user: updated };
   }
+  // users.{read,set}Instructions - the member profile's text.
+  const memberInstructionsMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/instructions$/,
+  );
+  if (memberInstructionsMatch && (method === "GET" || method === "PUT")) {
+    const key = decodeURIComponent(memberInstructionsMatch[1]).toLowerCase();
+    const user = users.get(key);
+    if (!user) throw new ApiError(404, "not_found", "Member not found.");
+    if (method === "GET") return demoInstructions(user.memberPrompt);
+    return demoInstructionsPut(body, user.memberPrompt, (text) => {
+      const updated: UserRecord = { ...user, memberPrompt: text };
+      users.set(key, updated);
+      shimEmit({ type: "user_updated", user: updated });
+      return updated.memberPrompt;
+    });
+  }
   const memberPromptMatch = pathname.match(
     /^\/api\/users\/([^/]+)\/member-prompt$/,
   );
@@ -3677,6 +3754,21 @@ export async function demoApi(
   // rooms.setSettings (PUT .../settings) - set the prompt + broadcast
   // room_settings_updated. No settings_save_response (the dialog reads the HTTP
   // response now); returns no body (204-like). Listed before the bare /:id route.
+  // rooms.{read,set}Instructions - the room pane's text.
+  const roomInstructionsMatch = pathname.match(
+    /^\/api\/rooms\/([^/]+)\/instructions$/,
+  );
+  if (roomInstructionsMatch && (method === "GET" || method === "PUT")) {
+    const id = decodeURIComponent(roomInstructionsMatch[1]);
+    const prompt = () => state.rooms.find((r) => r.id === id)?.prompt ?? null;
+    if (!state.rooms.some((r) => r.id === id))
+      throw new ApiError(404, "room_not_found", "Room not found");
+    if (method === "GET") return demoInstructions(prompt());
+    return demoInstructionsPut(body, prompt(), (text) => {
+      emitEvents(state.setRoomSettings(id, text));
+      return prompt();
+    });
+  }
   const roomSettingsMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   // rooms.getSettings - the settings modal reads the optimistic-concurrency
   // version on open (production requires it back on the PUT). Single-writer
@@ -3803,19 +3895,39 @@ export async function demoApi(
       "Revive is not supported in the demo.",
     );
   }
+  // agents.{read,set}Instructions - an agent's text.
+  const agentInstructionsMatch = pathname.match(
+    /^\/api\/agents\/([^/]+)\/instructions$/,
+  );
+  if (agentInstructionsMatch && (method === "GET" || method === "PUT")) {
+    const id = decodeURIComponent(agentInstructionsMatch[1]);
+    const agent = state.getAgent(id);
+    if (!agent) throw new ApiError(404, "agent_not_found", "Agent not found");
+    if (method === "GET") return demoInstructions(agent.customInstructions);
+    return demoInstructionsPut(body, agent.customInstructions, (text) => {
+      emitEvents(state.editAgent(id, { customInstructions: text ?? "" }));
+      return state.getAgent(id)?.customInstructions ?? null;
+    });
+  }
   // agents.kill (DELETE /api/agents/:id) + agents.update (PATCH /api/agents/:id).
   const agentIdMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
   if (agentIdMatch && (method === "DELETE" || method === "PATCH")) {
     const id = decodeURIComponent(agentIdMatch[1]);
     if (method === "PATCH") {
-      const changes = (body ?? {}) as EditAgentReq;
+      const {
+        instructions,
+        instructionsVersion: _version,
+        ...changes
+      } = (body ?? {}) as EditAgentReq;
       // OfficeState.editAgent wants customInstructions string|undefined; the REST
       // type widens it to allow null (the AgentInfo Pick). The dialog clears via
-      // "", never null, so coerce to preserve parity.
+      // "", never null, so coerce to preserve parity. `instructions` is the
+      // field's new name.
       emitEvents(
         state.editAgent(id, {
           ...changes,
-          customInstructions: changes.customInstructions ?? undefined,
+          customInstructions:
+            instructions ?? changes.customInstructions ?? undefined,
         }),
       );
       // A rename carries the agent's tasks along, as on the server.
@@ -3852,7 +3964,7 @@ export async function demoApi(
     const draft =
       body as import("../shared/contract-shapes.ts").AgentSystemPromptPreviewReq;
     return {
-      prompt: `# Isomux demo agent: ${draft.name}\n\nEngine: ${draft.agentType}\n\nInstructions:\n${draft.customInstructions}\n\nMemory:\n${draft.memory ?? ""}`,
+      prompt: `# Isomux demo agent: ${draft.name}\n\nEngine: ${draft.agentType}\n\nInstructions:\n${draft.instructions}\n\nMemory:\n${draft.memory ?? ""}`,
     };
   }
   // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) - swap + broadcast.

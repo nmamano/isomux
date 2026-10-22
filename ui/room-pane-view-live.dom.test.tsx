@@ -27,11 +27,11 @@ it("an untouched control follows a record change, and a list is read after a cha
   expect(box(view, "tucked")!.checked).toBe(true);
   expect(box(view, "notif")!.checked).toBe(true);
 
-  // A notifications change elsewhere lands while the room settings write is
-  // in flight: the notifications list is built after it, not before.
+  // A notifications change elsewhere lands while the room instructions write
+  // is in flight: the notifications list is built after it, not before.
   const gate = h.hold();
   const isSettingsPut = (c: Call) =>
-    c.method === "PUT" && c.path.endsWith("/settings");
+    c.method === "PUT" && c.path.endsWith("/instructions");
   setOnCall((c) => (isSettingsPut(c) ? gate.response : undefined));
   try {
     await h.startSave(view);

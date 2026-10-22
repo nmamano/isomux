@@ -1152,6 +1152,11 @@ const SPEC_ROUTE_CONTRACT: Record<
   // caps: [] = `authenticated`-kind (task 68891fa1): every agent may READ the
   // blob + version; only the WRITE (agents.update) is capability-gated.
   "agents.readInstructions": { caps: [], emits: [] },
+  // The write pair of readInstructions: agents.update's capability and event.
+  "agents.setInstructions": {
+    caps: ["agent:manage"],
+    emits: ["agent_updated"],
+  },
   "agents.readSystemPrompt": { caps: [], emits: [] },
   // Same envelope as readSystemPrompt, computed from unsaved form fields;
   // the room guard on the body is the access check, nothing is written.
@@ -1346,6 +1351,11 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["room:manage"],
     emits: ["room_settings_updated"],
   },
+  "rooms.readInstructions": { caps: ["room:manage"], emits: [] },
+  "rooms.setInstructions": {
+    caps: ["room:manage"],
+    emits: ["room_settings_updated"],
+  },
   // View preferences
   "view.setOrder": { caps: ["view:manage"], emits: ["full_state"] },
   "view.setShown": {
@@ -1466,6 +1476,15 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: [],
   },
+  "users.readInstructions": {
+    caps: ["user:self", "user:admin", "user:prompt"],
+    emits: [],
+  },
+  // Writes only the text, so no role change and no full_state.
+  "users.setInstructions": {
+    caps: ["user:self", "user:admin", "user:prompt"],
+    emits: ["user_updated", "users_list"],
+  },
   "users.update": {
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: ["user_updated", "users_list", "full_state"],
@@ -1505,6 +1524,11 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Office settings, validation, backends
   "office.getSettings": { caps: ["office:settings"], emits: [] },
   "office.setSettings": {
+    caps: ["office:settings"],
+    emits: ["office_settings_updated"],
+  },
+  "office.readInstructions": { caps: ["office:settings"], emits: [] },
+  "office.setInstructions": {
     caps: ["office:settings"],
     emits: ["office_settings_updated"],
   },
@@ -1584,6 +1608,11 @@ const SPEC_ROUTE_CONTRACT: Record<
   "cron.delete": { caps: ["cron:manage"], emits: ["cronjob_deleted"] },
   "cron.runNow": { caps: ["cron:manage"], emits: ["cronjob_run_updated"] },
   "cron.setPrompt": {
+    caps: ["cron:manage"],
+    emits: ["cronjobs_prompt_updated"],
+  },
+  "cron.readInstructions": { caps: ["cron:manage"], emits: [] },
+  "cron.setInstructions": {
     caps: ["cron:manage"],
     emits: ["cronjobs_prompt_updated"],
   },
@@ -2091,6 +2120,7 @@ const API_REACHABLE_OPIDS = [
   "agents.abort",
   "agents.update",
   "agents.readInstructions",
+  "agents.setInstructions",
   "agents.readSystemPrompt",
   "agents.previewSystemPrompt",
   "agents.move",
@@ -2137,6 +2167,8 @@ const API_REACHABLE_OPIDS = [
   "rooms.rename",
   "rooms.getSettings",
   "rooms.setSettings",
+  "rooms.readInstructions",
+  "rooms.setInstructions",
   "voice.status",
   "voice.transcribe",
   "voice.speak",
@@ -2189,8 +2221,12 @@ const API_REACHABLE_OPIDS = [
   // users.update is absent only because this body carries keys other than the
   // prompt fields; routes-users-rest.test.ts covers a token's prompt edit.
   "users.readMemberPrompt",
+  "users.readInstructions",
+  "users.setInstructions",
   "office.getSettings",
   "office.setSettings",
+  "office.readInstructions",
+  "office.setInstructions",
   "validate.cwd",
   "backends.listModels",
   "tasks.list",
@@ -2386,7 +2422,7 @@ describe("member prompt route authority", () => {
     roomExists: () => false,
     cronRunVisibleTo: () => false,
   };
-  it("opens only the two prompt routes to a privileged member's agent", () => {
+  it("opens only the member prompt routes to a privileged member's agent", () => {
     const identity: Identity = {
       scope: "agent",
       agentId: "a1",
@@ -2407,7 +2443,12 @@ describe("member prompt route authority", () => {
     )
       .map((r) => r.opId)
       .sort();
-    expect(reachable).toEqual(["users.readMemberPrompt", "users.update"]);
+    expect(reachable).toEqual([
+      "users.readInstructions",
+      "users.readMemberPrompt",
+      "users.setInstructions",
+      "users.update",
+    ]);
     for (const opId of reachable) {
       const route = API_ROUTES.find((r) => r.opId === opId)!;
       expect(

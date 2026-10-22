@@ -371,7 +371,7 @@ App 的一些原则：
   "common.noRooms": "还没有房间。",
   "common.prefix": "前缀",
   "common.revoke": "撤销",
-  "common.rules": "规则",
+  "common.instructions": "指令",
   "common.role": "角色",
   "common.rooms": "房间",
   "common.signOut": "退出登录",
@@ -466,10 +466,10 @@ App 的一些原则：
   "settings.office.name": "办公室名称",
   "settings.office.nameHint": "（可选，显示在浏览器标签页中）",
   "settings.office.namePlaceholder": "Nil 的办公室",
-  "settings.office.rulesHint": "（所有智能体的系统提示词）",
-  "settings.office.rulesTitle": "办公室规则",
+  "settings.office.rulesHint": "（添加到每个智能体的系统提示词中）",
+  "settings.office.rulesTitle": "办公室指令",
   "settings.office.rulesExpandedHint":
-    "所有智能体的系统提示词。更改将在下一次对话中生效。",
+    "添加到每个智能体的系统提示词中。更改将在下一次对话中生效。",
   "settings.office.rulesPlaceholder":
     "例如：始终编写测试。使用 TypeScript。保持简洁。",
   "settings.office.memoryHint":
@@ -500,9 +500,9 @@ App 的一些原则：
   "settings.room.backRoomHint": "可容纳超过 {count} 位智能体，经活板门进入。",
   "settings.room.backRoomInUse.one": "后屋里有 {count} 位智能体，请先移出。",
   "settings.room.backRoomInUse.other": "后屋里有 {count} 位智能体，请先移出。",
-  "settings.room.prompt": "房间提示词",
-  "settings.room.promptHint": "（可选，附加在办公室提示词之后）",
-  "settings.room.promptTitle": "{room} · 房间提示词",
+  "settings.room.prompt": "指令",
+  "settings.room.promptHint": "（可选，附加在办公室指令之后）",
+  "settings.room.promptTitle": "{room} · 房间指令",
   "settings.room.promptPlaceholder":
     "例如：你在营销房间中。请使用我们的品牌语气。",
   "settings.room.promptNote":
@@ -510,8 +510,6 @@ App 的一些原则：
   "settings.room.memoryHint": "（此房间的长期信息；原始行；{size} / {cap}）",
   "settings.room.memoryTitle": "{room} · 记忆",
   "settings.room.memoryPlaceholder": "与此房间相关的记忆",
-  "settings.room.reloadFailed":
-    "已保存，但此页面无法重新加载房间。请先选择其他行，再返回继续编辑。",
   "settings.room.conflict":
     "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.room.deleteEmpty": "删除空房间",
@@ -1150,12 +1148,14 @@ App 的一些原则：
   "dialogs.textarea.expand": "展开 {title}",
   "dialogs.textarea.escCollapse": "按 Esc 折叠",
   "dialogs.textarea.done": "完成",
-  "dialogs.schedulePrompt.title": "定时任务设置",
-  "dialogs.schedulePrompt.rulesHint": "（所有定时任务的系统提示词）",
+  "dialogs.schedulePrompt.title": "定时任务指令",
+  "dialogs.schedulePrompt.rulesHint":
+    "（添加到每次定时任务运行的系统提示词中）",
   "dialogs.schedulePrompt.rulesPlaceholder":
     "例如：始终将发现写入 Markdown 文件。保持简短。",
   "dialogs.schedulePrompt.appliedNextRun":
     "将在下次运行时应用；正在运行的任务使用其已记录的快照。",
+  "dialogs.schedulePrompt.loadFailed": "无法加载定时任务指令。",
   "common.field.engine": "引擎",
   "common.field.model": "模型",
   "common.field.effort": "推理强度",
@@ -1492,6 +1492,15 @@ App 的一些原则：
   "apiCall.users.updatePrompt": "编辑成员特别指令",
   "apiCall.office.readSettings": "读取办公室设置",
   "apiCall.office.saveSettings": "更改办公室设置",
+  "apiCall.office.readInstructions": "读取办公室指令",
+  "apiCall.office.saveInstructions": "更改办公室指令",
+  "apiCall.rooms.readInstructions": "读取房间指令",
+  "apiCall.rooms.saveInstructions": "更改房间指令",
+  "apiCall.agents.saveInstructions": "更改智能体指令",
+  "apiCall.users.readInstructions": "读取成员指令",
+  "apiCall.users.saveInstructions": "更改成员指令",
+  "apiCall.cronjobs.readInstructions": "读取定时任务指令",
+  "apiCall.cronjobs.saveInstructions": "更改定时任务指令",
   "apiCall.users.create": "创建成员",
   "apiCall.users.createNamed": "创建成员 {name}",
   "apiCall.env.readUser": "读取托管环境",

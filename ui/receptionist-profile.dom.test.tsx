@@ -69,7 +69,8 @@ describe("receptionist profile dialog", () => {
           permissionMode: "bypassPermissions",
           name: label,
         });
-        expect(String(submission().customInstructions)).toContain(
+        expect(submission()).not.toHaveProperty("customInstructions");
+        expect(String(submission().instructions)).toContain(
           "Never ask for or repeat secrets",
         );
       }

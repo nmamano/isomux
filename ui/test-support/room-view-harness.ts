@@ -46,7 +46,10 @@ export function installApiShim() {
     calls.push(c);
     const answer = await onCall(c);
     if (answer !== undefined) return answer;
-    if (path.endsWith("/settings")) return { prompt: "", version: "0" };
+    // The room pane reads and writes its text at .../instructions (task
+    // 379ae5db).
+    if (path.endsWith("/instructions"))
+      return { instructions: "", version: "0" };
     if (path.startsWith("/api/memory"))
       return { text: "", version: "0", size: 0, cap: 4000 };
     if (path === "/api/me/rooms")

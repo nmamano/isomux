@@ -3,6 +3,8 @@ import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type {
+  InstructionsReq,
+  InstructionsRes,
   OfficeSettingsReq,
   OfficeSettingsRes,
 } from "../../shared/contract-shapes.ts";
@@ -24,7 +26,7 @@ type ValidationStatus =
   | { kind: "ok"; keyCount?: number }
   | { kind: "error"; message: string };
 
-// Office name, prompt and memory. Storage and Usage used to hang off buttons
+// Office name, instructions and memory. Storage and Usage used to hang off buttons
 // inside this dialog; they are sibling sidebar rows now, so they are gone from
 // here.
 export function OfficePane({
@@ -45,16 +47,19 @@ export function OfficePane({
   // guarded save). Disabled until the load resolves; saved separately from the
   // office settings PUT.
   const mem = useMemoryEditor("office", null, !readOnly);
-  // The settings PUT is version-guarded (optimistic concurrency, mirroring the
-  // memory editor): GET on open (owner-only GET, so skip for read-only members
-  // - they never save), send the version back on save; a 409 means another
-  // writer saved since. The token must stay coupled to the BYTES read with it,
-  // so ALL guarded fields (prompt/name - one version over the whole
-  // blob) hydrate from the same GET response; never pair store-snapshot fields
-  // with the GET's version, or a fresher server blob gets silently blessed
-  // over. Until the load resolves the fields are read-only and Save stays
+  // The name and the instructions are two version-guarded routes (optimistic
+  // concurrency, mirroring the memory editor): GET each on open (owner-only
+  // GETs, so skip for read-only members - they never save), send each version
+  // back on save; a 409 means another writer saved since. Each token stays
+  // coupled to the BYTES read with it: the name hydrates from the settings GET,
+  // the text from the instructions GET; never pair store-snapshot fields with
+  // a GET's version, or a fresher server value gets silently blessed over.
+  // Until both loads resolve the fields are read-only and Save stays
   // disabled; the store values paint first purely as placeholders.
   const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
+  const [instructionsVersion, setInstructionsVersion] = useState<string | null>(
+    null,
+  );
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -67,23 +72,27 @@ export function OfficePane({
   const [baselineName, setBaselineName] = useState("");
   const [baselinePrompt, setBaselinePrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const settingsLoaded = settingsVersion != null;
+  const settingsLoaded = settingsVersion != null && instructionsVersion != null;
 
   useEffect(() => {
     if (readOnly) return;
     let cancelled = false;
-    apiFetch<OfficeSettingsRes>("GET", "/api/office/settings")
-      .then((r) => {
+    Promise.all([
+      apiFetch<OfficeSettingsRes>("GET", "/api/office/settings"),
+      apiFetch<InstructionsRes>("GET", "/api/office/instructions"),
+    ])
+      .then(([settings, instructions]) => {
         if (cancelled) return;
-        setText(r.prompt ?? "");
-        setName(r.name ?? "");
-        setBaselinePrompt(r.prompt ?? "");
-        setBaselineName(r.name ?? "");
-        setSettingsVersion(r.version);
+        setText(instructions.instructions ?? "");
+        setName(settings.name ?? "");
+        setBaselinePrompt(instructions.instructions ?? "");
+        setBaselineName(settings.name ?? "");
+        setSettingsVersion(settings.version);
+        setInstructionsVersion(instructions.version);
       })
       .catch(() => {
-        // Leave version null -> fields stay read-only, Save stays disabled
-        // (no way to write safely).
+        // Leave the versions null -> fields stay read-only, Save stays
+        // disabled (no way to write safely).
       });
     return () => {
       cancelled = true;
@@ -91,34 +100,27 @@ export function OfficePane({
   }, [readOnly]);
 
   async function handleSave() {
-    // The office settings PUT and the memory REPLACE are separate calls: memory
-    // rides the permissive /api/memory surface, not the owner-only settings
-    // endpoint. Either failing surfaces server.message in the shared status slot
-    // and keeps the reader on the pane; a memory conflict (409) says so.
-    if (settingsVersion == null) return;
+    // The name (settings PUT), the instructions (instructions PUT) and the
+    // memory REPLACE are separate calls, each sent only when its field
+    // changed. Settings go first: until the old prompt field is retired, the
+    // settings version also covers the text, so an instructions write first
+    // would spend the version the settings write carries. A failure surfaces
+    // server.message in the shared status slot and keeps the reader on the
+    // pane; what saved before it stays saved, and the rest stays dirty.
+    if (settingsVersion == null || instructionsVersion == null) return;
     setSaving(true);
-    const body: OfficeSettingsReq = {
-      prompt: text.trim() ? text : null,
-      name: name.trim() || null,
-      version: settingsVersion,
-    };
-    try {
-      await apiFetch<void>("PUT", "/api/office/settings", body);
-      // The PUT SPENT the token, so refresh it here - before anything that can
-      // fail and return, or a memory conflict would leave the token spent and
-      // the next Save would blame a phantom concurrent writer. Its own
-      // try/catch, because a failed re-read is not a failed save. The fields
-      // are set from the response too, so a value the server normalized (an
-      // all-whitespace prompt stored as null) cannot leave the field and the
-      // baseline disagreeing.
+    // Either write moves the settings version, so it is re-read after any
+    // write lands - also when a later step fails, or the next Save would
+    // blame a phantom concurrent writer. Its own try/catch, because a failed
+    // re-read is not a failed save.
+    let wrote = false;
+    const refreshSettingsVersion = async () => {
       try {
         const next = await apiFetch<OfficeSettingsRes>(
           "GET",
           "/api/office/settings",
         );
-        setText(next.prompt ?? "");
         setName(next.name ?? "");
-        setBaselinePrompt(next.prompt ?? "");
         setBaselineName(next.name ?? "");
         setSettingsVersion(next.version);
       } catch {
@@ -131,6 +133,38 @@ export function OfficePane({
           message: t("settings.office.reloadFailed"),
         });
       }
+    };
+    try {
+      if (name !== baselineName) {
+        const body: OfficeSettingsReq = {
+          name: name.trim() || null,
+          version: settingsVersion,
+        };
+        await apiFetch<void>("PUT", "/api/office/settings", body);
+        wrote = true;
+        setBaselineName(name);
+      }
+      if (text !== baselinePrompt) {
+        const body: InstructionsReq = {
+          instructions: text.trim() ? text : null,
+          version: instructionsVersion,
+        };
+        // The answer is the stored text and its version, so a value the
+        // server normalized (an all-whitespace text stored as null) cannot
+        // leave the field and the baseline disagreeing.
+        const saved = await apiFetch<InstructionsRes>(
+          "PUT",
+          "/api/office/instructions",
+          body,
+        );
+        wrote = true;
+        setText(saved.instructions ?? "");
+        setBaselinePrompt(saved.instructions ?? "");
+        setInstructionsVersion(saved.version);
+      }
+      // Before anything that can fail and return: a memory conflict must not
+      // leave the settings token spent.
+      if (wrote) await refreshSettingsVersion();
       setSavedAt(Date.now());
       const m = await mem.save();
       if (!m.ok) {
@@ -138,6 +172,7 @@ export function OfficePane({
         return;
       }
     } catch (e) {
+      if (wrote) await refreshSettingsVersion();
       if (e instanceof ApiError && e.code === "version_conflict") {
         setStatus({
           kind: "error",
@@ -258,7 +293,7 @@ export function OfficePane({
             marginBottom: 5,
           }}
         >
-          {t("common.rules")}{" "}
+          {t("common.instructions")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
             {t("settings.office.rulesHint")}
           </span>
@@ -373,7 +408,7 @@ export function OfficePane({
               <button
                 onClick={() => void handleSave()}
                 style={saveBtnStyle}
-                disabled={saving || settingsVersion == null}
+                disabled={saving || !settingsLoaded}
               >
                 {saving
                   ? t("common.saving")

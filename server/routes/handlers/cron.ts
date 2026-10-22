@@ -26,6 +26,11 @@ import {
   type RouteHandler,
   type HandlerErrorStatus,
 } from "../executor.ts";
+import {
+  instructionsConflict,
+  instructionsRes,
+  parseInstructionsWrite,
+} from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { RunSendResult } from "../../internal-types.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
@@ -79,6 +84,8 @@ export interface CronDeps {
   }): Promise<Cronjob>;
   updateCronjob(id: string, changes: CronUpdateReq): Promise<Cronjob | null>;
   deleteCronjob(id: string): boolean;
+  // The instructions every schedule run gets (null: none).
+  getPrompt(): string | null;
   setPrompt(value: string | null): void;
   runNow(id: string, username: string): CronjobRun | null;
   runsForCronjob(jobId: string): CronjobRun[];
@@ -284,6 +291,21 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       const { username } = deps.attributionFor(ctx.identity);
       const run = deps.runNow(ctx.params.id, username ?? "unknown");
       return run ? ok({ runId: run.id }) : fail(404, "not_found");
+    },
+
+    // The schedule instructions: the same store as cron.setPrompt, the old
+    // name kept for one release. The version guards one owner tab's write
+    // against another's. Check-then-write is atomic on the event loop.
+    "cron.readInstructions": () => ok(instructionsRes(deps.getPrompt())),
+
+    "cron.setInstructions": (ctx) => {
+      const input = parseInstructionsWrite(ctx.body);
+      if (!input.ok) return input.result;
+      const current = instructionsRes(deps.getPrompt());
+      if (input.version !== current.version)
+        return instructionsConflict(current.version);
+      deps.setPrompt(input.instructions);
+      return ok(instructionsRes(deps.getPrompt()));
     },
 
     "cron.setPrompt": (ctx) => {

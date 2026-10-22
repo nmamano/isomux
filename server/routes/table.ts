@@ -234,6 +234,8 @@ import type {
   CronUpdateReq,
   CronRunMessageReq,
   CronPromptReq,
+  InstructionsReq,
+  InstructionsRes,
   UserSelfWire,
   MemberPromptRes,
   UserAdminWire,
@@ -415,11 +417,11 @@ type ScheduledAck = { scheduledId: string; deliverAt: string };
 type ScheduledMessagesListRes = { scheduled: ScheduledMessageEntry[] };
 type QueueReadRes = { queue: QueuedMessageView[] };
 type AgentEnvelope = { agent: AgentInfo };
-// agents.readInstructions: the customInstructions blob + its
-// concurrency token - the read half of the read-then-PATCH flow that
-// agents.update's version guard expects. Field names match
-// EditAgentReq exactly so a caller reads, edits, and echoes the version back.
-type AgentInstructionsRes = {
+// agents.readInstructions: the agent's instructions + their concurrency token -
+// the read half of the read-then-write flow that agents.setInstructions and
+// agents.update's version guard expect.
+type AgentInstructionsRes = InstructionsRes & {
+  // Old names, kept for one release.
   customInstructions: string | null;
   customInstructionsVersion: string;
 };
@@ -558,6 +560,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/instructions",
     auth: authn(agentParam("id")),
     emits: [],
+  }),
+  // The write half: same auth as agents.update, which also takes the text.
+  defineRoute<InstructionsReq, InstructionsRes>({
+    opId: "agents.setInstructions",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/agents/:id/instructions",
+    auth: cap("agent:manage", agentParam("id")),
+    emits: ["agent_updated"],
   }),
   defineRoute<void, AgentSystemPromptRes>({
     opId: "agents.readSystemPrompt",
@@ -1223,6 +1234,23 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/rooms/:roomId/settings",
+    auth: cap("room:manage", roomParam("roomId")),
+    emits: ["room_settings_updated"],
+  }),
+  // The room's instructions. rooms.setSettings and the prompt fields of
+  // rooms.getSettings are their old names, kept for one release.
+  defineRoute<void, InstructionsRes>({
+    opId: "rooms.readInstructions",
+    method: "GET",
+    path: "/api/rooms/:roomId/instructions",
+    auth: cap("room:manage", roomParam("roomId")),
+    emits: [],
+  }),
+  defineRoute<InstructionsReq, InstructionsRes>({
+    opId: "rooms.setInstructions",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/rooms/:roomId/instructions",
     auth: cap("room:manage", roomParam("roomId")),
     emits: ["room_settings_updated"],
   }),
@@ -1933,6 +1961,30 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     emits: [],
   }),
+  // The member's instructions. users.readMemberPrompt and the memberPrompt
+  // fields of users.update are their old names, kept for one release. The PUT
+  // writes only the text, so a proxy agent needs no body-key check.
+  defineRoute<void, InstructionsRes>({
+    opId: "users.readInstructions",
+    method: "GET",
+    path: "/api/users/:username/instructions",
+    auth: cap(
+      ["user:self", "user:admin", "user:prompt"],
+      or(selfOrOwner, proxyMemberPrompt),
+    ),
+    emits: [],
+  }),
+  defineRoute<InstructionsReq, InstructionsRes>({
+    opId: "users.setInstructions",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/users/:username/instructions",
+    auth: cap(
+      ["user:self", "user:admin", "user:prompt"],
+      or(selfOrOwner, proxyMemberPrompt),
+    ),
+    emits: ["user_updated", "users_list"],
+  }),
   // Humans receive { user: UserSelfWire | UserAdminWire } (same UserRecord
   // shape); agents and API tokens receive only MemberPromptRes. The handler
   // shapes the response.
@@ -2137,6 +2189,23 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/office/settings",
+    auth: cap("office:settings", officeSettingsOwner),
+    emits: ["office_settings_updated"],
+  }),
+  // The office instructions. Their version covers the text only. The prompt
+  // field of office.{get,set}Settings is the old name, kept for one release.
+  defineRoute<void, InstructionsRes>({
+    opId: "office.readInstructions",
+    method: "GET",
+    path: "/api/office/instructions",
+    auth: cap("office:settings", officeSettingsOwner),
+    emits: [],
+  }),
+  defineRoute<InstructionsReq, InstructionsRes>({
+    opId: "office.setInstructions",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "PUT",
+    path: "/api/office/instructions",
     auth: cap("office:settings", officeSettingsOwner),
     emits: ["office_settings_updated"],
   }),
@@ -2712,6 +2781,24 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/cron-prompt",
     // off the :id namespace to avoid shadowing /api/cronjobs/:id.
+    auth: cap("cron:manage", officeOwner),
+    emits: ["cronjobs_prompt_updated"],
+  }),
+  // The instructions every schedule run gets. cron.setPrompt is the old
+  // name, kept for one release. The version guards one owner's tab against
+  // another's.
+  defineRoute<void, InstructionsRes>({
+    opId: "cron.readInstructions",
+    method: "GET",
+    path: "/api/cron-instructions",
+    auth: cap("cron:manage", officeOwner),
+    emits: [],
+  }),
+  defineRoute<InstructionsReq, InstructionsRes>({
+    opId: "cron.setInstructions",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "PUT",
+    path: "/api/cron-instructions",
     auth: cap("cron:manage", officeOwner),
     emits: ["cronjobs_prompt_updated"],
   }),

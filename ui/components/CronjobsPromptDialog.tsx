@@ -2,15 +2,47 @@ import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import type { CronPromptReq } from "../../shared/contract-shapes.ts";
+import type {
+  InstructionsReq,
+  InstructionsRes,
+} from "../../shared/contract-shapes.ts";
 
 export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const { cronjobsPrompt, isMobile } = useAppState();
   const [text, setText] = useState(cronjobsPrompt ?? "");
+  // The version of the text read on open. The save sends it back, so a write
+  // from a stale tab is a 409 instead of a silent overwrite. Save stays
+  // disabled until the read lands.
+  const [version, setVersion] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed read without a server message, translated at render so a
+  // language switch never re-runs the read.
+  const [loadFailed, setLoadFailed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Read once on open. The field stays read-only until the read lands, so the
+  // answer never overwrites a draft.
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<InstructionsRes>("GET", "/api/cron-instructions")
+      .then((r) => {
+        if (cancelled) return;
+        setText(r.instructions ?? "");
+        setVersion(r.version);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e instanceof ApiError) setError(e.message);
+        else setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const shownError =
+    error ?? (loadFailed ? t("dialogs.schedulePrompt.loadFailed") : null);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -32,10 +64,14 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   function handleSave() {
+    if (version == null) return;
     setSaving(true);
     setError(null);
-    const body: CronPromptReq = { value: text.trim() ? text : null };
-    apiFetch("PUT", "/api/cron-prompt", body)
+    const body: InstructionsReq = {
+      instructions: text.trim() ? text : null,
+      version,
+    };
+    apiFetch("PUT", "/api/cron-instructions", body)
       .then(() => onClose())
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : t("common.saveFailed")),
@@ -96,7 +132,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             marginBottom: 5,
           }}
         >
-          {t("common.rules")}{" "}
+          {t("common.instructions")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
             {t("dialogs.schedulePrompt.rulesHint")}
           </span>
@@ -105,6 +141,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          readOnly={version == null}
           placeholder={t("dialogs.schedulePrompt.rulesPlaceholder")}
           rows={8}
           style={{
@@ -131,7 +168,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
           {t("dialogs.schedulePrompt.appliedNextRun")}
         </p>
 
-        {error && (
+        {shownError && (
           <p
             style={{
               fontSize: 11,
@@ -139,7 +176,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
               margin: "10px 0 0",
             }}
           >
-            {error}
+            {shownError}
           </p>
         )}
 
@@ -168,7 +205,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || version == null}
             style={{
               padding: "7px 16px",
               borderRadius: 8,

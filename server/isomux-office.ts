@@ -2022,6 +2022,23 @@ function officeSettingsVersion(): string {
   );
 }
 
+// office.setInstructions core: the prompt alone, guarded by the version of the
+// text (not of the whole settings blob). The same setOfficeSettings write as
+// applyOfficeSettings, so the event and the audit text are the same.
+function applyOfficeInstructions(
+  prompt: string | null,
+  expectedVersion: string,
+): { ok: true; instructions: string | null } | { ok: false; version: string } {
+  const current = agentManager.getOfficeSettings();
+  const currentVersion = versionOf(current.prompt ?? "");
+  if (expectedVersion !== currentVersion)
+    return { ok: false, version: currentVersion };
+  agentManager.setOfficeSettings(prompt, current.envFile, current.name);
+  const stored = agentManager.getOfficeSettings().prompt;
+  notePromptContent(stored);
+  return { ok: true, instructions: stored };
+}
+
 // office.setSettings core. The version guard runs FIRST (a stale writer is told
 // to re-read before hearing about field validation), then validates the name
 // before it mutates/emits. Omitted fields PRESERVE their current values, for
@@ -3791,6 +3808,7 @@ function buildExecutorDeps(
         return cronjobManager.updateCronjob(id, changes);
       },
       deleteCronjob: (id) => cronjobManager.deleteCronjob(id),
+      getPrompt: () => cronjobManager.getCronjobsPrompt(),
       setPrompt: (value) => cronjobManager.setCronjobsPrompt(value),
       runNow: (id, username) => cronjobManager.runCronjobNow(id, username),
       runsForCronjob: (jobId) => cronjobManager.getRunsForCronjob(jobId),
@@ -4865,6 +4883,8 @@ function buildExecutorDeps(
           input,
           auditActor(ctx.identity, attributionFor(ctx.identity).createdBy),
         ),
+      readInstructions: () => agentManager.getOfficeSettings().prompt,
+      applyInstructions: applyOfficeInstructions,
     }),
   );
   // Room-structure mutation handlers stay thin; the COMPOUND effects live here
@@ -5071,7 +5091,7 @@ function buildExecutorDeps(
             userId: existing ? existing.userId : identity.userId,
             name: input.name,
             agentType: input.agentType,
-            customInstructions: input.customInstructions,
+            customInstructions: input.instructions,
             privileged: input.privileged,
           },
           room,

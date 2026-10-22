@@ -175,6 +175,71 @@ const memberPrompt: Surface = {
   stored: (o) => getUserByName(o.member.username)!.memberPrompt,
 };
 
+// The same surfaces through their instructions routes (task 379ae5db).
+function instructionsRoute(
+  operation: string,
+  path: (o: Office) => string,
+  target: (o: Office) => string,
+  stored: (o: Office) => string | null,
+): Surface {
+  return {
+    operation,
+    target,
+    stored,
+    write: async (o, auth, instructions) => {
+      const { version } = await bodyOf<{ version: string }>(o, path(o));
+      return (
+        await call(o.srv, "PUT", path(o), {
+          ...auth,
+          body: { instructions, version },
+        })
+      ).status;
+    },
+  };
+}
+
+const officeInstructions = instructionsRoute(
+  "office.setInstructions",
+  () => "/api/office/instructions",
+  officePrompt.target,
+  officePrompt.stored,
+);
+const roomInstructions = instructionsRoute(
+  "rooms.setInstructions",
+  (o) => `/api/rooms/${o.roomId}/instructions`,
+  roomPrompt.target,
+  roomPrompt.stored,
+);
+const agentInstructionsRoute = instructionsRoute(
+  "agents.setInstructions",
+  () => `/api/agents/${targetAgentId}/instructions`,
+  agentInstructions.target,
+  agentInstructions.stored,
+);
+const memberInstructions = instructionsRoute(
+  "users.setInstructions",
+  (o) => `/api/users/${o.member.username}/instructions`,
+  memberPrompt.target,
+  memberPrompt.stored,
+);
+
+// The agent PATCH with the new field names.
+const agentInstructionsField: Surface = {
+  ...agentInstructions,
+  write: async (o, auth, text) => {
+    const { version } = await bodyOf<{ version: string }>(
+      o,
+      `/api/agents/${targetAgentId}/instructions`,
+    );
+    return (
+      await call(o.srv, "PATCH", `/api/agents/${targetAgentId}`, {
+        ...auth,
+        body: { instructions: text, instructionsVersion: version },
+      })
+    ).status;
+  },
+};
+
 async function spawnTarget(o: Office): Promise<void> {
   const res = await call(o.srv, "POST", "/api/agents", {
     session: o.morgan.rawSessionId,
@@ -195,6 +260,11 @@ describe.each([
   ["room prompt", roomPrompt],
   ["agent custom instructions", agentInstructions],
   ["member special instructions", memberPrompt],
+  ["office instructions route", officeInstructions],
+  ["room instructions route", roomInstructions],
+  ["agent instructions route", agentInstructionsRoute],
+  ["member instructions route", memberInstructions],
+  ["agent instructions field", agentInstructionsField],
 ] as const)("%s", (_label, surface) => {
   it("keeps the text after each write, names the writer, and restores an earlier text", async () => {
     const o = await office();

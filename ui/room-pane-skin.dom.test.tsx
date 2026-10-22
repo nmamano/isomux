@@ -13,6 +13,7 @@ const calls: Array<{ method: string; path: string; body: unknown }> = [];
 setApiShim(async (method, path, body) => {
   calls.push({ method, path, body });
   if (path.endsWith("/settings")) return { prompt: "", version: "0" };
+  if (path.endsWith("/instructions")) return { instructions: "", version: "0" };
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   return {};

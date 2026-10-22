@@ -387,7 +387,7 @@ Coses que pots fer per ell:
   "common.noRooms": "Encara no hi ha sales.",
   "common.prefix": "Prefix",
   "common.revoke": "Revoca",
-  "common.rules": "Regles",
+  "common.instructions": "Instruccions",
   "common.role": "Rol",
   "common.rooms": "Sales",
   "common.signOut": "Tanca la sessió",
@@ -490,10 +490,10 @@ Coses que pots fer per ell:
   "settings.office.nameHint":
     "(opcional, es mostra a la pestanya del navegador)",
   "settings.office.namePlaceholder": "Oficina del Nil",
-  "settings.office.rulesHint": "(prompt de sistema per a tots els agents)",
-  "settings.office.rulesTitle": "Regles de l'oficina",
+  "settings.office.rulesHint": "(s'afegeix al prompt de sistema de cada agent)",
+  "settings.office.rulesTitle": "Instruccions de l'oficina",
   "settings.office.rulesExpandedHint":
-    "Prompt de sistema per a tots els agents. Els canvis s'apliquen a la conversa següent.",
+    "S'afegeix al prompt de sistema de cada agent. Els canvis s'apliquen a la conversa següent.",
   "settings.office.rulesPlaceholder":
     "p. ex. Escriu sempre tests. Fes servir TypeScript. Sigues concís.",
   "settings.office.memoryHint":
@@ -529,10 +529,10 @@ Coses que pots fer per ell:
     "{count} agent és a la rebotiga. Treu-lo primer.",
   "settings.room.backRoomInUse.other":
     "{count} agents són a la rebotiga. Treu-los primer.",
-  "settings.room.prompt": "Prompt de la sala",
+  "settings.room.prompt": "Instruccions",
   "settings.room.promptHint":
-    "(opcional, s'afegeix després del prompt de l'oficina)",
-  "settings.room.promptTitle": "{room} · Prompt de la sala",
+    "(opcional, s'afegeix després de les instruccions de l'oficina)",
+  "settings.room.promptTitle": "{room} · Instruccions de la sala",
   "settings.room.promptPlaceholder":
     "p. ex. Ets a la sala de Màrqueting. Segueix la veu de la nostra marca.",
   "settings.room.promptNote":
@@ -542,8 +542,6 @@ Coses que pots fer per ell:
   "settings.room.memoryTitle": "{room} · Memòria",
   "settings.room.memoryPlaceholder":
     "Alguna memòria rellevant per a aquesta sala",
-  "settings.room.reloadFailed":
-    "Desat, però aquesta pàgina no ha pogut recarregar la sala. Tria una altra fila i torna per continuar editant.",
   "settings.room.conflict":
     "La configuració de la sala ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
   "settings.room.deleteEmpty": "Elimina la sala buida",
@@ -1292,13 +1290,15 @@ Coses que pots fer per ell:
   "dialogs.textarea.escCollapse": "Esc per plegar",
   "dialogs.textarea.done": "Fet",
 
-  "dialogs.schedulePrompt.title": "Configuració de les programacions",
+  "dialogs.schedulePrompt.title": "Instruccions de les programacions",
   "dialogs.schedulePrompt.rulesHint":
-    "(prompt de sistema per a totes les programacions)",
+    "(s'afegeix al prompt de sistema de cada execució programada)",
   "dialogs.schedulePrompt.rulesPlaceholder":
     "p. ex. Escriu sempre les troballes en un fitxer markdown. Sigues concís.",
   "dialogs.schedulePrompt.appliedNextRun":
     "S'aplica a l'execució següent; les que ja s'estan executant fan servir la còpia que van capturar.",
+  "dialogs.schedulePrompt.loadFailed":
+    "No s'han pogut carregar les instruccions de les programacions.",
   "common.field.engine": "Motor",
   "common.field.model": "Model",
   "common.field.effort": "Esforç de raonament",
@@ -1692,6 +1692,17 @@ Coses que pots fer per ell:
   "apiCall.users.updatePrompt": "Edita les instruccions especials del membre",
   "apiCall.office.readSettings": "Llegir la configuració de l'oficina",
   "apiCall.office.saveSettings": "Canviar la configuració de l'oficina",
+  "apiCall.office.readInstructions": "Llegir les instruccions de l'oficina",
+  "apiCall.office.saveInstructions": "Canviar les instruccions de l'oficina",
+  "apiCall.rooms.readInstructions": "Llegir les instruccions de la sala",
+  "apiCall.rooms.saveInstructions": "Canviar les instruccions de la sala",
+  "apiCall.agents.saveInstructions": "Canviar les instruccions de l'agent",
+  "apiCall.users.readInstructions": "Llegir les instruccions del membre",
+  "apiCall.users.saveInstructions": "Canviar les instruccions del membre",
+  "apiCall.cronjobs.readInstructions":
+    "Llegir les instruccions de les programacions",
+  "apiCall.cronjobs.saveInstructions":
+    "Canviar les instruccions de les programacions",
   "apiCall.users.create": "Crear un membre",
   "apiCall.users.createNamed": "Crear el membre {name}",
   "apiCall.env.readUser": "Llegir l'entorn gestionat",

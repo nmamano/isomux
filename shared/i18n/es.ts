@@ -387,7 +387,7 @@ Cosas que puedes hacer por él:
   "common.noRooms": "Aún no hay salas.",
   "common.prefix": "Prefijo",
   "common.revoke": "Revocar",
-  "common.rules": "Reglas",
+  "common.instructions": "Instrucciones",
   "common.role": "Rol",
   "common.rooms": "Salas",
   "common.signOut": "Cerrar sesión",
@@ -490,10 +490,10 @@ Cosas que puedes hacer por él:
   "settings.office.nameHint":
     "(opcional, se muestra en la pestaña del navegador)",
   "settings.office.namePlaceholder": "Oficina de Nil",
-  "settings.office.rulesHint": "(prompt de sistema para todos los agentes)",
-  "settings.office.rulesTitle": "Reglas de la oficina",
+  "settings.office.rulesHint": "(se añade al prompt de sistema de cada agente)",
+  "settings.office.rulesTitle": "Instrucciones de la oficina",
   "settings.office.rulesExpandedHint":
-    "Prompt de sistema para todos los agentes. Los cambios se aplican en la siguiente conversación.",
+    "Se añade al prompt de sistema de cada agente. Los cambios se aplican en la siguiente conversación.",
   "settings.office.rulesPlaceholder":
     "p. ej. Escribe siempre tests. Usa TypeScript. Sé conciso.",
   "settings.office.memoryHint":
@@ -530,10 +530,10 @@ Cosas que puedes hacer por él:
     "{count} agente está en la trastienda. Sácalo primero.",
   "settings.room.backRoomInUse.other":
     "{count} agentes están en la trastienda. Sácalos primero.",
-  "settings.room.prompt": "Prompt de la sala",
+  "settings.room.prompt": "Instrucciones",
   "settings.room.promptHint":
-    "(opcional, se añade después del prompt de la oficina)",
-  "settings.room.promptTitle": "{room} · Prompt de la sala",
+    "(opcional, se añade después de las instrucciones de la oficina)",
+  "settings.room.promptTitle": "{room} · Instrucciones de la sala",
   "settings.room.promptPlaceholder":
     "p. ej. Estás en la sala de Marketing. Sigue la voz de nuestra marca.",
   "settings.room.promptNote":
@@ -542,8 +542,6 @@ Cosas que puedes hacer por él:
     "(hechos duraderos de esta sala; líneas en bruto; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memoria",
   "settings.room.memoryPlaceholder": "Alguna memoria relevante para esta sala",
-  "settings.room.reloadFailed":
-    "Guardado, pero esta página no pudo recargar la sala. Elige otra fila y vuelve para seguir editando.",
   "settings.room.conflict":
     "Los ajustes de la sala cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.room.deleteEmpty": "Eliminar la sala vacía",
@@ -1287,13 +1285,15 @@ Cosas que puedes hacer por él:
   "dialogs.textarea.escCollapse": "Esc para plegar",
   "dialogs.textarea.done": "Hecho",
 
-  "dialogs.schedulePrompt.title": "Ajustes de las programaciones",
+  "dialogs.schedulePrompt.title": "Instrucciones de las programaciones",
   "dialogs.schedulePrompt.rulesHint":
-    "(prompt de sistema para todas las programaciones)",
+    "(se añade al prompt de sistema de cada ejecución programada)",
   "dialogs.schedulePrompt.rulesPlaceholder":
     "p. ej. Escribe siempre los hallazgos en un archivo markdown. Sé conciso.",
   "dialogs.schedulePrompt.appliedNextRun":
     "Se aplica a la próxima ejecución; las que están en curso usan la copia que capturaron.",
+  "dialogs.schedulePrompt.loadFailed":
+    "No se pudieron cargar las instrucciones de las programaciones.",
   "common.field.engine": "Motor",
   "common.field.model": "Modelo",
   "common.field.effort": "Esfuerzo de razonamiento",
@@ -1685,6 +1685,17 @@ Cosas que puedes hacer por él:
   "apiCall.users.updatePrompt": "Editar instrucciones especiales del miembro",
   "apiCall.office.readSettings": "Leer la configuración de la oficina",
   "apiCall.office.saveSettings": "Cambiar la configuración de la oficina",
+  "apiCall.office.readInstructions": "Leer las instrucciones de la oficina",
+  "apiCall.office.saveInstructions": "Cambiar las instrucciones de la oficina",
+  "apiCall.rooms.readInstructions": "Leer las instrucciones de la sala",
+  "apiCall.rooms.saveInstructions": "Cambiar las instrucciones de la sala",
+  "apiCall.agents.saveInstructions": "Cambiar las instrucciones del agente",
+  "apiCall.users.readInstructions": "Leer las instrucciones del miembro",
+  "apiCall.users.saveInstructions": "Cambiar las instrucciones del miembro",
+  "apiCall.cronjobs.readInstructions":
+    "Leer las instrucciones de las programaciones",
+  "apiCall.cronjobs.saveInstructions":
+    "Cambiar las instrucciones de las programaciones",
   "apiCall.users.create": "Crear un miembro",
   "apiCall.users.createNamed": "Crear el miembro {name}",
   "apiCall.env.readUser": "Leer el entorno gestionado",

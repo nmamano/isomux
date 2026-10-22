@@ -17,7 +17,7 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 A signed-in member can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
-A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, and can change the office prompt, name and member usage cap (see Office settings). These exclusions are defense in depth: a token can spawn an agent that runs commands.
+A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, and can change the office instructions, name and member usage cap (see Instructions and Office settings). These exclusions are defense in depth: a token can spawn an agent that runs commands.
 
 The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
@@ -173,7 +173,7 @@ App hosting needs Linux with systemd. On any other host, such as a macOS local o
 
 `GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
 
-`POST /api/agents/system-prompt-preview` returns the same envelope without saving. The body contains `roomId`, `name`, `agentType`, `customInstructions`, and `privileged`, with optional `agentId` and `memory`. The caller must have access to `roomId`; an existing agent must belong to that room. Edit previews use the agent's manager and draft memory (an empty string clears it in the preview; omission uses saved memory). Spawn previews use the caller's member context, empty agent memory, and `new-agent` as a placeholder ID.
+`POST /api/agents/system-prompt-preview` returns the same envelope without saving. The body contains `roomId`, `name`, `agentType`, `instructions`, and `privileged`, with optional `agentId` and `memory`. The caller must have access to `roomId`; an existing agent must belong to that room. Edit previews use the agent's manager and draft memory (an empty string clears it in the preview; omission uses saved memory). Spawn previews use the caller's member context, empty agent memory, and `new-agent` as a placeholder ID.
 
 An agent can inspect current limits for any agent in a room its manager can access. `GET /api/agents/:id/context` returns the latest context-window measurement. `GET /api/agents/:id/subscription` asks the provider when the target has a live session, then returns the plan and every subscription window with its usage and reset time. It also returns `observedAtMs`, when Isomux received the reading from the provider, and `ageMs` since then. `freshness` is `fresh` when the provider interaction completed for this call and the account stayed unchanged. It is `cached` when there is no live session or the refresh could not produce a current, valid answer; a cached reading carries `staleReason` `no_session` or `refresh_failed`. When there is no reading at all, `available` is false with `reason` `no_session`, `not_yet_measured`, or `provider_unavailable`. OpenCode reports `provider_unavailable` because its adapter does not provide subscription allowance. Both routes require authentication and use the same room access as the conversation-log route.
 
@@ -260,7 +260,7 @@ returns 409 `back_room_in_use` with their `count`, and nothing in that body is
 written: move them out first. The lobby returns 422 `back_room_not_supported`.
 
 `GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet`, `decor`
-and `backRoom` beside the prompt. Its `version` covers the prompt only.
+and `backRoom`.
 
 ### Members chat
 
@@ -314,15 +314,27 @@ CSS `[role="button"]` matches only explicit role attributes, not every
 semantic button. Known selector syntax errors return `400 invalid_request`
 with fixed guidance. Errors never echo selector text or browser exceptions.
 
-### Member special instructions
+### Instructions
 
-A privileged agent can read `GET /api/users/:username/member-prompt` and send `PATCH /api/users/:username` with only `{memberPrompt,memberPromptVersion}`. The target is its manager, or any member when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. Both routes return `{memberPrompt,memberPromptVersion}` to the agent and the token.
+Each instruction layer has a read and a write route:
 
-Every prompt PATCH, including a human save, requires the version from the read. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Human PATCH responses remain `{user}`; edits to other fields need no prompt version.
+| Layer     | Routes                                        |
+| --------- | --------------------------------------------- |
+| Office    | `GET`/`PUT /api/office/instructions`          |
+| Room      | `GET`/`PUT /api/rooms/:roomId/instructions`   |
+| Agent     | `GET`/`PUT /api/agents/:id/instructions`      |
+| Member    | `GET`/`PUT /api/users/:username/instructions` |
+| Schedules | `GET`/`PUT /api/cron-instructions`            |
+
+Both return `{instructions,version}`. The PUT takes `{instructions,version}` with the version from the read; `instructions: null` clears them. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. `POST /api/agents`, `PATCH /api/agents/:id` (with `instructionsVersion`) and `POST /api/users` also take `instructions`.
+
+A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
+
+The old names stay until the next release: `GET`/`PUT /api/office/settings` with `prompt`, `GET`/`PUT /api/rooms/:roomId/settings` with `prompt`, `customInstructions` and `customInstructionsVersion`, `GET /api/users/:username/member-prompt` and `memberPrompt` on `PATCH /api/users/:username`, and `PUT /api/cron-prompt`.
 
 ### Office settings
 
-`GET /api/office/settings` returns `{prompt,name,version,memberUsageCap,memberUsageShare,memberUsageStatus,recordTerminals}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value and a null `prompt` clears the office prompt. Owners, their API tokens and privileged agents whose manager is an owner can call both.
+`GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,memberUsageStatus,recordTerminals}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. Owners, their API tokens and privileged agents whose manager is an owner can call both.
 
 ## App page readiness
 

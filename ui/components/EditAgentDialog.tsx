@@ -984,7 +984,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         permissionMode,
         outfit,
         profileKey: selectedTemplateKey ?? undefined,
-        customInstructions: customInstructions.trim() || undefined,
+        instructions: customInstructions.trim() || undefined,
         modelFamily,
         effort,
         agentType: targetEngine,
@@ -1019,11 +1019,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.outfit = outfit;
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? "")) {
-        changes.customInstructions = trimmedInstructions;
+        changes.instructions = trimmedInstructions;
         // Blob-bearing writes are version-guarded: echo the token from the
         // agent object (kept current by agent_updated) so a concurrent edit
         // surfaces as a 409 instead of a silent clobber.
-        changes.customInstructionsVersion = agent!.customInstructionsVersion;
+        changes.instructionsVersion = agent!.customInstructionsVersion;
       }
       if (engineChanged) {
         // The menus now show the new engine's options, so send the chosen
@@ -1077,7 +1077,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.name ||
         changes.cwd ||
         changes.outfit ||
-        changes.customInstructions !== undefined ||
+        changes.instructions !== undefined ||
         changes.modelFamily ||
         changes.effort ||
         changes.permissionMode ||
@@ -1130,7 +1130,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       if (
         changes.cwd ||
         changes.agentType ||
-        changes.customInstructions !== undefined ||
+        changes.instructions !== undefined ||
         managerChanged ||
         privilegedChanged ||
         mem.dirty
@@ -2065,7 +2065,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   name:
                     name.trim() || (isSpawn ? defaultSpawnName! : agent!.name),
                   agentType: targetEngine,
-                  customInstructions,
+                  instructions: customInstructions,
                   privileged,
                   ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
                 }}

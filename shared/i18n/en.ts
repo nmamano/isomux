@@ -397,7 +397,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.noRooms": "No rooms yet.",
   "common.prefix": "Prefix",
   "common.revoke": "Revoke",
-  "common.rules": "Rules",
+  "common.instructions": "Instructions",
   "common.role": "Role",
   "common.rooms": "Rooms",
   "common.signOut": "Sign out",
@@ -500,10 +500,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.name": "Office Name",
   "settings.office.nameHint": "(optional, shown in browser tab)",
   "settings.office.namePlaceholder": "Nil's Office",
-  "settings.office.rulesHint": "(system prompt for all agents)",
-  "settings.office.rulesTitle": "Office Rules",
+  "settings.office.rulesHint": "(added to the system prompt of every agent)",
+  "settings.office.rulesTitle": "Office Instructions",
   "settings.office.rulesExpandedHint":
-    "System prompt for all agents. Changes take effect on next conversation.",
+    "Added to the system prompt of every agent. Changes take effect on next conversation.",
   "settings.office.rulesPlaceholder":
     "e.g. Always write tests. Use TypeScript. Be concise.",
   "settings.office.memoryHint":
@@ -539,9 +539,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "{count} agent sits in the back room. Move it out first.",
   "settings.room.backRoomInUse.other":
     "{count} agents sit in the back room. Move them out first.",
-  "settings.room.prompt": "Room Prompt",
-  "settings.room.promptHint": "(optional, appended after office prompt)",
-  "settings.room.promptTitle": "{room} · Room Prompt",
+  "settings.room.prompt": "Instructions",
+  "settings.room.promptHint": "(optional, added after the office instructions)",
+  "settings.room.promptTitle": "{room} · Room Instructions",
   "settings.room.promptPlaceholder":
     "e.g. You're in the Marketing room. Match our brand voice.",
   "settings.room.promptNote":
@@ -550,8 +550,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "(durable facts for this room; raw lines; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memory",
   "settings.room.memoryPlaceholder": "Some memory relevant to this room",
-  "settings.room.reloadFailed":
-    "Saved, but this page could not reload the room. Select another row and come back to keep editing.",
   "settings.room.conflict":
     "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.room.deleteEmpty": "Delete empty room",
@@ -1264,12 +1262,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.textarea.escCollapse": "Esc to collapse",
   "dialogs.textarea.done": "Done",
 
-  "dialogs.schedulePrompt.title": "Schedules Settings",
-  "dialogs.schedulePrompt.rulesHint": "(system prompt for all schedules)",
+  "dialogs.schedulePrompt.title": "Schedule Instructions",
+  "dialogs.schedulePrompt.rulesHint":
+    "(added to the system prompt of every schedule run)",
   "dialogs.schedulePrompt.rulesPlaceholder":
     "e.g. Always write findings to a markdown file. Be terse.",
   "dialogs.schedulePrompt.appliedNextRun":
     "Applied to the next run; in-flight runs use their captured snapshot.",
+  "dialogs.schedulePrompt.loadFailed":
+    "Could not load the schedule instructions.",
   "common.field.engine": "Engine",
   "common.field.model": "Model",
   "common.field.effort": "Thinking Effort",
@@ -1646,6 +1647,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.users.updatePrompt": "Edit member special instructions",
   "apiCall.office.readSettings": "Read office settings",
   "apiCall.office.saveSettings": "Change office settings",
+  "apiCall.office.readInstructions": "Read office instructions",
+  "apiCall.office.saveInstructions": "Change office instructions",
+  "apiCall.rooms.readInstructions": "Read room instructions",
+  "apiCall.rooms.saveInstructions": "Change room instructions",
+  "apiCall.agents.saveInstructions": "Change agent instructions",
+  "apiCall.users.readInstructions": "Read member instructions",
+  "apiCall.users.saveInstructions": "Change member instructions",
+  "apiCall.cronjobs.readInstructions": "Read schedule instructions",
+  "apiCall.cronjobs.saveInstructions": "Change schedule instructions",
   "apiCall.users.create": "Create a member",
   "apiCall.users.createNamed": "Create member {name}",
   "apiCall.env.readUser": "Read managed environment",

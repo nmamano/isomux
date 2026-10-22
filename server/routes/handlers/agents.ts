@@ -36,6 +36,12 @@ import {
   fail,
   type RouteHandler,
 } from "../executor.ts";
+import {
+  foldFieldAlias,
+  instructionsConflict,
+  instructionsRes,
+  parseInstructionsWrite,
+} from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AbortResult } from "../../internal-types.ts";
 import type { AgentInfo } from "../../../shared/types.ts";
@@ -342,18 +348,42 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     // Sanctioned read of the customInstructions blob + version token: the read
-    // half of the read-then-PATCH flow agents.update's
-    // version guard expects. Authorization is the route's `authenticated` +
-    // agentParam guard (every agent with room access may read - see table.ts);
-    // this just projects the two fields off the live agent.
+    // half of the read-then-write flow the version guard expects.
+    // Authorization is the route's `authenticated` + agentParam guard (every
+    // agent with room access may read - see table.ts); this just projects the
+    // text off the live agent, in the new names and, for one release, the old.
     "agents.readInstructions": (ctx) => {
       const agent = deps.getAgent(ctx.params.id);
       // agentParam proved the agent existed; a miss here is a post-guard race.
       if (!agent) return fail(404, "agent_not_found", "Agent not found");
       return ok({
+        ...instructionsRes(agent.customInstructions),
         customInstructions: agent.customInstructions,
         customInstructionsVersion: agent.customInstructionsVersion,
       });
+    },
+
+    // The write half: the same edit core as agents.update, with the text alone.
+    // The core skips an undefined text, so a clear goes in as "".
+    "agents.setInstructions": async (ctx) => {
+      const input = parseInstructionsWrite(ctx.body);
+      if (!input.ok) return input.result;
+      const r = await deps.edit(
+        ctx.params.id,
+        {
+          customInstructions: input.instructions ?? "",
+          customInstructionsVersion: input.version,
+        },
+        deps.attributionFor(ctx.identity).createdBy,
+      );
+      if (r.ok) return ok(instructionsRes(r.agent.customInstructions));
+      if (r.reason === "version_conflict")
+        return instructionsConflict(r.version);
+      return fail(
+        r.reason === "agent_not_found" ? 404 : 400,
+        r.reason,
+        r.message,
+      );
     },
 
     "agents.readSystemPrompt": (ctx) => {
@@ -364,13 +394,17 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.previewSystemPrompt": (ctx) => {
-      const b = (ctx.body ?? {}) as Partial<AgentSystemPromptPreviewReq>;
+      const body = { ...(ctx.body ?? {}) } as Record<string, unknown>;
+      // customInstructions is the old name of instructions.
+      const both = foldFieldAlias(body, "customInstructions", "instructions");
+      if (both) return both;
+      const b = body as Partial<AgentSystemPromptPreviewReq>;
       if (
         typeof b.roomId !== "string" ||
         !b.roomId ||
         typeof b.name !== "string" ||
         !b.name.trim() ||
-        typeof b.customInstructions !== "string" ||
+        typeof b.instructions !== "string" ||
         typeof b.privileged !== "boolean" ||
         !["claude", "codex", "opencode"].includes(b.agentType ?? "") ||
         (b.agentId !== undefined && typeof b.agentId !== "string") ||
@@ -463,7 +497,11 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.spawn": async (ctx) => {
-      const b = (ctx.body ?? {}) as Partial<SpawnReq>;
+      const body = { ...(ctx.body ?? {}) } as Record<string, unknown>;
+      // instructions is the new name of customInstructions.
+      const both = foldFieldAlias(body, "instructions", "customInstructions");
+      if (both) return both;
+      const b = body as Partial<SpawnReq>;
       if (typeof b.name !== "string" || b.name.trim().length === 0) {
         return fail(422, "invalid_name", "name is required");
       }
@@ -579,7 +617,13 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.update": async (ctx) => {
-      const b = (ctx.body ?? {}) as Record<string, unknown>;
+      const b = { ...(ctx.body ?? {}) } as Record<string, unknown>;
+      // instructions and instructionsVersion are the new names of
+      // customInstructions and customInstructionsVersion.
+      const both =
+        foldFieldAlias(b, "instructions", "customInstructions") ??
+        foldFieldAlias(b, "instructionsVersion", "customInstructionsVersion");
+      if (both) return both;
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
@@ -597,7 +641,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         return fail(
           400,
           "invalid_version",
-          "customInstructionsVersion is required when customInstructions is present (read it via GET /api/agents/:id/instructions first)",
+          "instructionsVersion is required when instructions is present (read it via GET /api/agents/:id/instructions first)",
         );
       }
       const r = await deps.edit(

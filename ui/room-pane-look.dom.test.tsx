@@ -19,6 +19,7 @@ setApiShim(async (method, path, body) => {
   calls.push({ method, path, body });
   if (method === "PATCH" && patchFails) throw new Error("offline");
   if (path.endsWith("/settings")) return { prompt: "", version: "0" };
+  if (path.endsWith("/instructions")) return { instructions: "", version: "0" };
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   return {};
@@ -93,10 +94,10 @@ it("keeps a rejected look dirty, says so, and retries the same body", async () =
     "true",
   );
   expect(cancelDisabled(view)).toBe(false);
-  // A failed cosmetic PATCH must not have spent the settings version, or the
-  // retry would come back as a conflict instead of saving.
+  // A failed cosmetic PATCH must not have spent the instructions version, or
+  // the retry would come back as a conflict instead of saving.
   expect(
-    calls.some((c) => c.method === "PUT" && c.path.endsWith("/settings")),
+    calls.some((c) => c.method === "PUT" && c.path.endsWith("/instructions")),
   ).toBe(false);
 
   patchFails = false;

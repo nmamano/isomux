@@ -12,6 +12,7 @@ const calls: string[] = [];
 setApiShim(async (method, path) => {
   calls.push(`${method} ${path}`);
   if (path.endsWith("/settings")) return { prompt: "", version: "0" };
+  if (path.endsWith("/instructions")) return { instructions: "", version: "0" };
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   throw new Error(`Unexpected route ${path}`);
@@ -46,7 +47,8 @@ describe("room settings memory scopes", () => {
       await act(async () =>
         fireEvent.click(view.getByRole("button", { name: "Save" })),
       );
-      expect(calls).toContain(`PUT /api/rooms/${type}/settings`);
+      expect(calls).toContain(`PUT /api/rooms/${type}/instructions`);
+      expect(calls).not.toContain(`PUT /api/rooms/${type}/settings`);
       expect(view.getByRole("button", { name: "Saved" })).toBeTruthy();
       view.unmount();
     });

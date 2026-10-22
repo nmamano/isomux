@@ -34,6 +34,12 @@ import type {
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
 import { versionOf } from "../../../shared/blob-version.ts";
+import {
+  foldFieldAlias,
+  instructionsConflict,
+  instructionsRes,
+  parseInstructionsWrite,
+} from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
 
 // Outcome the seam shapes for a record edit / access change: ok → the updated
@@ -125,7 +131,10 @@ function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
 export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
   return {
     "users.create": async (ctx) => {
-      const body = (ctx.body ?? {}) as Partial<UserCreateReq>;
+      const body = { ...(ctx.body ?? {}) } as Partial<UserCreateReq>;
+      // `instructions` is the new name of memberPrompt.
+      const both = foldFieldAlias(body, "instructions", "memberPrompt");
+      if (both) return both;
       if (typeof body.name !== "string" || body.name.trim().length === 0)
         return fail(422, "invalid_request", "name must be a non-empty string");
       if (body.role !== "member" && body.role !== "owner")
@@ -151,6 +160,36 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         allowedRooms: body.allowedRooms,
       });
       return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
+    },
+
+    // The member's instructions: the same core as users.readMemberPrompt and
+    // the memberPrompt fields of users.update, the old names kept for one
+    // release. The write passes ONLY the text and its version to the core,
+    // never the body: the route has no body-key check, and a proxy agent's
+    // role check would read its owner's role.
+    "users.readInstructions": (ctx) => {
+      const prompt = deps.readMemberPrompt(ctx.params.username);
+      return prompt
+        ? ok(instructionsRes(prompt.memberPrompt))
+        : fail(404, "not_found", "Member not found.");
+    },
+
+    "users.setInstructions": async (ctx) => {
+      const input = parseInstructionsWrite(ctx.body);
+      if (!input.ok) return input.result;
+      const r = await deps.update({
+        username: ctx.params.username,
+        changes: {
+          memberPrompt: input.instructions,
+          memberPromptVersion: input.version,
+        },
+        identity: ctx.identity,
+      });
+      if (!r.ok)
+        return r.status === 409 && r.version !== undefined
+          ? instructionsConflict(r.version)
+          : fail(r.status, r.code, r.error);
+      return ok(instructionsRes(r.user.memberPrompt));
     },
 
     "users.readMemberPrompt": (ctx) => {

@@ -132,12 +132,79 @@ describe("agent form prompt preview", () => {
             roomId: "r1",
             name: "Draft name",
             agentType: "claude",
-            customInstructions: "Draft instructions",
+            instructions: "Draft instructions",
             privileged: false,
             ...(mode === "edit" ? { memory: "" } : {}),
           },
         },
       ]);
+      view.unmount();
+    });
+  }
+});
+
+// Task 379ae5db: the dialog writes the agent's text with the new field names,
+// in its one PATCH, and the spawn POST carries it the same way.
+describe("agent form instructions fields", () => {
+  for (const mode of ["spawn", "edit"] as const) {
+    it(`${mode} sends the text as instructions`, async () => {
+      const writes: { method: string; path: string; body: unknown }[] = [];
+      setApiShim(async (method, path, body) => {
+        if (path === "/api/validate/cwd") return { ok: true };
+        if (method === "GET" && path.startsWith("/api/memory"))
+          return { text: "", version: "v1", size: 0, cap: 5000 };
+        if (method === "GET") return {};
+        writes.push({ method, path, body });
+        if (method === "POST" && path === "/api/agents")
+          return { agent: { ...agent, id: "new-agent" } };
+        return {};
+      });
+      const view = render(
+        onLanguage(
+          "en",
+          <EditAgentDialog
+            onClose={() => {}}
+            {...(mode === "edit"
+              ? { agent }
+              : {
+                  deskIndex: 0,
+                  roomId: room.id,
+                  defaultCwd: "~",
+                  spawnAgentType: "claude" as const,
+                })}
+          />,
+          {
+            rooms: [room],
+            agents: mode === "edit" ? [agent] : [],
+            hasReceivedInitialState: true,
+          },
+        ),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        if (mode === "spawn")
+          fireEvent.change(
+            view.container.querySelector(".agent-identity-section input")!,
+            { target: { value: "New agent" } },
+          );
+        fireEvent.change(
+          view.container.querySelector(".agent-instructions-section textarea")!,
+          { target: { value: "New instructions" } },
+        );
+      });
+      await act(async () => {
+        fireEvent.click([...view.container.querySelectorAll("button")].at(-1)!);
+      });
+      await waitFor(() => expect(writes.length).toBeGreaterThan(0));
+      const first = writes[0];
+      expect(first.method).toBe(mode === "edit" ? "PATCH" : "POST");
+      const body = first.body as Record<string, unknown>;
+      expect(body.instructions).toBe("New instructions");
+      expect(body).not.toHaveProperty("customInstructions");
+      expect(body).not.toHaveProperty("customInstructionsVersion");
+      if (mode === "edit") expect(body.instructionsVersion).toBe("v1");
       view.unmount();
     });
   }

@@ -12,6 +12,10 @@
 // office_settings_updated). setSettings emits office_settings_updated via the
 // existing AgentManager event sink - the handler never emits.
 //
+// office.{read,set}Instructions read and write the prompt alone, with a
+// version over the text only. The prompt field of the settings routes is their
+// old name, kept for one release.
+//
 // office.getSettings returns the editable prompt and display name, the member
 // usage cap switch, the member share and the cap's status lines.
 // The legacy envFile field remains persistence-only until
@@ -35,6 +39,11 @@ import {
 } from "../executor.ts";
 import type { OfficeSettingsRes } from "../../../shared/contract-shapes.ts";
 import { validMemberShare } from "../../../shared/member-usage-share.ts";
+import {
+  instructionsConflict,
+  instructionsRes,
+  parseInstructionsWrite,
+} from "./instructions.ts";
 
 // setSettings outcome the seam shapes: ok, a status-mapped validation failure
 // (400 over-long name), or a version conflict carrying the
@@ -66,6 +75,14 @@ export interface OfficeSettingsDeps {
     },
     ctx: RouteHandlerContext,
   ): ApplyOfficeSettingsResult;
+  // The office instructions (the settings' prompt field). Their version covers
+  // the text only, so a name change does not touch it.
+  readInstructions(): string | null;
+  // Writes the text alone, guarded by the version of the text.
+  applyInstructions(
+    instructions: string | null,
+    expectedVersion: string,
+  ): { ok: true; instructions: string | null } | { ok: false; version: string };
 }
 
 export function officeSettingsHandlers(
@@ -73,6 +90,18 @@ export function officeSettingsHandlers(
 ): Record<string, RouteHandler> {
   return {
     "office.getSettings": async () => ok(await deps.getSettings()),
+
+    "office.readInstructions": () =>
+      ok(instructionsRes(deps.readInstructions())),
+
+    "office.setInstructions": (ctx) => {
+      const input = parseInstructionsWrite(ctx.body);
+      if (!input.ok) return input.result;
+      const r = deps.applyInstructions(input.instructions, input.version);
+      return r.ok
+        ? ok(instructionsRes(r.instructions))
+        : instructionsConflict(r.version);
+    },
 
     "office.setSettings": (ctx) => {
       const b = (ctx.body ?? {}) as {

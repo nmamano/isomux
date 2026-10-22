@@ -57,6 +57,10 @@ setApiShim(async (_method, path) => {
     };
   if (path.startsWith("/api/rooms/") && path.endsWith("/settings"))
     return { prompt: "", version: "1" };
+  if (path === "/api/office/instructions")
+    return { instructions: "", version: "1" };
+  if (path.startsWith("/api/rooms/") && path.endsWith("/instructions"))
+    return { instructions: "", version: "1" };
   if (path === "/api/usage")
     return {
       agents: [],

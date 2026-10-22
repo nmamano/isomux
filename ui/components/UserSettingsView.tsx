@@ -31,7 +31,8 @@ import {
 } from "../device-settings.ts";
 import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
 import type {
-  MemberPromptRes,
+  InstructionsReq,
+  InstructionsRes,
   ApiTokenListRes,
   ApiTokenWire,
 } from "../../shared/contract-shapes.ts";
@@ -1249,7 +1250,7 @@ function UserEditPanel({
   const [promptVersion, setPromptVersion] = useState(() =>
     versionOf(user.memberPrompt ?? ""),
   );
-  const [promptConflict, setPromptConflict] = useState<MemberPromptRes | null>(
+  const [promptConflict, setPromptConflict] = useState<InstructionsRes | null>(
     null,
   );
   // Member-scoped memory for this user, edited via the unified /api/memory verbs
@@ -1462,7 +1463,6 @@ function UserEditPanel({
     const recordChanged =
       (isOwner && officeOwner !== targetIsOwner) ||
       renamed ||
-      (memberPrompt.trim() || null) !== (promptBaseline || null) ||
       normalizedColor !== user.avatarColor ||
       avatarVariant !== user.avatarVariant;
     try {
@@ -1484,7 +1484,23 @@ function UserEditPanel({
           { allowedRooms: allowedSetting },
         );
       }
-      // (2) Record fields (name/prompt/avatar), against the original name.
+      // (1b) The instructions, against the original name, before a rename can
+      // move the route. The answer carries the stored text and its version.
+      if (promptChanged) {
+        const body: InstructionsReq = {
+          instructions: memberPrompt.trim() || null,
+          version: promptVersion,
+        };
+        const saved = await apiFetch<InstructionsRes>(
+          "PUT",
+          `/api/users/${encodeURIComponent(origName)}/instructions`,
+          body,
+        );
+        setPromptBaseline(saved.instructions ?? "");
+        setPromptVersion(saved.version);
+        setPromptConflict(null);
+      }
+      // (2) Record fields (name/avatar), against the original name.
       if (recordChanged) {
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
           role:
@@ -1494,20 +1510,9 @@ function UserEditPanel({
                 : "member"
               : undefined,
           name: renamed ? trimmed : undefined,
-          ...(promptChanged
-            ? {
-                memberPrompt: memberPrompt.trim() || null,
-                memberPromptVersion: promptVersion,
-              }
-            : {}),
           avatarColor: normalizedColor,
           avatarVariant,
         });
-      }
-      if (promptChanged) {
-        setPromptBaseline(memberPrompt.trim());
-        setPromptVersion(versionOf(memberPrompt.trim()));
-        setPromptConflict(null);
       }
       // (2b) Member memory is a separate version-guarded REPLACE keyed by the stable
       // userId (rename-safe). A 409 means it changed under us - surface + keep open.
@@ -1576,12 +1581,12 @@ function UserEditPanel({
       if (err instanceof ApiError && err.code === "version_conflict") {
         // Read the current text for comparison; keep the member's draft intact.
         try {
-          const current = await apiFetch<MemberPromptRes>(
+          const current = await apiFetch<InstructionsRes>(
             "GET",
-            `/api/users/${encodeURIComponent(origName)}/member-prompt`,
+            `/api/users/${encodeURIComponent(origName)}/instructions`,
           );
-          setPromptBaseline(current.memberPrompt ?? "");
-          setPromptVersion(current.memberPromptVersion);
+          setPromptBaseline(current.instructions ?? "");
+          setPromptVersion(current.version);
           setPromptConflict(current);
           setError(t("settings.profile.promptConflict"));
         } catch {
@@ -1604,7 +1609,7 @@ function UserEditPanel({
       const r = await apiFetch<{ user: UserRecord }>("POST", "/api/users", {
         name: trimmed,
         role: officeOwner ? "owner" : "member",
-        memberPrompt: memberPrompt.trim() || null,
+        instructions: memberPrompt.trim() || null,
         avatarColor: isHexColor(avatarColor)
           ? normalizeHexColor(avatarColor)
           : user.avatarColor,
@@ -1983,7 +1988,7 @@ function UserEditPanel({
             {t("settings.profile.currentPrompt")}
             <textarea
               readOnly
-              value={promptConflict.memberPrompt ?? ""}
+              value={promptConflict.instructions ?? ""}
               style={{ ...inputStyle, minHeight: 90, width: "100%" }}
             />
           </label>

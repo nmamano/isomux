@@ -818,6 +818,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       },
       updateCronjob: async () => null,
       deleteCronjob: () => false,
+      getPrompt: () => null,
       setPrompt: () => {},
       runNow: () => null,
       runsForCronjob: () => [],

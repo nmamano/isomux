@@ -42,6 +42,11 @@ import {
   type RoomDecor,
   type RoomDecorPatch,
 } from "../../../shared/room-decor.ts";
+import {
+  instructionsConflict,
+  instructionsRes,
+  parseInstructionsWrite,
+} from "./instructions.ts";
 import { backRoomInUseMessage } from "../../../shared/desks.ts";
 
 export interface RoomsDeps {
@@ -283,6 +288,33 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         }
       }
       return noContent();
+    },
+
+    // The room's instructions: the same core as rooms.{get,set}Settings, whose
+    // prompt fields are the old names, kept for one release.
+    "rooms.readInstructions": (ctx) => {
+      const settings = deps.getSettings(ctx.params.roomId);
+      return settings
+        ? ok(instructionsRes(settings.prompt))
+        : fail(404, "room_not_found", "Room not found");
+    },
+
+    "rooms.setInstructions": (ctx) => {
+      const input = parseInstructionsWrite(ctx.body);
+      if (!input.ok) return input.result;
+      const r = deps.setSettings(
+        ctx.params.roomId,
+        input.instructions,
+        input.version,
+      );
+      if (!r.ok)
+        return r.reason === "version_conflict"
+          ? instructionsConflict(r.version)
+          : fail(404, "room_not_found", "Room not found");
+      const settings = deps.getSettings(ctx.params.roomId);
+      return settings
+        ? ok(instructionsRes(settings.prompt))
+        : fail(404, "room_not_found", "Room not found");
     },
 
     "rooms.getSettings": (ctx) => {

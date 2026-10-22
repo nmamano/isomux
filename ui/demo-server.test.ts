@@ -425,6 +425,42 @@ it("guards demo member prompt writes with the version from the read", async () =
   });
 });
 
+// Task 379ae5db: the UI reads and writes every instruction layer through
+// GET/PUT .../instructions, so the demo serves them with the same version rule.
+it("serves every instruction layer's read and version-guarded write", async () => {
+  const { room } = (await demoApi("POST", "/api/rooms", {
+    name: "Instructions room",
+  })) as { room: { id: string } };
+  const roomId = room.id;
+  for (const path of [
+    "/api/office/instructions",
+    `/api/rooms/${roomId}/instructions`,
+    "/api/agents/demo-michael/instructions",
+    "/api/users/Ricky/instructions",
+    "/api/cron-instructions",
+  ]) {
+    const before = (await demoApi("GET", path)) as {
+      instructions: string | null;
+      version: string;
+    };
+    expect([path, typeof before.version]).toEqual([path, "string"]);
+    const text = `Demo text for ${path}`;
+    await demoApi("PUT", path, { instructions: text, version: before.version });
+    const stale = await demoApi("PUT", path, {
+      instructions: "stale",
+      version: before.version,
+    }).catch((error: unknown) => error);
+    expect([path, stale]).toMatchObject([
+      path,
+      { status: 409, code: "version_conflict" },
+    ]);
+    expect([path, await demoApi("GET", path)]).toMatchObject([
+      path,
+      { instructions: text },
+    ]);
+  }
+});
+
 it("shows demo task history and restores a deleted task once", async () => {
   const task = (await demoApi("POST", "/api/tasks", {
     title: "Demo audit task",

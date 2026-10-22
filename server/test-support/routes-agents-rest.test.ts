@@ -1713,10 +1713,15 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
       bearer: token,
     });
     expect(res.status).toBe(200);
+    const version = srv.agentManager.getAgent(
+      target.id,
+    )!.customInstructionsVersion;
+    // The new names, and the old ones for one release (task 379ae5db).
     expect(res.body).toEqual({
+      instructions: "be terse",
+      version,
       customInstructions: "be terse",
-      customInstructionsVersion: srv.agentManager.getAgent(target.id)!
-        .customInstructionsVersion,
+      customInstructionsVersion: version,
     });
   });
 

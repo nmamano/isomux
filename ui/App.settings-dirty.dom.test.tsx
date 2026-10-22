@@ -42,6 +42,10 @@ const apiShim = async (method: string, path: string) => {
     };
   if (method === "GET" && path === "/api/rooms/r1/settings")
     return { prompt: null, version: "1" };
+  if (method === "GET" && path === "/api/office/instructions")
+    return { instructions: null, version: "1" };
+  if (method === "GET" && path === "/api/rooms/r1/instructions")
+    return { instructions: null, version: "1" };
   return {};
 };
 setApiShim(apiShim);

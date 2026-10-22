@@ -70,6 +70,8 @@ export interface SpawnReq {
   // back room.
   desk?: number | null;
   permissionMode?: AgentInfo["permissionMode"];
+  instructions?: string;
+  // Old name of `instructions`, kept for one release. Not both.
   customInstructions?: string;
   outfit?: AgentInfo["outfit"];
   modelFamily?: string;
@@ -87,7 +89,7 @@ export interface AgentSystemPromptPreviewReq {
   roomId: string;
   name: string;
   agentType: AgentInfo["agentType"];
-  customInstructions: string;
+  instructions: string;
   privileged: boolean;
   memory?: string;
 }
@@ -124,6 +126,10 @@ export type EditAgentReq = Partial<
   // then -> 400 invalid_version; stale -> 409 version_conflict with the
   // current version. Scalar-only edits omit it and stay friction-free.
   customInstructionsVersion?: string;
+  // The new names of customInstructions and customInstructionsVersion. The
+  // old names stay for one release; a body carries one name of each, not both.
+  instructions?: string | null;
+  instructionsVersion?: string;
 };
 
 export interface ReviveReq {
@@ -857,6 +863,8 @@ export type RecoveryMintReq = InviteMintReq;
 export interface UserCreateReq {
   name: string;
   role: UserRecord["role"];
+  instructions?: string | null;
+  // Old name of `instructions`, kept for one release. Not both.
   memberPrompt?: string | null;
   avatarColor?: string;
   avatarVariant?: UserRecord["avatarVariant"];
@@ -1556,6 +1564,20 @@ export interface CronRunMessageReq {
 // Cronjobs-prompt write body (cron.setPrompt). Inline `{ value }` in the spec.
 export interface CronPromptReq {
   value: string | null;
+}
+
+// Every instruction layer (office, room, agent, member, schedules) reads and
+// writes its text at GET/PUT .../instructions with these shapes. `version` is
+// the token from a preceding read: a mismatch is 409 version_conflict with
+// the current version. null or "" clears the text.
+export interface InstructionsRes {
+  instructions: string | null;
+  version: string;
+}
+
+export interface InstructionsReq {
+  instructions: string | null;
+  version: string;
 }
 
 // The wire contract for the app registry (internal-docs/agent-apps-design.md).

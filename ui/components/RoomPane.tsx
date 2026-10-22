@@ -4,8 +4,8 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type {
   RoomRenameReq,
-  RoomSettingsReq,
-  RoomSettingsRes,
+  InstructionsReq,
+  InstructionsRes,
 } from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
@@ -139,11 +139,11 @@ export function RoomPane({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<RoomSettingsRes>("GET", `/api/rooms/${roomId}/settings`)
+    apiFetch<InstructionsRes>("GET", `/api/rooms/${roomId}/instructions`)
       .then((r) => {
         if (cancelled) return;
-        setPrompt(r.prompt ?? "");
-        setBaselinePrompt(r.prompt ?? "");
+        setPrompt(r.instructions ?? "");
+        setBaselinePrompt(r.instructions ?? "");
         setSettingsVersion(r.version);
       })
       .catch(() => {
@@ -182,54 +182,35 @@ export function RoomPane({
             ...(backRoomChanged ? { backRoom } : {}),
           }
         : null;
-    // The settings save drives the pane: success settles it to "Saved", an
-    // ApiError shows inline. Memory is a separate version-guarded REPLACE on
-    // /api/memory.
-    const settingsBody: RoomSettingsReq = {
-      prompt: prompt.trim() ? prompt : null,
+    // The instructions save drives the pane: success settles it to "Saved",
+    // an ApiError shows inline. Memory is a separate version-guarded REPLACE
+    // on /api/memory.
+    const settingsBody: InstructionsReq = {
+      instructions: prompt.trim() ? prompt : null,
       version: settingsVersion,
     };
     void (async () => {
       try {
-        // Before the settings PUT, which spends the version token: a failure
-        // here must leave that token unspent, or the retry the reader is being
-        // asked to make would come back as a version conflict.
+        // Before the instructions PUT, which spends the version token: a
+        // failure here must leave that token unspent, or the retry the reader
+        // is being asked to make would come back as a version conflict.
         if (renameBody) {
           await apiFetch<void>("PATCH", `/api/rooms/${roomId}`, renameBody);
         }
-        await apiFetch<void>(
+        // The answer carries the stored text and its new version, so the
+        // token is fresh before anything that can fail and return (a memory
+        // conflict must not leave a spent token behind). The FIELD is set
+        // from it too, not just the baseline: the server normalizes an
+        // all-whitespace text to null, so without this the field keeps the
+        // whitespace and the pane is dirty the instant a save succeeds.
+        const saved = await apiFetch<InstructionsRes>(
           "PUT",
-          `/api/rooms/${roomId}/settings`,
+          `/api/rooms/${roomId}/instructions`,
           settingsBody,
         );
-        // The PUT above SPENT the token, so refresh it here - before
-        // anything that can fail and return. Doing this after the memory save
-        // meant a memory conflict left a spent token behind, and the reader's
-        // next Save came back as "settings changed since you opened this":
-        // a false cause, for a failure their own successful save created.
-        //
-        // Its own try/catch, because a failed re-read is not a failed save.
-        // Reporting it as one tells the reader the opposite of what happened
-        // and sends them to save again, into a 409.
-        try {
-          const next = await apiFetch<RoomSettingsRes>(
-            "GET",
-            `/api/rooms/${roomId}/settings`,
-          );
-          setSettingsVersion(next.version);
-          // The FIELD is set from the response too, not just the baseline. The
-          // server normalizes an all-whitespace prompt to null, so without
-          // this the field keeps the whitespace, the baseline becomes "", and
-          // the pane is dirty the instant a save succeeds.
-          setPrompt(next.prompt ?? "");
-          setBaselinePrompt(next.prompt ?? "");
-        } catch {
-          // No safe token to write with. Null disables Save, matching the
-          // failed-hydration path above, and the save that already landed
-          // still counts.
-          setSettingsVersion(null);
-          setError(t("settings.room.reloadFailed"));
-        }
+        setSettingsVersion(saved.version);
+        setPrompt(saved.instructions ?? "");
+        setBaselinePrompt(saved.instructions ?? "");
         setBaselineName(trimmedName);
         setBaselineBackRoom(backRoom);
         setLook(savedRoomLook(look));
