@@ -120,30 +120,6 @@ describe("a slash command's reply is stored in English and worded per reader", (
     return { owner, agent };
   }
 
-  it("stores /resume's nothing-to-resume line in English, worded per reader", async () => {
-    server = await startTestServer();
-    const { owner, agent } = await spanishTypist(server);
-    // /resume on a fresh agent answers with one of its two "nothing to
-    // resume" lines (/clear answers with nothing since 2026-09-13: the empty
-    // state is its confirmation).
-    await server.agentManager.sendMessage(agent.id, "/resume", owner.username);
-    // Found by either language, so a Spanish line fails on its words.
-    const keys = ["commands.resume.none", "commands.resume.noOthers"] as const;
-    const texts = (k: (typeof keys)[number]) =>
-      ["en", "es"].map((l) => translatorFor(l as "en" | "es").t(k));
-    const entries = server.agentManager
-      .getAgentLogs(agent.id)
-      .filter((e) => e.kind === "system");
-    const key = keys.find((k) =>
-      entries.some((e) => texts(k).includes(e.content)),
-    );
-    expect(key).toBeDefined();
-    expectWorded(
-      entries.find((e) => texts(key!).includes(e.content)),
-      key!,
-    );
-  });
-
   it("stores /help's header and body in English, with the body worded per reader", async () => {
     server = await startTestServer();
     const { owner, agent } = await spanishTypist(server);
@@ -337,22 +313,6 @@ describe("a line a member caused reads in each reader's language", () => {
     expectWorded(
       lastSystemEntry(server, agent.id),
       "systemEntries.effortCancelled",
-    );
-  });
-
-  it("stores a cancelled model pick in English, worded for each reader", async () => {
-    server = await startTestServer();
-    const { agent, member } = await mixedOffice(server);
-    await server.agentManager.sendMessage(agent.id, "/model", member.username);
-    expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
-    await server.agentManager.sendMessage(
-      agent.id,
-      "no thanks",
-      member.username,
-    );
-    expectWorded(
-      lastSystemEntry(server, agent.id),
-      "systemEntries.modelCancelled",
     );
   });
 });

@@ -222,23 +222,6 @@ describe("edit after Stop (task eb9002b4)", () => {
     expect(fake.forkCount).toBe(0);
     expect(failedEditText(errorsOf(events)[0].metadata)).toBe("second, fixed");
   });
-
-  it("refuses to treat an older message as never sent", async () => {
-    const { fake } = interruptedFake();
-    const { mgr, info, events } = await setup(fake);
-    const firstId = loadLog(info.id, PARENT_SID).find(
-      (e) => e.kind === "user_message" && e.content === "first",
-    )!.id;
-    // The backend has "first", so this is a normal edit: fork before it.
-    await mgr.editMessage(info.id, firstId, "first, fixed");
-    await waitUntil(
-      () => !!loadSessionsMap(info.id)[FORK_SID],
-      2000,
-      "fork persisted",
-    );
-    expect(errorsOf(events)).toEqual([]);
-    expect(fake.lastForkTarget).toBe("u-0");
-  });
 });
 
 describe("failed edits keep the edited text (task eb9002b4)", () => {
@@ -260,34 +243,30 @@ describe("failed edits keep the edited text (task eb9002b4)", () => {
     void mgr.sendMessage(info.id, "third, left running");
     await waitUntil(() => !idle(), 2000, "agent busy");
     await mgr.editMessage(info.id, secondId, "kept while busy");
+    expect(fake.forkCount).toBe(0);
     expect(failedEditText(errorsOf(events)[0].metadata)).toBe(
       "kept while busy",
     );
   });
 
-  it("a failed fork", async () => {
-    const { fake } = interruptedFake(["first"], {
-      forkError: new Error("fork refused"),
+  for (const forkError of [
+    new Error("fork refused"),
+    new BackendNotConfiguredError("backend missing"),
+  ]) {
+    it(`a failed fork (${forkError.constructor.name})`, async () => {
+      const { fake } = interruptedFake(["first"], { forkError });
+      const { mgr, info, events, secondId } = await setup(fake);
+      await mgr.editMessage(info.id, secondId, "kept after fork failure");
+      await waitUntil(
+        () => errorsOf(events).length > 0,
+        2000,
+        "error surfaced",
+      );
+      const [error] = errorsOf(events);
+      expect(error.content).toContain(forkError.message);
+      expect(failedEditText(error.metadata)).toBe("kept after fork failure");
     });
-    const { mgr, info, events, secondId } = await setup(fake);
-    await mgr.editMessage(info.id, secondId, "kept after fork failure");
-    await waitUntil(() => errorsOf(events).length > 0, 2000, "error surfaced");
-    const [error] = errorsOf(events);
-    expect(error.content).toContain("fork refused");
-    expect(failedEditText(error.metadata)).toBe("kept after fork failure");
-  });
-
-  it("a backend that is not configured", async () => {
-    const { fake } = interruptedFake(["first"], {
-      forkError: new BackendNotConfiguredError("backend missing"),
-    });
-    const { mgr, info, events, secondId } = await setup(fake);
-    await mgr.editMessage(info.id, secondId, "kept when unconfigured");
-    await waitUntil(() => errorsOf(events).length > 0, 2000, "error surfaced");
-    expect(failedEditText(errorsOf(events)[0].metadata)).toBe(
-      "kept when unconfigured",
-    );
-  });
+  }
 
   for (const how of ["error-event", "failed-turn"] as const) {
     it(`a turn that fails after the branch (${how})`, async () => {

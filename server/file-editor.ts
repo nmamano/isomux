@@ -450,8 +450,6 @@ export function saveFile(
 // keys for the same path can exist across WSes and across (agentId, path)
 // pairs - independent buffers, last-save-wins.
 export interface FileWatcher {
-  agentId: string;
-  path: string;
   timer: ReturnType<typeof setInterval>;
 }
 
@@ -471,15 +469,12 @@ export type WatchFileEvent =
 
 export function watchFile(
   absPath: string,
-  agentId: string,
   onEvent: (ev: WatchFileEvent) => void,
   // The `sig` of the openFile read this watch backs. Using the read-time
   // signature (not a fresh stat here) closes the read-then-watch gap: a save
   // landing between the read and this install differs from the baseline, so
   // the first poll emits and the client refetches.
   baselineSig: string,
-  // Test-only override of the poll interval.
-  opts?: { pollMs?: number },
 ): FileWatcher {
   // mtime polling, NOT fs.watch. `fs.watch` is unusable under
   // Bun for this: most agent tooling saves via atomic write-to-tmp + rename
@@ -524,10 +519,10 @@ export function watchFile(
       mtime: Math.floor(st.mtimeMs),
       rev: noteSig(absPath, s),
     });
-  }, opts?.pollMs ?? WATCH_POLL_MS);
+  }, WATCH_POLL_MS);
   // Don't let watch timers hold the process open on shutdown.
   timer.unref?.();
-  return { agentId, path: absPath, timer };
+  return { timer };
 }
 
 export function stopWatch(w: FileWatcher) {

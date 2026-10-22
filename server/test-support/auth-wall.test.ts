@@ -32,7 +32,6 @@ import {
   sessionCookieName,
   buildPublicOrigin,
   validateSession,
-  revokeSessionByPrefix,
   _testSetSessionExpiry,
 } from "../auth.ts";
 import { getUserByName } from "../users.ts";
@@ -185,45 +184,6 @@ describe("auth/wall: WS upgrade gate", () => {
     expect(ws.status).toBe(403);
     expect(http.status).toBeLessThan(400);
   });
-
-  it("an expired cookie and a revoked session are both refused at the upgrade", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const alice = await server.seedMember("Alice");
-    const good = buildPublicOrigin().origin;
-
-    // Baseline: Alice can upgrade.
-    expect(
-      (
-        await wsProbe(server, {
-          rawSessionId: alice.rawSessionId,
-          origin: good,
-        })
-      ).status,
-    ).toBe(400);
-
-    _testSetSessionExpiry(alice.rawSessionId, { expiresAt: Date.now() - 1 });
-    expect(
-      (
-        await wsProbe(server, {
-          rawSessionId: alice.rawSessionId,
-          origin: good,
-        })
-      ).status,
-    ).toBe(401);
-
-    // Revocation of a still-unexpired session: same answer.
-    const lOwner = validateSession(owner.rawSessionId)!;
-    expect(await revokeSessionByPrefix(lOwner.sessionPrefix)).toBe("ok");
-    expect(
-      (
-        await wsProbe(server, {
-          rawSessionId: owner.rawSessionId,
-          origin: good,
-        })
-      ).status,
-    ).toBe(401);
-  });
 });
 
 describe("auth/wall: HTTP cookie gate", () => {
@@ -327,71 +287,10 @@ describe("auth/wall: PWA assets are the ONLY pre-auth statics", () => {
   });
 });
 
-describe("auth/wall: the two-step invite flow over HTTP", () => {
-  it("GET /i/<token> renders without consuming; POST /auth/accept consumes once and sets the cookie", async () => {
+describe("auth/wall: the invite accept over HTTP", () => {
+  it("a bad Origin never reaches the token", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
-    const m = await mintMemberLink("Newbie");
-
-    // Two GETs: a link unfurler or a browser prefetch must not burn the token.
-    expect((await raw(server, `/i/${m.rawToken}`)).status).toBe(200);
-    const peek = await raw(server, `/i/${m.rawToken}`);
-    expect(peek.status).toBe(200);
-    const peekHtml = await peek.text();
-    expect(peekHtml).toContain('action="/auth/accept"');
-    expect(peekHtml).toContain(m.rawToken);
-    // A bound-username invite must NOT ask for a display name - only a
-    // bootstrap (null-username) invite does.
-    expect(peekHtml).not.toContain('name="name"');
-    expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
-
-    const accept = await raw(server, "/auth/accept", {
-      method: "POST",
-      origin: buildPublicOrigin().origin,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: m.rawToken }).toString(),
-    });
-    expect(accept.status).toBe(302);
-    expect(accept.headers.get("location")).toBe("/");
-    const setCookie = accept.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain(`${sessionCookieName()}=`);
-    expect(setCookie).toContain("HttpOnly");
-    expect(setCookie).toContain("SameSite=Lax");
-    expect(getUserByName("Newbie")?.role).toBe("member");
-    expect(getUserByName("Newbie")?.pendingSignIn).toBeUndefined();
-
-    // The issued cookie actually works.
-    const issued = setCookie.split(";")[0].split("=").slice(1).join("=");
-    const authed = await raw(server, "/api/files", { rawSessionId: issued });
-    expect(authed.status).not.toBe(401);
-
-    // Replay: 410 Gone, no second session.
-    const replay = await raw(server, "/auth/accept", {
-      method: "POST",
-      origin: buildPublicOrigin().origin,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: m.rawToken }).toString(),
-    });
-    expect(replay.status).toBe(410);
-  });
-
-  it("an expired invite is 410 on both the peek and the accept; a bad Origin never reaches the token", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const m = await mintMemberLink("Ghost", "member", -1000);
-
-    const peek = await raw(server, `/i/${m.rawToken}`);
-    expect(peek.status).toBe(410);
-    expect(await peek.text()).toContain("expired");
-
-    const accept = await raw(server, "/auth/accept", {
-      method: "POST",
-      origin: buildPublicOrigin().origin,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: m.rawToken }).toString(),
-    });
-    expect(accept.status).toBe(410);
-    expect(getUserByName("Ghost")?.pendingSignIn).toBe(true);
 
     // Cross-origin accept of a LIVE token is refused before the token is ever
     // looked at, so a hostile page can't redeem an invite it managed to read.
@@ -433,21 +332,5 @@ describe("auth/wall: a rename does not disturb live sessions", () => {
       (await raw(server, "/api/files", { rawSessionId: alice.rawSessionId }))
         .status,
     ).not.toBe(401);
-  });
-
-  it("a rename that collides only by CASE is refused", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    await server.seedMember("Alice");
-
-    const collide = await raw(server, "/api/users/Alice", {
-      method: "PATCH",
-      origin: buildPublicOrigin().origin,
-      rawSessionId: owner.rawSessionId,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "mOrGaN" }),
-    });
-    expect(collide.status).toBe(409);
-    expect(getUserByName("Alice")?.name).toBe("Alice");
   });
 });

@@ -66,7 +66,7 @@ function sessionCookieOf(res: Response): string {
 }
 
 describe("invite consumption - owner roster fanout", () => {
-  it("HTTP accept pushes users_list/users_admin_list to an already-open owner socket", async () => {
+  it("HTTP accept pushes the signed-in member to an already-open owner socket", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const sock = await server.connectWs(owner.rawSessionId);
@@ -79,15 +79,19 @@ describe("invite consumption - owner roster fanout", () => {
     const res = await acceptViaHttp(server, rawToken);
     expect(res.status).toBe(302);
 
-    // The open owner tab hears about the NEW USER without reconnecting -
-    // both the public roster and the owners-only admin roster.
+    // The open owner tab hears about the accept without reconnecting -
+    // both the public roster and the owners-only admin roster, where Yu
+    // is no longer waiting for a first sign-in.
     const listsWithYu = (type: string) => () =>
       sock.messages.slice(before).some((m) => {
-        const msg = m as { type?: string; users?: { name?: string }[] };
+        const msg = m as {
+          type?: string;
+          users?: { name?: string; pendingSignIn?: boolean }[];
+        };
         return (
           msg.type === type &&
           Array.isArray(msg.users) &&
-          msg.users.some((u) => u.name === "Yu")
+          msg.users.some((u) => u.name === "Yu" && !u.pendingSignIn)
         );
       });
     await waitUntil(listsWithYu("users_admin_list"), 2000, "users_admin_list");
@@ -97,7 +101,7 @@ describe("invite consumption - owner roster fanout", () => {
 });
 
 describe("consumed invite - signed-in visitor is redirected, not dead-ended", () => {
-  it("GET /i/<token> after a successful accept: with the session cookie -> 302 /; anonymous -> 410", async () => {
+  it("GET /i/<token> and a duplicate POST after a successful accept: with the session cookie -> 302 /; anonymous -> 410", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
     const rawToken = await mintFor("Yu");
@@ -119,15 +123,6 @@ describe("consumed invite - signed-in visitor is redirected, not dead-ended", ()
     // free pass past the error page.
     const anon = await server.http(`/i/${rawToken}`, { redirect: "manual" });
     expect(anon.status).toBe(410);
-  });
-
-  it("duplicate POST /auth/accept: with the session cookie -> 302 /; anonymous -> 410", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const rawToken = await mintFor("Yu");
-    const first = await acceptViaHttp(server, rawToken);
-    expect(first.status).toBe(302);
-    const yuCookie = sessionCookieOf(first);
 
     // Stale accept form re-POSTed from the signed-in browser.
     const dup = await server.http("/auth/accept", {

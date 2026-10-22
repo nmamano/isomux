@@ -837,36 +837,34 @@ function createManagers(startOpts: StartServerOpts): void {
   // agentManager is created just below.
   providerAccountManager.onAccountChanged = (provider, dir) =>
     agentManager?.providerAccountChanged(provider, dir);
-  agentManager =
-    startOpts.agentManager ??
-    createProductionAgentManager({
-      runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
-      resolveBackend: startOpts.resolveBackend,
-      storageRoots: () => storageRoots(),
-      listProviderAccounts: async (userId, options) => {
-        const accounts = await providerAccountManager.list(
+  agentManager = createProductionAgentManager({
+    runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
+    resolveBackend: startOpts.resolveBackend,
+    storageRoots: () => storageRoots(),
+    listProviderAccounts: async (userId, options) => {
+      const accounts = await providerAccountManager.list(
+        userId,
+        options?.refresh,
+        options,
+      );
+      if (options && !options.signal.aborted) {
+        // Never start an unrelated provider just to publish a full snapshot.
+        const snapshot = await providerAccountManager.cachedList(
           userId,
-          options?.refresh,
-          options,
+          accounts,
         );
-        if (options && !options.signal.aborted) {
-          // Never start an unrelated provider just to publish a full snapshot.
-          const snapshot = await providerAccountManager.cachedList(
-            userId,
-            accounts,
+        if (snapshot && !options.signal.aborted)
+          liveEmit(
+            "provider_accounts_updated",
+            { accounts: snapshot },
+            { userId },
           );
-          if (snapshot && !options.signal.aborted)
-            liveEmit(
-              "provider_accounts_updated",
-              { accounts: snapshot },
-              { userId },
-            );
-        }
-        return accounts;
-      },
-      effectiveProviderAccountTarget: (userId, provider) =>
-        providerAccountManager.effectiveTarget(userId, provider),
-    });
+      }
+      return accounts;
+    },
+    effectiveProviderAccountTarget: (userId, provider) =>
+      providerAccountManager.effectiveTarget(userId, provider),
+  });
   extensionService = new BrowserExtensionService(
     new BrowserExtensionStore(join(STATE_ROOT, "browser-connections.json")),
     {
@@ -884,11 +882,9 @@ function createManagers(startOpts: StartServerOpts): void {
     mayUseExtension,
     startOpts.browserExtensionActionDeadline,
   );
-  cronjobManager =
-    startOpts.cronjobManager ??
-    createProductionCronjobManager({
-      resolveBackend: startOpts.resolveBackend,
-    });
+  cronjobManager = createProductionCronjobManager({
+    resolveBackend: startOpts.resolveBackend,
+  });
   // Register the production instance for the module-read bridge that
   // command-handlers/usage-report use (they don't hold the instance).
   registerProductionCronjobManagerForModuleReads(cronjobManager);
@@ -5791,7 +5787,6 @@ function buildExecutorDeps(
         // poll that sees it back).
         const watcher = watchFile(
           r.path,
-          agentId,
           (ev) => {
             if (ev.kind === "deleted") {
               liveEmit(
@@ -8743,9 +8738,6 @@ export interface StartServerOpts {
   // Listen port. Omit → process.env.PORT || 4000 (production). Tests pass 0 for
   // an ephemeral port.
   port?: number;
-  // Inject pre-built managers (tests). Omit → production factories.
-  agentManager?: AgentManager;
-  cronjobManager?: CronjobManager;
   // Account-client factories are a narrow test seam around provider CLI probes.
   // Production omits them and uses the real Codex and Claude clients.
   createCodexAccountClient?: CreateCodexAccountClient;

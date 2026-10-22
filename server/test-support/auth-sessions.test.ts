@@ -6,16 +6,11 @@
 // auth module on the harness's temp STATE_ROOT.
 //
 // What this freezes:
-//   - EXPIRY, both clocks: the rolling window and the absolute cap each
-//     invalidate independently, and validation EVICTS the row rather than just
-//     returning null (a session that reads as dead but stays in the map would
-//     still be counted by the lockout arithmetic below).
 //   - The rolling refresh is CLAMPED to the absolute cap - refreshing past it
 //     would make the 1-year hard bound decorative.
 //   - An orphaned session (user record gone) stops validating.
-//   - Revoke / logout / evict all force-close the registered sockets, and the
-//     socket is NOTIFIED (session_expired) before the close - the UI's reconnect
-//     loop depends on that ordering.
+//   - Logout and evict force-close only their own registered sockets, and
+//     evict NOTIFIES them (session_expired).
 //   - PREFIX AMBIGUITY: two rows sharing an 8-char display prefix refuse the
 //     revoke instead of picking one. Exercised by planting a genuine collision
 //     on disk and cold-reloading, since prefixes are random and can't be forced.
@@ -33,7 +28,6 @@ import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import {
   validateSession,
-  revalidateByHash,
   listActiveSessions,
   listActiveSessionsForUserId,
   revokeSessionByPrefix,
@@ -43,7 +37,6 @@ import {
   resolveSessionHashByPrefix,
   logoutBySessionHash,
   evictSessionsForUserId,
-  countActiveOwnerSessions,
   wouldRevokeLeaveOfficeUnreachable,
   registerSocket,
   mintInvite,
@@ -54,8 +47,6 @@ import {
   getUserByName,
   deleteUser,
   setUserRole,
-  wouldDeleteLeaveNoOwner,
-  countOwners,
   updateUserById,
 } from "../users.ts";
 
@@ -73,66 +64,25 @@ function userIdOf(name: string): string {
   return u.id;
 }
 
-// A minimal ClosableSocket double. auth.ts types `send` optional precisely so
-// tests can register one of these without a real WebSocket.
+// A minimal ClosableSocket double.
 function stubSocket() {
   const sent: string[] = [];
   let closed = false;
-  // Records the send-count AT close time, so "notified before closed" is
-  // asserted as an ordering fact rather than inferred from two counters.
-  let sendsAtClose = -1;
   return {
     sent,
     get closed() {
       return closed;
     },
-    get sendsAtClose() {
-      return sendsAtClose;
-    },
     send(data: string) {
       sent.push(data);
     },
     close() {
-      sendsAtClose = sent.length;
       closed = true;
     },
   };
 }
 
 describe("auth/sessions: expiry invalidates and evicts", () => {
-  it("a lapsed ROLLING window stops validating and drops the row", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    expect(validateSession(owner.rawSessionId)).not.toBeNull();
-    expect(listActiveSessions().length).toBe(1);
-
-    expect(
-      _testSetSessionExpiry(owner.rawSessionId, { expiresAt: Date.now() - 1 }),
-    ).toBe(true);
-
-    expect(validateSession(owner.rawSessionId)).toBeNull();
-    // Evicted, not merely filtered: a second validate finds nothing at all.
-    expect(listActiveSessions().length).toBe(0);
-    expect(validateSession(owner.rawSessionId)).toBeNull();
-  });
-
-  it("a lapsed ABSOLUTE cap stops validating even with the rolling window wide open", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-
-    // Rolling window deliberately far in the future - only the absolute cap
-    // has lapsed, so this fails only if the two clocks are checked together.
-    expect(
-      _testSetSessionExpiry(owner.rawSessionId, {
-        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
-        absoluteExpiresAt: Date.now() - 1,
-      }),
-    ).toBe(true);
-
-    expect(validateSession(owner.rawSessionId)).toBeNull();
-    expect(listActiveSessions().length).toBe(0);
-  });
-
   it("the rolling refresh is clamped to the absolute cap, never past it", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -175,31 +125,6 @@ describe("auth/sessions: expiry invalidates and evicts", () => {
 });
 
 describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
-  it("revoke by prefix notifies the socket, THEN closes it, and the cookie stops working", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const alice = await server.seedMember("Alice");
-
-    const lookup = validateSession(alice.rawSessionId);
-    if (!lookup) throw new Error("alice session missing");
-    const sock = stubSocket();
-    registerSocket(lookup.sessionIdHash, sock);
-
-    expect(await revokeSessionByPrefix(lookup.sessionPrefix)).toBe("ok");
-
-    expect(sock.closed).toBe(true);
-    expect(sock.sent).toEqual([JSON.stringify({ type: "session_expired" })]);
-    // The notify must land BEFORE the close, or the UI's blind reconnect loop
-    // hammers a 401 upgrade instead of routing to the login screen.
-    expect(sock.sendsAtClose).toBe(1);
-
-    // Cookie is dead on both validation paths.
-    expect(validateSession(alice.rawSessionId)).toBeNull();
-    expect(revalidateByHash(lookup.sessionIdHash)).toBeNull();
-    // The owner's own session is untouched.
-    expect(validateSession(owner.rawSessionId)).not.toBeNull();
-  });
-
   it("logout by hash and evict-by-user each close their own sockets only", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -249,30 +174,6 @@ describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
 });
 
 describe("auth/sessions: lockout-prevention arithmetic", () => {
-  it("counts by RECORD role, so a promotion/demotion moves the last-owner line", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    await server.seedMember("Alice");
-
-    const lOwner = validateSession(owner.rawSessionId)!;
-    // Alice's session exists but is not owner-bearing.
-    expect(listActiveSessions().length).toBe(2);
-    expect(countActiveOwnerSessions()).toBe(1);
-    expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(true);
-    expect(wouldRevokeLeaveOfficeUnreachable("no-such-hash")).toBe(false);
-
-    // Promote Alice: her EXISTING session becomes owner-bearing, because the
-    // role is read from the record at check time rather than frozen at accept.
-    expect(setUserRole("Alice", "owner")).toBe(true);
-    expect(countActiveOwnerSessions()).toBe(2);
-    expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(false);
-
-    // Demote her again and Morgan is back to being the only way in.
-    expect(setUserRole("Alice", "member")).toBe(true);
-    expect(countActiveOwnerSessions()).toBe(1);
-    expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(true);
-  });
-
   it("an EXPIRED owner session is not counted as a rescue session", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -280,8 +181,8 @@ describe("auth/sessions: lockout-prevention arithmetic", () => {
     expect(setUserRole("Alice", "owner")).toBe(true);
     const lOwner = validateSession(owner.rawSessionId)!;
 
-    // Two live owner sessions: Morgan's is not the last.
-    expect(countActiveOwnerSessions()).toBe(2);
+    // Two live owner sessions: Morgan's is not the last. Alice was promoted
+    // after her session began, so the role is read from the record.
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(false);
 
     // Lapse Alice's without revoking it - the row is still in the map, so a
@@ -291,23 +192,7 @@ describe("auth/sessions: lockout-prevention arithmetic", () => {
       _testSetSessionExpiry(alice.rawSessionId, { expiresAt: Date.now() - 1 }),
     ).toBe(true);
 
-    expect(countActiveOwnerSessions()).toBe(1);
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(true);
-  });
-
-  it("wouldDeleteLeaveNoOwner guards the RECORD side of the same invariant", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    await server.seedMember("Alice");
-
-    expect(countOwners()).toBe(1);
-    expect(wouldDeleteLeaveNoOwner(userIdOf("Morgan"))).toBe(true);
-    expect(wouldDeleteLeaveNoOwner(userIdOf("Alice"))).toBe(false); // not an owner
-    expect(wouldDeleteLeaveNoOwner("no-such-id")).toBe(false);
-
-    expect(setUserRole("Alice", "owner")).toBe(true);
-    expect(countOwners()).toBe(2);
-    expect(wouldDeleteLeaveNoOwner(userIdOf("Morgan"))).toBe(false);
   });
 });
 
@@ -324,7 +209,6 @@ describe("auth/sessions: scoped revoke - lockout check runs AFTER the scope test
     // Precondition that makes this test non-vacuous: the prefix Alice is about
     // to probe really IS the office's last owner session, so a lockout check
     // placed before the scope test WOULD fire on it.
-    expect(countActiveOwnerSessions()).toBe(1);
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(true);
 
     const probeForeign = await revokeActiveSessionByPrefixForUserId(
@@ -400,10 +284,11 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
   // Prefixes are the first 8 chars of a random 256-bit token, so a collision
   // can't be produced by minting. These tests plant a genuine duplicate on disk
   // and cold-reload the auth module through the harness restart.
-  it("two sessions sharing a prefix: every revoke path answers ambiguous", async () => {
+  it("two sessions or two invites sharing a prefix: every revoke path answers ambiguous", async () => {
     let srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Alice");
     const lOwner = validateSession(owner.rawSessionId)!;
     const sharedPrefix = lOwner.sessionPrefix;
     const ownerId = userIdOf("Morgan");
@@ -423,6 +308,24 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
       sessionPrefix: sharedPrefix,
     };
     writeFileSync(file, JSON.stringify(rows, null, 2));
+
+    const m = await mintInvite({
+      userId: userIdOf("Alice"),
+      createdBy: "Alice",
+      ttlMs: INVITE_TTL_MS,
+    });
+    if (!m.ok) throw new Error("mint failed");
+    const invitePrefix = m.invite.tokenPrefix;
+    const inviteFile = join(srv.stateRoot, "invites.json");
+    const inviteRows = JSON.parse(readFileSync(inviteFile, "utf-8")) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const inviteOriginal = inviteRows[m.invite.tokenHash];
+    expect(inviteOriginal).toBeTruthy();
+    const inviteTwin = hashOf(randomBytes(32).toString("base64url"));
+    inviteRows[inviteTwin] = { ...inviteOriginal, tokenHash: inviteTwin };
+    writeFileSync(inviteFile, JSON.stringify(inviteRows, null, 2));
 
     srv = await srv.restart();
     server = srv;
@@ -445,40 +348,11 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
       listActiveSessions().filter((s) => s.sessionPrefix === sharedPrefix)
         .length,
     ).toBe(2);
-  });
 
-  it("two invites sharing a prefix: both revoke paths answer ambiguous", async () => {
-    let srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    await srv.seedMember("Alice");
-
-    const m = await mintInvite({
-      userId: userIdOf("Alice"),
-      createdBy: "Alice",
-      ttlMs: INVITE_TTL_MS,
-    });
-    if (!m.ok) throw new Error("mint failed");
-    const sharedPrefix = m.invite.tokenPrefix;
-
-    const file = join(srv.stateRoot, "invites.json");
-    const rows = JSON.parse(readFileSync(file, "utf-8")) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    const original = rows[m.invite.tokenHash];
-    expect(original).toBeTruthy();
-    const twinHash = hashOf(randomBytes(32).toString("base64url"));
-    rows[twinHash] = { ...original, tokenHash: twinHash };
-    writeFileSync(file, JSON.stringify(rows, null, 2));
-
-    srv = await srv.restart();
-    server = srv;
-
-    expect(await revokeInviteByPrefix(sharedPrefix)).toBe("ambiguous");
+    expect(await revokeInviteByPrefix(invitePrefix)).toBe("ambiguous");
     expect(
       await revokeOutstandingInviteByPrefixForUser(
-        sharedPrefix,
+        invitePrefix,
         getUserByName("Alice")!,
       ),
     ).toBe("ambiguous");

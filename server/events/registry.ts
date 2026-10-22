@@ -59,18 +59,14 @@ import type {
   UserSelfWire,
 } from "../../shared/contract-shapes.ts";
 
-// The fan-out lattice. The registry currently assigns from {all, owners,
-// room-ACL, recipient-scoped, api-token}; `by-user` and `none` are reserved (no current
-// event uses them) and a contract test pins that - so a future event must
-// declare its strategy deliberately rather than inherit a default.
+// The fan-out lattice. A future event must declare its strategy deliberately
+// rather than inherit a default.
 export type AudienceStrategy =
   | "api-token"
   | "all"
   | "owners"
   | "room-ACL"
-  | "recipient-scoped"
-  | "by-user"
-  | "none";
+  | "recipient-scoped";
 
 // The payload/ctx field(s) from which the emit helper computes recipients. Its
 // presence is what makes an audience AUDITABLE. `path` is a dotted access into
@@ -79,13 +75,12 @@ export type AudienceStrategy =
 // forgot to carry its pre-mutation room id selects NOBODY rather than leaking.
 export type ProjectionKey =
   | { kind: "apiTokenId" }
-  // Office-wide / owners / non-observable - no payload-derived subject.
+  // Office-wide / owners - no payload-derived subject.
   | { kind: "all" }
   | { kind: "owners" }
-  | { kind: "none" }
   // recipient-scoped: a single socket, keyed by the connectionId in the emit ctx.
   | { kind: "connectionId" }
-  // recipient-scoped (by-user flavor): every socket of the userId in the ctx.
+  // recipient-scoped: every socket of the userId in the ctx.
   | { kind: "userId" }
   // room-ACL: payload at `path` is a roomId carried in the event (static or
   // delete/relocate events whose live room lookup would be wrong post-mutation).
@@ -519,71 +514,6 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "userId" },
   },
 } satisfies Record<EventId, RegistryEvent>;
-
-// Office-wide events are the easiest leak class, so the set is FROZEN and
-// reviewed explicitly. A contract test asserts the registry's audience:"all"
-// set is exactly this allowlist - adding an `all` event without updating this
-// list (a deliberate, reviewed act) fails the test. Each is justified as
-// reduced office-wide metadata (no user access or office envFile/
-// prompt rides an `all` channel). The task board LEFT this class when it became
-// room-scoped - it is now per-recipient projected (see the `tasks` entry) -
-// and so did cronjobs and their runs when they gained rooms.
-export const ALL_AUDIENCE_ALLOWLIST: ReadonlySet<EventId> = new Set<EventId>([
-  "users_list",
-  "user_updated",
-  "cronjobs_prompt_updated",
-  "office_settings_updated",
-  "update_status",
-  "members_chat_message",
-  "members_chat_deleted",
-]);
-
-// Enumerates how the TARGET registry differs from today's ServerMessage so
-// nobody mistakes this registry for live wire coverage. The contract test reads
-// these to assert the delta is exactly as designed.
-export const REGISTRY_RENAMED_FROM_WIRE: ReadonlyArray<{
-  event: EventId;
-  note: string;
-}> = [
-  { event: "tasks", note: "domain tasks_changed → wire `tasks`" },
-  {
-    event: "task_upserted",
-    note: "NEW; domain tasks_changed → per-recipient delta (was a whole-board `tasks` rebroadcast)",
-  },
-  {
-    event: "task_deleted",
-    note: "NEW; domain tasks_changed → per-recipient delta, incl. a re-file out of the recipient's rooms",
-  },
-  {
-    event: "cron_run_log_entry",
-    note: "NEW; no current ServerMessage member (live cron-run transcript stream)",
-  },
-];
-
-// Wire messages that are intentionally NOT registry events (folded into HTTP
-// responses, or transport keepalive). The contract test asserts none of these
-// leaked into EVENT_REGISTRY.
-export const RETIRED_WIRE_MESSAGES: readonly string[] = [
-  "sessions_list",
-  "editor_content",
-  "editor_open_error",
-  "editor_save_response",
-  "settings_save_response",
-  "settings_validation",
-  "agent_save_response",
-  "cwd_validation",
-  "list_backend_models_response",
-  "invite_minted",
-  "access_settings",
-  "access_settings_updated",
-  "delete_user_blocked",
-  "revoke_blocked",
-  "logout_blocked",
-  "cronjob_runs",
-  "cronjob_runs_complete",
-  "rooms_reordered",
-  "pong",
-];
 
 export function isEventId(id: string): id is EventId {
   return Object.prototype.hasOwnProperty.call(EVENT_REGISTRY, id);

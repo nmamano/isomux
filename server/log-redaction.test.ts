@@ -189,6 +189,15 @@ it("pins the PM ruling and stays stable on a second pass for every case", () => 
       "Environment=ANTHROPIC_API_KEY=sk-ant-api03-" + "A".repeat(24),
       "Environment=ANTHROPIC_API_KEY=sk-ant-a...REDACTED",
     ],
+    // The motivating systemd unit: quoted assignments, one per line.
+    [
+      '[Service]\nEnvironment="OPENAI_API_KEY=sk-proj-' +
+        "A".repeat(24) +
+        '"\nEnvironment="ANTHROPIC_API_KEY=sk-ant-api03-' +
+        "A".repeat(24) +
+        '"',
+      '[Service]\nEnvironment="OPENAI_API_KEY=sk-proj-...REDACTED"\nEnvironment="ANTHROPIC_API_KEY=sk-ant-a...REDACTED"',
+    ],
     [
       "DATABASE_PASSWORD=hunter2hunter2hunter2hunter2",
       "DATABASE_PASSWORD=hunter2h...REDACTED",

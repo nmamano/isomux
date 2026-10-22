@@ -34,8 +34,8 @@ import type { LogQuery, SearchResult } from "./log-search.ts";
 import type { SearchChildRequest } from "./log-search-child.ts";
 
 export const SCAN_BUDGET_MS = 5_000;
-export const HARD_TIMEOUT_MS = 8_000;
-export const MAX_SEARCHES_PER_CALLER = 1;
+const HARD_TIMEOUT_MS = 8_000;
+const MAX_SEARCHES_PER_CALLER = 1;
 export const MAX_SEARCHES_OFFICE_WIDE = 3;
 
 const CHILD_PATH = fileURLToPath(
@@ -137,11 +137,9 @@ export function runSearchInChild(
   agentId: string,
   query: LogQuery,
   // These options are TEST SEAMS, not deployment configuration.
-  // Production passes none: the office reads its own log tree and waits the
-  // full budget. Tests point at a fixture tree and shorten the wait so proving
-  // the deadline does not cost eight seconds of suite time.
+  // Production passes none: the office waits the full budget. Tests shorten
+  // the wait so proving the deadline does not cost eight seconds of suite time.
   opts: {
-    logsDir?: string;
     hardTimeoutMs?: number;
     // Tests observe a real child and trigger its deadline after scan entry.
     spawnChild?: typeof spawnChild;
@@ -247,7 +245,7 @@ export function runSearchInChild(
       });
 
     const req: SearchChildRequest = {
-      logsDir: opts.logsDir ?? join(STATE_ROOT, "logs"),
+      logsDir: join(STATE_ROOT, "logs"),
       agentId,
       query,
       budgetMs: SCAN_BUDGET_MS,

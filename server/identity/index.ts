@@ -423,21 +423,6 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "voice:use",
 ];
 
-export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
-  switch (scope) {
-    case "user":
-      return USER_CAPABILITIES;
-    case "agent":
-      return AGENT_CAPABILITIES;
-    case "cron-run":
-      return RUN_CAPABILITIES;
-    case "app":
-      return APP_CAPABILITIES;
-    case "api":
-      return API_CAPABILITIES;
-  }
-}
-
 // An agent, or an app acting with its live owner agent's reach (ownerAgentId,
 // set by appIdentityFromToken only while that agent is live and shares the app
 // owner as manager). EVERY reach check that admits agents goes through this, so

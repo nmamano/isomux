@@ -273,6 +273,9 @@ describe("routes that take a path", () => {
         body: { path, content: "overwritten", expectedMtime: 0, force: true },
       });
       expect(saved.status).toBe(403);
+      expect((saved.body as { error: { code: string } }).error.code).toBe(
+        "credential_path",
+      );
       expect(readFileSync(path, "utf8")).toBe(before);
     }
     sock.close();
@@ -293,10 +296,26 @@ describe("routes that take a path", () => {
         body: { path },
       });
       expect(res.status).toBe(403);
+      expect((res.body as { error: { code: string } }).error.code).toBe(
+        "read_file_failed",
+      );
       expect(res.text).not.toContain(FAKE);
     }
-    for (const file of filesUnder(join(srv.stateRoot, "logs")))
-      expect(readFileSync(file).includes(Buffer.from(FAKE))).toBe(false);
+    const copies = () =>
+      filesUnder(join(srv.stateRoot, "logs")).map((f) => readFileSync(f));
+    for (const copy of copies())
+      expect(copy.includes(Buffer.from(FAKE))).toBe(false);
+    // The same call on an ordinary file copies it under the scanned tree.
+    const plain = join(srv.stateRoot, "plain.txt");
+    writeFileSync(plain, "plain-read-marker");
+    const read = await call(srv, "POST", `/api/agents/${agent.id}/read-file`, {
+      bearer: token,
+      body: { path: plain },
+    });
+    expect(read.status).toBe(200);
+    expect(
+      copies().some((copy) => copy.includes(Buffer.from("plain-read-marker"))),
+    ).toBe(true);
   });
 
   // A caller can no longer name the file (task df6d9b56); a legacy office
@@ -313,8 +332,19 @@ describe("routes that take a path", () => {
         body: { scope: "office" },
       });
       expect(res.status).toBe(200);
+      expect((res.body as { ok: boolean }).ok).toBe(false);
       expect(res.text).not.toContain(FAKE);
     }
+    // The same content outside the store: the parse error quotes the line.
+    const plain = join(srv.stateRoot, "plain.env");
+    writeFileSync(plain, `${FAKE}\n`);
+    srv.agentManager.setOfficeSettings(null, plain, null);
+    const quoted = await call(srv, "POST", "/api/validate/env", {
+      session: owner.rawSessionId,
+      body: { scope: "office" },
+    });
+    expect((quoted.body as { ok: boolean }).ok).toBe(false);
+    expect(quoted.text).toContain(FAKE);
   });
 });
 

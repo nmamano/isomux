@@ -186,28 +186,15 @@ async function swapWhileBooting(
 }
 
 describe("Codex: a message right after new-conversation", () => {
-  it("goes to the new session once it boots", async () => {
+  it("goes to the replacement session when a settings edit swaps the woken one while it boots", async () => {
     const { fake, mgr, logs, id } = await setup();
     await mgr.newConversation(id);
     expect(
       mgr.enqueueMessage(id, { sender: SENDER, text: "BRIEF" }),
     ).toMatchObject({ ok: true });
     const woken = (await waitForSession(fake, 2)) as CodexLikeSession;
+    // A fresh session, not a resume of the cleared thread.
     expect(woken.isResume).toBe(false);
-    woken.finishBoot();
-    await waitUntil(
-      () => woken.sent.some((m) => m.text.includes("BRIEF")),
-      "brief delivered",
-    );
-    expect(mgr.getAgent(id)?.state).toBe("thinking");
-    expect(logs.some((e) => e.kind === "error")).toBe(false);
-  });
-
-  it("goes to the replacement session when a settings edit swaps the woken one while it boots", async () => {
-    const { fake, mgr, logs, id } = await setup();
-    await mgr.newConversation(id);
-    mgr.enqueueMessage(id, { sender: SENDER, text: "BRIEF" });
-    const woken = (await waitForSession(fake, 2)) as CodexLikeSession;
     // The flush has called send(), which waits for the boot.
     await waitUntil(() => woken.sendEntered === 1, "send waits for the boot");
     expect(woken.sent).toHaveLength(0);
@@ -282,15 +269,29 @@ describe("Codex: a message right after new-conversation", () => {
     const woken = (await waitForSession(fake, 2)) as CodexLikeSession;
     await waitUntil(() => woken.sendEntered === 1, "send waits for the boot");
     await mgr.abort(id);
-    await sleep(100);
-    // Boot whatever the Stop left, so a message queued again would go out.
-    for (const s of fake.sessions.slice(1))
-      if (!s.closed) (s as CodexLikeSession).finishBoot();
-    await sleep(300);
-    expect(
-      fake.sessions.some((s) => s.sent.some((m) => m.text.includes("DIRECT"))),
-    ).toBe(false);
+    await waitUntil(
+      () => mgr.getAgent(id)?.state === "waiting_for_response",
+      "stopped",
+    );
     expect(queueOf(mgr, id)).toHaveLength(0);
-    expect(mgr.getAgent(id)?.state).toBe("waiting_for_response");
+    // Boot every session the Stop left or a later send wakes, then send a
+    // marker: a DIRECT still pending would go out before or with it.
+    const booted = new Set<FakeSession>();
+    const bootOpen = () => {
+      for (const s of fake.sessions.slice(1))
+        if (!s.closed && !booted.has(s)) {
+          booted.add(s);
+          (s as CodexLikeSession).finishBoot();
+        }
+    };
+    bootOpen();
+    void mgr.sendMessage(id, "MARKER", "nil");
+    const sentText = () =>
+      fake.sessions.flatMap((s) => s.sent.map((m) => m.text));
+    await waitUntil(() => {
+      bootOpen();
+      return sentText().some((t) => t.includes("MARKER"));
+    }, "marker delivered");
+    expect(sentText().some((t) => t.includes("DIRECT"))).toBe(false);
   });
 });

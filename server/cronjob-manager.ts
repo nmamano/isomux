@@ -2603,9 +2603,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     return totals;
   }
 
-  // Explicitly assembled public surface. The 16 symbols isomux-office.ts consumed off
-  // the old namespace import, plus buildCronjobSystemPrompt + readCronjobLifetimeUsage
-  // which the module-read bridge below forwards to for command-handlers/usage-report.
+  // Explicitly assembled public surface. listCronjobs and readCronjobLifetimeUsage
+  // are also forwarded by the module-read bridge below for
+  // command-handlers/usage-report.
   return {
     onCronjobEvent,
     listCronjobs,
@@ -2639,8 +2639,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
 // in-memory persistence) instead.
 export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
-  clock?: Parameters<typeof createCronjobManager>[0]["clock"];
-  scheduler?: Parameters<typeof createCronjobManager>[0]["scheduler"];
 }): CronjobManager {
   return createCronjobManager({
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
@@ -2651,8 +2649,8 @@ export function createProductionCronjobManager(overrides?: {
       mcpServersForUserId(createMcpServerSources(), userId),
     resolveUser: defaultResolveUser,
     persistence: cronPersistence,
-    clock: overrides?.clock ?? { now: Date.now },
-    scheduler: overrides?.scheduler ?? {
+    clock: { now: Date.now },
+    scheduler: {
       setTimeout,
       clearTimeout,
       setInterval,
@@ -2662,7 +2660,7 @@ export function createProductionCronjobManager(overrides?: {
   });
 }
 
-// listCronjobs / readCronjobLifetimeUsage / buildCronjobSystemPrompt are read
+// listCronjobs / readCronjobLifetimeUsage are read
 // by command-handlers.ts and usage-report.ts, which don't hold the manager
 // instance. Rather than thread the instance through their signatures (deferred
 // until handler/module ownership is clearer), isomux-office.ts registers the production
@@ -2703,14 +2701,4 @@ export function readCronjobLifetimeUsage(jobId: string): {
   costUSD: number;
 } {
   return requireProductionForModuleReads().readCronjobLifetimeUsage(jobId);
-}
-
-export function buildCronjobSystemPrompt(
-  cronjob: Cronjob,
-  runId?: string,
-): string {
-  return requireProductionForModuleReads().buildCronjobSystemPrompt(
-    cronjob,
-    runId,
-  );
 }

@@ -1,20 +1,14 @@
-// Phase 2.3 - Idempotency middleware contract tests (TDD red→green for NEW code).
-//
-// Pins the standalone semantics (not wired live in 2.3): key by stable identity
-// SUBJECT (never the raw token) + method + opId + Idempotency-Key + body hash;
-// same key+body replays; same key+different body 409s; no key = no caching; TTL
-// expiry re-runs; in-flight COLLAPSE for concurrent retries; failures not cached.
+// Idempotency cache contract tests. Replay, conflict, no-key, in-flight
+// collapse and failure eviction are owned by route-executor.test.ts, which
+// drives the cache through the executor. This file keeps what the executor
+// tests do not reach: how the key is namespaced (key, route, and identity
+// subject), TTL expiry, and the body check while a call is in flight.
 //
 // Pure T1-ish: deterministic clock injected, no server/FS/LLM.
 
 import { describe, it, expect } from "bun:test";
-import {
-  createIdempotencyCache,
-  identitySubjectKey,
-  hashBody,
-} from "../transport/idempotency.ts";
+import { createIdempotencyCache } from "../transport/idempotency.ts";
 import type { Identity } from "../identity/index.ts";
-import { expectRejection } from "./expect-rejection.ts";
 
 const user: Identity = {
   scope: "user",
@@ -33,163 +27,89 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe("idempotency: identitySubjectKey is stable and token-free", () => {
-  it("scopes by kind so a user and an agent sharing an id don't collide", () => {
-    expect(identitySubjectKey(user)).toBe("user:u1");
-    expect(
-      identitySubjectKey({
-        scope: "agent",
-        userId: "x",
-        agentId: "u1",
-        role: "member",
-        capabilities: [],
-      }),
-    ).toBe("agent:u1");
-    expect(
-      identitySubjectKey({
-        scope: "cron-run",
-        userId: "x",
-        cronjobId: "j1",
-        runId: "r1",
-        role: "member",
-        capabilities: [],
-      }),
-    ).toBe("cron-run:j1:r1");
-    // An app keys on its own (permanent, unique) name, NOT on the owner it
-    // shares with its user - two apps of one owner must not share a cache key.
-    expect(
-      identitySubjectKey({
-        scope: "app",
-        userId: "u1",
-        appName: "hello",
-        role: "member",
-        capabilities: [],
-      }),
-    ).toBe("app:hello");
+describe("idempotency: the key is namespaced", () => {
+  const agentU1: Identity = {
+    scope: "agent",
+    userId: "x",
+    agentId: "u1",
+    role: "member",
+    capabilities: [],
+  };
+  const app = (appName: string): Identity => ({
+    scope: "app",
+    userId: "u1",
+    appName,
+    role: "member",
+    capabilities: [],
   });
-});
-
-describe("idempotency: caching semantics", () => {
-  it("no key ⇒ runs, never caches", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const r1 = await cache.run(
-      {
-        identity: user,
-        method: "POST",
-        opId: "tasks.create",
-        idempotencyKey: null,
-        bodyFingerprint: "{}",
-      },
-      async () => ++calls,
-    );
-    expect(r1).toEqual({ kind: "ran", response: 1 });
-    expect(cache._size()).toBe(0);
+  const api = (apiTokenId: string): Identity => ({
+    scope: "api",
+    userId: "u1",
+    apiTokenId,
+    apiTokenName: apiTokenId,
+    role: "member",
+    capabilities: [],
   });
-
-  it("same key + same body ⇒ replay (handler runs once)", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const args = {
-      identity: user,
-      method: "POST",
-      opId: "tasks.create",
-      idempotencyKey: "k1",
-      bodyFingerprint: '{"title":"a"}',
-    };
-    const a = await cache.run(args, async () => ++calls);
-    const b = await cache.run(args, async () => ++calls);
-    expect(a).toEqual({ kind: "ran", response: 1 });
-    expect(b).toEqual({ kind: "replayed", response: 1 });
-    expect(calls).toBe(1);
+  const run = (runId: string): Identity => ({
+    scope: "cron-run",
+    userId: "u1",
+    cronjobId: "j1",
+    runId,
+    role: "member",
+    capabilities: [],
   });
-
-  it("same key + DIFFERENT body ⇒ 409 conflict (handler not run again)", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const base = {
-      identity: user,
-      method: "POST",
-      opId: "tasks.create",
-      idempotencyKey: "k1",
-    };
-    await cache.run(
-      { ...base, bodyFingerprint: '{"title":"a"}' },
-      async () => ++calls,
-    );
-    const conflict = await cache.run(
-      { ...base, bodyFingerprint: '{"title":"b"}' },
-      async () => ++calls,
-    );
-    expect(conflict).toEqual({ kind: "conflict" });
-    expect(calls).toBe(1);
-  });
-
-  it("different key ⇒ both run", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const base = {
-      identity: user,
-      method: "POST",
-      opId: "tasks.create",
-      bodyFingerprint: "{}",
-    };
-    await cache.run({ ...base, idempotencyKey: "k1" }, async () => ++calls);
-    await cache.run({ ...base, idempotencyKey: "k2" }, async () => ++calls);
-    expect(calls).toBe(2);
-  });
-
-  it("same key on a DIFFERENT route does not replay (opId namespaces the key)", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    await cache.run(
-      {
-        identity: user,
-        method: "POST",
-        opId: "tasks.create",
-        idempotencyKey: "k",
-        bodyFingerprint: "{}",
-      },
-      async () => ++calls,
-    );
-    const other = await cache.run(
-      {
-        identity: user,
-        method: "POST",
-        opId: "rooms.create",
-        idempotencyKey: "k",
-        bodyFingerprint: "{}",
-      },
-      async () => ++calls,
-    );
-    expect(other.kind).toBe("ran");
-    expect(calls).toBe(2);
-  });
-
-  it("a different identity subject does not collide", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const agent: Identity = {
-      scope: "agent",
-      userId: "x",
-      agentId: "u1",
-      role: "member",
-      capabilities: [],
-    };
-    const base = {
-      method: "POST",
-      opId: "tasks.create",
-      idempotencyKey: "k",
-      bodyFingerprint: "{}",
-    };
-    await cache.run({ ...base, identity: user }, async () => ++calls);
-    const agentRun = await cache.run(
-      { ...base, identity: agent },
-      async () => ++calls,
-    );
-    expect(agentRun.kind).toBe("ran"); // "user:u1" ≠ "agent:u1"
-    expect(calls).toBe(2);
-  });
+  const base = {
+    identity: user,
+    method: "POST",
+    opId: "tasks.create",
+    idempotencyKey: "k",
+    bodyFingerprint: "{}",
+  };
+  // Each row: a first call, then a second call that differs in one part of
+  // the key. The second must run, never replay.
+  const rows: Array<[string, typeof base, typeof base]> = [
+    ["a different key", base, { ...base, idempotencyKey: "k2" }],
+    ["a different route", base, { ...base, opId: "rooms.create" }],
+    // "user:u1" and "agent:u1" share an id.
+    ["a user and an agent with one id", base, { ...base, identity: agentU1 }],
+    // Two agents of one member key on their own ids, not on the member's.
+    [
+      "two agents of one member",
+      { ...base, identity: { ...agentU1, userId: "m1", agentId: "a1" } },
+      { ...base, identity: { ...agentU1, userId: "m1", agentId: "a2" } },
+    ],
+    // An app keys on its own name, not on the owner it shares.
+    [
+      "two apps of one owner",
+      { ...base, identity: app("hello") },
+      { ...base, identity: app("other") },
+    ],
+    [
+      "two API tokens of one user",
+      { ...base, identity: api("pat-1") },
+      { ...base, identity: api("pat-2") },
+    ],
+    [
+      "two runs of one cronjob",
+      { ...base, identity: run("r1") },
+      { ...base, identity: run("r2") },
+    ],
+  ];
+  for (const [name, first, second] of rows) {
+    it(`${name} does not replay`, async () => {
+      const cache = createIdempotencyCache();
+      let calls = 0;
+      await cache.run(first, async () => ++calls);
+      // The same call replays: the row's difference is what makes it run.
+      expect((await cache.run(first, async () => ++calls)).kind).toBe(
+        "replayed",
+      );
+      expect(await cache.run(second, async () => ++calls)).toEqual({
+        kind: "ran",
+        response: 2,
+      });
+    });
+  }
 });
 
 describe("idempotency: TTL expiry (injected clock)", () => {
@@ -215,34 +135,7 @@ describe("idempotency: TTL expiry (injected clock)", () => {
   });
 });
 
-describe("idempotency: in-flight collapse", () => {
-  it("concurrent same key+body collapses to ONE handler run", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const gate = deferred<void>();
-    const args = {
-      identity: user,
-      method: "POST",
-      opId: "tasks.create",
-      idempotencyKey: "k1",
-      bodyFingerprint: "{}",
-    };
-    const handler = async () => {
-      calls++;
-      await gate.promise;
-      return "done";
-    };
-    const p1 = cache.run(args, handler);
-    const p2 = cache.run(args, handler); // arrives while p1 in-flight
-    gate.resolve();
-    const [a, b] = await Promise.all([p1, p2]);
-    expect(calls).toBe(1); // collapsed, not double-run
-    expect(a.kind).toBe("ran");
-    expect(b.kind).toBe("replayed");
-    expect((a as { response: string }).response).toBe("done");
-    expect((b as { response: string }).response).toBe("done");
-  });
-
+describe("idempotency: in flight", () => {
   it("concurrent same key + DIFFERENT body still 409s while in-flight", async () => {
     const cache = createIdempotencyCache();
     const gate = deferred<void>();
@@ -256,45 +149,15 @@ describe("idempotency: in-flight collapse", () => {
       await gate.promise;
       return "first";
     });
-    const conflict = await cache.run(
+    // The body check runs before the second call awaits anything, so opening
+    // the gate right away cannot change its answer; a cache that skipped the
+    // check would collapse onto the first call and report it replayed.
+    const second = cache.run(
       { ...base, bodyFingerprint: '{"v":2}' },
       async () => "second",
     );
-    expect(conflict).toEqual({ kind: "conflict" });
     gate.resolve();
-    await p1;
-  });
-});
-
-describe("idempotency: failures are not cached", () => {
-  it("a rejected handler evicts the entry so a retry re-runs", async () => {
-    const cache = createIdempotencyCache();
-    let calls = 0;
-    const args = {
-      identity: user,
-      method: "POST",
-      opId: "tasks.create",
-      idempotencyKey: "k1",
-      bodyFingerprint: "{}",
-    };
-    await expectRejection(
-      cache.run(args, async () => {
-        calls++;
-        throw new Error("boom");
-      }),
-      /boom/,
-    );
-    expect(cache._size()).toBe(0); // evicted
-    const retry = await cache.run(args, async () => ++calls);
-    expect(retry).toEqual({ kind: "ran", response: 2 });
-    expect(calls).toBe(2);
-  });
-});
-
-describe("idempotency: hashBody", () => {
-  it("identical bodies hash identically; different bodies diverge", () => {
-    expect(hashBody('{"a":1}')).toBe(hashBody('{"a":1}'));
-    expect(hashBody('{"a":1}')).not.toBe(hashBody('{"a":2}'));
-    expect(hashBody("")).toBe(hashBody(""));
+    const [conflict] = await Promise.all([second, p1]);
+    expect(conflict).toEqual({ kind: "conflict" });
   });
 });

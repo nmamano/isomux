@@ -5081,7 +5081,8 @@ export function createAgentManager(deps: ManagerDeps) {
         // Sign-in trouble never arrives here: the backend sends auth_needed
         // instead (server/backends/auth-signal.ts).
         const managed = agents.get(agentId);
-        if (ev.claudeAccessDenied && managed?.info.agentType === "claude") {
+        // Only the Claude adapter sets claudeAccessDenied.
+        if (ev.claudeAccessDenied && managed) {
           managed.pendingFreshRecoveryNotice = false;
           addLogEntry(
             agentId,

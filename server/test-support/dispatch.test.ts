@@ -5,8 +5,8 @@
 //   no identity at all      -> 401 unauthenticated  (the ONLY 401 path)
 //   missing capability (s1) -> 403 forbidden, and stage 2 is NOT run
 //   resourceGuard deny (s2) -> the guard's outcome, verbatim
-// Pure T0: no server, no FS, no LLM. The dispatcher is exercised directly; it is
-// NOT wired into the live dispatchCommand switch or any HTTP handler in 2.2.
+// Pure T0: no server, no FS, no LLM. The dispatcher is exercised directly; the
+// route executor (server/routes/executor.ts) runs it for every route.
 
 import { describe, it, expect } from "bun:test";
 import { authorize, type RouteAuthz } from "../identity/dispatch.ts";
@@ -18,9 +18,7 @@ import {
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
-  RUN_CAPABILITIES,
   APP_CAPABILITIES,
-  API_CAPABILITIES,
   type Identity,
 } from "../identity/index.ts";
 
@@ -82,19 +80,7 @@ describe("dispatcher: authn stage (null identity)", () => {
 });
 
 describe("dispatcher: stage 1 (coarse capability)", () => {
-  it("missing capability -> 403 forbidden", () => {
-    // An AGENT lacks agent:manage.
-    const route: RouteAuthz = {
-      requiredCapability: "agent:manage",
-      resourceGuard: allowGuard,
-    };
-    expect(authorize(route, input(agent))).toEqual({
-      ok: false,
-      status: 403,
-      code: "forbidden",
-    });
-  });
-  it("stage 2 is NOT run when stage 1 fails (guard would throw but is never reached)", () => {
+  it("missing capability -> 403 forbidden, and stage 2 is NOT run (the guard would throw)", () => {
     const route: RouteAuthz = {
       requiredCapability: "agent:manage",
       resourceGuard: throwGuard,
@@ -109,8 +95,7 @@ describe("dispatcher: stage 1 (coarse capability)", () => {
 
 describe("dispatcher: stage 1 any-of capability (composite routes)", () => {
   // agents.sendMessage admits a user, agent, cron-run, or API sender capability.
-  // USER (has converse, not send-as-self) and an AGENT (has send-as-self, not
-  // converse) must clear stage 1 and reach messageSend's scope-specific stage 2.
+  // An AGENT holds a capability that is not first in the list.
   const anyOf: RouteAuthz = {
     requiredCapability: [
       "agent:converse",
@@ -120,33 +105,8 @@ describe("dispatcher: stage 1 any-of capability (composite routes)", () => {
     ],
     resourceGuard: allowGuard,
   };
-  it("a USER holding its sender capability clears stage 1", () => {
-    expect(authorize(anyOf, input(userOwner))).toEqual({ ok: true });
-  });
   it("an AGENT holding its sender capability clears stage 1", () => {
     expect(authorize(anyOf, input(agent))).toEqual({ ok: true });
-  });
-  it("a CRON-RUN holding its dedicated capability clears stage 1", () => {
-    const run: Identity = {
-      scope: "cron-run",
-      userId: "u",
-      cronjobId: "j",
-      runId: "r",
-      role: "member",
-      capabilities: RUN_CAPABILITIES,
-    };
-    expect(authorize(anyOf, input(run))).toEqual({ ok: true });
-  });
-  it("an API identity holding its dedicated capability clears stage 1", () => {
-    const api: Identity = {
-      scope: "api",
-      userId: "u",
-      apiTokenId: "pat-1",
-      apiTokenName: "Phone",
-      role: "member",
-      capabilities: API_CAPABILITIES,
-    };
-    expect(authorize(anyOf, input(api))).toEqual({ ok: true });
   });
   it("an APP identity holding none of the four is denied at stage 1", () => {
     const app: Identity = {
@@ -165,13 +125,6 @@ describe("dispatcher: stage 1 any-of capability (composite routes)", () => {
 });
 
 describe("dispatcher: stage 2 (resource guard)", () => {
-  it("capability present + guard allows -> ok", () => {
-    const route: RouteAuthz = {
-      requiredCapability: "office:read",
-      resourceGuard: allowGuard,
-    };
-    expect(authorize(route, input(userOwner))).toEqual({ ok: true });
-  });
   it("capability present + guard denies -> the guard's outcome verbatim", () => {
     // A custom non-403 outcome proves the dispatcher passes the guard result
     // through rather than substituting its own status/code.

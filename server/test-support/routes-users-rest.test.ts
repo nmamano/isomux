@@ -358,7 +358,8 @@ describe("routes/users REST - update (record split, Option A)", () => {
     expect((await patch("Mia", owner.rawSessionId, { name: 123 })).status).toBe(
       422,
     );
-    const taken = await patch("Mia", owner.rawSessionId, { name: "Morgan" });
+    // Names collide case-insensitively.
+    const taken = await patch("Mia", owner.rawSessionId, { name: "mOrGaN" });
     expect([taken.status, errCode(taken)]).toEqual([409, "name_taken"]);
     // Per-user env files are managed by isomux now (Connections page); the
     // old envFile path setting is gone from the wire. A stale client that

@@ -19,9 +19,6 @@
 // fallback). A recipient-scoped event with no concrete connectionId/userId, a
 // room-ACL event missing its carried room id, or a half-carried move all reach
 // nobody rather than leaking.
-//
-// ADDITIVE: not wired into the live wireEventSinks in 2.3. Exercised directly by
-// contract tests with a fake transport.
 
 import {
   EVENT_REGISTRY,
@@ -129,13 +126,10 @@ function deriveRoomIds<S>(
 }
 
 // Resolve the recipient set for a registry event, or null to skip delivery
-// entirely (audience `none`, or a fail-closed missing subject). An empty array
-// means "valid subject, zero current recipients" and is delivered (a harmless
-// no-op), distinct from a broadcast fallback which NEVER happens for scoped
-// audiences. Exported so contract tests can prove the audience→recipients
-// mapping (including the reserved `none`/`by-user` strategies) executably,
-// independent of which event ids happen to use each strategy today.
-export function resolveRecipients<S>(
+// entirely (a fail-closed missing subject). An empty array means "valid
+// subject, zero current recipients" and is delivered (a harmless no-op),
+// distinct from a broadcast fallback which NEVER happens for scoped audiences.
+function resolveRecipients<S>(
   reg: RegistryEvent,
   payload: unknown,
   ctx: EmitContext,
@@ -150,13 +144,6 @@ export function resolveRecipients<S>(
       return deps.allSessions();
     case "owners":
       return deps.ownerSessions();
-    case "none":
-      // Non-observable: never reaches transport.
-      return null;
-    case "by-user": {
-      const uid = ctx.userId;
-      return nonEmptyString(uid) ? deps.sessionsForUser(uid) : null;
-    }
     case "recipient-scoped": {
       const pk = reg.projectionKey;
       if (pk.kind === "connectionId") {

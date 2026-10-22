@@ -6,10 +6,8 @@
 // and resolves a raw bearer to an Identity, and the stateless auth helpers
 // (readBearerToken, identityFromSession). Zero LLM, no server, no FS.
 //
-// ADDITIVE phase: these assert tokens are issued/resolved/rotated/revoked. They
-// do NOT assert anything is rejected at the transport layer (that is Phase 3 /
-// loopback-bypass removal). Redaction of the raw across real exposure surfaces
-// is covered separately by the lifecycle/redaction harness test.
+// Rotation and revocation through the agent lifecycle are owned by
+// identity-lifecycle.test.ts, and run tokens by cronjob-manager.di.test.ts.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import {
@@ -19,20 +17,13 @@ import {
   RUN_CAPABILITIES,
   APP_CAPABILITIES,
   API_CAPABILITIES,
-  agentCapabilities,
-  capabilitiesForScope,
   identityHasCapability,
-  identityFromSession,
   readBearerToken,
   type Capability,
 } from "../identity/index.ts";
 import {
   mintAgentToken,
-  getAgentTokenRaw,
   revokeAgentToken,
-  mintRunToken,
-  getRunTokenRaw,
-  revokeRunToken,
   resolveToken,
   redactTokens,
   _testResetTokens,
@@ -44,104 +35,52 @@ function req(headers: Record<string, string>): Request {
   return new Request("http://localhost/x", { headers });
 }
 
-describe("identity: capability sets (Phase 2.1)", () => {
-  it("AGENT scope holds exactly the agent-identity + shared task/memory capabilities", () => {
-    expect([...AGENT_CAPABILITIES].sort()).toEqual(
-      (
-        [
-          "agent:send-as-self",
-          "agent:send-to-api-token",
-          "self:affordance",
-          "task:read",
-          "task:write",
-          "memory:read",
-          "memory:write",
-          // Conversation-log reads (GET /api/agents/:id/logs). Its own
-          // capability rather than office:read, which an agent token does not
-          // carry - see the Capability union.
-          "log:read",
-          // The app registry. BASELINE, not a privileged extra: an ordinary
-          // agent registering the app it just built is the whole feature. Who
-          // may touch WHICH app is the appOwnerOrOfficeOwner guard's job.
-          "app:read",
-          "app:write",
-          // The pager: an agent raises pages to its manager and acts on pages
-          // in rooms its manager can access.
-          "pager:raise",
-          "pager:read",
-          "pager:write",
-          // The webhook registry, baseline like apps; the
-          // webhookOwnerOrOfficeOwner guard scopes it.
-          "webhook:read",
-          "webhook:write",
-          // Voice through OpenAI; each call spends the manager's voice key,
-          // which the agent's own env already holds.
-          "voice:use",
-        ] as Capability[]
-      ).sort(),
-    );
-  });
-
-  it("RUN scope holds self-affordances, cron messaging, and the task board", () => {
-    // task:read/task:write are here because the cron system prompt hands a run
-    // the office-global board; it reached it over the retired loopback /tasks
-    // route before. Nothing else: a run cannot spawn, converse, or read cron -
-    // and NOT log:read either: a run has no room, no chat, and no history. Nor
-    // app:read/app:write: a run has nobody to hand a URL to.
-    expect([...RUN_CAPABILITIES]).toEqual([
-      "self:affordance",
-      "agent:send-as-cron",
-      "task:read",
-      "task:write",
-    ]);
-  });
-
-  it("USER (browser) scope holds the management caps but NOT the agent-identity caps", () => {
-    // Spot-check representative management capabilities are present...
-    for (const c of [
-      "office:read",
-      "agent:manage",
-      "agent:converse",
-      "room:manage",
-      "office:admin",
-      "user:admin",
-      "task:write",
-      "editor:use",
-      "terminal:use",
-    ] as Capability[]) {
-      expect(USER_CAPABILITIES).toContain(c);
-    }
-    // ...and the non-user sender/affordance caps are deliberately absent. A
-    // human is not an agent or cron run and has no own-chat.
-    expect(USER_CAPABILITIES).not.toContain("agent:send-as-self" as Capability);
-    expect(USER_CAPABILITIES).not.toContain("agent:send-as-cron" as Capability);
-    expect(USER_CAPABILITIES).not.toContain("self:affordance" as Capability);
-  });
-
-  it("chat:members is held by USER, API and PRIVILEGED agents, and by no other set", () => {
-    const cap = "chat:members" as Capability;
-    expect(USER_CAPABILITIES).toContain(cap);
-    expect(API_CAPABILITIES).toContain(cap);
-    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(cap);
-    expect(AGENT_CAPABILITIES).not.toContain(cap);
-    expect(RUN_CAPABILITIES).not.toContain(cap);
-    expect(APP_CAPABILITIES).not.toContain(cap);
-  });
-
-  it("PRIVILEGED agent set = AGENT base + the curated operator caps, and EXCLUDES the escalation caps", () => {
-    // The whole baseline AGENT set is included...
-    for (const c of AGENT_CAPABILITIES) {
-      expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
-    }
-    expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(
-      "agent:send-as-cron" as Capability,
-    );
-    // ...plus exactly the curated operator delta (drive other agents' sessions
-    // + full cron over own jobs). Nil-locked set (task 98d63ef7).
-    for (const c of [
+// Every capability set, pinned exactly. A capability added to or removed from
+// any set fails here; this is the only test that sees, for example, app:message
+// given to agents (appScope would still refuse it on the route).
+const AGENT_EXACT: Capability[] = [
+  "agent:send-as-self",
+  "agent:send-to-api-token",
+  "self:affordance",
+  "task:read",
+  "task:write",
+  "memory:read",
+  "memory:write",
+  // Conversation-log reads (GET /api/agents/:id/logs). Its own capability
+  // rather than office:read, which an agent token does not carry.
+  "log:read",
+  // The app registry. BASELINE, not a privileged extra: an ordinary agent
+  // registering the app it just built is the whole feature. Who may touch
+  // WHICH app is the appOwnerOrOfficeOwner guard's job.
+  "app:read",
+  "app:write",
+  // The pager: an agent raises pages to its manager and acts on pages in
+  // rooms its manager can access.
+  "pager:raise",
+  "pager:read",
+  "pager:write",
+  // The webhook registry, baseline like apps; the webhookOwnerOrOfficeOwner
+  // guard scopes it.
+  "webhook:read",
+  "webhook:write",
+  // Voice through OpenAI; each call spends the manager's voice key.
+  "voice:use",
+];
+const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
+  ["AGENT", AGENT_CAPABILITIES, AGENT_EXACT],
+  [
+    // The AGENT base plus the curated operator delta (Nil-locked, task
+    // 98d63ef7). The escalation caps (invite:manage, secret:show, user:env,
+    // session:manage, user:self, user:admin, office:admin, view:manage,
+    // terminal:use, agent:privilege) never reach a privileged agent.
+    "PRIVILEGED_AGENT",
+    PRIVILEGED_AGENT_CAPABILITIES,
+    [
+      ...AGENT_EXACT,
       "audit:read",
       "agent:converse",
       "office:read",
+      "chat:members",
       "agent:manage",
       "room:manage",
       "editor:use",
@@ -151,109 +90,70 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "user:create",
       "user:prompt",
       "integration:manage",
-    ] as Capability[]) {
-      expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
-    }
-    // The escalation / owner-admin caps are DELIBERATELY absent - this is the
-    // crux of the audit. invites.* (durable login mint), sessions.* (kill the
-    // human's browser session), user/office administration, view prefs, and the
-    // privilege-toggle cap itself must never reach a privileged agent. (room:manage
-    // was added by Nil-approved expansion - it is now INCLUDED above.)
-    for (const c of [
-      "invite:manage",
-      "secret:show",
-      "user:env",
-      "session:manage",
+      "office:settings",
+    ],
+  ],
+  [
+    // A run has no room, no chat and no history: self-affordances, cron
+    // messaging, and the office-global task board its prompt hands it.
+    "RUN",
+    RUN_CAPABILITIES,
+    ["self:affordance", "agent:send-as-cron", "task:read", "task:write"],
+  ],
+  [
+    // The narrowest set: the app-self message route and the app pager routes.
+    // An app manages nothing, INCLUDING itself.
+    "APP",
+    APP_CAPABILITIES,
+    ["app:message", "pager:raise"],
+  ],
+  [
+    // A human is not an agent or a cron run and has no own-chat; only a user
+    // can clear stage 1 of agents.setPrivileged (agent:privilege).
+    "USER",
+    USER_CAPABILITIES,
+    [
+      "audit:read",
+      "office:read",
+      "chat:members",
+      "agent:manage",
+      "agent:converse",
+      "agent:privilege",
+      "room:manage",
+      "view:manage",
       "user:self",
+      "user:env",
+      "integration:manage",
       "user:admin",
       "office:admin",
-      "view:manage",
+      "office:settings",
+      "invite:manage",
+      "secret:show",
+      "session:manage",
+      "cron:read",
+      "cron:manage",
+      "editor:use",
+      "file:upload",
       "terminal:use",
-      "agent:privilege",
-    ] as Capability[]) {
-      expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(c);
-    }
-  });
-
-  // Show a saved secret (Nil, 2026-10-13): humans and their API tokens only.
-  it("secret:show is held by USER and API scope only, never an agent, run or app", () => {
-    expect(USER_CAPABILITIES).toContain("secret:show" as Capability);
-    expect(API_CAPABILITIES).toContain("secret:show" as Capability);
-    for (const set of [
-      AGENT_CAPABILITIES,
-      PRIVILEGED_AGENT_CAPABILITIES,
-      RUN_CAPABILITIES,
-      APP_CAPABILITIES,
-    ])
-      expect(set).not.toContain("secret:show" as Capability);
-    for (const privileged of [false, true]) {
-      const id = resolveToken(
-        mintAgentToken(`agent-show-${privileged}`, "user-1", privileged),
-      )!;
-      expect(identityHasCapability(id, "secret:show")).toBe(false);
-    }
-  });
-
-  it("agent:privilege is held by USER scope only - not AGENT, not the privileged set", () => {
-    // The stage-1 half of the agents.setPrivileged double-gate: only a user can
-    // even clear stage 1, so no agent (privileged or not) can flip the flag.
-    expect(USER_CAPABILITIES).toContain("agent:privilege" as Capability);
-    expect(AGENT_CAPABILITIES).not.toContain("agent:privilege" as Capability);
-    expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(
-      "agent:privilege" as Capability,
-    );
-  });
-
-  it("agentCapabilities maps the privileged flag to the set", () => {
-    expect(agentCapabilities(false)).toBe(AGENT_CAPABILITIES);
-    expect(agentCapabilities(true)).toBe(PRIVILEGED_AGENT_CAPABILITIES);
-  });
-
-  it("APP scope holds app:message and pager:raise and NOTHING else - and no other scope holds app:message", () => {
-    // The narrowest set in the lattice, and the reason an app token is safe to
-    // write into a file agent-authored code reads: two capabilities, reaching
-    // the app-self message route and the two app pager routes (pinned end to
-    // end by the whole-table test in routes-table.test.ts).
-    expect([...APP_CAPABILITIES]).toEqual(["app:message", "pager:raise"]);
-    // An app manages nothing, INCLUDING itself: app:read/app:write are the
-    // owner's capabilities over the registry, not the app's.
-    expect(APP_CAPABILITIES).not.toContain("app:read" as Capability);
-    expect(APP_CAPABILITIES).not.toContain("app:write" as Capability);
-    // And the capability does not leak the other way. A human types in the chat
-    // box and an agent has agents.sendMessage; nobody else needs this.
-    for (const [label, set] of [
-      ["USER", USER_CAPABILITIES],
-      ["AGENT", AGENT_CAPABILITIES],
-      ["PRIVILEGED_AGENT", PRIVILEGED_AGENT_CAPABILITIES],
-      ["RUN", RUN_CAPABILITIES],
-    ] as const) {
-      expect({ label, has: set.includes("app:message") }).toEqual({
-        label,
-        has: false,
-      });
-    }
-  });
-
-  it("capabilitiesForScope maps scope -> set", () => {
-    expect(capabilitiesForScope("user")).toBe(USER_CAPABILITIES);
-    expect(capabilitiesForScope("agent")).toBe(AGENT_CAPABILITIES);
-    expect(capabilitiesForScope("cron-run")).toBe(RUN_CAPABILITIES);
-    expect(capabilitiesForScope("app")).toBe(APP_CAPABILITIES);
-    expect(capabilitiesForScope("api")).toBe(API_CAPABILITIES);
-  });
-
-  it("office:settings is held by USER, API and PRIVILEGED agents, and by no other set", () => {
-    const cap = "office:settings" as Capability;
-    expect(USER_CAPABILITIES).toContain(cap);
-    expect(API_CAPABILITIES).toContain(cap);
-    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(cap);
-    expect(AGENT_CAPABILITIES).not.toContain(cap);
-    expect(RUN_CAPABILITIES).not.toContain(cap);
-    expect(APP_CAPABILITIES).not.toContain(cap);
-  });
-
-  it("API scope holds the explicit remote-member operational capabilities", () => {
-    expect([...API_CAPABILITIES]).toEqual([
+      "task:read",
+      "task:write",
+      "memory:read",
+      "memory:write",
+      "log:read",
+      "app:read",
+      "app:write",
+      "pager:read",
+      "pager:write",
+      "webhook:read",
+      "webhook:write",
+      "voice:use",
+    ],
+  ],
+  [
+    // The explicit remote-member operational capabilities.
+    "API",
+    API_CAPABILITIES,
+    [
       "audit:read",
       "user:env",
       "integration:manage",
@@ -285,39 +185,17 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "webhook:read",
       "webhook:write",
       "voice:use",
-    ]);
-    for (const set of [
-      USER_CAPABILITIES,
-      AGENT_CAPABILITIES,
-      PRIVILEGED_AGENT_CAPABILITIES,
-      RUN_CAPABILITIES,
-      APP_CAPABILITIES,
-    ]) {
-      expect(set).not.toContain("api:discover-agents" as Capability);
-      expect(set).not.toContain("api:send-message" as Capability);
-      expect(set).not.toContain("api:drain-inbox" as Capability);
-    }
-    expect(AGENT_CAPABILITIES).toContain("agent:send-to-api-token");
-    expect(USER_CAPABILITIES).not.toContain("agent:send-to-api-token");
-    expect(API_CAPABILITIES).not.toContain("agent:send-to-api-token");
-  });
+    ],
+  ],
+];
 
-  it("identityHasCapability checks membership", () => {
-    const agent = resolveToken(mintAgentToken("agent-x", "user-1"))!;
-    expect(identityHasCapability(agent, "self:affordance")).toBe(true);
-    expect(identityHasCapability(agent, "agent:manage")).toBe(false);
-  });
-});
-
-describe("identity: identityFromSession (cookie -> user identity) (Phase 2.1)", () => {
-  it("maps a session lookup to a USER-scope identity with the browser set", () => {
-    const id = identityFromSession({ userId: "user-7", role: "owner" });
-    expect(id.scope).toBe("user");
-    expect(id.userId).toBe("user-7");
-    expect(id.role).toBe("owner");
-    expect(id.capabilities).toBe(USER_CAPABILITIES);
-    expect(id.agentId).toBeUndefined();
-  });
+describe("identity: capability sets", () => {
+  for (const [label, actual, expected] of EXACT_SETS) {
+    it(`${label} scope holds exactly its capabilities`, () => {
+      // toStrictEqual on sorted copies: order is free, duplicates are not.
+      expect([...actual].sort()).toStrictEqual([...expected].sort());
+    });
+  }
 });
 
 describe("identity: readBearerToken (Phase 2.1)", () => {
@@ -340,43 +218,7 @@ describe("identity: readBearerToken (Phase 2.1)", () => {
   });
 });
 
-describe("identity: agent token mint/resolve/rotate/revoke (Phase 2.1)", () => {
-  it("mints a raw, resolves it to an AGENT identity, and stores hash-only retrievably", () => {
-    const raw = mintAgentToken("agent-1", "user-1");
-    expect(typeof raw).toBe("string");
-    expect(raw.length).toBeGreaterThan(20);
-    expect(getAgentTokenRaw("agent-1")).toBe(raw);
-
-    const id = resolveToken(raw)!;
-    expect(id.scope).toBe("agent");
-    expect(id.agentId).toBe("agent-1");
-    expect(id.userId).toBe("user-1");
-    expect(id.role).toBe("member"); // inert filler for non-user scope
-    expect([...id.capabilities].sort()).toEqual([...AGENT_CAPABILITIES].sort());
-  });
-
-  it("resolveToken returns null for garbage / empty input", () => {
-    mintAgentToken("agent-1", "user-1");
-    expect(resolveToken("not-a-real-token")).toBeNull();
-    expect(resolveToken("")).toBeNull();
-  });
-
-  it("rotation: re-minting the same agent invalidates the old raw and issues a new one", () => {
-    const first = mintAgentToken("agent-1", "user-1");
-    const second = mintAgentToken("agent-1", "user-1");
-    expect(second).not.toBe(first);
-    expect(resolveToken(first)).toBeNull(); // old raw dead
-    expect(resolveToken(second)?.agentId).toBe("agent-1");
-    expect(getAgentTokenRaw("agent-1")).toBe(second);
-  });
-
-  it("revoke: a revoked agent token no longer resolves and has no raw", () => {
-    const raw = mintAgentToken("agent-1", "user-1");
-    revokeAgentToken("agent-1");
-    expect(resolveToken(raw)).toBeNull();
-    expect(getAgentTokenRaw("agent-1")).toBeNull();
-  });
-
+describe("identity: agent tokens", () => {
   it("two agents get distinct tokens that resolve to their own ids", () => {
     const a = mintAgentToken("agent-a", "user-1");
     const b = mintAgentToken("agent-b", "user-2");
@@ -410,66 +252,11 @@ describe("identity: privileged agent tokens (task 98d63ef7)", () => {
   it("the default (and explicit false) mint is the narrow AGENT set", () => {
     const a = resolveToken(mintAgentToken("agent-a", "user-1"))!; // default
     const b = resolveToken(mintAgentToken("agent-b", "user-1", false))!;
+    expect(a.scope).toBe("agent");
+    expect(a.userId).toBe("user-1");
+    expect(a.role).toBe("member"); // inert filler for non-user scope
     expect([...a.capabilities].sort()).toEqual([...AGENT_CAPABILITIES].sort());
     expect([...b.capabilities].sort()).toEqual([...AGENT_CAPABILITIES].sort());
-  });
-
-  it("toggling GRANT re-mints: old token dead, new one carries the privileged set", () => {
-    const before = mintAgentToken("agent-x", "user-1", false);
-    expect([...resolveToken(before)!.capabilities].sort()).toEqual(
-      [...AGENT_CAPABILITIES].sort(),
-    );
-    const after = mintAgentToken("agent-x", "user-1", true); // re-mint = toggle
-    expect(after).not.toBe(before);
-    expect(resolveToken(before)).toBeNull(); // old token revoked by rotation
-    expect([...resolveToken(after)!.capabilities].sort()).toEqual(
-      [...PRIVILEGED_AGENT_CAPABILITIES].sort(),
-    );
-  });
-
-  it("toggling REVOKE re-mints back down to the narrow set; old privileged token dead", () => {
-    const priv = mintAgentToken("agent-x", "user-1", true);
-    expect(identityHasCapability(resolveToken(priv)!, "agent:manage")).toBe(
-      true,
-    );
-    const narrowed = mintAgentToken("agent-x", "user-1", false);
-    expect(resolveToken(priv)).toBeNull(); // privileged token no longer resolves
-    expect([...resolveToken(narrowed)!.capabilities].sort()).toEqual(
-      [...AGENT_CAPABILITIES].sort(),
-    );
-  });
-});
-
-describe("identity: cron-run token mint/resolve/revoke (Phase 2.1)", () => {
-  it("mints a RUN token bound to {cronjobId, runId} with the RUN capability set", () => {
-    const raw = mintRunToken("job-1", "run-1", "user-9");
-    expect(getRunTokenRaw("job-1", "run-1")).toBe(raw);
-    const id = resolveToken(raw)!;
-    expect(id.scope).toBe("cron-run");
-    expect(id.cronjobId).toBe("job-1");
-    expect(id.runId).toBe("run-1");
-    expect(id.userId).toBe("user-9");
-    expect([...id.capabilities]).toEqual([
-      "self:affordance",
-      "agent:send-as-cron",
-      "task:read",
-      "task:write",
-    ]);
-    expect(id.agentId).toBeUndefined();
-  });
-
-  it("revoke ends the run token", () => {
-    const raw = mintRunToken("job-1", "run-1", "user-9");
-    revokeRunToken("job-1", "run-1");
-    expect(resolveToken(raw)).toBeNull();
-    expect(getRunTokenRaw("job-1", "run-1")).toBeNull();
-  });
-
-  it("agent and run tokens coexist and resolve to their own scopes", () => {
-    const a = mintAgentToken("agent-1", "user-1");
-    const r = mintRunToken("job-1", "run-1", "user-1");
-    expect(resolveToken(a)?.scope).toBe("agent");
-    expect(resolveToken(r)?.scope).toBe("cron-run");
   });
 });
 
@@ -483,19 +270,4 @@ describe("identity: redactTokens (Phase 2.1)", () => {
     expect(clean).toContain(" suffix");
     expect(redactTokens("nothing secret here")).toBe("nothing secret here");
   });
-
-  it("a revoked token is no longer redacted (no longer a live secret to scrub)", () => {
-    const raw = mintAgentToken("agent-1", "user-1");
-    revokeAgentToken("agent-1");
-    // Not a live secret anymore; redactTokens only scrubs active tokens.
-    expect(redactTokens(`x ${raw} y`)).toContain(raw);
-  });
-});
-
-it("member prompt capability belongs only to privileged agents and API tokens", () => {
-  expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:prompt");
-  expect(API_CAPABILITIES).toContain("user:prompt");
-  for (const caps of [AGENT_CAPABILITIES, RUN_CAPABILITIES, APP_CAPABILITIES]) {
-    expect(caps).not.toContain("user:prompt");
-  }
 });

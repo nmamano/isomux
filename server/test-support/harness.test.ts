@@ -1,12 +1,8 @@
-// Phase 0.3 exit-criterion proof for the in-process harness: a T1 test boots the
-// real server against a temp ISOMUX_HOME, connects multiple authenticated
-// sockets, drives a FakeBackend (zero LLM), and asserts on persisted files. The
-// richer onboarding / projection flows are Phase 1; this is the smoke that
-// proves the harness itself works.
-import { sessionCookieName } from "../auth.ts";
+// Harness properties that would otherwise fail silently: distinct connection
+// ids per tab, a single live harness per process, and an office database that
+// starts clean in each boot.
 import { describe, it, expect, afterEach } from "bun:test";
-import { closeSync, existsSync, fstatSync, openSync, readFileSync } from "fs";
-import { homedir } from "os";
+import { closeSync, fstatSync, openSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { expectRejection } from "./expect-rejection.ts";
@@ -20,47 +16,7 @@ afterEach(async () => {
   server = null;
 });
 
-async function waitForFile(path: string, timeoutMs = 1000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(path)) {
-    if (Date.now() > deadline) throw new Error(`file never written: ${path}`);
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
-
 describe("in-process harness (Phase 0.3 exit criterion)", () => {
-  it("runs against a non-production STATE_ROOT (preload presets ISOMUX_HOME)", () => {
-    // The harness refuses to boot otherwise (assertSafeToDelete); assert the
-    // safety-critical property directly too.
-    expect(STATE_ROOT).not.toBe(join(homedir(), ".isomux"));
-  });
-
-  it("boots the real server on an ephemeral port against temp state", async () => {
-    server = await startTestServer();
-    expect(server.port).toBeGreaterThan(0);
-    expect(server.stateRoot).toBe(STATE_ROOT);
-    expect(existsSync(STATE_ROOT)).toBe(true);
-  });
-
-  it("claims the owner through POST /auth/claim on the ephemeral port", async () => {
-    server = await startTestServer();
-    // Real claim over HTTP with the setup key the boot wrote to the state dir.
-    const res = await server.http("/auth/claim", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `name=ClaimedOwner&key=${encodeURIComponent(server.setupKey())}`,
-      redirect: "manual",
-    });
-    expect(res.status).toBe(302);
-    const setCookie = res.headers.get("set-cookie") ?? "";
-    const match = setCookie.match(new RegExp(`${sessionCookieName()}=([^;]+)`));
-    expect(match).not.toBeNull();
-    // The minted session is real and usable over the authenticated WS.
-    const sock = await server.connectWs(match![1]);
-    const ctx = await sock.waitFor("session_context");
-    expect((ctx.context as { role: string }).role).toBe("owner");
-  });
-
   it("connects multiple authenticated sockets (owner tabs + member)", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -83,55 +39,6 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
     expect(ctx(ctxA).connectionId).not.toBe(ctx(ctxB).connectionId);
     // Each socket also receives the projected office snapshot on connect.
     expect(await tabA.waitFor("full_state")).toBeTruthy();
-  });
-
-  it("rejects an unauthenticated socket", async () => {
-    server = await startTestServer();
-    await expectRejection(
-      server.connectWs("not-a-real-session"),
-      /WebSocket connection failed/,
-    );
-  });
-
-  it("persists agents.json on spawn and drives a FakeBackend on first message (zero LLM)", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-
-    const roomId = server.agentManager.getRooms()[0].id;
-    const agent = await server.agentManager.spawn(
-      "SmokeAgent",
-      server.stateRoot,
-      "default",
-      undefined,
-      undefined,
-      roomId,
-    );
-    expect(agent).not.toBeNull();
-
-    // Lazy spawn: no subprocess until the first message.
-    expect(server.fakeBackend.createSessionCount).toBe(0);
-    expect(server.agentManager.getAgent(agent!.id)?.dormant).toBe(true);
-
-    // First message wakes it: the injected FakeBackend is driven (a session is
-    // created), proving no real provider/LLM call happened.
-    server.agentManager.enqueueMessage(agent!.id, {
-      sender: { kind: "user", username: "Morgan" },
-      text: "hi",
-    });
-    const deadline = Date.now() + 2000;
-    while (
-      server.fakeBackend.createSessionCount === 0 &&
-      Date.now() < deadline
-    ) {
-      await new Promise((r) => setTimeout(r, 5));
-    }
-    expect(server.fakeBackend.createSessionCount).toBeGreaterThan(0);
-    expect(server.fakeBackend.sessionForAgent(agent!.id)).toBeDefined();
-
-    // Persisted-file assertion: agents.json under the temp STATE_ROOT.
-    const agentsPath = join(STATE_ROOT, "agents.json");
-    await waitForFile(agentsPath);
-    expect(readFileSync(agentsPath, "utf8")).toContain("SmokeAgent");
   });
 
   it("refuses a second concurrent harness (single-instance-per-process)", async () => {

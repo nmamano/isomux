@@ -8,7 +8,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { OfficeState } from "../../shared/office-state.ts";
-import type { AgentBackendType, RoomWire } from "../../shared/types.ts";
+import type { RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -33,11 +33,7 @@ const CLI_TEXT =
   "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access";
 const OTHER_TEXT = "Provider session initialized.";
 
-async function emit(
-  agentType: AgentBackendType,
-  text: string,
-  claudeAccessDenied: true | undefined,
-) {
+async function emit(text: string, claudeAccessDenied: true | undefined) {
   const fake = new FakeBackend();
   let accountReads = 0;
   const mgr = createAgentManager({
@@ -66,7 +62,7 @@ async function emit(
     undefined,
     undefined,
     "Owner",
-    agentType,
+    "claude",
     undefined,
     "user-a",
   );
@@ -97,7 +93,7 @@ async function emit(
 
 describe("Claude access-denied notice", () => {
   it("replaces the CLI text with the reason and the Claude sign-in card", async () => {
-    const { logs, accountReads } = await emit("claude", CLI_TEXT, true);
+    const { logs, accountReads } = await emit(CLI_TEXT, true);
     const cards = logs.filter((e) => e.metadata?.providerLogin === "claude");
     expect(cards).toHaveLength(1);
     expect(cards[0].kind).toBe("system");
@@ -110,13 +106,7 @@ describe("Claude access-denied notice", () => {
   });
 
   it("relays the same text unchanged when the adapter did not flag it", async () => {
-    const { logs } = await emit("claude", CLI_TEXT, undefined);
-    expect(logs.some((e) => e.content === CLI_TEXT)).toBe(true);
-    expect(logs.some((e) => e.metadata?.providerLogin)).toBe(false);
-  });
-
-  it("ignores the flag on a non-Claude agent", async () => {
-    const { logs } = await emit("codex", CLI_TEXT, true);
+    const { logs } = await emit(CLI_TEXT, undefined);
     expect(logs.some((e) => e.content === CLI_TEXT)).toBe(true);
     expect(logs.some((e) => e.metadata?.providerLogin)).toBe(false);
   });

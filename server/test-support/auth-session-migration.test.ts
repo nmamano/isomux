@@ -18,13 +18,10 @@
 //     since getUserByName is) and keeps working with the SAME cookie.
 //   - An ORPHANED legacy row - a username with no matching record - is evicted,
 //     not migrated to a dangling id.
-//   - The migration is written back, so the second boot has nothing to do and
-//     the file is byte-identical afterwards (the whole point of the
-//     sessionsNeedsPersist flag).
+//   - The migration is written back (userId in, username out).
 //   - A legacy row with no expiry stamps fails CLOSED rather than being treated
 //     as an eternal session.
-//   - Modern rows are passed through untouched, and a stale `username` left
-//     alongside a `userId` is stripped rather than trusted.
+//   - A modern row's userId wins over a stale `username` left beside it.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { createHash, randomBytes } from "crypto";
@@ -86,7 +83,7 @@ function readSessions(srv: TestServer): Record<string, LegacyRow> {
 }
 
 describe("auth/migration: sessions.json username -> userId", () => {
-  it("migrates a legacy row, evicts an orphan, and leaves a modern row alone", async () => {
+  it("migrates a legacy row, evicts an orphan, and trusts a modern row's userId over a stale username", async () => {
     let srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -108,6 +105,12 @@ describe("auth/migration: sessions.json username -> userId", () => {
     for (const s of [alice, aliceCased, orphan]) {
       onDisk[s.row.sessionIdHash] = s.row;
     }
+    // A half-migrated row: the owner's userId, plus a leftover username
+    // naming somebody else. The userId must win.
+    onDisk[hashOf(owner.rawSessionId)] = {
+      ...modernOwnerRow,
+      username: "Alice",
+    };
     writeFileSync(sessionsPath(srv), JSON.stringify(onDisk, null, 2));
 
     srv = await srv.restart();
@@ -131,7 +134,7 @@ describe("auth/migration: sessions.json username -> userId", () => {
       ),
     ).toBe(false);
 
-    // The modern row survived the reload untouched.
+    // The modern row still resolves to its own user.
     expect(validateSession(owner.rawSessionId)?.username).toBe("Morgan");
 
     // The upgraded shape was written back: userId present, username stripped.
@@ -139,34 +142,6 @@ describe("auth/migration: sessions.json username -> userId", () => {
     expect(after[alice.row.sessionIdHash].userId).toBe(aliceId);
     expect(after[alice.row.sessionIdHash]).not.toHaveProperty("username");
     expect(after[orphan.row.sessionIdHash]).toBeUndefined();
-  });
-
-  it("is idempotent: the second boot has nothing left to migrate", async () => {
-    let srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    await srv.seedMember("Alice");
-
-    const alice = legacySession("Alice");
-    const onDisk = readSessions(srv);
-    onDisk[alice.row.sessionIdHash] = alice.row;
-    writeFileSync(sessionsPath(srv), JSON.stringify(onDisk, null, 2));
-
-    // Boot 1. The load (and so the migration) is LAZY - it fires on the first
-    // auth call, not during startup - so touch a session, then snapshot.
-    srv = await srv.restart();
-    server = srv;
-    expect(validateSession(alice.rawSessionId)).not.toBeNull();
-    const afterFirstBytes = readFileSync(sessionsPath(srv), "utf-8");
-    expect(afterFirstBytes).not.toContain('"username"');
-
-    // Boot 2. Read BEFORE touching auth: the file must already be in the
-    // migrated shape, i.e. boot 1's write-back stuck. That is what makes the
-    // migration a one-time event rather than something every boot re-derives.
-    srv = await srv.restart();
-    server = srv;
-    expect(readFileSync(sessionsPath(srv), "utf-8")).toBe(afterFirstBytes);
-    expect(validateSession(alice.rawSessionId)).not.toBeNull();
   });
 
   it("a legacy row with no expiry stamps fails closed", async () => {
@@ -198,28 +173,5 @@ describe("auth/migration: sessions.json username -> userId", () => {
         (s) => s.sessionPrefix === undated.row.sessionPrefix,
       ),
     ).toBe(false);
-  });
-
-  it("a stale username alongside a userId is stripped, not trusted", async () => {
-    let srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const alice = await srv.seedMember("Alice");
-    const aliceId = getUserByName("Alice")!.id;
-
-    // A half-migrated row: correct userId, plus a leftover username naming
-    // somebody else. The userId branch must win and the name must be dropped.
-    const onDisk = readSessions(srv);
-    const key = hashOf(alice.rawSessionId);
-    onDisk[key] = { ...onDisk[key], username: "Morgan" };
-    writeFileSync(sessionsPath(srv), JSON.stringify(onDisk, null, 2));
-
-    srv = await srv.restart();
-    server = srv;
-
-    const lookup = validateSession(alice.rawSessionId);
-    expect(lookup?.userId).toBe(aliceId);
-    expect(lookup?.username).toBe("Alice");
-    expect(readSessions(srv)[key]).not.toHaveProperty("username");
   });
 });

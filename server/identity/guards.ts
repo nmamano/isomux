@@ -149,14 +149,6 @@ function resolveRoomId(
 export const notApp: Guard = ({ identity }) =>
   identity.scope === "app" ? FORBIDDEN : ALLOW;
 
-// `public` in the spec. Always allows: it is the declared marker for the
-// pre-authn login/static surface, which is served BEFORE the dispatcher (so the
-// dispatcher's null-identity → 401 rule never applies to it). Named with a
-// `Guard` suffix because `public` is a reserved word. Route public
-// surfaces AROUND authorize(), never through it with a null identity - the
-// dispatcher intentionally maps a null identity to 401 before any guard runs.
-export const publicGuard: Guard = () => ALLOW;
-
 // Any resolved OFFICE identity satisfies it - a human, an agent, a cron run.
 // (The dispatcher already converted "no identity" into 401 before stage 2; this
 // is the explicit "any authenticated caller, no object-level restriction"
@@ -313,9 +305,8 @@ export const officeEnvOwner: Guard = (ctx) =>
     ? ALLOW
     : FORBIDDEN;
 
-// officeEnvOwner's question, also asked by a handler that serves an owner and
-// a member differently on one route (routes/handlers/member-subject.ts).
-export function isEnvOwnerIdentity(
+// officeEnvOwner's question.
+function isEnvOwnerIdentity(
   identity: Identity,
   isOfficeOwnerUserId: GuardDeps["isOfficeOwnerUserId"],
 ): boolean {
@@ -870,7 +861,7 @@ const logReadRoomGuard = requiresRoomAccess({
 // is what makes "an agent reaches its member's killed agents" work, and what would
 // leak the surface to a cron run if this were ever used bare. logSearchAccess
 // denies cron-run before reaching it.
-export const killedAgentLogAccess: Guard = (ctx) => {
+const killedAgentLogAccess: Guard = (ctx) => {
   if (officeOwner(ctx).ok) return ALLOW;
   const agentId = ctx.params.id;
   if (!agentId) return FORBIDDEN;

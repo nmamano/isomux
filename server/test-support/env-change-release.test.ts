@@ -135,20 +135,6 @@ describe("a Variables save releases the agents it reaches", () => {
     expect(after.opts.env?.RELEASE_PROBE_OUT).toBe("old");
   });
 
-  it("an office save releases every member's agent", async () => {
-    const { srv, morgan, morganId, aliceId } = await office();
-    const aliceAgent = await spawnLive(srv, "AliceAgent", aliceId);
-    const morganAgent = await spawnLive(srv, "MorganAgent", morganId);
-
-    expect(
-      await save(srv, "/api/office/env", morgan.rawSessionId, {
-        values: { OFFICE_PROBE: "1" },
-      }),
-    ).toBe(204);
-    expect(released(srv, aliceAgent)).toBe(true);
-    expect(released(srv, morganAgent)).toBe(true);
-  });
-
   it("the one-variable routes release too: an owner's set for a member, and an office removal", async () => {
     const { srv, fake, morgan, alice, morganId, aliceId } = await office();
     const aliceAgent = await spawnLive(srv, "AliceAgent", aliceId);

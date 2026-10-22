@@ -370,10 +370,9 @@ function safeHashEq(a: string, b: string): boolean {
 // session. Populated at upgrade; cleared at close. Used to force-close on
 // revoke so the WS doesn't keep pumping messages until the next client send.
 
-// `send` is optional so test doubles can register a minimal stub; the real
-// caller (Bun's ServerWebSocket) provides both. The notify-before-close
-// contract below relies on it when present.
-type ClosableSocket = { send?: (data: string) => void; close: () => void };
+// The real caller is Bun's ServerWebSocket. The notify-before-close contract
+// below relies on `send`.
+type ClosableSocket = { send: (data: string) => void; close: () => void };
 const wsBySession = new Map<string, Set<ClosableSocket>>();
 
 export function registerSocket(sessionIdHash: string, ws: ClosableSocket) {
@@ -405,7 +404,7 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
   if (!set) return;
   for (const ws of set) {
     try {
-      ws.send?.(JSON.stringify({ type: "session_expired" }));
+      ws.send(JSON.stringify({ type: "session_expired" }));
     } catch {}
     try {
       ws.close();
@@ -1534,19 +1533,6 @@ export function sessionContextFor(
 // Centralized here because both revoke_session and the WS/HTTP logout
 // paths need to enforce it.
 
-// Count of currently-valid sessions whose owner has role "owner".
-export function countActiveOwnerSessions(): number {
-  ensureLoaded();
-  const now = Date.now();
-  let n = 0;
-  for (const s of sessions!.values()) {
-    if (s.expiresAt < now || s.absoluteExpiresAt < now) continue;
-    const u = getUserById(s.userId);
-    if (u?.role === "owner") n++;
-  }
-  return n;
-}
-
 // True if revoking the given session hash would leave the office with
 // zero active owner sessions. Used by both revoke_session and logout -
 // they're the same operation from the lockout-prevention perspective.
@@ -1585,8 +1571,8 @@ export function resolveSessionHashByPrefix(prefix: string): string | null {
   return found;
 }
 
-// Note: countOwners() and wouldDeleteLeaveNoOwner() live in users.ts.
-// isomux-office.ts imports them directly from there; we don't re-export through
+// Note: wouldDeleteLeaveNoOwner() lives in users.ts.
+// isomux-office.ts imports it directly from there; we don't re-export through
 // auth.ts to keep the user-record predicates close to the data.
 
 // The names every office on a host shared before task c9f250af. Browsers scope

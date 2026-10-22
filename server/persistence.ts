@@ -127,8 +127,8 @@ function dropUncleanMessages(entry: LogEntry): void {
 export function prepareLogEntry(entry: LogEntry): LogEntry {
   if (preparedLogEntries.has(entry)) return entry;
   try {
-    const scanned = redactLogEntry(entry);
-    const out = scanned === entry ? { ...entry } : scanned;
+    // A fresh copy: the producer's entry stays unprepared.
+    const out = redactLogEntry(entry);
     dropUncleanMessages(out);
     preparedLogEntries.add(out);
     return out;

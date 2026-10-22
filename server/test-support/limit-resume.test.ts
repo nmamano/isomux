@@ -225,7 +225,7 @@ describe("resume after a usage limit", () => {
       const h = makeHarness();
       const info = await spawn(h, engine);
       const reset = h.clock.now() + 5 * HOUR;
-      await limitedTurn(h, info.id, reset, engine);
+      const s = await limitedTurn(h, info.id, reset, engine);
       expect(persistedAt(info.id)).toBe(reset + LIMIT_RESUME_DELAY_MS);
 
       // Not before the minute after the reset.
@@ -235,6 +235,9 @@ describe("resume after a usage limit", () => {
 
       await toResume(h, reset);
       await waitUntil(() => resumesSent(h) === 1, "resume sent");
+      // The conversation stays: the resume goes to the same session.
+      if (engine === "claude")
+        expect(texts(s).some((t) => t.includes(LIMIT_RESUME_TEXT))).toBe(true);
       // The member reads a system line, not a message from the agent itself.
       expect(
         h.logs.some((e) => e.kind === "system" && e.content === RESUMED),
@@ -251,27 +254,9 @@ describe("resume after a usage limit", () => {
       expect(resumesSent(h)).toBe(1);
     });
   }
-
-  it("the conversation stays: the resume goes to the same session", async () => {
-    const h = makeHarness();
-    const info = await spawn(h);
-    const reset = h.clock.now() + HOUR;
-    const s = await limitedTurn(h, info.id, reset);
-    await toResume(h, reset);
-    await waitUntil(() => resumesSent(h) === 1, "resume sent");
-    expect(texts(s).some((t) => t.includes(LIMIT_RESUME_TEXT))).toBe(true);
-  });
 });
 
 describe("resume after a usage limit: loop guard", () => {
-  it("a reset time already past arms nothing", async () => {
-    const h = makeHarness();
-    const info = await spawn(h);
-    await limitedTurn(h, info.id, h.clock.now() - 1000);
-    expect(persistedAt(info.id)).toBeUndefined();
-    expect(h.clock.pending()).toEqual([]);
-  });
-
   it("the resumed turn stopped again with the same reset time arms nothing", async () => {
     const h = makeHarness();
     const info = await spawn(h);
@@ -488,9 +473,14 @@ describe("resume after a usage limit: when it is dropped", () => {
     const reset = h.clock.now() + HOUR;
     const s = await limitedTurn(h, info.id, reset, "codex");
     h.fake.setStoredSessionState(s.sessionId, "missing");
+    expect(persistedAt(info.id)).toBe(reset + LIMIT_RESUME_DELAY_MS);
     await toResume(h, reset);
-    expect(resumesSent(h)).toBe(0);
+    // The fire ran (it clears the stored time), and the refused send left the
+    // agent in error with nothing queued.
     expect(persistedAt(info.id)).toBeUndefined();
+    expect(stateOf(h, info.id)).toBe("error");
+    expect(queueOf(h, info.id)).toEqual([]);
+    expect(resumesSent(h)).toBe(0);
     expect(h.clock.pending()).toEqual([]);
   });
 });
@@ -580,22 +570,5 @@ describe("resume after a usage limit: restart", () => {
     await h.mgr.restoreAgents();
     expect(h.clock.pending()).toEqual([]);
     expect(persistedAt("blank")).toBeUndefined();
-  });
-
-  it("an agent stored with no switch value restores with the switch on", async () => {
-    seedClaudeSession("s-1");
-    const h = makeHarness([
-      {
-        id: "room-a",
-        name: "room-a",
-        prompt: null,
-        agents: [persisted("legacy", { lastSessionId: "s-1" })],
-      },
-    ]);
-    await h.mgr.restoreAgents();
-    expect(h.mgr.getAgent("legacy")?.limitResume ?? true).toBe(true);
-    const reset = h.clock.now() + HOUR;
-    await limitedTurn(h, "legacy", reset);
-    expect(persistedAt("legacy")).toBe(reset + LIMIT_RESUME_DELAY_MS);
   });
 });

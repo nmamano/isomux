@@ -4,10 +4,12 @@ import {
   acceptInvite,
   _testMintLegacyInvite,
   peekInvite,
+  sessionCookieName,
   validateSession,
 } from "../auth.ts";
 import { getUserByName } from "../users.ts";
 import { mintMemberLink } from "./member-link.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -68,13 +70,26 @@ describe("invite onboarding", () => {
     expect(html).not.toContain("Explain each step.");
     expect(peekInvite(token)).toMatchObject({ firstSignIn: true });
 
+    // An unsupported language is refused and keeps the link.
+    expect(
+      await acceptInvite(token, { userAgent: null, language: "fr" }),
+    ).toEqual({ ok: false, error: "invalid_language" });
     const accepted = await srv.http("/auth/accept", {
       method: "POST",
       redirect: "manual",
       body: new URLSearchParams({ token, language: "es" }),
     });
     expect(accepted.status).toBe(302);
-    expect(accepted.headers.has("set-cookie")).toBe(true);
+    expect(accepted.headers.get("location")).toBe("/");
+    const setCookie = accepted.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${sessionCookieName()}=`);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Lax");
+    // The issued cookie works.
+    const issued = setCookie.split(";")[0].split("=").slice(1).join("=");
+    expect(
+      (await srv.http("/api/files", { rawSessionId: issued })).status,
+    ).not.toBe(401);
     const after = getUserByName("Marc");
     expect(after).toMatchObject({
       id: user.id,
@@ -84,21 +99,17 @@ describe("invite onboarding", () => {
     });
     expect(after?.pendingSignIn).toBeUndefined();
     expect(peekInvite(token)).toEqual({ error: "consumed" });
+    // A replay is 410 Gone.
+    const replay = await srv.http("/auth/accept", {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams({ token, language: "es" }),
+    });
+    expect(replay.status).toBe(410);
 
     // A later link is a plain sign-in: no language question.
     const later = await mintMemberLink("Marc");
     expect(peekInvite(later.rawToken)).not.toHaveProperty("firstSignIn");
-  });
-
-  it("refuses an unsupported language at first sign-in without consuming the link", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const { rawToken } = await mintMemberLink("Marc");
-    expect(
-      await acceptInvite(rawToken, { userAgent: null, language: "fr" }),
-    ).toEqual({ ok: false, error: "invalid_language" });
-    expect(getUserByName("Marc")?.pendingSignIn).toBe(true);
-    expect(peekInvite(rawToken)).not.toHaveProperty("error");
   });
 
   // Legacy new-member rows minted before this change still accept until
@@ -120,7 +131,7 @@ describe("invite onboarding", () => {
     });
     expect(refused.status).toBe(400);
     const html = await refused.text();
-    expect(html).toContain("Aquest nom ja està en ús.");
+    expect(html).toContain(translatorFor("ca").t("preAuth.invite.nameTaken"));
     expect(html).toContain('value="alice"');
     expect(html).toContain('value="ca" selected');
     expect(refused.headers.has("set-cookie")).toBe(false);

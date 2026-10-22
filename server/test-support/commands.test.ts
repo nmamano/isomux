@@ -39,34 +39,13 @@ const EXPECTED_AUTORUN = new Set([
 // The Claude Code built-ins take options a member types after the name.
 const EXPECTED_COPY = new Set(["isomux-edit", "code-review", "simplify"]);
 
-describe("command registry autoRun classification", () => {
-  it("marks exactly the no-arg commands autoRun in the registry", () => {
-    const actualAutoRun = new Set(
-      Object.entries(commands)
-        .filter(([, cfg]) => cfg.autoRun === true)
-        .map(([name]) => name),
-    );
-    expect(actualAutoRun).toEqual(EXPECTED_AUTORUN);
-  });
-
-  it("leaves argument-taking commands copy-only (autoRun unset)", () => {
-    for (const name of EXPECTED_COPY) {
-      expect(commands[name]?.autoRun).toBeUndefined();
-    }
-  });
-
-  it("carries autoRun on both diff names (alias propagation is explicit)", () => {
-    expect(commands["diff"]?.autoRun).toBe(true);
-    expect(commands["isomux-diff"]?.autoRun).toBe(true);
-    // The alias points at the canonical, and both carry the flag independently.
-    expect(commands["diff"]?.aliasFor).toBe("isomux-diff");
-  });
-});
-
 describe("autocompleteCommands() wire shape", () => {
   const wire = autocompleteCommands("claude");
 
   it("emits autoRun: true only for the no-arg commands, and omits it otherwise", () => {
+    // Enabling condition: the argument-taking commands are on this wire.
+    for (const name of EXPECTED_COPY)
+      expect(wire.some((c) => c.name === name)).toBe(true);
     for (const c of wire) {
       if (EXPECTED_AUTORUN.has(c.name)) {
         // Present and strictly true (the UI treats only a literal true as run).
@@ -76,17 +55,6 @@ describe("autocompleteCommands() wire shape", () => {
         // misread and skills (which never carry it) stay insert-only.
         expect("autoRun" in c).toBe(false);
       }
-    }
-  });
-
-  it("only surfaces autocomplete commands", () => {
-    for (const alias of ["reset", "new"]) {
-      expect(commands[alias]?.aliasFor).toBe("clear");
-      expect(commands[alias]?.handler).toBe("clear");
-      expect(wire.some((command) => command.name === alias)).toBe(false);
-    }
-    for (const c of wire) {
-      expect(commands[c.name]?.autocomplete).toBe(true);
     }
   });
 });
@@ -104,6 +72,9 @@ describe("autocompleteCommands() per engine", () => {
         expect(names.includes(name)).toBe(cfg.engines!.includes(engine));
       }
       expect(names).toContain("clear");
+      // An alias that is not an autocomplete command stays off the list.
+      expect(commands["reset"]?.autocomplete).toBeFalsy();
+      expect(names).not.toContain("reset");
     }
   });
 });

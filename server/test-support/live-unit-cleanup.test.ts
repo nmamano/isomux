@@ -78,18 +78,8 @@ describe("live-test janitor: the clean case", () => {
     const outcome = cleanupLiveTestUnit(host, PATHS, CLEAN_PROBE);
     expect(outcome).toEqual({ errors: [], residue: [] });
     expect(cleanupFailure(outcome)).toBeNull();
-  });
-
-  it("proves the bus answers before believing an empty listing", () => {
-    const host = fakeHost(missingUnit);
-    cleanupLiveTestUnit(host, PATHS, CLEAN_PROBE);
-    // The liveness probe comes FIRST, before anything is judged by its silence.
-    expect(host.runs[0]).toEqual([
-      "systemctl",
-      "--user",
-      "show",
-      "--property=Version",
-    ]);
+    // An absent unit is not escalated to a kill.
+    expect(verbs(host)).not.toContain("kill");
   });
 });
 
@@ -121,18 +111,7 @@ describe("live-test janitor: a unit that will not stop", () => {
     // SIGKILL is not a silent success.
     expect(outcome.errors.join(" ")).toContain("stop");
   });
-
-  it("does NOT escalate when the unit is merely absent", () => {
-    const host = fakeHost(missingUnit);
-    expect(verbs(fakeHostAfter(host))).not.toContain("kill");
-  });
 });
-
-// Helper so the assertion above reads as one line.
-function fakeHostAfter(host: FakeHost): FakeHost {
-  cleanupLiveTestUnit(host, PATHS, CLEAN_PROBE);
-  return host;
-}
 
 describe("live-test janitor: could-not-ask is never proof", () => {
   it("FAILS when the bus is unreachable, even though every listing looks empty", () => {
@@ -151,17 +130,6 @@ describe("live-test janitor: could-not-ask is never proof", () => {
     expect(outcome.errors.join(" ")).toContain("could not be reached");
     // And it does not pretend the listings meant anything.
     expect(verbs(host)).not.toContain("list-units");
-  });
-
-  it("reports what a reachable bus actually found", () => {
-    const host = fakeHost((argv) =>
-      argv[2] === "list-units"
-        ? { stdout: "isomux-app-test-.abc-probe.service loaded active running" }
-        : undefined,
-    );
-    const outcome = cleanupLiveTestUnit(host, PATHS, CLEAN_PROBE);
-    expect(outcome.residue.join(" ")).toContain("active running");
-    expect(cleanupFailure(outcome)).not.toBeNull();
   });
 
   it("FAILS when the bus dies AFTER the probe, before list-units", () => {

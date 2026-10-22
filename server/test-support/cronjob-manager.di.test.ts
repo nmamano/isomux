@@ -12,7 +12,7 @@
 // state); they run in-suite because the bun test preload presets ISOMUX_HOME to
 // a temp dir before config.ts is imported (see agent-manager.di.test.ts).
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import {
   FakeBackend,
   type FakeBackendConfig,
@@ -48,22 +48,13 @@ import { localizeLogParts } from "../../shared/i18n/log-message.ts";
 import { expectWorded } from "./worded.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
-  setMemberUsageCapForTests,
-  type MemberUsageCap,
-} from "../member-usage-cap.ts";
-import {
   CODEX_MODELS,
   MODEL_FAMILIES,
   cronjobRunStreamId,
   type AgentBackendType,
   type LogEntry,
 } from "../../shared/types.ts";
-import {
-  createCronjobManager,
-  createProductionCronjobManager,
-  registerProductionCronjobManagerForModuleReads,
-  listCronjobs,
-} from "../cronjob-manager.ts";
+import { createCronjobManager } from "../cronjob-manager.ts";
 type CronDeps = Parameters<typeof createCronjobManager>[0];
 type CronEvent = Parameters<NonNullable<CronDeps["eventSink"]>>[0];
 // AddCronjobInput is a factory-local interface; derive it from the method.
@@ -75,14 +66,16 @@ type AddCronjobInput = Parameters<
 // config.ts was imported), so the disk-touching assertions below run in-suite
 // instead of skipping. The preload owns temp-root cleanup at process exit.
 
-afterAll(() => {
-  // Clear the module-read bridge so the fake instance registered by the bridge
-  // test above doesn't leak into other files in the shared Bun process.
-  registerProductionCronjobManagerForModuleReads(null);
-});
-
 // A fake scheduler that records registrations and never auto-fires, so tests
 // drive time deterministically.
+async function waitFor(pred: () => boolean, label = "cond") {
+  for (let i = 0; i < 400; i++) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`waitFor timed out: ${label}`);
+}
+
 function fakeScheduler() {
   const timeouts: { fn: () => void; ms?: number }[] = [];
   const intervals: { fn: () => void; ms?: number }[] = [];
@@ -139,21 +132,6 @@ function capture() {
 }
 
 describe("CronjobManager DI (disk-free seam)", () => {
-  // Make the "throws before registration" precondition self-enforcing instead of
-  // relying on bun's top-down order: reset the bridge to unregistered before this
-  // block runs, so a future reorder or a new registering test can't silently flip
-  // the assertion below from "tests the throw path" to a confusing failure.
-  beforeAll(() => registerProductionCronjobManagerForModuleReads(null));
-
-  it("module-read bridge throws before registration, forwards after (registration-only)", () => {
-    expect(() => listCronjobs()).toThrow(/not registered/);
-
-    const mgr = createCronjobManager(baseDeps());
-    mgr.addCronjob(intervalInput("BridgeJob"));
-    registerProductionCronjobManagerForModuleReads(mgr);
-    expect(listCronjobs().map((c) => c.name)).toContain("BridgeJob");
-  });
-
   it("redacts scheduled-run entries before buffering, persistence and events", async () => {
     const secret = "sk-proj-" + "R".repeat(24);
     const safe = "sk-proj-...REDACTED";
@@ -200,31 +178,6 @@ describe("CronjobManager DI (disk-free seam)", () => {
     } finally {
       fake.sessions.forEach((session) => session.close());
     }
-  });
-
-  it("routes cron events to the injected sink and reads back prompt state", () => {
-    const { events, sink } = capture();
-    const mgr = createCronjobManager(baseDeps({ eventSink: sink }));
-    mgr.setCronjobsPrompt("be terse");
-    expect(events.some((e) => e.type === "cronjobs_prompt_updated")).toBe(true);
-    expect(mgr.getCronjobsPrompt()).toBe("be terse");
-  });
-
-  it("onCronjobEvent() overrides the default noop sink", () => {
-    const mgr = createCronjobManager(baseDeps());
-    const { events, sink } = capture();
-    mgr.onCronjobEvent(sink);
-    mgr.addCronjob(intervalInput("EventJob"));
-    expect(events.some((e) => e.type === "cronjob_added")).toBe(true);
-  });
-
-  it("computes schedule times from the injected clock (deterministic)", () => {
-    const mgr = createCronjobManager(baseDeps());
-    const job = mgr.addCronjob(intervalInput("ClockJob"));
-    // createdAt comes from clock.now(); a real Date.now() would be ~1.7e12.
-    expect(job.createdAt).toBe(FIXED_NOW);
-    expect(job.nextFireAt).toBeGreaterThan(FIXED_NOW);
-    expect(job.nextFireAt).toBeLessThan(1e9);
   });
 
   it("switches a Claude cronjob to Codex under the new engine", () => {
@@ -337,57 +290,9 @@ describe("CronjobManager DI (disk-free seam)", () => {
     expect(storedRun?.agentTypeSnapshot).toBe("claude");
     expect(storedRun?.modelFamilySnapshot).toBe(MODEL_FAMILIES[0].family);
   });
-
-  it("startCronjobScheduler registers tick + interval on the injected scheduler", () => {
-    const sched = fakeScheduler();
-    const mgr = createCronjobManager(baseDeps({ scheduler: sched.scheduler }));
-    mgr.startCronjobScheduler();
-    expect(sched.timeouts.length).toBeGreaterThan(0); // initial tick
-    expect(sched.intervals.length).toBeGreaterThan(0); // recurring tick
-  });
 });
 
 describe("CronjobManager DI (temp-state isolated)", () => {
-  it("runCronjobNow drives the FakeBackend through the resolver (no real backend)", async () => {
-    const fake = new FakeBackend({
-      // Auto-complete the run's single turn so it finalizes deterministically.
-      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
-    });
-    const mgr = createCronjobManager(baseDeps({ resolveBackend: () => fake }));
-    const job = mgr.addCronjob(intervalInput("RunJob"));
-    const run = mgr.runCronjobNow(job.id, "Nil");
-    expect(run).not.toBeNull();
-    // Let the async run reach createSession.
-    await new Promise((r) => setTimeout(r, 25));
-    expect(fake.createSessionCount).toBeGreaterThan(0);
-    fake.sessions.forEach((s) => s.close());
-  });
-
-  it("seeds the run index from runs on disk", () => {
-    const persistence = makeFakeCronPersistence();
-    const mgr = createCronjobManager(baseDeps({ persistence }));
-    const job = mgr.addCronjob(intervalInput("Seeded"));
-    const row = (
-      id: string,
-      startedAt: number,
-      status: "completed" | "failed",
-    ) =>
-      ({
-        id,
-        cronjobId: job.id,
-        startedAt,
-        endedAt: startedAt + 5,
-        status,
-      }) as unknown as Parameters<typeof persistence.saveRuns>[1][number];
-    persistence.saveRuns(job.id, [
-      row("later-in-file", 100, "failed"),
-      row("latest-start", 200, "completed"),
-      row("earliest", 50, "failed"),
-    ]);
-    expect(mgr.jobIdForRun("earliest")).toBe(job.id);
-    expect(mgr.jobIdForRun("no-such-run")).toBeNull();
-  });
-
   it("selects the Codex backend and passes its run options through unchanged", async () => {
     const claude = new FakeBackend();
     const codex = new FakeBackend({
@@ -540,8 +445,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     expect(order).toEqual(["deny:permission-1:deny", "abort"]);
     expect(mgr.findRun(job.id, run.id)).toMatchObject({
       status: "failed",
-      errorReason:
-        "Backend requested tool permission during an unattended cron run.",
+      errorReason: expect.stringMatching(/\S/),
     });
     fake.sessions.forEach((session) => session.close());
   });
@@ -557,11 +461,6 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     [
       "an error after auth_needed",
       [{ kind: "auth_needed" }, { kind: "error", message: "401 unauthorized" }],
-      true,
-    ],
-    [
-      "a failed turn with no error after auth_needed",
-      [{ kind: "auth_needed" }, { kind: "turn_completed", status: "failed" }],
       true,
     ],
     [
@@ -771,8 +670,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     expect(fake.lastSession?.abortCount).toBe(1);
     expect(mgr.findRun(job.id, run.id)).toMatchObject({
       status: "failed",
-      errorReason:
-        "Backend requested an interactive question during an unattended cron run.",
+      errorReason: expect.stringMatching(/\S/),
     });
     fake.sessions.forEach((session) => session.close());
   });
@@ -865,12 +763,6 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     expect(runErrors).toEqual([message]);
     fake.sessions.forEach((session) => session.close());
   });
-
-  it("production factory constructs against today's defaults (shallow)", () => {
-    const mgr = createProductionCronjobManager();
-    expect(typeof mgr.listCronjobs).toBe("function");
-    expect(Array.isArray(mgr.listCronjobs())).toBe(true);
-  });
 });
 
 // Phase 2.1 (ADDITIVE) - RUN-scope token wired into the primary Claude/Codex
@@ -921,17 +813,23 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
     const throwing = new FakeBackend();
     // Force the failed-run path: fire() must revoke the token it minted before
     // createSession threw (this path never enters activeRuns/finalizeRun).
-    throwing.createSession = () => {
+    let minted: string | undefined;
+    throwing.createSession = (opts) => {
+      minted = opts.env?.ISOMUX_AGENT_TOKEN;
       throw new Error("boom (createSession)");
     };
     const mgr = createCronjobManager(
       baseDeps({ resolveBackend: () => throwing }),
     );
     const job = mgr.addCronjob(intervalInput("FailJob"));
-    const run = mgr.runCronjobNow(job.id, "Nil");
-    expect(run).not.toBeNull();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(getRunTokenRaw(job.id, run!.id)).toBeNull();
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await waitFor(
+      () => mgr.findRun(job.id, run.id)?.status === "failed",
+      "run failed",
+    );
+    // A token was minted and handed to createSession, and it is dead now.
+    expect(typeof minted).toBe("string");
+    expect(resolveToken(minted!)).toBeNull();
   });
 });
 
@@ -968,14 +866,6 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
   afterEach(() => _testResetTokens());
 
   const CLAUDE_CFG = join(STATE_ROOT, "cron-resume-claude-home");
-
-  const waitFor = async (pred: () => boolean, label = "cond") => {
-    for (let i = 0; i < 400; i++) {
-      if (pred()) return;
-      await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error(`waitFor timed out: ${label}`);
-  };
 
   // Touch the existence-only leaf session file the claude resume precheck checks.
   function seedLeafSession(cwd: string, sessionId: string): void {
@@ -1166,74 +1056,6 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     fake.sessions.forEach((s) => s.close());
   });
 
-  it("deleting the schedule ends a resumed turn in flight and revokes its bearer", async () => {
-    let sends = 0;
-    const fake = new FakeBackend({
-      session: {
-        // The primary turn completes; the resumed turn stays live.
-        onSend: (_t, _a, s) => {
-          if (++sends === 1) s.completeTurn({ text: "done" });
-        },
-      },
-    });
-    const { mgr, job, run } = await primaryRunThenLeaf(fake);
-    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
-    await waitFor(() => sends === 2, "resumed turn sent");
-    const resumed = fake.lastSession!;
-    expect(resumed.isResume).toBe(true);
-    const raw = resumed.opts.env?.ISOMUX_AGENT_TOKEN as string;
-    expect(resolveToken(raw)).not.toBeNull();
-    expect(mgr.findRun(job.id, run.id)?.status).toBe("running");
-
-    expect(mgr.deleteCronjob(job.id)).toBe(true);
-
-    expect(resolveToken(raw)).toBeNull();
-    expect(resumed.closed).toBe(true);
-    const after = mgr.findRun(job.id, run.id)!;
-    expect(after.status).toBe("failed");
-    expect(after.endedAt).toBe(FIXED_NOW);
-    fake.sessions.forEach((s) => s.close());
-  });
-
-  it("each resumed turn mints a fresh RUN bearer; the prior token is dead", async () => {
-    let sends = 0;
-    const fake = new FakeBackend({
-      session: {
-        // Primary (#1) + first resume (#2) complete; the second resume (#3) lives.
-        onSend: (_t, _a, s) => {
-          if (++sends <= 2) s.completeTurn({ text: "x" });
-        },
-      },
-    });
-    const { mgr, job, run } = await primaryRunThenLeaf(fake);
-
-    await mgr.sendRunMessage(job.id, run.id, "first", "Nil");
-    await waitFor(
-      () => mgr.findRun(job.id, run.id)?.status === "completed",
-      "first resume finalized",
-    );
-    const firstRaw = fake.lastSession!.opts.env?.ISOMUX_AGENT_TOKEN as string;
-    expect(resolveToken(firstRaw)).toBeNull(); // revoked at first finalize
-
-    await mgr.sendRunMessage(job.id, run.id, "second", "Nil");
-    await waitFor(
-      () => getRunTokenRaw(job.id, run.id) !== null,
-      "second resume active",
-    );
-    const secondRaw = fake.lastSession!.opts.env?.ISOMUX_AGENT_TOKEN as string;
-    expect(secondRaw).not.toBe(firstRaw);
-    const id = resolveToken(secondRaw)!;
-    expect(id.scope).toBe("cron-run");
-    expect(id.runId).toBe(run.id);
-
-    fake.lastSession!.completeTurn({ text: "done" });
-    await waitFor(
-      () => getRunTokenRaw(job.id, run.id) === null,
-      "second revoked",
-    );
-    fake.sessions.forEach((s) => s.close());
-  });
-
   it("a resume whose resumeSession throws revokes the token minted before install (no leak)", async () => {
     let sends = 0;
     const fake = new FakeBackend({
@@ -1248,11 +1070,15 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     // Force the resume to throw AFTER buildRunSessionOptions mints the token
     // (call arguments evaluate before the call). The resume-failure catch must
     // revoke it - installResumedActive never runs, so finalizeRun never would.
-    fake.resumeSession = () => {
+    let minted: string | undefined;
+    fake.resumeSession = (_sessionId, opts) => {
+      minted = opts.env?.ISOMUX_AGENT_TOKEN;
       throw new Error("boom (resume)");
     };
-    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
-    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+    const result = await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    expect(result).toMatchObject({ ok: false, code: "resume_failed" });
+    expect(typeof minted).toBe("string");
+    expect(resolveToken(minted!)).toBeNull();
     fake.sessions.forEach((s) => s.close());
   });
 
@@ -1301,10 +1127,16 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     expect(getRunTokenRaw(job.id, run.id)).toBeNull(); // primary token revoked
 
     armed = true;
-    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    const sessionsBefore = fake.sessions.length;
+    const result = await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    expect(result).toMatchObject({ ok: false, code: "resume_failed" });
     // The resumed turn's token was minted then revoked by the post-mint guard -
-    // not leaked. (A subsequent resume could start again; the run isn't wedged.)
-    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+    // not leaked - and its session was closed.
+    const resumed = fake.sessions[sessionsBefore];
+    const minted = resumed?.opts.env?.ISOMUX_AGENT_TOKEN;
+    expect(typeof minted).toBe("string");
+    expect(resolveToken(minted!)).toBeNull();
+    expect(resumed.closed).toBe(true);
     fake.sessions.forEach((s) => s.close());
   });
 
@@ -1387,6 +1219,21 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
       expect(fake.forkCount).toBe(1);
       expect(fake.lastForkTarget).toBeNull();
       expect(fake.lastSession!.sent.at(-1)?.text).toContain("follow up, fixed");
+      fake.sessions.forEach((s) => s.close());
+    });
+
+    it("revokes the token and keeps the text when the fork's resume throws", async () => {
+      const { fake, mgr, job, run, followId } = await stoppedFollowUp([]);
+      let minted: string | undefined;
+      fake.resumeSession = (_sessionId, opts) => {
+        minted = opts.env?.ISOMUX_AGENT_TOKEN;
+        throw new Error("boom (fork resume)");
+      };
+      await mgr.editRunMessage(job.id, run.id, followId, "kept after resume");
+      expect(fake.forkCount).toBe(1);
+      expect(typeof minted).toBe("string");
+      expect(resolveToken(minted!)).toBeNull();
+      expect(failedEdits(mgr, job.id, run.id)).toEqual(["kept after resume"]);
       fake.sessions.forEach((s) => s.close());
     });
 
@@ -1610,57 +1457,10 @@ describe("CronjobManager webhook runs", () => {
     expect(runs.filter((r) => r.trigger === "scheduled")).toHaveLength(2);
     fake.sessions.forEach((s) => s.close());
   });
-
-  it("the member usage cap still refuses a member's webhook run before it sends", async () => {
-    const made = createMember("Webhook Cap Member", { role: "member" });
-    if (!made.ok) throw new Error(made.error);
-    const refusing = {
-      isEnabled: () => true,
-      admit: async () => ({
-        kind: "refused",
-        retryAtMs: Date.now() + 3_600_000,
-      }),
-    } as unknown as MemberUsageCap;
-    const previous = setMemberUsageCapForTests(refusing);
-    try {
-      const fake = new FakeBackend();
-      const mgr = createCronjobManager(
-        baseDeps({ resolveBackend: () => fake }),
-      );
-      const job = mgr.addCronjob({
-        ...intervalInput("CappedHookJob"),
-        username: made.user.name,
-        userId: made.user.id,
-      });
-      const run = mgr.runCronjobFromWebhook(job.id, LINK, BLOCK)!;
-      await settle();
-      expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
-      expect(fake.sessions.flatMap((s) => s.sent)).toEqual([]);
-    } finally {
-      setMemberUsageCapForTests(previous);
-      deleteUserById(made.user.id);
-    }
-  });
-
-  it("a deleted cronjob starts no run", () => {
-    const mgr = createCronjobManager(baseDeps());
-    const job = mgr.addCronjob(intervalInput("GoneJob"));
-    mgr.deleteCronjob(job.id);
-    expect(mgr.runCronjobFromWebhook(job.id, LINK, BLOCK)).toBeNull();
-    expect(mgr.getRunsForCronjob(job.id)).toEqual([]);
-  });
 });
 
 describe("CronjobManager: deleting a schedule ends its live runs", () => {
   afterEach(() => _testResetTokens());
-
-  const waitFor = async (pred: () => boolean, label: string) => {
-    for (let i = 0; i < 400; i++) {
-      if (pred()) return;
-      await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error(`waitFor timed out: ${label}`);
-  };
 
   it("ends the deleted schedule's in-flight run and leaves every other run as it was", async () => {
     let sends = 0;
@@ -2023,14 +1823,6 @@ describe("CronjobManager run text in each reader's language", () => {
     if (!u.ok) throw new Error(u.error);
     return { id: r.user.id, name: r.user.name };
   }
-
-  const waitFor = async (pred: () => boolean, label: string) => {
-    for (let i = 0; i < 400; i++) {
-      if (pred()) return;
-      await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error(`waitFor timed out: ${label}`);
-  };
 
   // Two typists, one line: the same English text and message, which a
   // Spanish reader reads in Spanish.

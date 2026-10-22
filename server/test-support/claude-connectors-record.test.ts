@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { OfficeState } from "../../shared/office-state.ts";
-import type { AgentBackendType, RoomWire } from "../../shared/types.ts";
+import type { RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { buildEnvForUserId } from "../env-loader.ts";
@@ -71,19 +71,17 @@ const REREAD_MS = 30;
 // status read. Returns the directory the session launched with. With
 // `reads`, the status reads answer each in turn (the last one repeats).
 async function runSession(opts: {
-  agentType?: AgentBackendType;
   init?: { mcpServers?: Server[]; apiKeySource?: string };
   envAfterLaunch?: Record<string, string>;
   afterTurn?: Server[];
   reads?: Read[];
-  rereadMs?: number;
 }) {
   const fake = new FakeBackend();
   const mgr = createAgentManager({
     resolveBackend: () => fake,
     officeState: new OfficeState({ rooms: room() }),
     initialRooms: [],
-    connectorRereadMs: opts.rereadMs ?? REREAD_MS,
+    connectorRereadMs: REREAD_MS,
   });
   mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(
@@ -97,7 +95,7 @@ async function runSession(opts: {
     undefined,
     undefined,
     "Owner",
-    opts.agentType ?? "claude",
+    "claude",
     undefined,
     USER,
   );
@@ -151,46 +149,22 @@ async function runSession(opts: {
   };
 }
 
-// A server set in Claude user settings lives in the config directory the
-// session launched with, so it is recorded with that directory, not the
-// member's current one.
-describe("a server set in Claude, by sign-in", () => {
-  it("is recorded with the directory the session launched with", async () => {
-    writeManagedUserEnv(USER, {
-      CLAUDE_CONFIG_DIR: "/tmp/connectors-launch-claude",
-    });
-    const { agentId } = await runSession({
-      envAfterLaunch: { CLAUDE_CONFIG_DIR: "/tmp/connectors-later-claude" },
-      init: { mcpServers: [] },
-      afterTurn: [{ name: "notes", status: "connected", source: "user" }],
-    });
-    expect(
-      claudeEngineServersFor([agentId], (dir) =>
-        dir === "/tmp/connectors-launch-claude" ? "personal" : null,
-      ).map((row) => row.signIn),
-    ).toEqual(["personal"]);
-  });
-});
-
 describe("claude.ai connectors from a running session", () => {
   it("records a Claude session's connectors against its launched sign-in", async () => {
     const { launchDir } = await runSession({});
     expect(claudeConnectorsFor(launchDir)?.names).toEqual(["Gmail"]);
   });
 
-  it("replaces the list with the status read after the turn", async () => {
-    const { launchDir, statusReads } = await runSession({ afterTurn: [drive] });
-    expect(statusReads).toBe(1);
-    expect(claudeConnectorsFor(launchDir)?.names).toEqual(["Drive"]);
-  });
-
   it("keys on the directory the session launched with, not the member's current one", async () => {
     writeManagedUserEnv(USER, {
       CLAUDE_CONFIG_DIR: "/tmp/connectors-launch-claude",
     });
-    const { launchDir, statusReads } = await runSession({
+    const { launchDir, statusReads, agentId } = await runSession({
       envAfterLaunch: { CLAUDE_CONFIG_DIR: "/tmp/connectors-later-claude" },
-      afterTurn: [drive],
+      afterTurn: [
+        drive,
+        { name: "notes", status: "connected", source: "user" },
+      ],
     });
     // The member's env really moved between launch and init.
     expect(launchDir).toBe("/tmp/connectors-launch-claude");
@@ -198,6 +172,12 @@ describe("claude.ai connectors from a running session", () => {
     expect(statusReads).toBe(1);
     expect(claudeConnectorsFor(launchDir)?.names).toEqual(["Drive"]);
     expect(claudeConnectorsFor("/tmp/connectors-later-claude")).toBeNull();
+    // A server set in Claude user settings lives in the launch directory too.
+    expect(
+      claudeEngineServersFor([agentId], (dir) =>
+        dir === launchDir ? "personal" : null,
+      ).map((row) => row.signIn),
+    ).toEqual(["personal"]);
   });
 
   it("records nothing from a session launched on Bedrock", async () => {
@@ -216,11 +196,6 @@ describe("claude.ai connectors from a running session", () => {
     });
     // The status read really ran.
     expect(statusReads).toBe(1);
-    expect(claudeConnectorsFor(launchDir)).toBeNull();
-  });
-
-  it("records nothing for another engine", async () => {
-    const { launchDir } = await runSession({ agentType: "codex" });
     expect(claudeConnectorsFor(launchDir)).toBeNull();
   });
 });
@@ -291,11 +266,10 @@ describe("a status read that sees pending", () => {
   });
 
   it("stops when the agent's next turn starts", async () => {
-    // Slow enough that the next turn starts before the re-read is due.
-    const rereadMs = 400;
+    // The first read sees pending only after the next turn has started.
+    const first = heldRead([gmail]);
     const { readCount, mgr, agentId } = await runSession({
-      reads: [[gmail], [connected]],
-      rereadMs,
+      reads: [first.read, [connected]],
     });
     mgr.enqueueMessage(agentId, {
       sender: { kind: "user", username: "Morgan" },
@@ -305,26 +279,8 @@ describe("a status read that sees pending", () => {
       () => mgr.getAgent(agentId)?.state === "thinking",
       "next turn started",
     );
-    await sleep(rereadMs * 3);
-    expect(readCount()).toBe(1);
-  });
-
-  it("does not read a session that ended while a re-read was due", async () => {
-    // Slow enough that the new conversation comes before the re-read is due.
-    const rereadMs = 400;
-    const { launchDir, readCount, mgr, agentId, session } = await runSession({
-      reads: [[gmail], [connected]],
-      rereadMs,
-    });
-    // Read 1 saw pending, so a re-read is due.
-    expect(readCount()).toBe(1);
-    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
-      { name: "Gmail", status: "pending" },
-    ]);
-    await mgr.newConversation(agentId);
-    // The session the re-read would ask has ended.
-    expect(session.closed).toBe(true);
-    await sleep(rereadMs * 3);
+    first.release();
+    await settle();
     expect(readCount()).toBe(1);
   });
 

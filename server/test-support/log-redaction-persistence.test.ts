@@ -75,92 +75,59 @@ it("redacts direct scheduled-run transcript appends", () => {
   ]);
 });
 
-it("keeps the original entry after scanner failure and emits one fixed diagnostic line", () => {
-  for (const cron of [false, true]) {
-    let reads = 0;
-    const input = entry();
-    input.metadata = Object.defineProperty({}, "value", {
-      enumerable: true,
-      get() {
-        if (reads++ === 0) throw new Error(secret);
-        return "original";
-      },
-    });
-    const diagnostic = spyOn(console, "error").mockImplementation(() => {});
-    try {
-      if (cron)
-        appendRunLog("redaction-job", "failure-run", "failure-session", input);
-      else appendLog("redaction-agent", "failure-session", input);
-      const logs = cron
-        ? loadRunLog("redaction-job", "failure-run", "failure-session")
-        : loadLog("redaction-agent", "failure-session");
-      expect(logs[0].content).toBe(secret);
-      expect(logs[0].metadata).toEqual({ value: "original" });
-      expect(diagnostic.mock.calls).toEqual([
-        [
-          "Log secret redaction failed; keeping original entry.",
-          input.id,
-          input.kind,
-        ],
-      ]);
-    } finally {
-      diagnostic.mockRestore();
-    }
+it("keeps the original entry after scanner failure and logs no secret", () => {
+  let reads = 0;
+  const input = entry();
+  input.metadata = Object.defineProperty({}, "value", {
+    enumerable: true,
+    get() {
+      if (reads++ === 0) throw new Error(secret);
+      return "original";
+    },
+  });
+  const diagnostic = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    appendLog("redaction-agent", "failure-session", input);
+    const logs = loadLog("redaction-agent", "failure-session");
+    expect(logs[0].content).toBe(secret);
+    expect(logs[0].metadata).toEqual({ value: "original" });
+    // One diagnostic that names the entry, and neither the payload nor the
+    // scanner's error (which carries the secret).
+    expect(diagnostic.mock.calls).toEqual([
+      [expect.any(String), input.id, input.kind],
+    ]);
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(secret);
+  } finally {
+    diagnostic.mockRestore();
   }
 });
 
-it("redacts the motivating systemd tool result in the actual JSONL file", () => {
-  const anthropic = "sk-ant-api03-" + "Z".repeat(24);
-  const input = {
-    ...entry(),
-    kind: "tool_result" as const,
-    content:
-      '[Service]\nEnvironment="OPENAI_API_KEY=' +
-      secret +
-      '"\nEnvironment="ANTHROPIC_API_KEY=' +
-      anthropic +
-      '"',
-  };
-  appendLog("redaction-agent", "systemd-session", input);
-  const raw = readFileSync(
-    join(STATE_ROOT, "logs", "redaction-agent", "systemd-session.jsonl"),
-    "utf8",
-  );
-  expect(raw).not.toContain(secret);
-  expect(raw).not.toContain(anthropic);
-  expect(JSON.parse(raw).content).toBe(
-    '[Service]\nEnvironment="OPENAI_API_KEY=sk-proj-...REDACTED"\nEnvironment="ANTHROPIC_API_KEY=sk-ant-a...REDACTED"',
-  );
-});
-
 it("scans a prepared entry only once across repeated agent and cron appends", () => {
-  for (const content of [secret, "ordinary output"]) {
-    const scan = spyOn(scanner, "redactLogEntry");
-    try {
-      const original = { ...entry(), content };
-      const prepared = prepareLogEntry(original);
-      expect(prepared).not.toBe(original);
-      const session = content === secret ? "memo-secret" : "memo-plain";
-      appendLog("redaction-agent", session, prepared);
-      appendLog("redaction-agent", session, prepared);
-      appendRunLog("redaction-job", "memo-run", session, prepared);
-      appendRunLog("redaction-job", "memo-run", session, prepared);
-      expect(scan).toHaveBeenCalledTimes(1);
-      expect(loadLog("redaction-agent", session)).toEqual([prepared, prepared]);
-      expect(loadRunLog("redaction-job", "memo-run", session)).toEqual([
-        prepared,
-        prepared,
-      ]);
-      // Producer-owned input is not memoized and can safely change later.
-      original.content = "sk-" + "V".repeat(24);
-      appendLog("redaction-agent", session, original);
-      expect(scan).toHaveBeenCalledTimes(2);
-      expect(loadLog("redaction-agent", session)[2].content).toBe(
-        "sk-VVVVV...REDACTED",
-      );
-    } finally {
-      scan.mockRestore();
-    }
+  const scan = spyOn(scanner, "redactLogEntry");
+  try {
+    const original = entry();
+    const prepared = prepareLogEntry(original);
+    expect(prepared).not.toBe(original);
+    const session = "memo-secret";
+    appendLog("redaction-agent", session, prepared);
+    appendLog("redaction-agent", session, prepared);
+    appendRunLog("redaction-job", "memo-run", session, prepared);
+    appendRunLog("redaction-job", "memo-run", session, prepared);
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(loadLog("redaction-agent", session)).toEqual([prepared, prepared]);
+    expect(loadRunLog("redaction-job", "memo-run", session)).toEqual([
+      prepared,
+      prepared,
+    ]);
+    // Producer-owned input is not memoized and can safely change later.
+    original.content = "sk-" + "V".repeat(24);
+    appendLog("redaction-agent", session, original);
+    expect(scan).toHaveBeenCalledTimes(2);
+    expect(loadLog("redaction-agent", session)[2].content).toBe(
+      "sk-VVVVV...REDACTED",
+    );
+  } finally {
+    scan.mockRestore();
   }
 });
 

@@ -23,7 +23,7 @@ import type { Identity } from "../identity/index.ts";
 // The stable subject for the cache key. Scope-prefixed so a user and an agent
 // that happen to share a userId never collide, and so the raw token never
 // appears. Empty id segments are tolerated (they still scope by kind).
-export function identitySubjectKey(identity: Identity): string {
+function identitySubjectKey(identity: Identity): string {
   switch (identity.scope) {
     case "user":
       return `user:${identity.userId ?? ""}`;
@@ -41,7 +41,7 @@ export function identitySubjectKey(identity: Identity): string {
 // sha256 of the raw request-body bytes. The caller passes the exact serialized
 // body it received, so a byte-identical retry hashes identically and a changed
 // body diverges. An absent body hashes the empty string.
-export function hashBody(rawBody: string): string {
+function hashBody(rawBody: string): string {
   return createHash("sha256").update(rawBody).digest("hex");
 }
 
@@ -90,8 +90,7 @@ export interface IdempotencyCache {
     },
     handler: () => Promise<R>,
   ): Promise<IdempotencyOutcome<R>>;
-  // Test/introspection helpers.
-  _size(): number;
+  // Clears the cache (resetServerModuleState).
   _reset(): void;
 }
 
@@ -182,7 +181,6 @@ export function createIdempotencyCache(
 
   return {
     run,
-    _size: () => store.size,
     _reset: () => store.clear(),
   };
 }

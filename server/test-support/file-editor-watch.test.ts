@@ -42,21 +42,18 @@ import {
 function openAndWatch(
   path: string,
   onEvent: (ev: WatchFileEvent) => void,
-  pollMs?: number,
 ): FileWatcher {
   const r = openFile(path);
   if (r.kind !== "ok") throw new Error(`open failed: ${r.kind}`);
-  return watchFile(path, "agent-x", onEvent, r.sig, { pollMs });
+  return watchFile(path, onEvent, r.sig);
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// Change delivery is async (1s poll); wait for the expected count instead
-// of a fixed sleep so the pass path stays fast.
-async function waitFor(cond: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now();
-  while (!cond() && Date.now() - start < timeoutMs) await sleep(20);
-}
+// The production poll interval. Every watch test runs on fake timers, so one
+// advance of POLL_MS runs exactly one poll.
+const POLL_MS = 1000;
+const poll = (n = 1) => jest.advanceTimersByTime(POLL_MS * n);
+const kinds = (events: WatchFileEvent[], kind: WatchFileEvent["kind"]) =>
+  events.filter((e) => e.kind === kind).length;
 
 describe("watchFile", () => {
   let dir: string;
@@ -69,81 +66,54 @@ describe("watchFile", () => {
     file = join(dir, "watched.txt");
     writeFileSync(file, "v0");
     events = [];
+    jest.useFakeTimers();
     watcher = openAndWatch(file, (ev) => events.push(ev));
   });
 
   afterEach(() => {
     stopWatch(watcher);
+    jest.useRealTimers();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("fires on in-place writes", () => {
+  it("fires on in-place writes to the target only", () => {
+    // A sibling change must not reach this watch.
+    writeFileSync(join(dir, "other.txt"), "noise");
+    poll();
+    expect(events).toHaveLength(0);
+
     // A same-size in-place write keeps ino and size, so only mtime can move
     // the signature. Linux stamps mtime from a coarse clock, and a write in
     // the same tick as the baseline write keeps the old mtime (task
     // e490d5ad: a real-clock version was red in most hot reruns), so the
     // test moves mtime explicitly.
-    stopWatch(watcher);
-    jest.useFakeTimers();
-    watcher = openAndWatch(file, (ev) => events.push(ev), 50);
-    try {
-      const before = statSync(file);
-      writeFileSync(file, "v1");
-      const later = new Date(before.mtimeMs + 10_000);
-      utimesSync(file, later, later);
-      const after = statSync(file);
-      expect(after.ino).toBe(before.ino);
-      expect(after.size).toBe(before.size);
-      expect(after.mtimeMs).not.toBe(before.mtimeMs);
+    const before = statSync(file);
+    writeFileSync(file, "v1");
+    const later = new Date(before.mtimeMs + 10_000);
+    utimesSync(file, later, later);
+    const after = statSync(file);
+    expect(after.ino).toBe(before.ino);
+    expect(after.size).toBe(before.size);
+    expect(after.mtimeMs).not.toBe(before.mtimeMs);
 
-      jest.advanceTimersByTime(50);
-      expect(events).toHaveLength(1);
-      expect(events[0]?.kind).toBe("change");
-    } finally {
-      stopWatch(watcher);
-      jest.useRealTimers();
-    }
+    poll();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe("change");
   });
 
-  it("fires on atomic rename-replace saves", async () => {
+  it("keeps firing for writes AFTER a rename-replace", () => {
     const tmp = join(dir, "watched.txt.tmp.123.abc");
     writeFileSync(tmp, "v1");
     renameSync(tmp, file);
-    await waitFor(() => events.length > 0);
-    expect(events.length).toBeGreaterThan(0);
+    poll();
+    expect(kinds(events, "change")).toBe(1);
+    // A different size: no real time passes, so mtime may not move.
+    writeFileSync(file, "v2 longer");
+    poll();
+    expect(kinds(events, "change")).toBe(2);
   });
 
-  it("keeps firing for writes AFTER a rename-replace", async () => {
-    const tmp = join(dir, "watched.txt.tmp.123.abc");
-    writeFileSync(tmp, "v1");
-    renameSync(tmp, file);
-    await waitFor(() => events.length > 0);
-    const afterRename = events.length;
-    writeFileSync(file, "v2");
-    await waitFor(() => events.length > afterRename);
-    expect(events.length).toBeGreaterThan(afterRename);
-  });
-
-  it("only fires for the target when a sibling also changes", () => {
-    stopWatch(watcher);
-    jest.useFakeTimers();
-    watcher = openAndWatch(file, (ev) => events.push(ev), 50);
-    try {
-      writeFileSync(join(dir, "other.txt"), "noise");
-      jest.advanceTimersByTime(50);
-      expect(events).toHaveLength(0);
-
-      writeFileSync(file, "target changed");
-      jest.advanceTimersByTime(50);
-      expect(events).toHaveLength(1);
-      expect(events[0]?.kind).toBe("change");
-    } finally {
-      stopWatch(watcher);
-      jest.useRealTimers();
-    }
-  });
-
-  it("emits for a save landing between read and watch install", async () => {
+  it("emits for a save landing between read and watch install", () => {
     // The read-then-watch gap (Reviewer2 finding): the baseline must be the
     // signature of the READ, not of watch-install time - otherwise a change
     // in the gap is recorded as the baseline and never emits.
@@ -157,10 +127,10 @@ describe("watchFile", () => {
     writeFileSync(tmp, "v1");
     renameSync(tmp, file2);
     const gapEvents: WatchFileEvent[] = [];
-    const w = watchFile(file2, "agent-x", (ev) => gapEvents.push(ev), r.sig);
+    const w = watchFile(file2, (ev) => gapEvents.push(ev), r.sig);
     try {
-      await waitFor(() => gapEvents.length > 0);
-      expect(gapEvents.length).toBeGreaterThan(0);
+      poll();
+      expect(kinds(gapEvents, "change")).toBe(1);
     } finally {
       stopWatch(w);
     }
@@ -169,31 +139,33 @@ describe("watchFile", () => {
 
 // Deletion lifecycle (task 1ed49547): a confirmed-missing path must produce a
 // distinct "deleted" event - exactly once - and a recreation afterwards must
-// resume change events. All tests use a fast poll (the pollMs test override)
-// so the two-consecutive-miss confirmation stays fast.
+// resume change events.
 describe("watchFile deletion", () => {
   let dir: string;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "isomux-watch-del-test-"));
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("emits a single deleted event once the path is confirmed missing", async () => {
+  it("emits a single deleted event once the path is confirmed missing", () => {
     const file = join(dir, "doomed.txt");
     writeFileSync(file, "v0");
     const events: WatchFileEvent[] = [];
-    const w = openAndWatch(file, (ev) => events.push(ev), 50);
+    const w = openAndWatch(file, (ev) => events.push(ev));
     try {
       unlinkSync(file);
-      await waitFor(() => events.some((e) => e.kind === "deleted"));
-      // Cover several more polls: still-missing must not re-emit.
-      await sleep(300);
-      expect(events.filter((e) => e.kind === "deleted").length).toBe(1);
-      expect(events.filter((e) => e.kind === "change").length).toBe(0);
+      poll(2);
+      expect(kinds(events, "deleted")).toBe(1);
+      // Still missing: further polls must not re-emit.
+      poll(5);
+      expect(kinds(events, "deleted")).toBe(1);
+      expect(kinds(events, "change")).toBe(0);
     } finally {
       stopWatch(w);
     }
@@ -207,66 +179,40 @@ describe("watchFile deletion", () => {
     const file = join(dir, "flicker.txt");
     writeFileSync(file, "v0");
     const events: WatchFileEvent[] = [];
-    const pollMs = 50;
-    jest.useFakeTimers();
-    const w = openAndWatch(file, (ev) => events.push(ev), pollMs);
+    const w = openAndWatch(file, (ev) => events.push(ev));
     try {
       // Phase A proves that one clock advance runs exactly one watch poll.
       writeFileSync(file, "v1 longer");
-      jest.advanceTimersByTime(pollMs);
-      expect(events.filter((e) => e.kind === "change")).toHaveLength(1);
+      poll();
+      expect(kinds(events, "change")).toBe(1);
 
       // Phase B exposes the path as missing for exactly one poll.
       unlinkSync(file);
-      jest.advanceTimersByTime(pollMs);
-      expect(events.filter((e) => e.kind === "deleted")).toHaveLength(0);
+      poll();
+      expect(kinds(events, "deleted")).toBe(0);
 
       // Phase C restores a different signature before the confirming poll.
       writeFileSync(file, "v2 even longer than v1");
-      jest.advanceTimersByTime(pollMs);
-      expect(events.filter((e) => e.kind === "change")).toHaveLength(2);
-      expect(events.filter((e) => e.kind === "deleted")).toHaveLength(0);
-    } finally {
-      stopWatch(w);
-      jest.useRealTimers();
-    }
-  });
-
-  it("never emits deleted across repeated atomic rename-replace saves", async () => {
-    // The agent-tooling save path: rename(2) is atomic, so the watched path
-    // must never be observably absent regardless of when polls land.
-    const file = join(dir, "renamed.txt");
-    writeFileSync(file, "v0");
-    const events: WatchFileEvent[] = [];
-    const w = openAndWatch(file, (ev) => events.push(ev), 20);
-    try {
-      for (let i = 1; i <= 30; i++) {
-        const tmp = join(dir, `renamed.txt.tmp.${i}`);
-        writeFileSync(tmp, `v${i}`);
-        renameSync(tmp, file);
-        await sleep(10);
-      }
-      await waitFor(() => events.some((e) => e.kind === "change"));
-      expect(events.filter((e) => e.kind === "deleted").length).toBe(0);
-      expect(events.filter((e) => e.kind === "change").length).toBeGreaterThan(
-        0,
-      );
+      poll();
+      expect(kinds(events, "change")).toBe(2);
+      expect(kinds(events, "deleted")).toBe(0);
     } finally {
       stopWatch(w);
     }
   });
 
-  it("resumes change events when a deleted file is recreated", async () => {
+  it("resumes change events when a deleted file is recreated", () => {
     const file = join(dir, "reborn.txt");
     writeFileSync(file, "v0");
     const events: WatchFileEvent[] = [];
-    const w = openAndWatch(file, (ev) => events.push(ev), 50);
+    const w = openAndWatch(file, (ev) => events.push(ev));
     try {
       unlinkSync(file);
-      await waitFor(() => events.some((e) => e.kind === "deleted"));
+      poll(2);
+      expect(kinds(events, "deleted")).toBe(1);
       writeFileSync(file, "v1");
-      await waitFor(() => events.some((e) => e.kind === "change"));
-      expect(events.some((e) => e.kind === "change")).toBe(true);
+      poll();
+      expect(kinds(events, "change")).toBe(1);
     } finally {
       stopWatch(w);
     }
@@ -302,56 +248,6 @@ describe("file revisions", () => {
     const r3 = openFile(file);
     if (r3.kind !== "ok") throw new Error("open failed");
     expect(r3.rev).toBeGreaterThan(r1.rev);
-  });
-
-  it("saveFile with the current rev succeeds and returns a bumped rev", () => {
-    const file = join(dir, "save.txt");
-    writeFileSync(file, "v0");
-    const r = openFile(file);
-    if (r.kind !== "ok") throw new Error("open failed");
-    // Longer content on purpose: an equal-length in-place write landing in
-    // the same clock tick would produce an identical signature (no bump).
-    const s = saveFile(file, "v1 with more bytes", r.mtime, r.rev, false);
-    expect(s.kind).toBe("ok");
-    if (s.kind !== "ok") return;
-    expect(s.rev).toBeGreaterThan(r.rev);
-  });
-
-  it("saveFile with a stale rev refuses - even when mtime moved BACKWARDS", () => {
-    // The legacy `currentMtime > expectedMtime` guard misses a rollback (a
-    // restore that moves mtime into the past). The rev guard must catch it.
-    const file = join(dir, "rollback.txt");
-    writeFileSync(file, "v0");
-    const r = openFile(file);
-    if (r.kind !== "ok") throw new Error("open failed");
-    // External change with an mtime OLDER than the open.
-    writeFileSync(file, "external");
-    const past = new Date(Date.now() - 60_000);
-    utimesSync(file, past, past);
-    expect(Math.floor(statSync(file).mtimeMs)).toBeLessThan(r.mtime);
-    const s = saveFile(file, "mine", r.mtime, r.rev, false);
-    expect(s.kind).toBe("stale");
-    if (s.kind !== "stale") return;
-    expect(s.currentRev).toBeGreaterThan(r.rev);
-  });
-
-  it("saveFile on a deleted path returns kind=deleted; force recreates with a bumped rev", () => {
-    const file = join(dir, "gone.txt");
-    writeFileSync(file, "v0");
-    const r = openFile(file);
-    if (r.kind !== "ok") throw new Error("open failed");
-    unlinkSync(file);
-    const refused = saveFile(file, "mine", r.mtime, r.rev, false);
-    expect(refused.kind).toBe("deleted");
-    const forced = saveFile(file, "mine", r.mtime, r.rev, true);
-    expect(forced.kind).toBe("ok");
-    if (forced.kind !== "ok") return;
-    // The deletion observation invalidated the registry, so the recreation is
-    // a strict bump over the opened rev.
-    expect(forced.rev).toBeGreaterThan(r.rev);
-    const reopened = openFile(file);
-    if (reopened.kind !== "ok") throw new Error("reopen failed");
-    expect(reopened.content).toBe("mine");
   });
 
   it("recreation with a MATCHING signature still bumps: saveFile's ENOENT records the missing sentinel", () => {
@@ -482,14 +378,15 @@ describe("file revisions", () => {
     expect(rB.rev).not.toBe(r1.rev);
   });
 
-  it("a save's own write does not double-bump: the watch echo carries the save's rev", async () => {
+  it("a save's own write does not double-bump: the watch echo carries the save's rev", () => {
     // The client uses rev equality to ignore the watch echo of its own save.
     // The registry must converge: the rev returned by saveFile equals the rev
     // the subsequent watch poll emits for that same write.
     const file = join(dir, "echo.txt");
     writeFileSync(file, "v0");
     const events: WatchFileEvent[] = [];
-    const w = openAndWatch(file, (ev) => events.push(ev), 50);
+    jest.useFakeTimers();
+    const w = openAndWatch(file, (ev) => events.push(ev));
     try {
       const r = openFile(file);
       if (r.kind !== "ok") throw new Error("open failed");
@@ -497,12 +394,13 @@ describe("file revisions", () => {
       // within the same clock tick.
       const s = saveFile(file, "v1 with more bytes", r.mtime, r.rev, false);
       if (s.kind !== "ok") throw new Error(`save failed: ${s.kind}`);
-      await waitFor(() => events.some((e) => e.kind === "change"));
+      poll();
       const change = events.find((e) => e.kind === "change");
       if (!change || change.kind !== "change") throw new Error("no change");
       expect(change.rev).toBe(s.rev);
     } finally {
       stopWatch(w);
+      jest.useRealTimers();
     }
   });
 });

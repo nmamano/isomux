@@ -3,8 +3,8 @@
 //
 // TDD red-green for NEW code. Drives the REAL AgentManager through the
 // in-process harness + FakeBackend (zero LLM): spawn mints a bearer token and
-// injects it into the agent's session env; kill revokes it; revive rotates it;
-// and the raw token never appears on any externally-visible surface (WS
+// injects it into the agent's session env; kill revokes it; a revive mints a
+// fresh one; and the raw token never appears on any externally-visible surface (WS
 // messages, log entries, the backend-visible system prompt). ADDITIVE: nothing
 // is rejected here - issuance, env-injection, and redaction only.
 
@@ -84,33 +84,6 @@ describe("identity: agent token lifecycle via the manager (Phase 2.1)", () => {
     expect(getAgentTokenRaw(info.id)).toBeNull();
     expect(resolveToken(raw)).toBeNull();
   });
-
-  it("revive rotates the token (old raw dies, new raw resolves)", async () => {
-    // autoSystemInit:false -> the spawned agent never gets a sessionId, so kill
-    // stamps no lastSessionId and revive takes the fresh path (no Claude
-    // resume-file preflight, hence no "[revive] Resume ... falling back"
-    // warning in the test log). Token assertions are unaffected: kill still
-    // revokes and restoreOrReviveAgent still mints a fresh raw before
-    // createSession.
-    const srv = await startTestServer({
-      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
-    });
-    server = srv;
-    const { info, roomId } = await spawnAgent(srv, "ReviveAgent");
-    const raw1 = getAgentTokenRaw(info.id) as string;
-
-    await srv.agentManager.kill(info.id);
-    expect(resolveToken(raw1)).toBeNull();
-
-    const res = await srv.agentManager.revive(info.id, roomId, info.desk);
-    expect(res.ok).toBe(true);
-
-    const raw2 = getAgentTokenRaw(info.id);
-    expect(typeof raw2).toBe("string");
-    expect(raw2).not.toBe(raw1);
-    expect(resolveToken(raw1)).toBeNull(); // old token stays dead
-    expect(resolveToken(raw2 as string)?.agentId).toBe(info.id);
-  });
 });
 
 describe("identity: agent token redaction (Phase 2.1)", () => {
@@ -124,22 +97,18 @@ describe("identity: agent token redaction (Phase 2.1)", () => {
     const raw = getAgentTokenRaw(info.id) as string;
     expect(raw.length).toBeGreaterThan(20); // positive control: a real secret exists
 
-    // Let the spawn's events + the first stream flush to the socket.
-    await ws.waitFor("log_entry").catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Sanity: the agent really did surface on this socket (otherwise "absent"
-    // would be vacuously true).
-    expect(
-      ws.messages.some((m) => (m as { type?: string }).type === "agent_added"),
-    ).toBe(true);
+    // The agent surfaced on this socket (otherwise "absent" would be
+    // vacuously true), and its session exists, so its system prompt is real.
+    await ws.waitFor("agent_added");
+    await wake(srv, info.id);
+    const sess = srv.fakeBackend.sessionForAgent(info.id)!;
+    expect(sess.opts.systemPrompt?.length ?? 0).toBeGreaterThan(0);
 
     // The token must not ride on ANY WS message (covers log_entry, agent_added,
     // slash_commands, full_state, …)...
     expect(JSON.stringify(ws.messages)).not.toContain(raw);
     // ...nor in the backend-visible system prompt.
-    const sess = srv.fakeBackend.sessionForAgent(info.id);
-    expect(sess?.opts.systemPrompt ?? "").not.toContain(raw);
+    expect(sess.opts.systemPrompt).not.toContain(raw);
   });
 });
 
@@ -198,7 +167,7 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
     expect(srv.agentManager.getAgent(info.id)?.privileged).toBe(false);
   });
 
-  it("idempotent: toggling to the current value does NOT re-mint or interrupt", async () => {
+  it("idempotent: toggling to the current value does NOT re-mint", async () => {
     const srv = await startTestServer();
     server = srv;
     const { info } = await spawnAgent(srv, "PrivAgent3");
@@ -232,14 +201,17 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
     );
   });
 
-  it("automatic handoff survives kill -> revive, and stays off when it was off", async () => {
+  it("automatic handoff and its token value survive kill -> revive, and it stays off when it was off", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
     server = srv;
     const on = await spawnAgent(srv, "AutoOn");
     const off = await spawnAgent(srv, "AutoOff");
-    await srv.agentManager.editAgent(on.info.id, { autoHandoff: true });
+    await srv.agentManager.editAgent(on.info.id, {
+      autoHandoff: true,
+      autoHandoffTokens: 300_000,
+    });
 
     for (const { info, roomId } of [on, off]) {
       await srv.agentManager.kill(info.id);
@@ -247,26 +219,11 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
       expect(res.ok).toBe(true);
     }
     expect(srv.agentManager.getAgent(on.info.id)?.autoHandoff).toBe(true);
+    expect(srv.agentManager.getAgent(on.info.id)?.autoHandoffTokens).toBe(
+      300_000,
+    );
     expect(srv.agentManager.getAgent(off.info.id)?.autoHandoff ?? false).toBe(
       false,
     );
-  });
-
-  it("the automatic handoff token value survives kill -> revive", async () => {
-    const srv = await startTestServer({
-      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
-    });
-    server = srv;
-    const { info, roomId } = await spawnAgent(srv, "AutoTokens");
-    await srv.agentManager.editAgent(info.id, {
-      autoHandoff: true,
-      autoHandoffTokens: 300_000,
-    });
-    expect(srv.agentManager.getAgent(info.id)?.autoHandoffTokens).toBe(300_000);
-
-    await srv.agentManager.kill(info.id);
-    const res = await srv.agentManager.revive(info.id, roomId, info.desk);
-    expect(res.ok).toBe(true);
-    expect(srv.agentManager.getAgent(info.id)?.autoHandoffTokens).toBe(300_000);
   });
 });

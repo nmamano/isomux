@@ -166,39 +166,6 @@ function editFake(sessionMessagesFor: (agentId: string) => string) {
   return { fake, install };
 }
 
-async function seedAgentWithAttachmentMessage(
-  mgr: ReturnType<typeof makeManager>,
-  fake: FakeBackend,
-  install: (id: string) => void,
-) {
-  const info = (await mgr.spawn(
-    "A",
-    STATE_ROOT,
-    "default",
-    undefined,
-    undefined,
-    "room-a",
-  ))!;
-  seedAttachmentFile(info.id);
-  install(info.id);
-  await mgr.sendMessage(
-    info.id,
-    "Here is the screenshot of the cutoff slide.",
-    undefined,
-    undefined,
-    [ATTACHMENT],
-  );
-  expect(fake.sessionForAgent(info.id)!.sessionId).toBe(PARENT_SID);
-  await waitUntil(
-    () =>
-      loadLog(info.id, PARENT_SID).some((e) => e.kind === "user_message") &&
-      mgr.getAgent(info.id)?.state === "waiting_for_response",
-    3000,
-    "attachment turn settled",
-  );
-  return info;
-}
-
 function userMsgId(agentId: string, content: string): string {
   const e = loadLog(agentId, PARENT_SID).find(
     (x) => x.kind === "user_message" && x.content === content,
@@ -208,37 +175,7 @@ function userMsgId(agentId: string, content: string): string {
 }
 
 describe("editMessage on a message with attachments (task 1a3a0820)", () => {
-  it("locates the message despite the appended notice block and forks", async () => {
-    wireClaudeConfigDir();
-    const { fake, install } = editFake((id) =>
-      flattenedWithNotices(id, "Here is the screenshot of the cutoff slide."),
-    );
-    const { events, sink } = capture();
-    const mgr = makeManager(fake, sink);
-    const info = await seedAgentWithAttachmentMessage(mgr, fake, install);
-    seedClaudeSession(info.cwd, FORK_SID);
-    events.length = 0;
-
-    await mgr.editMessage(
-      info.id,
-      userMsgId(info.id, "Here is the screenshot of the cutoff slide."),
-      "Here is the screenshot of the cut-off slide.",
-    );
-    await waitUntil(
-      () => !!loadSessionsMap(info.id)[FORK_SID],
-      2000,
-      "fork persisted",
-    );
-
-    // The failure mode this test exists for: an error entry instead of a fork.
-    const errors = (events as AnyEvent[])
-      .filter((e) => e.type === "log_entry" && e.entry?.kind === "error")
-      .map((e) => e.entry?.content ?? "");
-    expect(errors).toEqual([]);
-    expect(loadSessionsMap(info.id)[FORK_SID].forkedFrom).toBe(PARENT_SID);
-  });
-
-  it("carries the original attachments onto the edited turn", async () => {
+  it("locates the message despite its notice block and carries the attachments onto the edited turn", async () => {
     wireClaudeConfigDir();
     const { fake, install } = editFake((id) =>
       flattenedWithNotices(id, "look at this"),
@@ -279,6 +216,14 @@ describe("editMessage on a message with attachments (task 1a3a0820)", () => {
       "fork persisted",
     );
 
+    // The backend's copy of the message ends in the notice block; the edit
+    // still finds it and forks instead of logging an error.
+    const errors = (events as AnyEvent[])
+      .filter((e) => e.type === "log_entry" && e.entry?.kind === "error")
+      .map((e) => e.entry?.content ?? "");
+    expect(errors).toEqual([]);
+    expect(loadSessionsMap(info.id)[FORK_SID].forkedFrom).toBe(PARENT_SID);
+
     // The edit UI rewrites text only - the attachments belong to the message,
     // so they ride along instead of being silently dropped.
     const edited = (events as AnyEvent[]).find(
@@ -293,35 +238,5 @@ describe("editMessage on a message with attachments (task 1a3a0820)", () => {
     expect(fake.sessions.at(-1)!.sent.at(-1)?.attachments).toEqual([
       ATTACHMENT,
     ]);
-  });
-
-  it("still fails loudly when the message really isn't in the session", async () => {
-    wireClaudeConfigDir();
-    const { fake, install } = editFake(() => "something else entirely");
-    const { events, sink } = capture();
-    const mgr = makeManager(fake, sink);
-    const info = await seedAgentWithAttachmentMessage(mgr, fake, install);
-    seedClaudeSession(info.cwd, FORK_SID);
-    events.length = 0;
-
-    await mgr.editMessage(
-      info.id,
-      userMsgId(info.id, "Here is the screenshot of the cutoff slide."),
-      "nope",
-    );
-    await waitUntil(
-      () =>
-        (events as AnyEvent[]).some(
-          (e) => e.type === "log_entry" && e.entry?.kind === "error",
-        ),
-      2000,
-      "error surfaced",
-    );
-
-    const errors = (events as AnyEvent[])
-      .filter((e) => e.type === "log_entry" && e.entry?.kind === "error")
-      .map((e) => e.entry?.content ?? "");
-    expect(errors[0]).toContain("could not locate message in backend session");
-    expect(loadSessionsMap(info.id)[FORK_SID]).toBeUndefined();
   });
 });

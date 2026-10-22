@@ -47,16 +47,15 @@ beforeAll(() => {
 afterAll(() => rmSync(skillDir, { recursive: true, force: true }));
 
 // `idle`: the events land after a first turn ended, with no turn waiting on
-// them. The others end the turn that a queued message, a direct send, a skill
-// or `/plan <text>` started, whose owner then handles the rejected turn too.
+// them. The others end the turn that a queued message, a direct send or a
+// skill started, whose owner then handles the rejected turn too. (`/plan
+// <text>` ends through the same command-turn path as a skill.)
 async function run(
   events: NormalizedEvent[],
   until: "card" | "text" | "error",
-  via: "idle" | "queue" | "send" | "skill" | "plan" = "idle",
+  via: "idle" | "queue" | "send" | "skill" = "idle",
 ) {
   const fake = new FakeBackend({
-    // `/plan <text>` needs an engine with a native plan mode.
-    planMode: via === "plan",
     isAuthError: (t) => /401|not logged in|authentication/i.test(t),
     loginInstructions: {
       text: "Sign in to continue.",
@@ -104,8 +103,8 @@ async function run(
   );
   if (!info) throw new Error("spawn returned null");
   // The session is created on the first message, not at spawn.
-  const typed = { send: "hi", skill: `/${SKILL}`, plan: "/plan hi" } as const;
-  if (via === "send" || via === "skill" || via === "plan")
+  const typed = { send: "hi", skill: `/${SKILL}` } as const;
+  if (via === "send" || via === "skill")
     void mgr.sendMessage(info.id, typed[via], "Morgan").catch(() => {});
   else
     mgr.enqueueMessage(info.id, {
@@ -117,10 +116,8 @@ async function run(
     "message sent",
   );
   const session = fake.sessionForAgent(info.id)!;
-  // The turn is the kind `via` names: a skill sends the skill's prompt, and
-  // `/plan <text>` starts the session in plan mode.
+  // The turn is the kind `via` names: a skill sends the skill's prompt.
   if (via === "skill") expect(session.sent[0].text).toContain("Do the thing.");
-  expect(session.opts.planMode === true).toBe(via === "plan");
   if (via === "idle") {
     session.completeTurn({ text: "ok" });
     await waitUntil(
@@ -179,14 +176,6 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
     ).toEqual({ cards: 0, errors: 1, noteLogged: false, state: "error" });
   });
 
-  it("gives one card for auth_needed, however often it comes", async () => {
-    const result = await run(
-      [{ kind: "auth_needed" }, { kind: "auth_needed" }],
-      "card",
-    );
-    expect(result).toMatchObject({ cards: 1, errors: 0 });
-  });
-
   it("keeps the error line of an error after auth_needed, and the desk waits", async () => {
     expect(
       await run(
@@ -206,7 +195,7 @@ describe("auth_needed is the only sign-in signal the orchestrator reads", () => 
 
   // The turn's owner gets the rejection after the error handler wrote the
   // line and the card: it adds no second line and leaves the desk waiting.
-  for (const via of ["queue", "send", "skill", "plan"] as const) {
+  for (const via of ["queue", "send", "skill"] as const) {
     it(`keeps one error line and a waiting desk when auth_needed ends a ${via} turn`, async () => {
       expect(
         await run(

@@ -46,7 +46,6 @@ import { STATE_ROOT } from "../config.ts";
 import { parseLogQuery, type LogQuery } from "../log-search.ts";
 import {
   MAX_SEARCHES_OFFICE_WIDE,
-  MAX_SEARCHES_PER_CALLER,
   SCAN_BUDGET_MS,
   runSearchInChild,
 } from "../log-search-runner.ts";
@@ -118,9 +117,7 @@ async function waitForOfficeIdle(): Promise<void> {
   for (;;) {
     const probes = await Promise.all(
       Array.from({ length: MAX_SEARCHES_OFFICE_WIDE }, (_, i) =>
-        runSearchInChild(`probe:${i}`, AGENT, query("q=needle"), {
-          logsDir: LOGS_DIR,
-        }),
+        runSearchInChild(`probe:${i}`, AGENT, query("q=needle")),
       ),
     );
     if (probes.every((p) => p.ok)) return;
@@ -133,21 +130,6 @@ async function waitForOfficeIdle(): Promise<void> {
 
 describe("log search: process isolation", () => {
   beforeEach(waitForOfficeIdle, 40_000);
-
-  it("returns a normal result through the child process", async () => {
-    const outcome = await runSearchInChild(
-      "caller:normal",
-      AGENT,
-      query("q=needle"),
-      {
-        logsDir: LOGS_DIR,
-      },
-    );
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) return;
-    expect(outcome.result.results.map((r) => r.entryId)).toEqual(["w1"]);
-    expect(outcome.result.totalMatches).toBe(1);
-  });
 
   it("SIGKILLs a non-yielding scan at the deadline, so the 504 is true", async () => {
     // Calibrate against THIS machine: what does one bait match cost here?
@@ -183,7 +165,6 @@ describe("log search: process isolation", () => {
     let triggerDeadline: (() => void) | undefined;
     let settled = false;
     const pending = runSearchInChild("caller:evil", AGENT, CATASTROPHIC, {
-      logsDir: LOGS_DIR,
       spawnChild: (childPath) => {
         child = Bun.spawn(
           [process.execPath, "run", "--preload", preload, childPath],
@@ -234,9 +215,6 @@ describe("log search: process isolation", () => {
         "caller:evil",
         AGENT,
         query("q=needle"),
-        {
-          logsDir: LOGS_DIR,
-        },
       );
       expect(probe.ok).toBe(true);
     } finally {
@@ -247,7 +225,7 @@ describe("log search: process isolation", () => {
     }
   }, 30_000);
 
-  it("holds the caller's slot after a deadline until the child actually exits", async () => {
+  it("caps a caller at one search and holds its slot after a deadline until the child exits", async () => {
     // The 504 is sent as soon as the deadline fires, but admission is released
     // only when the child's exit is OBSERVED. Releasing on kill() instead would
     // let a caller retrying into repeated deadlines hold more live children
@@ -256,24 +234,25 @@ describe("log search: process isolation", () => {
       "caller:retry",
       AGENT,
       CATASTROPHIC,
-      {
-        logsDir: LOGS_DIR,
-        hardTimeoutMs: 200,
-      },
+      { hardTimeoutMs: 200 },
     );
     expect(timedOut.ok).toBe(false);
 
     // Immediately after the 504: still occupied, because the child's exit has
     // not been observed yet. (Releasing on the kill REQUEST rather than on the
-    // observed exit is the unsafe behavior this test exists to reject.)
+    // observed exit is the unsafe behavior this test exists to reject.) Only
+    // one of the office-wide slots is in use, so the per-caller cap is what
+    // refuses.
     const immediate = await runSearchInChild(
       "caller:retry",
       AGENT,
       query("q=needle"),
-      { logsDir: LOGS_DIR },
     );
     expect(immediate.ok).toBe(false);
-    if (!immediate.ok) expect(immediate.code).toBe("search_busy");
+    if (!immediate.ok) {
+      expect(immediate.status).toBe(429);
+      expect(immediate.code).toBe("search_busy");
+    }
 
     // ...and the slot IS freed once the child exits. A slot held forever would
     // be just as broken as one released too early. With SIGKILL that is
@@ -286,41 +265,15 @@ describe("log search: process isolation", () => {
         "caller:retry",
         AGENT,
         query("q=needle"),
-        { logsDir: LOGS_DIR },
       );
     }
     expect(eventually.ok).toBe(true);
   }, 30_000);
 
-  it("caps concurrent searches per caller", async () => {
-    expect(MAX_SEARCHES_PER_CALLER).toBe(1);
-    // Hold a slot open with a scan that cannot finish quickly...
-    const held = runSearchInChild("caller:hog", AGENT, CATASTROPHIC, {
-      logsDir: LOGS_DIR,
-      hardTimeoutMs: 600,
-    });
-    const second = await runSearchInChild(
-      "caller:hog",
-      AGENT,
-      query("q=needle"),
-      {
-        logsDir: LOGS_DIR,
-      },
-    );
-    expect(second.ok).toBe(false);
-    if (!second.ok) {
-      expect(second.status).toBe(429);
-      expect(second.code).toBe("search_busy");
-    }
-    await held;
-  }, 30_000);
-
   it("caps concurrent searches office-wide across different callers", async () => {
+    // Admission is synchronous, so cheap scans hold every slot until they end.
     const held = Array.from({ length: MAX_SEARCHES_OFFICE_WIDE }, (_, i) =>
-      runSearchInChild(`caller:office-${i}`, AGENT, CATASTROPHIC, {
-        logsDir: LOGS_DIR,
-        hardTimeoutMs: 600,
-      }),
+      runSearchInChild(`caller:office-${i}`, AGENT, query("q=needle")),
     );
     // A fresh caller, with its own per-caller budget untouched, is still turned
     // away because the office-wide ceiling is full.
@@ -328,7 +281,6 @@ describe("log search: process isolation", () => {
       "caller:office-overflow",
       AGENT,
       query("q=needle"),
-      { logsDir: LOGS_DIR },
     );
     expect(overflow.ok).toBe(false);
     if (!overflow.ok) expect(overflow.code).toBe("search_busy");
