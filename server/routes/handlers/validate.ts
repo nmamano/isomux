@@ -77,7 +77,7 @@ export function validateHandlers(
         ctx.identity.userId ?? undefined,
       );
       // Drop the resolved env-file path (envFile) from the REST response by
-      // design - only the WS echo carries it.
+      // design.
       return r.ok
         ? ok({
             ok: true,

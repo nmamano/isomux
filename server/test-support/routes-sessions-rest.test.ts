@@ -18,7 +18,8 @@
 //   - ROLE SOURCE = record (Option A): a member promoted in the record (no
 //     reconnect) lists + revokes as an owner.
 //   - AGENT bearer → 403 (list/revoke missing session:manage; logout missing
-//     caller session hash); no identity → 401.
+//     caller session hash). No identity → 401 is the table-wide sweep in
+//     routes-table.test.ts.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -228,23 +229,6 @@ describe("routes/sessions REST: revoke double-signal + bridge", () => {
     expect(countType(bobSock, "session_revoked")).toBe(0);
     expect(hasPrefix(lastSessionsList(bobSock), alicePrefix)).toBe(false);
   });
-
-  it("member revokes own session: 204 + session_expired to self (bridge)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const alice = await srv.seedMember("Alice");
-    const alicePrefix = await prefixFor(srv, alice.rawSessionId, "Alice");
-
-    const aliceSock = await srv.connectWs(alice.rawSessionId);
-    const r = await api(srv, `/api/sessions/${alicePrefix}`, {
-      method: "DELETE",
-      rawSessionId: alice.rawSessionId,
-    });
-    expect(r.status).toBe(204);
-    await aliceSock.waitFor("session_expired");
-    await waitUntil(() => aliceSock.raw.readyState >= 2, 2000, "self closed");
-  });
 });
 
 describe("routes/sessions REST: revoke non-leak (+ positive control)", () => {
@@ -277,12 +261,16 @@ describe("routes/sessions REST: revoke non-leak (+ positive control)", () => {
     ).toBe(true);
 
     // POSITIVE CONTROL: the same member CAN revoke their OWN session - proves the
-    // 403s above are the scope check, not a blanket failure.
+    // 403s above are the scope check, not a blanket failure - and the bridge
+    // expires their own socket.
+    const aliceSock = await srv.connectWs(alice.rawSessionId);
     const own = await api(srv, `/api/sessions/${alicePrefix}`, {
       method: "DELETE",
       rawSessionId: alice.rawSessionId,
     });
     expect(own.status).toBe(204);
+    await aliceSock.waitFor("session_expired");
+    await waitUntil(() => aliceSock.raw.readyState >= 2, 2000, "self closed");
   });
 });
 
@@ -378,7 +366,7 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
     expect(r.status).toBe(204);
   });
 
-  it("AGENT bearer -> 403 (list/revoke missing session:manage, logout missing session); no identity -> 401", async () => {
+  it("AGENT bearer -> 403 (list/revoke missing session:manage, logout missing session)", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -404,12 +392,6 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
         })
       ).status,
     ).toBe(403);
-
-    // No identity at all → 401.
-    expect((await api(srv, "/api/sessions")).status).toBe(401);
-    expect(
-      (await api(srv, "/api/sessions/current", { method: "DELETE" })).status,
-    ).toBe(401);
   });
 });
 

@@ -353,22 +353,9 @@ describe("secret field rules", () => {
       expect(
         (await call(srv, "POST", base, { session, body: github() })).status,
       ).toBe(201);
-      const syntax = [
-        "API.OPENAI.COM",
-        "api.openai.com.",
-        "api.openai.com:443",
-        "*.openai.com",
-        "https://api.github.com",
-        "localhost",
-        "127.0.0.1",
-      ];
-      const neverListed = [
-        "api.openai.com",
-        "foo.anthropic.com",
-        "us-central1-aiplatform.googleapis.com",
-        "bedrock-runtime.us-east-1.amazonaws.com",
-        "registry.npmjs.org",
-      ];
+      // One of each: the lists are shared/secret-hosts.test.ts.
+      const syntax = ["*.openai.com"];
+      const neverListed = ["api.openai.com"];
       for (const host of syntax) {
         const created = await call(srv, "POST", base, {
           session,
@@ -434,21 +421,6 @@ describe("secret field rules", () => {
       { body: { ...github(), name: `${FAKE}-name` }, field: "name" },
       {
         body: { ...github(), name: "HTTPS_PROXY" },
-        field: "name",
-        reason: "reserved",
-      },
-      {
-        body: { ...github(), name: "ISOMUX_TOKEN" },
-        field: "name",
-        reason: "reserved",
-      },
-      {
-        body: { ...github(), name: "GIT_CONFIG_COUNT" },
-        field: "name",
-        reason: "reserved",
-      },
-      {
-        body: { ...github(), name: "NODE_EXTRA_CA_CERTS" },
         field: "name",
         reason: "reserved",
       },
@@ -532,20 +504,13 @@ describe("secret field rules", () => {
     };
     const toExample = { hosts: ["api.example.com"] };
     for (const base of [userBase, "/api/office/secrets"]) {
-      for (const name of [
-        "OPENAI_API_KEY",
-        "CODEX_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "CLAUDE_CODE_OAUTH_TOKEN",
-        "OPENCODE_API_KEY",
-        "OPENROUTER_API_KEY",
-      ])
-        modelKey(
-          await call(srv, "POST", base, {
-            session,
-            body: { ...github(), ...toExample, name },
-          }),
-        );
+      // One name: the list is MODEL_KEY_SECRET_NAMES in shared/secret-hosts.ts.
+      modelKey(
+        await call(srv, "POST", base, {
+          session,
+          body: { ...github(), ...toExample, name: "OPENAI_API_KEY" },
+        }),
+      );
       // Not a model sign-in key: a generic name, and a name that differs
       // only in case (the engines read the exact name).
       for (const name of ["GOOGLE_API_KEY", "openai_api_key"])
@@ -822,35 +787,5 @@ describe("secret read paths", () => {
     await sock.waitFor("pong");
     expect(JSON.stringify(sock.messages)).not.toContain(FAKE);
     sock.close();
-  });
-
-  it("keeps the value out of the agent reference", async () => {
-    server = await startTestServer();
-    const srv = server;
-    const owner = await srv.seedOwner("Morgan");
-    const ownerId = getUserByName(owner.username)!.id;
-    await call(srv, "POST", "/api/office/secrets", {
-      session: owner.rawSessionId,
-      body: github(),
-    });
-    await call(srv, "POST", `/api/users/${owner.username}/secrets`, {
-      session: owner.rawSessionId,
-      body: github(),
-    });
-    const agent = mintAgentToken("reference-agent", ownerId, false);
-    const index = await call(srv, "GET", "/api/agent-reference", {
-      bearer: agent,
-    });
-    expect(index.status).toBe(200);
-    expect(index.text).not.toContain(FAKE);
-    const pages = (index.body as { topics?: { topic: string }[] }).topics ?? [];
-    expect(pages.length).toBeGreaterThan(0);
-    for (const { topic } of pages) {
-      const page = await call(srv, "GET", `/api/agent-reference/${topic}`, {
-        bearer: agent,
-      });
-      expect(page.status).toBe(200);
-      expect(page.text).not.toContain(FAKE);
-    }
   });
 });

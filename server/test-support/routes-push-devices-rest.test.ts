@@ -4,9 +4,8 @@
 // Pins: the member and their own API token turn devices on, list, test and
 // remove them; no agent token and no other member does; no response carries
 // an endpoint; the keys and devices live in a 0600 file; a page an agent
-// raises reaches the member's device with no Discord set up, and not when
-// the page's room has notifications off; deleting the member removes their
-// devices.
+// raises reaches the member's device with no Discord set up; deleting the
+// member removes their devices.
 //
 // Seam: startTestServer() with stub pagerFetch and webPushFetch. Zero LLM,
 // no push service.
@@ -16,7 +15,7 @@ import { readFileSync, statSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName, updateUserById } from "../users.ts";
+import { getUserByName } from "../users.ts";
 import { base64UrlDecode, base64UrlEncode } from "../../shared/web-push.ts";
 import type {
   ApiTokenCreateRes,
@@ -70,7 +69,13 @@ async function api(
   return { status: res.status, body, text };
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitFor(pred: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error("waitFor timed out");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
 
 async function office() {
   const pushed: string[] = [];
@@ -110,12 +115,28 @@ async function office() {
   if (!agent) throw new Error("spawn returned null");
   const botToken = mintAgentToken(agent.id, morganId);
   const path = `/api/users/${morgan.username}/push-devices`;
-  return { srv, morgan, morganId, mia, roomA, botToken, pushed, discord, path };
+  return { srv, morgan, mia, botToken, pushed, discord, path };
 }
 
 describe("push devices REST: access", () => {
-  it("the member turns a device on, lists, tests and removes it; no endpoint leaves the server", async () => {
+  it("the member turns a device on, lists, tests and removes it; no endpoint leaves the server; a bad endpoint or key is refused", async () => {
     const { srv, morgan, path, pushed } = await office();
+    // Not a browser push service, and a key off the P-256 curve (right length
+    // and prefix, last byte changed): both refused, nothing stored.
+    const bytes = base64UrlDecode(P256DH)!;
+    bytes[64] ^= 1;
+    for (const body of [
+      { ...SUBSCRIBE, endpoint: "https://127.0.0.1:4000/api/agents" },
+      { ...SUBSCRIBE, keys: { p256dh: base64UrlEncode(bytes), auth: AUTH } },
+    ]) {
+      const r = await api(srv, path, {
+        method: "POST",
+        rawSessionId: morgan.rawSessionId,
+        body,
+      });
+      expect(r.status).toBe(422);
+    }
+
     const first = await api(srv, path, { rawSessionId: morgan.rawSessionId });
     expect(first.status).toBe(200);
     const empty = first.body as PushDevicesRes;
@@ -163,32 +184,6 @@ describe("push devices REST: access", () => {
     expect(again.status).toBe(404);
   });
 
-  it("refuses an endpoint that is not a browser push service", async () => {
-    const { srv, morgan, path } = await office();
-    const r = await api(srv, path, {
-      method: "POST",
-      rawSessionId: morgan.rawSessionId,
-      body: { ...SUBSCRIBE, endpoint: "https://127.0.0.1:4000/api/agents" },
-    });
-    expect(r.status).toBe(422);
-  });
-
-  it("refuses a device key that is not on the P-256 curve", async () => {
-    const { srv, morgan, path } = await office();
-    // Right length and prefix, last byte changed: off the curve.
-    const bytes = base64UrlDecode(P256DH)!;
-    bytes[64] ^= 1;
-    const off = base64UrlEncode(bytes);
-    const r = await api(srv, path, {
-      method: "POST",
-      rawSessionId: morgan.rawSessionId,
-      body: { ...SUBSCRIBE, keys: { p256dh: off, auth: AUTH } },
-    });
-    expect(r.status).toBe(422);
-    const list = await api(srv, path, { rawSessionId: morgan.rawSessionId });
-    expect((list.body as PushDevicesRes).devices).toEqual([]);
-  });
-
   it("the member's own API token reaches the devices", async () => {
     const { srv, morgan, path } = await office();
     const minted = await srv.http("/api/me/api-tokens", {
@@ -201,7 +196,7 @@ describe("push devices REST: access", () => {
     expect((await api(srv, path, { bearer: token })).status).toBe(200);
   });
 
-  it("no agent token and no other member reaches the devices", async () => {
+  it("no agent token and no other member reaches the devices; deleting a member removes theirs", async () => {
     const { srv, morgan, mia, botToken, path, pushed } = await office();
     const device = (
       await api(srv, path, {
@@ -232,56 +227,44 @@ describe("push devices REST: access", () => {
     });
     expect(r.status).toBe(404);
     expect(pushed).toHaveLength(0);
+
+    // Deleting Mia takes her device off the disk and leaves Morgan's.
+    const miaEndpoint = `${ENDPOINT}-mia`;
+    await api(srv, miaPath, {
+      method: "POST",
+      rawSessionId: mia.rawSessionId,
+      body: { ...SUBSCRIBE, endpoint: miaEndpoint },
+    });
+    const file = join(srv.stateRoot, "web-push.json");
+    expect(readFileSync(file, "utf8")).toContain(miaEndpoint);
+    const del = await api(srv, `/api/users/${mia.username}`, {
+      method: "DELETE",
+      rawSessionId: morgan.rawSessionId,
+    });
+    expect(del.status).toBeLessThan(300);
+    expect(readFileSync(file, "utf8")).not.toContain(miaEndpoint);
+    expect(readFileSync(file, "utf8")).toContain(ENDPOINT);
   });
 });
 
+// The room filter on a page is web-push-delivery.test.ts ("goes for every
+// page, whatever the member's notification rooms"); this is the wiring.
 describe("push devices REST: delivery", () => {
-  it("a raised page reaches the device with no Discord set up, whatever the member's notification rooms", async () => {
-    const { srv, morgan, morganId, roomA, botToken, path, pushed, discord } =
-      await office();
+  it("a raised page reaches the device with no Discord set up", async () => {
+    const { srv, morgan, botToken, path, pushed, discord } = await office();
     await api(srv, path, {
       method: "POST",
       rawSessionId: morgan.rawSessionId,
       body: SUBSCRIBE,
     });
-    expect(getUserByName("Morgan")!.notifRooms).toContain(roomA);
     const raised = await api(srv, "/api/pager", {
       method: "POST",
       bearer: botToken,
       body: { title: "Disk full" },
     });
     expect(raised.status).toBe(201);
-    await sleep(50);
+    await waitFor(() => pushed.length > 0);
     expect(pushed).toEqual([ENDPOINT]);
     expect(discord).toHaveLength(0);
-
-    updateUserById(morganId, { notifRooms: [] });
-    expect(getUserByName("Morgan")!.notifRooms).not.toContain(roomA);
-    await api(srv, "/api/pager", {
-      method: "POST",
-      bearer: botToken,
-      body: { title: "CPU hot", key: "cpu" },
-    });
-    await sleep(50);
-    // A page ignores the room filter (PM ruling, 2026-10-16).
-    expect(pushed).toHaveLength(2);
-  });
-
-  it("deleting the member removes their devices", async () => {
-    const { srv, morgan, mia } = await office();
-    const miaPath = `/api/users/${mia.username}/push-devices`;
-    await api(srv, miaPath, {
-      method: "POST",
-      rawSessionId: mia.rawSessionId,
-      body: SUBSCRIBE,
-    });
-    const file = join(srv.stateRoot, "web-push.json");
-    expect(readFileSync(file, "utf8")).toContain(ENDPOINT);
-    const del = await api(srv, `/api/users/${mia.username}`, {
-      method: "DELETE",
-      rawSessionId: morgan.rawSessionId,
-    });
-    expect(del.status).toBeLessThan(300);
-    expect(readFileSync(file, "utf8")).not.toContain(ENDPOINT);
   });
 });

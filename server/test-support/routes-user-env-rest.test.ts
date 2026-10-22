@@ -74,7 +74,7 @@ async function officeRequest(
 }
 
 describe("managed user env routes", () => {
-  it("admits only the owning cookie or API identity and refuses both agent classes", async () => {
+  it("admits only the owning cookie or API identity, refuses both agent classes, and never echoes a refused value", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const other = await server.seedMember("Other");
@@ -135,27 +135,21 @@ describe("managed user env routes", () => {
       privilegedAgent: 403,
     });
     expect(ownCookieRead.body).toEqual({ mode: "managed", values, notes: {} });
-  });
 
-  it("rejects unsafe input without putting values in the error", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
+    // Unsafe input is refused without the value in the error.
     const secret = "do-not-echo-this-secret";
-    const badKey = await request(server, owner.username, {
-      method: "PUT",
-      session: owner.rawSessionId,
-      body: { values: { "BAD-KEY": secret } },
-    });
-    const badValue = await request(server, owner.username, {
-      method: "PUT",
-      session: owner.rawSessionId,
-      body: { values: { SAFE_KEY: `${secret}\nsecond-line` } },
-    });
-
-    expect(badKey.status).toBe(400);
-    expect(JSON.stringify(badKey.body)).not.toContain(secret);
-    expect(badValue.status).toBe(400);
-    expect(JSON.stringify(badValue.body)).not.toContain(secret);
+    for (const bad of [
+      { "BAD-KEY": secret },
+      { SAFE_KEY: `${secret}\nsecond-line` },
+    ]) {
+      const r = await request(server, owner.username, {
+        method: "PUT",
+        session: owner.rawSessionId,
+        body: { values: bad },
+      });
+      expect(r.status).toBe(400);
+      expect(JSON.stringify(r.body)).not.toContain(secret);
+    }
   });
 });
 
@@ -380,31 +374,28 @@ describe("managed user env names route", () => {
     }
   });
 
-  it("answers an empty list for a user who has set nothing", async () => {
+  it("answers an empty list for a user who has set nothing, and keeps names and the other provider when a personal probe fails", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Member");
-    const read = await request(server, member.username, {
-      suffix: "/names",
-      session: owner.rawSessionId,
-    });
-    expect({ status: read.status, body: read.body }).toEqual({
+    activatePersonalProvider(getUserByName(member.username)!.id, "codex");
+    // Nothing set yet: an empty list, not an error.
+    expect(
+      await request(server, member.username, {
+        suffix: "/names",
+        session: owner.rawSessionId,
+      }),
+    ).toEqual({
       status: 200,
       body: {
         names: [],
         notes: {},
         providers: [
           { provider: "claude", status: "not_connected" },
-          { provider: "codex", status: "not_connected" },
+          { provider: "codex", status: "unknown" },
         ],
       },
     });
-  });
-  it("keeps names and the other provider when a personal probe fails", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Member");
-    activatePersonalProvider(getUserByName(member.username)!.id, "codex");
     expect(
       (
         await request(server, member.username, {

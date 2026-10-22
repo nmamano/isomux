@@ -115,13 +115,16 @@ function seedOldLogs(stateRoot: string, agentId = "agent-ghost") {
 }
 
 describe("routes/storage.usage REST", () => {
-  it("owner -> 200 with per-agent detail; member -> aggregates only", async () => {
+  it("an owner gets per-agent detail; a member and a privileged agent get the same sizes with no paths or agents; a plain agent is refused", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
+    const room = srv.agentManager.getRooms()[0];
     seedOldLogs(srv.stateRoot);
 
+    // The category split is storage-usage.test.ts; the route picks the
+    // projection by caller.
     const r = await api(srv, "/api/storage/usage", {
       rawSessionId: owner.rawSessionId,
     });
@@ -129,49 +132,31 @@ describe("routes/storage.usage REST", () => {
     const b = r.body!;
     expect(b.stateRoot).toBe(srv.stateRoot);
     expect(typeof b.stateRootBytes).toBe("number");
-    const categories = b.categories as { id: string; bytes: number }[];
-    expect(categories.map((c) => c.id)).toEqual([
-      "transcripts",
-      "token-logs",
-      "terminal-recordings",
-      "attachments",
-      "session-metadata",
-      "codex-home",
-      "provider-homes",
-      "cronjobs",
-      "memory",
-      "webhooks",
-      "other-state",
-      "backups",
-      "update-snapshots",
-    ]);
+    const categories = b.categories as { bytes: number }[];
     const agents = b.agents as { agentId: string }[];
     expect(agents.some((a) => a.agentId === "agent-ghost")).toBe(true);
 
     // A member holds office:read but is not the owner: aggregates only, so the
-    // response never enumerates agents in rooms they cannot see.
-    const m = await api(srv, "/api/storage/usage", {
-      rawSessionId: member.rawSessionId,
-    });
-    expect(m.status).toBe(200);
-    expect(m.body!.agents).toEqual([]);
-    expect(m.body!.stateRoot).toBeNull();
-    const memberCats = m.body!.categories as {
-      path: string | null;
-      bytes: number;
-    }[];
-    expect(memberCats.every((c) => c.path === null)).toBe(true);
-    // Sizes are identical - only the layout and the agent list are withheld.
-    expect(memberCats.map((c) => c.bytes)).toEqual(
-      categories.map((c) => c.bytes),
-    );
-  });
-
-  it("plain agent -> 403; privileged agent -> 200 without per-agent detail; no id -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
+    // response never enumerates agents in rooms they cannot see. A
+    // privileged agent is scope "agent", so it never gets the detail either.
+    const ops = await spawnAgent(srv, "Ops", room.id);
+    await srv.agentManager.setPrivileged(ops.id, true);
+    for (const who of [
+      { rawSessionId: member.rawSessionId },
+      { bearer: getAgentTokenRaw(ops.id)! },
+    ]) {
+      const m = await api(srv, "/api/storage/usage", who);
+      expect(m.status).toBe(200);
+      expect(m.body!.agents).toEqual([]);
+      expect(m.body!.stateRoot).toBeNull();
+      const cats = m.body!.categories as {
+        path: string | null;
+        bytes: number;
+      }[];
+      expect(cats.every((c) => c.path === null)).toBe(true);
+      // Sizes are identical - only the layout and the agent list are withheld.
+      expect(cats.map((c) => c.bytes)).toEqual(categories.map((c) => c.bytes));
+    }
 
     const plain = await spawnAgent(srv, "Worker", room.id);
     expect(
@@ -181,17 +166,6 @@ describe("routes/storage.usage REST", () => {
         })
       ).status,
     ).toBe(403);
-
-    const ops = await spawnAgent(srv, "Ops", room.id);
-    await srv.agentManager.setPrivileged(ops.id, true);
-    const r = await api(srv, "/api/storage/usage", {
-      bearer: getAgentTokenRaw(ops.id)!,
-    });
-    expect(r.status).toBe(200);
-    // Scope is "agent" no matter how privileged, so it never gets the detail.
-    expect(r.body!.agents).toEqual([]);
-
-    expect((await api(srv, "/api/storage/usage")).status).toBe(401);
   });
 
   // The harness injects its own storage roots, so a test boot measures neither
@@ -255,16 +229,22 @@ describe("routes/storage.usage REST", () => {
 });
 
 describe("routes/storage.prune REST", () => {
-  it("is a dry run by default: returns a plan, deletes nothing", async () => {
+  it("is a dry run by default (a plan, nothing deleted); apply deletes only the planned files", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const dir = seedOldLogs(srv.stateRoot);
+    const prune = (body: unknown) =>
+      api(srv, "/api/storage/prune", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
 
-    const r = await api(srv, "/api/storage/prune", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { target: "transcripts", olderThanDays: 30, keepPerAgent: 0 },
+    const r = await prune({
+      target: "transcripts",
+      olderThanDays: 30,
+      keepPerAgent: 0,
     });
     expect(r.status).toBe(200);
     expect(r.body!.applied).toBeNull();
@@ -276,26 +256,15 @@ describe("routes/storage.prune REST", () => {
     ]);
     expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
     expect(existsSync(join(dir, "old-b.jsonl"))).toBe(true);
-  });
 
-  it("deletes only when apply is true, and only the planned files", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const dir = seedOldLogs(srv.stateRoot);
-
-    const r = await api(srv, "/api/storage/prune", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: {
-        target: "transcripts",
-        olderThanDays: 30,
-        keepPerAgent: 1,
-        apply: true,
-      },
+    const a = await prune({
+      target: "transcripts",
+      olderThanDays: 30,
+      keepPerAgent: 1,
+      apply: true,
     });
-    expect(r.status).toBe(200);
-    const applied = r.body!.applied as { deleted: number; refused: unknown[] };
+    expect(a.status).toBe(200);
+    const applied = a.body!.applied as { deleted: number; refused: unknown[] };
     expect(applied.deleted).toBe(1);
     expect(applied.refused).toEqual([]);
     // keepPerAgent: 1 spared the newer of the two; the attachment is untouched
@@ -307,61 +276,48 @@ describe("routes/storage.prune REST", () => {
     expect(existsSync(join(dir, "files", "old.png"))).toBe(true);
   });
 
-  it("rejects a bad target, a zero age, and a non-boolean apply", async () => {
+  it("refuses a bad body on prune and compress, and a transcript apply that omits keepPerAgent, deleting nothing", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-
-    const bad = async (body: unknown) =>
-      api(srv, "/api/storage/prune", {
+    const dir = seedOldLogs(srv.stateRoot);
+    const post = (route: string, body: unknown) =>
+      api(srv, `/api/storage/${route}`, {
         method: "POST",
         rawSessionId: owner.rawSessionId,
         body,
       });
 
+    for (const [route, body] of [
+      ["prune", { target: "codex-home", olderThanDays: 30 }],
+      ["prune", { target: "transcripts", olderThanDays: 0 }],
+      ["prune", { target: "transcripts", olderThanDays: 1.5 }],
+      ["prune", { target: "transcripts", olderThanDays: 30, keepPerAgent: -1 }],
+      ["prune", { target: "transcripts", olderThanDays: 30, apply: "yes" }],
+      ["compress", {}],
+      ["compress", { olderThanDays: 0 }],
+      ["compress", { olderThanDays: 1.5 }],
+      ["compress", { olderThanDays: "30" }],
+      ["compress", { olderThanDays: 30, apply: "yes" }],
+    ] as const) {
+      const r = await post(route, body);
+      expect({ route, body, status: r.status }).toEqual({
+        route,
+        body,
+        status: 400,
+      });
+    }
+
+    // A dry run may omit keepPerAgent (0 is fine to explore with), but a
+    // delete must state the retention floor rather than inherit 0.
     expect(
-      (await bad({ target: "codex-home", olderThanDays: 30 })).status,
-    ).toBe(400);
-    expect(
-      (await bad({ target: "transcripts", olderThanDays: 0 })).status,
-    ).toBe(400);
-    expect(
-      (await bad({ target: "transcripts", olderThanDays: 1.5 })).status,
-    ).toBe(400);
-    expect(
-      (
-        await bad({
-          target: "transcripts",
-          olderThanDays: 30,
-          keepPerAgent: -1,
-        })
-      ).status,
-    ).toBe(400);
-    expect(
-      (await bad({ target: "transcripts", olderThanDays: 30, apply: "yes" }))
+      (await post("prune", { target: "transcripts", olderThanDays: 30 }))
         .status,
-    ).toBe(400);
-  });
-
-  it("refuses a transcript apply that omits keepPerAgent", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const dir = seedOldLogs(srv.stateRoot);
-
-    // A dry run may omit it (0 is fine to explore with)...
-    const dry = await api(srv, "/api/storage/prune", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { target: "transcripts", olderThanDays: 30 },
-    });
-    expect(dry.status).toBe(200);
-
-    // ...but a delete must state the retention floor rather than inherit 0.
-    const r = await api(srv, "/api/storage/prune", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { target: "transcripts", olderThanDays: 30, apply: true },
+    ).toBe(200);
+    const r = await post("prune", {
+      target: "transcripts",
+      olderThanDays: 30,
+      apply: true,
     });
     expect(r.status).toBe(400);
     expect((r.body!.error as { code: string }).code).toBe(
@@ -370,7 +326,7 @@ describe("routes/storage.prune REST", () => {
     expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
   });
 
-  it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
+  it("prune and compress refuse a member and a privileged agent", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -378,30 +334,33 @@ describe("routes/storage.prune REST", () => {
     const room = srv.agentManager.getRooms()[0];
     const ops = await spawnAgent(srv, "Ops", room.id);
     await srv.agentManager.setPrivileged(ops.id, true);
-    const body = { target: "transcripts", olderThanDays: 30 };
-
-    expect(
-      (
-        await api(srv, "/api/storage/prune", {
+    const dir = seedOldLogs(srv.stateRoot);
+    for (const [route, body] of [
+      [
+        "prune",
+        {
+          target: "transcripts",
+          olderThanDays: 30,
+          keepPerAgent: 0,
+          apply: true,
+        },
+      ],
+      ["compress", { olderThanDays: 30, apply: true }],
+    ] as const) {
+      // office:admin is deliberately excluded from the privileged-agent set.
+      for (const who of [
+        { rawSessionId: member.rawSessionId },
+        { bearer: getAgentTokenRaw(ops.id)! },
+      ]) {
+        const r = await api(srv, `/api/storage/${route}`, {
           method: "POST",
-          rawSessionId: member.rawSessionId,
           body,
-        })
-      ).status,
-    ).toBe(403);
-    // office:admin is deliberately excluded from the privileged-agent set.
-    expect(
-      (
-        await api(srv, "/api/storage/prune", {
-          method: "POST",
-          bearer: getAgentTokenRaw(ops.id)!,
-          body,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (await api(srv, "/api/storage/prune", { method: "POST", body })).status,
-    ).toBe(401);
+          ...who,
+        });
+        expect([route, r.status]).toEqual([route, 403]);
+      }
+    }
+    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
   });
 
   it("refuses an attachment apply while message-queues.json is unreadable", async () => {
@@ -453,7 +412,7 @@ describe("routes/storage.prune REST", () => {
     expect(existsSync(attachment)).toBe(true);
   });
 
-  it("never proposes a live agent's active session", async () => {
+  it("never prunes or compresses a live agent's active session", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -480,24 +439,36 @@ describe("routes/storage.prune REST", () => {
     const aged = (Date.now() - 400 * DAY_MS) / 1000;
     utimesSync(path, aged, aged);
 
-    const r = await api(srv, "/api/storage/prune", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: {
-        target: "transcripts",
-        olderThanDays: 1,
-        keepPerAgent: 0,
-        apply: true,
-      },
-    });
-    expect(r.status).toBe(200);
-    const plan = r.body!.plan as {
-      candidates: { path: string }[];
-      skipped: { reason: string; count: number }[];
-    };
-    expect(plan.candidates.map((c) => c.path)).not.toContain(relative);
-    expect(plan.skipped.some((s) => s.reason === "active-session")).toBe(true);
+    for (const [route, body] of [
+      [
+        "prune",
+        {
+          target: "transcripts",
+          olderThanDays: 1,
+          keepPerAgent: 0,
+          apply: true,
+        },
+      ],
+      ["compress", { olderThanDays: 1, apply: true }],
+    ] as const) {
+      const r = await api(srv, `/api/storage/${route}`, {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
+      expect(r.status).toBe(200);
+      const plan = r.body!.plan as {
+        candidates: { path: string }[];
+        skipped: { reason: string; count: number }[];
+      };
+      expect(plan.candidates.map((c) => c.path)).not.toContain(relative);
+      expect([
+        route,
+        plan.skipped.some((s) => s.reason === "active-session"),
+      ]).toEqual([route, true]);
+    }
     expect(existsSync(path)).toBe(true);
+    expect(existsSync(`${path}.gz`)).toBe(false);
   });
 
   // An ask's read file is a copy that no transcript names (task dc79ace0).
@@ -757,82 +728,5 @@ describe("routes/storage.compress REST", () => {
     expect(loadLog("agent-ghost", "old-a")).toEqual(before);
     // Attachments are not transcripts.
     expect(existsSync(join(dir, "files", "old.png"))).toBe(true);
-  });
-
-  it("rejects a missing, zero, fractional or string age and a non-boolean apply", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const dir = seedOldLogs(srv.stateRoot);
-    for (const body of [
-      {},
-      { olderThanDays: 0 },
-      { olderThanDays: 1.5 },
-      { olderThanDays: "30" },
-      { olderThanDays: 30, apply: "yes" },
-    ]) {
-      const r = await compress(srv, owner.rawSessionId, body);
-      expect({ body, status: r.status }).toEqual({ body, status: 400 });
-    }
-    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
-  });
-
-  it("member -> 403, privileged agent -> 403, no id -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Alice");
-    const room = srv.agentManager.getRooms()[0];
-    const ops = await spawnAgent(srv, "Ops", room.id);
-    await srv.agentManager.setPrivileged(ops.id, true);
-    const dir = seedOldLogs(srv.stateRoot);
-    const body = { olderThanDays: 30, apply: true };
-    const post = (init: { rawSessionId?: string; bearer?: string }) =>
-      api(srv, "/api/storage/compress", { method: "POST", body, ...init });
-
-    expect((await post({ rawSessionId: member.rawSessionId })).status).toBe(
-      403,
-    );
-    expect((await post({ bearer: getAgentTokenRaw(ops.id)! })).status).toBe(
-      403,
-    );
-    expect((await post({})).status).toBe(401);
-    expect(existsSync(join(dir, "old-a.jsonl"))).toBe(true);
-  });
-
-  it("never compresses a live agent's active session", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const enq = srv.agentManager.enqueueMessage(agent.id, {
-      sender: { kind: "user", username: "Morgan" },
-      text: "wake",
-    });
-    expect(enq.ok).toBe(true);
-    let sessionId: string | null = null;
-    for (let i = 0; i < 200 && sessionId === null; i++) {
-      sessionId = srv.agentManager.getCurrentSessionId(agent.id);
-      if (sessionId === null) await new Promise((r) => setTimeout(r, 10));
-    }
-    expect(sessionId).toBeTruthy();
-    const path = join(srv.stateRoot, "logs", agent.id, `${sessionId}.jsonl`);
-    mkdirSync(join(srv.stateRoot, "logs", agent.id), { recursive: true });
-    if (!existsSync(path)) writeFileSync(path, '{"id":"1"}\n');
-    const aged = (Date.now() - 400 * DAY_MS) / 1000;
-    utimesSync(path, aged, aged);
-
-    const r = await compress(srv, owner.rawSessionId, {
-      olderThanDays: 1,
-      apply: true,
-    });
-    expect(r.status).toBe(200);
-    const plan = r.body!.plan as {
-      skipped: { reason: string; count: number }[];
-    };
-    expect(plan.skipped.some((s) => s.reason === "active-session")).toBe(true);
-    expect(existsSync(path)).toBe(true);
-    expect(existsSync(`${path}.gz`)).toBe(false);
   });
 });

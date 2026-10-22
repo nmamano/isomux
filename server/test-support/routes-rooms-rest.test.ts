@@ -1,20 +1,29 @@
-// Phase 3d slice 6 - rooms.create / rooms.close / rooms.rename REST contract.
+// The rooms REST contract: rooms.create / rooms.close / rooms.rename (a
+// partial PATCH over name, pet, skin and decor) and the settings pair
+// rooms.getSettings / rooms.setSettings.
 //
-// HTTP-contract layer for the room-structure mutations cut over from WS in slice
-// 6. Pins status codes + guard behavior:
-//   - create: room:manage is a USER capability (agents lack it) and the guard is
-//     `authenticated`, so any user (owner OR member) creates -> 201 { room };
-//     no identity -> 401. The member-creator grant + the per-recipient
-//     projection of room_created live in projection.test.ts.
-//   - close/rename: guarded by requiresRoomAccess(:roomId). An owner reaches an
-//     unknown id by rule and gets the core's 404 "Room not found" (Follow-up #6);
-//     a member without access gets the uniform 403 (no exists-vs-hidden oracle).
-//   - rename rejects an empty name with 422 (a body shape check, never an
-//     existence oracle).
+//   - create: room:manage is a USER capability and the guard is
+//     `authenticated`, so any user (owner OR member) creates -> 201 { room }.
+//     The member-creator grant + the per-recipient projection of room_created
+//     live in projection.test.ts.
+//   - close/rename/settings: guarded by requiresRoomAccess(:roomId). An owner
+//     reaches an unknown id by rule and gets the core's 404 room_not_found
+//     (Follow-up #6, not a leak: an owner already sees every real room); a
+//     member without access gets the uniform 403 (no exists-vs-hidden oracle).
+//   - PATCH applies each field only when the body carries it, validates all
+//     of them before it writes any, and refuses the lobby a skin or decor
+//     before it looks at the value.
+//   - The settings PUT requires the GET's version (missing -> 400
+//     invalid_version, stale -> 409 version_conflict carrying the CURRENT
+//     version); existence is checked before the version.
 //
-// The emitted events' per-recipient ACL (room_created grant catch-up, the bare
-// room_closed delta, the close-cleanup allowedRooms strip) are frozen in
-// projection.test.ts. Seam: startTestServer() - real auth + /api executor. Zero LLM.
+// The value rules are unit-pinned: parseRoomPet (ui/office/RoomProps.test.ts),
+// parseRoomSkin (ui/office/skins/skins.test.ts), the decor parse and merge
+// (room-decor.test.ts). The room prompt's read/write round trip, its version
+// and its broadcast ride the instructions route too: routes-instructions.test.ts
+// (room layer, "shares one store with the old route").
+//
+// Seam: startTestServer() - real auth + /api executor. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -57,513 +66,211 @@ async function req(
 const errCode = (body: unknown): string | undefined =>
   (body as { error?: { code?: string } }).error?.code;
 
-describe("rooms.create REST (Phase 3d slice 6)", () => {
-  it("owner -> 201 { room } with a real id present in getRooms()", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const before = srv.agentManager.getRooms().length;
-    const res = await req(srv, "POST", "/api/rooms", {
-      body: { name: "NewRoom" },
+// An owner, a member with no room grant, and a PATCH on the first room.
+async function office() {
+  const srv = await startTestServer();
+  server = srv;
+  const owner = await srv.seedOwner("Morgan");
+  const member = await srv.seedMember("Mia");
+  const id = srv.agentManager.getRooms()[0].id;
+  const patch = (body: unknown, roomId = id) =>
+    req(srv, "PATCH", `/api/rooms/${roomId}`, {
+      body,
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(201);
-    const room = (res.body as { room?: { id?: string; name?: string } }).room;
-    expect(typeof room?.id).toBe("string");
-    expect(room?.name).toBe("NewRoom");
-    const rooms = srv.agentManager.getRooms();
-    expect(rooms.length).toBe(before + 1);
-    expect(rooms.some((r) => r.id === room!.id)).toBe(true);
-  });
+  const room = (roomId = id) =>
+    srv.agentManager.getRooms().find((r) => r.id === roomId)!;
+  return { srv, owner, member, id, patch, room };
+}
 
-  it("a member can create (room:manage is a user capability) -> 201", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Mia");
-    const res = await req(srv, "POST", "/api/rooms", {
-      body: {},
-      rawSessionId: member.rawSessionId,
+describe("rooms.create REST", () => {
+  it("an owner and a member create a room, with or without a skin; an unknown skin creates nothing", async () => {
+    const { srv, owner, member } = await office();
+    const before = srv.agentManager.getRooms().length;
+    const create = (rawSessionId: string, body: unknown) =>
+      req(srv, "POST", "/api/rooms", { body, rawSessionId });
+
+    const plain = await create(owner.rawSessionId, { name: "Plain" });
+    expect(plain.status).toBe(201);
+    const room = (plain.body as { room: { id: string; name: string } }).room;
+    expect(room.name).toBe("Plain");
+    // The default look is the ABSENCE of the field, so a room created without
+    // one has the same record every room had before skins existed.
+    expect(room).not.toHaveProperty("skin");
+    expect(srv.agentManager.getRooms().some((r) => r.id === room.id)).toBe(
+      true,
+    );
+
+    const ward = await create(owner.rawSessionId, {
+      name: "Ward",
+      skin: "hospital",
     });
-    expect(res.status).toBe(201);
-  });
+    expect(ward.status).toBe(201);
+    const wardId = (ward.body as { room: { id: string } }).room.id;
+    expect(srv.agentManager.getRooms().find((r) => r.id === wardId)?.skin).toBe(
+      "hospital",
+    );
 
-  it("no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const res = await req(srv, "POST", "/api/rooms", { body: { name: "X" } });
-    expect(res.status).toBe(401);
+    // room:manage is a user capability: a member creates too.
+    expect((await create(member.rawSessionId, {})).status).toBe(201);
+
+    const refused = await create(owner.rawSessionId, {
+      name: "Clinic",
+      skin: "clinic",
+    });
+    expect(refused.status).toBe(422);
+    expect(errCode(refused.body)).toBe("invalid_skin");
+    expect(srv.agentManager.getRooms().length).toBe(before + 3);
   });
 });
 
-describe("rooms.close REST (Phase 3d slice 6)", () => {
-  it("owner closes an empty room -> 204; room removed", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
+describe("rooms.close and rooms.rename REST", () => {
+  it("an owner closes and renames; an unknown id is the owner's 404; a member without access gets 403 and nothing changes", async () => {
+    const { srv, owner, member, id, patch, room } = await office();
     const extra = srv.agentManager.createRoom("Extra");
-    const res = await req(srv, "DELETE", `/api/rooms/${extra}`, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms().some((r) => r.id === extra)).toBe(false);
-  });
+    const asMember = { rawSessionId: member.rawSessionId };
 
-  it("owner + unknown room id -> 404 room_not_found (Follow-up #6)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const res = await req(srv, "DELETE", "/api/rooms/deadbeef", {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(404);
-    expect(errCode(res.body)).toBe("room_not_found");
-  });
-
-  it("member with no access -> 403; room untouched", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Mia");
-    const extra = srv.agentManager.createRoom("Extra");
-    const res = await req(srv, "DELETE", `/api/rooms/${extra}`, {
-      rawSessionId: member.rawSessionId,
-    });
-    expect(res.status).toBe(403);
+    expect(
+      (await req(srv, "DELETE", `/api/rooms/${extra}`, asMember)).status,
+    ).toBe(403);
+    expect(
+      (
+        await req(srv, "PATCH", `/api/rooms/${id}`, {
+          ...asMember,
+          body: { name: "Z" },
+        })
+      ).status,
+    ).toBe(403);
     expect(srv.agentManager.getRooms().some((r) => r.id === extra)).toBe(true);
-  });
-});
+    const name = room().name;
+    expect(name).not.toBe("Z");
 
-describe("rooms.rename REST (Phase 3d slice 6)", () => {
-  it("owner rename -> 204; name changes", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "Renamed" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].name).toBe("Renamed");
-  });
-
-  it("empty/whitespace name -> 422 invalid_name (shape check, not an existence oracle)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "   " },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_name");
-  });
-
-  it("owner + unknown room id -> 404 room_not_found", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const res = await req(srv, "PATCH", "/api/rooms/deadbeef", {
-      body: { name: "Z" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(404);
-    expect(errCode(res.body)).toBe("room_not_found");
-  });
-
-  it("member with no access -> 403", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Mia");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "Z" },
-      rawSessionId: member.rawSessionId,
-    });
-    expect(res.status).toBe(403);
-  });
-});
-
-// PATCH became a partial update over two independent fields when the room pet
-// arrived. The pair that matters is "name alone still renames" and "pet alone
-// does not blank the name": the old guard read `if (!name) 422`, and extending
-// it instead of restructuring it would have renamed rooms to the empty string
-// on every pet write.
-describe("rooms.rename REST - the pet field", () => {
-  it("pet alone -> 204; the pet is set and the name is untouched", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const before = srv.agentManager.getRooms()[0].name;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { pet: { species: "dog", coat: 2 } },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].pet).toEqual({
-      species: "dog",
-      coat: 2,
-    });
-    expect(srv.agentManager.getRooms()[0].name).toBe(before);
-  });
-
-  it("name alone still renames and leaves the pet alone", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { pet: { species: "rabbit", coat: 1 } },
-      rawSessionId: owner.rawSessionId,
-    });
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "Kennel" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].name).toBe("Kennel");
-    expect(srv.agentManager.getRooms()[0].pet).toEqual({
-      species: "rabbit",
-      coat: 1,
-    });
-  });
-
-  it("both fields in one body -> 204; both applied", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "Both", pet: { species: "tortoise", coat: 0 } },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].name).toBe("Both");
-    expect(srv.agentManager.getRooms()[0].pet).toEqual({
-      species: "tortoise",
-      coat: 0,
-    });
-  });
-
-  it("pet null clears back to the default -> 204", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { pet: { species: "dog", coat: 0 } },
-      rawSessionId: owner.rawSessionId,
-    });
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { pet: null },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].pet).toBe(null);
-  });
-
-  it("a body with neither field -> 422 invalid_request", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: {},
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_request");
-  });
-
-  it("unknown species and out-of-range coat -> 422 invalid_pet", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    for (const pet of [
-      { species: "duck", coat: 0 },
-      { species: "cat", coat: 99 },
-      { species: "cat", coat: -1 },
-      { species: "cat" },
-      "cat",
-    ]) {
-      const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-        body: { pet },
-        rawSessionId: owner.rawSessionId,
-      });
-      expect(res.status).toBe(422);
-      expect(errCode(res.body)).toBe("invalid_pet");
-    }
-    expect(srv.agentManager.getRooms()[0].pet ?? null).toBe(null);
-  });
-
-  it("a rejected pet leaves an accompanying name unwritten", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const before = srv.agentManager.getRooms()[0].name;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "Should not stick", pet: { species: "duck", coat: 0 } },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(srv.agentManager.getRooms()[0].name).toBe(before);
-  });
-});
-
-// The skin is the room's look. It rides the same partial update as the pet, so
-// the pairs that matter are the same ones - "skin alone does not blank the
-// name", "a rejected skin writes nothing" - plus the one the pet has no need
-// for: the lobby draws its own scene and takes no skin at all, and refusing
-// that is not the same answer as "no such room".
-describe("rooms REST - the skin field", () => {
-  it("create with a skin -> 201 and the room carries it", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const res = await req(srv, "POST", "/api/rooms", {
-      body: { name: "Ward", skin: "hospital" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(201);
-    const room = (res.body as { room: { id: string; skin?: string } }).room;
-    expect(room.skin).toBe("hospital");
-    expect(
-      srv.agentManager.getRooms().find((r) => r.id === room.id)?.skin,
-    ).toBe("hospital");
-  });
-
-  // The default look is the ABSENCE of the field, so a room created without one
-  // has the same record every room had before skins existed.
-  it("create without a skin -> 201 and the field stays off the record", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const res = await req(srv, "POST", "/api/rooms", {
-      body: { name: "Plain" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(201);
-    const room = (res.body as { room: { id: string; skin?: string } }).room;
-    expect(room.skin).toBeUndefined();
-  });
-
-  it("create with an unknown skin -> 422 invalid_skin and no room", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const before = srv.agentManager.getRooms().length;
-    const res = await req(srv, "POST", "/api/rooms", {
-      body: { name: "Clinic", skin: "clinic" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_skin");
-    expect(srv.agentManager.getRooms().length).toBe(before);
-  });
-
-  it("skin alone -> 204; the skin is set and the name is untouched", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const before = srv.agentManager.getRooms()[0].name;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { skin: "hospital" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].skin).toBe("hospital");
-    expect(srv.agentManager.getRooms()[0].name).toBe(before);
-  });
-
-  it("name and skin in one body -> 204; both applied", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { name: "Ward", skin: "hospital" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].name).toBe("Ward");
-    expect(srv.agentManager.getRooms()[0].skin).toBe("hospital");
-  });
-
-  it("skin null clears back to the office look -> 204", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { skin: "hospital" },
-      rawSessionId: owner.rawSessionId,
-    });
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: { skin: null },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-    expect(srv.agentManager.getRooms()[0].skin).toBe(null);
-  });
-
-  it("an unknown skin -> 422 invalid_skin, and an accompanying name stays unwritten", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const before = srv.agentManager.getRooms()[0].name;
-    for (const skin of ["clinic", "", 7, {}]) {
-      const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-        body: { name: "Should not stick", skin },
-        rawSessionId: owner.rawSessionId,
-      });
-      expect(res.status).toBe(422);
-      expect(errCode(res.body)).toBe("invalid_skin");
-    }
-    expect(srv.agentManager.getRooms()[0].name).toBe(before);
-    expect(srv.agentManager.getRooms()[0].skin ?? null).toBe(null);
-  });
-
-  // Hiding the control in the settings pane is not the rule; this is.
-  it("the lobby takes no skin -> 422 skin_not_supported, and nothing is written", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    srv.agentManager.ensureLobby();
-    const res = await req(srv, "PATCH", "/api/rooms/lobby", {
-      body: { skin: "hospital" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("skin_not_supported");
-    expect(
-      srv.agentManager.getRooms().find((r) => r.id === "lobby")?.skin ?? null,
-    ).toBe(null);
-  });
-
-  // The order is the rule, not just the outcome (Nil via Isomux PM,
-  // 2026-09-12): the room is asked whether it takes a skin BEFORE the value is
-  // looked at, so a reader who sends nonsense to the lobby is told the lobby
-  // takes no skin rather than being sent to fix the value first.
-  it("the lobby refuses before the value is validated", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    srv.agentManager.ensureLobby();
-    const res = await req(srv, "PATCH", "/api/rooms/lobby", {
-      body: { skin: "clinic" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("skin_not_supported");
-  });
-
-  it("an unknown room is still a 404, not the lobby's answer", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const res = await req(srv, "PATCH", "/api/rooms/deadbeef", {
-      body: { skin: "hospital" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(404);
-    expect(errCode(res.body)).toBe("room_not_found");
-  });
-
-  it("a body with none of the three fields -> 422", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
-      body: {},
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_request");
-  });
-});
-
-// Decor sits on top of the skin (internal-docs/room-customization-design.md):
-// a sparse map merged slot by slot. The pairs that matter: it merges rather
-// than replaces, a skin alone keeps it, a skin with decor:null is the reset,
-// a bad body writes nothing at all, and the lobby refuses it like a skin.
-describe("rooms REST - the decor field", () => {
-  async function owned() {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const id = srv.agentManager.getRooms()[0].id;
-    const patch = (body: unknown) =>
-      req(srv, "PATCH", `/api/rooms/${id}`, {
+    for (const [method, body] of [
+      ["DELETE", undefined],
+      ["PATCH", { name: "Z" }],
+      // A skin write on an unknown room is the 404, not the lobby's answer.
+      ["PATCH", { skin: "hospital" }],
+    ] as const) {
+      const r = await req(srv, method, "/api/rooms/deadbeef", {
         body,
         rawSessionId: owner.rawSessionId,
       });
-    const room = () => srv.agentManager.getRooms().find((r) => r.id === id)!;
-    return { srv, owner, id, patch, room };
-  }
+      expect({ method, body, status: r.status, code: errCode(r.body) }).toEqual(
+        { method, body, status: 404, code: "room_not_found" },
+      );
+    }
 
-  it("decor alone -> 204; slots merge, null clears one, decor:null clears all", async () => {
-    const { patch, room } = await owned();
+    expect((await patch({ name: "Renamed" })).status).toBe(204);
+    expect(room().name).toBe("Renamed");
+    expect(
+      (
+        await req(srv, "DELETE", `/api/rooms/${extra}`, {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    expect(srv.agentManager.getRooms().some((r) => r.id === extra)).toBe(false);
+  });
+});
+
+// PATCH is a partial update over independent fields. The pairs that matter:
+// a field alone leaves the others (the old guard read `if (!name) 422`, and
+// extending it would have renamed rooms to the empty string on every pet
+// write), null clears, and decor applies after the skin.
+describe("rooms.rename REST: a partial update", () => {
+  it("each field alone leaves the others; null clears pet, skin and decor; decor merges and applies after the skin", async () => {
+    const { patch, room } = await office();
     const name = room().name;
+
+    expect((await patch({ pet: { species: "dog", coat: 2 } })).status).toBe(
+      204,
+    );
+    expect(room().pet).toEqual({ species: "dog", coat: 2 });
+    expect(room().name).toBe(name);
+
+    expect((await patch({ name: "Kennel" })).status).toBe(204);
+    expect(room().name).toBe("Kennel");
+    expect(room().pet).toEqual({ species: "dog", coat: 2 });
+
+    expect((await patch({ skin: "hospital" })).status).toBe(204);
+    expect(room().skin).toBe("hospital");
+    expect(room().name).toBe("Kennel");
+
+    expect(
+      (
+        await patch({
+          name: "Both",
+          pet: { species: "tortoise", coat: 0 },
+          skin: "office",
+        })
+      ).status,
+    ).toBe(204);
+    expect(room()).toMatchObject({
+      name: "Both",
+      pet: { species: "tortoise", coat: 0 },
+      skin: "office",
+    });
+
+    // Decor slots merge, and null clears one.
     expect((await patch({ decor: { walls: "clinic" } })).status).toBe(204);
     expect((await patch({ decor: { ward: "beds" } })).status).toBe(204);
     expect(room().decor).toEqual({ walls: "clinic", ward: "beds" });
     expect((await patch({ decor: { walls: null } })).status).toBe(204);
     expect(room().decor).toEqual({ ward: "beds" });
-    expect((await patch({ decor: null })).status).toBe(204);
-    expect(room().decor ?? null).toBe(null);
-    expect(room().name).toBe(name);
-  });
-
-  it("a skin alone keeps the decor; skin with decor:null resets it", async () => {
-    const { patch, room } = await owned();
-    await patch({ decor: { pet: "none" } });
+    // A skin alone keeps the decor; a skin with a decor object applies the
+    // decor after the skin; a skin with decor:null is the reset.
     expect((await patch({ skin: "hospital" })).status).toBe(204);
-    expect((await patch({ skin: "hospital" })).status).toBe(204);
-    expect(room().decor).toEqual({ pet: "none" });
-    expect((await patch({ skin: "office", decor: null })).status).toBe(204);
-    expect(room().skin).toBe("office");
-    expect(room().decor ?? null).toBe(null);
-  });
-
-  it("a skin with a decor object applies the decor after the skin", async () => {
-    const { patch, room } = await owned();
-    await patch({ decor: { pet: "none", trim: "rail" } });
-    const res = await patch({
-      skin: "hospital",
-      decor: { pet: null, trim: null, curtains: "none" },
+    expect(room().decor).toEqual({ ward: "beds" });
+    expect(
+      (
+        await patch({
+          skin: "office",
+          decor: { ward: null, curtains: "none" },
+        })
+      ).status,
+    ).toBe(204);
+    expect(room()).toMatchObject({
+      skin: "office",
+      decor: { curtains: "none" },
     });
-    expect(res.status).toBe(204);
-    expect(room().skin).toBe("hospital");
-    expect(room().decor).toEqual({ curtains: "none" });
+    expect((await patch({ skin: "hospital", decor: null })).status).toBe(204);
+    expect(room().decor ?? null).toBe(null);
+
+    for (const field of ["pet", "skin"] as const) {
+      expect((await patch({ [field]: null })).status).toBe(204);
+      expect(room()[field]).toBe(null);
+    }
+    expect(room().name).toBe("Both");
   });
 
-  it("a bad decor -> 422 invalid_decor, and nothing else in the body is written", async () => {
-    const { patch, room } = await owned();
+  it("refuses an empty body, an empty name and each bad value with its own code, and writes no field of a refused body", async () => {
+    const { patch, room } = await office();
     const before = room().name;
-    for (const decor of [
-      { lamp: "on" },
-      { walls: "pink" },
-      ["walls"],
-      "clinic",
-    ]) {
-      const res = await patch({
-        name: "Should not stick",
-        skin: "hospital",
-        pet: { species: "dog", coat: 0 },
-        decor,
+
+    const empty = await patch({});
+    expect([empty.status, errCode(empty.body)]).toEqual([
+      422,
+      "invalid_request",
+    ]);
+    const blank = await patch({ name: "   " });
+    expect([blank.status, errCode(blank.body)]).toEqual([422, "invalid_name"]);
+
+    const good = {
+      name: "Should not stick",
+      skin: "hospital",
+      pet: { species: "dog", coat: 0 },
+    };
+    for (const [bad, code] of [
+      [{ pet: { species: "duck", coat: 0 } }, "invalid_pet"],
+      [{ skin: "clinic" }, "invalid_skin"],
+      [{ decor: { lamp: "on" } }, "invalid_decor"],
+    ] as const) {
+      const r = await patch({ ...good, ...bad });
+      expect({ bad, status: r.status, code: errCode(r.body) }).toEqual({
+        bad,
+        status: 422,
+        code,
       });
-      expect(res.status).toBe(422);
-      expect(errCode(res.body)).toBe("invalid_decor");
     }
     expect(room().name).toBe(before);
     expect(room().skin ?? null).toBe(null);
@@ -571,28 +278,99 @@ describe("rooms REST - the decor field", () => {
     expect(room().decor ?? null).toBe(null);
   });
 
-  it("the lobby refuses decor before the value is validated", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
+  // Hiding the control in the settings pane is not the rule; this is. The
+  // order is the rule too (Nil via Isomux PM, 2026-09-12): the room is asked
+  // whether it takes a skin BEFORE the value is looked at.
+  it("the lobby takes no skin and no decor, and says so before it validates the value", async () => {
+    const { srv, patch, room } = await office();
     srv.agentManager.ensureLobby();
-    for (const decor of [{ walls: "clinic" }, { lamp: "on" }]) {
-      const res = await req(srv, "PATCH", "/api/rooms/lobby", {
-        body: { decor },
+    for (const body of [
+      { skin: "hospital" },
+      { skin: "clinic" },
+      { decor: { walls: "clinic" } },
+      { decor: { lamp: "on" } },
+    ]) {
+      const r = await patch(body, "lobby");
+      expect({ body, status: r.status, code: errCode(r.body) }).toEqual({
+        body,
+        status: 422,
+        code: "skin_not_supported",
+      });
+    }
+    expect(room("lobby").skin ?? null).toBe(null);
+    expect(room("lobby").decor ?? null).toBe(null);
+  });
+});
+
+describe("rooms.getSettings and rooms.setSettings REST", () => {
+  it("an unknown id is the owner's 404 before any version check; a member without access gets 403 on both and the prompt stays", async () => {
+    const { srv, owner, member, id, room } = await office();
+    const version = (
+      (
+        await req(srv, "GET", `/api/rooms/${id}/settings`, {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).body as { version: string }
+    ).version;
+    for (const [method, body] of [
+      ["GET", undefined],
+      // Any version: an unknown room is a 404, never a bogus 409.
+      ["PUT", { prompt: "x", version: "0123456789ab" }],
+    ] as const) {
+      const unknown = await req(srv, method, "/api/rooms/deadbeef/settings", {
+        body,
         rawSessionId: owner.rawSessionId,
       });
-      expect(res.status).toBe(422);
-      expect(errCode(res.body)).toBe("skin_not_supported");
+      expect([method, unknown.status, errCode(unknown.body)]).toEqual([
+        method,
+        404,
+        "room_not_found",
+      ]);
+      const denied = await req(srv, method, `/api/rooms/${id}/settings`, {
+        body: body && { prompt: "y", version },
+        rawSessionId: member.rawSessionId,
+      });
+      expect([method, denied.status]).toEqual([method, 403]);
     }
-    expect(
-      srv.agentManager.getRooms().find((r) => r.id === "lobby")?.decor ?? null,
-    ).toBe(null);
+    expect(room().prompt).toBeNull();
   });
 
-  // An agent reads the look before it changes it; the version still guards
-  // the prompt alone, so a decor write does not move it.
-  it("the settings read carries the look, and decor does not move the version", async () => {
-    const { srv, owner, id, patch } = await owned();
+  it("a PUT needs the GET's version: missing is 400, stale is 409 with the current version, and neither writes", async () => {
+    const { srv, owner, id, room } = await office();
+    const settings = `/api/rooms/${id}/settings`;
+    const put = (body: unknown) =>
+      req(srv, "PUT", settings, { body, rawSessionId: owner.rawSessionId });
+    const readVersion = async () =>
+      (
+        (await req(srv, "GET", settings, { rawSessionId: owner.rawSessionId }))
+          .body as { version: string }
+      ).version;
+
+    const missing = await put({ prompt: "x" });
+    expect([missing.status, errCode(missing.body)]).toEqual([
+      400,
+      "invalid_version",
+    ]);
+    expect(room().prompt).toBeNull();
+
+    // Writer A reads, then writer B saves: A's version is now stale.
+    const stale = await readVersion();
+    expect((await put({ prompt: "B's prompt", version: stale })).status).toBe(
+      204,
+    );
+    const clobber = await put({ prompt: "A's clobber", version: stale });
+    expect(clobber.status).toBe(409);
+    const err = (clobber.body as { error: { code: string; version: string } })
+      .error;
+    expect(err.code).toBe("version_conflict");
+    expect(err.version).toBe(await readVersion());
+    expect(room().prompt).toBe("B's prompt");
+  });
+
+  // An agent reads the look before it changes it; the version guards the
+  // prompt alone, so a look write does not move it.
+  it("the settings read carries the look, and a look write does not move the version", async () => {
+    const { srv, owner, id, patch } = await office();
     const read = async () =>
       (
         await req(srv, "GET", `/api/rooms/${id}/settings`, {

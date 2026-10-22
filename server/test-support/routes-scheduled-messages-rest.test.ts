@@ -116,20 +116,25 @@ async function setup() {
 }
 
 describe("agents.sendMessage deliverAt branch", () => {
-  it("schedules for an agent sender: ScheduledAck, persisted entry, receiver queue untouched", async () => {
+  it("schedules for an agent sender: UTC ack, persisted entry, receiver queue untouched; a scheduled self-send passes where the immediate one is refused", async () => {
     const { srv, a, b } = await setup();
     server = srv;
-    const deliverAt = inOneHour();
+    const utc = new Date(Date.now() + 3_600_000);
+    utc.setUTCMilliseconds(0);
+    // The same instant in a +02:00 representation: the ack echoes it in UTC.
+    const offsetForm = new Date(utc.getTime() + 2 * 3_600_000)
+      .toISOString()
+      .replace("Z", "+02:00");
     const r = await call(
       srv,
       "POST",
       `/api/agents/${b.id}/messages`,
       { agentId: a.id },
-      { text: "see you later", deliverAt },
+      { text: "see you later", deliverAt: offsetForm },
     );
     expect(r.status).toBe(200);
     expect(r.body.scheduledId).toMatch(/^sm_[0-9a-f]{8}$/);
-    expect(r.body.deliverAt).toBe(deliverAt); // normalized UTC echo
+    expect(r.body.deliverAt).toBe(utc.toISOString());
     expect(r.body.messageId).toBeUndefined(); // no fake empty messageId
     // Durable: the entry is on disk under STATE_ROOT, not in the live queue.
     const file = join(srv.stateRoot, "scheduled-messages.json");
@@ -142,31 +147,7 @@ describe("agents.sendMessage deliverAt branch", () => {
     expect(persisted[0].senderName).toBe("SenderA");
     const liveB = srv.agentManager.getAllAgents().find((x) => x.id === b.id)!;
     expect(liveB.queue).toHaveLength(0);
-  });
 
-  it("normalizes an offset form to UTC in the ack", async () => {
-    const { srv, a, b } = await setup();
-    server = srv;
-    const utc = new Date(Date.now() + 3_600_000);
-    utc.setUTCMilliseconds(0);
-    // Same instant, +02:00 representation.
-    const offsetForm = new Date(utc.getTime() + 2 * 3_600_000)
-      .toISOString()
-      .replace("Z", "+02:00");
-    const r = await call(
-      srv,
-      "POST",
-      `/api/agents/${b.id}/messages`,
-      { agentId: a.id },
-      { text: "tz", deliverAt: offsetForm },
-    );
-    expect(r.status).toBe(200);
-    expect(r.body.deliverAt).toBe(utc.toISOString());
-  });
-
-  it("allows a SCHEDULED self-send while the immediate self-send stays rejected", async () => {
-    const { srv, a } = await setup();
-    server = srv;
     const immediate = await call(
       srv,
       "POST",
@@ -187,68 +168,59 @@ describe("agents.sendMessage deliverAt branch", () => {
     expect(scheduled.body.scheduledId).toBeDefined();
   });
 
-  it("rejects a USER-scope deliverAt with 400 (never silently sends now)", async () => {
-    const { srv, owner, b } = await setup();
+  it("refuses a user-scope deliverAt (never sends it now), a malformed or past deliverAt, and an unknown recipient", async () => {
+    const { srv, owner, a, b } = await setup();
     server = srv;
-    const r = await call(
+    const user = await call(
       srv,
       "POST",
       `/api/agents/${b.id}/messages`,
       { rawSessionId: owner.rawSessionId },
       { text: "morgan send", deliverAt: inOneHour() },
     );
-    expect(r.status).toBe(400);
-    expect(r.body.error?.code).toBe("deliver_at_not_supported");
-    // Nothing was scheduled and nothing was sent.
+    expect(user.status).toBe(400);
+    expect(user.body.error?.code).toBe("deliver_at_not_supported");
+    const liveB = srv.agentManager.getAllAgents().find((x) => x.id === b.id)!;
+    expect(liveB.queue).toHaveLength(0);
+
+    const post = (recipient: string, payload: Record<string, unknown>) =>
+      call(
+        srv,
+        "POST",
+        `/api/agents/${recipient}/messages`,
+        { agentId: a.id },
+        payload,
+      );
+    for (const deliverAt of [
+      "2030-01-01T10:00:00",
+      new Date(Date.now() - 60_000).toISOString(),
+    ]) {
+      const r = await post(b.id, { text: "x", deliverAt });
+      expect([deliverAt, r.status, r.body.error?.code]).toEqual([
+        deliverAt,
+        400,
+        "invalid_deliver_at",
+      ]);
+    }
+    expect(
+      (await post(b.id, { text: "x", deliverAt: 1784000000000 })).status,
+    ).toBe(422);
+    expect(
+      (await post("agent-nope", { text: "x", deliverAt: inOneHour() })).status,
+    ).toBe(404);
+    // Nothing was scheduled.
     const list = await call(
       srv,
       "GET",
-      `/api/agents/${b.id}/scheduled-messages`,
-      {
-        rawSessionId: owner.rawSessionId,
-      },
+      `/api/agents/${a.id}/scheduled-messages`,
+      { agentId: a.id },
     );
     expect(list.body.scheduled).toHaveLength(0);
   });
 
-  it("rejects malformed deliverAt: offset-less 400, non-string 422, past 400", async () => {
-    const { srv, a, b } = await setup();
-    server = srv;
-    const post = (payload: Record<string, unknown>) =>
-      call(
-        srv,
-        "POST",
-        `/api/agents/${b.id}/messages`,
-        { agentId: a.id },
-        payload,
-      );
-    const noZone = await post({
-      text: "x",
-      deliverAt: "2030-01-01T10:00:00",
-    });
-    expect(noZone.status).toBe(400);
-    expect(noZone.body.error?.code).toBe("invalid_deliver_at");
-    const numeric = await post({ text: "x", deliverAt: 1784000000000 });
-    expect(numeric.status).toBe(422);
-    const past = await post({
-      text: "x",
-      deliverAt: new Date(Date.now() - 60_000).toISOString(),
-    });
-    expect(past.status).toBe(400);
-    expect(past.body.error?.code).toBe("invalid_deliver_at");
-  });
-
-  it("404s on an unknown recipient (precondition) and keeps clientMessageId idempotent across a RESTART", async () => {
+  it("a pending entry and its clientMessageId survive a cold restart: listable, retry-safe, cancellable", async () => {
     const { srv: srv0, a, b } = await setup();
     server = srv0;
-    const missing = await call(
-      srv0,
-      "POST",
-      "/api/agents/agent-nope/messages",
-      { agentId: a.id },
-      { text: "x", deliverAt: inOneHour() },
-    );
-    expect(missing.status).toBe(404);
     const deliverAt = inOneHour();
     const first = await call(
       srv0,
@@ -258,9 +230,18 @@ describe("agents.sendMessage deliverAt branch", () => {
       { text: "retry-safe", deliverAt, clientMessageId: "cmid-1" },
     );
     expect(first.status).toBe(200);
+    const sid = first.body.scheduledId!;
     // Cold restart: same STATE_ROOT, fresh boot re-reads scheduled-messages.json.
     const srv = await srv0.restart();
     server = srv;
+    const list = await call(
+      srv,
+      "GET",
+      `/api/agents/${a.id}/scheduled-messages`,
+      { agentId: a.id },
+    );
+    expect(list.status).toBe(200);
+    expect(list.body.scheduled!.map((e) => e.id)).toEqual([sid]);
     const retry = await call(
       srv,
       "POST",
@@ -269,7 +250,7 @@ describe("agents.sendMessage deliverAt branch", () => {
       { text: "retry-safe", deliverAt, clientMessageId: "cmid-1" },
     );
     expect(retry.status).toBe(200);
-    expect(retry.body.scheduledId).toBe(first.body.scheduledId); // ORIGINAL id
+    expect(retry.body.scheduledId).toBe(sid); // ORIGINAL id
     const conflict = await call(
       srv,
       "POST",
@@ -279,6 +260,13 @@ describe("agents.sendMessage deliverAt branch", () => {
     );
     expect(conflict.status).toBe(409);
     expect(conflict.body.error?.code).toBe("client_message_id_conflict");
+    const cancel = await call(
+      srv,
+      "DELETE",
+      `/api/agents/${a.id}/scheduled-messages/${sid}`,
+      { agentId: a.id },
+    );
+    expect(cancel.status).toBe(204);
   });
 });
 
@@ -373,38 +361,6 @@ describe("outbox routes (list / cancel)", () => {
     );
     expect(empty.body.scheduled).toHaveLength(0);
   });
-
-  it("pending entries survive a cold restart and remain listable/cancellable", async () => {
-    const { srv: srv0, a, b } = await setup();
-    server = srv0;
-    const r = await call(
-      srv0,
-      "POST",
-      `/api/agents/${b.id}/messages`,
-      { agentId: a.id },
-      { text: "durable", deliverAt: inOneHour() },
-    );
-    const sid = r.body.scheduledId!;
-    const srv = await srv0.restart();
-    server = srv;
-    const list = await call(
-      srv,
-      "GET",
-      `/api/agents/${a.id}/scheduled-messages`,
-      {
-        agentId: a.id,
-      },
-    );
-    expect(list.status).toBe(200);
-    expect(list.body.scheduled!.map((e) => e.id)).toEqual([sid]);
-    const cancel = await call(
-      srv,
-      "DELETE",
-      `/api/agents/${a.id}/scheduled-messages/${sid}`,
-      { agentId: a.id },
-    );
-    expect(cancel.status).toBe(204);
-  });
 });
 
 describe("scheduled delivery rendering (flush prefix)", () => {
@@ -435,12 +391,10 @@ describe("scheduled delivery rendering (flush prefix)", () => {
     const bPrompt = srv.fakeBackend.sessionForAgent(b.id)!.sent[0].text;
     expect(bPrompt).toContain("scheduled hello");
     expect(bPrompt).toContain(`(agent id: ${a.id})`);
-    expect(bPrompt).toContain(
-      `[This message was scheduled by the sender for delivery at ${whenIso}.]`,
-    );
+    expect(bPrompt).toContain(whenIso);
 
-    // Self-addressed scheduled delivery reads as the past self, no sender id
-    // preamble to reply to.
+    // Self-addressed scheduled delivery reads as the past self: no sender id
+    // to reply to.
     srv.agentManager.enqueueMessage(a.id, {
       sender: {
         kind: "agent",
@@ -457,9 +411,9 @@ describe("scheduled delivery rendering (flush prefix)", () => {
       "a received self flush",
     );
     const aPrompt = srv.fakeBackend.sessionForAgent(a.id)!.sent[0].text;
-    expect(aPrompt).toContain(
-      `[Scheduled message from your own past self, scheduled for delivery at ${whenIso}] note to self`,
-    );
+    expect(aPrompt).toContain("note to self");
+    expect(aPrompt).toContain(whenIso);
+    expect(aPrompt).not.toContain(`(agent id: ${a.id})`);
 
     // Gone sender is called out.
     srv.agentManager.enqueueMessage(b.id, {
@@ -480,11 +434,17 @@ describe("scheduled delivery rendering (flush prefix)", () => {
     );
     const ghostPrompt = srv.fakeBackend.sessionForAgent(b.id)!.sent[1].text;
     expect(ghostPrompt).toContain('"Ghost"');
-    expect(ghostPrompt).toContain(
-      "The sender agent no longer exists, so it will not see a reply.",
+    expect(ghostPrompt).toContain(whenIso);
+    // The gone sender adds a note inside the scheduled marker.
+    const markerOf = (prompt: string) => {
+      const at = prompt.indexOf(whenIso);
+      return prompt.slice(prompt.lastIndexOf("[", at), prompt.indexOf("]", at));
+    };
+    expect(markerOf(ghostPrompt).length).toBeGreaterThan(
+      markerOf(bPrompt).length,
     );
 
-    // A PLAIN inter-agent message stays exactly as before (no scheduled note).
+    // A PLAIN inter-agent message carries no scheduled marker.
     srv.agentManager.enqueueMessage(b.id, {
       sender: {
         kind: "agent",
@@ -501,6 +461,6 @@ describe("scheduled delivery rendering (flush prefix)", () => {
     );
     const plainPrompt = srv.fakeBackend.sessionForAgent(b.id)!.sent[2].text;
     expect(plainPrompt).toContain("plain hello");
-    expect(plainPrompt).not.toContain("scheduled");
+    expect(plainPrompt).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
   });
 });

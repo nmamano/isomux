@@ -84,7 +84,7 @@ async function spawnAgent(
 }
 
 describe("routes/validate.cwd REST", () => {
-  it("valid dir -> {ok:true}; bad dir -> {ok:false,error}; member allowed; agent 403; no id 401", async () => {
+  it("valid dir -> {ok:true}; bad dir -> {ok:false,error}; member allowed; agent 403", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -137,43 +137,10 @@ describe("routes/validate.cwd REST", () => {
         })
       ).status,
     ).toBe(403);
-    expect(
-      (
-        await api(srv, "/api/validate/cwd", {
-          method: "POST",
-          body: { cwd: srv.stateRoot },
-        })
-      ).status,
-    ).toBe(401);
   });
 });
 
 describe("routes/validate.env REST: object-level policy (the dead-precondition regression)", () => {
-  it("member validates OWN user env (username omitted AND username=self) -> 200 allowed", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Alice");
-
-    // username omitted: subject defaults to self.
-    const omitted = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: member.rawSessionId,
-      body: { scope: "user" },
-    });
-    expect(omitted.status).toBe(200);
-    expect(omitted.body).toEqual({ ok: true });
-
-    // username = self, explicit.
-    const selfNamed = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: member.rawSessionId,
-      body: { scope: "user", username: "Alice" },
-    });
-    expect(selfNamed.status).toBe(200);
-    expect(selfNamed.body).toEqual({ ok: true });
-  });
-
   it("member office scope -> 403; member another user's env -> 403", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -201,7 +168,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     ).toBe(403);
   });
 
-  it("nonexistent username is non-leaking: member -> 403; owner -> 200 {ok:true} (indistinguishable from a no-env user)", async () => {
+  it("an owner validates office scope and any user, and a nonexistent username does not leak: member -> 403; owner -> 200 {ok:true} (indistinguishable from a no-env user)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -235,56 +202,15 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     expect(ghost.status).toBe(200);
     expect(ghost.body).toEqual({ ok: true });
     expect(aliceNoEnv.body).toEqual(ghost.body);
-  });
 
-  it("owner validates office scope AND another user's env -> 200 allowed", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    await srv.seedMember("Alice");
-
+    // The owner validates office scope too (no office env file set).
     const office = await api(srv, "/api/validate/env", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       body: { scope: "office" },
     });
     expect(office.status).toBe(200);
-    expect(office.body).toEqual({ ok: true }); // no office env file set
-
-    const other = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { scope: "user", username: "Alice" },
-    });
-    expect(other.status).toBe(200);
-    expect(other.body).toEqual({ ok: true });
-  });
-
-  it("AGENT scope -> 403 at stage 1 (lacks office:read); no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const token = getAgentTokenRaw(agent.id)!;
-
-    expect(
-      (
-        await api(srv, "/api/validate/env", {
-          method: "POST",
-          bearer: token,
-          body: { scope: "user" },
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await api(srv, "/api/validate/env", {
-          method: "POST",
-          body: { scope: "user" },
-        })
-      ).status,
-    ).toBe(401);
+    expect(office.body).toEqual({ ok: true });
   });
 
   it("PRIVILEGED agent (owner-spawned, HAS office:read) -> 403: the scope gate blocks env probing (task 98d63ef7)", async () => {

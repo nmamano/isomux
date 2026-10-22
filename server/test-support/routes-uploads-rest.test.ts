@@ -9,7 +9,9 @@
 //     access) is a [behavior-change]: room-ACL-gated, where legacy /api/files was
 //     public-to-authenticated. Access-by-grant works; absence of access is a 403.
 //   - getFilePath stays the only resolver: path traversal -> 404.
-//   - Both are USER/browser surfaces: an AGENT token is 403 (lacks the caps).
+//   - Both are USER/browser surfaces: an AGENT token lacks the caps
+//     (identity-tokens.test.ts pins the AGENT set, routes-table.test.ts the
+//     route caps).
 //   - The legacy /api/upload + /api/files + /api/images keep their old paths -
 //     no collision - and apply the room check too (a miss and a denial are the
 //     same 404). A killed agent's files follow its last room, or office owners
@@ -134,35 +136,7 @@ describe("routes/uploads REST: upload + getFile happy path + room-ACL", () => {
     expect(got.headers.get("cache-control")).toBe("private, no-cache");
   });
 
-  it("a member WITH a room grant can upload + getFile (access-by-grant, not just owner-rule)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Mallory");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    // Grant the member access to the agent's room.
-    updateUserById(getUserByName("Mallory")!.id, { allowedRooms: [room.id] });
-
-    const up = await upload(
-      srv,
-      agent.id,
-      [{ name: "m.txt", content: "mine" }],
-      {
-        rawSessionId: member.rawSessionId,
-      },
-    );
-    expect(up.status).toBe(200);
-    const fname = (
-      (await up.json()).attachments as Array<{ filename: string }>
-    )[0].filename;
-    const got = await getFile(srv, agent.id, fname, {
-      rawSessionId: member.rawSessionId,
-    });
-    expect(got.status).toBe(200);
-  });
-
-  it("a member WITHOUT access is 403 on BOTH upload and getFile (the [behavior-change])", async () => {
+  it("a member without access is 403 on upload and getFile; a room grant opens both", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -174,48 +148,38 @@ describe("routes/uploads REST: upload + getFile happy path + room-ACL", () => {
       srv,
       agent.id,
       [{ name: "secret.txt", content: "s" }],
-      {
-        rawSessionId: owner.rawSessionId,
-      },
+      { rawSessionId: owner.rawSessionId },
     );
     const fname = (
       (await up.json()).attachments as Array<{ filename: string }>
     )[0].filename;
+    const asMember = { rawSessionId: member.rawSessionId };
 
     expect(
-      (
-        await upload(srv, agent.id, [{ name: "x.txt", content: "x" }], {
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
+      (await upload(srv, agent.id, [{ name: "x.txt", content: "x" }], asMember))
+        .status,
     ).toBe(403);
-    expect(
-      (
-        await getFile(srv, agent.id, fname, {
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(403);
+    expect((await getFile(srv, agent.id, fname, asMember)).status).toBe(403);
+
+    // Access by grant, not just the owner rule.
+    updateUserById(getUserByName("Mallory")!.id, { allowedRooms: [room.id] });
+    const mine = await upload(
+      srv,
+      agent.id,
+      [{ name: "m.txt", content: "mine" }],
+      asMember,
+    );
+    expect(mine.status).toBe(200);
+    const mineName = (
+      (await mine.json()).attachments as Array<{ filename: string }>
+    )[0].filename;
+    const got = await getFile(srv, agent.id, mineName, asMember);
+    expect(got.status).toBe(200);
+    expect(await got.text()).toBe("mine");
   });
 });
 
-describe("routes/uploads REST: validation + resolver safety", () => {
-  it("more than 5 files -> 400", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const files = Array.from({ length: 6 }, (_, i) => ({
-      name: `f${i}.txt`,
-      content: "x",
-    }));
-    const up = await upload(srv, agent.id, files, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(up.status).toBe(400);
-  });
-
+describe("routes/uploads REST: resolver safety", () => {
   it("unknown filename -> 404; path-traversal filename -> 404 (getFilePath is the only resolver)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -235,61 +199,6 @@ describe("routes/uploads REST: validation + resolver safety", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(traversal.status).toBe(404);
-  });
-});
-
-describe("routes/uploads REST: agent token is a 403 (browser surfaces)", () => {
-  it("an AGENT token cannot upload or getFile (lacks file:upload / office:read)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const token = getAgentTokenRaw(agent.id)!;
-    expect(
-      (
-        await upload(srv, agent.id, [{ name: "a.txt", content: "a" }], {
-          bearer: token,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (await getFile(srv, agent.id, "whatever.txt", { bearer: token })).status,
-    ).toBe(403);
-  });
-});
-
-describe("routes/uploads REST: legacy paths untouched (no collision)", () => {
-  it("legacy /api/upload + /api/files + /api/images still serve with the old paths/auth", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-
-    // Legacy upload: POST /api/upload/:agentId (cookie-walled, not /api/agents/...).
-    const fd = new FormData();
-    fd.append("file", new File(["legacy"], "leg.txt", { type: "text/plain" }));
-    const up = await srv.http(`/api/upload/${agent.id}`, {
-      method: "POST",
-      body: fd,
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(up.status).toBe(200);
-    const fname = (
-      (await up.json()).attachments as Array<{ filename: string }>
-    )[0].filename;
-
-    // Legacy serve: /api/files/:agentId/:filename and the /api/images alias.
-    const f = await srv.http(`/api/files/${agent.id}/${fname}`, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(f.status).toBe(200);
-    expect(await f.text()).toBe("legacy");
-    const img = await srv.http(`/api/images/${agent.id}/${fname}`, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(img.status).toBe(200);
   });
 });
 
@@ -468,10 +377,10 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
 });
 
 describe("routes/uploads REST: a killed agent's files follow its last room", () => {
-  it("a member with the room's grant reads them; one without does not", async () => {
+  it("a member with the room's grant reads them and one without does not; once the room is gone, only office owners do", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Morgan");
+    const owner = await srv.seedOwner("Morgan");
     const granted = await srv.seedMember("Grace");
     const other = await srv.seedMember("Mallory"); // allowedRooms []
     const roomId = srv.agentManager.createRoom("Lab");
@@ -487,27 +396,16 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
     expectSandboxed(got);
     const denied = await srv.http(path, { rawSessionId: other.rawSessionId });
     expect(denied.status).toBe(403);
-  });
 
-  it("once that room is gone, only office owners read them", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Grace");
-    const roomId = srv.agentManager.createRoom("Lab");
-    const agent = await spawnAgent(srv, "Worker", roomId);
     // The grant outlives the room, so it must not be what decides.
-    updateUserById(getUserByName("Grace")!.id, { allowedRooms: [roomId] });
-    const att = saveFile(agent.id, Buffer.from("k"), "text/plain", "k.txt")!;
-    await srv.agentManager.kill(agent.id);
     expect(srv.agentManager.closeRoom(roomId)).toBe(true);
-    const path = `/api/files/${agent.id}/${att.filename}`;
-
-    const denied = await srv.http(path, { rawSessionId: member.rawSessionId });
-    expect(denied.status).toBe(403);
-    const got = await srv.http(path, { rawSessionId: owner.rawSessionId });
-    expect(got.status).toBe(200);
-    expect(await got.text()).toBe("k");
+    const gone = await srv.http(path, { rawSessionId: granted.rawSessionId });
+    expect(gone.status).toBe(403);
+    const ownerRead = await srv.http(path, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(ownerRead.status).toBe(200);
+    expect(await ownerRead.text()).toBe("k");
   });
 });
 

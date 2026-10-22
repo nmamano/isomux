@@ -9,7 +9,7 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { mintAgentToken, _testResetTokens } from "../identity/tokens.ts";
+import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import type { TerminalReadRes } from "../../shared/contract-shapes.ts";
 
@@ -18,7 +18,6 @@ let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
-  _testResetTokens();
 });
 
 // server/terminal.ts MAX_PTY_BUFFER (100K characters, the task's scope).
@@ -81,24 +80,7 @@ async function ownerOffice() {
 }
 
 describe("agents.terminal reach", () => {
-  it("an agent reads its own terminal and a room-mate's", async () => {
-    const { srv, roomId, ownerId } = await ownerOffice();
-    const self = await spawnIn(srv, "Self", roomId);
-    const peer = await spawnIn(srv, "Peer", roomId);
-    srv.agentManager._testSeedTerminalBuffer(self.id, "mine\r\n");
-    srv.agentManager._testSeedTerminalBuffer(peer.id, "theirs\r\n");
-    const token = mintAgentToken(self.id, ownerId);
-
-    const own = await read(srv, self.id, { bearer: token });
-    expect(own.status).toBe(200);
-    expect((own.body as TerminalReadRes).output).toBe("mine\n");
-
-    const other = await read(srv, peer.id, { bearer: token });
-    expect(other.status).toBe(200);
-    expect((other.body as TerminalReadRes).output).toBe("theirs\n");
-  });
-
-  it("an agent is refused a terminal in a room its member cannot access", async () => {
+  it("an agent reads its own terminal and one in its member's rooms, and is refused one outside them, like its member", async () => {
     const srv = await startTestServer();
     server = srv;
     const r1 = srv.agentManager.getRooms()[0].id;
@@ -119,14 +101,19 @@ describe("agents.terminal reach", () => {
     const self = await spawnIn(srv, "Self", r1, member);
     const visible = await spawnIn(srv, "Vis", r1);
     const hidden = await spawnIn(srv, "Hid", r2);
+    srv.agentManager._testSeedTerminalBuffer(self.id, "mine\r\n");
     srv.agentManager._testSeedTerminalBuffer(visible.id, "visible\r\n");
     srv.agentManager._testSeedTerminalBuffer(hidden.id, "HIDDEN-OUTPUT\r\n");
     const token = mintAgentToken(self.id, getUserByName(member.username)!.id);
 
-    // Positive control: the same token reads a terminal in the member's room.
-    const ok = await read(srv, visible.id, { bearer: token });
-    expect(ok.status).toBe(200);
-    expect((ok.body as TerminalReadRes).output).toBe("visible\n");
+    for (const [agent, output] of [
+      [self, "mine\n"],
+      [visible, "visible\n"],
+    ] as const) {
+      const ok = await read(srv, agent.id, { bearer: token });
+      expect(ok.status).toBe(200);
+      expect((ok.body as TerminalReadRes).output).toBe(output);
+    }
 
     const denied = await read(srv, hidden.id, { bearer: token });
     expect(denied.status).toBe(403);
@@ -145,23 +132,21 @@ describe("agents.terminal reach", () => {
 });
 
 describe("agents.terminal response", () => {
-  it("reports open:false with empty output when the agent has no terminal", async () => {
+  it("reports open:false for no terminal; returns the cleaned, redacted buffer; flags a full buffer truncated and drops its partial first line", async () => {
     const { srv, owner, roomId } = await ownerOffice();
-    const a = await spawnIn(srv, "A", roomId);
-    const r = await read(srv, a.id, { rawSessionId: owner.rawSessionId });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ open: false, output: "", truncated: false });
-  });
+    const asOwner = { rawSessionId: owner.rawSessionId };
+    const none = await spawnIn(srv, "None", roomId);
+    const r0 = await read(srv, none.id, asOwner);
+    expect(r0.status).toBe(200);
+    expect(r0.body).toEqual({ open: false, output: "", truncated: false });
 
-  it("returns the cleaned and redacted buffer of an open terminal", async () => {
-    const { srv, owner, roomId } = await ownerOffice();
     const a = await spawnIn(srv, "A", roomId);
     const body = "Q7wErTy9UiOp4AsDfGh2JkLzXcVbNm";
     srv.agentManager._testSeedTerminalBuffer(
       a.id,
       `\x1b[32m$\x1b[0m echo hi\r\nhi\r\n50%\r100%\r\nexport API_KEY=${body}\r\n$ `,
     );
-    const r = await read(srv, a.id, { rawSessionId: owner.rawSessionId });
+    const r = await read(srv, a.id, asOwner);
     expect(r.status).toBe(200);
     const res = r.body as TerminalReadRes;
     expect(res.open).toBe(true);
@@ -171,10 +156,7 @@ describe("agents.terminal response", () => {
     expect(lines.at(-1)).toBe("$ ");
     expect(res.output).not.toContain(body);
     expect(lines[3]).toStartWith("export API_KEY=" + body.slice(0, 8));
-  });
 
-  it("flags a full buffer as truncated and drops its partial first line", async () => {
-    const { srv, owner, roomId } = await ownerOffice();
     const full = await spawnIn(srv, "Full", roomId);
     const under = await spawnIn(srv, "Under", roomId);
     const make = (length: number) => {
@@ -189,51 +171,33 @@ describe("agents.terminal response", () => {
     srv.agentManager._testSeedTerminalBuffer(full.id, atMax);
     srv.agentManager._testSeedTerminalBuffer(under.id, belowMax);
 
-    const r = await read(srv, full.id, { rawSessionId: owner.rawSessionId });
-    expect(r.status).toBe(200);
-    const res = r.body as TerminalReadRes;
-    expect(res.truncated).toBe(true);
-    expect(res.output).not.toContain("partial-first-line");
-    expect(res.output.endsWith("\nlast\n$ ")).toBe(true);
-
+    const f = (await read(srv, full.id, asOwner)).body as TerminalReadRes;
+    expect(f.truncated).toBe(true);
+    expect(f.output).not.toContain("partial-first-line");
+    expect(f.output.endsWith("\nlast\n$ ")).toBe(true);
     // One character under the limit nothing was dropped: the first line stays.
-    const u = await read(srv, under.id, { rawSessionId: owner.rawSessionId });
-    const ures = u.body as TerminalReadRes;
-    expect(ures.truncated).toBe(false);
-    expect(ures.output.startsWith("partial-first-line\n")).toBe(true);
+    const u = (await read(srv, under.id, asOwner)).body as TerminalReadRes;
+    expect(u.truncated).toBe(false);
+    expect(u.output.startsWith("partial-first-line\n")).toBe(true);
   });
 });
 
 describe("agents.terminal lines", () => {
-  it("returns the last N lines", async () => {
+  it("returns the last N lines, and refuses a lines value that is not an integer from 1 to 10000", async () => {
     const { srv, owner, roomId } = await ownerOffice();
+    const asOwner = { rawSessionId: owner.rawSessionId };
     const a = await spawnIn(srv, "A", roomId);
     srv.agentManager._testSeedTerminalBuffer(a.id, "one\r\ntwo\r\nthree\r\n$ ");
-    const r = await read(
-      srv,
-      a.id,
-      { rawSessionId: owner.rawSessionId },
-      "?lines=2",
-    );
+    const r = await read(srv, a.id, asOwner, "?lines=2");
     expect(r.status).toBe(200);
     expect((r.body as TerminalReadRes).output.split("\n")).toEqual([
       "three",
       "$ ",
     ]);
-    const max = await read(
-      srv,
-      a.id,
-      { rawSessionId: owner.rawSessionId },
-      "?lines=10000",
-    );
+    const max = await read(srv, a.id, asOwner, "?lines=10000");
     expect(max.status).toBe(200);
     expect((max.body as TerminalReadRes).output).toBe("one\ntwo\nthree\n$ ");
-  });
 
-  it("refuses a lines value that is not an integer from 1 to 10000", async () => {
-    const { srv, owner, roomId } = await ownerOffice();
-    const a = await spawnIn(srv, "A", roomId);
-    srv.agentManager._testSeedTerminalBuffer(a.id, "x\r\n");
     for (const query of [
       "?lines=0",
       "?lines=-1",
@@ -243,13 +207,8 @@ describe("agents.terminal lines", () => {
       "?lines=10001",
       "?lines=1&lines=2",
     ]) {
-      const r = await read(
-        srv,
-        a.id,
-        { rawSessionId: owner.rawSessionId },
-        query,
-      );
-      expect({ query, status: r.status, code: errCode(r.body) }).toEqual({
+      const bad = await read(srv, a.id, asOwner, query);
+      expect({ query, status: bad.status, code: errCode(bad.body) }).toEqual({
         query,
         status: 400,
         code: "invalid_lines",

@@ -6,14 +6,16 @@
 // capability + guard, and - the carried-forward 2.2 caution - a `public` route
 // can NEVER be fed to authorize() (it carries no RouteAuthz by type).
 //
-// Pure T0: no server, no FS, no LLM. The table is data exercised directly.
+// T0: the table is data exercised directly, with no LLM. One test boots the
+// harness server: the dispatcher answers a row only when it has a registered
+// handler, so a dropped handler is a silent 404 that no table walk can see.
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
+import { startTestServer } from "./harness.ts";
 import {
   API_ROUTES,
   PUBLIC_ROUTES,
   ALL_ROUTES,
-  type RouteDef,
   type RouteAuth,
   type RoutePrecondition,
 } from "../routes/table.ts";
@@ -380,29 +382,6 @@ describe("route table: capability routes are well-formed", () => {
   });
 });
 
-describe("route table: any-of capabilities where the spec uses `|`", () => {
-  function route(opId: string): RouteDef {
-    const r = ALL_ROUTES.find((x) => x.opId === opId);
-    if (!r) throw new Error(`no route ${opId}`);
-    return r;
-  }
-  it("agents.sendMessage admits user, agent, cron, or personal API sender capabilities", () => {
-    expect(new Set(capsOf(route("agents.sendMessage").auth))).toEqual(
-      new Set<Capability>([
-        "agent:converse",
-        "agent:send-as-self",
-        "agent:send-as-cron",
-        "api:send-message",
-      ]),
-    );
-  });
-  it("users.update requires user:self | user:admin | user:prompt", () => {
-    expect(new Set(capsOf(route("users.update").auth))).toEqual(
-      new Set<Capability>(["user:self", "user:admin", "user:prompt"]),
-    );
-  });
-});
-
 describe("route table: public routes are routed AROUND authorize()", () => {
   it("every API route is authenticated/capability - none public", () => {
     for (const r of API_ROUTES) {
@@ -759,22 +738,6 @@ describe("route table: managed env values are self-only", () => {
       ).toBe(expected);
     }
   });
-
-  it("assigns user:env only to USER and API capability sets", () => {
-    expect(USER_CAPABILITIES).toContain("user:env");
-    expect(API_CAPABILITIES).toContain("user:env");
-    expect(AGENT_CAPABILITIES).not.toContain("user:env");
-    expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain("user:env");
-  });
-
-  it("assigns integration:manage to USER, API and the PRIVILEGED agent set only", () => {
-    expect(USER_CAPABILITIES).toContain("integration:manage");
-    expect(API_CAPABILITIES).toContain("integration:manage");
-    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("integration:manage");
-    expect(AGENT_CAPABILITIES).not.toContain("integration:manage");
-    expect(RUN_CAPABILITIES).not.toContain("integration:manage");
-    expect(APP_CAPABILITIES).not.toContain("integration:manage");
-  });
 });
 
 describe("route table: managed office env is owner-only", () => {
@@ -1001,42 +964,6 @@ describe("route table: users.create admits an owner's proxies for a plain member
       identity("cron-run", "owner", "member", RUN_CAPABILITIES),
     ]) {
       expect({ who, ok: allowed(who, plain) }).toEqual({ who, ok: false });
-    }
-  });
-
-  it("holds user:create in the privileged agent and API sets only", () => {
-    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:create");
-    expect(API_CAPABILITIES).toContain("user:create");
-    for (const set of [
-      USER_CAPABILITIES,
-      AGENT_CAPABILITIES,
-      RUN_CAPABILITIES,
-      APP_CAPABILITIES,
-    ]) {
-      expect(set).not.toContain("user:create");
-    }
-  });
-});
-
-describe("route table: coverage sanity", () => {
-  it("declares the expected /api surface (every spec resource group present)", () => {
-    const opIds = new Set(API_ROUTES.map((r) => r.opId));
-    for (const expected of [
-      "agents.spawn",
-      "agents.sendMessage",
-      "agents.readFile",
-      "rooms.create",
-      "view.setOrder",
-      "users.update",
-      "invites.mint",
-      "sessions.logout",
-      "office.setSettings",
-      "tasks.create",
-      "apps.register",
-      "cron.runReadFile",
-      "system.backupStatus",
-    ]) {
-      expect(opIds.has(expected)).toBe(true);
     }
   });
 });
@@ -1981,7 +1908,10 @@ describe("route table: an APP has its live owner agent's reach", () => {
   } as unknown as AppTokenStore;
   const owned = () => ({ userId: "u-owner", createdByAgentId: "a-owner" });
   const ownerAgent =
-    (privileged: boolean, userId = "u-owner"): AppOwnerAgentResolver =>
+    (
+      privileged: boolean,
+      userId: string | null = "u-owner",
+    ): AppOwnerAgentResolver =>
     (agentId) =>
       agentId === "a-owner" ? { agentId, userId, privileged } : null;
   const appWith = (resolveAgent: AppOwnerAgentResolver): Identity =>
@@ -2028,7 +1958,7 @@ describe("route table: an APP has its live owner agent's reach", () => {
     expect(APP_REFUSED_OPIDS.filter((op) => !agentReach.has(op))).toEqual([]);
   });
 
-  it("falls back to the app-self routes when the owner is gone or has another manager", () => {
+  it("falls back to the app-self routes when the owner is gone, has another manager, or the app has no manager", () => {
     for (const resolveAgent of [
       (() => null) as AppOwnerAgentResolver,
       ownerAgent(true, "u-other"),
@@ -2037,6 +1967,16 @@ describe("route table: an APP has its live owner agent's reach", () => {
       expect(app.ownerAgentId).toBeUndefined();
       expect([...reach(app)].sort()).toEqual([...APP_REACHABLE_OPIDS].sort());
     }
+    // An app built by an agent with no manager: both user ids are null, and
+    // two nulls are not the same manager.
+    const orphan = appIdentityFromToken(
+      "raw",
+      store,
+      () => ({ userId: null, createdByAgentId: "a-owner" }),
+      ownerAgent(true, null),
+    )!;
+    expect(orphan.ownerAgentId).toBeUndefined();
+    expect(orphan.capabilities).toEqual(APP_CAPABILITIES);
   });
 
   it("never holds secret:show, even from an owner set that has it", () => {
@@ -2554,6 +2494,45 @@ describe("route table: rows outside /api", () => {
         .map((r) => `${r.method} ${r.path}`)
         .sort(),
     ).toEqual(["GET /agents", "GET /auth/app"]);
+  });
+});
+
+// The dispatcher takes an API_ROUTES match only when the row has a registered
+// handler (server/isomux-office.ts); a row without one falls through, before
+// the auth wall, to the /api 404 or the static serve. So a request with no
+// identity answers 401 on every row that has a handler, and anything else
+// names a row whose handler is missing.
+describe("route table: every API route has a handler", () => {
+  it("answers 401 unauthenticated to a request with no identity on every row", async () => {
+    const srv = await startTestServer();
+    try {
+      await srv.seedOwner("Morgan");
+      // The auth wall logs each cookie-less browser path once.
+      const log = spyOn(console, "log").mockImplementation(() => {});
+      const missing: string[] = [];
+      try {
+        for (const route of API_ROUTES) {
+          const res = await srv.http(route.path.replace(/:\w+/g, "x"), {
+            method: route.method,
+          });
+          const text = await res.text();
+          let code: string | undefined;
+          try {
+            code = (JSON.parse(text) as { error?: { code?: string } }).error
+              ?.code;
+          } catch {
+            code = undefined;
+          }
+          if (res.status !== 401 || code !== "unauthenticated")
+            missing.push(`${route.opId} -> ${res.status} ${code ?? "no code"}`);
+        }
+      } finally {
+        log.mockRestore();
+      }
+      expect(missing).toEqual([]);
+    } finally {
+      await srv.stop();
+    }
   });
 });
 

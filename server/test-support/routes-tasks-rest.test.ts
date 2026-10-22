@@ -115,43 +115,8 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
 }
 
 // --- /api auth posture (the bypass guard, Reviewer1 #1) ---------------------
-describe("routes/tasks REST: /api identity required (no loopback bypass)", () => {
-  it("loopback no-cookie GET/POST /api/tasks -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-
-    const getApi = await api(srv, "/api/tasks");
-    expect(getApi.status).toBe(401);
-    // The rejection rides the NEW /api envelope {error:{code,message}}, not the
-    // legacy auth-middleware shape - every migrated /api route inherits this.
-    expect((getApi.body as { error?: { code?: string } }).error?.code).toBe(
-      "unauthenticated",
-    );
-    const postApi = await api(srv, "/api/tasks", {
-      method: "POST",
-      body: { title: "x" },
-    });
-    expect(postApi.status).toBe(401);
-    expect((postApi.body as { error?: { code?: string } }).error?.code).toBe(
-      "unauthenticated",
-    );
-  });
-});
-
-// --- CRUD + attribution via cookie (USER) -----------------------------------
-describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
-  it("GET /api/tasks with an owner cookie lists (200)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r = await api(srv, "/api/tasks", {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(r.status).toBe(200);
-    expect(Array.isArray(r.body)).toBe(true);
-  });
-
+// --- CRUD + attribution ------------------------------------------------------
+describe("routes/tasks REST: attribution and lifecycle", () => {
   it("POST /api/tasks derives createdBy+username from the TOKEN, ignoring body (behavior-change)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -179,161 +144,142 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     expect(t).not.toHaveProperty("assigneeAgentId");
   });
 
-  it("PATCH/claim/done update the task; DELETE -> 204; unknown id -> 404", async () => {
+  // Task dc642af2: `priority: null` clears the priority. Before the fix the
+  // validator ran first and rejected null with a 400, so a priority could be
+  // set and changed but never taken back off.
+  it("PATCH, claim and done update the task and DELETE removes it; priority null clears, '' and an unknown level are 400, absent leaves it alone", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
+    const sid = owner.rawSessionId;
     const created = (
       await api(srv, "/api/tasks", {
         method: "POST",
-        rawSessionId: owner.rawSessionId,
-        body: { title: "T" },
+        rawSessionId: sid,
+        body: { title: "T", priority: "P1" },
       })
     ).body as TaskItem;
+    const patch = (body: Record<string, unknown>) =>
+      api(srv, `/api/tasks/${created.id}`, {
+        method: "PATCH",
+        rawSessionId: sid,
+        body: { version: currentVersion(srv, created.id), ...body },
+      });
+    const stored = () =>
+      srv.agentManager.getTasks().find((t) => t.id === created.id);
 
-    const patched = await api(srv, `/api/tasks/${created.id}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: {
-        version: currentVersion(srv, created.id),
-        priority: "P1",
-        description: "d",
-      },
+    // A PATCH that doesn't mention priority leaves it untouched.
+    const other = await patch({ title: "T2", description: "d" });
+    expect(other.status).toBe(200);
+    expect(other.body as TaskItem).toMatchObject({
+      title: "T2",
+      description: "d",
+      priority: "P1",
     });
-    expect(patched.status).toBe(200);
-    expect((patched.body as TaskItem).priority).toBe("P1");
+
+    // An empty string is a malformed level, not a clear; so is a bogus level.
+    for (const priority of ["", "P9"]) {
+      expect((await patch({ priority })).status).toBe(400);
+      expect(stored()?.priority).toBe("P1");
+    }
+
+    const cleared = await patch({ priority: null });
+    expect(cleared.status).toBe(200);
+    expect((cleared.body as TaskItem).priority).toBeUndefined();
+    // Cleared means the KEY is gone, so the task is shaped exactly like one
+    // that never had a priority (same rule as the roomId clear).
+    expect("priority" in stored()!).toBe(false);
+    // Clearing an already-clear priority is a no-op, not an error.
+    expect((await patch({ priority: null })).status).toBe(200);
 
     const claimed = await api(srv, `/api/tasks/${created.id}/claim`, {
       method: "POST",
-      rawSessionId: owner.rawSessionId,
+      rawSessionId: sid,
       body: { assignee: "Isomuxer1" },
     });
-    expect((claimed.body as TaskItem).status).toBe("in_progress");
-    expect((claimed.body as TaskItem).assignee).toBe("Isomuxer1");
-
+    expect(claimed.body as TaskItem).toMatchObject({
+      status: "in_progress",
+      assignee: "Isomuxer1",
+    });
     const done = await api(srv, `/api/tasks/${created.id}/done`, {
       method: "POST",
-      rawSessionId: owner.rawSessionId,
+      rawSessionId: sid,
       body: {},
     });
     expect((done.body as TaskItem).status).toBe("done");
 
     const del = await api(srv, `/api/tasks/${created.id}`, {
       method: "DELETE",
-      rawSessionId: owner.rawSessionId,
+      rawSessionId: sid,
     });
     expect(del.status).toBe(204);
-    expect(srv.agentManager.getTasks().some((t) => t.id === created.id)).toBe(
-      false,
-    );
+    expect(stored()).toBeUndefined();
 
     const missing = await api(srv, `/api/tasks/nope`, {
       method: "PATCH",
-      rawSessionId: owner.rawSessionId,
+      rawSessionId: sid,
       body: { version: "any", title: "x" },
     });
     expect(missing.status).toBe(404);
   });
 
-  // Task dc642af2: `priority: null` clears the priority. Before the fix the
-  // validator ran first and rejected null with a 400, so a priority could be
-  // set and changed but never taken back off.
-  it("PATCH priority: null clears it, '' is still a 400, absent leaves it alone", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const created = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        rawSessionId: owner.rawSessionId,
-        body: { title: "T", priority: "P1" },
-      })
-    ).body as TaskItem;
-
-    // A PATCH that doesn't mention priority leaves it untouched.
-    const other = await api(srv, `/api/tasks/${created.id}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, created.id), title: "T2" },
-    });
-    expect(other.status).toBe(200);
-    expect((other.body as TaskItem).priority).toBe("P1");
-
-    // An empty string is a malformed level, not a clear.
-    const empty = await api(srv, `/api/tasks/${created.id}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, created.id), priority: "" },
-    });
-    expect(empty.status).toBe(400);
-    expect(
-      srv.agentManager.getTasks().find((t) => t.id === created.id)?.priority,
-    ).toBe("P1");
-
-    // ...and so is a bogus level.
-    const bogus = await api(srv, `/api/tasks/${created.id}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, created.id), priority: "P9" },
-    });
-    expect(bogus.status).toBe(400);
-
-    const cleared = await api(srv, `/api/tasks/${created.id}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, created.id), priority: null },
-    });
-    expect(cleared.status).toBe(200);
-    expect((cleared.body as TaskItem).priority).toBeUndefined();
-    // Cleared means the KEY is gone, so the task is shaped exactly like one
-    // that never had a priority (same rule as the roomId clear).
-    const stored = srv.agentManager.getTasks().find((t) => t.id === created.id);
-    expect(stored && "priority" in stored).toBe(false);
-
-    // Clearing an already-clear priority is a no-op, not an error.
-    const again = await api(srv, `/api/tasks/${created.id}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, created.id), priority: null },
-    });
-    expect(again.status).toBe(200);
-    expect((again.body as TaskItem).priority).toBeUndefined();
-  });
-});
-
-// --- Agent bearer auth + agent-name attribution -----------------------------
-describe("routes/tasks REST: agent bearer", () => {
-  it("an agent token authenticates and createdBy is the AGENT name, username the owner", async () => {
+  it("an agent token: createdBy is the agent and username its manager; a create files into its own room and '' files it global; it re-files a task into its own room and filters the list by it", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
     const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "TaskBot");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    const bot = await spawnAgent(srv, "TaskBot"); // spawns into roomA
     // Mint a token bound to the agent, attributed to the owner user.
     const token = mintAgentToken(bot.id, ownerId);
+    const post = async (body: Record<string, unknown>) => {
+      const r = await api(srv, "/api/tasks", {
+        method: "POST",
+        bearer: token,
+        body,
+      });
+      expect(r.status).toBe(201);
+      return r.body as TaskItem;
+    };
 
-    const list = await api(srv, "/api/tasks", { bearer: token });
-    expect(list.status).toBe(200);
-
-    const r = await api(srv, "/api/tasks", {
-      method: "POST",
-      bearer: token,
-      body: { title: "from the bot" },
+    const mine = await post({ title: "mine" });
+    expect(mine).toMatchObject({
+      createdBy: "TaskBot",
+      username: "Morgan",
+      // The creating agent's id rides next to its name (task 83f71be9).
+      createdByAgentId: bot.id,
+      roomId: roomA,
     });
-    expect(r.status).toBe(201);
-    const t = r.body as TaskItem;
-    expect(t.createdBy).toBe("TaskBot");
-    expect(t.username).toBe("Morgan");
-    // The creating agent's id rides next to its name (task 83f71be9).
-    expect(t.createdByAgentId).toBe(bot.id);
-  });
-});
+    const glob = await post({ title: "shared", roomId: "" });
+    expect(glob.roomId).toBeUndefined();
+    const theirs = await post({ title: "theirs", roomId: roomB });
 
-describe("routes/tasks REST: cron-run bearer", () => {
-  it("a run token authenticates and createdBy is the JOB name, username the creator", async () => {
+    const homed = await api(srv, `/api/tasks/${glob.id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { version: currentVersion(srv, glob.id), roomId: roomA },
+    });
+    expect(homed.status).toBe(200);
+    expect((homed.body as TaskItem).roomId).toBe(roomA);
+
+    // The id its prompt hands it narrows the list to its room.
+    const r = await api(srv, `/api/tasks?roomId=${roomA}`, { bearer: token });
+    expect(r.status).toBe(200);
+    const ids = (r.body as TaskItem[]).map((t) => t.id).sort();
+    expect(ids).toEqual([mine.id, glob.id].sort());
+    expect(ids).not.toContain(theirs.id);
+  });
+
+  // A CRON RUN is the identity that inherited the retired loopback /tasks
+  // board: it has no room of its own, and its userId is the job's CREATOR, so
+  // without the cron-run rule an owner-created job would inherit every room.
+  // task:write is one coarse capability, and the retired route walled DELETE
+  // off at 405: the taskDelete guard keeps that boundary.
+  it("a run token: createdBy is the job and username its creator; it sees, touches and files office-global tasks only, even for an owner's job, and never deletes", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Morgan");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName("Morgan")!.id;
     const job = srv.cronjobManager.addCronjob({
       name: "Nightly Sweep",
@@ -348,90 +294,91 @@ describe("routes/tasks REST: cron-run bearer", () => {
       userId: ownerId,
     });
     const runToken = mintRunToken(job.id, "run-1", ownerId);
+    const roomB = srv.agentManager.createRoom("Room B");
+    const asOwner = { rawSessionId: owner.rawSessionId };
+    const inB = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        ...asOwner,
+        body: { title: "in B", roomId: roomB },
+      })
+    ).body as TaskItem;
+    const glob = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        ...asOwner,
+        body: { title: "glob", roomId: "" },
+      })
+    ).body as TaskItem;
 
-    expect((await api(srv, "/api/tasks", { bearer: runToken })).status).toBe(
-      200,
-    );
-    const r = await api(srv, "/api/tasks", {
+    const list = await api(srv, "/api/tasks", { bearer: runToken });
+    expect(list.status).toBe(200);
+    const runIds = (list.body as TaskItem[]).map((t) => t.id);
+    expect(runIds).toContain(glob.id);
+    expect(runIds).not.toContain(inB.id);
+    // GET + every mutation on the room task is a 404 for the run.
+    for (const [method, path, body] of [
+      ["GET", `/api/tasks/${inB.id}`, undefined],
+      [
+        "PATCH",
+        `/api/tasks/${inB.id}`,
+        { version: currentVersion(srv, inB.id), status: "done" },
+      ],
+      ["POST", `/api/tasks/${inB.id}/claim`, { assignee: "x" }],
+      ["POST", `/api/tasks/${inB.id}/done`, {}],
+    ] as const) {
+      const r = await api(srv, path, { method, bearer: runToken, body });
+      expect([method, path, r.status]).toEqual([method, path, 404]);
+    }
+    expect(
+      srv.agentManager.getTasks().find((t) => t.id === inB.id)?.status,
+    ).toBe("open");
+
+    // A create with no roomId files GLOBAL, as the job; naming a room is a 404.
+    const filed = await api(srv, "/api/tasks", {
       method: "POST",
       bearer: runToken,
       body: { title: "filed by the run" },
     });
-    expect(r.status).toBe(201);
-    const t = r.body as TaskItem;
+    expect(filed.status).toBe(201);
+    const t = filed.body as TaskItem;
     // The run acts as the job, not as the human who created the job.
     expect(t.createdBy).toBe("Nightly Sweep");
     expect(t.username).toBe("Morgan");
     expect(t).not.toHaveProperty("createdByAgentId");
-  });
+    expect(t.roomId).toBeUndefined();
+    expect(
+      (
+        await api(srv, "/api/tasks", {
+          method: "POST",
+          bearer: runToken,
+          body: { title: "into B", roomId: roomB },
+        })
+      ).status,
+    ).toBe(404);
 
-  // task:write is one coarse capability, and the surface a run inherited (the
-  // retired loopback /tasks route) walled DELETE off at 405. The taskDelete
-  // guard keeps that boundary: a run files and completes, it does not erase.
-  it("a run token cannot DELETE a task -> 403, and the task survives", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const glob = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        rawSessionId: owner.rawSessionId,
-        body: { title: "keep me", roomId: "" },
-      })
-    ).body as TaskItem;
-    const runToken = mintRunToken("job-del", "run-del", ownerId);
-
-    const r = await api(srv, `/api/tasks/${glob.id}`, {
+    const del = await api(srv, `/api/tasks/${glob.id}`, {
       method: "DELETE",
       bearer: runToken,
     });
-    expect(r.status).toBe(403);
-    expect(srv.agentManager.getTasks().some((t) => t.id === glob.id)).toBe(
+    expect(del.status).toBe(403);
+    expect(srv.agentManager.getTasks().some((x) => x.id === glob.id)).toBe(
       true,
     );
-
     // An owner cookie still deletes it - the guard is cron-run-only.
     expect(
       (
         await api(srv, `/api/tasks/${glob.id}`, {
           method: "DELETE",
-          rawSessionId: owner.rawSessionId,
+          ...asOwner,
         })
       ).status,
     ).toBe(204);
-    expect(srv.agentManager.getTasks().some((t) => t.id === glob.id)).toBe(
-      false,
-    );
   });
 });
 
-// --- Idempotency + double-signal --------------------------------------------
-describe("routes/tasks REST: idempotency + WS double-signal", () => {
-  it("a repeated POST with the same Idempotency-Key creates one task", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const before = srv.agentManager.getTasks().length;
-    const headers = { "Idempotency-Key": "create-1" };
-    const a = await api(srv, "/api/tasks", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      headers,
-      body: { title: "once" },
-    });
-    const b = await api(srv, "/api/tasks", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      headers,
-      body: { title: "once" },
-    });
-    expect(a.status).toBe(201);
-    expect(b.status).toBe(201);
-    expect((a.body as TaskItem).id).toBe((b.body as TaskItem).id);
-    expect(srv.agentManager.getTasks().length).toBe(before + 1);
-  });
-
+// --- The delta a mutation sends ----------------------------------------------
+describe("routes/tasks REST: WS delta", () => {
   it("a REST create fans out a `task_upserted` DELTA to a connected socket (emit() path)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -463,6 +410,7 @@ describe("routes/tasks REST: idempotency + WS double-signal", () => {
 });
 
 // --- Room scoping: visibility ∪ globals, create-stamping, no-oracle ----------
+
 describe("routes/tasks REST: room scoping", () => {
   // Shorthand: POST a task as an owner cookie, optionally into a room. Omitting
   // roomId exercises the scope default; roomId:"" is an explicit global.
@@ -562,34 +510,6 @@ describe("routes/tasks REST: room scoping", () => {
     expect((glob.body as TaskItem).roomId).toBeUndefined();
     const noRoom = await postTask(srv, member.rawSessionId, "n");
     expect((noRoom.body as TaskItem).roomId).toBeUndefined();
-  });
-
-  it("an agent create defaults to the agent's OWN room; roomId:'' makes it global", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
-    const token = mintAgentToken(bot.id, ownerId);
-
-    const mine = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        bearer: token,
-        body: { title: "mine" },
-      })
-    ).body as TaskItem;
-    expect(mine.roomId).toBe(roomA); // stamped with the agent's room
-
-    const glob = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        bearer: token,
-        body: { title: "shared", roomId: "" },
-      })
-    ).body as TaskItem;
-    expect(glob.roomId).toBeUndefined();
   });
 
   it("PATCH re-rooms: omit=unchanged, accessible id=move, ''=clear-to-global, non-string=400, unknown=404", async () => {
@@ -699,110 +619,6 @@ describe("routes/tasks REST: room scoping", () => {
     ).toBe(roomB);
   });
 
-  it("an agent bearer can re-room a task into its OWN room", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
-    const token = mintAgentToken(bot.id, ownerId);
-
-    // Start global, then the agent adopts it into its own room.
-    const glob = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        bearer: token,
-        body: { title: "adopt me", roomId: "" },
-      })
-    ).body as TaskItem;
-    expect(glob.roomId).toBeUndefined();
-
-    const homed = await api(srv, `/api/tasks/${glob.id}`, {
-      method: "PATCH",
-      bearer: token,
-      body: { version: currentVersion(srv, glob.id), roomId: roomA },
-    });
-    expect(homed.status).toBe(200);
-    expect((homed.body as TaskItem).roomId).toBe(roomA);
-  });
-
-  // A CRON RUN is the identity that inherited the retired loopback /tasks
-  // board: it has no room of its own, and its userId is the job's CREATOR, so
-  // without the cron-run rule an owner-created job would inherit every room.
-  it("a CRON-RUN bearer is GLOBALS-ONLY even for an owner's job: hides room tasks and refuses to mutate them", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const roomB = srv.agentManager.createRoom("Room B");
-    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
-      .body as TaskItem;
-    const glob = (await postTask(srv, owner.rawSessionId, "glob", ""))
-      .body as TaskItem;
-    const runToken = mintRunToken("job-1", "run-1", ownerId);
-
-    // GET list: only the global task, though the job's creator is an owner.
-    const runIds = idsOf(await api(srv, "/api/tasks", { bearer: runToken }));
-    expect(runIds.has(glob.id)).toBe(true);
-    expect(runIds.has(inB.id)).toBe(false);
-    // GET + every mutation on the room task is a 404 for the run.
-    expect(
-      (await api(srv, `/api/tasks/${inB.id}`, { bearer: runToken })).status,
-    ).toBe(404);
-    expect(
-      (
-        await api(srv, `/api/tasks/${inB.id}`, {
-          method: "PATCH",
-          bearer: runToken,
-          body: { version: currentVersion(srv, inB.id), status: "done" },
-        })
-      ).status,
-    ).toBe(404);
-    expect(
-      (
-        await api(srv, `/api/tasks/${inB.id}/claim`, {
-          method: "POST",
-          bearer: runToken,
-          body: { assignee: "x" },
-        })
-      ).status,
-    ).toBe(404);
-    expect(
-      (
-        await api(srv, `/api/tasks/${inB.id}/done`, {
-          method: "POST",
-          bearer: runToken,
-          body: {},
-        })
-      ).status,
-    ).toBe(404);
-    expect(
-      srv.agentManager.getTasks().find((t) => t.id === inB.id)?.status,
-    ).toBe("open");
-    // A create with no roomId files GLOBAL; naming a room is a 404.
-    const runCreate = await api(srv, "/api/tasks", {
-      method: "POST",
-      bearer: runToken,
-      body: { title: "from the run" },
-    });
-    expect(runCreate.status).toBe(201);
-    expect((runCreate.body as TaskItem).roomId).toBeUndefined();
-    expect(
-      (
-        await api(srv, "/api/tasks", {
-          method: "POST",
-          bearer: runToken,
-          body: { title: "into B", roomId: roomB },
-        })
-      ).status,
-    ).toBe(404);
-  });
-
-  // The re-file pair. These are the cases a whole-board rebroadcast got right
-  // for free (the member's next projection simply lacked the task) and a delta
-  // has to handle deliberately: what a recipient is told depends on their access
-  // BEFORE and AFTER the change, not just after.
   it("re-filing a task OUT of a member's rooms reaches them as task_deleted", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -993,30 +809,6 @@ describe("routes/tasks REST: room scoping", () => {
     ).toEqual([]);
   });
 
-  it("deleting a task reaches a recipient who could see it as task_deleted", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
-    const t = (await postTask(srv, owner.rawSessionId, "delete me", ""))
-      .body as TaskItem;
-    await waitUntil(
-      () => upsertsOf(sock).some((x) => x.id === t.id),
-      2000,
-      "create delta",
-    );
-
-    await api(srv, `/api/tasks/${t.id}`, {
-      method: "DELETE",
-      rawSessionId: owner.rawSessionId,
-    });
-    await waitUntil(
-      () => deletedIdsOf(sock).includes(t.id),
-      2000,
-      "delete delta",
-    );
-  });
-
   it("a mutation fans out per-recipient: a member socket never receives a room task it can't see", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1061,119 +853,46 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
     return api(srv, "/api/tasks", { method: "POST", rawSessionId, body });
   }
 
-  it("narrows to one room; empty value narrows to office-global only", async () => {
+  it("narrows to one room, '' to office-global only, and composes with ?status=, ?assignee= and ?title=", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
+    const sid = owner.rawSessionId;
     const roomA = srv.agentManager.getRooms()[0].id;
     const roomB = srv.agentManager.createRoom("Room B");
-    const inA = (await postTask(srv, owner.rawSessionId, "in A", roomA))
-      .body as TaskItem;
-    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
-      .body as TaskItem;
-    const glob = (await postTask(srv, owner.rawSessionId, "global", ""))
-      .body as TaskItem;
-
-    const onlyA = idsOf(
-      await api(srv, `/api/tasks?roomId=${roomA}`, {
-        rawSessionId: owner.rawSessionId,
-      }),
-    );
-    expect([...onlyA]).toEqual([inA.id]);
-
-    const onlyGlobal = idsOf(
-      await api(srv, "/api/tasks?roomId=", {
-        rawSessionId: owner.rawSessionId,
-      }),
-    );
-    expect(onlyGlobal.has(glob.id)).toBe(true);
-    expect(onlyGlobal.has(inA.id)).toBe(false);
-    expect(onlyGlobal.has(inB.id)).toBe(false);
-
-    // Omitting the param is unchanged: accessible rooms UNION globals.
-    const unfiltered = idsOf(
-      await api(srv, "/api/tasks", { rawSessionId: owner.rawSessionId }),
-    );
-    expect(unfiltered.has(inA.id)).toBe(true);
-    expect(unfiltered.has(inB.id)).toBe(true);
-    expect(unfiltered.has(glob.id)).toBe(true);
-  });
-
-  it("composes with ?status= rather than replacing it", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const roomB = srv.agentManager.createRoom("Room B");
-    const open = (await postTask(srv, owner.rawSessionId, "open one", roomA))
-      .body as TaskItem;
-    const done = (await postTask(srv, owner.rawSessionId, "done one", roomA))
-      .body as TaskItem;
-    // Both dimensions need a foil, or a dropped room filter still looks right.
-    const elsewhere = (
-      await postTask(srv, owner.rawSessionId, "open, room B", roomB)
-    ).body as TaskItem;
-    await api(srv, `/api/tasks/${done.id}/done`, {
+    const inA = (await postTask(srv, sid, "in A", roomA)).body as TaskItem;
+    const doneA = (await postTask(srv, sid, "done A", roomA)).body as TaskItem;
+    // Every narrowing needs a foil in the other room, or a dropped room
+    // filter still looks right.
+    const inB = (await postTask(srv, sid, "in B", roomB)).body as TaskItem;
+    const glob = (await postTask(srv, sid, "global", "")).body as TaskItem;
+    await api(srv, `/api/tasks/${doneA.id}/done`, {
       method: "POST",
-      rawSessionId: owner.rawSessionId,
+      rawSessionId: sid,
       body: {},
     });
-
-    // Default (no status) still hides done, within the room filter.
-    const active = idsOf(
-      await api(srv, `/api/tasks?roomId=${roomA}`, {
-        rawSessionId: owner.rawSessionId,
-      }),
-    );
-    expect(active.has(open.id)).toBe(true);
-    expect(active.has(done.id)).toBe(false);
-    expect(active.has(elsewhere.id)).toBe(false);
-
-    const all = idsOf(
-      await api(srv, `/api/tasks?status=all&roomId=${roomA}`, {
-        rawSessionId: owner.rawSessionId,
-      }),
-    );
-    expect(all.has(open.id)).toBe(true);
-    expect(all.has(done.id)).toBe(true);
-    expect(all.has(elsewhere.id)).toBe(false);
-  });
-
-  it("composes with ?assignee= and ?title= too", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const roomB = srv.agentManager.createRoom("Room B");
-    const mine = (await postTask(srv, owner.rawSessionId, "parser work", roomA))
-      .body as TaskItem;
-    // Same assignee AND same title word, but in another room - the foil that
-    // makes a dropped room filter visible on both narrowings.
-    const elsewhere = (
-      await postTask(srv, owner.rawSessionId, "parser work", roomB)
-    ).body as TaskItem;
-    for (const t of [mine, elsewhere]) {
+    for (const t of [inA, inB]) {
       await api(srv, `/api/tasks/${t.id}/claim`, {
         method: "POST",
-        rawSessionId: owner.rawSessionId,
+        rawSessionId: sid,
         body: { assignee: "Isomuxer1" },
       });
     }
+    const list = async (q: string) =>
+      [
+        ...idsOf(await api(srv, `/api/tasks${q}`, { rawSessionId: sid })),
+      ].sort();
 
-    const byAssignee = idsOf(
-      await api(srv, `/api/tasks?roomId=${roomA}&assignee=Isomuxer1`, {
-        rawSessionId: owner.rawSessionId,
-      }),
+    // Default (no status) still hides done, within the room filter.
+    expect(await list(`?roomId=${roomA}`)).toEqual([inA.id]);
+    expect(await list(`?status=all&roomId=${roomA}`)).toEqual(
+      [inA.id, doneA.id].sort(),
     );
-    expect([...byAssignee]).toEqual([mine.id]);
-
-    const byTitle = idsOf(
-      await api(srv, `/api/tasks?roomId=${roomA}&title=parser`, {
-        rawSessionId: owner.rawSessionId,
-      }),
-    );
-    expect([...byTitle]).toEqual([mine.id]);
-    expect(byTitle.has(elsewhere.id)).toBe(false);
+    expect(await list("?roomId=")).toEqual([glob.id]);
+    // Omitting the param is unchanged: accessible rooms UNION globals.
+    expect(await list("")).toEqual([inA.id, inB.id, glob.id].sort());
+    expect(await list(`?roomId=${roomA}&assignee=Isomuxer1`)).toEqual([inA.id]);
+    expect(await list(`?roomId=${roomA}&title=in`)).toEqual([inA.id]);
   });
 
   it("an inaccessible OR unknown roomId is a uniform 404, not an empty list", async () => {
@@ -1200,37 +919,6 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
     });
     expect(empty.status).toBe(200);
     expect(empty.body).toEqual([]);
-  });
-
-  it("an agent can filter to its own room with the id its prompt hands it", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const roomB = srv.agentManager.createRoom("Room B");
-    const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
-    const token = mintAgentToken(bot.id, ownerId);
-
-    const mine = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        bearer: token,
-        body: { title: "mine" },
-      })
-    ).body as TaskItem;
-    const theirs = (
-      await api(srv, "/api/tasks", {
-        method: "POST",
-        bearer: token,
-        body: { title: "theirs", roomId: roomB },
-      })
-    ).body as TaskItem;
-
-    const r = await api(srv, `/api/tasks?roomId=${roomA}`, { bearer: token });
-    expect(r.status).toBe(200);
-    expect([...idsOf(r)]).toEqual([mine.id]);
-    expect(idsOf(r).has(theirs.id)).toBe(false);
   });
 });
 
@@ -1266,25 +954,10 @@ describe("routes/tasks REST: version guard + claim", () => {
     return { srv, sid, t, stored };
   }
 
-  it("a task carries a version, and a write that changes it gives a new one", async () => {
-    const { srv, sid, t } = await setup();
+  it("a task carries a version and a write gives a new one; a PATCH with no version is 400, a stale one is 409 with the current task, and neither writes", async () => {
+    const { srv, sid, t, stored } = await setup();
     expect(typeof t.version).toBe("string");
     expect(t.version.length).toBeGreaterThan(0);
-    const r = await api(srv, `/api/tasks/${t.id}`, {
-      method: "PATCH",
-      rawSessionId: sid,
-      body: { version: t.version, title: "T2" },
-    });
-    expect(r.status).toBe(200);
-    const after = r.body as TaskItem;
-    expect(after.version).not.toBe(t.version);
-    // GET serves the same token the write returned.
-    const got = await api(srv, `/api/tasks/${t.id}`, { rawSessionId: sid });
-    expect((got.body as TaskItem).version).toBe(after.version);
-  });
-
-  it("a PATCH with no version is a 400 invalid_version and writes nothing", async () => {
-    const { srv, sid, t, stored } = await setup();
     for (const body of [{ title: "x" }, { title: "x", version: "" }]) {
       const r = await api(srv, `/api/tasks/${t.id}`, {
         method: "PATCH",
@@ -1295,16 +968,20 @@ describe("routes/tasks REST: version guard + claim", () => {
       expect(err(r).code).toBe("invalid_version");
     }
     expect(stored().title).toBe("T");
-  });
 
-  it("a stale version is a 409 that carries the current task, and writes nothing", async () => {
-    const { srv, sid, t, stored } = await setup();
     // Another writer lands first.
-    await api(srv, `/api/tasks/${t.id}`, {
+    const theirs = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: sid,
       body: { version: t.version, title: "theirs" },
     });
+    expect(theirs.status).toBe(200);
+    const after = theirs.body as TaskItem;
+    expect(after.version).not.toBe(t.version);
+    // GET serves the same token the write returned.
+    const got = await api(srv, `/api/tasks/${t.id}`, { rawSessionId: sid });
+    expect((got.body as TaskItem).version).toBe(after.version);
+
     const r = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: sid,
@@ -1325,36 +1002,33 @@ describe("routes/tasks REST: version guard + claim", () => {
     expect(stored().title).toBe("mine");
   });
 
-  it("claim takes an unheld task, and re-claiming by the same holder is fine", async () => {
+  it("claim takes an unheld task and lets its holder claim again; anyone else gets 409 naming the holder; a versioned PATCH reassigns; done needs no version from any state", async () => {
     const { srv, sid, t, stored } = await setup();
-    for (let i = 0; i < 2; i++) {
-      const r = await api(srv, `/api/tasks/${t.id}/claim`, {
-        method: "POST",
-        rawSessionId: sid,
-        body: { assignee: "Worker A" },
-      });
-      expect(r.status).toBe(200);
-    }
-    expect(stored()).toMatchObject({
-      status: "in_progress",
-      assignee: "Worker A",
-    });
-  });
-
-  it("claim of a task someone else holds is a 409 naming the holder; a versioned PATCH reassigns", async () => {
-    const { srv, sid, t, stored } = await setup();
-    await api(srv, `/api/tasks/${t.id}/claim`, {
-      method: "POST",
-      rawSessionId: sid,
-      body: { assignee: "Worker A" },
-    });
-    // A claim naming someone else, and a claim naming no one, both refuse.
-    for (const body of [{ assignee: "Worker B" }, {}]) {
-      const r = await api(srv, `/api/tasks/${t.id}/claim`, {
+    const claim = (body: object) =>
+      api(srv, `/api/tasks/${t.id}/claim`, {
         method: "POST",
         rawSessionId: sid,
         body,
       });
+    const doneOnce = async (id = t.id) => {
+      const r = await api(srv, `/api/tasks/${id}/done`, {
+        method: "POST",
+        rawSessionId: sid,
+        body: {},
+      });
+      expect(r.status).toBe(200);
+      expect((r.body as TaskItem).status).toBe("done");
+    };
+
+    for (let i = 0; i < 2; i++)
+      expect((await claim({ assignee: "Worker A" })).status).toBe(200);
+    expect(stored()).toMatchObject({
+      status: "in_progress",
+      assignee: "Worker A",
+    });
+    // A claim naming someone else, and a claim naming no one, both refuse.
+    for (const body of [{ assignee: "Worker B" }, {}]) {
+      const r = await claim(body);
       expect(r.status).toBe(409);
       expect(err(r).code).toBe("task_held");
       expect((err(r) as { assignee?: string }).assignee).toBe("Worker A");
@@ -1367,149 +1041,59 @@ describe("routes/tasks REST: version guard + claim", () => {
     });
     expect(moved.status).toBe(200);
     expect(stored().assignee).toBe("Worker B");
-  });
 
-  it("done needs no version and gives the same result from any state", async () => {
-    const { srv, sid, t, stored } = await setup();
-    const doneOnce = async () => {
-      const r = await api(srv, `/api/tasks/${t.id}/done`, {
+    await doneOnce(); // from in_progress, held
+    await doneOnce(); // from done
+    const fresh = (
+      await api(srv, "/api/tasks", {
         method: "POST",
         rawSessionId: sid,
-        body: {},
-      });
-      expect(r.status).toBe(200);
-      expect(stored().status).toBe("done");
-    };
-    await doneOnce(); // from open
-    await doneOnce(); // from done
-    await api(srv, `/api/tasks/${t.id}/claim`, {
-      method: "POST",
-      rawSessionId: sid,
-      body: { assignee: "Worker A" },
-    });
-    expect(stored().status).toBe("in_progress");
-    await doneOnce(); // from in_progress, held
+        body: { title: "open" },
+      })
+    ).body as TaskItem;
+    await doneOnce(fresh.id); // from open
   });
 });
 
-// --- Backlog is priority P4 (task 77460aea) ---------------------------------
+// --- Status and priority on the list (tasks 77460aea, 76511cf9) -------------
+// P4 replaces the old backlog status; obsolete closes a task without doing it.
+// inDefaultTaskList is shared/task-board.test.ts; this is the query grammar.
 
-describe("routes/tasks REST: P4 replaces the backlog status", () => {
+describe("routes/tasks REST: status and priority filters", () => {
   const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
 
-  it("the default list hides done and open P4 tasks; filters reach them", async () => {
+  it("the default list hides closed (done, obsolete) and open P4 tasks; an explicit filter reaches them", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const sid = owner.rawSessionId;
-    const make = async (title: string, priority?: string) =>
+    const make = async (title: string, priority: string) =>
       (
         await api(srv, "/api/tasks", {
           method: "POST",
           rawSessionId: sid,
-          body: { title, ...(priority ? { priority } : {}) },
+          body: { title, priority },
         })
       ).body as TaskItem;
     const live = await make("live", "P1");
     const shelved = await make("shelved", "P4");
     const startedP4 = await make("started P4", "P4");
     const doneP4 = await make("done P4", "P4");
+    const dropped = await make("dropped", "P1");
+    const droppedP4 = await make("dropped P4", "P4");
+    const finished = await make("finished", "P1");
     expect(shelved.priority).toBe("P4");
     await api(srv, `/api/tasks/${startedP4.id}/claim`, {
       method: "POST",
       rawSessionId: sid,
       body: { assignee: "Worker A" },
     });
-    await api(srv, `/api/tasks/${doneP4.id}/done`, {
-      method: "POST",
-      rawSessionId: sid,
-      body: {},
-    });
-
-    const list = async (q: string) => {
-      const r = await api(srv, `/api/tasks${q}`, { rawSessionId: sid });
-      expect(r.status).toBe(200);
-      return idsOf(r);
-    };
-    // Default: an in-progress P4 task shows, as a claimed backlog task did.
-    expect(await list("")).toEqual(new Set([live.id, startedP4.id]));
-    expect(await list("?priority=P4")).toEqual(
-      new Set([shelved.id, startedP4.id]),
-    );
-    expect(await list("?priority=P4&status=all")).toEqual(
-      new Set([shelved.id, startedP4.id, doneP4.id]),
-    );
-    expect(await list("?status=all")).toEqual(
-      new Set([live.id, shelved.id, startedP4.id, doneP4.id]),
-    );
-    // An explicit status filter is literal: it includes P4 tasks.
-    expect(await list("?status=open")).toEqual(new Set([live.id, shelved.id]));
-
-    const bad = await api(srv, "/api/tasks?priority=P9", { rawSessionId: sid });
-    expect(bad.status).toBe(400);
-  });
-
-  it('status "backlog" is a 400 that points at priority P4, on a PATCH, a list and a create', async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const sid = owner.rawSessionId;
-    const t = (
-      await api(srv, "/api/tasks", {
+    for (const t of [doneP4, finished])
+      await api(srv, `/api/tasks/${t.id}/done`, {
         method: "POST",
         rawSessionId: sid,
-        body: { title: "T" },
-      })
-    ).body as TaskItem;
-    const patch = await api(srv, `/api/tasks/${t.id}`, {
-      method: "PATCH",
-      rawSessionId: sid,
-      body: { version: t.version, status: "backlog" },
-    });
-    const list = await api(srv, "/api/tasks?status=backlog", {
-      rawSessionId: sid,
-    });
-    const create = await api(srv, "/api/tasks", {
-      method: "POST",
-      rawSessionId: sid,
-      body: { title: "shelve me", status: "backlog" },
-    });
-    for (const r of [patch, list, create]) {
-      expect(r.status).toBe(400);
-      const e = (r.body as { error: { code: string; message: string } }).error;
-      expect(e.code).toBe("invalid_request");
-      // The way forward is the priority level, so the error names it.
-      expect(e.message).toContain("P4");
-    }
-    expect(srv.agentManager.getTasks().find((x) => x.id === t.id)?.status).toBe(
-      "open",
-    );
-    expect(srv.agentManager.getTasks()).toHaveLength(1);
-  });
-});
-
-// --- Obsolete: closed without doing it (task 76511cf9) ----------------------
-
-describe("routes/tasks REST: obsolete status", () => {
-  const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
-
-  it("a PATCH closes a task as obsolete; lists treat it as closed, like done", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const sid = owner.rawSessionId;
-    const make = async (title: string, priority?: string) =>
-      (
-        await api(srv, "/api/tasks", {
-          method: "POST",
-          rawSessionId: sid,
-          body: { title, ...(priority ? { priority } : {}) },
-        })
-      ).body as TaskItem;
-    const live = await make("live", "P1");
-    const dropped = await make("dropped", "P1");
-    const droppedP4 = await make("dropped P4", "P4");
-    const finished = await make("finished", "P1");
+        body: {},
+      });
     for (const t of [dropped, droppedP4]) {
       const r = await api(srv, `/api/tasks/${t.id}`, {
         method: "PATCH",
@@ -1521,33 +1105,38 @@ describe("routes/tasks REST: obsolete status", () => {
         },
       });
       expect(r.status).toBe(200);
-      expect((r.body as TaskItem).status).toBe("obsolete");
-      expect((r.body as TaskItem).description).toBe("superseded");
+      expect(r.body as TaskItem).toMatchObject({
+        status: "obsolete",
+        description: "superseded",
+      });
     }
-    await api(srv, `/api/tasks/${finished.id}/done`, {
-      method: "POST",
-      rawSessionId: sid,
-      body: {},
-    });
 
     const list = async (q: string) => {
       const r = await api(srv, `/api/tasks${q}`, { rawSessionId: sid });
       expect(r.status).toBe(200);
       return idsOf(r);
     };
-    expect(await list("")).toEqual(new Set([live.id]));
+    // Default: an in-progress P4 task shows, as a claimed backlog task did.
+    expect(await list("")).toEqual(new Set([live.id, startedP4.id]));
     // A named priority lifts the P4 exclusion, not the closed one.
-    expect(await list("?priority=P4")).toEqual(new Set());
+    expect(await list("?priority=P4")).toEqual(
+      new Set([shelved.id, startedP4.id]),
+    );
+    expect(await list("?priority=P4&status=all")).toEqual(
+      new Set([shelved.id, startedP4.id, doneP4.id, droppedP4.id]),
+    );
+    // An explicit status filter is literal: it includes P4 tasks.
+    expect(await list("?status=open")).toEqual(new Set([live.id, shelved.id]));
     expect(await list("?status=obsolete")).toEqual(
       new Set([dropped.id, droppedP4.id]),
     );
-    expect(await list("?status=done")).toEqual(new Set([finished.id]));
-    expect(await list("?status=all")).toEqual(
-      new Set([live.id, dropped.id, droppedP4.id, finished.id]),
+    expect(await list("?status=done")).toEqual(
+      new Set([doneP4.id, finished.id]),
     );
+    expect((await list("?status=all")).size).toBe(7);
   });
 
-  it("an unknown status is still a 400 that leaves the task as it was", async () => {
+  it('refuses status "backlog" with a pointer to P4 on a PATCH, a list and a create, an unknown status and an unknown priority, and changes nothing', async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -1559,18 +1148,41 @@ describe("routes/tasks REST: obsolete status", () => {
         body: { title: "T" },
       })
     ).body as TaskItem;
-    const r = await api(srv, `/api/tasks/${t.id}`, {
+    const backlog = [
+      await api(srv, `/api/tasks/${t.id}`, {
+        method: "PATCH",
+        rawSessionId: sid,
+        body: { version: t.version, status: "backlog" },
+      }),
+      await api(srv, "/api/tasks?status=backlog", { rawSessionId: sid }),
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: sid,
+        body: { title: "shelve me", status: "backlog" },
+      }),
+    ];
+    for (const r of backlog) {
+      expect(r.status).toBe(400);
+      const e = (r.body as { error: { code: string; message: string } }).error;
+      expect(e.code).toBe("invalid_request");
+      // The way forward is the priority level, so the error names it.
+      expect(e.message).toContain("P4");
+    }
+    const closed = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: sid,
       body: { version: t.version, status: "closed" },
     });
-    expect(r.status).toBe(400);
-    expect((r.body as { error: { code: string } }).error.code).toBe(
+    expect(closed.status).toBe(400);
+    expect((closed.body as { error: { code: string } }).error.code).toBe(
       "invalid_request",
     );
-    expect(srv.agentManager.getTasks().find((x) => x.id === t.id)?.status).toBe(
-      "open",
-    );
+    expect(
+      (await api(srv, "/api/tasks?priority=P9", { rawSessionId: sid })).status,
+    ).toBe(400);
+    expect(srv.agentManager.getTasks()).toEqual([
+      expect.objectContaining({ id: t.id, status: "open" }),
+    ]);
   });
 });
 
@@ -2040,16 +1652,9 @@ describe("routes/tasks REST: the assignee's agent id", () => {
     // Re-claim by a namesake string with another case: same agent, same id.
     expect((await claim(t.id, "WORKER")).status).toBe(200);
     expect(stored(t.id).assigneeAgentId).toBe(worker.id);
-  });
-
-  it("a claimant that resolves to the holder's id may claim, whatever the case of its name", async () => {
-    const { srv, stored, create, claim } = await setup();
-    const worker = await spawnAgent(srv, "Worker");
-    const t = await create("held");
-    expect((await claim(t.id, "Worker")).status).toBe(200);
-    // The same agent, written another way: the ids match, so no 409.
-    const again = await claim(t.id, "worker");
-    expect(again.status).toBe(200);
+    // Now held: a claimant written another way resolves to the holder's id,
+    // so it is the holder, not a 409.
+    expect((await claim(t.id, "worker")).status).toBe(200);
     expect(stored(t.id).assigneeAgentId).toBe(worker.id);
   });
 

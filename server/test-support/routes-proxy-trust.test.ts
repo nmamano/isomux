@@ -9,10 +9,10 @@
 //     X-Forwarded-For, Forwarded or X-Real-IP, with one log line that names
 //     the holder and not the token. A personal API token is not affected, and
 //     a valid cookie still passes alongside a refused token.
-//   - The first-owner claim needs the setup key, with or without a
-//     forwarding header.
-//   - F8: /readyz exempts on-box callers only and, with trustedProxy
-//     "same-host", limits each forwarded client on its own budget.
+//   - F8: /readyz answers with no identity, before and after the claim,
+//     exempts on-box callers only and, with trustedProxy "same-host", limits
+//     each forwarded client on its own budget.
+// The first-owner claim needs the setup key on loopback too: setup-key.test.ts.
 // Zero LLM.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -21,7 +21,7 @@ import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { mintApiToken } from "../api-tokens.ts";
-import { getUserByName, hasOwner } from "../users.ts";
+import { getUserByName } from "../users.ts";
 import { _resetReadyLimiterForTests } from "../ready-limiter.ts";
 
 let server: TestServer | null = null;
@@ -35,6 +35,7 @@ const FORWARDING: [string, string][] = [
   ["Forwarded", "for=203.0.113.9"],
   ["X-Real-IP", "203.0.113.9"],
 ];
+const FORWARDING_HEADER = { [FORWARDING[0][0]]: FORWARDING[0][1] };
 
 function captureWarnings(): { lines: string[]; restore: () => void } {
   const lines: string[] = [];
@@ -74,10 +75,10 @@ async function seedAppToken(srv: TestServer, agentToken: string) {
 }
 
 describe("F7: agent, cron-run and app tokens work only on-box", () => {
-  it("refuses each machine token behind every forwarding header, and logs once without the token", async () => {
+  it("refuses each machine token behind every forwarding header and logs once without the token; an API token and a cookie still pass", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Morgan");
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName("Morgan")!.id;
     const agent = await srv.agentManager.spawn(
       "AppBot",
@@ -121,35 +122,20 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
         expect(warnings.lines[0]).not.toContain(token);
       }
     }
-  });
 
-  it("leaves a personal API token working through a proxy", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
+    // A personal API token is a remote credential: a proxy does not refuse it.
     const { token: raw } = await mintApiToken({
-      userId: getUserByName("Morgan")!.id,
+      userId: ownerId,
       name: "Laptop",
       expiresInDays: 30,
     });
-    const res = await tasks(srv, raw, { "X-Forwarded-For": "203.0.113.9" });
-    expect(res.status).toBe(200);
-  });
+    expect((await tasks(srv, raw, FORWARDING_HEADER)).status).toBe(200);
 
-  it("lets a valid cookie pass beside a refused agent token", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const agentToken = mintAgentToken("agent-x", getUserByName("Morgan")!.id);
+    // A valid cookie passes beside a refused agent token.
     const warnings = captureWarnings();
     let res: Response;
     try {
-      res = await tasks(
-        srv,
-        agentToken,
-        { "X-Forwarded-For": "203.0.113.9" },
-        owner.rawSessionId,
-      );
+      res = await tasks(srv, agentToken, FORWARDING_HEADER, owner.rawSessionId);
     } finally {
       warnings.restore();
     }
@@ -157,43 +143,22 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
   });
 });
 
-describe("the first-owner claim", () => {
-  it("needs the setup key, from a proxy as from loopback", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const claim = (header: [string, string] | null, body: string) =>
-      srv.http("/auth/claim", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          ...(header ? { [header[0]]: header[1] } : {}),
-        },
-        body,
-        redirect: "manual",
-      });
-    // No loopback exception: a direct caller without the key is refused.
-    for (const header of [null, ...FORWARDING]) {
-      expect((await claim(header, "name=Mallory")).status).toBe(403);
-    }
-    expect(hasOwner()).toBe(false);
-    // With the key, a claim through a proxy succeeds.
-    const key = encodeURIComponent(srv.setupKey());
-    expect((await claim(FORWARDING[0], `name=Owner&key=${key}`)).status).toBe(
-      302,
-    );
-    expect(hasOwner()).toBe(true);
-  });
-});
-
 describe("F8: /readyz", () => {
   // The limiter is module state that outlives a harness boot.
   beforeEach(() => _resetReadyLimiterForTests());
 
-  it("never limits an on-box caller", async () => {
+  it("answers with no identity before and after the claim, and never limits an on-box caller", async () => {
     const srv = await startTestServer();
     server = srv;
+    // Pre-claim: the probe is not behind the cookie wall or the claim gate.
+    const pre = await srv.http("/readyz");
+    expect(pre.status).toBe(200);
+    expect(await pre.text()).toBe("ok\n");
+    await srv.seedOwner("Morgan");
     for (let i = 0; i < 40; i++) {
-      expect((await srv.http("/readyz")).status).toBe(200);
+      const res = await srv.http("/readyz");
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("ok\n");
     }
   });
 

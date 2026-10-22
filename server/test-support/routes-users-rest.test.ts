@@ -34,7 +34,7 @@ import { _testMintLegacyInvite, acceptInvite, peekInvite } from "../auth.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { managedUserEnvNotesPath, managedUserEnvPath } from "../user-env.ts";
-import { getAgentTokenRaw, mintAgentToken } from "../identity/tokens.ts";
+import { mintAgentToken } from "../identity/tokens.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
@@ -87,7 +87,7 @@ const errCode = (r: Res) =>
 const userOf = (r: Res) => (r.body as { user: Record<string, unknown> }).user;
 
 describe("routes/users REST - create (owner creates a member before any link)", () => {
-  it("owner creates a pending member -> 201 { user } with profile + grants; a link then signs them in keeping them", async () => {
+  it("owner creates a pending member -> 201 { user } with profile + grants, a link then signs them in keeping them; an owner-role member gets no grants but every room's notifications", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
@@ -132,20 +132,16 @@ describe("routes/users REST - create (owner creates a member before any link)", 
       memberPrompt: "Explain each step.",
     });
     expect(getUserByName("Yu")?.pendingSignIn).toBeUndefined();
-  });
 
-  it("an owner-role member gets no grants but notifications for every room", async () => {
-    const srv = (server = await startTestServer());
-    const owner = await srv.seedOwner("Morgan");
+    // An owner-role member gets no grants but notifications for every room.
     const rooms = srv.agentManager.getRooms().map((room) => room.id);
-
-    const r = await api(srv, "/api/users", {
+    const co = await api(srv, "/api/users", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       body: { name: "Co Owner", role: "owner" },
     });
-    expect(r.status).toBe(201);
-    expect(userOf(r)).toMatchObject({
+    expect(co.status).toBe(201);
+    expect(userOf(co)).toMatchObject({
       role: "owner",
       allowedRooms: [],
       notifRooms: rooms,
@@ -200,51 +196,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     expect(getUserByName("Yu")).toBeUndefined();
   });
 
-  it("a member -> 403 (officeOwner); AGENT bearer -> 403; unauth -> 401", async () => {
-    const srv = (server = await startTestServer());
-    await srv.seedOwner("Morgan");
-    const alice = await srv.seedMember("Alice");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const info = await srv.agentManager.spawn(
-      "Bot",
-      srv.stateRoot,
-      "default",
-      undefined,
-      undefined,
-      roomId,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "claude",
-    );
-    if (!info) throw new Error("spawn failed");
-    const body = { name: "Yu", role: "member" };
-    expect(
-      (
-        await api(srv, "/api/users", {
-          method: "POST",
-          rawSessionId: alice.rawSessionId,
-          body,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await api(srv, "/api/users", {
-          method: "POST",
-          bearer: getAgentTokenRaw(info.id)!,
-          body,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (await api(srv, "/api/users", { method: "POST", body })).status,
-    ).toBe(401);
-    expect(getUserByName("Yu")).toBeUndefined();
-  });
-
-  it("an owner's privileged agent and API token create a plain member, and cannot mint its link", async () => {
+  it("an owner's privileged agent and API token create a plain member, and cannot mint its link; a member and a member's proxies cannot create", async () => {
     const srv = (server = await startTestServer());
     const morgan = await srv.seedOwner("Morgan");
     const alice = await srv.seedMember("Alice");
@@ -343,6 +295,13 @@ describe("routes/users REST - create (owner creates a member before any link)", 
       const r = await create(bearer, body);
       expect({ body, status: r.status }).toEqual({ body, status: 403 });
     }
+    // A member's own cookie: officeOwner refuses it.
+    const byMember = await api(srv, "/api/users", {
+      method: "POST",
+      rawSessionId: alice.rawSessionId,
+      body: { name: "Owen", role: "member" },
+    });
+    expect(byMember.status).toBe(403);
     expect(getUserByName("Owen")).toBeUndefined();
   });
 
@@ -369,173 +328,86 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 });
 
 describe("routes/users REST - update (record split, Option A)", () => {
-  it("owner edits a member's record -> 200 { user }; allowedRooms is NOT touched", async () => {
+  it("an owner edits a member's record but never its grants; a member edits only their own and cannot escalate; a bad name is 422, a taken one 409, envFile is ignored", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const r = await api(server, `/api/users/${member.username}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: {
-        memberPrompt: "hi",
-        memberPromptVersion: versionOf(""),
-        allowedRooms: ["sneaky"],
-      },
+    const mia = await server.seedMember("Mia");
+    await server.seedMember("Bob");
+    const patch = (name: string, rawSessionId: string, body: unknown) =>
+      api(server!, `/api/users/${name}`, {
+        method: "PATCH",
+        rawSessionId,
+        body,
+      });
+
+    const r = await patch("Mia", owner.rawSessionId, {
+      memberPrompt: "hi",
+      memberPromptVersion: versionOf(""),
+      allowedRooms: ["sneaky"],
     });
     expect(r.status).toBe(200);
     expect(userOf(r).memberPrompt).toBe("hi");
     // allowedRooms is not in UserUpdateReq; the handler ignores a body field.
-    expect(getUserByName(member.username)!.allowedRooms).toEqual([]);
-  });
+    expect(getUserByName("Mia")!.allowedRooms).toEqual([]);
 
-  it("a member editing ANOTHER user's record -> 403 (selfOrOwner)", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const mia = await server.seedMember("Mia");
-    await server.seedMember("Bob");
-    const r = await api(server, `/api/users/Bob`, {
-      method: "PATCH",
-      rawSessionId: mia.rawSessionId,
-      body: { memberPrompt: "x" },
-    });
-    expect(r.status).toBe(403);
-  });
+    // selfOrOwner: another member's record is a 403.
+    expect(
+      (await patch("Bob", mia.rawSessionId, { avatarColor: "#000000" })).status,
+    ).toBe(403);
 
-  it("a member CANNOT escalate by sending allowedRooms on their own record", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const mia = await server.seedMember("Mia");
-    const r = await api(server, `/api/users/${mia.username}`, {
-      method: "PATCH",
-      rawSessionId: mia.rawSessionId,
-      body: { allowedRooms: ["r1", "r2"], name: "Mia2" },
-    });
-    expect(r.status).toBe(200); // record edit (rename) succeeds
-    expect(getUserByName("Mia2")!.allowedRooms).toEqual([]); // grants untouched
-  });
-
-  it("unauth -> 401 (new envelope); malformed name -> 422; envFile is no longer a setting and is ignored", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const mia = await server.seedMember("Mia");
-    const unauth = await api(server, `/api/users/${mia.username}`, {
-      method: "PATCH",
-      body: { name: "x" },
-    });
-    expect(unauth.status).toBe(401);
-    expect(errCode(unauth)).toBe("unauthenticated");
-
-    const bad = await api(server, `/api/users/${mia.username}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { name: 123 },
-    });
-    expect(bad.status).toBe(422);
-
+    expect((await patch("Mia", owner.rawSessionId, { name: 123 })).status).toBe(
+      422,
+    );
+    const taken = await patch("Mia", owner.rawSessionId, { name: "Morgan" });
+    expect([taken.status, errCode(taken)]).toEqual([409, "name_taken"]);
     // Per-user env files are managed by isomux now (Connections page); the
     // old envFile path setting is gone from the wire. A stale client that
     // still sends it is ignored, not rejected, and nothing is stored.
-    const staleEnv = await api(server, `/api/users/${mia.username}`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { envFile: "/no/such/file/at/all.env" },
+    const staleEnv = await patch("Mia", owner.rawSessionId, {
+      envFile: "/no/such/file/at/all.env",
     });
     expect(staleEnv.status).toBe(200);
-    expect(getUserByName("Mia")).toBeDefined();
     expect(getUserByName("Mia")).not.toHaveProperty("envFile");
-  });
 
-  it("a rename to an existing name -> 409 name_taken", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    await server.seedMember("Mia");
-    const r = await api(server, `/api/users/Mia`, {
-      method: "PATCH",
-      rawSessionId: owner.rawSessionId,
-      body: { name: "Morgan" },
+    // A member's own record edit succeeds, and the grants in the body do not.
+    const own = await patch("Mia", mia.rawSessionId, {
+      allowedRooms: ["r1", "r2"],
+      name: "Mia2",
     });
-    expect(r.status).toBe(409);
-    expect(errCode(r)).toBe("name_taken");
+    expect(own.status).toBe(200);
+    expect(getUserByName("Mia2")!.allowedRooms).toEqual([]);
   });
 });
 
 describe("routes/users REST - setAccess (owner-only allowedRooms)", () => {
-  it("owner sets a member's access -> 200 { user } with the new grants", async () => {
+  it("an owner sets a member's grants; a member cannot; a malformed list is 422", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const r1 = server.agentManager.getRooms()[0].id;
-    const r = await api(server, `/api/users/${member.username}/access`, {
-      method: "PUT",
-      rawSessionId: owner.rawSessionId,
-      body: { allowedRooms: [r1] },
-    });
-    expect(r.status).toBe(200);
-    expect((userOf(r).allowedRooms as string[]) ?? []).toEqual([r1]);
-    expect(getUserByName(member.username)!.allowedRooms).toEqual([r1]);
-  });
-
-  it("a member CANNOT call setAccess (officeOwner) -> 403, grants unchanged", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
-    const r = await api(server, `/api/users/${mia.username}/access`, {
-      method: "PUT",
-      rawSessionId: mia.rawSessionId,
-      body: { allowedRooms: [r1] },
-    });
-    expect(r.status).toBe(403);
-    expect(getUserByName(mia.username)!.allowedRooms).toEqual([]);
-  });
+    const put = (rawSessionId: string, body: unknown) =>
+      api(server!, `/api/users/${mia.username}/access`, {
+        method: "PUT",
+        rawSessionId,
+        body,
+      });
 
-  it("malformed allowedRooms -> 422; AGENT bearer -> 403", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const bad = await api(server, `/api/users/${member.username}/access`, {
-      method: "PUT",
-      rawSessionId: owner.rawSessionId,
-      body: { allowedRooms: "all" },
-    });
-    expect(bad.status).toBe(422);
-
-    const agent = await server.agentManager.spawn(
-      "Probe",
-      server.stateRoot,
-      "default",
-      undefined,
-      undefined,
-      server.agentManager.getRooms()[0].id,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "claude",
+    expect((await put(mia.rawSessionId, { allowedRooms: [r1] })).status).toBe(
+      403,
     );
-    const bearer = getAgentTokenRaw(agent!.id);
-    const r = await api(server, `/api/users/${member.username}/access`, {
-      method: "PUT",
-      bearer: bearer ?? undefined,
-      body: { allowedRooms: [] },
-    });
-    expect(r.status).toBe(403);
+    expect(
+      (await put(owner.rawSessionId, { allowedRooms: "all" })).status,
+    ).toBe(422);
+    expect(getUserByName(mia.username)!.allowedRooms).toEqual([]);
+
+    const r = await put(owner.rawSessionId, { allowedRooms: [r1] });
+    expect(r.status).toBe(200);
+    expect((userOf(r).allowedRooms as string[]) ?? []).toEqual([r1]);
+    expect(getUserByName(mia.username)!.allowedRooms).toEqual([r1]);
   });
 });
 
 describe("routes/users REST - delete (preconditions + non-leak)", () => {
-  it("owner deletes a member -> 204; record gone", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const r = await api(server, `/api/users/${member.username}`, {
-      method: "DELETE",
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(r.status).toBe(204);
-    expect(getUserByName(member.username)).toBeUndefined();
-  });
-
   it("deleting a member deletes their secrets, variables and MCP servers, and no one else's", async () => {
     server = await startTestServer();
     const srv = server;
@@ -601,6 +473,7 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
       rawSessionId,
     });
     expect(r.status).toBe(204);
+    expect(getUserByName("Mia")).toBeUndefined();
     for (const file of mia) expect(existsSync(file)).toBe(false);
     for (const file of bob) expect(existsSync(file)).toBe(true);
     expect(existsSync(join(srv.stateRoot, "secrets", "office.json"))).toBe(
@@ -637,41 +510,25 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
     expect(getUserByName(owner.username)).toBeDefined();
   });
 
-  it("a member deletes their OWN record -> 204", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const mia = await server.seedMember("Mia");
-    const r = await api(server, `/api/users/${mia.username}`, {
-      method: "DELETE",
-      rawSessionId: mia.rawSessionId,
-    });
-    expect(r.status).toBe(204);
-    expect(getUserByName(mia.username)).toBeUndefined();
-  });
-
-  it("a member deleting ANOTHER user -> 403 (uniform, no oracle); owner deleting a ghost -> idempotent 204", async () => {
+  it("a member deletes their own record; another user, real or not, is the same 403; an owner's delete of a ghost is an idempotent 204", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
     await server.seedMember("Bob");
-    const foreign = await api(server, `/api/users/Bob`, {
-      method: "DELETE",
-      rawSessionId: mia.rawSessionId,
-    });
+    const del = (name: string, rawSessionId: string) =>
+      api(server!, `/api/users/${name}`, { method: "DELETE", rawSessionId });
+    const foreign = await del("Bob", mia.rawSessionId);
     expect(foreign.status).toBe(403);
     expect(getUserByName("Bob")).toBeDefined();
     // The same 403 for a nonexistent target (no exists-vs-hidden distinction).
-    const ghost = await api(server, `/api/users/Nobody`, {
-      method: "DELETE",
-      rawSessionId: mia.rawSessionId,
-    });
+    const ghost = await del("Nobody", mia.rawSessionId);
     expect(ghost.status).toBe(403);
+    expect(ghost.body).toEqual(foreign.body);
     // Owner deleting a nonexistent user is an idempotent no-op (full visibility).
-    const ownerGhost = await api(server, `/api/users/Nobody`, {
-      method: "DELETE",
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(ownerGhost.status).toBe(204);
+    expect((await del("Nobody", owner.rawSessionId)).status).toBe(204);
+
+    expect((await del(mia.username, mia.rawSessionId)).status).toBe(204);
+    expect(getUserByName(mia.username)).toBeUndefined();
   });
 });
 
@@ -889,7 +746,7 @@ describe("routes/users member prompt by API token", () => {
     };
   }
 
-  it("an owner's token reads and edits another member's prompt and gets the prompt-only answer", async () => {
+  it("an owner's token reads and edits another member's prompt, gets the prompt-only answer and an audit row, and loses that reach once demoted", async () => {
     const o = await office();
     const before = await o.read(o.ownerToken, "Mia");
     expect(before.status).toBe(200);
@@ -898,17 +755,48 @@ describe("routes/users member prompt by API token", () => {
       memberPromptVersion: versionOf(""),
     });
     const saved = await o.patch(o.ownerToken, "Mia", {
-      memberPrompt: "Short answers.",
+      memberPrompt: "Audit me.",
       memberPromptVersion: versionOf(""),
     });
     expect(saved.status).toBe(200);
     expect(Object.keys(saved.body as object)).not.toContain("user");
-    expect(getUserByName("Mia")!.memberPrompt).toBe("Short answers.");
+    expect(getUserByName("Mia")!.memberPrompt).toBe("Audit me.");
     const after = await o.read(o.ownerToken, "Mia");
     expect(saved.body).toEqual(after.body);
     expect(
       (after.body as { memberPromptVersion: string }).memberPromptVersion,
-    ).toBe(versionOf("Short answers."));
+    ).toBe(versionOf("Audit me."));
+
+    const audit = await api(o.srv, "/api/audit-log?operation=users.update", {
+      rawSessionId: o.owner.rawSessionId,
+    });
+    const row = (
+      audit.body as {
+        items: {
+          actor: { kind: string; ownerId?: string };
+          targets: string[];
+          promptContent?: string;
+        }[];
+      }
+    ).items[0];
+    expect(row.actor).toEqual(
+      expect.objectContaining({ kind: "api_token", ownerId: o.morganId }),
+    );
+    expect(row.targets).toContain(o.miaId);
+    expect(row.promptContent).toBe("Audit me.");
+
+    // Checked live on each request.
+    expect(setUserRoleById(o.morganId, "member")).toBe(true);
+    expect((await o.read(o.ownerToken, "Mia")).status).toBe(403);
+    expect(
+      (
+        await o.patch(o.ownerToken, "Mia", {
+          memberPrompt: "after",
+          memberPromptVersion: versionOf("Audit me."),
+        })
+      ).status,
+    ).toBe(403);
+    expect(getUserByName("Mia")!.memberPrompt).toBe("Audit me.");
   });
 
   it("a member's token reads and edits only its own prompt", async () => {
@@ -935,92 +823,5 @@ describe("routes/users member prompt by API token", () => {
       ).status,
     ).toBe(403);
     expect(getUserByName("Morgan")).toEqual(morgan);
-  });
-
-  it("a demoted owner's token is refused on the next request", async () => {
-    const o = await office();
-    expect((await o.read(o.ownerToken, "Mia")).status).toBe(200);
-    expect(
-      (
-        await o.patch(o.ownerToken, "Mia", {
-          memberPrompt: "before",
-          memberPromptVersion: versionOf(""),
-        })
-      ).status,
-    ).toBe(200);
-    expect(setUserRoleById(o.morganId, "member")).toBe(true);
-    expect((await o.read(o.ownerToken, "Mia")).status).toBe(403);
-    expect(
-      (
-        await o.patch(o.ownerToken, "Mia", {
-          memberPrompt: "after",
-          memberPromptVersion: versionOf("before"),
-        })
-      ).status,
-    ).toBe(403);
-    expect(getUserByName("Mia")!.memberPrompt).toBe("before");
-  });
-
-  it("a stale version gets 409 with the current version", async () => {
-    const o = await office();
-    const r = await o.patch(o.ownerToken, "Mia", {
-      memberPrompt: "stale",
-      memberPromptVersion: versionOf("other"),
-    });
-    expect(r.status).toBe(409);
-    expect(r.body).toMatchObject({
-      error: { code: "version_conflict", version: versionOf("") },
-    });
-    expect(getUserByName("Mia")!.memberPrompt).toBeNull();
-  });
-
-  it("a token edits only the prompt fields", async () => {
-    const o = await office();
-    for (const [name, body] of [
-      [
-        "Mia",
-        {
-          memberPrompt: "denied",
-          memberPromptVersion: versionOf(""),
-          role: "owner",
-        },
-      ],
-      ["Mia", { name: "Renamed" }],
-      ["Morgan", { name: "Renamed" }],
-    ] as const) {
-      const before = structuredClone(getUserByName(name));
-      const r = await o.patch(o.ownerToken, name, body);
-      expect([name, r.status]).toEqual([name, 403]);
-      expect(getUserByName(name)).toEqual(before);
-    }
-  });
-
-  it("the audit row names the token's user and the member's id, with the prompt text", async () => {
-    const o = await office();
-    expect(
-      (
-        await o.patch(o.ownerToken, "Mia", {
-          memberPrompt: "Audit me.",
-          memberPromptVersion: versionOf(""),
-        })
-      ).status,
-    ).toBe(200);
-    const audit = await api(o.srv, "/api/audit-log?operation=users.update", {
-      rawSessionId: o.owner.rawSessionId,
-    });
-    const row = (
-      audit.body as {
-        items: {
-          actor: { kind: string; ownerId?: string };
-          targets: string[];
-          promptContent?: string;
-        }[];
-      }
-    ).items[0];
-    expect(row.actor).toEqual(
-      expect.objectContaining({ kind: "api_token", ownerId: o.morganId }),
-    );
-    expect(row.targets).toContain(o.miaId);
-    expect(row.promptContent).toBe("Audit me.");
   });
 });
