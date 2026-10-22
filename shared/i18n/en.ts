@@ -1950,7 +1950,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "voice.keyRejected": "OpenAI refused the key.",
   "voice.retry": "Retry",
   "voice.useBrowser": "Use browser voices",
-  "voice.mic.keyMissing": "Set OPENAI_VOICE_API_KEY to use the OpenAI mic.",
+  "voice.mic.keyMissing": "Add OPENAI_VOICE_API_KEY to use the OpenAI mic.",
   "voice.mic.tooLarge": "The recording is over 25 MB.",
   "voice.mic.rejected": "OpenAI could not transcribe the recording.",
   "voice.mic.failed": "Transcription failed.",
@@ -1958,7 +1958,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "voice.mic.kept": "The recording is kept on this page.",
   "voice.mic.transcribing": "Transcribing",
   "voice.speak.keyMissing":
-    "Set OPENAI_VOICE_API_KEY to read aloud with OpenAI.",
+    "Add OPENAI_VOICE_API_KEY to read aloud with OpenAI.",
   "voice.speak.rejected": "OpenAI could not read this reply.",
   "voice.speak.failed": "Read aloud failed.",
   "panels.resizer.label": "Resize side panel",

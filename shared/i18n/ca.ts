@@ -2005,7 +2005,7 @@ Coses que pots fer per ell:
   "voice.retry": "Torna-ho a provar",
   "voice.useBrowser": "Fes servir les veus del navegador",
   "voice.mic.keyMissing":
-    "Defineix OPENAI_VOICE_API_KEY per fer servir el micròfon d'OpenAI.",
+    "Afegeix OPENAI_VOICE_API_KEY per fer servir el micròfon d'OpenAI.",
   "voice.mic.tooLarge": "La gravació supera els 25 MB.",
   "voice.mic.rejected": "OpenAI no ha pogut transcriure la gravació.",
   "voice.mic.failed": "La transcripció ha fallat.",
@@ -2013,7 +2013,7 @@ Coses que pots fer per ell:
   "voice.mic.kept": "La gravació es conserva en aquesta pàgina.",
   "voice.mic.transcribing": "S'està transcrivint",
   "voice.speak.keyMissing":
-    "Defineix OPENAI_VOICE_API_KEY per llegir en veu alta amb OpenAI.",
+    "Afegeix OPENAI_VOICE_API_KEY per llegir en veu alta amb OpenAI.",
   "voice.speak.rejected": "OpenAI no ha pogut llegir aquesta resposta.",
   "voice.speak.failed": "La lectura en veu alta ha fallat.",
   "panels.resizer.label": "Canvia l'amplada del plafó lateral",

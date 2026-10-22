@@ -1999,7 +1999,7 @@ Cosas que puedes hacer por él:
   "voice.retry": "Reintentar",
   "voice.useBrowser": "Usar las voces del navegador",
   "voice.mic.keyMissing":
-    "Define OPENAI_VOICE_API_KEY para usar el micrófono de OpenAI.",
+    "Añade OPENAI_VOICE_API_KEY para usar el micrófono de OpenAI.",
   "voice.mic.tooLarge": "La grabación supera los 25 MB.",
   "voice.mic.rejected": "OpenAI no pudo transcribir la grabación.",
   "voice.mic.failed": "La transcripción falló.",
@@ -2007,7 +2007,7 @@ Cosas que puedes hacer por él:
   "voice.mic.kept": "La grabación se guarda en esta página.",
   "voice.mic.transcribing": "Transcribiendo",
   "voice.speak.keyMissing":
-    "Define OPENAI_VOICE_API_KEY para leer en voz alta con OpenAI.",
+    "Añade OPENAI_VOICE_API_KEY para leer en voz alta con OpenAI.",
   "voice.speak.rejected": "OpenAI no pudo leer esta respuesta.",
   "voice.speak.failed": "La lectura en voz alta falló.",
   "panels.resizer.label": "Cambiar el ancho del panel lateral",
