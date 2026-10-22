@@ -125,11 +125,11 @@ The cache is in memory for five minutes after completion and is cleared on resta
 
 A send can reach its destination before all log writes complete. If the send returns an error after delivery, a retry can create a duplicate.
 
-## Reach your office from Claude
+## Reach your office over MCP
 
 The office is also an MCP server at `/mcp`. It takes a personal API token as the bearer. Create a separate token for each client, for example one named "Claude": the agent label then names the client, and revoking the token breaks nothing else.
 
-On Claude Free, Pro or Max, go to **Customize → Connectors**, click **Add → Add custom connector**, enter `<office URL>/mcp`, choose **No sign in**, and add the request header `Authorization: Bearer <token>`. Free allows one custom connector. On Team and Enterprise only an owner adds it, and everyone who uses it then acts as that one member. Claude calls from Anthropic's servers, so this works only for an office with a public address.
+In Claude, go to **Customize → Connectors**, click **Add → Add custom connector**, enter `<office URL>/mcp`, choose **No sign in**, and add the request header `Authorization: Bearer <token>`. Claude calls from Anthropic's servers, so this works only for an office with a public address.
 
 Claude Code and Codex on another machine use the same endpoint. They call from that machine, so a private office works too:
 
@@ -137,6 +137,8 @@ Claude Code and Codex on another machine use the same endpoint. They call from t
 claude mcp add --transport http isomux "$OFFICE_URL/mcp" \
   --header "Authorization: Bearer $TOKEN"
 ```
+
+For Codex, add the server to `~/.codex/config.toml` and export the token as `ISOMUX_TOKEN` in the shell that starts Codex:
 
 ```toml
 # ~/.codex/config.toml
