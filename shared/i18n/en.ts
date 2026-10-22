@@ -3380,6 +3380,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.install": "Install as app",
   "appWidget.installSteps": "Tap Share, then Add to Home Screen.",
   "appWidget.installConfirm": "Install {appName}",
+  "officeInstall.notice": "Isomux works better as an app.",
+  "officeInstall.noticeSteps":
+    "Isomux works better as an app. Tap Share, then Add to Home Screen.",
+  "officeInstall.install": "Install",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

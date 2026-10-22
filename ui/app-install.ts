@@ -1,4 +1,4 @@
-// "Install as app" for an app's short-link page.
+// "Install as app" for the office and for an app's short-link page.
 //
 // Chromium browsers fire beforeinstallprompt when the page links a manifest it
 // can install, and the held event's prompt() shows the browser's own install
@@ -68,9 +68,9 @@ function setHeld(event: BeforeInstallPromptEvent | null): void {
 }
 
 // Starts holding beforeinstallprompt and listening for appinstalled. Called
-// once from ui/index.tsx on the short-link page only, before render: the
-// event can fire before React mounts. On the office page Chrome's own install
-// offer for the office stays.
+// once from ui/index.tsx, before render: the event can fire before React
+// mounts. On the office page the held event serves the office's own Install
+// as app (OfficeInstallNotice, the phone menu, Settings > Device label).
 export function captureInstallPrompt(target: Window = window): void {
   target.addEventListener("beforeinstallprompt", (event) => {
     // Without this, Chrome shows its own install bar.
@@ -108,4 +108,45 @@ export async function promptInstall(): Promise<
     // Chrome refuses prompt() without a user gesture or for a spent event.
     return "unavailable";
   }
+}
+
+// Whether the office shows its one-time "Install as app" notice: in a phone
+// browser that can install the office, on a device that has not seen it.
+export function showOfficeInstallNotice(
+  env: InstallEnv,
+  held: boolean,
+  isMobile: boolean,
+  seen: boolean,
+): boolean {
+  return isMobile && !seen && installMode(env, held) !== null;
+}
+
+let stepsOpen = false;
+const stepsListeners = new Set<() => void>();
+
+function setStepsOpen(open: boolean): void {
+  stepsOpen = open;
+  for (const listener of stepsListeners) listener();
+}
+
+// The phone menu's "Install as app" on iPhone opens the notice with the
+// steps, whether or not the device has seen it.
+export function openOfficeInstallSteps(): void {
+  setStepsOpen(true);
+}
+
+export function closeOfficeInstallSteps(): void {
+  setStepsOpen(false);
+}
+
+export function officeInstallStepsOpen(): boolean {
+  return stepsOpen;
+}
+
+// Calls the listener when the steps open or close. Returns the unsubscribe.
+export function subscribeOfficeInstallSteps(listener: () => void): () => void {
+  stepsListeners.add(listener);
+  return () => {
+    stepsListeners.delete(listener);
+  };
 }

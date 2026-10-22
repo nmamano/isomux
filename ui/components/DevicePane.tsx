@@ -8,6 +8,7 @@ import {
   type RoomTurn,
 } from "../device-settings.ts";
 import { sectionHeader, hint as hintStyle } from "./access-shared.tsx";
+import { OfficeInstallEntry } from "./OfficeInstallNotice.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
   dialogLabel,
@@ -23,9 +24,10 @@ import {
 } from "./UnsavedChangesPrompt.tsx";
 
 // Device-scoped settings (one record per browser, stored in localStorage):
-// the device label and the room switch animation. User-level preferences
-// (notifications, env, language) live on the server and are edited under
-// You, so they follow the person rather than the browser.
+// the device label and the room switch animation, plus Install as app.
+// User-level preferences (notifications, env, language) live on the server
+// and are edited under You, so they follow the person rather than the
+// browser.
 //
 // The label is dirty-capable, so this pane registers into the settings page's
 // closeRef. Without that a sidebar click would drop a typed-but-unsaved label
@@ -94,6 +96,7 @@ export function DevicePane({
         </button>
       </div>
       <RoomTurnSetting />
+      <OfficeInstallEntry />
       {discardPrompt.open && (
         <UnsavedChangesPrompt
           onDiscard={discardPrompt.discard}

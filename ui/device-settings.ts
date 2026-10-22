@@ -111,6 +111,24 @@ export function setAppFilter(filter: AppFilter, on: boolean): void {
   } catch {}
 }
 
+// Whether this device has shown the office's "Install as app" notice
+// (OfficeInstallNotice). It shows once per device.
+const KEY_INSTALL_NOTICE_SEEN = "isomux-install-notice-seen";
+
+export function officeInstallNoticeSeen(): boolean {
+  try {
+    return localStorage.getItem(KEY_INSTALL_NOTICE_SEEN) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function markOfficeInstallNoticeSeen(): void {
+  try {
+    localStorage.setItem(KEY_INSTALL_NOTICE_SEEN, "1");
+  } catch {}
+}
+
 // The Room switch animation for wall doors between two rooms, on this device.
 export type RoomTurn = "off" | "turn-350" | "turn-600";
 const KEY_ROOM_TURN = "isomux-room-turn";

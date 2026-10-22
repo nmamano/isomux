@@ -3428,4 +3428,8 @@ Coses que pots fer per ell:
   "appWidget.installSteps":
     "Toca Comparteix i després Afegeix a la pantalla d'inici.",
   "appWidget.installConfirm": "Instal·la {appName}",
+  "officeInstall.notice": "Isomux funciona millor com a app.",
+  "officeInstall.noticeSteps":
+    "Isomux funciona millor com a app. Toca Comparteix i després Afegeix a la pantalla d'inici.",
+  "officeInstall.install": "Instal·la",
 };

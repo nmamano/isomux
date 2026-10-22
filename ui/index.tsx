@@ -13,9 +13,9 @@ const widgetMeta = document.querySelector<HTMLMetaElement>(
 const widgetBoot = widgetMeta
   ? (JSON.parse(widgetMeta.content) as AppWidgetBoot)
   : null;
-// Only the short-link page holds the install event: on the office page
-// Chrome's own install offer for the office stays.
-if (widgetBoot) captureInstallPrompt();
+// Both pages hold the install event: the short-link page installs its app,
+// the office page installs the office.
+captureInstallPrompt();
 
 const root = createRoot(document.getElementById("root")!);
 root.render(

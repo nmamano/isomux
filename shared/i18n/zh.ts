@@ -3063,4 +3063,8 @@ App 的一些原则：
   "appWidget.install": "安装为应用",
   "appWidget.installSteps": "点按“分享”，然后点按“添加到主屏幕”。",
   "appWidget.installConfirm": "安装 {appName}",
+  "officeInstall.notice": "Isomux 作为应用使用效果更好。",
+  "officeInstall.noticeSteps":
+    "Isomux 作为应用使用效果更好。点按“分享”，然后点按“添加到主屏幕”。",
+  "officeInstall.install": "安装",
 };

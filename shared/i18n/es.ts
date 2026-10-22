@@ -3421,4 +3421,8 @@ Cosas que puedes hacer por él:
   "appWidget.installSteps":
     "Toca Compartir y luego Añadir a pantalla de inicio.",
   "appWidget.installConfirm": "Instalar {appName}",
+  "officeInstall.notice": "Isomux funciona mejor como app.",
+  "officeInstall.noticeSteps":
+    "Isomux funciona mejor como app. Toca Compartir y luego Añadir a pantalla de inicio.",
+  "officeInstall.install": "Instalar",
 };

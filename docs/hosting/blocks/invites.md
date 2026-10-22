@@ -10,5 +10,6 @@ sign-in link. Send the link privately.
 Only invite people you trust: members and their agents can run commands on the
 server with the office's operating-system permissions.
 
-On iPhone, open the office in Safari and select **Share → Add to Home Screen**.
-On Android, open the HTTPS office address in Chrome and use its install option.
+To install the office as an app, select **Install as app** in the phone menu or
+in **Settings → Device label**. Chrome and Edge need the HTTPS office address.
+On iPhone, the office shows the **Share → Add to Home Screen** steps.

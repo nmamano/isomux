@@ -12,6 +12,7 @@ import {
   heldInstallPrompt,
   installMode,
   promptInstall,
+  showOfficeInstallNotice,
   subscribeInstallPrompt,
   type InstallEnv,
 } from "./app-install.ts";
@@ -59,6 +60,26 @@ for (const [label, env, offered] of [
 ] as const) {
   it(`the Apps page offers install in ${label}: ${offered}`, () => {
     expect(canOfferInstall(env)).toBe(offered);
+  });
+}
+
+// The office's one-time notice (task 5d536d33): a phone browser that can
+// install the office, on a device that has not shown it. Each row flips one
+// input of the Android or iPhone row that shows it.
+for (const [label, env, held, isMobile, seen, shows] of [
+  ["Android Chrome with an event", CHROME, true, true, false, true],
+  // No event: not installable here, or already installed.
+  ["Android Chrome with no event", CHROME, false, true, false, false],
+  ["Android Chrome, seen", CHROME, true, true, true, false],
+  ["desktop Chrome with an event", CHROME, true, false, false, false],
+  ["an installed Chrome window", CHROME_APP, true, true, false, false],
+  ["iPhone Safari", IOS_SAFARI, false, true, false, true],
+  ["iPhone Safari, seen", IOS_SAFARI, false, true, true, false],
+  ["an iPhone Home Screen window", IOS_HOME, false, true, false, false],
+  ["Firefox on a phone", FIREFOX, false, true, false, false],
+] as const) {
+  it(`the office notice shows in ${label}: ${shows}`, () => {
+    expect(showOfficeInstallNotice(env, held, isMobile, seen)).toBe(shows);
   });
 }
 

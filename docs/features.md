@@ -52,7 +52,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 
 - **Works on a headless server** - run it on an always-on Linux box or cloud server, and reach it over Tailscale or your own domain.
 - **Open from your phone** - same server URL (VPN or public), touch-optimized UI.
-- **Installable as a PWA** for a native-app feel: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome prompts you to install on first visit (HTTPS or localhost).
+- **Install as app** for a native-app feel, with no app store: a phone browser shows the offer once, and the phone menu and Settings > Device label keep it. Chrome and Edge install the office in one tap (over HTTPS or localhost); on iPhone the office shows the two steps (Share, then Add to Home Screen).
 - **Real-time updates** - every connected device (laptop, phone, others) sees the same conversations and the same filesystem in real time via WebSocket; no syncing headaches.
 
 ## Cute in a useful way

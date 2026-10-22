@@ -85,6 +85,12 @@ import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
 import { askCounts } from "../asks-sync.ts";
+import {
+  OfficeInstallNotice,
+  useInstallMode,
+} from "../components/OfficeInstallNotice.tsx";
+import { InstallIcon } from "../components/install-icons.tsx";
+import { openOfficeInstallSteps, promptInstall } from "../app-install.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -460,6 +466,7 @@ export function OfficeView({
   // screen, the front's otherwise.
   const counts = getRoomCounts(showBackRoom ? backAgents : frontAgents);
 
+  const install = useInstallMode();
   const officeActions: NavAction[] = [
     {
       id: "tasks",
@@ -514,6 +521,21 @@ export function OfficeView({
             label: t("common.integrations"),
             title: t("nav.integrationsShortcut"),
             onClick: onOpenIntegrations,
+          },
+        ]
+      : []),
+    // The phone's permanent Install as app; on a computer it sits in
+    // Settings > Device label.
+    ...(isMobile && install
+      ? [
+          {
+            id: "install",
+            icon: <InstallIcon />,
+            label: t("appWidget.install"),
+            onClick:
+              install === "prompt"
+                ? () => void promptInstall()
+                : openOfficeInstallSteps,
           },
         ]
       : []),
@@ -680,6 +702,8 @@ export function OfficeView({
       <div
         style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}
       >
+        {/* Over the top of the scene, under the room tabs: no control there. */}
+        {!embed && <OfficeInstallNotice />}
         {showBackRoom ? (
           <BackRoomScreen
             roomName={rooms.find((r) => r.id === currentRoomId)?.name ?? ""}
