@@ -309,6 +309,8 @@ async function bootTestServer(
         backupDir: TEST_BACKUP_DIR,
         snapshotDir: null,
       }),
+      // Never the host's /etc/isomux/install-kind marker.
+      installKind: "self-hosted",
       ...opts.startServer,
     });
 

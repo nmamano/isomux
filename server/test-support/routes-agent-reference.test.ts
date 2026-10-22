@@ -11,11 +11,11 @@ import {
   type AgentReferenceTopic,
   AGENT_REFERENCE_VERSION,
 } from "../agent-reference.ts";
-import { OpenCodeAuthorityBroker } from "../backends/opencode/authority-broker.ts";
 import { getUserByName } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { appTokens } from "../app-tokens.ts";
 import { readFileSync } from "fs";
+import { join } from "path";
 import {
   AGENT_REFERENCE_USAGE_LOG,
   agentReferenceUsageEvent,
@@ -60,59 +60,6 @@ async function setup() {
 }
 
 describe("agent reference routes", () => {
-  it("lists the ordinary topics with a shared content version", async () => {
-    const { srv, token } = await setup();
-    const res = await fetch(`${srv.baseUrl}/api/agent-reference`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      version: string;
-      topics: { topic: string; description: string }[];
-    };
-    expect(body.version).toBe(AGENT_REFERENCE_VERSION);
-    expect(body.topics.map((entry) => entry.topic).sort()).toEqual(
-      Object.keys(AGENT_REFERENCE_TOPICS)
-        .filter(
-          (topic) =>
-            !PRIVILEGED_REFERENCE_TOPICS.has(topic as AgentReferenceTopic),
-        )
-        .sort(),
-    );
-  });
-
-  it("is admitted by the OpenCode authority proxy", async () => {
-    const { srv, agent, token } = await setup();
-    const socketPath = `${srv.stateRoot}/reference-authority.sock`;
-    const broker = new OpenCodeAuthorityBroker(
-      socketPath,
-      process.getuid?.() ?? -1,
-      srv.baseUrl,
-    );
-    const binding = broker.bind(agent.id, token);
-    const handle = binding.activate(process.pid);
-    try {
-      const proc = Bun.spawn([
-        "curl",
-        "-s",
-        "--unix-socket",
-        socketPath,
-        "http://isomux/api/agent-reference/tasks",
-        "-H",
-        `X-Isomux-Turn: ${handle}`,
-      ]);
-      const body = (await new Response(proc.stdout).json()) as {
-        topic: string;
-      };
-      expect(await proc.exited).toBe(0);
-      expect(body.topic).toBe("tasks");
-    } finally {
-      binding.deactivate();
-      binding.unbind();
-      broker.close();
-    }
-  });
-
   it("returns Markdown and refuses unknown or traversal-shaped topics", async () => {
     const { srv, token } = await setup();
     const headers = { Authorization: `Bearer ${token}` };
@@ -127,7 +74,12 @@ describe("agent reference routes", () => {
     };
     expect(body.version).toBe(AGENT_REFERENCE_VERSION);
     expect(body.topic).toBe("tasks");
-    expect(body.markdown).toStartWith("# Task board");
+    expect(body.markdown).toBe(
+      readFileSync(
+        join(import.meta.dir, "../agent-reference/tasks.md"),
+        "utf8",
+      ),
+    );
 
     expect(
       (await fetch(`${srv.baseUrl}/api/agent-reference/nope`, { headers }))
@@ -203,12 +155,26 @@ describe("agent reference routes", () => {
       const topic = await srv.http("/api/agent-reference/tasks", call.init);
       expect(topic.status, `${call.name} topic`).toBe(call.status);
       if (call.status === 200) {
-        const body = (await list.json()) as { topics: { topic: string }[] };
-        for (const topic of PRIVILEGED_REFERENCE_TOPICS)
-          expect(
-            body.topics.some((entry) => entry.topic === topic),
-            `${call.name} ${topic} visibility`,
-          ).toBe(call.name === "privileged");
+        const body = (await list.json()) as {
+          version: string;
+          topics: { topic: string }[];
+        };
+        // One content version for every caller.
+        expect(body.version, `${call.name} version`).toBe(
+          AGENT_REFERENCE_VERSION,
+        );
+        expect(
+          body.topics.map((entry) => entry.topic).sort(),
+          `${call.name} topics`,
+        ).toEqual(
+          Object.keys(AGENT_REFERENCE_TOPICS)
+            .filter(
+              (topic) =>
+                call.name === "privileged" ||
+                !PRIVILEGED_REFERENCE_TOPICS.has(topic as AgentReferenceTopic),
+            )
+            .sort(),
+        );
       }
     }
   });

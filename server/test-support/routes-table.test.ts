@@ -1830,10 +1830,10 @@ describe("route table: an APP identity authorizes exactly the app-self routes", 
 
   // The other half of the same invariant, and the reason the list above is not
   // just "whatever the table happens to allow": each app-self route must be
-  // reachable by an app and by NOTHING else. A capability set edited to hand
-  // app:message to agents (or a guard swapped for `authenticated`) passes the
-  // test above and fails here. The pager routes lean on appScope alone, since
-  // agents hold pager:raise too.
+  // reachable by an app and by NOTHING else. A guard swapped for
+  // `authenticated` passes the test above and fails here (app:message handed
+  // to agents is caught by identity-tokens.test.ts, which pins each set). The
+  // pager routes lean on appScope alone, since agents hold pager:raise too.
   it("and those routes are reachable by an app identity ONLY", () => {
     for (const opId of APP_REACHABLE_OPIDS) {
       const route = API_ROUTES.find((r) => r.opId === opId)!;

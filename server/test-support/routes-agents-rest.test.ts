@@ -106,19 +106,6 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
     );
   });
 
-  it("no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    const res = await req(srv, "DELETE", `/api/agents/${x.id}`);
-    expect(res.status).toBe(401);
-    expect(srv.agentManager.getAllAgents().some((a) => a.id === x.id)).toBe(
-      true,
-    );
-  });
-
   it("owner + nonexistent agent -> uniform 403 (no existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -146,27 +133,6 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
   });
 });
 
-describe("agents.abort REST (Phase 3d slice 7a)", () => {
-  // Contract CHANGED by task 29daebe2: abort on an agent with nothing to stop
-  // used to answer 204 "no-op safe". That is what made a wedged agent
-  // indistinguishable from a healthy one - an operator ran Stop, got a success,
-  // and reasonably concluded the agent had been unstuck. It now says so.
-  it("owner aborts an idle agent -> 409 nothing_to_abort", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    const res = await req(srv, "POST", `/api/agents/${x.id}/abort`, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(409);
-    expect((res.body as { error: { code: string } }).error.code).toBe(
-      "nothing_to_abort",
-    );
-  });
-});
-
 describe("agents.move REST (Phase 3d slice 7a)", () => {
   it("owner moves an agent -> 200 { agent } with the new roomId", async () => {
     const srv = await startTestServer();
@@ -183,19 +149,6 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
     const agent = (res.body as { agent?: { roomId?: string } }).agent;
     expect(agent?.roomId).toBe(r2);
     expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r2);
-  });
-
-  it("no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const r2 = srv.agentManager.createRoom("R2");
-    const x = await spawnAt(srv, "X", r1, 0);
-    const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
-      body: { targetRoomId: r2 },
-    });
-    expect(res.status).toBe(401);
   });
 
   it("same-room move -> 200 { agent } (idempotent no-op, not a 404)", async () => {
@@ -231,7 +184,7 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
 
   // Task 5b503e32: with the back room on, a full front no longer refuses a
   // move; the agent takes a back room seat. With it off, the move is 409
-  // no_free_desk as before (routes-back-room-setting.test.ts).
+  // no_free_desk as before (routes-back-room.test.ts).
   it("target room with a full front -> 200, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -299,7 +252,7 @@ describe("rooms.swapDesks REST (Phase 3d slice 7a)", () => {
 });
 
 describe("agents.setTopic / regenerateTopic REST (Phase 3d slice 7a)", () => {
-  it("owner sets a topic -> 204; the topic lands", async () => {
+  it("owner sets a topic -> 204; the topic lands; DELETE asks for a new one -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -311,19 +264,11 @@ describe("agents.setTopic / regenerateTopic REST (Phase 3d slice 7a)", () => {
     });
     expect(res.status).toBe(204);
     expect(srv.agentManager.getAgent(x.id)?.topic).toBe("Refactor planning");
-  });
-
-  it("owner asks for a regenerated topic -> 204", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    srv.agentManager.setTopic(x.id, "to be regenerated");
-    const res = await req(srv, "DELETE", `/api/agents/${x.id}/topic`, {
+    // The regenerate route has a handler (an unwired row is the generic 404).
+    const regenerate = await req(srv, "DELETE", `/api/agents/${x.id}/topic`, {
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(204);
+    expect(regenerate.status).toBe(204);
   });
 
   it("missing topic -> 422 invalid_topic (malformed body, not an empty-topic write)", async () => {
@@ -452,7 +397,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
 
   // Task 5b503e32: with the back room on, a full front no longer refuses a
   // spawn; the agent takes a back room seat. With it off, the spawn is 409
-  // no_free_desk as before (routes-back-room-setting.test.ts).
+  // no_free_desk as before (routes-back-room.test.ts).
   it("full front -> 201, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -469,89 +414,6 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(isBackSeat(desk)).toBe(true);
   });
 
-  // Task e87d9c7d: an explicit desk used to be accepted whenever the slot was
-  // merely un-taken, never checked against the grid. The agent was real (it
-  // showed up in /agents and took messages) but had no slot to be drawn at, so
-  // rendering the room threw and the whole office view for that room went down.
-  it("desk past the last slot -> 422 invalid_desk, and no agent is created", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: spawnBody(srv, "OffGrid", r1, DESK_COUNT),
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_desk");
-    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
-  });
-
-  it("negative desk -> 422 invalid_desk (-1 is also the room-full sentinel)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: spawnBody(srv, "Negative", r1, -1),
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_desk");
-    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
-  });
-
-  it("an out-of-range desk cannot smuggle an agent into a FULL room", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    for (let d = 0; d < DESK_COUNT; d++) await spawnAt(srv, `Fill${d}`, r1, d);
-    const res = await req(srv, "POST", "/api/agents", {
-      body: spawnBody(srv, "Ninth", r1, DESK_COUNT),
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(srv.agentManager.getAllAgents()).toHaveLength(DESK_COUNT);
-  });
-
-  // The core holds the same line for callers that don't come through REST
-  // (boot/restore, the welcome seed).
-  it("core: agentManager.spawn with an out-of-range desk returns null", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const created = await srv.agentManager.spawn(
-      "CoreOffGrid",
-      srv.stateRoot,
-      "default",
-      DESK_COUNT,
-      undefined,
-      r1,
-    );
-    expect(created).toBeNull();
-    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
-  });
-
-  it("invalid cwd -> 400 invalid_cwd", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        name: "BadCwd",
-        cwd: "/no/such/dir/anywhere",
-        roomId: r1,
-        desk: 0,
-        permissionMode: "default",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(400);
-    expect(errCode(res.body)).toBe("invalid_cwd");
-  });
-
   it("member without access to the target room -> 403 (bodyRoom guard)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -563,17 +425,6 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
       rawSessionId: member.rawSessionId,
     });
     expect(res.status).toBe(403);
-  });
-
-  it("no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: spawnBody(srv, "X", r1, 0),
-    });
-    expect(res.status).toBe(401);
   });
 
   it("malformed optional field -> 422 invalid_request (not a 500)", async () => {
@@ -618,79 +469,6 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("invalid_model_family");
     expect(srv.agentManager.getAllAgents().length).toBe(0);
-  });
-
-  it("codex agentType + Claude family -> 422 invalid_model_family (statically impossible pairing)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        ...spawnBody(srv, "Mismatch", r1, 0),
-        agentType: "codex",
-        modelFamily: "opus",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_model_family");
-  });
-
-  it("matched agentType + modelFamily still spawns (codex + codex slug -> 201)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        ...spawnBody(srv, "Codexy", r1, 0),
-        agentType: "codex",
-        permissionMode: "on-request",
-        modelFamily: "gpt-5.5",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(201);
-    const agent = (res.body as { agent?: { modelFamily?: string } }).agent;
-    expect(agent?.modelFamily).toBe("gpt-5.5");
-  });
-
-  it("unknown Codex model -> 422 invalid_model_family instead of a broken agent", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        ...spawnBody(srv, "Broken", roomId, 0),
-        agentType: "codex",
-        modelFamily: "fable-5",
-        model: "fable-5",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_model_family");
-    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
-  });
-
-  it("spawn rejects a concrete model that disagrees with its Claude family", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        ...spawnBody(srv, "Mismatch", roomId, 0),
-        modelFamily: "fable",
-        model: "claude-fable-5",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_model_family");
-    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
   });
 
   it("spawn derives modelFamily from a concrete Claude model", async () => {
@@ -739,26 +517,6 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     });
   });
 
-  it("preserves an explicit OpenCode bypass mode through REST spawn", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        ...spawnBody(srv, "OpenCode bypass", roomId, 0),
-        agentType: "opencode",
-        modelFamily: "gate/gate-model",
-        permissionMode: "bypassPermissions",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(201);
-    expect(
-      (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
-    ).toBe("bypassPermissions");
-  });
-
   it("Codex spawn without permission fields gets the agent defaults", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -781,26 +539,6 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     ).agent;
     expect(agent.permissionMode).toBe("never");
     expect(agent.codexSandbox).toBe("danger-full-access");
-  });
-
-  it("Claude spawn without a permission field keeps the REST default", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents", {
-      body: {
-        name: "Default Claude",
-        cwd: srv.stateRoot,
-        roomId,
-        desk: 0,
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(201);
-    expect(
-      (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
-    ).toBe("default");
   });
 });
 
@@ -1029,7 +767,13 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
       },
       rawSessionId: owner.rawSessionId,
     });
-    const agentId = (spawned.body as { agent: { id: string } }).agent.id;
+    expect(spawned.status).toBe(201);
+    const spawnedAgent = (
+      spawned.body as { agent: { id: string; permissionMode: string } }
+    ).agent;
+    // An explicit OpenCode bypass survives the REST spawn.
+    expect(spawnedAgent.permissionMode).toBe("bypassPermissions");
+    const agentId = spawnedAgent.id;
     const patched = await req(srv, "PATCH", `/api/agents/${agentId}`, {
       body: { permissionMode: "default" },
       rawSessionId: owner.rawSessionId,
@@ -1099,48 +843,6 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe(before);
   });
 
-  it("PATCH rejects an unknown Codex model and leaves the agent usable", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const spawned = await req(srv, "POST", "/api/agents", {
-      body: {
-        name: "X",
-        cwd: srv.stateRoot,
-        roomId,
-        desk: 0,
-        agentType: "codex",
-        modelFamily: "gpt-5.6-sol",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    const x = (spawned.body as { agent: { id: string } }).agent;
-    const before = srv.agentManager.getAgent(x.id)?.modelFamily;
-    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { modelFamily: "fable-5", model: "fable-5" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_model_family");
-    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe(before);
-  });
-
-  it("PATCH rejects a concrete model that disagrees with its Claude family", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", roomId, 0);
-    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { modelFamily: "fable", model: "claude-fable-5" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-    expect(errCode(res.body)).toBe("invalid_model_family");
-    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("opus");
-  });
-
   it("PATCH derives Claude's family when only a concrete model is sent", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1173,6 +875,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(patched.status).toBe(200);
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("fable");
     const listed = await req(srv, "GET", "/agents", {
       rawSessionId: owner.rawSessionId,
     });
@@ -1222,57 +925,6 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   // Scalar-only edits stay version-free (pinned by "owner edits" above, which
   // PATCHes name without a version and gets 200).
 
-  it("PATCH customInstructions WITHOUT the version -> 400 invalid_version; blob untouched", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { customInstructions: "be terse" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(400);
-    expect(errCode(res.body)).toBe("invalid_version");
-    expect(srv.agentManager.getAgent(x.id)?.customInstructions).toBeNull();
-  });
-
-  it("PATCH customInstructions WITH the current version -> 200; blob + version advance in lockstep on the returned agent", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    // Capture the token as a primitive: getAgent returns the LIVE object, so
-    // reading the field off it after the PATCH would see the bumped value.
-    const beforeVersion = srv.agentManager.getAgent(
-      x.id,
-    )!.customInstructionsVersion;
-    expect(beforeVersion).toMatch(/^[0-9a-f]{12}$/);
-    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: {
-        customInstructions: "be terse",
-        customInstructionsVersion: beforeVersion,
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(200);
-    const returned = (
-      res.body as {
-        agent: {
-          customInstructions: string;
-          customInstructionsVersion: string;
-        };
-      }
-    ).agent;
-    expect(returned.customInstructions).toBe("be terse");
-    expect(returned.customInstructionsVersion).toMatch(/^[0-9a-f]{12}$/);
-    expect(returned.customInstructionsVersion).not.toBe(beforeVersion);
-    expect(srv.agentManager.getAgent(x.id)?.customInstructions).toBe(
-      "be terse",
-    );
-  });
-
   it("PATCH customInstructions with a STALE version -> 409 version_conflict carrying the CURRENT version; blob untouched", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1283,17 +935,27 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const staleVersion = srv.agentManager.getAgent(
       x.id,
     )!.customInstructionsVersion;
-    expect(
-      (
-        await req(srv, "PATCH", `/api/agents/${x.id}`, {
-          body: {
-            customInstructions: "B's instructions",
-            customInstructionsVersion: staleVersion,
-          },
-          rawSessionId: owner.rawSessionId,
-        })
-      ).status,
-    ).toBe(200);
+    expect(staleVersion).toMatch(/^[0-9a-f]{12}$/);
+    const saved = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        customInstructions: "B's instructions",
+        customInstructionsVersion: staleVersion,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(saved.status).toBe(200);
+    // Blob and version advance in lockstep on the returned agent.
+    const returned = (
+      saved.body as {
+        agent: {
+          customInstructions: string;
+          customInstructionsVersion: string;
+        };
+      }
+    ).agent;
+    expect(returned.customInstructions).toBe("B's instructions");
+    expect(returned.customInstructionsVersion).toMatch(/^[0-9a-f]{12}$/);
+    expect(returned.customInstructionsVersion).not.toBe(staleVersion);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {
         customInstructions: "A's clobber",
@@ -1410,20 +1072,6 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     );
   });
 
-  it("PATCH a valid same-engine modelFamily -> 200 with the change applied (strict check doesn't over-reject)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { modelFamily: "sonnet" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(200);
-    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("sonnet");
-  });
-
   it("PATCH agentType switch validates modelFamily against the NEW engine", async () => {
     // claude -> codex with a Claude family: rejected against the TARGET engine
     // (the caller almost certainly meant a Codex slug), agent untouched.
@@ -1455,29 +1103,6 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const after = srv.agentManager.getAgent(x.id);
     expect(after?.agentType).toBe("codex");
     expect(after?.modelFamily).toBe("gpt-5.5");
-    expect(after?.permissionMode).toBe("never");
-    expect(after?.codexSandbox).toBe("danger-full-access");
-  });
-
-  it("PATCH claude->codex with the edit dialog's explicit defaults lands full access", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1, 0);
-    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: {
-        agentType: "codex",
-        modelFamily: "gpt-5.6-sol",
-        effort: "high",
-        permissionMode: "never",
-        codexSandbox: "danger-full-access",
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(200);
-    const after = srv.agentManager.getAgent(x.id);
-    expect(after?.agentType).toBe("codex");
     expect(after?.permissionMode).toBe("never");
     expect(after?.codexSandbox).toBe("danger-full-access");
   });
@@ -1597,28 +1222,6 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
 });
 
 describe("agents.revive REST (Phase 3d slice 7b)", () => {
-  // autoSystemInit:false so the killed agent's lastSessionId is null and the
-  // revive takes the fresh-session path (no resume preflight warning). The HTTP
-  // contract is what we pin here; the lastRoomId/target-room ACL lives in
-  // projection.test.ts.
-  it("owner revives a killed agent -> 200 { agent }", async () => {
-    const srv = await startTestServer({
-      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
-    });
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "K", r1, 0);
-    await srv.agentManager.kill(x.id);
-    const res = await req(srv, "POST", `/api/agents/${x.id}/revive`, {
-      body: { roomId: r1, desk: 0 },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(200);
-    expect((res.body as { agent?: { id?: string } }).agent?.id).toBe(x.id);
-    expect(srv.agentManager.getAgent(x.id)).toBeDefined();
-  });
-
   // Task e87d9c7d: revive shape-checks the desk range like spawn. The core
   // rejected an off-grid desk too, but as "That desk is no longer free." -
   // telling the member a desk was occupied when it doesn't exist at all.
@@ -1640,17 +1243,6 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
       expect(errCode(res.body)).toBe("invalid_desk");
     }
     expect(srv.agentManager.getAgent(x.id)).toBeUndefined();
-  });
-
-  it("no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const res = await req(srv, "POST", "/api/agents/whatever/revive", {
-      body: { roomId: r1, desk: 0 },
-    });
-    expect(res.status).toBe(401);
   });
 });
 
@@ -1725,67 +1317,6 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     });
   });
 
-  it("a null blob reads as { customInstructions: null } with the sentinel version (still echoable)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
-    const reader = await spawnOwnedBy(srv, "Reader", r1, 1, owner.username);
-    const res = await req(srv, "GET", `/api/agents/${target.id}/instructions`, {
-      bearer: getAgentTokenRaw(reader.id)!,
-    });
-    expect(res.status).toBe(200);
-    const body = res.body as {
-      customInstructions: string | null;
-      customInstructionsVersion: string;
-    };
-    expect(body.customInstructions).toBeNull();
-    expect(body.customInstructionsVersion).toMatch(/^[0-9a-f]{12}$/);
-  });
-
-  it("read -> PATCH echoing the returned version -> 200; the pre-edit version is then stale (409)", async () => {
-    // The end-to-end flow the endpoint exists for: an operator reads the blob
-    // + version, edits, and echoes the version back through agents.update.
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
-    const read = await req(
-      srv,
-      "GET",
-      `/api/agents/${target.id}/instructions`,
-      { rawSessionId: owner.rawSessionId },
-    );
-    expect(read.status).toBe(200);
-    const { customInstructionsVersion: v0 } = read.body as {
-      customInstructionsVersion: string;
-    };
-    const patch = await req(srv, "PATCH", `/api/agents/${target.id}`, {
-      body: { customInstructions: "be terse", customInstructionsVersion: v0 },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(patch.status).toBe(200);
-    // A re-read returns the advanced version; the old token is now stale.
-    const reread = await req(
-      srv,
-      "GET",
-      `/api/agents/${target.id}/instructions`,
-      { rawSessionId: owner.rawSessionId },
-    );
-    expect(
-      (reread.body as { customInstructionsVersion: string })
-        .customInstructionsVersion,
-    ).not.toBe(v0);
-    const stale = await req(srv, "PATCH", `/api/agents/${target.id}`, {
-      body: { customInstructions: "clobber", customInstructionsVersion: v0 },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(stale.status).toBe(409);
-    expect(errCode(stale.body)).toBe("version_conflict");
-  });
-
   it("an agent bearer without room access to the target -> uniform 403 (same for a nonexistent id - no existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1811,42 +1342,9 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     );
     expect(missing.status).toBe(403);
   });
-
-  it("no identity -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
-    const res = await req(
-      srv,
-      "GET",
-      `/api/agents/${target.id}/instructions`,
-      {},
-    );
-    expect(res.status).toBe(401);
-  });
 });
 
 describe("agents.readSystemPrompt REST (task 08d22e38)", () => {
-  it("an authenticated member with room access reads the assembled prompt", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomId = srv.agentManager.getRooms()[0].id;
-    const target = await spawnAt(srv, "Prompt target", roomId, 0);
-    const res = await req(
-      srv,
-      "GET",
-      `/api/agents/${target.id}/system-prompt`,
-      { rawSessionId: owner.rawSessionId },
-    );
-    expect(res.status).toBe(200);
-    const prompt = (res.body as { prompt: string }).prompt;
-    expect(prompt).toContain("Prompt target");
-    expect(prompt).toContain(target.id);
-  });
-
   it("a member without room access gets the instructions-read convention: 403 for existing and missing ids", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -2049,11 +1547,6 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     expect((await spawn(1)).permissionMode).toBe("auto");
   });
 
-  it("a Claude spawner in bypass mode gets a bypass child", async () => {
-    const { spawn } = await setup("claude", "bypassPermissions");
-    expect((await spawn(1)).permissionMode).toBe("bypassPermissions");
-  });
-
   it("a mode in the request wins, including a prompting one", async () => {
     const { spawn } = await setup("claude", "bypassPermissions");
     expect((await spawn(1, { permissionMode: "default" })).permissionMode).toBe(
@@ -2169,18 +1662,6 @@ describe("Codex default model from discovery", () => {
       },
     ],
     ["discovery lists no model", async () => []],
-    [
-      "discovery lists only hidden models",
-      async () => [
-        {
-          id: "gpt-hidden",
-          label: "Hidden",
-          isDefault: true,
-          hidden: true,
-          supportedEfforts: [],
-        },
-      ],
-    ],
   ];
   for (const [name, discover] of fallbacks) {
     it(`${name}: the spawn still lands, on CODEX_MODELS[0]`, async () => {

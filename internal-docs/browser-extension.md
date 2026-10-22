@@ -30,7 +30,7 @@ the code. The member pairs again after a lost paired response.
 
 `browser-connections.json` holds a version-2 list of browsers per member (see "Several paired browsers"). Version-1 envelopes and legacy flat maps also load. Old headless choices become extension records; valid paired credentials remain usable. Missing or invalid state requires fresh pairing. Redemption preserves unreadable/corrupt source data under a unique `.unavailable-` filename before an atomic replacement, and restores it if the write fails. No raw credentials are saved server-side.
 
-The removed PATCH `/api/me/browser` returns JSON 404 through the existing retired-route wall. Status no longer reports a backend or selectionRequired. Legacy experimental panel settings are ignored on load and update. The old panel WebSocket commands are ignored; no frames or input callbacks exist. Saved server profile files remain untouched and are never loaded or imported. Pairing never grants a tab automatically.
+The removed PATCH `/api/me/browser` returns the `/api` JSON 404 (`not_found`), as any unknown `/api` route does. Status no longer reports a backend or selectionRequired. Legacy experimental panel settings are ignored on load and update. The old panel WebSocket commands are ignored; no frames or input callbacks exist. Saved server profile files remain untouched and are never loaded or imported. Pairing never grants a tab automatically.
 
 ## Socket and recovery
 

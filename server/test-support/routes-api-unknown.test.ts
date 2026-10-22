@@ -24,8 +24,9 @@ const UNKNOWN: Array<{ method: string; path: string }> = [
   { method: "POST", path: "/api/apps/proyectos/nonsense" },
   { method: "GET", path: "/api/nonsense" },
   { method: "GET", path: "/api/" },
-  // A real path with a method it does not serve.
+  // A real path with a method it does not serve, and a retired method.
   { method: "DELETE", path: "/api/tasks" },
+  { method: "PATCH", path: "/api/me/browser" },
   // One %2f decode, as the retired-path wall does.
   { method: "GET", path: "/api%2fnonsense" },
 ];
@@ -60,52 +61,26 @@ async function expectApiNotFound(res: Response, method: string, path: string) {
 }
 
 describe("routes/api-unknown: an unmatched /api path is a JSON 404", () => {
-  it("an owner cookie gets the /api 404 envelope", async () => {
+  it("an owner cookie and an agent bearer get the /api 404 envelope; anonymous callers 401 at the wall", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-    for (const { method, path } of UNKNOWN) {
-      const res = await send(srv, method, path, {
-        rawSessionId: owner.rawSessionId,
-      });
-      await expectApiNotFound(res, method, path);
-    }
-  });
-
-  it("an agent bearer gets the same 404", async () => {
-    const srv = await startTestServer();
-    server = srv;
     const raw = mintAgentToken("agent-unknown-api", "user-1");
     for (const { method, path } of UNKNOWN) {
-      const res = await send(srv, method, path, {
-        headers: { Authorization: `Bearer ${raw}` },
-      });
-      await expectApiNotFound(res, method, path);
-    }
-  });
-
-  it("the 404 matches what a known /api route answers for a miss", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const known = await srv.http("/api/tasks/deadbeef", {
-      rawSessionId: owner.rawSessionId,
-    });
-    const unknown = await srv.http("/api/nonsense", {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(known.status).toBe(404);
-    expect(Object.keys(await unknown.json())).toEqual(
-      Object.keys(await known.json()),
-    );
-  });
-
-  it("anonymous callers still 401 at the cookie wall", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    for (const { method, path } of UNKNOWN) {
-      const res = await send(srv, method, path, {});
-      expect({ method, path, status: res.status }).toEqual({
+      await expectApiNotFound(
+        await send(srv, method, path, { rawSessionId: owner.rawSessionId }),
+        method,
+        path,
+      );
+      await expectApiNotFound(
+        await send(srv, method, path, {
+          headers: { Authorization: `Bearer ${raw}` },
+        }),
+        method,
+        path,
+      );
+      const anonymous = await send(srv, method, path, {});
+      expect({ method, path, status: anonymous.status }).toEqual({
         method,
         path,
         status: 401,

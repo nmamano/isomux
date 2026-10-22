@@ -481,7 +481,7 @@ function providerDisplayName(provider: string): string {
   return provider === "claude" ? "Claude" : "Codex";
 }
 
-export function needsInterruptionMarker(
+function needsInterruptionMarker(
   tail: Pick<LogEntry, "kind"> | undefined,
 ): boolean {
   return tail?.kind === "user_message";

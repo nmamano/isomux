@@ -17,9 +17,8 @@
 //   - /api/upload and /api/files require a cookie even from loopback (there is
 //     no loopback bypass anywhere). Auth posture itself is frozen in routes-auth;
 //     here we use a seeded owner cookie.
-//   - Upload limits are 5 files / 200MB each / 400MB total in code today. We
-//     freeze the cheap COUNT limit; the byte limits are intentionally NOT
-//     exercised (allocating >200MB would bloat `bun test`).
+//   - Upload limits are 5 files / 200MB each / 400MB total. The cheap COUNT
+//     limit is pinned; the byte limits are not (>200MB would bloat `bun test`).
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -105,19 +104,7 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
     { action: "terminal-command", body: { command: "bun test" } },
     { action: "diff", body: {} },
   ];
-  for (const { action, body } of cases) {
-    it(`no-bearer legacy POST /agents/:id/${action} -> 401 (fail closed)`, async () => {
-      const srv = await startTestServer();
-      server = srv;
-      await srv.seedOwner("Morgan");
-      const room = srv.agentManager.getRooms()[0];
-      const a = await spawnAgent(srv, "Worker", room.id);
-      const r = await affordance(srv, a.id, action, body);
-      expect(r.status).toBe(401);
-    });
-  }
-
-  it("a valid AGENT bearer to a deleted affordance path -> 404 (no side effect)", async () => {
+  it("no bearer -> 401; a valid AGENT bearer to a deleted affordance path -> 404 (no side effect)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -128,15 +115,18 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
     // A valid bearer clears the cookie wall, but the deleted affordance sub-block
     // is gone; the /agents/ POST block's JSON-404 fallback rejects it instead of
     // the SPA 200 HTML fall-through that would mask stale callers.
-    const r = await affordance(
-      srv,
-      a.id,
-      "read-file",
-      { path: "hello.txt" },
-      token,
-    );
-    expect(r.status).toBe(404);
-    expect(r.body.error).toBe("not found");
+    for (const { action, body } of cases) {
+      expect({
+        action,
+        status: (await affordance(srv, a.id, action, body)).status,
+      }).toEqual({ action, status: 401 });
+      const r = await affordance(srv, a.id, action, body, token);
+      expect({ action, status: r.status, error: r.body.error }).toEqual({
+        action,
+        status: 404,
+        error: "not found",
+      });
+    }
     // Fail-closed: the deleted handler never ran, so no file-view card emitted.
     sock.send({ type: "ping" });
     await sock.waitFor("pong");
@@ -156,41 +146,7 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
 });
 
 describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
-  it("upload to an unknown agent -> 403, the same as a denial", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const fd = new FormData();
-    fd.append("file", new File(["x"], "x.txt", { type: "text/plain" }));
-    const res = await srv.http(`/api/upload/ghost`, {
-      method: "POST",
-      body: fd,
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(403);
-    expect((await res.json()).error.code).toBe("forbidden");
-  });
-
-  it("more than 5 files -> 400 too_many_files", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    const fd = new FormData();
-    for (let i = 0; i < 6; i++) {
-      fd.append("file", new File(["x"], `f${i}.txt`, { type: "text/plain" }));
-    }
-    const res = await srv.http(`/api/upload/${a.id}`, {
-      method: "POST",
-      body: fd,
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(400);
-    expect((await res.json()).error.code).toBe("too_many_files");
-  });
-
-  it("small upload returns attachments, then GET /api/files serves the bytes; unknown filename -> 404", async () => {
+  it("small upload returns attachments, then GET /api/files serves the bytes; unknown filename -> 404; six files -> 400 too_many_files", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -235,5 +191,16 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(miss.status).toBe(404);
+    // Six files is one over the count limit.
+    const six = new FormData();
+    for (let i = 0; i < 6; i++)
+      six.append("file", new File(["x"], `f${i}.txt`, { type: "text/plain" }));
+    const tooMany = await srv.http(`/api/upload/${a.id}`, {
+      method: "POST",
+      body: six,
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(tooMany.status).toBe(400);
+    expect((await tooMany.json()).error.code).toBe("too_many_files");
   });
 });

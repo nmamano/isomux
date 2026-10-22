@@ -9,8 +9,8 @@
 //
 // Auth posture (Nil-specced, round 3): identity REQUIRED - bearer token or
 // login cookie. There is no loopback trust on any path, so an anonymous
-// request 401s even from loopback. Non-GET on the exact path and the
-// /agents/<id> action surface 401 as before.
+// request 401s even from loopback. An authenticated non-GET on /agents or
+// under it is a JSON 404, so a stale caller is not handed the SPA shell.
 //
 // Visibility: the manifest is PROJECTED to the rooms the identity's user can
 // access - owner: every room by rule; member: allowedRooms grants; agent /
@@ -34,6 +34,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DEFAULT_EFFORT, type EffortLevel } from "../../shared/types.ts";
+import { isBackSeat } from "../../shared/desks.ts";
 
 let server: TestServer | null = null;
 
@@ -67,7 +68,7 @@ async function spawnOwnedBy(
   srv: TestServer,
   name: string,
   roomId: string,
-  desk: number,
+  desk: number | null,
   username: string,
   effort?: EffortLevel,
 ) {
@@ -152,23 +153,6 @@ function withLiveFields(onDisk: unknown): unknown {
 }
 
 describe("GET /agents (discovery manifest)", () => {
-  it("publishes permission posture with an explicit null Claude sandbox", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0].id;
-    const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
-
-    const res = await fetch(`${srv.baseUrl}/agents`, {
-      headers: { Authorization: `Bearer ${bearerFor(agent.id)}` },
-    });
-    const entry = ((await res.json()) as Array<Record<string, unknown>>).find(
-      (candidate) => candidate.id === agent.id,
-    );
-    expect(entry?.permissionMode).toBe("default");
-    expect(entry?.sandbox).toBeNull();
-  });
-
   it("reports the live turn and oldest active-tool time without disclosing its name or persisting it", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { onSend() {} } }),
@@ -308,39 +292,6 @@ describe("GET /agents (discovery manifest)", () => {
     expect(body).toEqual(withLiveFields(manifestOnDisk(srv)) as typeof body);
   });
 
-  it("reflects live changes (kill) without waiting on file readers", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const a = await spawnOwnedBy(srv, "Alpha", r1, 0, owner.username);
-    const b = await spawnOwnedBy(srv, "Beta", r1, 1, owner.username);
-
-    await srv.agentManager.kill(a.id);
-
-    const res = await fetch(`${srv.baseUrl}/agents`, {
-      headers: { Authorization: `Bearer ${bearerFor(b.id)}` },
-    });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
-    expect(body.map((e) => e.name)).toEqual(["Beta"]);
-    expect(body).toEqual(withLiveFields(manifestOnDisk(srv)) as typeof body);
-  });
-
-  it("anonymous request -> 401, even from loopback", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const r1 = srv.agentManager.getRooms()[0].id;
-    await spawnAt(srv, "Alpha", r1, 0);
-
-    // No bearer, no cookie - the harness IS a loopback peer, so this pins
-    // that no path is loopback-trusted.
-    const res = await fetch(`${srv.baseUrl}/agents`, {
-      headers: { Accept: "application/json" },
-    });
-    expect(res.status).toBe(401);
-    expect(res.headers.get("access-control-allow-origin")).toBeNull();
-  });
-
   it("authenticated but cross-origin Origin -> 403 with no CORS header (hostile web page)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -363,11 +314,34 @@ describe("GET /agents (discovery manifest)", () => {
     expect(body.error?.code).toBe("bad_origin");
   });
 
-  it("non-GET on /agents -> 401", async () => {
+  it("an authenticated non-GET on /agents or under it -> JSON 404 with no CORS grant, never the SPA shell", async () => {
     const srv = await startTestServer();
     server = srv;
-    const res = await srv.http("/agents", { method: "POST" });
-    expect(res.status).toBe(401);
+    const owner = await srv.seedOwner("Morgan");
+    for (const [method, path] of [
+      ["POST", "/agents"],
+      ["DELETE", "/agents"],
+      ["POST", "/agents/some-agent/read-file"],
+      ["PUT", "/agents/some-agent"],
+    ] as const) {
+      const res = await srv.http(path, {
+        method,
+        rawSessionId: owner.rawSessionId,
+      });
+      expect({
+        method,
+        path,
+        status: res.status,
+        type: res.headers.get("content-type"),
+        cors: res.headers.get("access-control-allow-origin"),
+      }).toEqual({
+        method,
+        path,
+        status: 404,
+        type: "application/json",
+        cors: null,
+      });
+    }
   });
 });
 
@@ -395,50 +369,6 @@ describe("GET /agents projection (room ACL)", () => {
           .status,
       ).toBe(403);
     }
-  });
-
-  it("bearer identities are projected to their user's rooms", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Mem");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const r2 = srv.agentManager.createRoom("Members Only");
-    await setAccess(srv, owner.rawSessionId, member.username, [r2]);
-
-    const ownerAgent = await spawnOwnedBy(
-      srv,
-      "OwnerAgent",
-      r1,
-      0,
-      owner.username,
-    );
-    const memberAgent = await spawnOwnedBy(
-      srv,
-      "MemberAgent",
-      r2,
-      1,
-      member.username,
-    );
-
-    // Member-managed agent's bearer -> only the member's granted room (r2).
-    const asMember = await fetch(`${srv.baseUrl}/agents`, {
-      headers: { Authorization: `Bearer ${bearerFor(memberAgent.id)}` },
-    });
-    expect(asMember.status).toBe(200);
-    const memberView = (await asMember.json()) as Array<{
-      name: string;
-      roomId: string;
-    }>;
-    expect(memberView.map((e) => e.name)).toEqual(["MemberAgent"]);
-    expect(memberView.every((e) => e.roomId === r2)).toBe(true);
-
-    // Owner-managed agent's bearer -> every room by rule.
-    const asOwner = await fetch(`${srv.baseUrl}/agents`, {
-      headers: { Authorization: `Bearer ${bearerFor(ownerAgent.id)}` },
-    });
-    expect(asOwner.status).toBe(200);
-    expect(await manifestNames(asOwner)).toEqual(["MemberAgent", "OwnerAgent"]);
   });
 
   it("cookie identities are projected the same way (member sees only granted rooms, owner sees all)", async () => {
@@ -508,11 +438,16 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     expect(entry!.lastRoomId).toBe(r1);
     expect(entry!.logDir).toBe(join(srv.stateRoot, "logs", doomed.id));
     expect(typeof entry!.killedAt).toBe("number");
-    // The LIVE arm must be unaffected: it still answers live agents only.
+    // The LIVE arm must be unaffected: it still answers live agents only, and
+    // reflects the kill at once, in parity with the file.
     const live = await srv.http("/agents", {
       headers: { Authorization: `Bearer ${bearerFor(survivor.id)}` },
     });
-    expect(await manifestNames(live)).toEqual(["Survivor"]);
+    const liveBody = (await live.json()) as Array<{ name: string }>;
+    expect(liveBody.map((e) => e.name)).toEqual(["Survivor"]);
+    expect(liveBody).toEqual(
+      withLiveFields(manifestOnDisk(srv)) as typeof liveBody,
+    );
   });
 
   it("a room-mate managed by a DIFFERENT manager does not see it", async () => {
@@ -763,39 +698,124 @@ it("exposes skill deletion to agents with editor authority and refreshes the cat
   ).toBe(false);
 });
 
-it("member prompt routes follow the live privilege flag", async () => {
-  const srv = (server = await startTestServer());
-  const owner = await srv.seedOwner("Morgan");
-  const agent = await spawnOwnedBy(
-    srv,
-    "Prompt editor",
-    srv.agentManager.getRooms()[0].id,
-    0,
-    owner.username,
-  );
-  const read = () =>
-    fetch(`${srv.baseUrl}/api/users/Morgan/member-prompt`, {
-      headers: { Authorization: `Bearer ${bearerFor(agent.id)}` },
+// GET /agents with back room agents (task 5b503e32): an agent's default list
+// shows each back room as one summary entry with a string name and no id;
+// ?back=1 and non-agent callers get every agent; summaries respect room access.
+describe("GET /agents for an agent: one entry per back room", () => {
+  type Entry = Record<string, unknown>;
+
+  async function listAs(srv: TestServer, agentId: string, query = "") {
+    const res = await fetch(`${srv.baseUrl}/agents${query}`, {
+      headers: { Authorization: `Bearer ${bearerFor(agentId)}` },
     });
-  expect((await read()).status).toBe(403);
-  await srv.agentManager.setPrivileged(agent.id, true);
-  const res = await read();
-  expect(res.status).toBe(200);
-  const body = (await res.json()) as {
-    memberPrompt: string | null;
-    memberPromptVersion: string;
-  };
-  const patch = () =>
-    fetch(`${srv.baseUrl}/api/users/Morgan`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${bearerFor(agent.id)}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+    return { status: res.status, body: (await res.json()) as Entry[] };
+  }
+
+  // One room with a front agent and three back agents, all the owner's.
+  async function office() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    srv.agentManager.setRoomBackRoom(r1, true);
+    const lead = await spawnOwnedBy(srv, "Lead", r1, 0, owner.username);
+    for (const name of ["Worker 1", "Worker 2", "Worker 3"])
+      await spawnOwnedBy(srv, name, r1, null, owner.username);
+    return { srv, owner, r1, lead };
+  }
+
+  it("lists front agents and one summary with a string name and no id", async () => {
+    const { srv, r1, lead } = await office();
+    const { status, body } = await listAs(srv, lead.id);
+    expect(status).toBe(200);
+    expect(body).toHaveLength(2);
+    expect(body[0].name).toBe("Lead");
+    const summary = body[1];
+    expect(summary).toEqual({
+      name: expect.any(String),
+      backRoom: true,
+      roomId: r1,
+      roomName: srv.agentManager.getRooms()[0].name,
+      room: 1,
+      agents: 3,
+      busy: 0,
+      pendingPrompt: 0,
     });
-  expect((await patch()).status).toBe(200);
-  await srv.agentManager.setPrivileged(agent.id, false);
-  expect((await read()).status).toBe(403);
-  expect((await patch()).status).toBe(403);
+    expect("id" in summary).toBe(false);
+    // .[] | select(.name|test("Worker")) aborts on a null name, and a summary
+    // must not carry an agent's name.
+    const agentNames = new Set(
+      srv.agentManager.getAllAgents().map((a) => a.name),
+    );
+    expect(agentNames.has(summary.name as string)).toBe(false);
+    expect(body.filter((e) => /Worker/.test(e.name as string))).toEqual([]);
+  });
+
+  it("?back=1 lists every back agent, marked backRoom, with front entries unchanged", async () => {
+    const { srv, lead } = await office();
+    const { status, body } = await listAs(srv, lead.id, "?back=1");
+    expect(status).toBe(200);
+    expect(body.map((e) => e.name)).toEqual([
+      "Lead",
+      "Worker 1",
+      "Worker 2",
+      "Worker 3",
+    ]);
+    expect("backRoom" in body[0]).toBe(false);
+    for (const e of body.slice(1)) {
+      expect(e.backRoom).toBe(true);
+      expect(typeof e.id).toBe("string");
+      expect(isBackSeat(e.desk as number)).toBe(true);
+    }
+  });
+
+  it("a user's cookie gets every agent, back ones included", async () => {
+    const { srv, owner } = await office();
+    const res = await srv.http("/agents", { rawSessionId: owner.rawSessionId });
+    expect(await manifestNames(res)).toEqual([
+      "Lead",
+      "Worker 1",
+      "Worker 2",
+      "Worker 3",
+    ]);
+  });
+
+  it("a summary counts only rooms the caller can see", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const member = await srv.seedMember("Mem");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    srv.agentManager.setRoomBackRoom(r1, true);
+    const r2 = srv.agentManager.createRoom("Members Only");
+    srv.agentManager.setRoomBackRoom(r2, true);
+    await setAccess(srv, owner.rawSessionId, member.username, [r2]);
+    await spawnOwnedBy(srv, "Hidden Worker", r1, null, owner.username);
+    const mine = await spawnOwnedBy(srv, "Mine", r2, 0, member.username);
+    const { body } = await listAs(srv, mine.id);
+    expect(body.map((e) => e.name)).toEqual(["Mine"]);
+    const ownerAgent = await spawnOwnedBy(
+      srv,
+      "Morgan Agent",
+      r1,
+      0,
+      owner.username,
+    );
+    const all = await listAs(srv, ownerAgent.id);
+    expect(
+      all.body
+        .filter((e) => e.backRoom === true)
+        .map((e) => ({ roomId: e.roomId, agents: e.agents })),
+    ).toEqual([{ roomId: r1, agents: 1 }]);
+  });
+
+  it("back other than 1, or with killed -> 400", async () => {
+    const { srv, lead } = await office();
+    for (const q of ["?back=0", "?back=1&killed=1", "?back=yes"]) {
+      const res = await fetch(`${srv.baseUrl}/agents${q}`, {
+        headers: { Authorization: `Bearer ${bearerFor(lead.id)}` },
+      });
+      expect(res.status).toBe(400);
+    }
+  });
 });

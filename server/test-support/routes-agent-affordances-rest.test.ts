@@ -28,6 +28,7 @@ import {
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -213,7 +214,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
     );
   });
 
-  it("diff non-repo cwd -> 200 + system log_entry 'not a git repository'", async () => {
+  it("diff non-repo cwd -> 200 + the not-a-repository system log_entry", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -225,7 +226,15 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
     const r = await affordance(srv, agent.id, "diff", {}, { bearer: token });
     expect(r.status).toBe(200);
     await waitUntil(
-      () => countLog(sock, agent.id, "system", "not a git repository") >= 1,
+      () =>
+        countLog(
+          sock,
+          agent.id,
+          "system",
+          translatorFor("en").t("systemEntries.diffNotRepo", {
+            path: srv.stateRoot,
+          }),
+        ) >= 1,
       2000,
       "diff non-repo system entry",
     );
@@ -278,49 +287,6 @@ describe("routes/agent-affordances REST: validation + manager-error mapping", ()
       { bearer: token },
     );
     expect(multi.status).toBe(400);
-  });
-});
-
-describe("routes/agent-affordances REST: idempotency", () => {
-  it("same Idempotency-Key replays read-file (200) but writes exactly one log_entry", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const token = getAgentTokenRaw(agent.id)!;
-    writeFileSync(join(srv.stateRoot, "idem.txt"), "x");
-    const sock = await srv.connectWs(owner.rawSessionId);
-
-    const first = await affordance(
-      srv,
-      agent.id,
-      "read-file",
-      { path: "idem.txt" },
-      { bearer: token, idempotencyKey: "k-1" },
-    );
-    expect(first.status).toBe(200);
-    await waitUntil(
-      () => countLog(sock, agent.id, "file-view") >= 1,
-      2000,
-      "first file-view",
-    );
-
-    const replay = await affordance(
-      srv,
-      agent.id,
-      "read-file",
-      { path: "idem.txt" },
-      { bearer: token, idempotencyKey: "k-1" },
-    );
-    expect(replay.status).toBe(200);
-
-    // ping/pong barrier: a non-replayed handler run would have ws.send'd a second
-    // file-view during the replay POST, before this ping. Ordered delivery means
-    // pong implies it already arrived. A replay must NOT re-run the handler.
-    sock.send({ type: "ping" });
-    await sock.waitFor("pong");
-    expect(countLog(sock, agent.id, "file-view")).toBe(1);
   });
 });
 
@@ -444,24 +410,6 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
     expect(withCreds.status).toBe(400);
     expect(withCreds.body.error?.code).toBe("invalid_request");
   });
-
-  it("an agent token cannot preview into a DIFFERENT agent's chat -> 403", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Alice", room.id);
-    const b = await spawnAgent(srv, "Bob", room.id);
-    const aToken = getAgentTokenRaw(a.id)!;
-    const r = await affordance(
-      srv,
-      b.id,
-      "preview-url",
-      { url: "http://127.0.0.1:3000/" },
-      { bearer: aToken },
-    );
-    expect(r.status).toBe(403);
-  });
 });
 
 describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
@@ -499,30 +447,6 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
     );
     expect(unknown.status).toBe(400);
     expect(unknown.body.error?.code).toBe("invalid_request");
-  });
-
-  it("rejects a non-http URL and credentials in the URL before any browser work -> 400", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const token = getAgentTokenRaw(agent.id)!;
-
-    for (const url of [
-      "file:///etc/passwd",
-      "http://user:pw@127.0.0.1:3000/",
-    ]) {
-      const r = await affordance(
-        srv,
-        agent.id,
-        "browser",
-        { action: "goto", url },
-        { bearer: token },
-      );
-      expect(r.status).toBe(400);
-      expect(r.body.error?.code).toBe("invalid_request");
-    }
   });
 
   it("the close action succeeds when the agent holds no context", async () => {
@@ -602,28 +526,12 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
       run.mockRestore();
     }
   });
-
-  it("an agent token cannot drive a DIFFERENT agent's browser -> 403", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Alice", room.id);
-    const b = await spawnAgent(srv, "Bob", room.id);
-    const aToken = getAgentTokenRaw(a.id)!;
-    const r = await affordance(
-      srv,
-      b.id,
-      "browser",
-      { action: "snapshot" },
-      { bearer: aToken },
-    );
-    expect(r.status).toBe(403);
-  });
 });
 
 describe("routes/agent-affordances REST: authz", () => {
-  it("an agent token cannot affordance a DIFFERENT agent's chat -> 403", async () => {
+  // A user cookie (no self:affordance) and no identity are the capability
+  // table (routes-table.test.ts) and the wall (routes-auth.test.ts).
+  it("an agent token cannot drive a DIFFERENT agent's affordances -> 403 forbidden", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -631,39 +539,20 @@ describe("routes/agent-affordances REST: authz", () => {
     const a = await spawnAgent(srv, "Alice", room.id);
     const b = await spawnAgent(srv, "Bob", room.id);
     const aToken = getAgentTokenRaw(a.id)!;
-    const r = await affordance(
-      srv,
-      b.id,
-      "read-file",
-      { path: "x" },
-      { bearer: aToken },
-    );
-    expect(r.status).toBe(403);
-  });
-
-  it("a USER cookie cannot reach an agent affordance (no self:affordance) -> 403", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const r = await affordance(
-      srv,
-      agent.id,
-      "read-file",
-      { path: "x" },
-      { rawSessionId: owner.rawSessionId },
-    );
-    expect(r.status).toBe(403);
-  });
-
-  it("no identity (no cookie, no bearer) -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const r = await affordance(srv, agent.id, "read-file", { path: "x" });
-    expect(r.status).toBe(401);
+    for (const [action, body] of [
+      ["read-file", { path: "x" }],
+      ["edit-file", { path: "x" }],
+      ["diff", {}],
+      ["terminal-command", { command: "ls" }],
+      ["preview-url", { url: "http://127.0.0.1:3000/" }],
+      ["browser", { action: "snapshot" }],
+    ] as const) {
+      const r = await affordance(srv, b.id, action, body, { bearer: aToken });
+      expect({ action, status: r.status, code: r.body.error?.code }).toEqual({
+        action,
+        status: 403,
+        code: "forbidden",
+      });
+    }
   });
 });

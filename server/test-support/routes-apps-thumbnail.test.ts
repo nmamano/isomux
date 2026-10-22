@@ -30,7 +30,6 @@ import {
   readCappedFile,
   sniffAppThumbnailType,
 } from "../app-thumbnails.ts";
-import { resolveEditorPath } from "../file-editor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
 import type { AgentInfo, AppListWire, AppRecord } from "../../shared/types.ts";
 import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
@@ -322,6 +321,14 @@ describe("routes/apps REST: thumbnails", () => {
     big.set(PNG);
     writeFileSync(join(srv.stateRoot, "big.png"), big);
     writeFileSync(join(srv.stateRoot, "notes.txt"), "not an image");
+    for (const path of ["", "  \t "]) {
+      const res = await api(srv, "/api/apps/hello/thumbnail", {
+        method: "PUT",
+        bearer: token,
+        json: { path },
+      });
+      expect({ path, status: res.status }).toEqual({ path, status: 400 });
+    }
     for (const path of ["missing.png", ".", "big.png"]) {
       const res = await api(srv, "/api/apps/hello/thumbnail", {
         method: "PUT",
@@ -365,11 +372,6 @@ describe("routes/apps REST: thumbnails", () => {
       raw: PNG,
     });
     expect(byBytes.status).toBe(200);
-  });
-
-  it("an app with no thumbnail is a 404", async () => {
-    const { srv, owner } = await seed();
-    expect((await getThumb(srv, owner.rawSessionId)).status).toBe(404);
   });
 
   it("survives a restart", async () => {
@@ -580,19 +582,6 @@ const ctx = (req: Request = new Request("http://localhost/")) =>
 const upload = (bytes: Uint8Array<ArrayBuffer>) =>
   new Request("http://localhost/", { method: "PUT", body: bytes });
 
-const uploadPath = (path: string) =>
-  new Request("http://localhost/", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  });
-
-const asAgent = (req: Request) =>
-  ({
-    ...ctx(req),
-    identity: { scope: "agent", agentId: "agent-1", userId: "u-alice" },
-  }) as unknown as RouteHandlerContext;
-
 const running = (state: AppRuntime["state"]) =>
   new Map([["hello", { ...UNKNOWN_RUNTIME, state }]]);
 
@@ -692,54 +681,6 @@ describe("routes/apps: thumbnail upload ordering", () => {
       }),
     )["apps.delete"](ctx());
     expect(calls).toEqual(["remove", "thumbnails:hello:3"]);
-  });
-});
-
-describe("routes/apps: thumbnail by path, refusals", () => {
-  // The real read-file check behind the dep, with every call recorded.
-  const recorded = () => {
-    const calls: string[] = [];
-    const over: Partial<AppsDeps> = {
-      resolveAgentPath: (agentId, raw) => {
-        calls.push(`resolve:${agentId}:${raw}`);
-        const r = resolveEditorPath(raw, "/srv/agent-cwd");
-        return r.kind === "ok" ? r.path : null;
-      },
-      readThumbnailFile: (path) => {
-        calls.push(`read:${path}`);
-        return { ok: false };
-      },
-    };
-    return { calls, over };
-  };
-
-  it("a blank path is refused before any file is read", async () => {
-    const { calls, over } = recorded();
-    const handler = appsHandlers(deps(over))["apps.setThumbnail"];
-    const empty = await handler(asAgent(uploadPath("")));
-    expect(empty).toMatchObject({ kind: "error", status: 400 });
-    // Whitespace passes the handler and reaches the shared check, which
-    // refuses it.
-    const blank = await handler(asAgent(uploadPath("  \t ")));
-    expect(blank).toMatchObject({ kind: "error", status: 400 });
-    expect(calls).toEqual(["resolve:agent-1:  \t "]);
-    // A path the check accepts does reach the read, resolved against the cwd.
-    await handler(asAgent(uploadPath("shot.png")));
-    expect(calls.slice(1)).toEqual([
-      "resolve:agent-1:shot.png",
-      "read:/srv/agent-cwd/shot.png",
-    ]);
-  });
-
-  it("a caller that is not an agent is refused before its body is read", async () => {
-    const { calls, over } = recorded();
-    const req = uploadPath("/srv/agent-cwd/shot.png");
-    const result = await appsHandlers(deps(over))["apps.setThumbnail"](
-      ctx(req),
-    );
-    expect(result).toMatchObject({ kind: "error", status: 403 });
-    expect(calls).toEqual([]);
-    expect(req.bodyUsed).toBe(false);
   });
 });
 

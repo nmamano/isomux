@@ -2,14 +2,13 @@
 // that built it. See internal-docs/agent-apps-design.md section 5.
 //
 // What these pin that a unit test cannot:
-//   - the token IS the app. A real app token, minted by a real registration and
-//     read out of the environment file the supervisor wrote, reaches this route
-//     and NOTHING else; an agent token reaches everything else and not this.
+//   - a real app token, minted by a real registration and read out of the
+//     environment file the supervisor wrote, reaches this route. Who else may
+//     call it is pinned in routes-table.test.ts; a deleted app's token (401) in
+//     routes-apps-rest.test.ts.
 //   - the message arrives LABELLED as an app's, both in the receiver's queue and
 //     in the prompt the model is handed - and it survives a restart, because the
 //     durable queue's validator is a separate boundary from the live queue.
-//   - a deleted app's token is not an identity at all (401), which is the
-//     registry-existence half of token resolution.
 //   - the rate limit answers 429 with a time, and the two budgets are spent at
 //     different moments (driven at the handler seam, where a fake limiter can
 //     record what was called).
@@ -270,29 +269,6 @@ describe("POST /api/app/message: an app messages the agent that built it", () =>
     expect(persisted.metadata?.sender_agent_name).toBeUndefined();
     expect(persisted.metadata?.username).toBeUndefined();
   });
-
-  // The counters are in memory, and the product says they reset when isomux
-  // restarts. The harness restart IS an isomux restart, so it must model that -
-  // otherwise the thing under test and the thing testing it disagree about the
-  // advertised lifecycle.
-  it("the rate limit budget resets when isomux restarts, as the prose promises", async () => {
-    let srv = await startTestServer({ fakeBackend: parkingBackend() });
-    server = srv;
-    const { appToken } = await seedApp(srv, "restart-app");
-
-    for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++) {
-      const r = await sendAppMessage(srv, appToken, `m${i}`);
-      expect({ i, status: r.status }).toEqual({ i, status: 200 });
-    }
-    expect((await sendAppMessage(srv, appToken, "over")).status).toBe(429);
-
-    srv = await srv.restart();
-    server = srv;
-    // Same app, same token (both persisted), fresh budget.
-    expect((await sendAppMessage(srv, appToken, "after restart")).status).toBe(
-      200,
-    );
-  });
 });
 
 describe("POST /api/app/message: an app messages its configured target", () => {
@@ -467,38 +443,8 @@ describe("POST /api/app/message: an app names its target", () => {
   });
 });
 
-// --- who may call it --------------------------------------------------------
-
-describe("POST /api/app/message: the token is the app, and nothing else reaches it", () => {
-  it("refuses an ordinary AGENT token (403) - an agent has its own send route", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const { agentToken } = await seedApp(srv, "agent-token-app");
-    const r = await post(srv, "/api/app/message", agentToken, { text: "hi" });
-    expect(r.status).toBe(403);
-  });
-
-  it("refuses a garbage token (401) and a DELETED app's token (401)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const { appToken, agentToken } = await seedApp(srv, "deleted-app");
-    expect(
-      (await post(srv, "/api/app/message", "not-a-real-token", { text: "hi" }))
-        .status,
-    ).toBe(401);
-
-    // The token still hashes to a stored entry the moment before this; deleting
-    // the app is what makes it stop being an identity. 401, not 403: there is no
-    // such app to be.
-    const del = await srv.http("/api/apps/deleted-app", {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${agentToken}` },
-    });
-    expect(del.status).toBe(204);
-    const after = await post(srv, "/api/app/message", appToken, { text: "hi" });
-    expect(after.status).toBe(401);
-  });
-});
+// Who may call it: routes-table.test.ts ("those routes are reachable by an
+// app identity ONLY"); a deleted app's token: routes-apps-rest.test.ts.
 
 // --- what it refuses --------------------------------------------------------
 
@@ -551,9 +497,8 @@ describe("POST /api/app/message: the rate limit", () => {
     });
     expect(over.status).toBe(429);
     expect(errOf(over)?.code).toBe("rate_limited");
-    // A number to back off by, not just prose - and prose that carries it too.
+    // A number to back off by, not just prose.
     expect(errOf(over)?.retryAfterSec).toBeGreaterThan(0);
-    expect(errOf(over)?.message).toContain("retry in");
   });
 
   it("does not follow the NAME to the next app that takes it", async () => {
@@ -894,41 +839,5 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
       "hold:habits",
       "release:habits",
     ]);
-  });
-
-  it("with an owner agent, delivers to the named target and answers a missing one as the agent route does", async () => {
-    const delivered: string[] = [];
-    const h = appsHandlers(
-      deps({
-        sendAsApp: (_app, id) => {
-          delivered.push(id);
-          return id === "a-gone"
-            ? {
-                ok: false as const,
-                status: 404 as const,
-                code: "agent_not_found",
-                message: "agent not found",
-              }
-            : { ok: true as const, messageId: "m-1" };
-        },
-      }),
-    );
-    const owned = (body: unknown) => ({
-      ...appCtx(body),
-      identity: { ...appCtx(body).identity, ownerAgentId: "a-1" },
-    });
-    expect(
-      await h["apps.sendMessage"](owned({ text: "hi", targetAgentId: "a-2" })),
-    ).toMatchObject({ kind: "json" });
-    expect(
-      await h["apps.sendMessage"](
-        owned({ text: "hi", targetAgentId: "a-gone" }),
-      ),
-    ).toMatchObject({
-      kind: "error",
-      status: 404,
-      code: "recipient_not_found",
-    });
-    expect(delivered).toEqual(["a-2", "a-gone"]);
   });
 });

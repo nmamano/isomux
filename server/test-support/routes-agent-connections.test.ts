@@ -5,7 +5,6 @@
 // notes round-trip through the routes where the connections are set.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -190,8 +189,7 @@ async function seeded() {
     },
   });
   const memberId = getUserByName(member.username)!.id;
-  const ownerId = getUserByName(owner.username)!.id;
-  return { srv, owner, member, other, memberId, ownerId };
+  return { srv, owner, member, other, memberId };
 }
 
 function connections(text: string): AgentConnectionsRes["connections"] {
@@ -199,7 +197,8 @@ function connections(text: string): AgentConnectionsRes["connections"] {
 }
 
 describe("GET /api/agent-connections", () => {
-  it("gives an agent its member's and the office's connections, as the spawn gives them", async () => {
+  // Who may call it (agent tokens only): routes-table.test.ts.
+  it("gives an agent its member's and the office's connections, as the spawn gives them; with no member, the office's only", async () => {
     const { srv, memberId } = await seeded();
     const result = await call(srv, "/api/agent-connections", {
       bearer: mintAgentToken("agent-connections-member", memberId, false),
@@ -274,16 +273,14 @@ describe("GET /api/agent-connections", () => {
     expect(result.text).not.toContain("theirs");
     expect(result.text).not.toContain("office shared");
     expect(result.text).not.toContain("office linear note");
-  });
 
-  it("gives an agent with no member the office's connections only", async () => {
-    const { srv } = await seeded();
-    const result = await call(srv, "/api/agent-connections", {
+    const nobody = await call(srv, "/api/agent-connections", {
       bearer: mintAgentToken("agent-connections-nobody", null, false),
     });
-    expect(result.status).toBe(200);
-    const list = connections(result.text);
-    expect(list.map((c) => `${c.kind}:${c.scope}:${c.name}`)).toEqual([
+    expect(nobody.status).toBe(200);
+    expect(
+      connections(nobody.text).map((c) => `${c.kind}:${c.scope}:${c.name}`),
+    ).toEqual([
       "variable:office:OFFICE_TOKEN",
       "variable:office:SHARED",
       "secret:office:OFFICE_GH",
@@ -291,25 +288,7 @@ describe("GET /api/agent-connections", () => {
       "mcp-server:office:linear",
     ]);
     for (const fake of Object.values(FAKE))
-      expect(result.text).not.toContain(fake);
-  });
-
-  it("refuses a member session and an API token", async () => {
-    const { srv, owner, ownerId } = await seeded();
-    const api = await mintApiToken({
-      userId: ownerId,
-      name: "Owner API",
-      expiresInDays: null,
-    });
-    expect({
-      session: (
-        await call(srv, "/api/agent-connections", {
-          session: owner.rawSessionId,
-        })
-      ).status,
-      api: (await call(srv, "/api/agent-connections", { bearer: api.token }))
-        .status,
-    }).toEqual({ session: 403, api: 403 });
+      expect(nobody.text).not.toContain(fake);
   });
 });
 

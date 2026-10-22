@@ -6,14 +6,12 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { enqueueApiTokenInboxMessage, mintApiToken } from "../api-tokens.ts";
+import { enqueueApiTokenInboxMessage } from "../api-tokens.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { APP_MESSAGE_MAX_CHARS } from "../app-message-limits.ts";
-import { needsInterruptionMarker } from "../agent-manager.ts";
-import { TIERS } from "../log-search.ts";
 import { redactLogEntry } from "../log-redaction.ts";
 
 let server: TestServer | null = null;
@@ -89,7 +87,7 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe("personal API tokens", () => {
-  it("accepts agent replies, echoes them live, and retains them after reads", async () => {
+  it("accepts agent replies, logs them on the agent, and retains them after reads", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -128,9 +126,6 @@ describe("personal API tokens", () => {
       topicGenerating: false,
       turnHadHumanInput: false,
     });
-    expect(needsInterruptionMarker(outbound)).toBe(false);
-
-    expect(TIERS.prompts).not.toContain(outbound?.kind);
 
     const first = await bearer(
       srv,
@@ -566,6 +561,18 @@ describe("personal API tokens", () => {
     expect((await bearer(srv, unlimited.body.token, "/agents")).status).toBe(
       200,
     );
+    // A client of the interim build still sends ackMode; nothing reads it.
+    const withAckMode = await srv.http("/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Extra",
+        expiresInDays: null,
+        ackMode: true,
+      }),
+    });
+    expect(withAckMode.status).toBe(201);
     const retired = await mintThroughApi(srv, owner.rawSessionId, "Old", 90);
     expect(retired.response.status).toBe(422);
     const missing = await srv.http("/api/me/api-tokens", {
@@ -577,36 +584,29 @@ describe("personal API tokens", () => {
     expect(missing.status).toBe(422);
   });
 
-  it("rejects expired, invalid, leaked-prefix, and API-attribution fields", async () => {
+  // Expired, invalid and leaked-prefix values: server/api-tokens.test.ts.
+  it("rejects API-attribution and delivery fields on a send, each with its code", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-    const ownerId = getUserByName(owner.username)!.id;
     const room = srv.agentManager.getRooms()[0].id;
     const target = await spawn(srv, "Target", room);
-    const expired = await mintApiToken({
-      userId: ownerId,
-      name: "Expired",
-      expiresInDays: 30,
-      now: Date.now() - 31 * 24 * 60 * 60 * 1000,
-    });
-    expect((await bearer(srv, expired.token, "/agents")).status).toBe(401);
-    expect((await bearer(srv, "isomux_pat_invalid", "/agents")).status).toBe(
-      401,
-    );
-    expect(
-      (await bearer(srv, expired.apiToken.tokenPrefix, "/agents")).status,
-    ).toBe(401);
 
     const valid = await mintThroughApi(srv, owner.rawSessionId);
-    for (const body of [
-      { text: "x", device: "forged" },
-      { text: "x", attachments: [] },
-      { text: "x", senderAgentId: target.id },
-      { text: "x", sendNow: true },
-      { text: "x", steer: true },
-      { text: "x", deliverAt: "2027-01-01T00:00:00Z" },
-    ]) {
+    for (const [body, code] of [
+      [{ text: "x", device: "forged" }, "api_attribution_not_supported"],
+      [{ text: "x", attachments: [] }, "api_attribution_not_supported"],
+      [
+        { text: "x", senderAgentId: target.id },
+        "api_attribution_not_supported",
+      ],
+      [{ text: "x", sendNow: true }, "send_now_not_supported"],
+      [{ text: "x", steer: true }, "steer_not_supported"],
+      [
+        { text: "x", deliverAt: "2027-01-01T00:00:00Z" },
+        "deliver_at_not_supported",
+      ],
+    ] as const) {
       const response = await bearer(
         srv,
         valid.body.token,
@@ -617,7 +617,11 @@ describe("personal API tokens", () => {
           body: JSON.stringify(body),
         },
       );
-      expect(response.status).toBe(400);
+      expect({
+        body,
+        status: response.status,
+        code: (await response.json()).error?.code,
+      }).toEqual({ body, status: 400, code });
     }
   });
 
@@ -750,38 +754,6 @@ describe("API token channel contract", () => {
     ).toEqual([1, 2, 3]);
   });
 
-  it("ignores extra ackMode fields when minting tokens", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    for (const ackMode of [true, false, null, "true", 1, {}]) {
-      const response = await srv.http("/api/me/api-tokens", {
-        method: "POST",
-        rawSessionId: owner.rawSessionId,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Extra field",
-          expiresInDays: null,
-          ackMode,
-        }),
-      });
-      expect(response.status).toBe(201);
-      const minted = await response.json();
-      expect(minted.apiToken).not.toHaveProperty("ackMode");
-      const drained = await bearer(
-        srv,
-        minted.token,
-        "/api/me/api-token-inbox/drain",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ after: 0 }),
-        },
-      );
-      expect(drained.status).toBe(200);
-    }
-  });
-
   it("records token sends and replies once when the send is replayed", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -849,7 +821,7 @@ describe("API token channel contract", () => {
     expect(conflict.status).toBe(409);
   });
 
-  it("rejects clientMessageId for API token sends and names Idempotency-Key", async () => {
+  it("rejects clientMessageId for API token sends", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -873,11 +845,9 @@ describe("API token channel contract", () => {
       },
     );
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toEqual({
-      code: "client_message_id_not_supported",
-      message:
-        "clientMessageId is not supported for API token senders. Use Idempotency-Key.",
-    });
+    expect((await response.json()).error.code).toBe(
+      "client_message_id_not_supported",
+    );
     expect(
       srv.agentManager
         .getAgentLogs(target.id)

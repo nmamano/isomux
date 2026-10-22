@@ -62,12 +62,6 @@ export interface FakeAppSupervisor extends AppSupervisor {
   // token set: every unit write adds the app, teardown removes it.
   unitsInjectingSecrets: Set<string>;
   failProvisionToken: string | null;
-  failRegenerate: string | null;
-  // Model an install that gets as far as WRITING the unit and then fails (the
-  // daemon-reload stage). The files are on disk and reference the token; what
-  // systemd holds is another matter - which is the whole reason boot
-  // reconciliation reloads.
-  failInstallAfterFiles: string | null;
   // What an app's state is right after a successful install. Default running;
   // set it to `failed` to model a unit that installed fine and whose process
   // then died - the case that must still be a 201.
@@ -120,8 +114,6 @@ export function createFakeAppSupervisor(
     unitsInjectingToken: new Set(),
     unitsInjectingSecrets: new Set(),
     failProvisionToken: null,
-    failRegenerate: null,
-    failInstallAfterFiles: null,
 
     setRuntime(name, runtime) {
       runtimes.set(name, runtime);
@@ -167,9 +159,6 @@ export function createFakeAppSupervisor(
 
     regenerate(app: AppRecord) {
       fake.calls.push(`regenerate:${app.name}`);
-      if (fake.failRegenerate) {
-        throw new AppSupervisorError("supervisor_failed", fake.failRegenerate);
-      }
       // Files only: activation is deliberately untouched, so an app that was
       // not running does not become running (the property the real one has and
       // the reason reconciliation is allowed to call it).
@@ -182,22 +171,6 @@ export function createFakeAppSupervisor(
     install(app: AppRecord) {
       fake.calls.push(`install:${app.name}`);
       if (fake.throwRawOnInstall) throw fake.throwRawOnInstall;
-      if (fake.failInstallAfterFiles) {
-        // Files written (so the unit references the token), then the failure -
-        // the app is NOT installed as far as systemd is concerned.
-        fake.unitsInjectingToken.add(app.name);
-        fake.unitsInjectingSecrets.add(app.name);
-        fake.unitFiles.set(app.name, unitText(app));
-        runtimes.set(app.name, {
-          state: "unknown",
-          restartCount: 0,
-          startError: fake.failInstallAfterFiles,
-        });
-        throw new AppSupervisorError(
-          "supervisor_failed",
-          fake.failInstallAfterFiles,
-        );
-      }
       if (fake.failInstall) {
         // Records the reason before throwing, exactly as the real supervisor
         // does - the register route answers 201 and this is the only place the

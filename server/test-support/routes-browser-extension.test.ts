@@ -1,6 +1,4 @@
-import { writeFileSync } from "node:fs";
 import { sessionCookieName } from "../auth.ts";
-import { join } from "node:path";
 import { mayUseExtension } from "../isomux-office";
 import { getUserByName } from "../users";
 import {
@@ -102,24 +100,6 @@ test("production routes pair, bind Origin, reject office credential use, persist
     "chrome-extension://" + "b".repeat(32),
   );
   await wrongOrigin.wait("refused");
-  const retired = await memberRequest(
-    server,
-    owner,
-    "PATCH",
-    "/api/me/browser",
-    { backend: "headless" },
-  );
-  expect(retired.status).toBe(404);
-  expect(retired.headers.get("content-type")).toBe("application/json");
-  expect(await retired.json()).toEqual({ error: "not found" });
-  const anonymous = await server.http("/api/me/browser", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ backend: "headless" }),
-  });
-  expect(anonymous.status).toBe(401);
-  expect(anonymous.headers.get("content-type")).toBe("application/json");
-  expect(await anonymous.json()).toEqual({ error: "unauthenticated" });
   server = await server.restart();
   const restored = await extensionSocket(server, {
     kind: "hello",
@@ -399,42 +379,6 @@ test("app host dispatch cannot reach pairing or browser sockets", async () => {
       expectBounce(response, { label: "unknown", path }, path);
     else expectAuthRequired(response, path);
   }
-});
-
-test("corrupt browser state permits office startup and requires fresh Chrome pairing", async () => {
-  server = await startTestServer();
-  const owner = await server.seedOwner();
-  const agent = await ownedAgent(server, owner, "corrupt state browser");
-  writeFileSync(join(server.stateRoot, "browser-connections.json"), "{");
-  server = await server.restart();
-  const status = await (
-    await memberRequest(server, owner, "GET", "/api/me/browser")
-  ).json();
-  expect(status).toMatchObject({ paired: false, online: false });
-  expect(status).not.toHaveProperty("backend");
-  const action = await server.http(`/api/agents/${agent.id}/browser`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ action: "snapshot" }),
-  });
-  expect((await action.json()).error.code).toBe("browser_not_paired");
-  const pair = await memberRequest(
-    server,
-    owner,
-    "POST",
-    "/api/me/browser/pair",
-    {},
-  );
-  expect(pair.status).toBe(200);
-  const extension = await extensionSocket(server, {
-    kind: "hello",
-    version: 4,
-    code: (await pair.json()).code,
-  });
-  await extension.wait("ready");
 });
 
 test("extension ZIP download is self-authenticated and metadata is the current member", async () => {

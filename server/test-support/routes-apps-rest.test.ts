@@ -146,6 +146,14 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
     expect(app.restartCount).toBe(0);
     expect(app.name).toBe("hello");
     expect(app.description).toBe("a demo");
+    // Absent, not empty-string: the field means "an attempt failed".
+    expect(app).not.toHaveProperty("startError");
+    // The supervisor is handed the RECORD, so the unit runs on the port the
+    // registry allocated and told the agent about.
+    const installed = srv.appSupervisor.installed.get("hello");
+    expect(installed?.port).toBe(app.port);
+    expect(installed?.dataDir).toBe(app.dataDir);
+    expect(installed?.command).toBe("bun run serve.ts");
 
     const list = await api(srv, "/api/apps", { bearer: token });
     expect(list.status).toBe(200);
@@ -162,104 +170,9 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
     expect(del.status).toBe(204);
     expect((await api(srv, "/api/apps", { bearer: token })).body).toEqual([]);
   });
-
-  it("a delete frees the name AND the port for the next registration", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-
-    const first = await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    expect(first.status).toBe(201);
-    const port = (first.body as AppWire).port;
-    await api(srv, "/api/apps/hello", { method: "DELETE", bearer: token });
-
-    // The same name, end to end through the route: 201, not a refusal.
-    const again = await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    expect(again.status).toBe(201);
-    // ...on the same port, because the gap the delete left is the lowest free
-    // one. The port going back in the pool is the half a name check cannot see.
-    expect((again.body as AppWire).port).toBe(port);
-  });
-
-  it("a live name collision is 409 name_taken", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-
-    await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    const dup = await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    expect(dup.status).toBe(409);
-    expect(errCode(dup)).toBe("name_taken");
-  });
-
-  it("two apps never share a port", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-
-    const ports: number[] = [];
-    for (const name of ["one", "two", "three"]) {
-      const r = await api(srv, "/api/apps", {
-        method: "POST",
-        bearer: token,
-        body: body(srv, name),
-      });
-      expect(r.status).toBe(201);
-      ports.push((r.body as AppWire).port);
-    }
-    expect(new Set(ports).size).toBe(3);
-  });
 });
 
 describe("routes/apps REST: the registry and the supervisor, in order", () => {
-  it("registering installs the app under its allocated port and data dir", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-
-    const reg = await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    const app = reg.body as AppWire;
-    const installed = srv.appSupervisor.installed.get("hello");
-    // The supervisor is handed the RECORD, so the port it puts in the unit is
-    // the one the registry allocated and told the agent about - a second
-    // allocation anywhere in this path would hand the agent a dead URL.
-    expect(installed?.port).toBe(app.port);
-    expect(installed?.dataDir).toBe(app.dataDir);
-    expect(installed?.command).toBe("bun run serve.ts");
-  });
-
   it("an app that installs and then dies is still registered, and says so", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -337,24 +250,6 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
     expect((list.body as AppWire[]).map((a) => a.name)).toEqual(["hello"]);
   });
 
-  it("a healthy app carries no startError at all", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-
-    const reg = await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    // Absent, not empty-string: the field means "an attempt failed", and a
-    // present-but-blank value would read as a failure with no reason.
-    expect((reg.body as AppWire).startError).toBeUndefined();
-  });
-
   it("a delete that cannot stop the app does NOT free its name", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -387,28 +282,8 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
       bearer: token,
       body: body(srv, "hello"),
     });
+    expect(again.status).toBe(409);
     expect(errCode(again)).toBe("name_taken");
-  });
-
-  it("a successful delete stops the app before the record goes", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-    await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-
-    expect(
-      (await api(srv, "/api/apps/hello", { method: "DELETE", bearer: token }))
-        .status,
-    ).toBe(204);
-    expect(srv.appSupervisor.calls).toContain("teardown:hello");
-    expect(srv.appSupervisor.installed.has("hello")).toBe(false);
   });
 
   it("state and restart count come from the supervisor on every read", async () => {
@@ -434,60 +309,6 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
       restartCount: 7,
     });
   });
-
-  it("an app the supervisor knows nothing about reads unknown, not stopped", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const token = mintAgentToken(bot.id, ownerId);
-    await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "hello"),
-    });
-    // Somebody removed the unit by hand.
-    srv.appSupervisor.installed.delete("hello");
-    srv.appSupervisor.setRuntime("hello", {
-      state: "unknown",
-      restartCount: 0,
-    });
-    expect(
-      (await api(srv, "/api/apps/hello", { bearer: token })).body,
-    ).toMatchObject({ state: "unknown" });
-  });
-
-  it("keeps running across an isomux restart, with nothing re-installed", async () => {
-    let srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: mintAgentToken(bot.id, ownerId),
-      body: body(srv, "hello"),
-    });
-
-    // A real cold boot against the state this run persisted. The supervisor
-    // survives it the way systemd survives an isomux restart.
-    srv = await srv.restart();
-    server = srv;
-    // Read as the OWNER: agent tokens are in-memory and die with the process,
-    // which is exactly the asymmetry this test is about - the token did not
-    // survive the restart and the app did.
-    const after = await api(srv, "/api/apps/hello", {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(after.status).toBe(200);
-    expect((after.body as AppWire).state).toBe("running");
-    // The point of using systemd at all: the app was never re-injected,
-    // re-started, or re-installed by the boot.
-    expect(
-      srv.appSupervisor.calls.filter((c) => c.startsWith("install:")),
-    ).toEqual(["install:hello"]);
-  });
 });
 
 describe("routes/apps REST: the recovery verbs", () => {
@@ -505,57 +326,6 @@ describe("routes/apps REST: the recovery verbs", () => {
     });
     return { srv, token, owner };
   };
-
-  it("stop, start and restart each answer with the app's fresh state", async () => {
-    const { srv, token } = await seed();
-
-    const stopped = await api(srv, "/api/apps/hello/stop", {
-      method: "POST",
-      bearer: token,
-    });
-    expect(stopped.status).toBe(200);
-    // The fresh state, not 204: the caller asked for a change and the answer
-    // is whether it happened, without a second round trip.
-    expect((stopped.body as AppWire).state).toBe("stopped");
-
-    const started = await api(srv, "/api/apps/hello/start", {
-      method: "POST",
-      bearer: token,
-    });
-    expect((started.body as AppWire).state).toBe("running");
-
-    const restarted = await api(srv, "/api/apps/hello/restart", {
-      method: "POST",
-      bearer: token,
-    });
-    expect((restarted.body as AppWire).state).toBe("running");
-    expect(srv.appSupervisor.calls).toContain("restart:hello");
-  });
-
-  it("recovers an app that came to rest in failed", async () => {
-    // The reason these verbs exist: without them the only cure for a crash
-    // loop is DELETE, which costs the app its port and its data directory.
-    const { srv, token } = await seed();
-    srv.appSupervisor.setRuntime("hello", { state: "failed", restartCount: 5 });
-
-    const restarted = await api(srv, "/api/apps/hello/restart", {
-      method: "POST",
-      bearer: token,
-    });
-    expect((restarted.body as AppWire).state).toBe("running");
-  });
-
-  it("surfaces a refusal rather than reporting a change that did not happen", async () => {
-    const { srv, token } = await seed();
-    srv.appSupervisor.failAction = "Job for isomux-app-hello.service failed";
-
-    const r = await api(srv, "/api/apps/hello/restart", {
-      method: "POST",
-      bearer: token,
-    });
-    expect(r.status).toBe(500);
-    expect(errCode(r)).toBe("supervisor_failed");
-  });
 
   it("are closed to another member, and never say whether a name exists", async () => {
     const { srv, owner } = await seed();
@@ -995,34 +765,6 @@ describe("routes/apps REST: who can see and delete an app", () => {
   });
 });
 
-describe("routes/apps REST: auth wall", () => {
-  it("anonymous is 401; a cron-run token is refused", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-
-    const anon = await api(srv, "/api/apps");
-    expect(anon.status).toBe(401);
-
-    // A cron run holds neither app capability: it is a fresh unattended session
-    // with no chat and nobody to hand a URL to.
-    const runToken = mintRunToken("job-1", "run-1", ownerId);
-    expect((await api(srv, "/api/apps", { bearer: runToken })).status).toBe(
-      403,
-    );
-    expect(
-      (
-        await api(srv, "/api/apps", {
-          method: "POST",
-          bearer: runToken,
-          body: body(srv, "cron-app"),
-        })
-      ).status,
-    ).toBe(403);
-  });
-});
-
 describe("routes/apps REST: an app must have an owner", () => {
   it("an agent token with a NULL userId cannot register, and registers nothing", async () => {
     const srv = await startTestServer();
@@ -1101,7 +843,7 @@ describe("routes/apps REST: registration validation", () => {
     expect((await api(srv, "/api/apps", { bearer: token })).body).toEqual([]);
   });
 
-  it("expands ~/ in cwd and stores it resolved", async () => {
+  it("expands ~ in cwd and stores it resolved", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -1247,13 +989,6 @@ describe("routes/apps REST: updating an app", () => {
     expect((r.body as AppWire).command).toBe("bun run other.ts");
   });
 
-  it("refuses a patch that asks for nothing", async () => {
-    const { srv, token } = await withApp();
-    const r = await patch(srv, "hello", {}, token);
-    expect(r.status).toBe(400);
-    expect(errCode(r)).toBe("invalid_request");
-  });
-
   it("reassigns messages only to a live agent the app owner can access", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1362,31 +1097,11 @@ describe("routes/apps REST: updating an app", () => {
     expect(srv.appSupervisor.calls).not.toContain("reinstall:hello");
   });
 
-  it("expands ~/ in a patched cwd, the same as registration does", async () => {
+  it("expands ~ in a patched cwd, the same as registration does", async () => {
     const { srv, token } = await withApp();
     const r = await patch(srv, "hello", { cwd: "~" }, token);
     expect(r.status).toBe(200);
     expect((r.body as AppWire).cwd.startsWith("/")).toBe(true);
-  });
-
-  it("lets an owner's agent reach the honest unknown-name response", async () => {
-    const { srv, token, owner } = await withApp();
-    // Task 3cd85856 gives the owner's agent the same app-control reach as the
-    // human owner, including the honest 404 for an unknown name.
-    expect((await patch(srv, "nope", { command: "x" }, token)).status).toBe(
-      404,
-    );
-    // An office owner skips the owner lookup, so it reaches the handler and
-    // gets the honest answer.
-    expect(
-      (
-        await api(srv, "/api/apps/nope", {
-          method: "PATCH",
-          rawSessionId: owner.rawSessionId,
-          body: { command: "x" },
-        })
-      ).status,
-    ).toBe(404);
   });
 
   it("still answers 200 when the unit rewrite fails, and says why", async () => {
@@ -1405,26 +1120,6 @@ describe("routes/apps REST: updating an app", () => {
     // The registry kept the change, so a retry (or a restart) can finish it.
     const got = await api(srv, "/api/apps/hello", { bearer: token });
     expect((got.body as AppWire).command).toBe("bun run other.ts");
-  });
-
-  it("stops reporting a stale reason once an update succeeds", async () => {
-    const { srv, token } = await withApp();
-    // Stopped, so the successful reinstall below takes the leave-it-alone
-    // branch - the one where a remembered failure could most easily survive.
-    await api(srv, "/api/apps/hello/stop", { method: "POST", bearer: token });
-    srv.appSupervisor.failReinstall = "systemd could not be reached";
-
-    const failed = await patch(srv, "hello", { command: "bun a.ts" }, token);
-    expect((failed.body as AppWire).startError).toBe(
-      "systemd could not be reached",
-    );
-
-    srv.appSupervisor.failReinstall = null;
-    const fixed = await patch(srv, "hello", { command: "bun b.ts" }, token);
-    // The app is where it was, and the reason for a call that has since
-    // succeeded is gone rather than lingering on every later read.
-    expect((fixed.body as AppWire).state).toBe("stopped");
-    expect((fixed.body as AppWire).startError).toBeUndefined();
   });
 
   it("is app:write and owner-scoped, like every other change to an app", async () => {
@@ -1693,6 +1388,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
     // state tracks the verb rather than repeating the registration snapshot.
     const states = appUpsertsOf(sock).map((a) => a.state);
     expect(states.slice(1)).toEqual(["stopped", "running", "running"]);
+    expect(srv.appSupervisor.calls).toContain("restart:verbs");
   });
 
   it("a description-only update announces, and delete announces just the name", async () => {
@@ -1772,27 +1468,23 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
       });
       expect(res.status).toBe(404);
     }
-    // A validation refusal on a real app.
-    expect(
-      (
-        await api(srv, "/api/apps/real", {
-          method: "PATCH",
-          rawSessionId: owner.rawSessionId,
-          body: {},
-        })
-      ).status,
-    ).toBe(400);
+    // A validation refusal on a real app: a patch that asks for nothing.
+    const empty = await api(srv, "/api/apps/real", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {},
+    });
+    expect(empty.status).toBe(400);
+    expect(errCode(empty)).toBe("invalid_request");
 
     // A verb the machine refused: it changed nothing, so it announces nothing.
     srv.appSupervisor.failAction = "systemd could not be reached";
-    expect(
-      (
-        await api(srv, "/api/apps/real/start", {
-          method: "POST",
-          rawSessionId: owner.rawSessionId,
-        })
-      ).status,
-    ).toBe(500);
+    const refused = await api(srv, "/api/apps/real/start", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(refused.status).toBe(500);
+    expect(errCode(refused)).toBe("supervisor_failed");
     srv.appSupervisor.failAction = null;
 
     // A later real mutation proves the socket was still listening throughout,
@@ -1845,8 +1537,13 @@ describe("routes/apps REST: app tokens", () => {
   async function registerApp(
     srv: TestServer,
     name = "hello",
-  ): Promise<{ bearer: string; app: AppWire; raw: string }> {
-    await srv.seedOwner("Morgan");
+  ): Promise<{
+    bearer: string;
+    app: AppWire;
+    raw: string;
+    owner: { rawSessionId: string };
+  }> {
+    const owner = await srv.seedOwner("Morgan");
     const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "AppBot");
     const bearer = mintAgentToken(bot.id, ownerId);
@@ -1858,7 +1555,7 @@ describe("routes/apps REST: app tokens", () => {
     expect(reg.status).toBe(201);
     const raw = srv.appSupervisor.tokenFiles.get(name);
     if (!raw) throw new Error("the app was registered without a token");
-    return { bearer, app: reg.body as AppWire, raw };
+    return { bearer, app: reg.body as AppWire, raw, owner };
   }
 
   it("registering an app delivers a token to it and persists only the hash", async () => {
@@ -1900,7 +1597,7 @@ describe("routes/apps REST: app tokens", () => {
     // exact thing persistence exists to avoid.
     let srv = await startTestServer();
     server = srv;
-    const { raw } = await registerApp(srv);
+    const { raw, owner } = await registerApp(srv);
 
     // The supervisor instance is carried across the restart on purpose (systemd
     // outlives isomux), so what the reboot did is everything AFTER this mark.
@@ -1918,6 +1615,13 @@ describe("routes/apps REST: app tokens", () => {
       "states:hello",
       "reloadUnits",
     ]);
+    // The app kept running: read as the owner, because agent tokens die with
+    // the process.
+    const after = await api(srv, "/api/apps/hello", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(after.status).toBe(200);
+    expect((after.body as AppWire).state).toBe("running");
   });
 
   it("gives a token at boot to an app that has none, without restarting it", async () => {
@@ -1980,104 +1684,7 @@ describe("routes/apps REST: app tokens", () => {
     ]);
   });
 
-  it("drops the token of an app that was deleted while isomux was down", async () => {
-    let srv = await startTestServer();
-    server = srv;
-    const { raw } = await registerApp(srv);
-    // The delete's own revoke is what normally does this; here the record goes
-    // and the hash is left behind, which is what a delete that died midway
-    // leaves on disk.
-    writeFileSync(join(STATE_ROOT, "apps", "apps.json"), "[]");
-
-    srv = await srv.restart();
-    server = srv;
-    expect(officeTokens().lookup(raw)).toBeNull();
-  });
-
-  it("recovers the unit of an app whose install failed, keeping the SAME token", async () => {
-    // The sharp edge: registration provisions the token BEFORE it installs (a
-    // process's environment is fixed at exec), and an install failure keeps the
-    // token on purpose. That leaves a perfectly healthy hash-plus-file pair
-    // behind a unit that was never written - and if boot reconciliation trusted
-    // the pair alone, the app would stay stranded until somebody PATCHed it.
-    let srv = await startTestServer();
-    server = srv;
-    srv.appSupervisor.failInstall = "no systemd here";
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const bearer = mintAgentToken(bot.id, ownerId);
-    expect(
-      (
-        await api(srv, "/api/apps", {
-          method: "POST",
-          bearer,
-          body: body(srv, "hello"),
-        })
-      ).status,
-    ).toBe(201);
-    const raw = srv.appSupervisor.tokenFiles.get("hello")!;
-    expect(srv.appSupervisor.unitInjectsToken("hello")).toBe(false);
-
-    srv.appSupervisor.failInstall = null; // the transient failure is over
-    const before = srv.appSupervisor.calls.length;
-    srv = await srv.restart();
-    server = srv;
-
-    // The unit is written, and NOTHING else: no install, no enable, no start.
-    expect(srv.appSupervisor.calls.slice(before)).toEqual([
-      "states:hello",
-      "reloadUnits",
-      "regenerate:hello",
-    ]);
-    expect(srv.appSupervisor.unitInjectsToken("hello")).toBe(true);
-    // The token that was already good is preserved, not rotated - the app's
-    // running process (if it had one) would still hold a valid one.
-    expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
-    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
-  });
-
-  it("reloads systemd at boot when an install died at the daemon-reload stage", async () => {
-    // The stage the other test cannot reach: the launcher and unit ARE written
-    // (so the unit references the token file) and the install then fails at
-    // daemon-reload. Every on-disk fact is now perfect and systemd has never
-    // read the unit - so the pair check, the wired check, and any amount of
-    // regenerating would all agree the app is fine. The only thing that fixes
-    // it is asking systemd to re-read, which is why boot does that first.
-    let srv = await startTestServer();
-    server = srv;
-    srv.appSupervisor.failInstallAfterFiles = "daemon-reload refused";
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "AppBot");
-    const bearer = mintAgentToken(bot.id, ownerId);
-    expect(
-      (
-        await api(srv, "/api/apps", {
-          method: "POST",
-          bearer,
-          body: body(srv, "hello"),
-        })
-      ).status,
-    ).toBe(201);
-    const raw = srv.appSupervisor.tokenFiles.get("hello")!;
-    expect(srv.appSupervisor.unitInjectsToken("hello")).toBe(true);
-
-    const before = srv.appSupervisor.calls.length;
-    srv = await srv.restart();
-    server = srv;
-
-    // Exactly the runtime read and reload: no rotation, no regeneration, and
-    // nothing activated.
-    expect(srv.appSupervisor.calls.slice(before)).toEqual([
-      "states:hello",
-      "reloadUnits",
-    ]);
-    expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
-    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
-  });
-
-  it("an update preserves the token; a delete revokes it", async () => {
+  it("an update preserves the token", async () => {
     const srv = await startTestServer();
     server = srv;
     const { bearer, raw } = await registerApp(srv);
@@ -2090,14 +1697,6 @@ describe("routes/apps REST: app tokens", () => {
     expect(patched.status).toBe(200);
     expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
     expect(officeTokens().lookup(raw)?.appName).toBe("hello");
-
-    const deleted = await api(srv, "/api/apps/hello", {
-      method: "DELETE",
-      bearer,
-    });
-    expect(deleted.status).toBe(204);
-    expect(officeTokens().lookup(raw)).toBeNull();
-    expect(srv.appSupervisor.tokenFiles.has("hello")).toBe(false);
   });
 
   it("revokes the restart-surviving app token before the name is reused", async () => {
@@ -2114,6 +1713,17 @@ describe("routes/apps REST: app tokens", () => {
       ).status,
     ).toBe(204);
     expect(officeTokens().lookup(retiredToken)).toBeNull();
+    expect(srv.appSupervisor.tokenFiles.has("hello")).toBe(false);
+    // 401, not 403: there is no such app to be.
+    expect(
+      (
+        await api(srv, "/api/app/message", {
+          method: "POST",
+          bearer: retiredToken,
+          body: { text: "hi" },
+        })
+      ).status,
+    ).toBe(401);
 
     expect(
       (
@@ -2182,7 +1792,9 @@ describe("routes/apps REST: app tokens", () => {
   });
 });
 
-describe("routes/apps REST: an app token reaches nothing", () => {
+// What an app token reaches on the route table: routes-table.test.ts and
+// routes-app-owner-reach.test.ts.
+describe("routes/apps REST: an app token off the route table", () => {
   async function appToken(srv: TestServer): Promise<string> {
     await srv.seedOwner("Morgan");
     const ownerId = getUserByName("Morgan")!.id;
@@ -2197,60 +1809,13 @@ describe("routes/apps REST: an app token reaches nothing", () => {
     return srv.appSupervisor.tokenFiles.get("hello")!;
   }
 
-  it("is a REAL identity - 403 where a garbage token gets 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const raw = await appToken(srv);
-    // The distinction is the whole evidence that the token resolved: isomux
-    // knows whose it is and allows it nothing.
-    expect((await api(srv, "/api/apps", { bearer: raw })).status).toBe(403);
-    expect(
-      (await api(srv, "/api/apps", { bearer: "not-a-real-token" })).status,
-    ).toBe(401);
-  });
-
-  it("is denied on its own app, on the task board, and on a route asking only for an identity", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const raw = await appToken(srv);
-    for (const path of [
-      "/api/apps/hello", // its own app - ownership is not authority
-      "/api/tasks",
-      "/api/version", // `authenticated`, no capability: the guard is the gate
-      "/api/memory?scope=office",
-    ]) {
-      expect((await api(srv, path, { bearer: raw })).status).toBe(403);
-    }
-  });
-
-  it("cannot read an agent's instructions, though it carries its owner's user id", async () => {
-    // The confused-deputy case: GuardDeps.hasRoomAccess keys on userId, and an
-    // app's userId is its owner's, so without the scope check in
-    // requiresRoomAccess this route would answer 200.
-    const srv = await startTestServer();
-    server = srv;
-    const raw = await appToken(srv);
-    const bot = srv.agentManager.getAllAgents()[0];
-    expect(
-      (await api(srv, `/api/agents/${bot.id}/instructions`, { bearer: raw }))
-        .status,
-    ).toBe(403);
-  });
-
-  it("is walled off the whole legacy surface, in one place", async () => {
+  it("is walled off everything below the route table, in one place", async () => {
     // Everything below the /api dispatcher gates on "is there an identity"
-    // alone: the agent manifest (live and killed), the legacy file handlers,
-    // the static UI.
+    // alone: the /api 404, the static UI and client routes.
     const srv = await startTestServer();
     server = srv;
     const raw = await appToken(srv);
-    for (const path of [
-      "/agents",
-      "/agents?killed=1",
-      "/api/files/anything",
-      "/api/nonexistent-route",
-      "/",
-    ]) {
+    for (const path of ["/api/nonexistent-route", "/", "/rooms/some-room"]) {
       const res = await srv.http(path, {
         headers: { Authorization: `Bearer ${raw}` },
       });

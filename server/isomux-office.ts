@@ -8237,7 +8237,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           (req.method === "GET" || req.method === "HEAD") &&
           /^\/(tasks|cronjobs)\/*$/.test(url.pathname);
         if (
-          (retiredPath === "/api/me/browser" && req.method === "PATCH") ||
           (!boardPageRequest &&
             (retiredPath === "/tasks" ||
               retiredPath.startsWith("/tasks/") ||
@@ -8251,24 +8250,26 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
 
-        // POST /agents/:id/* - the legacy non-/api agent surface is fully retired.
-        // The inter-agent message endpoint moved to POST /api/agents/:id/messages
-        // (the unified agents.sendMessage route: the AGENT
-        // bearer IS the sender, the structured sender is server-derived, and a
-        // mismatched body.senderAgentId -> 403 via the messageSend guard). The
-        // self-affordance POSTs (diff / edit-file / read-file / terminal-command)
-        // moved to /api/agents/:id/* in the loopback-bypass removal milestone. So
-        // any POST under /agents/ is now a stale/unknown path: fail closed with a
-        // JSON 404 rather than fall through to the SPA shell (which would return
-        // 200 text/html and mask the caller). No-bearer requests never reach here -
-        // they 401 at the cookie wall above.
-        if (url.pathname.startsWith("/agents/") && req.method === "POST") {
+        // The legacy non-/api agent surface is fully retired: GET /agents is the
+        // only route left on it. The inter-agent message endpoint moved to POST
+        // /api/agents/:id/messages (the unified agents.sendMessage route: the
+        // AGENT bearer IS the sender, the structured sender is server-derived,
+        // and a mismatched body.senderAgentId -> 403 via the messageSend guard).
+        // The self-affordance POSTs (diff / edit-file / read-file /
+        // terminal-command) moved to /api/agents/:id/* in the loopback-bypass
+        // removal milestone. So any other method on /agents or under it is a
+        // stale/unknown path: fail closed with a JSON 404 rather than fall
+        // through to the SPA shell (which would return 200 text/html and mask the
+        // caller). No-bearer requests never reach here - they 401 at the cookie
+        // wall above.
+        if (
+          (retiredPath === "/agents" || retiredPath.startsWith("/agents/")) &&
+          req.method !== "GET" &&
+          req.method !== "HEAD"
+        ) {
           return new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
-            headers: {
-              "Access-Control-Allow-Origin": "*",
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
           });
         }
 
