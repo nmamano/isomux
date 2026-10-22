@@ -71,6 +71,9 @@ async function connectSettled(
 ): Promise<TestSocket> {
   const sock = await srv.connectWs(rawSessionId);
   await sock.waitFor("presence_list");
+  // The connect-time provider_accounts_updated is async and may land after
+  // presence_list; a test that marks the bag must not see it as a fanout.
+  await sock.waitFor("provider_accounts_updated");
   return sock;
 }
 

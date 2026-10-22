@@ -7,7 +7,7 @@
 # package's own install. The storefront builds and serves under Node; Bun only
 # installs.
 
-FROM oven/bun:1.3.11-slim AS bun
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS bun
 
 FROM node:24.22.1-bookworm-slim AS deps
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun

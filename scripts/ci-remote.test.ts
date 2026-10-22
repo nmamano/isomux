@@ -362,6 +362,14 @@ async function remote(opts: {
   const bin = join(dir, "bin");
   const src = join(dir, "src");
   for (const d of [bin, src]) mkdirSync(d, { recursive: true });
+  // The toolchain versions come from the script, so a bump edits the script only.
+  const text = readFileSync(SCRIPT, "utf8");
+  const pinOf = (name: string) => {
+    const m = new RegExp(`^${name}=(\\S+)$`, "m").exec(text);
+    if (!m) throw new Error(`ci-remote.sh has no ${name}`);
+    return m[1];
+  };
+  const bunVersion = pinOf("BUN_VERSION");
 
   // The commit under test.
   git(dir, "init", "-q", "-b", "main", src);
@@ -369,7 +377,7 @@ async function remote(opts: {
   git(src, "config", "user.name", "Probe");
   writeFileSync(
     join(src, "package.json"),
-    JSON.stringify({ packageManager: `bun@${opts.pin ?? "1.4.2"}` }),
+    JSON.stringify({ packageManager: `bun@${opts.pin ?? bunVersion}` }),
   );
   git(src, "add", ".");
   git(src, "commit", "-qm", "commit under test");
@@ -377,18 +385,18 @@ async function remote(opts: {
   const bare = join(root, "repo.git");
   git(dir, "init", "-q", "--bare", bare);
 
-  const nodeBin = join(tools, "node-v24.22.1-linux-x64", "bin");
-  const bunDir = join(tools, "bun-1.4.2");
+  const nodeBin = join(tools, `node-${pinOf("NODE_VERSION")}-linux-x64`, "bin");
+  const bunDir = join(tools, `bun-${bunVersion}`);
   const pgBin = join(
     tools,
-    "pg-18.4.0-beta.17/node_modules/@embedded-postgres/linux-x64/native/bin",
+    `pg-${pinOf("PG_VERSION")}/node_modules/@embedded-postgres/linux-x64/native/bin`,
   );
   for (const d of [nodeBin, bunDir, pgBin]) mkdirSync(d, { recursive: true });
   stub(join(nodeBin, "node"), "exit 0");
   stub(join(nodeBin, "docker"), `exit ${opts.docker ?? 0}`);
   stub(
     join(bunDir, "bun"),
-    `[[ $1 == --version ]] && { echo 1.4.2; exit 0; }
+    `[[ $1 == --version ]] && { echo ${bunVersion}; exit 0; }
 echo "$* $(pwd)" >> "${dir}/bun.log"
 [[ $* == "run ci" ]] && { echo "ci output"; exit ${opts.ci ?? 0}; }
 exit 0`,
@@ -410,7 +418,6 @@ exit 0`,
 
   // The suite's Postgres port is busy on a dev box; the check needs a free one.
   const port = await freePort();
-  const text = readFileSync(SCRIPT, "utf8");
   const patched = text.replace(/^PG_PORT=5433$/m, `PG_PORT=${port}`);
   expect(patched).not.toBe(text);
   const script = join(dir, "ci-remote.sh");

@@ -56,7 +56,10 @@ afterEach(async () => {
   // Nothing may still hold a socket permit once every socket is gone. Asserted
   // in the teardown of every test rather than in one of them, because a leak
   // shows up as "some later test refuses" and that is a miserable thing to
-  // debug.
+  // debug. Bun 1.4.4 runs the relay's close callbacks after server.stop()
+  // resolves, so a test that ends with its client open releases the permit a
+  // turn later: wait for it, and let the assertion report a real leak.
+  await until(() => _testWsSocketsOpen().total === 0).catch(() => {});
   expect(_testWsSocketsOpen().total).toBe(0);
 });
 

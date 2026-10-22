@@ -4,7 +4,7 @@ FROM buildpack-deps:bookworm@sha256:b22578185ebfdbd9a4050f697638b9c9696b70616d9b
 # Preserve the account identity, home and shell used by existing data volumes.
 RUN groupadd --gid 1000 node && useradd --uid 1000 --gid node --shell /bin/bash --create-home node
 RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential ca-certificates git curl procps openssh-client unzip xz-utils tini chromium chromium-sandbox bubblewrap && rm -rf /var/lib/apt/lists/*
-COPY --from=oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /opt/isomux
 COPY package.json bun.lock ./
 RUN ! command -v node && ! command -v npm && ! command -v npx && bun install --frozen-lockfile
