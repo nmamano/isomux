@@ -31,8 +31,7 @@
 // to leak, and not one line of logging that touches a URL.
 
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
-import { appRegistry as productionRegistry } from "./app-registry.ts";
-import type { AppRegistry } from "./app-registry.ts";
+import { appRegistry } from "./app-registry.ts";
 import { appRegistrationGeneration } from "./app-registry.ts";
 import { buildPublicOrigin, revalidateByHash } from "./auth.ts";
 import type { SessionLookup } from "./auth.ts";
@@ -327,7 +326,7 @@ function appCookieLine(value: string, maxAgeSec: number): string {
   ].join("; ");
 }
 
-export function appCookieClearLine(): string {
+function appCookieClearLine(): string {
   return appCookieLine("", 0);
 }
 
@@ -492,7 +491,6 @@ export function validateAppSession(
     label: string;
     hostGen: number;
     registrationGen?: number;
-    now?: number;
   },
 ): { userId: string; officeSessionHash: string } | null {
   // Present-but-empty lands here as `""` and is refused like any other value
@@ -501,12 +499,11 @@ export function validateAppSession(
   if (rawCookie.length > MAX_TOKEN_LENGTH || !TOKEN_PATTERN.test(rawCookie)) {
     return null;
   }
-  const now = ctx.now ?? Date.now();
   const tokenHash = hashOf(rawCookie);
   const row = appSessions.get(tokenHash);
   if (!row) return null;
   if (!safeHashEq(row.tokenHash, tokenHash)) return null;
-  if (row.expiresAt <= now) {
+  if (row.expiresAt <= Date.now()) {
     appSessions.delete(tokenHash);
     return null;
   }
@@ -554,21 +551,6 @@ export function appSessionExpiresAt(
   return expiresAt;
 }
 
-// How many minted codes are still outstanding. Test-only, and it exists for one
-// assertion that cannot be made from the outside: that presenting a code
-// CONSUMES it even when the presentation is refused. Both orders of the delete
-// and the rate-limit check return the same refusal, so the difference is only
-// visible in the table.
-export function _testPendingCodeCount(): number {
-  return pendingCodes.size;
-}
-
-// Minted screenshot codes not yet redeemed or released. Test-only: "this URL
-// minted nothing" is not visible from the URL Chrome was given alone.
-export function _testPreviewCodeCount(): number {
-  return previewCodes.size;
-}
-
 export function _testResetAppAuth(): void {
   pendingCodes.clear();
   appSessions.clear();
@@ -611,12 +593,9 @@ function singleParam(url: URL, name: string): string | null | undefined {
   return all[0];
 }
 
-function liveAppByLabel(
-  registry: AppRegistry,
-  label: string,
-): AppRecord | null {
+function liveAppByLabel(label: string): AppRecord | null {
   try {
-    return registry.list().find((app) => app.hostLabel === label) ?? null;
+    return appRegistry.list().find((app) => app.hostLabel === label) ?? null;
   } catch (err) {
     // A registry that cannot be read cannot vouch for a label. Fail closed,
     // and indistinguishably from a label that does not exist.
@@ -644,9 +623,7 @@ export function handleAppMintRequest(
   session: Pick<SessionLookup, "userId" | "sessionIdHash">,
   opts: {
     appHostDomain: string | null;
-    registry?: AppRegistry;
     canAccess: (app: AppRecord, userId: string) => boolean;
-    now?: number;
   },
 ): Response {
   if (req.method !== "GET") return neutralNotFound();
@@ -670,8 +647,7 @@ export function handleAppMintRequest(
   }
   if (labelParam === null) return neutralNotFound();
 
-  const registry = opts.registry ?? productionRegistry;
-  const app = liveAppByLabel(registry, labelParam);
+  const app = liveAppByLabel(labelParam);
   if (app === null) return neutralNotFound();
   if (!opts.canAccess(app, session.userId)) return neutralNotFound();
   if (
@@ -686,18 +662,15 @@ export function handleAppMintRequest(
   // Built from the registry's own label and the boot-frozen domain - never
   // from a request value - so there is nothing here to point elsewhere.
   const appHost = `${app.hostLabel}.${opts.appHostDomain}`;
-  const minted = mintAppCode(
-    {
-      label: app.hostLabel,
-      hostGen: app.hostGen,
-      registrationGen: appRegistrationGeneration(app),
-      appHost,
-      officeSessionHash: session.sessionIdHash,
-      returnPath,
-      wrapperReturn: modeParam === "wrapper",
-    },
-    opts.now,
-  );
+  const minted = mintAppCode({
+    label: app.hostLabel,
+    hostGen: app.hostGen,
+    registrationGen: appRegistrationGeneration(app),
+    appHost,
+    officeSessionHash: session.sessionIdHash,
+    returnPath,
+    wrapperReturn: modeParam === "wrapper",
+  });
   if ("error" in minted) return handshake(429, MINT_LIMITED_BODY);
 
   return handshakeRedirect(
@@ -712,7 +685,6 @@ export interface AppHostContext {
   host: string;
   app: AppRecord;
   canAccess: (app: AppRecord, userId: string) => boolean;
-  now?: number;
 }
 
 // GET /__isomux/auth?code=... on an app host: redeem, set the cookie, go to
@@ -721,7 +693,6 @@ export function handleAppAuthRedeem(
   req: Request,
   ctx: AppHostContext & { client: string },
 ): Response {
-  const now = ctx.now ?? Date.now();
   const url = new URL(req.url);
   const codeParam = singleParam(url, "code");
   if (codeParam === undefined || codeParam === null) {
@@ -732,16 +703,13 @@ export function handleAppAuthRedeem(
     label: ctx.app.hostLabel,
     client: ctx.client,
     registrationGen: appRegistrationGeneration(ctx.app),
-    now,
   });
   if (record === null) return handshake(400, SIGN_IN_FAILED_BODY);
-  // The generation is checked against the app that is live NOW, not the one
-  // that was live at mint time: a code minted seconds before a delete and a
-  // re-registration must not open the successor.
-  if (
-    record.hostGen !== ctx.app.hostGen ||
-    record.registrationGen !== appRegistrationGeneration(ctx.app)
-  ) {
+  // Both generations are checked against the app that is live NOW, not the
+  // one that was live at mint time: a code minted seconds before a delete and
+  // a re-registration must not open the successor. redeemAppCode has already
+  // checked the registration generation; the host generation is checked here.
+  if (record.hostGen !== ctx.app.hostGen) {
     return handshake(400, SIGN_IN_FAILED_BODY);
   }
   // The office session has to still be alive, and its absolute cap is what
@@ -753,16 +721,13 @@ export function handleAppAuthRedeem(
     return handshake(400, SIGN_IN_FAILED_BODY);
   }
 
-  const started = startAppSession(
-    {
-      label: ctx.app.hostLabel,
-      hostGen: ctx.app.hostGen,
-      registrationGen: appRegistrationGeneration(ctx.app),
-      officeSessionHash: record.officeSessionHash,
-      absoluteExpiresAt: office.absoluteExpiresAt,
-    },
-    now,
-  );
+  const started = startAppSession({
+    label: ctx.app.hostLabel,
+    hostGen: ctx.app.hostGen,
+    registrationGen: appRegistrationGeneration(ctx.app),
+    officeSessionHash: record.officeSessionHash,
+    absoluteExpiresAt: office.absoluteExpiresAt,
+  });
   if (started === null) return handshake(400, SIGN_IN_FAILED_BODY);
 
   const destination = record.wrapperReturn
@@ -804,7 +769,6 @@ export function appHostWsAuthGate(
     label: ctx.app.hostLabel,
     hostGen: ctx.app.hostGen,
     registrationGen: appRegistrationGeneration(ctx.app),
-    now: ctx.now,
   });
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
@@ -829,7 +793,6 @@ export function appHostAuthGate(
     label: ctx.app.hostLabel,
     hostGen: ctx.app.hostGen,
     registrationGen: appRegistrationGeneration(ctx.app),
-    now: ctx.now,
   });
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     const name = ctx.memberName(session.userId);
@@ -840,7 +803,7 @@ export function appHostAuthGate(
       return { ok: true, member: { id: session.userId, name } };
     }
   }
-  if (previewSessionAllows(rawCookie, ctx.app, ctx.now ?? Date.now())) {
+  if (previewSessionAllows(rawCookie, ctx.app)) {
     return { ok: true, member: null };
   }
   return {
@@ -990,17 +953,15 @@ function wellFormedToken(raw: string | null | undefined): raw is string {
 // `appHost` and `returnPath` are the registry's host and a valid return path.
 // Null when the agent's mint budget or the table is spent, or the capture
 // deadline has passed.
-export function mintPreviewGrant(
-  input: {
-    agentId: string;
-    app: AppRecord;
-    appHost: string;
-    returnPath: string;
-    revalidate: PreviewRevalidate;
-    expiresAt: number;
-  },
-  now: number = Date.now(),
-): { code: string; release: () => void } | null {
+export function mintPreviewGrant(input: {
+  agentId: string;
+  app: AppRecord;
+  appHost: string;
+  returnPath: string;
+  revalidate: PreviewRevalidate;
+  expiresAt: number;
+}): { code: string; release: () => void } | null {
+  const now = Date.now();
   if (input.expiresAt <= now) return null;
   if (!previewMintLimiter.allow(input.agentId, now)) return null;
   pruneExpired(previewCodes, now);
@@ -1033,9 +994,9 @@ export function mintPreviewGrant(
 // so every presentation consumes the code, refused or not.
 export function handleAppPreviewRedeem(
   req: Request,
-  ctx: { host: string; app: AppRecord; client: string; now?: number },
+  ctx: { host: string; app: AppRecord; client: string },
 ): Response {
-  const now = ctx.now ?? Date.now();
+  const now = Date.now();
   const raw = singleParam(new URL(req.url), "code");
   if (!wellFormedToken(raw)) return handshake(400, SIGN_IN_FAILED_BODY);
   const codeHash = hashOf(raw);
@@ -1076,13 +1037,12 @@ export function handleAppPreviewRedeem(
 function previewSessionAllows(
   rawCookie: string | null,
   app: AppRecord,
-  now: number,
 ): boolean {
   if (!wellFormedToken(rawCookie)) return false;
   const tokenHash = hashOf(rawCookie);
   const row = previewSessions.get(tokenHash);
   if (!row || !safeHashEq(row.tokenHash, tokenHash)) return false;
-  if (row.expiresAt <= now) {
+  if (row.expiresAt <= Date.now()) {
     previewSessions.delete(tokenHash);
     return false;
   }

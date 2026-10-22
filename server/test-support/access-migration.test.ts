@@ -40,44 +40,29 @@ function mkUser(over: Partial<UserRecord> & { id: string }): UserRecord {
 }
 
 describe("planOwnerAccessMigration (pure decision)", () => {
-  it("skips members entirely (rule-based access is owner-only)", () => {
+  it("plans every legacy owner in one pass and skips members and migrated owners", () => {
+    // A member (grants are the member's access) and an owner with empty
+    // grants (the idempotency marker) get no plan entry, wherever they sit.
     const users = [
+      mkUser({ id: "o1", role: "owner", allowedRooms: ["r1", "r2"] }),
       mkUser({ id: "m1", role: "member", allowedRooms: ["r1"] }),
-      mkUser({ id: "m2", role: "member", allowedRooms: [] }),
+      mkUser({ id: "done", role: "owner", allowedRooms: [] }),
+      mkUser({ id: "o2", role: "owner", allowedRooms: ["r1", "r2", "r3"] }),
     ];
-    expect(planOwnerAccessMigration(users, ["r1", "r2"])).toEqual([]);
+    expect(planOwnerAccessMigration(users, ["r1", "r2", "r3"])).toEqual([
+      { id: "o1", hidden: ["r3"], allowedRooms: [] },
+      { id: "o2", hidden: [], allowedRooms: [] },
+    ]);
   });
 
-  it("skips an already-migrated owner (empty grants = the idempotency marker)", () => {
-    const users = [mkUser({ id: "o1", role: "owner", allowedRooms: [] })];
-    expect(planOwnerAccessMigration(users, ["r1", "r2"])).toEqual([]);
-  });
-
-  it("all-stale grants (cover no live room) -> hidden=∅, grants cleared (never a blank office)", () => {
+  it("all-stale grants seed hidden=∅ (never a blank office) and drop dead hidden ids", () => {
     const users = [
       mkUser({
         id: "o1",
         role: "owner",
         allowedRooms: ["deleted-1", "gone-2"],
+        hidden: ["also-dead"],
       }),
-    ];
-    expect(planOwnerAccessMigration(users, ["r1", "r2", "r3"])).toEqual([
-      { id: "o1", hidden: [], allowedRooms: [] },
-    ]);
-  });
-
-  it("partial grants -> hidden = liveRooms \\ grants (self-hidden view survives), grants cleared", () => {
-    const users = [
-      mkUser({ id: "o1", role: "owner", allowedRooms: ["r1", "r2"] }),
-    ];
-    expect(planOwnerAccessMigration(users, ["r1", "r2", "r3"])).toEqual([
-      { id: "o1", hidden: ["r3"], allowedRooms: [] },
-    ]);
-  });
-
-  it("full-coverage grants (the common pre-3b owner) -> hidden=∅, grants cleared", () => {
-    const users = [
-      mkUser({ id: "o1", role: "owner", allowedRooms: ["r1", "r2", "r3"] }),
     ];
     expect(planOwnerAccessMigration(users, ["r1", "r2", "r3"])).toEqual([
       { id: "o1", hidden: [], allowedRooms: [] },
@@ -98,34 +83,6 @@ describe("planOwnerAccessMigration (pure decision)", () => {
     ];
     expect(planOwnerAccessMigration(users, ["r1", "r2", "r3"])).toEqual([
       { id: "o1", hidden: ["r2", "r3"], allowedRooms: [] },
-    ]);
-  });
-
-  it("prunes stale hidden even on the all-stale (hidden=∅-seed) branch", () => {
-    // grants cover no live room -> seeded hidden = ∅; pre-existing hidden still
-    // gets intersected with live, so a dead id is not carried forward.
-    const users = [
-      mkUser({
-        id: "o1",
-        role: "owner",
-        allowedRooms: ["deleted"],
-        hidden: ["also-dead"],
-      }),
-    ];
-    expect(planOwnerAccessMigration(users, ["r1", "r2"])).toEqual([
-      { id: "o1", hidden: [], allowedRooms: [] },
-    ]);
-  });
-
-  it("processes multiple owners in one pass; members in the same set are untouched", () => {
-    const users = [
-      mkUser({ id: "o1", role: "owner", allowedRooms: ["r1", "r2"] }),
-      mkUser({ id: "m1", role: "member", allowedRooms: ["r1"] }),
-      mkUser({ id: "o2", role: "owner", allowedRooms: ["stale"] }),
-    ];
-    expect(planOwnerAccessMigration(users, ["r1", "r2", "r3"])).toEqual([
-      { id: "o1", hidden: ["r3"], allowedRooms: [] },
-      { id: "o2", hidden: [], allowedRooms: [] },
     ]);
   });
 });

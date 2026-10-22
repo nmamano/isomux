@@ -311,7 +311,7 @@ export function expectPlaceholder(
 // The office URL an unauthenticated document navigation is sent to. Built the
 // way a caller expects to read it rather than by calling the production code,
 // so a change to either side has to be made deliberately in both.
-export function bounceLocation(label: string, path: string): string {
+function bounceLocation(label: string, path: string): string {
   return (
     `${HTTPS_ORIGIN}/auth/app?app=${encodeURIComponent(label)}` +
     `&r=${encodeURIComponent(path)}`

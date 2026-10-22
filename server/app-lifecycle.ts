@@ -47,10 +47,6 @@ export function retireAppRegistration(app: AppRecord): void {
   set.clear();
 }
 
-export function _testActiveAppLifecycles(app: AppRecord): number {
-  return active.get(appRegistrationKey(app))?.size ?? 0;
-}
-
 export function _testResetAppLifecycles(): void {
   active.clear();
 }

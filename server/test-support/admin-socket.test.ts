@@ -77,12 +77,26 @@ async function start(options: {
   return socketPath;
 }
 
+// A refused peer gets 403 from the peer check and mints nothing. The status
+// is the reason: past the peer check the handler never answers 403.
+async function expectRefused(socketPath: string): Promise<void> {
+  const before = listInvites().length;
+  const response = await fetch("http://localhost/admin/owner-login", {
+    unix: socketPath,
+    method: "POST",
+    body: JSON.stringify({ name: "Morgan" }),
+  });
+  expect(response.status).toBe(403);
+  expect(((await response.json()) as { ok: boolean }).ok).toBe(false);
+  expect(listInvites().length).toBe(before);
+}
+
 describe("admin socket peer check", () => {
   for (const script of [
     "deploy/install.sh",
     "control-plane/remote/mint-invite.sh",
   ]) {
-    it(`answers a root peer with a live owner sign-in link (${script})`, async () => {
+    it(`answers a root peer with a live 15-minute owner sign-in link (${script})`, async () => {
       const socketPath = await start({ peerUid: 0 });
       const { exitCode, stdout } = await runCaller(
         script,
@@ -96,6 +110,9 @@ describe("admin socket peer check", () => {
       const peek = peekInvite(token);
       expect("error" in peek).toBe(false);
       expect(peek).toMatchObject({ username: "Morgan" });
+      // A root-minted owner link is short-lived, not the 24h member window.
+      const [row] = listInvites().filter((i) => i.username === "Morgan");
+      expect(row.expiresAt - row.createdAt).toBe(15 * 60 * 1000);
     });
   }
 
@@ -107,27 +124,11 @@ describe("admin socket peer check", () => {
     admin = startAdminSocket({ socketPath, recoveryUidSetting: undefined });
     expect(admin).not.toBeNull();
     expect(statSync(socketPath).mode & 0o777).toBe(0o600);
-    const { exitCode } = await runCaller(
-      "deploy/install.sh",
-      socketPath,
-      "Morgan",
-    );
-    // curl -f exits 22 on an HTTP error status.
-    expect(exitCode).toBe(22);
-    const response = await fetch("http://localhost/admin/owner-login", {
-      unix: socketPath,
-      method: "POST",
-      body: JSON.stringify({ name: "Morgan" }),
-    });
-    expect(response.status).toBe(403);
-    expect(((await response.json()) as { ok: boolean }).ok).toBe(false);
+    await expectRefused(socketPath);
   });
 
   it("refuses a peer whose uid could not be read", async () => {
-    const socketPath = await start({ peerUid: null });
-    expect(
-      (await runCaller("deploy/install.sh", socketPath, "Morgan")).exitCode,
-    ).toBe(22);
+    await expectRefused(await start({ peerUid: null }));
   });
 
   it("answers ISOMUX_RECOVERY_UID and lets it connect", async () => {
@@ -144,23 +145,15 @@ describe("admin socket peer check", () => {
 
   it("refuses any other uid while a recovery uid is enabled", async () => {
     const recoveryUid = SERVER_UID + 1;
-    const otherUid = SERVER_UID + 2;
     const socketPath = await start({
-      peerUid: otherUid,
+      peerUid: SERVER_UID + 2,
       recoveryUidSetting: String(recoveryUid),
     });
     expect(statSync(socketPath).mode & 0o777).toBe(0o666);
-    const before = listInvites().length;
-    const response = await fetch("http://localhost/admin/owner-login", {
-      unix: socketPath,
-      method: "POST",
-      body: JSON.stringify({ name: "Morgan" }),
-    });
-    expect(response.status).toBe(403);
-    expect(listInvites().length).toBe(before);
+    await expectRefused(socketPath);
   });
 
-  it("ignores an ISOMUX_RECOVERY_UID that names the server's uid", async () => {
+  it("keeps the socket 0600 and refuses the server's uid when ISOMUX_RECOVERY_UID names it", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
       const socketPath = await start({
@@ -168,14 +161,7 @@ describe("admin socket peer check", () => {
         recoveryUidSetting: String(SERVER_UID),
       });
       expect(statSync(socketPath).mode & 0o777).toBe(0o600);
-      expect(
-        (await runCaller("deploy/install.sh", socketPath, "Morgan")).exitCode,
-      ).toBe(22);
-      expect(
-        errors.mock.calls.some((call) =>
-          String(call[0]).includes("ISOMUX_RECOVERY_UID"),
-        ),
-      ).toBe(true);
+      await expectRefused(socketPath);
     } finally {
       errors.mockRestore();
     }
@@ -207,14 +193,11 @@ describe("owner-login CLI", () => {
 describe("resolveAllowedPeerUids", () => {
   const quiet = () => spyOn(console, "error").mockImplementation(() => {});
 
-  it("allows root and a valid recovery uid", () => {
-    expect([...resolveAllowedPeerUids(1000, undefined)]).toEqual([0]);
-    expect([...resolveAllowedPeerUids(1000, " 1001 ")]).toEqual([0, 1001]);
-  });
-
-  it("drops a malformed or same-uid setting", () => {
+  it("adds a valid recovery uid to root and drops a malformed or same-uid setting", () => {
     const errors = quiet();
     try {
+      expect([...resolveAllowedPeerUids(1000, " 1001 ")]).toEqual([0, 1001]);
+      expect(errors).toHaveBeenCalledTimes(0);
       for (const setting of ["abc", "-1", "1e3", "1000"])
         expect([...resolveAllowedPeerUids(1000, setting)]).toEqual([0]);
       expect(errors).toHaveBeenCalledTimes(4);

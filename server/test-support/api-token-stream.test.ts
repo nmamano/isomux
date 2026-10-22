@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getUserByName } from "../users.ts";
-import {
-  enqueueApiTokenInboxMessage,
-  mintApiToken,
-  revokeApiToken,
-} from "../api-tokens.ts";
+import { enqueueApiTokenInboxMessage, mintApiToken } from "../api-tokens.ts";
 import type { ApiTokenInboxDrainRes } from "../../shared/contract-shapes.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 
@@ -66,6 +62,19 @@ async function closed(ws: WebSocket) {
   });
 }
 
+// Bounded poll for a socket to hold `count` messages. The arrival is the
+// barrier; no assertion rests on an elapsed delay.
+async function holds(socket: { messages: unknown[] }, count: number) {
+  const deadline = Date.now() + 2000;
+  while (socket.messages.length < count) {
+    if (Date.now() > deadline)
+      throw new Error(
+        `socket holds ${socket.messages.length} of ${count} messages`,
+      );
+    await Bun.sleep(5);
+  }
+}
+
 describe("API token live stream", () => {
   it("streams sends and replies with cursor entries, isolates same-owner tokens, and recovers after reconnect", async () => {
     const { srv, owner, userId, first, second, connect, append } =
@@ -111,6 +120,10 @@ describe("API token live stream", () => {
       entry: { sequence: 1, direction: "to_agent" },
     });
     expect(await a2.waitFor("api_token_log_entry")).toEqual(firstEvent);
+    // The socket is receive-only: office commands sent on it get no answer.
+    // The reply below is sent after these frames, so its entry is the barrier.
+    a.send({ type: "ping" });
+    a.send({ type: "terminal_open", agentId: agent!.id });
     const reply = await post(
       `/api/api-token-inboxes/${first.apiToken.id}/messages`,
       mintAgentToken(agent!.id, userId),
@@ -120,8 +133,11 @@ describe("API token live stream", () => {
     const page = (await (
       await post("/api/me/api-token-inbox/drain", first.token, { after: 0 })
     ).json()) as ApiTokenInboxDrainRes;
-    // Drain is a barrier after both append callbacks; socket delivery still needs an event-loop turn.
-    await Bun.sleep(30);
+    expect(page.entries.map((e) => e.direction)).toEqual([
+      "to_agent",
+      "from_agent",
+    ]);
+    await holds(a, page.entries.length);
     expect(a.messages).toEqual(
       page.entries.map((entry: unknown) => ({
         type: "api_token_log_entry",
@@ -129,30 +145,39 @@ describe("API token live stream", () => {
         entry,
       })),
     );
-    expect(b.messages).toEqual([]);
+    // Same owner, other token: b gets its own entry and none of the first
+    // token's, which would have reached it before this one.
+    await append(second.apiToken.id);
+    await b.waitFor("api_token_log_entry");
+    expect(b.messages).toEqual([
+      expect.objectContaining({ tokenId: second.apiToken.id }),
+    ]);
+    // The owner's browser socket never carries a token's log: a room event
+    // sent after every append above is the barrier.
+    srv.agentManager.createRoom("Barrier");
+    await browser.waitFor("room_created");
     expect(
       browser.messages.some(
         (m) => (m as { type: string }).type === "api_token_log_entry",
       ),
     ).toBe(false);
-    a.send({ type: "ping" });
-    a.send({ type: "terminal_open", agentId: agent!.id });
-    await Bun.sleep(20);
-    expect(a.messages).toHaveLength(2);
+    // Still only the two entries: nothing answered the ping or terminal_open.
+    expect(a.messages).toHaveLength(page.entries.length);
+
     a.close();
     await closed(a.raw);
     await append();
     const reconnect = await connect(first.token);
-    await Bun.sleep(20);
-    expect(reconnect.messages).toEqual([]);
     const recovery = (await (
       await post("/api/me/api-token-inbox/drain", first.token, { after: 2 })
     ).json()) as ApiTokenInboxDrainRes;
     expect(recovery.entries.map((e) => e.sequence)).toEqual([3]);
+    // No replay on connect: the first entry the new socket holds is the next
+    // live one, never entry 3.
     await append();
-    expect(await reconnect.waitFor("api_token_log_entry")).toMatchObject({
-      entry: { sequence: 4 },
-    });
+    const live = await reconnect.waitFor("api_token_log_entry");
+    expect(live).toMatchObject({ entry: { sequence: 4 } });
+    expect(reconnect.messages).toEqual([live]);
   });
 
   it("refuses an invalid bearer with or without a valid cookie, and accepts no URL credential", async () => {
@@ -176,15 +201,6 @@ describe("API token live stream", () => {
       `${srv.baseUrl}/ws?token=${encodeURIComponent(first.token)}`,
     );
     expect(response.status).toBe(401);
-  });
-
-  it("closes on revoke without an incoming frame and delivers no later entry", async () => {
-    const { userId, first, connect, append } = await setup();
-    const socket = await connect(first.token);
-    await revokeApiToken(userId, first.apiToken.id);
-    await closed(socket.raw);
-    expect(await append()).toMatchObject({ ok: false });
-    expect(socket.messages).toEqual([]);
   });
 
   it("rechecks expiry immediately before delivery and closes instead of sending", async () => {

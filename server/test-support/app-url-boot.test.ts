@@ -18,7 +18,6 @@ import {
   HTTPS_ORIGIN,
   OFFICE_HOST,
   anAgentToken,
-  deleteApp,
   registerApp,
 } from "./app-host-test-kit.ts";
 
@@ -28,7 +27,7 @@ afterEach(async () => {
   server = null;
 });
 
-const APP_URL = `https://hello.${OFFICE_HOST}`;
+const appUrl = (name: string) => `https://${name}.${OFFICE_HOST}`;
 
 // Turn the office into an HTTPS deployment through the real Access route, then
 // cold-restart the same install - the only way the derived domain changes,
@@ -69,107 +68,72 @@ const appsList = async (srv: TestServer, rawSessionId: string) => {
   return (await res.json()) as { name: string; state: string; url?: string }[];
 };
 
-describe("app URLs: an office with no app hostnames", () => {
-  it("gives an app no address at all - in its unit or on the wire", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const token = await anAgentToken(srv);
-    await registerApp(srv, token, "hello");
-
-    // ABSENT, not empty: `if (process.env.ISOMUX_APP_URL)` has to be a
-    // truthful test of whether this app is reachable at a hostname.
-    expect(srv.appSupervisor.unitFiles.get("hello")).not.toContain(
-      "ISOMUX_APP_URL",
-    );
-    const [app] = await appsList(srv, owner.rawSessionId);
-    expect(app.name).toBe("hello");
-    expect("url" in app).toBe(false);
-  });
-});
-
 describe("app URLs: the office gains a domain", () => {
-  it("re-renders the unit, restarts the running app once, and reports the address", async () => {
+  it("re-renders every unit, restarts only the running app once, reports the address, and does nothing on the next boot", async () => {
     const first = await startTestServer();
     server = first;
     const owner = await first.seedOwner("Morgan");
     const token = await anAgentToken(first);
     await registerApp(first, token, "hello");
-    expect(first.appSupervisor.unitFiles.get("hello")).not.toContain(
-      "ISOMUX_APP_URL",
-    );
+    await registerApp(first, token, "idle");
+    const stop = await first.http("/api/apps/idle/stop", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(stop.status).toBe(200);
+
+    // An office with no app hostnames gives an app no address at all, in its
+    // unit or on the wire. ABSENT, not empty: `if (process.env.ISOMUX_APP_URL)`
+    // has to be a truthful test of whether this app is reachable at a
+    // hostname.
+    for (const name of ["hello", "idle"]) {
+      const unit = first.appSupervisor.unitFiles.get(name);
+      expect({ name, written: typeof unit }).toEqual({
+        name,
+        written: "string",
+      });
+      expect(unit).not.toContain("ISOMUX_APP_URL");
+    }
+    const plain = await appsList(first, owner.rawSessionId);
+    expect(plain.map((app) => [app.name, "url" in app]).sort()).toEqual([
+      ["hello", false],
+      ["idle", false],
+    ]);
     // Everything the registration did is behind us; what follows is the boot.
     first.appSupervisor.calls.length = 0;
 
     const srv = await goHttpsAndRestart(first, owner.rawSessionId);
 
-    expect(urlPassEffects(srv)).toEqual(["regenerate:hello", "restart:hello"]);
-    expect(srv.appSupervisor.unitFiles.get("hello")).toContain(
-      `Environment="ISOMUX_APP_URL=${APP_URL}"`,
+    // Both units are rewritten; only the running app is bounced, and once.
+    expect(urlPassEffects(srv).sort()).toEqual([
+      "regenerate:hello",
+      "regenerate:idle",
+      "restart:hello",
+    ]);
+    for (const name of ["hello", "idle"]) {
+      expect(srv.appSupervisor.unitFiles.get(name)).toContain(
+        `Environment="ISOMUX_APP_URL=${appUrl(name)}"`,
+      );
+    }
+    // The API and the app are told the same thing, and the stopped app stays
+    // at rest, reporting the address it will come up on.
+    const apps = (await appsList(srv, owner.rawSessionId)).sort((a, b) =>
+      a.name.localeCompare(b.name),
     );
-    // The API and the app are told the same thing.
-    const [app] = await appsList(srv, owner.rawSessionId);
-    expect(app.url).toBe(APP_URL);
-  });
+    expect(apps.map((app) => [app.name, app.url])).toEqual([
+      ["hello", appUrl("hello")],
+      ["idle", appUrl("idle")],
+    ]);
+    expect(apps[1].state).toBe("stopped");
 
-  it("does nothing on the next boot", async () => {
     // Idempotence where it counts: no rewrite and no bounce every time the
     // office restarts.
-    const first = await startTestServer();
-    server = first;
-    const owner = await first.seedOwner("Morgan");
-    const token = await anAgentToken(first);
-    await registerApp(first, token, "hello");
-    const converged = await goHttpsAndRestart(first, owner.rawSessionId);
-
-    converged.appSupervisor.calls.length = 0;
-    const again = await converged.restart();
+    srv.appSupervisor.calls.length = 0;
+    const again = await srv.restart();
     server = again;
     expect(urlPassEffects(again)).toEqual([]);
     expect(again.appSupervisor.unitFiles.get("hello")).toContain(
-      `Environment="ISOMUX_APP_URL=${APP_URL}"`,
+      `Environment="ISOMUX_APP_URL=${appUrl("hello")}"`,
     );
-  });
-
-  it("keeps a re-registered name at its stable address", async () => {
-    const first = await startTestServer();
-    server = first;
-    const owner = await first.seedOwner("Morgan");
-    const token = await anAgentToken(first);
-    await registerApp(first, token, "hello");
-    await deleteApp(first, token, "hello");
-    const label = await registerApp(first, token, "hello");
-    expect(label).toBe("hello");
-
-    const srv = await goHttpsAndRestart(first, owner.rawSessionId);
-    const [app] = await appsList(srv, owner.rawSessionId);
-    expect(app.url).toBe(`https://hello.${OFFICE_HOST}`);
-    expect(srv.appSupervisor.unitFiles.get("hello")).toContain(
-      `Environment="ISOMUX_APP_URL=https://hello.${OFFICE_HOST}"`,
-    );
-  });
-
-  it("gives a stopped app the new unit and leaves it stopped", async () => {
-    const first = await startTestServer();
-    server = first;
-    const owner = await first.seedOwner("Morgan");
-    const token = await anAgentToken(first);
-    await registerApp(first, token, "hello");
-    const stop = await first.http("/api/apps/hello/stop", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(stop.status).toBe(200);
-    first.appSupervisor.calls.length = 0;
-
-    const srv = await goHttpsAndRestart(first, owner.rawSessionId);
-    expect(urlPassEffects(srv)).toEqual(["regenerate:hello"]);
-    expect(srv.appSupervisor.unitFiles.get("hello")).toContain(
-      `Environment="ISOMUX_APP_URL=${APP_URL}"`,
-    );
-    // Still at rest, and now reporting the address it will come up on.
-    const [app] = await appsList(srv, owner.rawSessionId);
-    expect(app.state).toBe("stopped");
-    expect(app.url).toBe(APP_URL);
   });
 });

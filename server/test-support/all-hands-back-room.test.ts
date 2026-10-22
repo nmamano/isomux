@@ -4,7 +4,11 @@
 import { describe, it, expect } from "bun:test";
 import { createCommandHandling } from "../command-handlers.ts";
 import { deskOfBackSeat } from "../../shared/desks.ts";
-import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
+import {
+  renderLogText,
+  type LogMessage,
+  type LogText,
+} from "../../shared/i18n/log-message.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 
 function agent(id: string, name: string, roomId: string, desk: number) {
@@ -25,6 +29,7 @@ function agent(id: string, name: string, roomId: string, desk: number) {
 describe("/isomux-all-hands", () => {
   it("lists front agents and one line per back room", async () => {
     let report = "";
+    let parts: readonly unknown[] = [];
     const agents = new Map(
       [
         agent("a1", "Lead", "r1", 0),
@@ -40,8 +45,10 @@ describe("/isomux-all-hands", () => {
       // The reply is message parts each reader words (task c37a7365); this
       // reads its English render.
       addLogEntry: (_id: string, kind: string, content: LogText) => {
-        if (kind === "system")
+        if (kind === "system") {
           report = renderLogText(translatorFor("en"), content);
+          parts = Array.isArray(content) ? content : [content];
+        }
       },
       updateState: () => {},
     } as unknown as Parameters<typeof createCommandHandling>[0];
@@ -54,11 +61,17 @@ describe("/isomux-all-hands", () => {
       undefined,
       undefined,
     );
+    // Names are fixture data; the back-room line is read as its message key.
     expect(report).toContain("**Lead**");
     expect(report).toContain("**Solo**");
     expect(report).not.toContain("Worker 1");
     expect(report).not.toContain("Worker 2");
-    expect(report).toContain("2 in the back room");
-    expect(report.match(/in the back room/g)).toHaveLength(1);
+    const backRoomLines = parts.filter(
+      (part): part is LogMessage =>
+        typeof part === "object" &&
+        part !== null &&
+        (part as LogMessage).key === "commands.isomuxAllHands.backRoom",
+    );
+    expect(backRoomLines.map((line) => line.params)).toEqual([{ count: 2 }]);
   });
 });

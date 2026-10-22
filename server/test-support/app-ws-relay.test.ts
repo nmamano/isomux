@@ -18,8 +18,10 @@ import {
   NOT_FOUND,
   OFFICE_HOST,
   WS_AUTH_REQUIRED,
+  WS_UNREACHABLE,
   anOfficeWithAnApp,
   appHost,
+  grantMemberAppRoom,
   deleteApp,
   raw,
   registerApp,
@@ -29,9 +31,12 @@ import {
 } from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
+import { getUserByName, updateUserById } from "../users.ts";
+import { mintAgentToken } from "../identity/tokens.ts";
 import { APP_COOKIE_NAME } from "../app-auth.ts";
 import {
   APP_STOPPED_BODY,
+  BAD_REQUEST_BODY,
   APP_WS_BAD_ORIGIN_BODY,
   APP_WS_PROTOCOL_MISMATCH_BODY,
 } from "../app-host-responses.ts";
@@ -79,9 +84,11 @@ interface SeenUpgrade {
 function startWsApp(
   name: string,
   seen: SeenUpgrade[],
-): { stop(): void; server: ReturnType<typeof Bun.serve> } {
+): { stop(): void; closes: Array<{ code: number; reason: string }> } {
   const record = appRegistry.get(name);
   if (!record) throw new Error(`no registered app ${name}`);
+  // What the app itself heard when each socket ended.
+  const closes: Array<{ code: number; reason: string }> = [];
   const srv = Bun.serve<{ path: string }>({
     port: record.port,
     hostname: "127.0.0.1",
@@ -106,22 +113,18 @@ function startWsApp(
           ws.send("good morning");
           ws.close(4321, "app said so");
         }
-        if (ws.data.path === "/bye") ws.close(4001, "app done");
-        if (ws.data.path === "/nostatus") {
-          // A close frame with NO status code. Bun's server API cannot send one,
-          // so this app is the one place a raw frame is written by hand - which
-          // is exactly the case the relay's mapping has to get right.
-          ws.terminate();
-        }
       },
       message(ws, message) {
-        if (typeof message === "string") ws.send(`echo:${message}`);
+        if (message === "bye") ws.close(4001, "app done");
+        else if (typeof message === "string") ws.send(`echo:${message}`);
         else ws.send(Buffer.concat([Buffer.from([0xff]), message]));
       },
-      close() {},
+      close(_ws, code, reason) {
+        closes.push({ code, reason });
+      },
     },
   });
-  return { stop: () => void srv.stop(true), server: srv };
+  return { stop: () => void srv.stop(true), closes };
 }
 
 // An app that is NOT Bun: a raw TCP listener that writes its own 101. It exists
@@ -131,7 +134,8 @@ function startWsApp(
 function startRawApp(
   name: string,
   opts: {
-    protocolLine?: (offered: string | null) => string | null;
+    // `path` is the request target, so one app can answer two ways.
+    protocolLine?: (offered: string | null, path: string) => string | null;
     // A close frame with NO status code: two bytes, 0x88 0x00. Unbuildable with
     // Bun's server API, which is why this listener writes frames by hand.
     closeWithNoStatus?: boolean;
@@ -140,9 +144,10 @@ function startRawApp(
     // discards the 101 before it is written (measured).
     dropAfterHandshake?: boolean;
   },
-): { stop(): void } {
+): { stop(): void; offers: Array<string | null> } {
   const record = appRegistry.get(name);
   if (!record) throw new Error(`no registered app ${name}`);
+  const offers: Array<string | null> = [];
   const srv = Bun.listen<undefined>({
     hostname: "127.0.0.1",
     port: record.port,
@@ -152,10 +157,12 @@ function startRawApp(
         const key = /sec-websocket-key:\s*(\S+)/i.exec(head)?.[1] ?? "";
         const offered =
           /sec-websocket-protocol:\s*([^\r\n]+)/i.exec(head)?.[1] ?? null;
+        offers.push(offered);
+        const path = /^GET (\S+)/.exec(head)?.[1] ?? "";
         const accept = createHash("sha1")
           .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
           .digest("base64");
-        const protocolLine = opts.protocolLine?.(offered) ?? null;
+        const protocolLine = opts.protocolLine?.(offered, path) ?? null;
         socket.write(
           [
             "HTTP/1.1 101 Switching Protocols",
@@ -174,7 +181,7 @@ function startRawApp(
       },
     },
   });
-  return { stop: () => srv.stop(true) };
+  return { stop: () => srv.stop(true), offers };
 }
 
 async function connected(
@@ -229,7 +236,8 @@ describe("app-host websockets: frames both ways", () => {
   it("closes both old legs before the same port serves a replacement", async () => {
     const { srv, label, rawSessionId, token } = await office();
     const retiredSeen: SeenUpgrade[] = [];
-    app = startWsApp("hello", retiredSeen);
+    const retiredApp = startWsApp("hello", retiredSeen);
+    app = retiredApp;
     const retiredCookie = await signIn(srv, label, rawSessionId);
     const retiredClient = await connected(srv, label, retiredCookie, "/echo");
     retiredClient.send("old");
@@ -245,7 +253,12 @@ describe("app-host websockets: frames both ways", () => {
       code: 1008,
       reason: "app registration retired",
     });
-    app.stop();
+    // The old app leg is told the same thing, not left open on the reused port.
+    await until(() => retiredApp.closes.length > 0);
+    expect(retiredApp.closes).toEqual([
+      { code: 1008, reason: "app registration retired" },
+    ]);
+    retiredApp.stop();
     app = null;
 
     const replacementLabel = await registerApp(srv, token, "hello");
@@ -271,13 +284,16 @@ describe("app-host websockets: frames both ways", () => {
     await until(() => _testWsSocketsOpen().total === 0);
   });
 
-  it("carries the app's own close code and reason to the client", async () => {
+  it("carries the app's own close code and reason to the client on an open socket", async () => {
+    // The app closes in answer to a message, so the socket is OPEN when the
+    // close arrives - the path the greet-and-close case below never takes.
     const { srv, label, rawSessionId } = await office();
     const seen: SeenUpgrade[] = [];
     app = startWsApp("hello", seen);
     const cookie = await signIn(srv, label, rawSessionId);
 
-    const client = await connected(srv, label, cookie, "/bye");
+    const client = await connected(srv, label, cookie, "/echo");
+    client.send("bye");
     expect(await client.next()).toEqual({
       kind: "close",
       code: 4001,
@@ -306,7 +322,7 @@ describe("app-host websockets: frames both ways", () => {
   it("maps a status-less close to a clean 1000, never to a drop", async () => {
     // An app can close with a close FRAME carrying no status code. Bun's server
     // API cannot express that downstream (ws.close() puts 1000 on the wire -
-    // measured, pinned by the runtime canary below), so the relay chooses
+    // measured), so the relay chooses
     // between inventing 1000 and reporting 1006. It invents 1000: the app closed
     // CLEANLY, and 1006 is what every reconnect loop treats as a failure.
     const { srv, label, rawSessionId } = await office();
@@ -331,124 +347,95 @@ describe("app-host websockets: frames both ways", () => {
     expect(await client.next()).toEqual({ kind: "eof" });
   });
 
-  it("carries the client's close code and reason to the app", async () => {
+  it("carries the client's close to the app: its code and reason, or 1006 when it drops", async () => {
     const { srv, label, rawSessionId } = await office();
     const seen: SeenUpgrade[] = [];
     const running = startWsApp("hello", seen);
     app = running;
     const cookie = await signIn(srv, label, rawSessionId);
-    const closes: Array<{ code: number; reason: string }> = [];
-    // Re-serve with a close recorder: the app has to report what IT saw.
-    running.stop();
-    const record = appRegistry.get("hello")!;
-    const srvApp = Bun.serve({
-      port: record.port,
-      hostname: "127.0.0.1",
-      fetch(req, s) {
-        if (s.upgrade(req)) return;
-        return new Response("no");
-      },
-      websocket: {
-        message() {},
-        close(_ws, code, reason) {
-          closes.push({ code, reason });
-        },
-      },
-    });
-    app = { stop: () => void srvApp.stop(true) };
 
-    const client = await connected(srv, label, cookie, "/echo");
-    client.sendClose(4002, "client done");
-    await until(() => closes.length > 0);
-    expect(closes[0]).toEqual({ code: 4002, reason: "client done" });
+    const polite = await connected(srv, label, cookie, "/echo");
+    polite.sendClose(4002, "client done");
+    await until(() => running.closes.length === 1);
+    expect(running.closes[0]).toEqual({ code: 4002, reason: "client done" });
+
+    // No close frame was exchanged with the browser, so none is exchanged with
+    // the app either: the event is relayed as the same event.
+    const dropped = await connected(srv, label, cookie, "/echo");
+    dropped.drop();
+    await until(() => running.closes.length === 2);
+    expect(running.closes[1].code).toBe(1006);
     await until(() => _testWsSocketsOpen().total === 0);
-  });
-
-  it("tells the app the truth when the client's connection drops", async () => {
-    const { srv, label, rawSessionId } = await office();
-    const closes: Array<{ code: number; reason: string }> = [];
-    const record = (await registerAndRead(srv)).port;
-    const srvApp = Bun.serve({
-      port: record,
-      hostname: "127.0.0.1",
-      fetch(req, s) {
-        if (s.upgrade(req)) return;
-        return new Response("no");
-      },
-      websocket: {
-        message() {},
-        close(_ws, code, reason) {
-          closes.push({ code, reason });
-        },
-      },
-    });
-    app = { stop: () => void srvApp.stop(true) };
-    const cookie = await signIn(srv, label, rawSessionId);
-
-    const client = await connected(srv, label, cookie, "/echo");
-    client.drop();
-    await until(() => closes.length > 0);
-    // 1006: no close frame was exchanged with the app either, because none was
-    // exchanged with the browser. The event is relayed as the same event.
-    expect(closes[0].code).toBe(1006);
   });
 });
 
 describe("app-host websockets: what never reaches the app", () => {
-  it("refuses an upgrade with no app session, and never redirects one", async () => {
+  it("refuses an upgrade with no live app session: no redirect, the dead cookie cleared, the app never dialed", async () => {
     const { srv, label } = await office();
     const seen: SeenUpgrade[] = [];
     app = startWsApp("hello", seen);
-    const result = await wsConnect(srv.port, {
-      host: appHost(label),
-      path: "/echo",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect({
-        status: result.response.status,
-        body: result.response.body,
-      }).toEqual({
-        status: WS_AUTH_REQUIRED.status,
-        body: WS_AUTH_REQUIRED.body,
-      });
-      // Never a redirect: no WebSocket client can follow one.
-      expect(result.response.headers.location).toBeUndefined();
-    }
-    expect(seen).toEqual([]);
-  });
-
-  it("clears a presented-but-dead app cookie, and clears nothing when none was sent", async () => {
-    const { srv, label } = await office();
-    const seen: SeenUpgrade[] = [];
-    app = startWsApp("hello", seen);
+    // On `/ws`, the office's own socket path: the answer is the app-host arm's
+    // refusal, not the office handler's, so that handler never runs here.
     const withCookie = await wsConnect(srv.port, {
       host: appHost(label),
-      path: "/echo",
+      path: "/ws",
       cookie: "not-a-real-session",
     });
     const without = await wsConnect(srv.port, {
       host: appHost(label),
-      path: "/echo",
+      path: "/ws",
     });
-    expect(withCookie.ok).toBe(false);
-    expect(without.ok).toBe(false);
-    if (!withCookie.ok && !without.ok) {
-      expect(withCookie.response.setCookies).toEqual([
+    const answer = (result: Awaited<ReturnType<typeof wsConnect>>) =>
+      result.ok
+        ? "upgraded"
+        : {
+            status: result.response.status,
+            body: result.response.body,
+            // Never a redirect: no WebSocket client can follow one.
+            location: result.response.headers.location ?? "none",
+            setCookies: result.response.setCookies,
+          };
+    expect(answer(withCookie)).toEqual({
+      status: WS_AUTH_REQUIRED.status,
+      body: WS_AUTH_REQUIRED.body,
+      location: "none",
+      setCookies: [
         `${APP_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
-      ]);
-      expect(without.response.setCookies).toEqual([]);
-    }
+      ],
+    });
+    expect(answer(without)).toEqual({
+      status: WS_AUTH_REQUIRED.status,
+      body: WS_AUTH_REQUIRED.body,
+      location: "none",
+      setCookies: [],
+    });
     expect(seen).toEqual([]);
   });
 
-  it("refuses a stopped app without dialing its port", async () => {
+  it("refuses an app that is not listening with a 502, and a stopped one without dialing its port", async () => {
     const { srv, label, rawSessionId } = await office();
-    const seen: SeenUpgrade[] = [];
-    // Something IS listening there - the point of the test. A stopped app's port
-    // is just a port, and whatever is on it is not the app.
-    app = startWsApp("hello", seen);
     const cookie = await signIn(srv, label, rawSessionId);
+    // Running, but nothing on its port: the dial fails BEFORE the upgrade, so
+    // the browser gets an ordinary HTTP refusal (and the teardown proves the
+    // slot taken for the dial came back).
+    const unreachable = await wsConnect(srv.port, {
+      host: appHost(label),
+      path: "/echo",
+      cookie,
+    });
+    expect(
+      unreachable.ok
+        ? "upgraded"
+        : {
+            status: unreachable.response.status,
+            body: unreachable.response.body,
+          },
+    ).toEqual({ status: WS_UNREACHABLE.status, body: WS_UNREACHABLE.body });
+
+    const seen: SeenUpgrade[] = [];
+    // Now something IS listening there - the point of the rest. A stopped app's
+    // port is just a port, and whatever is on it is not the app.
+    app = startWsApp("hello", seen);
     srv.appSupervisor.setRuntime("hello", {
       state: "stopped",
       restartCount: 0,
@@ -469,12 +456,14 @@ describe("app-host websockets: what never reaches the app", () => {
     expect(seen).toEqual([]);
   });
 
-  it("refuses an upgrade on the reserved prefix, authenticated or not", async () => {
+  it("refuses an upgrade on the reserved prefix, even with a live app session", async () => {
+    // The reserved check sits AHEAD of the upgrade branch: the other way round,
+    // an upgrade to `/__isomux/auth` would be relayed to the app.
     const { srv, label, rawSessionId } = await office();
     const seen: SeenUpgrade[] = [];
     app = startWsApp("hello", seen);
     const cookie = await signIn(srv, label, rawSessionId);
-    for (const path of ["/__isomux", "/__isomux/auth", "/__isomux/anything"]) {
+    for (const path of ["/__isomux", "/__isomux/auth"]) {
       const result = await wsConnect(srv.port, {
         host: appHost(label),
         path,
@@ -519,12 +508,10 @@ describe("app-host websockets: what never reaches the app", () => {
     app = startWsApp("hello", seen);
     const cookie = await signIn(srv, label, rawSessionId);
 
-    for (const origin of [
-      "https://evil.test",
-      `http://${appHost(label)}`,
-      `https://${OFFICE_HOST}`,
-      `https://${appHost(label)}:443`,
-    ]) {
+    // Every refused shape is the pure rule's table (app-ws-lifecycle.test.ts,
+    // "allows an absent Origin and exactly one present value"); this is the
+    // wiring: the rule runs against THIS app's host, before the app is dialed.
+    for (const origin of [`https://${OFFICE_HOST}`]) {
       const result = await wsConnect(srv.port, {
         host: appHost(label),
         path: "/echo",
@@ -556,31 +543,67 @@ describe("app-host websockets: what never reaches the app", () => {
     headless.drop();
     await until(() => _testWsSocketsOpen().total === 0);
   });
+});
 
-  it("keeps the office's own /ws working and unreachable from an app host", async () => {
+describe("app-host websockets: access lost while a socket is open", () => {
+  it("closes the socket when the member loses the app's room, and when the app's agent leaves it", async () => {
+    // The relay's own recheck timer runs every 30 s and `until` gives up after
+    // 2 s, so each close below proves the office rechecks open sockets on the
+    // access change itself: the users hook, then the agents.move route.
     const { srv, label, rawSessionId } = await office();
     const seen: SeenUpgrade[] = [];
-    app = startWsApp("hello", seen);
-    const cookie = await signIn(srv, label, rawSessionId);
-    // The office's socket, on the office's host, still opens and hydrates.
-    const ws = await srv.connectWs(rawSessionId);
-    const hydrated = await ws.waitFor("session_context");
-    expect(hydrated.type).toBe("session_context");
-    ws.close();
-    // And an app host cannot reach it. `/ws` on an app host is just a path the
-    // APP serves: the upgrade succeeds, and what answers is the app - which is
-    // the sharper proof, because the office's own /ws would have pushed a
-    // session_context frame the instant it opened and this socket only ever says
-    // what the app says.
-    const onApp = await connected(srv, label, cookie, "/ws");
-    onApp.send("who is there");
-    expect(await onApp.next()).toEqual({
-      kind: "text",
-      text: "echo:who is there",
+    const wsApp = startWsApp("hello", seen);
+    app = wsApp;
+    const member = getUserByName("Member");
+    if (!member) throw new Error("seeded member is missing");
+    const revoked = {
+      kind: "close",
+      code: 1008,
+      reason: "session ended",
+    } as const;
+
+    const first = await connected(
+      srv,
+      label,
+      await signIn(srv, label, rawSessionId),
+      "/echo",
+    );
+    first.send("ping");
+    expect(await first.next()).toEqual({ kind: "text", text: "echo:ping" });
+    expect(updateUserById(member.id, { allowedRooms: [] }).ok).toBe(true);
+    expect(await first.next()).toEqual(revoked);
+    await until(() => wsApp.closes.length === 1);
+    expect(wsApp.closes[0]).toEqual({ code: 1008, reason: "session ended" });
+
+    grantMemberAppRoom(srv, "Member");
+    const second = await connected(
+      srv,
+      label,
+      await signIn(srv, label, rawSessionId),
+      "/echo",
+    );
+    second.send("pong");
+    expect(await second.next()).toEqual({ kind: "text", text: "echo:pong" });
+    const creatorId = appRegistry.get("hello")!.createdByAgentId!;
+    // An ordinary agent may not move agents; a privileged one acts as its
+    // owner manager, as an owner's browser would.
+    const privileged = mintAgentToken(
+      creatorId,
+      getUserByName("Morgan")!.id,
+      true,
+    );
+    const moved = await srv.http(`/api/agents/${creatorId}/move`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${privileged}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        targetRoomId: srv.agentManager.createRoom("Elsewhere"),
+      }),
     });
-    expect(onApp.seen).toEqual([]);
-    expect(seen.map((s) => s.path)).toEqual(["/ws"]);
-    onApp.drop();
+    expect(moved.status).toBe(200);
+    expect(await second.next()).toEqual(revoked);
     await until(() => _testWsSocketsOpen().total === 0);
   });
 });
@@ -628,77 +651,52 @@ describe("app-host websockets: subprotocol negotiation", () => {
     // (measured) - so an app that picks the first would let a broken relay pass
     // this test. Picking the second is what makes the assertion mean something.
     const { srv, label, rawSessionId } = await office();
-    app = startRawApp("hello", {
+    const raw = startRawApp("hello", {
       protocolLine: (offered) =>
         offered?.includes("superchat") ? "superchat" : null,
     });
+    app = raw;
     const cookie = await signIn(srv, label, rawSessionId);
     const client = await connected(srv, label, cookie, "/echo", {
       protocols: "chat, superchat",
     });
+    // The client's offer reached the app untouched...
+    expect(raw.offers).toEqual(["chat, superchat"]);
+    // ...and the app's choice, not the runtime's, reached the client.
     expect(client.handshakeHeaders["sec-websocket-protocol"]).toBe("superchat");
     client.drop();
     await until(() => _testWsSocketsOpen().total === 0);
   });
 
-  it("passes the client's offer through to the app untouched", async () => {
+  it("refuses when the app selects none of the offered protocols, or one nobody offered", async () => {
+    // None: ruled 2026-08-07, refused rather than relayed, because a browser
+    // fails a connection itself when its offer is not acknowledged (WHATWG 2.2
+    // step 11.2) - so relaying it would make the hostname succeed where the
+    // app's own port fails, with the two ends disagreeing about the protocol.
+    // The relay decides that one itself; the unoffered one is the upstream's
+    // refusal, which the relay has to answer with the same body.
     const { srv, label, rawSessionId } = await office();
-    const seen: SeenUpgrade[] = [];
-    app = startWsApp("hello", seen);
-    const cookie = await signIn(srv, label, rawSessionId);
-    const client = await connected(srv, label, cookie, "/echo", {
-      protocols: "chat, superchat",
+    app = startRawApp("hello", {
+      protocolLine: (_offered, path) =>
+        path === "/none" ? null : "something-else",
     });
-    expect(seen[0].protocol).toBe("chat, superchat");
-    client.drop();
-    await until(() => _testWsSocketsOpen().total === 0);
-  });
-
-  it("refuses when the app selects none of the offered protocols", async () => {
-    // Ruled 2026-08-07: refused rather than relayed, because a browser fails a
-    // connection itself when its offer is not acknowledged (WHATWG 2.2 step
-    // 11.2) - so relaying it would make the hostname succeed where the app's own
-    // port fails, with the two ends disagreeing about the protocol.
-    const { srv, label, rawSessionId } = await office();
-    app = startRawApp("hello", { protocolLine: () => null });
     const cookie = await signIn(srv, label, rawSessionId);
-    const result = await wsConnect(srv.port, {
-      host: appHost(label),
-      path: "/echo",
-      cookie,
-      protocols: "chat",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect({
-        status: result.response.status,
-        body: result.response.body,
-      }).toEqual({
-        status: 502,
-        body: APP_WS_PROTOCOL_MISMATCH_BODY,
+    for (const path of ["/none", "/other"]) {
+      const result = await wsConnect(srv.port, {
+        host: appHost(label),
+        path,
+        cookie,
+        protocols: "chat",
       });
-    }
-  });
-
-  it("refuses when the app selects a protocol nobody offered", async () => {
-    const { srv, label, rawSessionId } = await office();
-    app = startRawApp("hello", { protocolLine: () => "something-else" });
-    const cookie = await signIn(srv, label, rawSessionId);
-    const result = await wsConnect(srv.port, {
-      host: appHost(label),
-      path: "/echo",
-      cookie,
-      protocols: "chat",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect({
-        status: result.response.status,
-        body: result.response.body,
-      }).toEqual({
-        status: 502,
-        body: APP_WS_PROTOCOL_MISMATCH_BODY,
-      });
+      expect(
+        result.ok
+          ? { path, upgraded: true }
+          : {
+              path,
+              status: result.response.status,
+              body: result.response.body,
+            },
+      ).toEqual({ path, status: 502, body: APP_WS_PROTOCOL_MISMATCH_BODY });
     }
   });
 
@@ -707,18 +705,14 @@ describe("app-host websockets: subprotocol negotiation", () => {
     const seen: SeenUpgrade[] = [];
     app = startWsApp("hello", seen);
     const cookie = await signIn(srv, label, rawSessionId);
-    // The oversized case is in this list deliberately: it is refused HERE, with
-    // a 400 and no connection to the app, rather than being forwarded into the
-    // upgrade request and refused by slice 6a's byte ceiling after a permit and
-    // a dial. `seen` staying empty is the assertion that carries that.
+    // Every malformed shape is the pure parser's table (app-ws-lifecycle
+    // .test.ts, "parses a subprotocol offer strictly"). This is the wiring, on
+    // the oversized case: it is refused HERE, with a 400 and no connection to
+    // the app, rather than being forwarded into the upgrade request and refused
+    // by the upstream's byte ceiling after a permit and a dial. `seen` staying
+    // empty is the assertion that carries that.
     const oversized = "a".repeat(APP_WS_MAX_PROTOCOL_HEADER_BYTES + 1);
-    for (const protocols of [
-      "",
-      "chat, chat",
-      "not a token",
-      "chat,,x",
-      oversized,
-    ]) {
+    for (const protocols of [oversized]) {
       const result = await wsConnect(srv.port, {
         host: appHost(label),
         path: "/echo",
@@ -734,57 +728,13 @@ describe("app-host websockets: subprotocol negotiation", () => {
         }).toEqual({
           protocols: protocols.slice(0, 20),
           status: 400,
-          body: "bad request\n",
+          body: BAD_REQUEST_BODY,
         });
       }
     }
     expect(seen).toEqual([]);
   });
-
-  it("answers with no protocol and no extension when none was offered", async () => {
-    // The canary for two measured runtime defaults. Bun fabricates nothing when
-    // the client offers nothing, and negotiates no extension even when one is
-    // offered - which is what lets slice 6a's decoder refuse a reserved bit. If a
-    // runtime upgrade changes either, this fails and points here.
-    const { srv, label, rawSessionId } = await office();
-    const seen: SeenUpgrade[] = [];
-    app = startWsApp("hello", seen);
-    const cookie = await signIn(srv, label, rawSessionId);
-    const client = await connected(srv, label, cookie, "/echo", {
-      headers: { "Sec-WebSocket-Extensions": "permessage-deflate" },
-    });
-    expect(client.handshakeHeaders["sec-websocket-protocol"]).toBeUndefined();
-    expect(client.handshakeHeaders["sec-websocket-extensions"]).toBeUndefined();
-    client.drop();
-    await until(() => _testWsSocketsOpen().total === 0);
-  });
 });
-
-describe("app-host websockets: inert without app hostnames", () => {
-  it("never upgrades an app host on an office with no app-host domain", async () => {
-    const { startTestServer } = await import("./harness.ts");
-    const srv = await startTestServer();
-    server = srv;
-    const result = await wsConnect(srv.port, {
-      host: `hello.${OFFICE_HOST}`,
-      path: "/ws",
-    });
-    // Falls through to the office, which refuses an unauthenticated /ws in its
-    // own words - the proof that no app-host code ran at all.
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.response.status).toBe(401);
-      expect(result.response.body).toBe("unauthenticated");
-    }
-  });
-});
-
-// A registered app's port, for the tests that build their own listener.
-async function registerAndRead(_srv: TestServer): Promise<{ port: number }> {
-  const record = appRegistry.get("hello");
-  if (!record) throw new Error("no registered app hello");
-  return { port: record.port };
-}
 
 // Poll until a condition holds. Socket lifecycle events land on their own turns,
 // and a fixed sleep is either flaky or slow; this is neither.

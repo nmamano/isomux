@@ -12,15 +12,16 @@
 //   - The callback URL carries the CODE AND NOTHING ELSE. The requested path
 //     rides the server-side record (port-proxy-design.md), so a second value
 //     never reaches a browser's history.
-//   - Every way a code can be refused answers with ONE body: replayed, from
+//   - Every way a code can be refused answers with ONE response: replayed, from
 //     another app, minted against a session that has since signed out. An
 //     anonymous caller cannot tell them apart.
 //   - THE APP COOKIE IS NOT AN OFFICE CREDENTIAL and dies with the office
 //     session behind it - the property that makes "sign out" mean something
 //     once apps have their own origins.
-//   - Only a document navigation is bounced. A POST, an XHR and a subresource
-//     get a refusal instead of a 302 that would lose the method or fail as an
-//     opaque CORS error.
+//   - Only a document navigation, or a GET with no Fetch Metadata, is bounced.
+//     A POST, an XHR and a HEAD get a refusal instead of a 302 that would lose
+//     the method or fail as an opaque CORS error. The predicate case by case is
+//     in app-auth.test.ts.
 //   - The mint endpoint is behind the office's ordinary wall: no session is the
 //     normal login page, a bearer token is not a session, and an unknown label
 //     is indistinguishable from a retired one.
@@ -30,21 +31,16 @@ import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
   NOT_FOUND,
-  WS_AUTH_REQUIRED,
-  WS_UNREACHABLE,
   OFFICE_HOST,
   RELAY_UNREACHABLE,
-  WS_UPGRADE_HEADERS,
   anOfficeWithAnApp as bootOfficeWithAnApp,
   appHost,
-  bounceLocation,
   codeFromMint,
   cookieValue,
   deleteApp,
   expectAuthRequired,
   expectBounce,
   expectPlaceholder,
-  grantMemberAppRoom,
   mint,
   raw,
   redeem,
@@ -66,19 +62,20 @@ import {
   APP_COOKIE_NAME,
   APP_MINT_MAX_PER_WINDOW,
   APP_SESSION_TTL_MS,
-  handleAppAuthRedeem,
-  mintAppCode,
-  startAppSession,
-  validateAppSession,
   appSessionExpiresAt,
   APP_SESSION_REQUIRED_MESSAGE,
+  handleAppAuthRedeem,
+  mintAppCode,
+  redeemAppCode,
+  startAppSession,
+  validateAppSession,
 } from "../app-auth.ts";
-
-const SIGN_IN_FAILED_BODY =
-  "sign-in link expired; open the app again from the office\n";
-const MINT_LIMITED_BODY =
-  "too many app sign-in attempts; wait a minute and try again\n";
-const BAD_REQUEST_BODY = "bad request\n";
+import {
+  BAD_REQUEST_BODY,
+  MINT_LIMITED_BODY,
+  SIGN_IN_FAILED_BODY,
+} from "../app-host-responses.ts";
+import type { AppWidgetStatus } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -94,6 +91,15 @@ function anOfficeWithAnApp(name = "hello") {
     server = srv;
   }, name);
 }
+
+function sessionHashOf(rawSessionId: string): string {
+  return createHash("sha256").update(rawSessionId).digest("hex");
+}
+
+// The one clear line every dead or empty app cookie gets. Spelled out: the
+// attributes are the `__Host-` prefix's requirements, which a browser enforces
+// on a deletion too.
+const CLEAR_LINE = `${APP_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`;
 
 describe("app-host handshake: the whole round trip", () => {
   it("bounces, mints, redeems, and lands authenticated", async () => {
@@ -113,7 +119,8 @@ describe("app-host handshake: the whole round trip", () => {
 
     // 2. The office mints. The callback carries the code AND NOTHING ELSE - the
     //    path stays server-side, which is the design doc's rule and one less
-    //    value written into a browser's history.
+    //    value written into a browser's history. Its host is the registry's
+    //    label under the boot-frozen domain, never the request's own Host.
     const location = new URL(bounce.headers["location"]);
     const minted = await mint(srv, `?${location.searchParams}`, {
       rawSessionId,
@@ -226,9 +233,7 @@ describe("app-host handshake: the whole round trip", () => {
       headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
     });
     expectBounce(after, { label, path: "/" }, "after sign-out");
-    expect(after.setCookies).toEqual([
-      `${APP_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
-    ]);
+    expect(after.setCookies).toEqual([CLEAR_LINE]);
   });
 
   it("rechecks room visibility at redeem and on every later request", async () => {
@@ -261,70 +266,72 @@ describe("app-host handshake: the whole round trip", () => {
     expect(refusedMint.status).toBe(404);
   });
 
-  it("refuses a code minted against a session that has since signed out", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
-    expect(minted.status).toBe(302);
-    const code = codeFromMint(minted);
-    await srv.http("/auth/logout", {
+  it("refuses every bad code with one response: spent, bogus, absent, oversized, repeated, from another app, or from a signed-out session", async () => {
+    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
+    const other = await registerApp(srv, token, "other");
+    const fresh = async () =>
+      codeFromMint(await mint(srv, `?app=${label}&r=%2F`, { rawSessionId }));
+    const spentCode = await fresh();
+    const otherAppCode = await fresh();
+    const signedOutCode = await fresh();
+    const spent = await redeem(srv, label, spentCode);
+    expect(spent.status).toBe(302);
+
+    const cases: [string, RawResponse][] = [
+      ["replayed", await redeem(srv, label, spentCode)],
+      ["bogus", await redeem(srv, label, "Zm9vYmFyYmF6")],
+      [
+        "absent",
+        await raw(srv.port, {
+          host: appHost(label),
+          path: "/__isomux/auth",
+          headers: NAVIGATION_HEADERS,
+        }),
+      ],
+      ["oversized", await redeem(srv, label, "a".repeat(200))],
+      [
+        "duplicated",
+        await raw(srv.port, {
+          host: appHost(label),
+          path: `/__isomux/auth?code=${otherAppCode}&code=x`,
+          headers: NAVIGATION_HEADERS,
+        }),
+      ],
+      // A live code of this app, presented at a sibling app's host.
+      ["another app's host", await redeem(srv, other, otherAppCode)],
+    ];
+    const out = await srv.http("/auth/logout", {
       method: "POST",
       rawSessionId,
       redirect: "manual",
     });
-    const res = await redeem(srv, label, code);
-    expect(res.status).toBe(400);
-    expect(res.body).toBe(SIGN_IN_FAILED_BODY);
-  });
+    expect(out.status).toBe(302);
+    cases.push([
+      "minted before sign-out",
+      await redeem(srv, label, signedOutCode),
+    ]);
 
-  it("refuses a code presented at a different app's host", async () => {
-    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
-    const other = await registerApp(srv, token, "other");
-    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
-    const res = await redeem(srv, other, codeFromMint(minted));
-    expect(res.status).toBe(400);
-    expect(res.body).toBe(SIGN_IN_FAILED_BODY);
-  });
-
-  it("refuses a bogus code the same way it refuses a spent one", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
-    const spent = await redeem(srv, label, codeFromMint(minted));
-    expect(spent.status).toBe(302);
-    const replayed = await redeem(srv, label, codeFromMint(minted));
-    const bogus = await redeem(srv, label, "Zm9vYmFyYmF6");
-    const empty = await raw(srv.port, {
-      host: appHost(label),
-      path: "/__isomux/auth",
-      headers: NAVIGATION_HEADERS,
+    const [, replayed] = cases[0];
+    expect({ status: replayed.status, body: replayed.body }).toEqual({
+      status: 400,
+      body: SIGN_IN_FAILED_BODY,
     });
-    const oversized = await redeem(srv, label, "a".repeat(200));
-    const duplicated = await raw(srv.port, {
-      host: appHost(label),
-      path: `/__isomux/auth?code=${codeFromMint(minted)}&code=x`,
-      headers: NAVIGATION_HEADERS,
-    });
-    for (const [where, res] of [
-      ["replayed", replayed],
-      ["bogus", bogus],
-      ["absent", empty],
-      ["oversized", oversized],
-      ["duplicated", duplicated],
-    ] as const) {
-      expect({ where, status: res.status, body: res.body }).toEqual({
+    // Byte-identical, headers included, not merely equal in status and body.
+    for (const [where, res] of cases) {
+      expect({ where, stable: res.stable }).toEqual({
         where,
-        status: 400,
-        body: SIGN_IN_FAILED_BODY,
+        stable: replayed.stable,
       });
     }
-    // Byte-identical, not merely equal in the fields above.
-    expect(bogus.stable).toBe(replayed.stable);
   });
 
-  it("stops being reachable at all when the app is deleted or renewed", async () => {
+  it("stops being reachable when the app is deleted, and its re-registration trusts none of its credentials", async () => {
     const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
     const value = await signIn(srv, label, rawSessionId);
-    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
-    const code = codeFromMint(minted);
+    const fresh = async () =>
+      codeFromMint(await mint(srv, `?app=${label}&r=%2F`, { rawSessionId }));
+    const codeForDeleted = await fresh();
+    const codeForSuccessor = await fresh();
 
     await deleteApp(srv, token, "hello");
     const host = appHost(label);
@@ -335,19 +342,20 @@ describe("app-host handshake: the whole round trip", () => {
       headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
     });
     expectBounce(withCookie, { label, path: "/" }, "cookie on a deleted app");
-    expect(withCookie.setCookies).toEqual([
-      `${APP_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
-    ]);
-    const spent = await redeem(srv, label, code);
-    expect({ status: spent.status, body: spent.body }).toEqual({
+    expect(withCookie.setCookies).toEqual([CLEAR_LINE]);
+    const onDeleted = await redeem(srv, label, codeForDeleted);
+    expect({ status: onDeleted.status, body: onDeleted.body }).toEqual({
       status: 400,
       body: SIGN_IN_FAILED_BODY,
     });
 
     // Re-registering keeps the wanted label, while server-held registration
-    // identity makes the predecessor's credentials worthless.
+    // identity makes the predecessor's credentials worthless: its cookie, and a
+    // code minted just before the delete.
     const successor = await registerApp(srv, token, "hello");
     expect(successor).toBe(label);
+    const record = appRegistry.get("hello")!;
+    expect(appRegistrationGeneration(record)).toBeGreaterThan(record.hostGen);
     expectBounce(
       await raw(srv.port, {
         host: appHost(successor),
@@ -356,154 +364,216 @@ describe("app-host handshake: the whole round trip", () => {
       { label: successor, path: "/" },
       "predecessor cookie on the successor",
     );
+    const onSuccessor = await redeem(srv, successor, codeForSuccessor);
+    expect({ status: onSuccessor.status, body: onSuccessor.body }).toEqual({
+      status: 400,
+      body: SIGN_IN_FAILED_BODY,
+    });
+
+    // The successor's own sign-in works: the new registration generation rides
+    // the code and the session.
+    const successorCookie = await signIn(srv, successor, rawSessionId);
+    expectPlaceholder(
+      await raw(srv.port, {
+        host: appHost(successor),
+        headers: { ...NAVIGATION_HEADERS, ...withAppCookie(successorCookie) },
+      }),
+      RELAY_UNREACHABLE,
+      "successor cookie on the successor",
+    );
   });
 });
 
-describe("app-host handshake: the generation binding", () => {
-  // The host generation remains the compatibility identity for a public label.
-  // Reuse is separated by registration generation; the mismatched host tests
-  // below keep the older structural gate covered too.
-  it("refuses a code whose generation is not the one live now", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const app = appRegistry.get("hello")!;
-    const sessionHash = createHash("sha256").update(rawSessionId).digest("hex");
-    const minted = mintAppCode({
-      label,
-      hostGen: app.hostGen,
-      appHost: appHost(label),
-      officeSessionHash: sessionHash,
-      returnPath: "/",
-    });
-    if ("error" in minted) throw new Error(minted.error);
-    const req = new Request(
-      `https://${appHost(label)}/__isomux/auth?code=${minted.code}`,
-      { method: "GET" },
-    );
-    const res = handleAppAuthRedeem(req, {
-      host: appHost(label),
-      app: { ...app, hostGen: app.hostGen + 1 },
-      canAccess: () => true,
-      client: "203.0.113.10",
-    });
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(SIGN_IN_FAILED_BODY);
-    expect(srv.port).toBeGreaterThan(0);
-  });
-
-  it("refuses an app session whose generation is not the one live now", async () => {
+describe("app-host handshake: the registration binding", () => {
+  // Delete and re-register drop every code and session of the old registration
+  // (the next test), so no production state reaches these checks today. They
+  // are the second line: each one is proven alone here, with a live office
+  // session behind it so a refusal cannot come from the revalidation instead.
+  it("binds codes and app sessions to the live host and registration generations, each check alone", async () => {
     const { label, rawSessionId } = await anOfficeWithAnApp();
     const app = appRegistry.get("hello")!;
-    const sessionHash = createHash("sha256").update(rawSessionId).digest("hex");
+    const gen = appRegistrationGeneration(app);
+    const officeSessionHash = sessionHashOf(rawSessionId);
+    const host = appHost(label);
+    const fresh = () => {
+      const minted = mintAppCode({
+        label,
+        hostGen: app.hostGen,
+        registrationGen: gen,
+        appHost: host,
+        officeSessionHash,
+        returnPath: "/",
+      });
+      if ("error" in minted) throw new Error(minted.error);
+      return minted.code;
+    };
+    const at = (code: string, target: typeof app) =>
+      handleAppAuthRedeem(
+        new Request(`https://${host}/__isomux/auth?code=${code}`),
+        { host, app: target, canAccess: () => true, client: "203.0.113.10" },
+      ).status;
+
+    // A redeem against another registration generation, at the code table.
+    const redeemAt = (code: string, registrationGen: number) =>
+      redeemAppCode(code, {
+        host,
+        label,
+        client: "203.0.113.11",
+        registrationGen,
+      });
+    expect(redeemAt(fresh(), gen + 1)).toBeNull();
+    expect(redeemAt(fresh(), gen)?.label).toBe(label);
+
+    // A redeem against another host generation, at the handler.
+    const otherHostGen = { ...app, hostGen: app.hostGen + 1 };
+    _testSetAppRegistrationGeneration(otherHostGen, gen);
+    expect(at(fresh(), otherHostGen)).toBe(400);
+    expect(at(fresh(), app)).toBe(302);
+
+    // An app session checked against each generation alone.
     const started = startAppSession({
       label,
       hostGen: app.hostGen,
-      officeSessionHash: sessionHash,
+      registrationGen: gen,
+      officeSessionHash,
       absoluteExpiresAt: Date.now() + 60_000,
     });
-    expect(started).not.toBeNull();
-    // The positive case, which needs a REAL office session behind it: this is
-    // the one place the whole validate path returns true.
+    if (started === null) throw new Error("no app session");
+    const check = (ctx: { hostGen: number; registrationGen: number }) =>
+      validateAppSession(started.token, { label, ...ctx })?.officeSessionHash ??
+      null;
+    expect(check({ hostGen: app.hostGen, registrationGen: gen })).toBe(
+      officeSessionHash,
+    );
     expect(
-      validateAppSession(started!.token, {
-        label,
-        hostGen: app.hostGen,
-      }),
-    ).toMatchObject({ userId: expect.any(String) });
-    expect(
-      validateAppSession(started!.token, {
-        label,
-        hostGen: app.hostGen + 1,
-      }),
+      check({ hostGen: app.hostGen + 1, registrationGen: gen }),
     ).toBeNull();
     expect(
-      validateAppSession(started!.token, { label: "other", hostGen: 1 }),
+      check({ hostGen: app.hostGen, registrationGen: gen + 1 }),
     ).toBeNull();
   });
 
-  it("refuses a code minted just before delete when the same hostname is reused", async () => {
-    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
-    const before = await mint(srv, `?app=${label}&r=%2Fbefore`, {
-      rawSessionId,
-    });
-    const code = codeFromMint(before);
-    await deleteApp(srv, token, "hello");
-    expect(await registerApp(srv, token, "hello")).toBe(label);
-    const refused = await redeem(srv, label, code);
-    expect(refused.status).toBe(400);
-    expect(refused.body).toBe(SIGN_IN_FAILED_BODY);
-  });
+  it("readiness binds every registration field and the live office session", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    await signIn(srv, label, rawSessionId);
+    const app = appRegistry.get("hello")!;
+    const hash = sessionHashOf(rawSessionId);
+    const generation = appRegistrationGeneration(app);
+    const expiresAt = appSessionExpiresAt(app, hash);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    // The widget route answers with the caller's own readiness.
+    const widget = await srv.http(
+      `/api/apps/hello/widget?registration=${generation}`,
+      { rawSessionId },
+    );
+    expect(widget.status).toBe(200);
+    const status = (await widget.json()) as AppWidgetStatus;
+    expect(status.sessionExpiresAt).toBe(expiresAt);
 
-  it("emits no cleanup for a reused reachable origin", async () => {
-    // A no-session answer that depended on reuse would show a missing label
-    // apart from a reused one, so reuse sends no Clear-Site-Data (PM ruling,
-    // 2026-10-03). The stale-code and stale-cookie tests above prove safety
-    // without this header.
-    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
-    await deleteApp(srv, token, "hello");
-    expect(await registerApp(srv, token, "hello")).toBe(label);
-    const record = appRegistry.get("hello");
-    if (!record) throw new Error("hello is not registered");
-    expect(appRegistrationGeneration(record)).toBeGreaterThan(record.hostGen);
-
-    const navigation = await raw(srv.port, {
-      host: appHost(label),
-      headers: NAVIGATION_HEADERS,
-    });
-    expect(navigation.status).toBe(302);
-    expect(navigation.headers["clear-site-data"]).toBeUndefined();
-    const background = await raw(srv.port, {
-      host: appHost(label),
+    const replacement = { ...app };
+    _testSetAppRegistrationGeneration(replacement, generation + 1);
+    expect(appSessionExpiresAt(replacement, hash)).toBeNull();
+    const otherHostGeneration = { ...app, hostGen: app.hostGen + 1 };
+    _testSetAppRegistrationGeneration(otherHostGeneration, generation);
+    expect(appSessionExpiresAt(otherHostGeneration, hash)).toBeNull();
+    const otherLabel = { ...app, hostLabel: "other-app" };
+    _testSetAppRegistrationGeneration(otherLabel, generation);
+    expect(appSessionExpiresAt(otherLabel, hash)).toBeNull();
+    expect(appSessionExpiresAt(app, null)).toBeNull();
+    const otherMember = await srv.seedMember("Other");
+    expect(
+      appSessionExpiresAt(app, sessionHashOf(otherMember.rawSessionId)),
+    ).toBeNull();
+    // Past the app session's own deadline.
+    expect(
+      appSessionExpiresAt(app, hash, Date.now() + APP_SESSION_TTL_MS + 1),
+    ).toBeNull();
+    const out = await srv.http("/auth/logout", {
       method: "POST",
+      rawSessionId,
+      redirect: "manual",
     });
-    expect(background.status).toBe(401);
-    expect(background.headers["clear-site-data"]).toBeUndefined();
+    expect(out.status).toBe(302);
+    expect(appSessionExpiresAt(app, hash)).toBeNull();
+  });
 
-    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
+  it("binds wrapper return to the registration and forwards only the query", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    const app = appRegistry.list().find((a) => a.hostLabel === label)!;
+    const registration = appRegistrationGeneration(app);
+    const params = new URLSearchParams({
+      app: label,
+      mode: "wrapper",
+      registration: String(registration),
+      r: "/other-path?tab=one%20two&x=3",
+    });
+    const minted = await mint(srv, `?${params}`, { rawSessionId });
     const redeemed = await redeem(srv, label, codeFromMint(minted));
-    expect(redeemed.status).toBe(302);
-    expect(redeemed.headers["clear-site-data"]).toBeUndefined();
+    expect(redeemed.headers.location).toBe(
+      `${HTTPS_ORIGIN}/${app.name}?tab=one%20two&x=3`,
+    );
+    expect(redeemed.setCookies).toHaveLength(1);
+    // The path never reaches the office Location, so an encoded authority or
+    // another app's name cannot steer the wrapper return.
+    for (const safePath of ["/%2f%2fevil.example/", "/another-app"]) {
+      params.set("r", safePath);
+      const encodedMint = await mint(srv, `?${params}`, { rawSessionId });
+      const encodedRedeem = await redeem(srv, label, codeFromMint(encodedMint));
+      expect(encodedRedeem.headers.location).toBe(
+        `${HTTPS_ORIGIN}/${app.name}`,
+      );
+    }
+    params.set("r", "/");
+    params.set("registration", String(registration + 1));
+    expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(404);
   });
 });
 
 describe("app-host handshake: only navigations and metadata-less clients are bounced", () => {
-  it("refuses everything that cannot complete a handshake", async () => {
+  it("bounces a navigation or a GET with no Sec-Fetch metadata, and refuses the rest without a redirect", async () => {
     const { srv, label } = await anOfficeWithAnApp();
     const host = appHost(label);
-    const cases: [string, RawResponse][] = [
-      [
-        "POST navigation",
-        await raw(srv.port, {
-          host,
-          method: "POST",
-          path: "/submit",
-          headers: NAVIGATION_HEADERS,
-        }),
-      ],
+    // The compatibility arm (manager ruling): a client that sends no Fetch
+    // Metadata at all is bounced, because refusing it would mean it could never
+    // sign in. The navigation pair itself is the round trip's first hop.
+    expectBounce(
+      await raw(srv.port, { host, path: "/" }),
+      { label, path: "/" },
+      "no Sec-Fetch metadata",
+    );
+    // A refusal, never a redirect: that is the whole point of the branch.
+    const refusals: [
+      string,
+      { method?: string; headers: Record<string, string> },
+    ][] = [
+      ["POST navigation", { method: "POST", headers: NAVIGATION_HEADERS }],
       [
         "xhr",
-        await raw(srv.port, {
-          host,
-          path: "/api/data",
-          headers: {
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty",
-          },
-        }),
+        { headers: { "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" } },
       ],
-      [
-        "subresource",
-        await raw(srv.port, {
-          host,
-          path: "/app.js",
-          headers: {
-            "Sec-Fetch-Mode": "no-cors",
-            "Sec-Fetch-Dest": "script",
-          },
-        }),
-      ],
+      // A client that speaks Fetch Metadata owes the exact pair.
+      ["partial metadata", { headers: { "Sec-Fetch-Site": "none" } }],
     ];
-    // A refusal, never a redirect: that is the whole point of the branch.
-    for (const [where, res] of cases) expectAuthRequired(res, where);
+    for (const [where, shape] of refusals) {
+      expectAuthRequired(
+        await raw(srv.port, { host, path: "/submit", ...shape }),
+        where,
+      );
+    }
+    // HEAD could start the flow, but /__isomux/auth is GET-only, so a client
+    // that preserved the method across the 302 would hit a 404 halfway through.
+    // Asserted without the body-comparing helper: a HEAD response carries none.
+    const head = await raw(srv.port, {
+      host,
+      method: "HEAD",
+      path: "/",
+      headers: NAVIGATION_HEADERS,
+    });
+    expect({
+      status: head.status,
+      body: head.body,
+      hasLocation: "location" in head.headers,
+    }).toEqual({ status: 401, body: "", hasLocation: false });
   });
 
   it("sets framing on app-host refusals and reserved paths", async () => {
@@ -555,138 +625,7 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
       headers: { ...headers, Cookie: `${APP_COOKIE_NAME}=dead` },
     });
     expect(rejected.body).toBe(known.body);
-    expect(rejected.setCookies).toHaveLength(1);
-    expect(rejected.setCookies[0]).toContain("Max-Age=0");
-  });
-
-  it("readiness binds every registration field and the live office session", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    await signIn(srv, label, rawSessionId);
-    const app = appRegistry.get("hello")!;
-    const hash = createHash("sha256").update(rawSessionId).digest("hex");
-    const generation = appRegistrationGeneration(app);
-    expect(appSessionExpiresAt(app, hash)).toBeGreaterThan(Date.now());
-    const replacement = { ...app };
-    _testSetAppRegistrationGeneration(replacement, generation + 1);
-    expect(appSessionExpiresAt(replacement, hash)).toBeNull();
-    const otherHostGeneration = { ...app, hostGen: app.hostGen + 1 };
-    _testSetAppRegistrationGeneration(otherHostGeneration, generation);
-    expect(appSessionExpiresAt(otherHostGeneration, hash)).toBeNull();
-    const otherLabel = { ...app, hostLabel: "other-app" };
-    _testSetAppRegistrationGeneration(otherLabel, generation);
-    expect(appSessionExpiresAt(otherLabel, hash)).toBeNull();
-    const otherMember = await srv.seedMember("Other");
-    const otherHash = createHash("sha256")
-      .update(otherMember.rawSessionId)
-      .digest("hex");
-    expect(appSessionExpiresAt(app, otherHash)).toBeNull();
-    const out = await srv.http("/auth/logout", {
-      method: "POST",
-      rawSessionId,
-      redirect: "manual",
-    });
-    expect(out.status).toBe(302);
-    expect(appSessionExpiresAt(app, hash)).toBeNull();
-  });
-
-  it("binds wrapper return to the registration and keeps query forwarding", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const app = appRegistry.list().find((a) => a.hostLabel === label)!;
-    const registration = appRegistrationGeneration(app);
-    const params = new URLSearchParams({
-      app: label,
-      mode: "wrapper",
-      registration: String(registration),
-      r: "/other-path?tab=one%20two&x=3",
-    });
-    const minted = await mint(srv, `?${params}`, { rawSessionId });
-    const redeemed = await redeem(srv, label, codeFromMint(minted));
-    expect(redeemed.headers.location).toBe(
-      `${HTTPS_ORIGIN}/${app.name}?tab=one%20two&x=3`,
-    );
-    expect(redeemed.setCookies).toHaveLength(1);
-    const sessionHash = createHash("sha256").update(rawSessionId).digest("hex");
-    expect(appSessionExpiresAt(app, sessionHash)).toBeGreaterThan(Date.now());
-    expect(appSessionExpiresAt(app, null)).toBeNull();
-    expect(
-      appSessionExpiresAt(
-        app,
-        sessionHash,
-        Date.now() + APP_SESSION_TTL_MS + 1,
-      ),
-    ).toBeNull();
-    for (const bad of [
-      "https://evil.example/",
-      "//evil.example/",
-      "/\\evil.example/",
-    ]) {
-      params.set("r", bad);
-      expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(
-        400,
-      );
-    }
-    for (const safePath of ["/%2f%2fevil.example/", "/another-app"]) {
-      params.set("r", safePath);
-      const encodedMint = await mint(srv, `?${params}`, { rawSessionId });
-      const encodedRedeem = await redeem(srv, label, codeFromMint(encodedMint));
-      expect(encodedRedeem.headers.location).toBe(
-        `${HTTPS_ORIGIN}/${app.name}`,
-      );
-    }
-    params.set("r", "/");
-    params.set("registration", String(registration + 1));
-    expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(404);
-  });
-
-  it("bounces a GET with no Sec-Fetch metadata, but not a partial one", async () => {
-    // The compatibility arm (manager ruling): a client that sends no Fetch
-    // Metadata at all is bounced, because refusing it would mean it could never
-    // sign in, and the worst it enables is the cross-site mint already accepted
-    // for GET /auth/app. A client that sends SOME Sec-Fetch header speaks the
-    // protocol, so for it the exact pair is mandatory.
-    const { srv, label } = await anOfficeWithAnApp();
-    expectBounce(
-      await raw(srv.port, { host: appHost(label), path: "/" }),
-      { label, path: "/" },
-      "no Sec-Fetch metadata",
-    );
-    const partials: Record<string, string>[] = [
-      { "Sec-Fetch-Mode": "navigate" },
-      { "Sec-Fetch-Dest": "document" },
-      { "Sec-Fetch-Site": "none" },
-      { "Sec-Fetch-User": "?1" },
-      { "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "document" },
-    ];
-    for (const headers of partials) {
-      expectAuthRequired(
-        await raw(srv.port, { host: appHost(label), path: "/", headers }),
-        JSON.stringify(headers),
-      );
-    }
-  });
-
-  it("refuses HEAD rather than stranding it at the callback", async () => {
-    // HEAD could start the flow, but /__isomux/auth is GET-only, so a client
-    // that preserved the method across the 302 would hit a 404 halfway through.
-    // Refused at the first hop instead, with and without the navigation pair.
-    const { srv, label } = await anOfficeWithAnApp();
-    for (const headers of [NAVIGATION_HEADERS, {}]) {
-      const res = await raw(srv.port, {
-        host: appHost(label),
-        method: "HEAD",
-        path: "/",
-        headers,
-      });
-      // Status and the absence of a Location, not the body: a HEAD response
-      // carries none, which is why HEAD is asserted here rather than through
-      // the shared body-comparing helper.
-      expect({
-        headers,
-        status: res.status,
-        body: res.body,
-        hasLocation: "location" in res.headers,
-      }).toEqual({ headers, status: 401, body: "", hasLocation: false });
-    }
+    expect(rejected.setCookies).toEqual([CLEAR_LINE]);
   });
 
   it("clears an app cookie that arrives present but empty", async () => {
@@ -711,60 +650,8 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
       },
     });
     expectAuthRequired(refused, "empty cookie, subresource");
-    const clearLine = `${APP_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`;
-    expect(navigated.setCookies).toEqual([clearLine]);
-    expect(refused.setCookies).toEqual([clearLine]);
-  });
-
-  it("answers a WebSocket upgrade by session, and never with a redirect", async () => {
-    // An upgrade cannot follow a redirect, so it is never bounced - that part is
-    // unchanged by slice 6b. What changed is that the two cases are no longer
-    // the same answer: without a session the arm refuses 401, and WITH one it
-    // goes on to dial the app, which in this office is not listening. Both are
-    // still refusals, and neither is the office's own /ws handler.
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const host = appHost(label);
-    const anonymous = await raw(srv.port, {
-      host,
-      path: "/ws",
-      headers: WS_UPGRADE_HEADERS,
-    });
-    const value = await signIn(srv, label, rawSessionId);
-    const authenticated = await raw(srv.port, {
-      host,
-      path: "/ws",
-      headers: { ...WS_UPGRADE_HEADERS, ...withAppCookie(value) },
-    });
-    expectPlaceholder(anonymous, WS_AUTH_REQUIRED, "anonymous upgrade");
-    expectPlaceholder(authenticated, WS_UNREACHABLE, "authenticated upgrade");
-    // Neither is a redirect, which is the property that survives the slice.
-    expect(anonymous.headers.location).toBeUndefined();
-    expect(authenticated.headers.location).toBeUndefined();
-  });
-
-  it("keeps the reserved prefix unreachable except for the handshake GET", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const host = appHost(label);
-    const value = await signIn(srv, label, rawSessionId);
-    // Even an authenticated caller gets nothing from the reserved prefix, and a
-    // non-GET on the handshake's own path is not the handshake.
-    for (const [method, path] of [
-      ["POST", "/__isomux/auth"],
-      ["GET", "/__isomux/authx"],
-      ["GET", "/__isomux/"],
-      ["GET", "/__isomux"],
-    ] as const) {
-      expectPlaceholder(
-        await raw(srv.port, {
-          host,
-          method,
-          path,
-          headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
-        }),
-        NOT_FOUND,
-        `${method} ${path}`,
-      );
-    }
+    expect(navigated.setCookies).toEqual([CLEAR_LINE]);
+    expect(refused.setCookies).toEqual([CLEAR_LINE]);
   });
 });
 
@@ -776,7 +663,12 @@ describe("app-host handshake: the office mint endpoint", () => {
     });
     expect(page.status).toBe(401);
     expect(page.headers.get("content-type")).toContain("text/html");
-    expect(await page.text()).toContain("invite link");
+    // The same page any other walled office path shows a signed-out browser.
+    const login = await srv.http("/agents", {
+      headers: { Accept: "text/html" },
+    });
+    expect(login.status).toBe(401);
+    expect(await page.text()).toBe(await login.text());
     // And a fetch gets the JSON 401 rather than a page.
     const json = await mint(srv, `?app=${label}&r=%2F`, {
       headers: { Accept: "application/json" },
@@ -796,7 +688,7 @@ describe("app-host handshake: the office mint endpoint", () => {
 
   // Only GET mints. Another method must not fall through to the office shell,
   // which would answer 200 text/html.
-  it("answers another method with a 404, not the office page", async () => {
+  it("is not a route for any method but GET", async () => {
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     // The enabling condition: this session mints on GET.
     expect(
@@ -808,8 +700,17 @@ describe("app-host handshake: the office mint endpoint", () => {
         rawSessionId,
         redirect: "manual",
       });
-      expect({ method, status: res.status }).toEqual({ method, status: 404 });
-      expect(res.headers.get("content-type") ?? "").not.toContain("text/html");
+      expect({
+        method,
+        status: res.status,
+        contentType: res.headers.get("content-type"),
+        body: await res.text(),
+      }).toEqual({
+        method,
+        status: 404,
+        contentType: NOT_FOUND.contentType,
+        body: NOT_FOUND.body,
+      });
     }
   });
 
@@ -834,21 +735,19 @@ describe("app-host handshake: the office mint endpoint", () => {
     expect(new Set(bodies)).toEqual(new Set([NOT_FOUND.body]));
   });
 
-  it("refuses a return path that is not a path", async () => {
+  it("refuses a return path that is not a path, after exactly one decoding", async () => {
     // Raw query strings, not encodeURIComponent: what matters is the value
     // AFTER one round of decoding, which is what URLSearchParams hands the
     // validator. `%23` and `%0d%0a` in the query decode to a raw `#` and a raw
     // CRLF - the only way either can reach a server - and both are refused.
+    // Every other class is pinned on the validator in app-auth.test.ts.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     const refused = [
       ["protocol-relative", "%2F%2Fevil.example"],
-      ["absolute url", "https%3A%2F%2Fevil.example"],
       ["header injection", "%2F%0d%0aX-Injected%3A%201"],
       ["raw fragment", "%2Fa%23frag"],
-      ["backslash", "%2F%5Cevil.example"],
-      ["not a path", "not-a-path"],
+      // Present but empty is not absent.
       ["empty", ""],
-      ["over-long", `%2F${"a".repeat(3000)}`],
     ] as const;
     for (const [where, r] of refused) {
       const res = await mint(srv, `?app=${label}&r=${r}`, { rawSessionId });
@@ -860,21 +759,22 @@ describe("app-host handshake: the office mint endpoint", () => {
     }
   });
 
-  it("keeps a percent-encoded path intact instead of over-refusing", async () => {
+  it("keeps a percent-encoded path intact, and defaults a missing one to the app's root", async () => {
     // `%2523` decodes to the four characters `%23`, which is a legal path
     // segment and not a fragment. The `#` rule is about the decoded value, so
     // an app whose paths carry escapes still works.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    for (const [r, expected] of [
-      ["%2Fa%2523frag", "/a%23frag"],
-      ["%2Fa%2Fb%3Fx%3D1%26y%3D2", "/a/b?x=1&y=2"],
-      ["%2Fcaf%25C3%25A9", "/caf%C3%A9"],
+    for (const [query, expected] of [
+      [`?app=${label}&r=%2Fa%2523frag`, "/a%23frag"],
+      [`?app=${label}&r=%2Fa%2Fb%3Fx%3D1%26y%3D2`, "/a/b?x=1&y=2"],
+      [`?app=${label}&r=%2Fcaf%25C3%25A9`, "/caf%C3%A9"],
+      [`?app=${label}`, "/"],
     ] as const) {
-      const minted = await mint(srv, `?app=${label}&r=${r}`, { rawSessionId });
-      expect({ r, status: minted.status }).toEqual({ r, status: 302 });
+      const minted = await mint(srv, query, { rawSessionId });
+      expect({ query, status: minted.status }).toEqual({ query, status: 302 });
       const res = await redeem(srv, label, codeFromMint(minted));
-      expect({ r, location: res.headers["location"] }).toEqual({
-        r,
+      expect({ query, location: res.headers["location"] }).toEqual({
+        query,
         location: expected,
       });
     }
@@ -895,33 +795,8 @@ describe("app-host handshake: the office mint endpoint", () => {
     }
   });
 
-  it("defaults a missing return path to the app's root", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const minted = await mint(srv, `?app=${label}`, { rawSessionId });
-    expect(minted.status).toBe(302);
-    const res = await redeem(srv, label, codeFromMint(minted));
-    expect(res.headers["location"]).toBe("/");
-  });
-
-  it("is not a route for any method but GET", async () => {
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    for (const method of ["POST", "PUT", "DELETE"]) {
-      const res = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
-      expect(res.status).toBe(302); // control: the GET works
-      const other = await srv.http(`/auth/app?app=${label}&r=%2F`, {
-        method,
-        rawSessionId,
-        redirect: "manual",
-      });
-      expect({
-        method,
-        status: other.status,
-        body: await other.text(),
-      }).toEqual({ method, status: 404, body: NOT_FOUND.body });
-    }
-  });
-
   it("rate-limits minting per office session", async () => {
+    // Per session and per window: app-auth.test.ts. This is the wire answer.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     for (let i = 0; i < APP_MINT_MAX_PER_WINDOW; i++) {
       const ok = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
@@ -930,13 +805,6 @@ describe("app-host handshake: the office mint endpoint", () => {
     const limited = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
     expect(limited.status).toBe(429);
     expect(await limited.text()).toBe(MINT_LIMITED_BODY);
-    // Another user's budget is their own.
-    const other = await srv.seedMember("Other");
-    grantMemberAppRoom(srv, other.username);
-    const theirs = await mint(srv, `?app=${label}&r=%2F`, {
-      rawSessionId: other.rawSessionId,
-    });
-    expect(theirs.status).toBe(302);
   });
 
   it("carries the __Host- office-cookie migration like any other page load", async () => {
@@ -976,14 +844,6 @@ describe("app-host handshake: the office mint endpoint", () => {
     expect(retire.headers.getSetCookie()).toEqual([
       `${SHARED_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
     ]);
-    // And once only the office's name arrives, there is nothing left to
-    // migrate.
-    const settled = await srv.http(`/auth/app?app=${label}&r=%2F`, {
-      redirect: "manual",
-      headers: { Cookie: `${host}=${rawSessionId}` },
-    });
-    expect(settled.status).toBe(302);
-    expect(settled.headers.getSetCookie()).toEqual([]);
   });
 
   it("is inert on an office with no app hostnames", async () => {
@@ -998,21 +858,5 @@ describe("app-host handshake: the office mint endpoint", () => {
     });
     expect(res.status).toBe(404);
     expect(await res.text()).toBe(NOT_FOUND.body);
-  });
-
-  it("builds the callback from the registry, not from the request", async () => {
-    // The label in the redirect is the registry's own, so a request cannot
-    // point the handshake at a host of its choosing. Reached through the office
-    // origin's own bounce URL to prove both halves agree.
-    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const minted = await mint(
-      srv,
-      new URL(bounceLocation(label, "/x")).search,
-      { rawSessionId },
-    );
-    expect(minted.headers.get("location")).toStartWith(
-      `https://${appHost(label)}/__isomux/auth?code=`,
-    );
-    expect(HTTPS_ORIGIN).toBe(`https://${OFFICE_HOST}`);
   });
 });

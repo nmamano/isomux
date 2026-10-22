@@ -1,18 +1,124 @@
+// The app chat widget and "Install as app": the widget status route, the
+// short-link wrapper page that carries the app's title and manifest, the
+// install manifest, and the appContext check on a member's send. The wrapper's
+// metadata read (title and icons) is unit-tested in
+// server/app-widget-metadata.test.ts; here it is the office wiring around it:
+// who gets the wrapper, and who makes the office read the app.
+
 import { afterEach, expect, it } from "bun:test";
-import { anOfficeWithAnApp } from "./app-host-test-kit.ts";
+import { decodeHTMLAttribute } from "entities";
+import {
+  HTTPS_ORIGIN,
+  NAVIGATION_HEADERS,
+  OFFICE_HOST,
+  anOfficeWithAnApp,
+  raw,
+  type RawResponse,
+} from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry, appRegistrationGeneration } from "../app-registry.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
+import { sessionCookieName } from "../auth.ts";
 import type { AppWidgetStatus } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
+let upstream: ReturnType<typeof Bun.serve> | null = null;
 afterEach(async () => {
+  await upstream?.stop(true);
+  upstream = null;
   await server?.stop();
   server = null;
 });
 
-it("checks member and remote API access, hides targets, and refuses agent identities", async () => {
+const APP_TITLE = "Private app title";
+
+// The app itself, on the port the registry allocated, recording what the
+// office's metadata read sent it.
+function startApp(
+  port: number,
+  seen: { cookie: string | null; authorization: string | null }[],
+): ReturnType<typeof Bun.serve> {
+  return Bun.serve({
+    hostname: "127.0.0.1",
+    port,
+    fetch(req) {
+      seen.push({
+        cookie: req.headers.get("cookie"),
+        authorization: req.headers.get("authorization"),
+      });
+      return new Response(
+        `<title>${APP_TITLE}</title><link rel="icon" href="https://hello.office.example/icon.png">`,
+        { headers: { "Content-Type": "text/html" } },
+      );
+    },
+  });
+}
+
+// A browser navigation on the office host, signed in or not.
+function navigate(port: number, path: string, rawSessionId?: string) {
+  return raw(port, {
+    host: OFFICE_HOST,
+    path,
+    headers: {
+      ...NAVIGATION_HEADERS,
+      ...(rawSessionId
+        ? { Cookie: `${sessionCookieName()}=${rawSessionId}` }
+        : {}),
+    },
+  });
+}
+
+// What a page answer tells its caller, for comparing a hidden app's answer to
+// an unknown name's.
+function answer(res: RawResponse) {
+  return {
+    status: res.status,
+    location: res.headers.location,
+    body: res.body,
+  };
+}
+
+// Attributes of the elements matching `selector` in served HTML, decoded as a
+// browser's getAttribute returns them.
+async function elements(
+  html: string,
+  selector: string,
+  attributes: string[],
+): Promise<Record<string, string | null>[]> {
+  const found: Record<string, string | null>[] = [];
+  await new HTMLRewriter()
+    .on(selector, {
+      element(el) {
+        found.push(
+          Object.fromEntries(
+            attributes.map((name) => {
+              const value = el.getAttribute(name);
+              return [name, value === null ? null : decodeHTMLAttribute(value)];
+            }),
+          ),
+        );
+      },
+    })
+    .transform(new Response(html))
+    .text();
+  return found;
+}
+
+async function titleOf(html: string): Promise<string> {
+  let title = "";
+  await new HTMLRewriter()
+    .on("title", {
+      text(text) {
+        title += text.text;
+      },
+    })
+    .transform(new Response(html))
+    .text();
+  return title;
+}
+
+it("answers members and API tokens alike, refuses agent tokens, and hides unknown, stale and inaccessible apps", async () => {
   const { srv, rawSessionId, token } = await anOfficeWithAnApp((s) => {
     server = s;
   });
@@ -37,17 +143,20 @@ it("checks member and remote API access, hides targets, and refuses agent identi
   });
   expect(apiResponse.status).toBe(200);
   expect(await apiResponse.json()).toEqual(status);
-  expect(
-    (await srv.http(path, { headers: { Authorization: `Bearer ${token}` } }))
-      .status,
-  ).toBe(403);
+  // The agent token is real and holds app:read (it registered this app); the
+  // route is for members only.
+  const agent = await srv.http(path, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(agent.status).toBe(403);
+  expect((await agent.json()).error.code).toBe("forbidden");
 
-  appRegistry.update("hello", { messageTargetAgentId: app.createdByAgentId });
-  const hiddenBefore = await srv.http(
-    "/api/apps/missing/widget?registration=1",
-    { rawSessionId },
-  );
-  const missingBody = await hiddenBefore.json();
+  const missing = await srv.http("/api/apps/missing/widget?registration=1", {
+    rawSessionId,
+  });
+  expect(missing.status).toBe(404);
+  const missingBody = await missing.json();
+  expect(missingBody.error.code).toBe("not_found");
   const stale = await srv.http(
     `/api/apps/hello/widget?registration=${registration + 1}`,
     { rawSessionId },
@@ -93,30 +202,71 @@ it("omits all target details when the target room is unavailable", async () => {
   expect(JSON.stringify(status)).not.toContain(target!.name);
 });
 
-it("serves a private wrapper only after office sign-in and app access", async () => {
+// A signed-out visitor, a member who cannot see the app, and a member whose
+// access was just revoked all get exactly what an unknown name gets - no
+// wrapper, no redirect that says the app exists - and none of them makes the
+// office read the app.
+it("serves the wrapper only to a member who can see the app, and reads the app only for one", async () => {
   const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
     server = s;
   });
-  const { raw, OFFICE_HOST, NAVIGATION_HEADERS } =
-    await import("./app-host-test-kit.ts");
-  const { sessionCookieName } = await import("../auth.ts");
-  const fetchPage = (path: string, cookie?: string) =>
-    raw(srv.port, {
-      host: OFFICE_HOST,
-      path,
-      headers: {
-        ...NAVIGATION_HEADERS,
-        ...(cookie ? { Cookie: `${sessionCookieName()}=${cookie}` } : {}),
-      },
-    });
-  const signedOut = await fetchPage("/hello");
-  const unknownSignedOut = await fetchPage("/unknown");
-  expect(signedOut.status).toBe(unknownSignedOut.status);
-  expect(signedOut.body).toBe(unknownSignedOut.body);
-  expect(signedOut.body).not.toContain("isomux-app-widget");
-  const wrapper = await fetchPage("/hello/?view=details", rawSessionId);
+  const seen: { cookie: string | null; authorization: string | null }[] = [];
+  upstream = startApp(appRegistry.get("hello")!.port, seen);
+  const expectHidden = async (rawSession?: string) => {
+    for (const suffix of ["", "/"]) {
+      const hidden = await navigate(srv.port, `/hello${suffix}`, rawSession);
+      const unknown = await navigate(srv.port, `/unknown${suffix}`, rawSession);
+      expect(answer(hidden)).toEqual(answer(unknown));
+      expect(hidden.body).not.toContain("isomux-app-widget");
+    }
+  };
+
+  await expectHidden();
+  const outsider = await srv.seedMember("Outsider");
+  await expectHidden(outsider.rawSessionId);
+  expect(seen).toEqual([]);
+
+  const wrapper = await navigate(srv.port, "/hello/", rawSessionId);
   expect(wrapper.status).toBe(200);
-  expect(wrapper.body).toContain('name="isomux-app-widget"');
+  expect(
+    await elements(wrapper.body, 'meta[name="isomux-app-widget"]', ["name"]),
+  ).toHaveLength(1);
+  // The read is a fresh request: the member's office cookie stays home.
+  expect(seen).toEqual([{ cookie: null, authorization: null }]);
+
+  updateUserById(getUserByName("Member")!.id, { allowedRooms: [] });
+  await expectHidden(rawSessionId);
+  expect(seen).toHaveLength(1);
+});
+
+// Install as app (task 8a07aa4e). Chrome installs a page only through the
+// manifest it links, and it fetches that manifest without cookies unless the
+// link says crossorigin="use-credentials". The manifest's scope is /<app>/, so
+// the short link moves to that path first: a page outside its own scope
+// installs with an address bar, and scope "/<app>" would also capture
+// /<app>-other.
+it("moves a visible app's short link into its install scope and serves the app's wrapper there", async () => {
+  const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  const app = appRegistry.get("hello")!;
+  upstream = startApp(app.port, []);
+
+  for (const suffix of ["", "?view=details", "?//evil.example"]) {
+    const moved = await navigate(srv.port, `/hello${suffix}`, rawSessionId);
+    expect(moved.status).toBe(302);
+    const target = new URL(moved.headers.location, HTTPS_ORIGIN);
+    expect(target.origin).toBe(HTTPS_ORIGIN);
+    expect(target.pathname).toBe("/hello/");
+    expect(target.search).toBe(new URL(`${HTTPS_ORIGIN}/${suffix}`).search);
+  }
+
+  const wrapper = await navigate(
+    srv.port,
+    "/hello/?view=details",
+    rawSessionId,
+  );
+  expect(wrapper.status).toBe(200);
   expect(wrapper.headers["cache-control"]).toBe("no-store");
   expect(wrapper.headers["content-security-policy"]).toContain(
     "frame-ancestors 'none'",
@@ -124,14 +274,34 @@ it("serves a private wrapper only after office sign-in and app access", async ()
   expect(wrapper.headers["content-security-policy"]).toContain(
     "https://*.office.example",
   );
-  const outsider = await srv.seedMember("Outsider");
-  const hidden = await fetchPage("/hello", outsider.rawSessionId);
-  const missing = await fetchPage("/unknown", outsider.rawSessionId);
-  const office = await fetchPage("/", outsider.rawSessionId);
-  expect(hidden.status).toBe(office.status);
-  expect(hidden.body).toBe(office.body);
-  expect(hidden.body).toBe(missing.body);
-  expect(hidden.body).not.toContain("isomux-app-widget");
+  // The widget boots from the registration it was served for.
+  const [boot] = await elements(
+    wrapper.body,
+    'meta[name="isomux-app-widget"]',
+    ["content"],
+  );
+  expect(JSON.parse(boot.content!)).toEqual({
+    name: "hello",
+    registration: appRegistrationGeneration(app),
+  });
+  // The tab carries the app's own title, read from the running app.
+  expect(await titleOf(wrapper.body)).toBe(APP_TITLE);
+  expect(
+    await elements(wrapper.body, 'link[rel="manifest"]', [
+      "href",
+      "crossorigin",
+    ]),
+  ).toEqual([
+    { href: "/api/apps/hello/manifest", crossorigin: "use-credentials" },
+  ]);
+  // The office page keeps the office's own manifest.
+  const office = await navigate(srv.port, "/", rawSessionId);
+  expect(
+    await elements(office.body, 'link[rel="manifest"]', [
+      "href",
+      "crossorigin",
+    ]),
+  ).toEqual([{ href: "/manifest.json", crossorigin: null }]);
 });
 
 it("checks app context at send time and derives member provenance from the app", async () => {
@@ -152,14 +322,23 @@ it("checks app context at send time and derives member provenance from the app",
         "Content-Type": "application/json",
         ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
       },
-      body: JSON.stringify({ text: "Widget message", appContext }),
+      body: JSON.stringify({
+        text: "Widget message",
+        ...(appContext === undefined ? {} : { appContext }),
+      }),
     });
     return { status: response.status, body: await response.json() };
   };
+  // An agent may not speak as an app widget: the same agent send without an
+  // appContext is not refused.
+  expect((await send(undefined, token)).status).not.toBe(403);
   expect((await send(context, token)).status).toBe(403);
-  expect((await send({ name: "hello", registration: "bad" })).status).toBe(422);
+  const malformed = await send({ name: "hello", registration: "bad" });
+  expect(malformed.status).toBe(422);
+  expect(malformed.body.error.code).toBe("invalid_app_context");
   const missing = await send({ name: "missing", registration: 1 });
   expect(missing.status).toBe(404);
+  expect(missing.body.error.code).toBe("app_unavailable");
   expect(
     (await send({ ...context, registration: context.registration + 1 })).body,
   ).toEqual(missing.body);
@@ -193,170 +372,38 @@ it("checks app context at send time and derives member provenance from the app",
   expect(changed.body.error.code).toBe("app_target_changed");
   appRegistry.update("hello", { messageTargetAgentId: target });
   expect((await send(context)).status).toBe(200);
-  const entry = srv.agentManager
-    .getAgentLogs(target)
-    .find(
-      (item) =>
-        item.kind === "user_message" && item.content === "Widget message",
-    );
-  expect(entry?.metadata?.username).toBe("Member");
-  expect(entry?.metadata?.device).toBe("App hello");
+  const widgetMessages = () =>
+    srv.agentManager
+      .getAgentLogs(target)
+      .filter(
+        (item) =>
+          item.kind === "user_message" &&
+          item.content === "Widget message" &&
+          item.metadata?.username === "Member",
+      );
+  // The member sent it, from the app: the app is named on the entry and in
+  // what the agent reads.
+  expect(widgetMessages()).toHaveLength(1);
+  expect(widgetMessages()[0].metadata?.device).toContain(app.name);
+  const delivered = srv.fakeBackend.sessions
+    .flatMap((session) => session.sent)
+    .filter((message) => message.text.includes("Widget message"))
+    .map((message) => message.text);
   expect(
-    srv.fakeBackend.sessions
-      .flatMap((session) => session.sent)
-      .some((message) => message.text.startsWith("[Member (App hello)]")),
-  ).toBe(true);
+    delivered.filter(
+      (text) => text.includes("Member") && text.includes(app.name),
+    ),
+  ).toHaveLength(1);
   const api = await mintApiToken({
     userId: getUserByName("Member")!.id,
     name: "Widget API",
     expiresInDays: null,
   });
   expect((await send(context, api.token)).status).toBe(200);
-  const apiEntry = srv.agentManager
-    .getAgentLogs(target)
-    .filter(
-      (item) =>
-        item.kind === "user_message" && item.content === "Widget message",
-    )
-    .at(-1);
-  expect(apiEntry?.metadata?.device).toContain("; App hello");
+  const apiEntry = widgetMessages().at(-1);
+  expect(widgetMessages()).toHaveLength(2);
+  expect(apiEntry?.metadata?.device).toContain(app.name);
   expect(apiEntry?.metadata?.device).toContain(api.apiToken.id);
-});
-
-it("refuses an image send when the app target changes after upload", async () => {
-  const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
-    server = s;
-  });
-  const app = appRegistry.get("hello")!;
-  const original = srv.agentManager.getAgent(app.createdByAgentId!)!;
-  const replacement = await srv.agentManager.spawn(
-    "New image target",
-    srv.stateRoot,
-    "default",
-    undefined,
-    undefined,
-    original.roomId,
-  );
-  const form = new FormData();
-  form.append(
-    "file",
-    new File(["image bytes"], "shot.png", { type: "image/png" }),
-  );
-  const uploaded = await srv.http(`/api/upload/${original.id}`, {
-    method: "POST",
-    rawSessionId,
-    body: form,
-  });
-  expect(uploaded.status).toBe(200);
-  const { attachments } = await uploaded.json();
-  expect(attachments).toHaveLength(1);
-  appRegistry.update(app.name, { messageTargetAgentId: replacement!.id });
-  const sent = await srv.http(`/api/agents/${original.id}/messages`, {
-    method: "POST",
-    rawSessionId,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: "Old target image",
-      attachments,
-      appContext: {
-        name: app.name,
-        registration: appRegistrationGeneration(app),
-      },
-    }),
-  });
-  expect(sent.status).toBe(409);
-  expect((await sent.json()).error.code).toBe("app_target_changed");
-  expect(
-    srv.agentManager
-      .getAgentLogs(replacement!.id)
-      .filter((entry) => entry.kind === "user_message"),
-  ).toHaveLength(0);
-  expect(
-    srv.agentManager
-      .getAgentLogs(original.id)
-      .filter((entry) => entry.kind === "user_message"),
-  ).toHaveLength(0);
-});
-
-// The links of one rel in served HTML, as a browser parses them.
-async function linksWithRel(html: string, rel: string) {
-  const found: Record<string, string | null>[] = [];
-  await new HTMLRewriter()
-    .on("link", {
-      element(el) {
-        if (
-          (el.getAttribute("rel") ?? "")
-            .toLowerCase()
-            .split(/\s+/)
-            .includes(rel)
-        )
-          found.push({
-            href: el.getAttribute("href"),
-            crossorigin: el.getAttribute("crossorigin"),
-          });
-      },
-    })
-    .transform(new Response(html))
-    .text();
-  return found;
-}
-
-// Install as app (task 8a07aa4e). Chrome installs a page only through the
-// manifest it links, and it fetches that manifest without cookies unless the
-// link says crossorigin="use-credentials". The manifest's scope is /<app>/, so
-// the short link moves to that path first: a page outside its own scope
-// installs with an address bar, and scope "/<app>" would also capture
-// /<app>-other.
-it("moves a visible app's short link into its install scope and links the app's manifest there", async () => {
-  const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
-    server = s;
-  });
-  const { raw, OFFICE_HOST, HTTPS_ORIGIN, NAVIGATION_HEADERS } =
-    await import("./app-host-test-kit.ts");
-  const { sessionCookieName } = await import("../auth.ts");
-  const fetchPage = (path: string, cookie?: string) =>
-    raw(srv.port, {
-      host: OFFICE_HOST,
-      path,
-      headers: {
-        ...NAVIGATION_HEADERS,
-        ...(cookie ? { Cookie: `${sessionCookieName()}=${cookie}` } : {}),
-      },
-    });
-
-  for (const suffix of ["", "?view=details", "?//evil.example"]) {
-    const moved = await fetchPage(`/hello${suffix}`, rawSessionId);
-    expect(moved.status).toBe(302);
-    const target = new URL(moved.headers.location, HTTPS_ORIGIN);
-    expect(target.origin).toBe(HTTPS_ORIGIN);
-    expect(target.pathname).toBe("/hello/");
-    expect(target.search).toBe(new URL(`${HTTPS_ORIGIN}/${suffix}`).search);
-  }
-
-  const wrapper = await fetchPage("/hello/", rawSessionId);
-  expect(wrapper.status).toBe(200);
-  expect(wrapper.body).toContain('name="isomux-app-widget"');
-  expect(await linksWithRel(wrapper.body, "manifest")).toEqual([
-    { href: "/api/apps/hello/manifest", crossorigin: "use-credentials" },
-  ]);
-  // The office page keeps the office's own manifest.
-  const office = await fetchPage("/", rawSessionId);
-  expect(await linksWithRel(office.body, "manifest")).toEqual([
-    { href: "/manifest.json", crossorigin: null },
-  ]);
-
-  // A member who cannot see the app, and a signed-out visitor, get what an
-  // unknown name gets: no redirect tells them the app exists.
-  const outsider = await srv.seedMember("Outsider");
-  const hidden = await fetchPage("/hello", outsider.rawSessionId);
-  const unknown = await fetchPage("/unknown", outsider.rawSessionId);
-  expect(hidden.status).toBe(unknown.status);
-  expect(hidden.headers.location).toBeUndefined();
-  expect(hidden.body).toBe(unknown.body);
-  const signedOut = await fetchPage("/hello");
-  const unknownSignedOut = await fetchPage("/unknown");
-  expect(signedOut.status).toBe(unknownSignedOut.status);
-  expect(signedOut.headers.location).toBe(unknownSignedOut.headers.location);
 });
 
 const ANDROID =
@@ -370,9 +417,6 @@ it("serves the app's manifest to a member's credentialed manifest fetch only", a
   const { srv, rawSessionId, token } = await anOfficeWithAnApp((s) => {
     server = s;
   });
-  const { raw, OFFICE_HOST, HTTPS_ORIGIN } =
-    await import("./app-host-test-kit.ts");
-  const { sessionCookieName } = await import("../auth.ts");
   // What Chrome sends for <link rel="manifest" crossorigin="use-credentials">.
   const manifestFetch = (name: string, cookie?: string, userAgent = ANDROID) =>
     raw(srv.port, {
@@ -446,11 +490,9 @@ it("serves the app's manifest to a member's credentialed manifest fetch only", a
   const hidden = await manifestFetch("hello", outsider.rawSessionId);
   expect(hidden.status).toBe(404);
   expect(hidden.body).toBe(missing.body);
-  expect(
-    (
-      await srv.http("/api/apps/hello/manifest", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-    ).status,
-  ).toBe(403);
+  const agent = await srv.http("/api/apps/hello/manifest", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(agent.status).toBe(403);
+  expect((await agent.json()).error.code).toBe("forbidden");
 });

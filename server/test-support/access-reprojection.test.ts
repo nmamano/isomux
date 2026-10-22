@@ -1,9 +1,10 @@
 // Every change to a user's room access re-projects their live board and
 // cronjob list (task e8a81336). The owner of that rule is the user-record
-// write itself, so the table below enumerates every path that changes room
-// access - the routes AND the bare users.ts writers that run outside a route
-// (bootstrap promotion, rollback) - and checks a connected socket of the
-// subject converges to the new access without a reconnect.
+// write itself (users.ts updateUserById -> the access hook), so the rows
+// below drive the production paths that change room access: the access and
+// role routes, rooms.close, and (last test) bootstrap promotion, which writes
+// the record from auth.ts with no route around it. Each checks a connected
+// socket of the subject converges to the new access without a reconnect.
 //
 // One fixture for every row: owner Morgan, member Mia, room B holding a task
 // and a cronjob. A row starts Mia with or without access to B, asserts that
@@ -19,7 +20,7 @@ import {
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
-import { getUserByName, setUserRoleById, updateUserById } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 import { withAuditContextSync } from "../audit-context.ts";
 import type {
   CronjobListWire,
@@ -101,7 +102,6 @@ function seedJob(srv: TestServer, username: string, roomId: string) {
 interface Ctx {
   srv: TestServer;
   ownerSession: string;
-  miaId: string;
   roomB: string;
 }
 
@@ -140,18 +140,6 @@ const ROWS: Row[] = [
     },
   },
   {
-    path: "users.update promote",
-    start: { role: "member", grantB: false },
-    role: "owner",
-    run: async ({ srv, ownerSession }) => {
-      expect(
-        await http(srv, "PATCH", "/api/users/Mia", ownerSession, {
-          role: "owner",
-        }),
-      ).toBe(200);
-    },
-  },
-  {
     path: "users.update demote",
     start: { role: "owner", grantB: false },
     role: "member",
@@ -173,39 +161,6 @@ const ROWS: Row[] = [
       ).toBeLessThan(300);
     },
   },
-  // The writers below run with no route around them (bootstrap promotion and
-  // its rollback call them from auth.ts), so nothing but the write itself can
-  // re-project.
-  {
-    path: "setUserRoleById promote",
-    start: { role: "member", grantB: false },
-    role: "owner",
-    run: async ({ miaId }) => {
-      expect(setUserRoleById(miaId, "owner")).toBe(true);
-    },
-  },
-  {
-    path: "setUserRoleById demote",
-    start: { role: "owner", grantB: false },
-    role: "member",
-    run: async ({ miaId }) => {
-      expect(setUserRoleById(miaId, "member")).toBe(true);
-    },
-  },
-  {
-    path: "updateUserById allowedRooms grant",
-    start: { role: "member", grantB: false },
-    run: async ({ miaId, roomB }) => {
-      expect(updateUserById(miaId, { allowedRooms: [roomB] }).ok).toBe(true);
-    },
-  },
-  {
-    path: "updateUserById allowedRooms revoke",
-    start: { role: "member", grantB: true },
-    run: async ({ miaId }) => {
-      expect(updateUserById(miaId, { allowedRooms: [] }).ok).toBe(true);
-    },
-  },
 ];
 
 describe("an access change re-projects the subject's live board and cronjobs", () => {
@@ -221,7 +176,8 @@ describe("an access change re-projects the subject's live board and cronjobs", (
       const task = seedTask(srv, "in B", roomB);
       const job = seedJob(srv, "Morgan", roomB);
       if (row.start.grantB) updateUserById(miaId, { allowedRooms: [roomB] });
-      if (row.start.role === "owner") setUserRoleById(miaId, "owner");
+      if (row.start.role === "owner")
+        expect(updateUserById(miaId, { role: "owner" }).ok).toBe(true);
 
       const sock: TestSocket = await srv.connectWs(mia.rawSessionId);
       await waitUntil(
@@ -245,7 +201,7 @@ describe("an access change re-projects the subject's live board and cronjobs", (
 
       const mark = sock.messages.length;
       const after = () => sock.messages.slice(mark);
-      await row.run({ srv, ownerSession: owner.rawSessionId, miaId, roomB });
+      await row.run({ srv, ownerSession: owner.rawSessionId, roomB });
 
       const after_ = !before;
       await waitUntil(() => {

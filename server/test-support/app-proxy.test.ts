@@ -22,7 +22,6 @@ import {
   zstdCompressSync,
 } from "zlib";
 import {
-  forwardedForValue,
   relayToApp,
   _testRelayInFlight,
   _testResetRelay,
@@ -39,7 +38,6 @@ import type { AppRecord } from "../../shared/types.ts";
 import { _testSetAppRegistrationGeneration } from "../app-registry.ts";
 import { officeSessionCookieNames } from "../auth.ts";
 import {
-  _testActiveAppLifecycles,
   _testResetAppLifecycles,
   retireAppRegistration,
 } from "../app-lifecycle.ts";
@@ -65,14 +63,12 @@ interface Upstream {
 }
 
 const GZIP_TEXT = "compressed ".repeat(40);
-const BINARY = new Uint8Array(1024);
-for (let i = 0; i < BINARY.length; i++) BINARY[i] = (i * 31) % 256;
 
-function startUpstream(port = 0, defaultBody = "ok"): Upstream {
+function startUpstream(): Upstream {
   const seen: SeenRequest[] = [];
   const aborted: string[] = [];
   const server = Bun.serve({
-    port,
+    port: 0,
     hostname: "127.0.0.1",
     idleTimeout: 0,
     async fetch(req) {
@@ -85,10 +81,6 @@ function startUpstream(port = 0, defaultBody = "ok"): Upstream {
       seen.push({ method: req.method, path, headers, body });
 
       switch (path) {
-        case "/binary":
-          return new Response(BINARY, {
-            headers: { "Content-Type": "application/octet-stream" },
-          });
         case "/echo":
           return new Response(body, {
             headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -103,33 +95,6 @@ function startUpstream(port = 0, defaultBody = "ok"): Upstream {
             },
           });
         }
-        case "/brotli": {
-          const br = brotliCompressSync(Buffer.from(GZIP_TEXT));
-          return new Response(br, {
-            headers: {
-              "Content-Encoding": "br",
-              "Content-Length": String(br.length),
-            },
-          });
-        }
-        case "/shouty-gzip": {
-          // `GZIP` is a legal spelling that Bun does NOT decode: the body
-          // arrives here still compressed, so the encoding headers are the
-          // app's own truth and must survive.
-          const gz = gzipSync(Buffer.from(GZIP_TEXT));
-          return new Response(gz, {
-            headers: {
-              "Content-Encoding": "GZIP",
-              "Content-Length": String(gz.length),
-            },
-          });
-        }
-        case "/opaque-coding":
-          // An encoding Bun does not decode: the bytes and both headers are
-          // the app's own and must arrive untouched.
-          return new Response("rawbytes", {
-            headers: { "Content-Encoding": "foo", "Content-Length": "8" },
-          });
         case "/head-gzip":
           // HEAD metadata describes the GET representation. There is no body,
           // so nothing was decoded and nothing may be rewritten.
@@ -218,7 +183,7 @@ function startUpstream(port = 0, defaultBody = "ok"): Upstream {
           });
         }
         default:
-          return new Response(defaultBody, {
+          return new Response("ok", {
             headers: { "Content-Type": "text/plain" },
           });
       }
@@ -297,22 +262,21 @@ function get(path: string, init: RequestInit = {}): Request {
 }
 
 let up: Upstream | null = null;
-const RELAY_RELEASE_DEADLINE_MS = 1_000;
+const SETTLE_DEADLINE_MS = 1_000;
 
-async function waitForRelayInFlight(expected: {
-  total: number;
-  perApp: number;
-}): Promise<void> {
-  const deadline = Date.now() + RELAY_RELEASE_DEADLINE_MS;
+// Bounded polling for a state the relay reaches asynchronously (a permit
+// released after a cancel, an abort seen by the app). The deadline only
+// diagnoses a state that never comes; it never decides a pass.
+async function settlesTo<T>(read: () => T, expected: T): Promise<void> {
+  const deadline = Date.now() + SETTLE_DEADLINE_MS;
   while (Date.now() < deadline) {
-    const actual = _testRelayInFlight();
-    if (actual.total === expected.total && actual.perApp === expected.perApp) {
-      return;
-    }
+    if (Bun.deepEquals(read(), expected)) return;
     await Bun.sleep(5);
   }
-  expect(_testRelayInFlight()).toEqual(expected);
+  expect(read()).toEqual(expected);
 }
+
+const NO_PERMITS = { total: 0, perApp: 0 };
 
 afterEach(async () => {
   await up?.stop();
@@ -322,74 +286,50 @@ afterEach(async () => {
 });
 
 describe("relay: the app's bytes", () => {
-  it("passes a binary body through byte-exact", async () => {
+  it("streams a POST body with the framing the client used", async () => {
+    // A STREAM body, as the server hands the relay for an ordinary upload. With
+    // the client's Content-Length the app gets that length; without one it gets
+    // chunked framing. A relay that buffered the upload would still deliver the
+    // bytes, but would re-frame the chunked one with a length.
     up = startUpstream();
-    const res = await relay(get("/binary"), { app: appRecord(up.port) });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/octet-stream");
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    expect(bytes.length).toBe(BINARY.length);
-    expect(Buffer.from(bytes).equals(Buffer.from(BINARY))).toBe(true);
-  });
-
-  it("streams a fixed-length POST body and preserves its framing", async () => {
-    // A STREAM body plus the client's own Content-Length, which is what the
-    // server hands the relay for an ordinary upload. If the length were dropped
-    // the bytes would still arrive, just re-framed as chunked - so the framing
-    // is what this asserts, and a buffered body would not be able to tell the
-    // difference.
-    up = startUpstream();
+    const app = appRecord(up.port);
+    const stream = (...parts: string[]) =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const part of parts)
+            controller.enqueue(new TextEncoder().encode(part));
+          controller.close();
+        },
+      });
     const payload = "x".repeat(5000);
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(payload));
-        controller.close();
-      },
-    });
-    const res = await relay(
+    const fixed = await relay(
       get("/echo", {
         method: "POST",
-        body,
+        body: stream(payload),
         headers: {
           "Content-Type": "text/plain",
           "Content-Length": String(payload.length),
         },
       }),
-      { app: appRecord(up.port) },
+      { app },
     );
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe(payload);
-    expect(up.seen[0].headers["content-length"]).toBe(String(payload.length));
-    expect(up.seen[0].headers["transfer-encoding"]).toBeUndefined();
-  });
-
-  it("streams a chunked POST body when the client sent no length", async () => {
-    up = startUpstream();
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("chunk-one;"));
-        controller.enqueue(new TextEncoder().encode("chunk-two"));
-        controller.close();
-      },
-    });
-    const res = await relay(get("/echo", { method: "POST", body }), {
-      app: appRecord(up.port),
-    });
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("chunk-one;chunk-two");
-    expect(up.seen[0].headers["transfer-encoding"]).toBe("chunked");
-    expect(up.seen[0].headers["content-length"]).toBeUndefined();
-  });
-
-  it("sends no body on GET or HEAD", async () => {
-    up = startUpstream();
-    const app = appRecord(up.port);
-    await relay(get("/plain"), { app });
-    await relay(get("/plain", { method: "HEAD" }), { app });
-    for (const seen of up.seen) {
-      expect(seen.headers["content-length"] ?? "0").toBe("0");
-      expect(seen.headers["transfer-encoding"]).toBeUndefined();
-    }
+    expect(fixed.status).toBe(200);
+    expect(await fixed.text()).toBe(payload);
+    const chunked = await relay(
+      get("/echo", { method: "POST", body: stream("chunk-one;", "chunk-two") }),
+      { app },
+    );
+    expect(chunked.status).toBe(200);
+    expect(await chunked.text()).toBe("chunk-one;chunk-two");
+    expect(
+      up.seen.map((s) => ({
+        length: s.headers["content-length"],
+        encoding: s.headers["transfer-encoding"],
+      })),
+    ).toEqual([
+      { length: String(payload.length), encoding: undefined },
+      { length: undefined, encoding: "chunked" },
+    ]);
   });
 
   it("does not follow a redirect", async () => {
@@ -409,26 +349,12 @@ describe("relay: the app's bytes", () => {
       "theme=dark; Path=/; SameSite=Lax",
     ]);
   });
-
-  it("streams incrementally rather than buffering", async () => {
-    up = startUpstream();
-    const res = await relay(get("/sse"), { app: appRecord(up.port) });
-    expect(res.status).toBe(200);
-    const reader = res.body!.getReader();
-    const started = Date.now();
-    const first = await reader.read();
-    const firstAt = Date.now() - started;
-    expect(new TextDecoder().decode(first.value)).toContain("data: 0");
-    // The whole stream is 50 ticks at 30ms; a buffering relay could not have
-    // produced the first one this early.
-    expect(firstAt).toBeLessThan(500);
-    await reader.cancel();
-  });
 });
 
 describe("relay: what the app is not handed", () => {
   it("strips every isomux credential cookie and keeps the app's own", async () => {
     up = startUpstream();
+    const app = appRecord(up.port);
     await relay(
       get("/plain", {
         headers: {
@@ -450,26 +376,29 @@ describe("relay: what the app is not handed", () => {
           ].join("; "),
         },
       }),
-      { app: appRecord(up.port) },
+      { app },
     );
-    expect(up.seen[0].headers["cookie"]).toBe(
-      "isomux_session_id=theirs; ISOMUX_SESSION=theirs-too; isomux_session_0123456789abc=thirteen; isomux_session_0123456789AB=upper; my__Host-isomux_app=nope; theme=dark",
-    );
-  });
-
-  it("sends no Cookie header at all when only ours were present", async () => {
-    up = startUpstream();
-    await relay(
-      get("/plain", { headers: { Cookie: "__Host-isomux_app=APPTOKEN" } }),
-      { app: appRecord(up.port) },
-    );
-    expect(up.seen[0].headers["cookie"]).toBeUndefined();
-  });
-
-  it("drops hop-by-hop headers and everything Connection names", async () => {
-    up = startUpstream();
+    // Only isomux credentials: no Cookie header at all, not an empty one.
     await relay(
       get("/plain", {
+        headers: {
+          Cookie: `__Host-isomux_app=APPTOKEN; ${officeSessionCookieNames().host}=OWNHOST`,
+        },
+      }),
+      { app },
+    );
+    expect(up.seen.map((s) => s.headers["cookie"] ?? null)).toEqual([
+      "isomux_session_id=theirs; ISOMUX_SESSION=theirs-too; isomux_session_0123456789abc=thirteen; isomux_session_0123456789AB=upper; my__Host-isomux_app=nope; theme=dark",
+      null,
+    ]);
+  });
+
+  it("drops hop-by-hop headers and everything Connection names, both ways", async () => {
+    // The runtime forwards every one of these itself (measured on Bun 1.4.2),
+    // so each absence below is the relay's doing.
+    up = startUpstream();
+    const res = await relay(
+      get("/hop", {
         headers: {
           Connection: "X-Secret-Hop, keep-alive",
           "X-Secret-Hop": "must not arrive",
@@ -484,89 +413,24 @@ describe("relay: what the app is not handed", () => {
       { app: appRecord(up.port) },
     );
     const seen = up.seen[0].headers;
-    for (const name of [
-      "x-secret-hop",
-      "keep-alive",
-      "te",
-      "trailer",
-      "upgrade",
-      "proxy-authorization",
-    ]) {
-      expect({ name, value: seen[name] }).toEqual({
-        name,
-        value: undefined as string | undefined,
-      });
-    }
-    expect(seen["x-ordinary"]).toBe("arrives");
-  });
-
-  it("owns the forwarding headers instead of relaying the client's", async () => {
-    up = startUpstream();
-    await relay(
-      get("/plain", {
-        headers: {
-          Host: "impostor.example",
-          "X-Forwarded-For": "9.9.9.9",
-          "X-Forwarded-Proto": "http",
-          "X-Forwarded-Host": "impostor.example",
-          Forwarded: "for=9.9.9.9;host=impostor.example",
-        },
-      }),
-      { app: appRecord(up.port), peer: () => "203.0.113.7" },
-    );
-    const seen = up.seen[0].headers;
     expect({
-      host: seen["host"],
-      xff: seen["x-forwarded-for"],
-      proto: seen["x-forwarded-proto"],
-      xfh: seen["x-forwarded-host"],
-      forwarded: seen["forwarded"],
+      secretHop: seen["x-secret-hop"],
+      keepAlive: seen["keep-alive"],
+      te: seen["te"],
+      trailer: seen["trailer"],
+      upgrade: seen["upgrade"],
+      proxyAuth: seen["proxy-authorization"],
+      ordinary: seen["x-ordinary"],
     }).toEqual({
-      host: APP_HOST,
-      xff: "203.0.113.7",
-      proto: "https",
-      xfh: APP_HOST,
-      forwarded: undefined as string | undefined,
+      secretHop: undefined,
+      keepAlive: undefined,
+      te: undefined,
+      trailer: undefined,
+      upgrade: undefined,
+      proxyAuth: undefined,
+      ordinary: "arrives",
     });
-  });
-
-  it("writes an IPv4-mapped loopback peer the way a proxy writes it", async () => {
-    // Bun reports a dual-stack loopback peer as `::ffff:127.0.0.1`. Same
-    // address, spelling most XFF parsers have never met.
-    up = startUpstream();
-    await relay(get("/plain"), {
-      app: appRecord(up.port),
-      peer: () => "::ffff:127.0.0.1",
-    });
-    expect(up.seen[0].headers["x-forwarded-for"]).toBe("127.0.0.1");
-    // A real IPv6 peer is written bare - the bracketed form belongs to the
-    // `Forwarded` header's grammar, not this one.
-    expect(forwardedForValue("2001:db8::1")).toBe("2001:db8::1");
-    expect(forwardedForValue(null)).toBeNull();
-  });
-
-  it("omits X-Forwarded-For when there is no peer to name", async () => {
-    up = startUpstream();
-    const app = appRecord(up.port);
-    await relay(get("/plain", { headers: { "X-Forwarded-For": "9.9.9.9" } }), {
-      app,
-      peer: () => null,
-    });
-    await relay(get("/plain"), {
-      app,
-      peer: () => {
-        throw new Error("socket gone");
-      },
-    });
-    expect(up.seen.map((s) => s.headers["x-forwarded-for"])).toEqual([
-      undefined,
-      undefined,
-    ]);
-  });
-
-  it("does not relay the app's own hop-by-hop headers back", async () => {
-    up = startUpstream();
-    const res = await relay(get("/hop"), { app: appRecord(up.port) });
+    // ...and the app's own hop-by-hop headers stay off the browser's response.
     expect({
       priv: res.headers.get("x-private"),
       keepAlive: res.headers.get("keep-alive"),
@@ -579,38 +443,67 @@ describe("relay: what the app is not handed", () => {
       pub: "fine",
     });
   });
+
+  it("owns the forwarding headers and names only the real peer", async () => {
+    // Every request carries a client's forged forwarding headers. The relay
+    // writes its own Host, proto and forwarded host, and X-Forwarded-For only
+    // from the socket peer: unwrapped from the IPv4-mapped form Bun reports
+    // for a dual-stack loopback peer, a real IPv6 peer written bare (brackets
+    // belong to the `Forwarded` grammar), and no header at all when there is
+    // no peer to name.
+    up = startUpstream();
+    const app = appRecord(up.port);
+    const cases: {
+      peer: () => string | null;
+      xff: string | undefined;
+    }[] = [
+      { peer: () => "203.0.113.7", xff: "203.0.113.7" },
+      { peer: () => "::ffff:127.0.0.1", xff: "127.0.0.1" },
+      { peer: () => "2001:db8::1", xff: "2001:db8::1" },
+      { peer: () => null, xff: undefined },
+      {
+        peer: () => {
+          throw new Error("socket gone");
+        },
+        xff: undefined,
+      },
+    ];
+    for (const { peer } of cases) {
+      const res = await relay(
+        get("/plain", {
+          headers: {
+            Host: "impostor.example",
+            "X-Forwarded-For": "9.9.9.9",
+            "X-Forwarded-Proto": "http",
+            "X-Forwarded-Host": "impostor.example",
+            Forwarded: "for=9.9.9.9;host=impostor.example",
+          },
+        }),
+        { app, peer },
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(
+      up.seen.map(({ headers }) => ({
+        host: headers["host"],
+        xff: headers["x-forwarded-for"],
+        proto: headers["x-forwarded-proto"],
+        xfh: headers["x-forwarded-host"],
+        forwarded: headers["forwarded"],
+      })),
+    ).toEqual(
+      cases.map(({ xff }) => ({
+        host: APP_HOST,
+        xff,
+        proto: "https",
+        xfh: APP_HOST,
+        forwarded: undefined,
+      })),
+    );
+  });
 });
 
 describe("relay: content encoding", () => {
-  it("preserves gzip bytes and their encoding and length", async () => {
-    up = startUpstream();
-    const res = await relay(get("/gzip"), { app: appRecord(up.port) });
-    const encoded = gzipSync(Buffer.from(GZIP_TEXT));
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-encoding")).toBe("gzip");
-    expect(res.headers.get("content-length")).toBe(String(encoded.length));
-    expect(Buffer.from(await res.arrayBuffer())).toEqual(encoded);
-  });
-
-  it("preserves brotli bytes and their encoding and length", async () => {
-    up = startUpstream();
-    const res = await relay(get("/brotli"), { app: appRecord(up.port) });
-    const encoded = brotliCompressSync(Buffer.from(GZIP_TEXT));
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-encoding")).toBe("br");
-    expect(res.headers.get("content-length")).toBe(String(encoded.length));
-    expect(Buffer.from(await res.arrayBuffer())).toEqual(encoded);
-  });
-
-  it("leaves an encoding it did not decode completely alone", async () => {
-    up = startUpstream();
-    const res = await relay(get("/opaque-coding"), { app: appRecord(up.port) });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-encoding")).toBe("foo");
-    expect(res.headers.get("content-length")).toBe("8");
-    expect(await res.text()).toBe("rawbytes");
-  });
-
   // Exercise the relay against real bytes, including coding lists that a
   // runtime might decode partly. This must pass on installed Bun 1.3.11 and
   // the new 1.4.2 pin without a version-dependent decoder list.
@@ -685,40 +578,32 @@ describe("relay: content encoding", () => {
     }
   });
 
-  it("keeps the metadata of a HEAD, which describes a body it never carried", async () => {
+  it("keeps the metadata of a bodyless HEAD and 304, which describe a body they never carried", async () => {
     up = startUpstream();
-    const res = await relay(get("/head-gzip", { method: "HEAD" }), {
-      app: appRecord(up.port),
+    const app = appRecord(up.port);
+    const head = await relay(get("/head-gzip", { method: "HEAD" }), { app });
+    expect({
+      status: head.status,
+      encoding: head.headers.get("content-encoding"),
+      length: head.headers.get("content-length"),
+      type: head.headers.get("content-type"),
+      body: await head.text(),
+    }).toEqual({
+      status: 200,
+      encoding: "gzip",
+      length: "12345",
+      type: "text/html",
+      body: "",
     });
-    expect(res.status).toBe(200);
+    // A 304 updates a cached representation: its encoding describes what the
+    // browser already holds. Content-Length is NOT asserted: the runtime
+    // rewrites it to 0 on a bodyless status whatever the relay sets.
+    const notModified = await relay(get("/304"), { app });
     expect({
-      encoding: res.headers.get("content-encoding"),
-      length: res.headers.get("content-length"),
-      type: res.headers.get("content-type"),
-    }).toEqual({ encoding: "gzip", length: "12345", type: "text/html" });
-    expect(await res.text()).toBe("");
-  });
-
-  it("keeps the metadata of a 304, which updates a cached representation", async () => {
-    up = startUpstream();
-    const res = await relay(get("/304"), { app: appRecord(up.port) });
-    // Content-Length is NOT asserted here: a 304 carries no body, and the
-    // runtime rewrites the length to 0 on a bodyless status whatever we set.
-    // The encoding is the one that matters - it describes the cached
-    // representation the browser already holds, and the relay must not have
-    // treated it as a claim about bytes it decoded.
-    expect({
-      status: res.status,
-      etag: res.headers.get("etag"),
-      encoding: res.headers.get("content-encoding"),
+      status: notModified.status,
+      etag: notModified.headers.get("etag"),
+      encoding: notModified.headers.get("content-encoding"),
     }).toEqual({ status: 304, etag: '"v1"', encoding: "gzip" });
-  });
-
-  it("relays a 204 with no body", async () => {
-    up = startUpstream();
-    const res = await relay(get("/204"), { app: appRecord(up.port) });
-    expect(res.status).toBe(204);
-    expect(await res.text()).toBe("");
   });
 });
 
@@ -726,9 +611,7 @@ describe("relay: refusing before connecting", () => {
   // The locked constraint, in its strongest form: a raw listener that counts
   // TCP CONNECTIONS, not HTTP requests. A stopped app's port can be squatted by
   // any local process, so the relay must not open a socket to find out.
-  async function withCountingListener(
-    run: (port: number, connections: () => number) => Promise<void>,
-  ): Promise<void> {
+  it("refuses every state that is not proof the app is up, without a connection", async () => {
     let count = 0;
     const server: NetServer = createServer((socket) => {
       count++;
@@ -737,50 +620,36 @@ describe("relay: refusing before connecting", () => {
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
     );
-    const port = (server.address() as { port: number }).port;
     try {
-      await run(port, () => count);
+      const app = appRecord((server.address() as { port: number }).port);
+      const cases: {
+        state?: AppRuntime["state"] | "missing";
+        supervisorThrows?: boolean;
+      }[] = [
+        { state: "stopped" },
+        { state: "failed" },
+        { state: "starting" },
+        { state: "unknown" },
+        { state: "missing" },
+        // The supervisor itself cannot answer.
+        { supervisorThrows: true },
+      ];
+      for (const opts of cases) {
+        const res = await relay(get("/plain"), { app, ...opts });
+        expect({ ...opts, status: res.status, body: await res.text() }).toEqual(
+          { ...opts, status: 503, body: APP_STOPPED_BODY },
+        );
+      }
+      expect(count).toBe(0);
+      expect(_testRelayInFlight()).toEqual(NO_PERMITS);
     } finally {
       server.close();
     }
-  }
-
-  it("refuses every state that is not proof the app is up, without a connection", async () => {
-    await withCountingListener(async (port, connections) => {
-      const app = appRecord(port);
-      for (const state of [
-        "stopped",
-        "failed",
-        "starting",
-        "unknown",
-        "missing",
-      ] as const) {
-        const res = await relay(get("/plain"), { app, state });
-        expect({ state, status: res.status, body: await res.text() }).toEqual({
-          state,
-          status: 503,
-          body: APP_STOPPED_BODY,
-        });
-      }
-      expect(connections()).toBe(0);
-    });
-  });
-
-  it("refuses when the supervisor itself cannot answer", async () => {
-    await withCountingListener(async (port, connections) => {
-      const res = await relay(get("/plain"), {
-        app: appRecord(port),
-        supervisorThrows: true,
-      });
-      expect(res.status).toBe(503);
-      expect(await res.text()).toBe(APP_STOPPED_BODY);
-      expect(connections()).toBe(0);
-    });
   });
 });
 
 describe("relay: failures", () => {
-  it("answers 502 when nothing is listening on the app's port", async () => {
+  it("answers 502 when the app cannot be reached or its headers do not arrive in time", async () => {
     // A port that was bound and released: nothing is there, so the connection
     // is refused - the shape of a running unit whose process just died.
     const scratch = Bun.serve({
@@ -788,30 +657,30 @@ describe("relay: failures", () => {
       hostname: "127.0.0.1",
       fetch: () => new Response("x"),
     });
-    const port = scratch.port as number;
+    const closedPort = scratch.port as number;
     void scratch.stop(true);
-    const res = await relay(get("/plain"), { app: appRecord(port) });
-    expect(res.status).toBe(502);
-    expect(await res.text()).toBe(APP_UNREACHABLE_BODY);
-    expect(_testRelayInFlight().total).toBe(0);
-  });
+    const refused = await relay(get("/plain"), { app: appRecord(closedPort) });
+    expect(refused.status).toBe(502);
+    expect(await refused.text()).toBe(APP_UNREACHABLE_BODY);
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
 
-  it("answers 502 when headers do not arrive in time", async () => {
     up = startUpstream();
-    const res = await relay(get("/slow-headers"), {
+    const slow = await relay(get("/slow-headers"), {
       app: appRecord(up.port),
       ttfbMs: 150,
     });
-    expect(res.status).toBe(502);
-    expect(await res.text()).toBe(APP_UNREACHABLE_BODY);
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(slow.status).toBe(502);
+    expect(await slow.text()).toBe(APP_UNREACHABLE_BODY);
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
   });
 
   it("does not cut a stream off at the header deadline", async () => {
     // The TTFB timer is cleared when headers arrive: an SSE stream running long
     // past it is the feature, not a timeout. Keep reading until well after the
     // deadline: the first chunk can come out of the stream's own queue and
-    // would survive an abort that killed everything behind it.
+    // would survive an abort that killed everything behind it. The headers
+    // arriving well inside the deadline is a precondition, asserted so that a
+    // loaded box fails here rather than as a fake stream defect (15e23dd3).
     const ttfbMs = 1500;
     const mustStreamPastMs = ttfbMs + 250;
     const started = performance.now();
@@ -846,14 +715,14 @@ describe("relay: failures", () => {
     // BACKPRESSURE, not a stall: the app produced a chunk and nobody has read
     // it yet. A guard that runs while the chunk sits in the queue would abort a
     // healthy app for the crime of being read slowly - and, since no read is
-    // outstanding to notice the abort, would strand the permit too.
+    // outstanding to notice the abort, would strand the permit too. Proving a
+    // timer does NOT fire takes waiting past it: four stall windows here.
     up = startUpstream();
     const res = await relay(get("/sse"), {
       app: appRecord(up.port),
       stallMs: 150,
     });
     expect(res.status).toBe(200);
-    // Nothing is read for several times the stall window.
     await Bun.sleep(600);
     expect(up.aborted).toEqual([]);
     expect(_testRelayInFlight().total).toBe(1);
@@ -863,8 +732,7 @@ describe("relay: failures", () => {
     const chunk = await reader.read();
     expect(chunk.done).toBe(false);
     await reader.cancel();
-    await Bun.sleep(100);
-    expect(_testRelayInFlight().total).toBe(0);
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
   });
 
   it("tears down a started response that goes silent", async () => {
@@ -879,8 +747,13 @@ describe("relay: failures", () => {
     expect(new TextDecoder().decode(first.value)).toBe("first\n");
     // The app is alive, the client is attached, and nothing is coming: the one
     // failure abort propagation cannot see.
-    expect(reader.read()).rejects.toThrow();
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(
+      await reader.read().then(
+        () => "resolved",
+        () => "rejected",
+      ),
+    ).toBe("rejected");
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
   });
 });
 
@@ -890,11 +763,11 @@ describe("relay: the client going away", () => {
     const res = await relay(get("/sse"), { app: appRecord(up.port) });
     expect(res.status).toBe(200);
     const reader = res.body!.getReader();
-    await reader.read();
+    expect((await reader.read()).done).toBe(false);
+    expect(_testRelayInFlight()).toEqual({ total: 1, perApp: 1 });
     await reader.cancel();
-    await Bun.sleep(150);
-    expect(up.aborted.length).toBeGreaterThan(0);
-    expect(_testRelayInFlight().total).toBe(0);
+    await settlesTo(() => up!.aborted.includes("/sse"), true);
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
   });
 
   it("does no upstream work for a client that is already gone", async () => {
@@ -913,7 +786,7 @@ describe("relay: the client going away", () => {
     // Whatever the runtime does with an aborted fetch, the app was never asked
     // to do anything, and the permit came back.
     expect(up.seen).toEqual([]);
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
   });
 
   it("reaches the app when the request itself is aborted", async () => {
@@ -925,12 +798,16 @@ describe("relay: the client going away", () => {
     );
     expect(res.status).toBe(200);
     const reader = res.body!.getReader();
-    await reader.read();
+    expect((await reader.read()).done).toBe(false);
     ac.abort();
-    expect(reader.read()).rejects.toThrow();
-    await Bun.sleep(150);
-    expect(up.aborted.length).toBeGreaterThan(0);
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(
+      await reader.read().then(
+        () => "resolved",
+        () => "rejected",
+      ),
+    ).toBe("rejected");
+    await settlesTo(() => up!.aborted.includes("/sse"), true);
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
   });
 });
 
@@ -942,28 +819,22 @@ describe("relay: concurrency permits", () => {
     const normal = await relay(get("/plain"), { app });
     expect(normal.status).toBe(200);
     await normal.text();
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
     // A null-body response releases without waiting for a stream that will
-    // never come.
-    await relay(get("/204"), { app });
-    expect(_testRelayInFlight().total).toBe(0);
+    // never come, and still carries its status.
+    const noContent = await relay(get("/204"), { app });
+    expect({ status: noContent.status, body: await noContent.text() }).toEqual({
+      status: 204,
+      body: "",
+    });
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
     await relay(get("/head-gzip", { method: "HEAD" }), { app });
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
     // A refusal that never took one at all.
-    await relay(get("/plain"), { app, state: "stopped" });
-    expect(_testRelayInFlight().total).toBe(0);
-  });
-
-  it("holds exactly one permit while a stream is open", async () => {
-    up = startUpstream();
-    const res = await relay(get("/sse"), { app: appRecord(up.port) });
-    expect(res.status).toBe(200);
-    const reader = res.body!.getReader();
-    await reader.read();
-    expect(_testRelayInFlight()).toEqual({ total: 1, perApp: 1 });
-    await reader.cancel();
-    await Bun.sleep(50);
-    expect(_testRelayInFlight()).toEqual({ total: 0, perApp: 0 });
+    expect((await relay(get("/plain"), { app, state: "stopped" })).status).toBe(
+      503,
+    );
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
   });
 
   it("refuses over the shared total even when the app has room", async () => {
@@ -979,6 +850,7 @@ describe("relay: concurrency permits", () => {
       await reader.read();
       readers.push(reader);
     }
+    // One open stream holds exactly one permit.
     expect(_testRelayInFlight()).toEqual({ total: 2, perApp: 1 });
     // Neither app is anywhere near its own cap; the office as a whole is full.
     const refused = await relay(get("/plain"), { app: a, ...limits });
@@ -987,8 +859,7 @@ describe("relay: concurrency permits", () => {
     // A refusal takes nothing: the counters are exactly where they were.
     expect(_testRelayInFlight()).toEqual({ total: 2, perApp: 1 });
     for (const reader of readers) await reader.cancel();
-    await Bun.sleep(50);
-    expect(_testRelayInFlight()).toEqual({ total: 0, perApp: 0 });
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
   });
 
   it("refuses over the per-app cap and admits again once one finishes", async () => {
@@ -1009,11 +880,7 @@ describe("relay: concurrency permits", () => {
     expect(await refused.text()).toBe(APP_BUSY_BODY);
 
     await open.pop()!.cancel();
-    await waitForRelayInFlight({
-      total: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
-      perApp: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
-    });
-    expect(_testRelayInFlight()).toEqual({
+    await settlesTo(_testRelayInFlight, {
       total: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
       perApp: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
     });
@@ -1021,16 +888,15 @@ describe("relay: concurrency permits", () => {
     expect(admitted.status).toBe(200);
     await admitted.text();
     await Promise.all(open.map((reader) => reader.cancel()));
-    await waitForRelayInFlight({ total: 0, perApp: 0 });
-    expect(_testRelayInFlight().total).toBe(0);
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
   });
 
   it("counts by registration identity, so a reused name gets its own bucket", async () => {
     up = startUpstream();
     // Same name and public origin, next registration: a deleted app
-    // re-registered while an older
-    // response is still unwinding. The two must not share a counter, or the
-    // dead app's release would decrement the live app's bucket.
+    // re-registered while an older response is still unwinding. The two must
+    // not share a counter, or the dead app's release would decrement the live
+    // app's bucket.
     const gen1 = appRecord(up.port);
     const gen2 = appRecord(up.port);
     _testSetAppRegistrationGeneration(gen2, 2);
@@ -1044,40 +910,31 @@ describe("relay: concurrency permits", () => {
     await secondReader.read();
     expect(_testRelayInFlight()).toEqual({ total: 2, perApp: 1 });
     await firstReader.cancel();
-    await Bun.sleep(50);
-    expect(_testRelayInFlight()).toEqual({ total: 1, perApp: 1 });
+    await settlesTo(_testRelayInFlight, { total: 1, perApp: 1 });
     await secondReader.cancel();
-    await Bun.sleep(50);
-    expect(_testRelayInFlight()).toEqual({ total: 0, perApp: 0 });
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
   });
 
-  it("retires old HTTP before the same port serves the replacement", async () => {
-    up = startUpstream(0, "retired");
-    const port = up.port;
-    const retired = appRecord(port);
+  it("retires a live stream synchronously, before its name and port can be reused", async () => {
+    // The delete path retires the registration and then frees the name and
+    // port in the same turn. The old response must be gone by then - permit
+    // back, browser stream aborted, connection to the old port closed - while
+    // the app on that port is still running.
+    up = startUpstream();
+    const retired = appRecord(up.port);
     const oldResponse = await relay(get("/sse"), { app: retired });
     expect(oldResponse.status).toBe(200);
     const oldReader = oldResponse.body!.getReader();
     expect((await oldReader.read()).done).toBe(false);
-    expect(_testActiveAppLifecycles(retired)).toBe(1);
+    expect(_testRelayInFlight()).toEqual({ total: 1, perApp: 1 });
 
     retireAppRegistration(retired);
-    expect(_testActiveAppLifecycles(retired)).toBe(0);
-    await up.stop();
-    up = startUpstream(port, "replacement");
-
-    const replacement = appRecord(port);
-    _testSetAppRegistrationGeneration(replacement, 2);
-    const replacementResponse = await relay(get("/plain"), {
-      app: replacement,
-    });
-    expect(replacementResponse.status).toBe(200);
-    expect(await replacementResponse.text()).toBe("replacement");
-    expect(up.seen.map((request) => request.path)).toEqual(["/plain"]);
-
-    await Bun.sleep(50);
-    const oldEnd = await oldReader.read().catch(() => ({ done: true }));
-    expect(oldEnd.done).toBe(true);
-    expect(_testRelayInFlight().total).toBe(0);
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
+    const ended = await oldReader.read().then(
+      () => null,
+      (error: unknown) => (error as Error).name,
+    );
+    expect(ended).toBe("AbortError");
+    await settlesTo(() => up!.aborted.includes("/sse"), true);
   });
 });

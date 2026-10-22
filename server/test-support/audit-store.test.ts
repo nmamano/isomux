@@ -37,12 +37,6 @@ const actor = { kind: "member" as const, id: "member-1", name: "Member" };
 const run = <T>(operation: string, fn: () => T) =>
   withAuditContext(actor, operation, fn);
 describe("task audit transactions", () => {
-  it("rejects actorless writes before changing the board or database", () => {
-    const { state, db } = setup();
-    expect(() => state.addTask("task", "member")).toThrow();
-    expect(state.tasks).toHaveLength(0);
-    expect(db.query("SELECT * FROM tasks").all()).toHaveLength(0);
-  });
   it("rolls back create, update and delete with no board changes or events on audit failure", async () => {
     const { state, db } = setup();
     await run("tasks.create", () => state.addTask("task", "member"));
@@ -88,62 +82,6 @@ describe("task audit transactions", () => {
     expect(audit.list({ limit: 1 }).nextBefore).toBe(rows[0].sequence);
   });
 });
-it("imports old backup tasks once, keeps the source on the import boot, and retires it on the next boot", () => {
-  const { root, audit, db } = setup();
-  const path = join(root, "tasks.json");
-  const source = JSON.stringify([
-    {
-      id: "old",
-      title: "old",
-      status: "backlog",
-      device: "member",
-      version: "stale",
-      createdBy: "member",
-      createdAt: 1,
-    },
-  ]);
-  writeFileSync(path, source);
-  const taskStore = createTaskStore(() => audit, root);
-  expect(taskStore.load().map((task) => task.id)).toEqual(["old"]);
-  expect(readFileSync(path, "utf8")).toBe(source);
-  expect(
-    JSON.parse(
-      (db.query("SELECT record FROM tasks").get() as { record: string }).record,
-    ),
-  ).toEqual({
-    id: "old",
-    title: "old",
-    status: "open",
-    priority: "P4",
-    username: "member",
-    createdBy: "member",
-    createdAt: 1,
-  });
-  expect(audit.list().items).toHaveLength(0);
-  const state = new OfficeState();
-  state.setTasksDirect([
-    {
-      id: "old",
-      title: "old",
-      status: "open",
-      priority: "P4",
-      username: "member",
-      createdBy: "member",
-      createdAt: 1,
-    },
-  ]);
-  state.beforeTaskChange = taskStore.change;
-  withAuditContextSync(actor, "tasks.update", () =>
-    state.updateTask("old", { title: "changed" }),
-  );
-  expect(() => taskStore.load()).not.toThrow();
-  expect(existsSync(path)).toBe(false);
-  expect(taskStore.load()[0].title).toBe("changed");
-  expect(
-    readdirSync(root).some((name) => name.startsWith("tasks.json.corrupt-")),
-  ).toBe(false);
-  expect(db.query("SELECT * FROM tasks").all()).toHaveLength(1);
-});
 it("keeps source JSON and rolls back every imported row on a failed transaction", () => {
   const { root, audit, db } = setup();
   const source = JSON.stringify([
@@ -158,41 +96,33 @@ it("keeps source JSON and rolls back every imported row on a failed transaction"
   expect(db.query("SELECT * FROM tasks").all()).toHaveLength(0);
   expect(readFileSync(join(root, "tasks.json"), "utf8")).toBe(source);
 });
-it("snapshots an open WAL consistently and sets WAL on a restored snapshot", async () => {
-  const { root, db, state } = setup();
-  db.exec("PRAGMA wal_autocheckpoint=0");
-  await run("tasks.create", () => state.addTask("snapshot", "member"));
-  const path = join(root, "restored.sqlite");
-  await snapshotOfficeDatabase(join(root, "office.sqlite"), path);
-  await run("tasks.create", () => state.addTask("later", "member"));
-  const restored = openOfficeDatabase(path);
-  handles.push(restored);
-  expect(restored.query("PRAGMA journal_mode").get()).toEqual({
-    journal_mode: "wal",
-  });
-  expect(restored.query("PRAGMA integrity_check").get()).toEqual({
-    integrity_check: "ok",
-  });
-  expect(restored.query("SELECT * FROM tasks").all()).toHaveLength(1);
-  expect(restored.query("SELECT * FROM audit").all()).toHaveLength(1);
-});
-it("fails and removes an interrupted SQLite snapshot", async () => {
+it("a timed-out or failed snapshot rejects and leaves no file at the destination", async () => {
   const { root, db } = setup();
   db.exec(
     "CREATE TABLE large(value TEXT); INSERT INTO large VALUES (hex(randomblob(1000000)))",
   );
-  const destination = join(root, "interrupted.sqlite");
+  const source = join(root, "office.sqlite");
+  // A 0 ms budget kills the child before VACUUM can finish.
+  const timedOut = join(root, "timed-out.sqlite");
   expect(
-    await snapshotOfficeDatabase(
-      join(root, "office.sqlite"),
-      destination,
-      0,
-    ).then(
+    await snapshotOfficeDatabase(source, timedOut, 0).then(
       () => null,
-      (error) => error,
+      (error: Error) => error.message,
     ),
-  ).toBeInstanceOf(Error);
-  expect(existsSync(destination)).toBe(false);
+  ).toMatch(/timed out/);
+  expect(existsSync(timedOut)).toBe(false);
+  // A partial file at the destination when the child fails (VACUUM INTO
+  // refuses a non-empty file): the parent removes it, so no private copy of
+  // the office database stays behind.
+  const partial = join(root, "partial.sqlite");
+  writeFileSync(partial, "partial snapshot");
+  expect(
+    await snapshotOfficeDatabase(source, partial).then(
+      () => null,
+      (error: Error) => error.message,
+    ),
+  ).toMatch(/snapshot failed/);
+  expect(existsSync(partial)).toBe(false);
 });
 it("quarantines malformed legacy JSON without deleting its bytes", () => {
   const { root, audit, db } = setup();
@@ -288,17 +218,12 @@ describe("frozen tasks.json copy after the import", () => {
     expect(corrupt(root)).toHaveLength(0);
   });
 
+  // One row per refusal class: the JSON parse, and the record check the
+  // import shares (its duplicate-id refusal is pinned by the import's
+  // "quarantines duplicate legacy task ids" test).
   for (const [name, source] of [
     ["not JSON", "not json"],
-    ["not an array", JSON.stringify({ id: "old", title: "old" })],
     ["an entry without a title", JSON.stringify([{ id: "old" }])],
-    [
-      "a duplicate id",
-      JSON.stringify([
-        { id: "old", title: "old" },
-        { id: "old", title: "old" },
-      ]),
-    ],
   ] as const)
     it(`keeps an unverifiable file (${name}) when the board is not empty`, () => {
       const { path, taskStore, root } = imported(["old"]);

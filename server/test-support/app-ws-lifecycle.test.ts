@@ -25,7 +25,10 @@ import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
 import { createHash } from "crypto";
 import { APP_COOKIE_NAME } from "../app-auth.ts";
-import { APP_BUSY_BODY } from "../app-host-responses.ts";
+import {
+  APP_BUSY_BODY,
+  APP_WS_UPGRADE_FAILED_BODY,
+} from "../app-host-responses.ts";
 import {
   AppWsRelay,
   APP_WS_MAX_PROTOCOL_HEADER_BYTES,
@@ -234,7 +237,7 @@ async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 describe("app-ws relay: the socket caps", () => {
-  it("closes an open socket as soon as its room-derived access is revoked", async () => {
+  it("closes an open socket once its room-derived access is revoked, and leaves a healthy one alone", async () => {
     const { srv, cookie } = await office();
     let allowed = true;
     const result = await open(srv, "hello", cookie, {
@@ -243,8 +246,36 @@ describe("app-ws relay: the socket caps", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    const { relay, browser } = result.opened;
+    // A recheck of a socket that is still allowed changes nothing: it stays
+    // open and keeps relaying. The office runs this on every session and access
+    // change, so a recheck that closed healthy sockets would cut every app
+    // socket in the office on any member's room edit.
+    recheckOpenAppSockets();
+    relay.onUpstreamMessage({ kind: "text", text: "still here" });
+    expect({ closes: browser.closes, sent: browser.sent }).toEqual({
+      closes: [],
+      sent: ["still here"],
+    });
+    // The same call, with access gone, closes it.
     allowed = false;
     recheckOpenAppSockets();
+    expect(browser.closes).toEqual([{ code: 1008, reason: "session ended" }]);
+  });
+
+  it("rechecks on its own timer, with no office event to prompt it", async () => {
+    // An idle socket is otherwise immortal: nothing else asks whether it may
+    // still exist when the revocation fires no event (an expiry, say).
+    const { srv, cookie } = await office();
+    let allowed = true;
+    const result = await open(srv, "hello", cookie, {
+      canAccess: () => allowed,
+      recheckMs: 20,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    allowed = false;
+    await until(() => result.opened.browser.closes.length > 0);
     expect(result.opened.browser.closes).toEqual([
       { code: 1008, reason: "session ended" },
     ]);
@@ -380,49 +411,19 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
     expect(_testWsSocketsOpen()).toEqual({ total: 1, perApp: 1 });
   });
 
-  it("keeps the slot while the browser leg has not ended (app closed first)", async () => {
-    const { srv, cookie } = await office();
-    // An app that closes the moment it connects: the app leg ends immediately
-    // and the browser leg is the one still outstanding.
-    while (stoppers.length > 0) stoppers.pop()!();
-    startSilentApp("hello", { closeOnConnect: true });
-    const seams = { maxPerApp: 1 };
-    const first = await open(srv, "hello", cookie, seams);
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
-    // The app's own code reached the browser leg...
-    await until(() => first.opened.browser.closes.length > 0);
-    expect(first.opened.browser.closes[0]).toEqual({
-      code: 4001,
-      reason: "app done",
-    });
-    // ...and that leg has not reported back, so the slot is still taken.
-    expect(_testWsSocketsOpen().total).toBe(1);
-    const denied = await open(srv, "hello", cookie, seams);
-    expect(denied.ok).toBe(false);
-    if (!denied.ok) expect(denied.response.status).toBe(429);
-
-    first.opened.relay.browserClosed(4001, "app done");
-    await until(() => _testWsSocketsOpen().total === 0);
-    // Exactly one slot came back, not two.
-    expect(_testWsSocketsOpen()).toEqual({ total: 0, perApp: 0 });
-    const replacement = await open(srv, "hello", cookie, seams);
-    expect(replacement.ok).toBe(true);
-  });
-
-  it("keeps the slot when the runtime attaches SYNCHRONOUSLY inside upgrade()", async () => {
-    // The sharpest case, and it only exists because of a measured Bun behavior:
-    // `server.upgrade()` runs the socket's `open` handler INSIDE the call. With
+  it("keeps the slot while the browser leg has not ended (app closed first, runtime attaches inside upgrade())", async () => {
+    // The app closes the moment it connects, so the app leg ends at once and
+    // the browser leg is the one still outstanding.
+    //
+    // The upgrade seam attaches inside the call, because that is what Bun does
+    // (measured): `server.upgrade()` runs the socket's `open` handler. With
     // an app that greets and closes before the upgrade, that means attachBrowser
     // flushes the greeting, applies the recorded close and finishes the relay
     // while upgrade() has not yet returned. If the browser leg were marked live
     // only AFTER the call, that finish would see no browser leg, hand the permit
     // back while the browser's close handshake was still live, and set the flag
-    // on a leg that no longer had a permit behind it.
-    //
-    // The upgrade seam here attaches synchronously on purpose: it plays exactly
-    // the part the runtime plays, so the ordering is deterministic rather than a
-    // race the test hopes to lose.
+    // on a leg that no longer had a permit behind it. Attaching here rather than
+    // after upgrade() returns makes that ordering deterministic, not a race.
     const { srv, cookie } = await office();
     while (stoppers.length > 0) stoppers.pop()!();
     startSilentApp("hello", { closeOnConnect: true });
@@ -495,8 +496,11 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
         },
       });
       expect(response).toBeDefined();
-      expect(response!.status).toBe(500);
-      expect(await response!.text()).toBe("websocket upgrade failed\n");
+      expect({
+        mode,
+        status: response!.status,
+        body: await response!.text(),
+      }).toEqual({ mode, status: 500, body: APP_WS_UPGRADE_FAILED_BODY });
       // There is no browser leg, so the slot comes back as soon as the app leg
       // ends - and it must come back, including through the throwing seam.
       await until(() => _testWsSocketsOpen().total === 0, 4000);
@@ -515,69 +519,12 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
     first.opened.relay.browserClosed(1000, "bye");
     expect(_testWsSocketsOpen().total).toBe(1);
     const denied = await open(srv, "hello", cookie, seams);
-    expect(denied.ok).toBe(false);
+    expect(denied.ok ? "admitted" : denied.response.status).toBe(429);
     await until(() => _testWsSocketsOpen().total === 0, 4000);
   });
 });
 
-describe("app-ws relay: a socket that is no longer allowed to exist", () => {
-  it("closes 1008 when the app is deleted under it", async () => {
-    const { srv, cookie, token } = await office();
-    const result = await open(srv, "hello", cookie, { recheckMs: 20 });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // Two ticks with nothing wrong: the timer must not close a healthy socket.
-    await Bun.sleep(60);
-    expect(result.opened.browser.closes).toEqual([]);
-
-    const { deleteApp } = await import("./app-host-test-kit.ts");
-    await deleteApp(srv, token, "hello");
-    await until(() => result.opened.browser.closes.length > 0);
-    expect(result.opened.browser.closes[0]).toEqual({
-      code: 1008,
-      reason: "app registration retired",
-    });
-    // The close was INITIATED, not completed: the browser leg has not reported
-    // back, so the socket still exists and the slot is still occupied.
-    expect(_testWsSocketsOpen().total).toBe(1);
-    result.opened.relay.browserClosed(1008, "session ended");
-    await until(() => _testWsSocketsOpen().total === 0);
-  });
-
-  it("closes 1008 when the office session behind the app session is revoked", async () => {
-    const { srv, cookie, rawSessionId } = await office();
-    const result = await open(srv, "hello", cookie, { recheckMs: 20 });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // Signing out kills the office session; the app session is bound to it by
-    // hash, so it stops validating on the next tick.
-    await srv.http("/auth/logout", { method: "POST", rawSessionId });
-    await until(() => result.opened.browser.closes.length > 0);
-    expect(result.opened.browser.closes[0].code).toBe(1008);
-  });
-});
-
 describe("app-ws relay: backpressure on the browser leg", () => {
-  it("closes 1011 rather than handing the runtime more than the ceiling", async () => {
-    const { srv, cookie } = await office();
-    const result = await open(srv, "hello", cookie, { bufferMaxBytes: 4096 });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const { relay, browser } = result.opened;
-    // The runtime says it is holding almost the whole ceiling already.
-    browser.buffered = 4000;
-    relay.onUpstreamMessage({ kind: "text", text: "x".repeat(200) });
-    // Checked BEFORE the send, so the message never reached the runtime at all.
-    expect(browser.sent).toEqual([]);
-    expect(browser.closes).toEqual([
-      { code: 1011, reason: "browser stopped reading" },
-    ]);
-    // Still occupied: asking a socket to close is not the same as it closing.
-    expect(_testWsSocketsOpen().total).toBe(1);
-    relay.browserClosed(1011, "browser stopped reading");
-    await until(() => _testWsSocketsOpen().total === 0);
-  });
-
   it("treats a dropped message as fatal, but not an empty one", async () => {
     const { srv, cookie } = await office();
     const dropped = await open(srv, "hello", cookie, {});
@@ -598,20 +545,10 @@ describe("app-ws relay: backpressure on the browser leg", () => {
     // this would kill every connection an app sends an empty frame on.
     empty.opened.browser.sendReturns = 0;
     empty.opened.relay.onUpstreamMessage({ kind: "text", text: "" });
-    expect(empty.opened.browser.closes).toEqual([]);
-  });
-
-  it("closes 1009 for a message over the relay's message cap", async () => {
-    const { srv, cookie } = await office();
-    const result = await open(srv, "hello", cookie, {
-      upstreamLimits: { maxMessageBytes: 64 },
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    result.opened.relay.browserMessage("y".repeat(65));
-    expect(result.opened.browser.closes).toEqual([
-      { code: 1009, reason: "message too large" },
-    ]);
+    expect({
+      sent: empty.opened.browser.sent,
+      closes: empty.opened.browser.closes,
+    }).toEqual({ sent: [""], closes: [] });
   });
 
   it("closes 1011 when the app stops reading, and the ceiling really refuses", async () => {
@@ -787,16 +724,19 @@ describe("app-ws relay: a diagnosed fault reaches BOTH ends the same way", () =>
     expect(app.closes[0]).toEqual({ code: 1009, reason: "message too large" });
   });
 
-  it("tells the app 1011 when the browser stops reading", async () => {
+  it("tells the app 1011 when the browser stops reading, before handing the runtime more than the ceiling", async () => {
     const { srv, cookie, app } = await office();
     const result = await open(srv, "hello", cookie, { bufferMaxBytes: 4096 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    // The runtime says it is holding almost the whole ceiling already.
     result.opened.browser.buffered = 4000;
     result.opened.relay.onUpstreamMessage({
       kind: "text",
       text: "x".repeat(200),
     });
+    // Checked BEFORE the send, so the message never reached the runtime at all.
+    expect(result.opened.browser.sent).toEqual([]);
     expect(result.opened.browser.closes).toEqual([
       { code: 1011, reason: "browser stopped reading" },
     ]);
@@ -811,8 +751,11 @@ describe("app-ws relay: a diagnosed fault reaches BOTH ends the same way", () =>
   });
 
   it("tells the app 1008 when the session behind the socket is revoked", async () => {
+    // Signing out kills the office session; the app session is bound to it by
+    // hash. The timer is pushed out of the way, so the close proves the office
+    // rechecks open sockets on the sign-out itself.
     const { srv, cookie, app, rawSessionId } = await office();
-    const result = await open(srv, "hello", cookie, { recheckMs: 20 });
+    const result = await open(srv, "hello", cookie, { recheckMs: 60_000 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     await srv.http("/auth/logout", { method: "POST", rawSessionId });

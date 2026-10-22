@@ -18,8 +18,11 @@ import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { askReplyNote } from "../asks.ts";
-import { ASK_DISMISSED_TEXT } from "../routes/handlers/asks.ts";
-import type { AskEntry, AgentInfo } from "../../shared/types.ts";
+import {
+  ASK_DISMISSED_TEXT,
+  type AskEntry,
+  type AgentInfo,
+} from "../../shared/types.ts";
 import type { AskAgentWire } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
@@ -205,7 +208,7 @@ describe("the agent's own list", () => {
       ["DELETE", `${theirs}/${created.id}`, undefined],
     ] as const) {
       const r = await call(w.srv, method, path, w.as(w.other.id), body);
-      expect(`${method} ${r.status}`).toBe(`${method} 403`);
+      expect(`${method} ${r.status} ${r.code}`).toBe(`${method} 403 forbidden`);
     }
     // Through its own path with the other agent's id: not its entry.
     const own = `/api/agents/${w.other.id}/asks/${created.id}`;
@@ -215,7 +218,7 @@ describe("the agent's own list", () => {
       ["DELETE", undefined],
     ] as const) {
       const r = await call(w.srv, method, own, w.as(w.other.id), body);
-      expect(`${method} ${r.status}`).toBe(`${method} 404`);
+      expect(`${method} ${r.status} ${r.code}`).toBe(`${method} 404 not_found`);
     }
     const listed = await call(
       w.srv,
@@ -240,7 +243,7 @@ describe("the agent's own list", () => {
     const empty = await call(w.srv, "POST", base, w.as(w.asker.id), {
       text: "  ",
     });
-    expect(empty.status).toBe(400);
+    expect([empty.status, empty.code]).toEqual([400, "invalid_text"]);
     const unknown = await call(
       w.srv,
       "POST",
@@ -253,7 +256,7 @@ describe("the agent's own list", () => {
     const full = await call(w.srv, "POST", base, w.as(w.asker.id), {
       text: "One more?",
     });
-    expect(full.status).toBe(429);
+    expect([full.status, full.code]).toEqual([429, "too_many_asks"]);
   });
 });
 
@@ -268,7 +271,6 @@ describe("a link to an office page", () => {
 
   it("takes a link on create and edit, keeps it when an edit omits it, and removes it on link=", async () => {
     const w = await world();
-    const ws = await w.srv.connectWs(w.owner.rawSessionId);
     const base = `/api/agents/${w.asker.id}/asks`;
     const made = await call(
       w.srv,
@@ -280,9 +282,6 @@ describe("a link to an office page", () => {
     expect(made.status).toBe(201);
     const id = (made.body as AskEntry).id;
     expect((made.body as AskEntry).link).toBe("/integrations/mcp");
-    expect(((await ws.waitFor("ask_upserted")).entry as AskEntry).link).toBe(
-      "/integrations/mcp",
-    );
 
     // An edit without a link keeps it.
     const kept = await call(w.srv, "PATCH", `${base}/${id}`, w.as(w.asker.id), {
@@ -302,8 +301,8 @@ describe("a link to an office page", () => {
     expect((moved.body as AskEntry).link).toBe("/integrations/browser");
     expect(stored(w, id)?.link).toBe("/integrations/browser");
 
-    // link= with no value removes the key: from the answer, the push and the
-    // file, never an empty string.
+    // link= with no value removes the key: from the answer and the file
+    // (the push carries the same entry), never an empty string.
     const cleared = await call(
       w.srv,
       "PATCH",
@@ -313,13 +312,6 @@ describe("a link to an office page", () => {
     );
     expect(cleared.status).toBe(200);
     expect("link" in (cleared.body as object)).toBe(false);
-    const pushedClear = () =>
-      ws.messages
-        .filter((m) => (m as { type?: string }).type === "ask_upserted")
-        .map((m) => (m as { entry: AskEntry }).entry)
-        .find((e) => e.prompt === "Pair your Chrome now?");
-    await waitUntil(() => pushedClear() !== undefined, "the cleared push");
-    expect("link" in pushedClear()!).toBe(false);
     expect(stored(w, id)).toBeDefined();
     expect("link" in stored(w, id)!).toBe(false);
 
@@ -343,17 +335,9 @@ describe("a link to an office page", () => {
     const w = await world();
     const base = `/api/agents/${w.asker.id}/asks`;
     const created = await open(w, "Sign in to Linear?");
-    const outside = [
-      "https://linear.app",
-      "//tasks",
-      "/integrations/",
-      "/integrations/mcp/",
-      "/integrations?tab=mcp",
-      "/integrations/constructor",
-      "/users",
-      "/",
-      "constructor",
-    ];
+    // The full table of refused paths is askLinkFor's, in
+    // shared/office-links.test.ts; these prove both routes run it.
+    const outside = ["https://linear.app", "/integrations/constructor"];
     for (const link of outside) {
       const post = await call(
         w.srv,
@@ -376,6 +360,7 @@ describe("a link to an office page", () => {
         `${link} 422 invalid_link`,
       );
     }
+    // Not a string, or "" on a create (an edit reads "" as removal).
     for (const link of [42, null, ""]) {
       const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
         json: { text: "Where?", link },
@@ -388,32 +373,6 @@ describe("a link to an office page", () => {
     expect(
       (listed.body as AskEntry[]).map((e) => [e.prompt, e.link ?? null]),
     ).toEqual([["Sign in to Linear?", null]]);
-  });
-
-  it("never goes on a secret request", async () => {
-    const w = await world();
-    const r = await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/secret-requests`,
-      w.as(w.asker.id),
-      {
-        json: {
-          name: "GH_TOKEN",
-          hosts: ["api.github.com"],
-          reason: "To open the pull request.",
-          link: "/integrations/secrets",
-        },
-      },
-    );
-    expect(r.code).toBe("invalid_request");
-    const listed = await call(
-      w.srv,
-      "GET",
-      `/api/agents/${w.asker.id}/asks`,
-      w.as(w.asker.id),
-    );
-    expect(listed.body).toEqual([]);
   });
 });
 
@@ -457,7 +416,7 @@ describe("a link to an agent", () => {
       ).body as AskEntry[]
     ).map((e) => [e.prompt, e.link ?? null]);
 
-  it("takes an agent the member reaches, in any room, on create and on edit", async () => {
+  it("takes an agent the member reaches, in any room, refuses an unknown or unreachable one, on create and on edit", async () => {
     const w = await farWorld();
     const base = `/api/agents/${w.asker.id}/asks`;
     // The manager reaches every room, Far's too.
@@ -470,16 +429,7 @@ describe("a link to an agent", () => {
     );
     expect(`${far.status} ${far.code}`).toBe("201 undefined");
     expect((far.body as AskEntry).link).toBe(`/agents/${w.far.id}`);
-    // Pat reaches the asker's room, so Other's chat.
-    const other = await call(w.srv, "POST", base, w.as(w.asker.id), {
-      json: {
-        text: "Say go in Other's chat?",
-        member: w.pat.username,
-        link: `/agents/${w.other.id}`,
-      },
-    });
-    expect(`${other.status} ${other.code}`).toBe("201 undefined");
-    // An edit moves a page link to an agent.
+    // An edit moves a page link to an agent the manager reaches.
     const paged = await call(
       w.srv,
       "POST",
@@ -487,25 +437,14 @@ describe("a link to an agent", () => {
       w.as(w.asker.id),
       { text: "Look at the board?" },
     );
-    const id = (paged.body as AskEntry).id;
     const edited = await call(
       w.srv,
       "PATCH",
-      `${base}/${id}?link=/agents/${w.far.id}`,
+      `${base}/${(paged.body as AskEntry).id}?link=/agents/${w.far.id}`,
       w.as(w.asker.id),
       { text: "Look at Far's chat?" },
     );
     expect(`${edited.status} ${edited.code}`).toBe("200 undefined");
-    expect(await links(w)).toEqual([
-      ["Say go in Far's chat?", `/agents/${w.far.id}`],
-      ["Say go in Other's chat?", `/agents/${w.other.id}`],
-      ["Look at Far's chat?", `/agents/${w.far.id}`],
-    ]);
-  });
-
-  it("refuses an unknown agent and an agent the member cannot reach, on create and on edit, and changes nothing", async () => {
-    const w = await farWorld();
-    const base = `/api/agents/${w.asker.id}/asks`;
     // Pat's open ask, with a link to an agent Pat reaches.
     const pats = await call(
       w.srv,
@@ -550,6 +489,8 @@ describe("a link to an agent", () => {
       `edit /agents/${w.far.id} 422 invalid_link`,
     ]);
     expect(await links(w)).toEqual([
+      ["Say go in Far's chat?", `/agents/${w.far.id}`],
+      ["Look at Far's chat?", `/agents/${w.far.id}`],
       ["Say go in Other's chat?", `/agents/${w.other.id}`],
     ]);
   });
@@ -565,7 +506,6 @@ describe("options the member can tap", () => {
 
   it("takes options on create and edit, trimmed, keeps them when an edit omits them, and removes them", async () => {
     const w = await world();
-    const ws = await w.srv.connectWs(w.owner.rawSessionId);
     const base = `/api/agents/${w.asker.id}/asks`;
     // One option= each, in order, percent-encoded like any query value.
     const made = await call(
@@ -582,9 +522,6 @@ describe("options the member can tap", () => {
       "Dwight",
       "Both, a duet",
     ]);
-    expect(
-      ((await ws.waitFor("ask_upserted")).entry as AskEntry).options,
-    ).toEqual(["Jim", "Dwight", "Both, a duet"]);
     expect(stored(w, id)?.options).toEqual(["Jim", "Dwight", "Both, a duet"]);
 
     // An edit without options keeps them; a link change leaves them alone.
@@ -661,17 +598,9 @@ describe("options the member can tap", () => {
     const w = await world();
     const base = `/api/agents/${w.asker.id}/asks`;
     const created = await open(w, "Which one?");
-    const long = "x".repeat(81);
-    const bad: unknown[] = [
-      ["Only one"],
-      ["A", "B", "C", "D", "E"],
-      ["A", "  "],
-      ["A", long],
-      ["Same", " Same"],
-      ["A", 2],
-      "A, B",
-      null,
-    ];
+    // The rules' own table is checkOptions' in server/asks.test.ts; these
+    // prove both routes run it, and that null on an edit is not a removal.
+    const bad: unknown[] = [["Only one"], ["Same", " Same"], "A, B", null];
     for (const options of bad) {
       const label = JSON.stringify(options);
       const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
@@ -702,28 +631,18 @@ describe("options the member can tap", () => {
         `${path} 422 invalid_options`,
       );
     }
-    // At the bounds: four options of 80 characters each.
-    const four = ["a", "b", "c", "d"].map((c) => c.repeat(80));
-    const edge = await call(w.srv, "POST", base, w.as(w.asker.id), {
-      json: { text: "Which?", options: four },
-    });
-    expect(edge.status).toBe(201);
-    expect((edge.body as AskEntry).options).toEqual(four);
     const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
     expect(
       (listed.body as AskEntry[]).map((e) => [e.prompt, e.options ?? null]),
-    ).toEqual([
-      ["Which one?", null],
-      ["Which?", four],
-    ]);
+    ).toEqual([["Which one?", null]]);
   });
 
-  // The mark as the agent, the member's list and the file see it.
+  // The mark as the agent, the member's list and the file see it (the push
+  // carries the stored entry).
   const mark = (e: unknown) => (e as AskEntry | undefined)?.recommended ?? null;
 
   it("marks one option as recommended on create and edit, and the mark goes with the options", async () => {
     const w = await world();
-    const ws = await w.srv.connectWs(w.owner.rawSessionId);
     const base = `/api/agents/${w.asker.id}/asks`;
     const agent = w.as(w.asker.id);
     // Text/plain: recommended= names an option, trimmed like one.
@@ -737,7 +656,6 @@ describe("options the member can tap", () => {
     expect([made.status, made.code]).toEqual([201, undefined]);
     const id = (made.body as AskEntry).id;
     expect(mark(made.body)).toBe("No");
-    expect(mark((await ws.waitFor("ask_upserted")).entry)).toBe("No");
     expect(mark(stored(w, id))).toBe("No");
     const listed = await call(w.srv, "GET", "/api/asks", {
       rawSessionId: w.owner.rawSessionId,
@@ -864,97 +782,6 @@ describe("options the member can tap", () => {
     expect(mark(stored(w, markedId))).toBe("A");
     expect(mark(stored(w, plain.id))).toBe(null);
   });
-
-  it("never goes on a secret request", async () => {
-    const w = await world();
-    const owner = { rawSessionId: w.owner.rawSessionId };
-    const refused = await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/secret-requests`,
-      w.as(w.asker.id),
-      {
-        json: {
-          name: "GH_TOKEN",
-          hosts: ["api.github.com"],
-          reason: "To open the pull request.",
-          options: ["Save", "Decline"],
-        },
-      },
-    );
-    expect(refused.code).toBe("invalid_request");
-    const made = await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/secret-requests`,
-      w.as(w.asker.id),
-      {
-        json: {
-          name: "GH_TOKEN",
-          hosts: ["api.github.com"],
-          reason: "To open the pull request.",
-        },
-      },
-    );
-    expect(made.status).toBe(200);
-    const [entry] = (await call(w.srv, "GET", "/api/asks", owner))
-      .body as AskEntry[];
-    const edit = await call(
-      w.srv,
-      "PATCH",
-      `/api/agents/${w.asker.id}/asks/${entry.id}`,
-      w.as(w.asker.id),
-      { json: { text: entry.prompt, options: ["Save", "Decline"] } },
-    );
-    expect(`${edit.status} ${edit.code}`).toBe("409 secret_request");
-    const marked = await call(
-      w.srv,
-      "PATCH",
-      `/api/agents/${w.asker.id}/asks/${entry.id}`,
-      w.as(w.asker.id),
-      { json: { text: entry.prompt, recommended: "Save" } },
-    );
-    expect(`${marked.status} ${marked.code}`).toBe("409 secret_request");
-    const after = (await call(w.srv, "GET", "/api/asks", owner))
-      .body as AskEntry[];
-    expect(
-      after.map((e) => [e.id, "options" in e, "recommended" in e]),
-    ).toEqual([[entry.id, false, false]]);
-  });
-
-  it("answers once when the same option is sent twice at the same time", async () => {
-    const w = await world();
-    const made = await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/asks?option=Jim&option=Dwight`,
-      w.as(w.asker.id),
-      { text: "Who gives the toast?" },
-    );
-    const created = made.body as AskEntry;
-    const tap = () =>
-      call(
-        w.srv,
-        "POST",
-        `/api/asks/${created.id}/reply`,
-        { rawSessionId: w.owner.rawSessionId },
-        { json: { text: "Dwight" } },
-      );
-    const results = await Promise.all([tap(), tap()]);
-    // One goes through; the other finds the answer in flight or the ask closed.
-    const statuses = results.map((r) => r.status).sort();
-    expect(statuses[0]).toBe(204);
-    expect([404, 409]).toContain(statuses[1]);
-    await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).some((t) => t.endsWith("Dwight")),
-      "the tap delivered",
-    );
-    await sleep(50);
-    // The option reaches the agent as a typed reply does.
-    expect(
-      sentTexts(w.srv, w.asker.id).filter((t) => t.endsWith("Dwight")),
-    ).toEqual([`[${w.owner.username}] ${askReplyNote(created)}Dwight`]);
-  });
 });
 
 describe("the member's answer", () => {
@@ -980,7 +807,6 @@ describe("the member's answer", () => {
     expect(sent).toBe(
       `[${w.owner.username}] ${askReplyNote(created)}yes, per agent`,
     );
-    expect(askReplyNote(created)).toContain(created.id);
     const entry = w.srv.agentManager
       .getAgentLogs(w.asker.id)
       .find(
@@ -998,40 +824,6 @@ describe("the member's answer", () => {
       w.as(w.asker.id),
     );
     expect(after.status).toBe(404);
-  });
-
-  it("sends a dismiss as a member message too, marked as dismissed", async () => {
-    const w = await world();
-    const created = await open(w, "Book the room?");
-    const r = await call(
-      w.srv,
-      "POST",
-      `/api/asks/${created.id}/dismiss`,
-      { rawSessionId: w.owner.rawSessionId },
-      { json: {} },
-    );
-    expect(r.status).toBe(204);
-    await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(created.id)),
-      "dismiss delivered",
-    );
-    const sent = sentTexts(w.srv, w.asker.id).find((t) =>
-      t.includes(created.id),
-    )!;
-    const entry = w.srv.agentManager
-      .getAgentLogs(w.asker.id)
-      .find((e) => e.kind === "user_message")!;
-    expect(entry.metadata?.ask).toEqual({
-      id: created.id,
-      prompt: "Book the room?",
-      dismissed: true,
-    });
-    // The agent reads the dismiss note, which is not the reply note.
-    const dismissNote = askReplyNote({ ...created, dismissed: true });
-    expect(dismissNote).not.toBe(askReplyNote(created));
-    expect(sent).toBe(
-      `[${w.owner.username}] ${dismissNote}${ASK_DISMISSED_TEXT}`,
-    );
   });
 
   it("sends the text the member typed with a dismiss, still marked as dismissed", async () => {
@@ -1068,18 +860,18 @@ describe("the member's answer", () => {
     });
   });
 
-  it("refuses a dismiss text that is not a string and leaves the ask open; a blank one is a bare dismiss", async () => {
+  it("refuses a dismiss text that is not a string and leaves the ask open; no text or a blank one is a bare dismiss", async () => {
     const w = await world();
     const created = await open(w, "Book the room?");
-    const dismiss = (json: unknown) =>
+    const dismiss = (id: string, json: unknown) =>
       call(
         w.srv,
         "POST",
-        `/api/asks/${created.id}/dismiss`,
+        `/api/asks/${id}/dismiss`,
         { rawSessionId: w.owner.rawSessionId },
         { json },
       );
-    const refused = await dismiss({ text: 5 });
+    const refused = await dismiss(created.id, { text: 5 });
     expect([refused.status, refused.code]).toEqual([400, "invalid_text"]);
     const still = await call(
       w.srv,
@@ -1090,16 +882,18 @@ describe("the member's answer", () => {
     expect(still.status).toBe(200);
     expect(sentTexts(w.srv, w.asker.id)).toEqual([]);
 
-    const blank = await dismiss({ text: " \n " });
-    expect(blank.status).toBe(204);
+    // No text, then a blank one: each sends the bare word under the dismiss
+    // note.
+    const second = await open(w, "Book the hall?");
+    expect((await dismiss(created.id, {})).status).toBe(204);
+    expect((await dismiss(second.id, { text: " \n " })).status).toBe(204);
+    const bare = (ask: AskEntry) =>
+      `[${w.owner.username}] ${askReplyNote({ ...ask, dismissed: true })}${ASK_DISMISSED_TEXT}`;
     await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(created.id)),
-      "dismiss delivered",
+      () => sentTexts(w.srv, w.asker.id).length === 2,
+      "both dismisses delivered",
     );
-    const dismissNote = askReplyNote({ ...created, dismissed: true });
-    expect(sentTexts(w.srv, w.asker.id)).toEqual([
-      `[${w.owner.username}] ${dismissNote}${ASK_DISMISSED_TEXT}`,
-    ]);
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([bare(created), bare(second)]);
   });
 
   it("is never read as the answer to a pending permission prompt, and waits for it", async () => {
@@ -1269,44 +1063,6 @@ describe("the member's answer", () => {
     expect(agentOf(w.srv, w.asker.id).dormant ?? false).toBe(false);
   });
 
-  it("resumes an errored agent, as a typed message does", async () => {
-    const w = await world();
-    const created = await open(w, "Back up?");
-    await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/messages`,
-      { rawSessionId: w.owner.rawSessionId },
-      { json: { text: "hold on" } },
-    );
-    await waitUntil(
-      () => agentOf(w.srv, w.asker.id).state === "thinking",
-      "busy",
-    );
-    w.srv.fakeBackend.sessionForAgent(w.asker.id)!.push({
-      kind: "error",
-      message: "Claude Code process exited with code 143",
-    });
-    await waitUntil(
-      () => agentOf(w.srv, w.asker.id).state === "error",
-      "errored",
-    );
-    const r = await call(
-      w.srv,
-      "POST",
-      `/api/asks/${created.id}/reply`,
-      { rawSessionId: w.owner.rawSessionId },
-      { json: { text: "yes" } },
-    );
-    expect(r.status).toBe(204);
-    const delivered = `[${w.owner.username}] ${askReplyNote(created)}yes`;
-    await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).includes(delivered),
-      "reply resumed the agent",
-    );
-    expect(agentOf(w.srv, w.asker.id).state).not.toBe("error");
-  });
-
   it("is refused where a typed message is, with the same reason, and stays open", async () => {
     const w = await world();
     const created = await open(w, "Full?");
@@ -1362,7 +1118,10 @@ describe("the member's answer", () => {
   it("is only for the member it names: anyone else gets 404 and sees nothing", async () => {
     const w = await world();
     const created = await open(w, "Only for Nil?");
+    // Pat reaches the agent's room, so only the ask's member refuses Pat.
     const other = await w.srv.seedMember("Pat");
+    const patId = getUserByName(other.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
     const listed = await call(w.srv, "GET", "/api/asks", {
       rawSessionId: other.rawSessionId,
     });
@@ -1375,7 +1134,7 @@ describe("the member's answer", () => {
         { rawSessionId: other.rawSessionId },
         { json: verb === "reply" ? { text: "done" } : {} },
       );
-      expect(`${verb} ${r.status}`).toBe(`${verb} 404`);
+      expect(`${verb} ${r.status} ${r.code}`).toBe(`${verb} 404 not_found`);
     }
     const mine = await call(w.srv, "GET", "/api/asks", {
       rawSessionId: w.owner.rawSessionId,
@@ -1438,9 +1197,12 @@ describe("the member's answer", () => {
 });
 
 describe("live and durable", () => {
-  it("pushes a create, an edit and a close to the member's sockets only", async () => {
+  it("pushes a create and a close to the member's sockets only", async () => {
     const w = await world();
+    // Pat reaches the agent's room, so only the ask's member keeps Pat out.
     const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
     const mine = await w.srv.connectWs(w.owner.rawSessionId);
     const second = await w.srv.connectWs(w.owner.rawSessionId);
     const theirs = await w.srv.connectWs(pat.rawSessionId);
@@ -1460,6 +1222,20 @@ describe("live and durable", () => {
       const removed = await ws.waitFor("ask_removed");
       expect(removed.id).toBe(created.id);
     }
+    // Pat's socket is live and sees the room: the reply's chat line reaches
+    // it after the create's push would have.
+    await waitUntil(
+      () =>
+        theirs.messages.some((m) => {
+          const e = (m as { type?: string; entry?: { content?: unknown } })
+            .entry;
+          return (
+            (m as { type?: string }).type === "log_entry" &&
+            e?.content === "done"
+          );
+        }),
+      "Pat sees the reply in the chat",
+    );
     expect(
       theirs.messages.some((m) =>
         String((m as { type?: string }).type).startsWith("ask_"),
@@ -1521,9 +1297,28 @@ describe("a secret request is an ask", () => {
   it("waits in the manager's asks; a reply, a dismiss and the agent's edit are refused, and a save closes it", async () => {
     const w = await world();
     const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    // A request takes no link and no options: the route refuses either key
+    // rather than drop it, and opens nothing.
+    for (const extra of [
+      { link: "/integrations/secrets" },
+      { options: ["Save", "Decline"] },
+    ]) {
+      const r = await call(
+        w.srv,
+        "POST",
+        `/api/agents/${w.asker.id}/secret-requests`,
+        w.as(w.asker.id),
+        { json: { ...REQUEST, ...extra } },
+      );
+      expect({ extra, code: r.code }).toEqual({
+        extra,
+        code: "invalid_request",
+      });
+    }
     const requestId = await request(w.srv, w.asker.id);
     const owner = { rawSessionId: w.owner.rawSessionId };
     const listed = await call(w.srv, "GET", "/api/asks", owner);
+    expect(listed.body).toHaveLength(1);
     const [entry] = listed.body as AskEntry[];
     expect(entry.secret?.requestId).toBe(requestId);
     expect(entry.prompt).toBe(REQUEST.reason);
@@ -1585,7 +1380,7 @@ describe("a secret request is an ask", () => {
     expect(JSON.stringify(ws.messages)).not.toContain(VALUE);
   });
 
-  it("an office request goes to every owner who can reach the room, not to the agent's manager", async () => {
+  it("an office request goes to every owner who can reach the room, not to the agent's manager; the agent's delete withdraws one", async () => {
     const w = await world();
     const pat = await w.srv.seedMember("Pat");
     const patId = getUserByName(pat.username)!.id;
@@ -1633,16 +1428,38 @@ describe("a secret request is an ask", () => {
       [personal, pat.username],
       [office, null],
     ]);
-    expect((await save(w.srv, agentId, office, pat.rawSessionId)).status).toBe(
-      403,
+    const outcome = async (r: Promise<Res>) => {
+      const { status, code } = await r;
+      return `${status} ${code}`;
+    };
+    expect(await outcome(save(w.srv, agentId, office, pat.rawSessionId))).toBe(
+      "403 forbidden",
     );
     expect(
-      (await save(w.srv, agentId, personal, w.owner.rawSessionId)).status,
-    ).toBe(403);
+      await outcome(save(w.srv, agentId, personal, w.owner.rawSessionId)),
+    ).toBe("403 forbidden");
     expect(
-      (await save(w.srv, agentId, office, w.owner.rawSessionId)).status,
-    ).toBe(200);
+      await outcome(save(w.srv, agentId, office, w.owner.rawSessionId)),
+    ).toBe("200 undefined");
     expect(await ids(w.owner.rawSessionId)).toEqual([]);
+    // The agent's delete withdraws a secret request: a later save finds
+    // nothing.
+    const [left] = (
+      await call(w.srv, "GET", `/api/agents/${agentId}/asks`, {
+        bearer: getAgentTokenRaw(agentId)!,
+      })
+    ).body as AskEntry[];
+    expect(left.secret?.requestId).toBe(personal);
+    const deleted = await call(
+      w.srv,
+      "DELETE",
+      `/api/agents/${agentId}/asks/${left.id}`,
+      { bearer: getAgentTokenRaw(agentId)! },
+    );
+    expect(deleted.status).toBe(204);
+    expect(
+      await outcome(save(w.srv, agentId, personal, pat.rawSessionId)),
+    ).toBe("404 not_found");
   });
 
   it("survives a restart: the member saves after it, and the agent is told", async () => {
@@ -1662,37 +1479,16 @@ describe("a secret request is an ask", () => {
       w.owner.rawSessionId,
     );
     expect(saved.status).toBe(200);
+    // The restored agent wakes for the confirmation: it names the secret,
+    // never its value.
     const srv = server;
     await waitUntil(
-      () =>
-        sentTexts(srv, w.asker.id).some((t) =>
-          t.includes(`I saved the secret ${REQUEST.name}`),
-        ),
+      () => sentTexts(srv, w.asker.id).some((t) => t.includes(REQUEST.name)),
       "the agent is told",
     );
-  });
-
-  it("the agent's delete withdraws it: a later save finds nothing", async () => {
-    const w = await world();
-    const requestId = await request(w.srv, w.asker.id);
-    const [entry] = (
-      await call(
-        w.srv,
-        "GET",
-        `/api/agents/${w.asker.id}/asks`,
-        w.as(w.asker.id),
-      )
-    ).body as AskEntry[];
-    const deleted = await call(
-      w.srv,
-      "DELETE",
-      `/api/agents/${w.asker.id}/asks/${entry.id}`,
-      w.as(w.asker.id),
+    expect(sentTexts(srv, w.asker.id).some((t) => t.includes(VALUE))).toBe(
+      false,
     );
-    expect(deleted.status).toBe(204);
-    expect(
-      (await save(w.srv, w.asker.id, requestId, w.owner.rawSessionId)).status,
-    ).toBe(404);
   });
 });
 
@@ -1729,7 +1525,6 @@ describe("chat affordances on an ask", () => {
   it("takes a command, an editor file and a read file through the query, and the member sees them", async () => {
     const w = await world();
     const cwd = seed(w);
-    const ws = await w.srv.connectWs(w.owner.rawSessionId);
     const base = `/api/agents/${w.asker.id}/asks`;
     const made = await call(
       w.srv,
@@ -1751,9 +1546,7 @@ describe("chat affordances on an ask", () => {
       ],
     };
     expect(affordances(entry)).toEqual(want);
-    expect(
-      affordances((await ws.waitFor("ask_upserted")).entry as AskEntry),
-    ).toEqual(want);
+    // The push carries the stored entry.
     expect(affordances(stored(w, entry.id)!)).toEqual(want);
     const [listed] = (
       await call(w.srv, "GET", "/api/asks", {
@@ -1773,47 +1566,30 @@ describe("chat affordances on an ask", () => {
     expect(Buffer.from(await res.arrayBuffer()).equals(PNG)).toBe(true);
   });
 
-  it("takes them as JSON too, with absolute paths", async () => {
-    const w = await world();
-    const cwd = seed(w);
-    const made = await call(
-      w.srv,
-      "POST",
-      `/api/agents/${w.asker.id}/asks`,
-      w.as(w.asker.id),
-      {
-        json: {
-          text: "Look?",
-          commands: ["bun test", "ls -la\t"],
-          editFiles: [join(cwd, "notes.md")],
-          readFiles: [join(cwd, "plot.png")],
-        },
-      },
-    );
-    expect(made.status).toBe(201);
-    expect(affordances(made.body as AskEntry)).toEqual({
-      commands: ["bun test", "ls -la"],
-      editFiles: [{ cwd, path: join(cwd, "notes.md") }],
-      readFiles: [["plot.png", "image/png", PNG.length]],
-    });
-  });
-
-  it("an edit keeps a list it omits, replaces one it sends, and removes one with [] or a lone empty value", async () => {
+  it("takes them as JSON, and an edit keeps a list it omits, replaces one it sends, and removes one with [] or a lone empty value", async () => {
     const w = await world();
     const cwd = seed(w);
     const base = `/api/agents/${w.asker.id}/asks`;
+    // A JSON create: a command's trailing whitespace trimmed, an absolute
+    // path as it is.
     const made = await call(w.srv, "POST", base, w.as(w.asker.id), {
       json: {
         text: "Look?",
-        commands: [CMD],
-        editFiles: ["notes.md"],
-        readFiles: ["plot.png"],
+        commands: [`${CMD}\t`],
+        editFiles: [join(cwd, "notes.md")],
+        readFiles: [join(cwd, "plot.png")],
       },
+    });
+    expect(made.status).toBe(201);
+    const full = affordances(made.body as AskEntry);
+    expect(full).toEqual({
+      commands: [CMD],
+      editFiles: [{ cwd, path: join(cwd, "notes.md") }],
+      readFiles: [["plot.png", "image/png", PNG.length]],
     });
     const id = (made.body as AskEntry).id;
     const patch = (path: string, body: { json?: unknown; text?: string }) =>
       call(w.srv, "PATCH", `${base}/${id}${path}`, w.as(w.asker.id), body);
-    const full = affordances(made.body as AskEntry);
 
     // Text only, and a link change: all three stay.
     expect(

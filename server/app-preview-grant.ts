@@ -32,7 +32,6 @@ export interface PreviewAppGrantDeps {
   // The calling agent's own access answer for this app record, asked again on
   // every request the capture makes.
   mayOpen: (app: AppRecord) => boolean;
-  now?: number;
 }
 
 export function previewAppGrant(
@@ -64,17 +63,14 @@ export function previewAppGrant(
   const returnPath = validateReturnPath(`${url.pathname}${url.search}`);
   if (returnPath === null) return null;
   if (!deps.mayOpen(app)) return null;
-  const minted = mintPreviewGrant(
-    {
-      agentId: deps.agentId,
-      app,
-      appHost: new URL(origin).hostname,
-      returnPath,
-      revalidate: deps.mayOpen,
-      expiresAt,
-    },
-    deps.now,
-  );
+  const minted = mintPreviewGrant({
+    agentId: deps.agentId,
+    app,
+    appHost: new URL(origin).hostname,
+    returnPath,
+    revalidate: deps.mayOpen,
+    expiresAt,
+  });
   if (minted === null) return "refused";
   return {
     // The redeem's 302 carries no fragment, so Chrome keeps this one for the

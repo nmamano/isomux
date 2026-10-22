@@ -1,16 +1,16 @@
 // Auth core - invite lifecycle (tasks 5676b6cb / 530680ae / ec1724a8).
 //
-// The auth module was shipped on manual smoke tests; this file is the
-// automated catalog for the INVITE half of server/auth.ts. It drives the real
-// mint/peek/accept functions in-process (no HTTP round-trip) against the
+// The automated catalog for the INVITE half of server/auth.ts. It drives the
+// real mint/peek/accept functions in-process (no HTTP round-trip) against the
 // harness's temp STATE_ROOT, so every assertion runs the production code path.
+// The route-level half (mint by userId, the 24h and 1h windows, 404 for an
+// unknown member, accept over HTTP) lives in routes-invites-rest,
+// invite-onboarding and invite-consumed-ux.
 //
 // What this freezes:
-//   - A sign-in link targets an EXISTING member by id: mint refuses an unknown
-//     id, accept never creates a member, a rename between mint and accept is
-//     harmless, and a deleted member's link signs nobody in.
-//   - The stamped expiry is exactly the caller's window (the seam picks it;
-//     no client wire carries it).
+//   - A sign-in link targets an EXISTING member by id: accept never creates a
+//     member, a rename between mint and accept is harmless, and a deleted
+//     member's link signs nobody in.
 //   - Every mint replaces the member's OUTSTANDING links (by id) and nothing
 //     else - a consumed row, an expired row, and another user's row all survive.
 //   - Legacy name-bound links bind to the member's id when the server boots,
@@ -40,7 +40,6 @@ import {
   revokeInvitesForUser,
   _testMintLegacyInvite,
   INVITE_TTL_MS,
-  SELF_INVITE_TTL_MS,
   loadAuthState,
   validateSession,
 } from "../auth.ts";
@@ -90,34 +89,7 @@ function outstandingPrefixes(): string[] {
   return listInvites().map((i) => i.tokenPrefix);
 }
 
-describe("auth/invites: expiry window", () => {
-  it("stamps exactly the caller's window: 24h, the 1h self-invite, 15min", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    await server.seedMember("Alice");
-    await server.seedMember("Bob");
-    await server.seedMember("Carol");
-
-    const before = Date.now();
-    const standard = await mintOk("Alice", INVITE_TTL_MS);
-    const selfInvite = await mintOk("Bob", SELF_INVITE_TTL_MS);
-    const ownerLogin = await mintOk("Carol", 15 * 60 * 1000);
-    const after = Date.now();
-
-    // Window rather than an exact equality: expiresAt is stamped from a
-    // Date.now() taken inside the mutex, somewhere in [before, after].
-    for (const [minted, ttl] of [
-      [standard, INVITE_TTL_MS],
-      [selfInvite, SELF_INVITE_TTL_MS],
-      [ownerLogin, 15 * 60 * 1000],
-    ] as const) {
-      expect(minted.expiresAt - after).toBeLessThanOrEqual(ttl);
-      expect(minted.expiresAt - before).toBeGreaterThanOrEqual(ttl);
-    }
-    expect(SELF_INVITE_TTL_MS).toBe(60 * 60 * 1000);
-    expect(INVITE_TTL_MS).toBe(24 * 60 * 60 * 1000);
-  });
-
+describe("auth/invites: an expired link", () => {
   it("an already-expired link is refused by BOTH peek and accept, and the member stays", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
@@ -172,20 +144,6 @@ describe("auth/invites: a mint replaces the member's outstanding links", () => {
 });
 
 describe("auth/invites: a link targets an existing member", () => {
-  it("mint refuses an unknown member id and stores nothing", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-
-    const r = await mintInvite({
-      userId: "deadbeef",
-      createdBy: "Morgan",
-      ttlMs: INVITE_TTL_MS,
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("USER_NOT_FOUND");
-    expect(listInvites()).toEqual([]);
-  });
-
   it("a rename between mint and accept signs in the renamed member and creates no one", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
@@ -235,54 +193,36 @@ describe("auth/invites: a link targets an existing member", () => {
   });
 });
 
+// A legacy sign-in link row as invites.json held it before StoredInvite.userId:
+// bound to a username only. Returns the raw token.
+function plantLegacyLink(stateRoot: string, username: string): string {
+  const raw = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(raw).digest("hex");
+  const file = join(stateRoot, "invites.json");
+  const rows = existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>)
+    : {};
+  const now = Date.now();
+  rows[tokenHash] = {
+    tokenHash,
+    tokenPrefix: raw.slice(0, 8),
+    username,
+    role: "member",
+    createdBy: username,
+    createdAt: now,
+    expiresAt: now + INVITE_TTL_MS,
+    consumed: false,
+    consumedAt: null,
+    bootstrap: false,
+  };
+  writeFileSync(file, JSON.stringify(rows, null, 2));
+  return raw;
+}
+
 // Sign-in links minted before StoredInvite.userId (recovery, self-invite,
 // owner-login) carry only a username. invites.json is planted on disk and the
 // server restarted, so the real boot load does the binding.
 describe("auth/invites: legacy name-bound links bind to ids at boot", () => {
-  function plantLegacyLink(stateRoot: string, username: string): string {
-    const raw = randomBytes(32).toString("base64url");
-    const tokenHash = createHash("sha256").update(raw).digest("hex");
-    const file = join(stateRoot, "invites.json");
-    const rows = existsSync(file)
-      ? (JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>)
-      : {};
-    const now = Date.now();
-    rows[tokenHash] = {
-      tokenHash,
-      tokenPrefix: raw.slice(0, 8),
-      username,
-      role: "member",
-      createdBy: username,
-      createdAt: now,
-      expiresAt: now + INVITE_TTL_MS,
-      consumed: false,
-      consumedAt: null,
-      bootstrap: false,
-    };
-    writeFileSync(file, JSON.stringify(rows, null, 2));
-    return raw;
-  }
-
-  it("a rename chain after boot keeps the link on its member: Marc -> Marco, then another member -> Marc", async () => {
-    let srv = (server = await startTestServer());
-    await srv.seedOwner("Morgan");
-    await srv.seedMember("Marc");
-    await srv.seedMember("Alice");
-    const token = plantLegacyLink(srv.stateRoot, "marc");
-    srv = server = await srv.restart();
-    const marcId = idOf("Marc");
-
-    updateUserById(marcId, { name: "Marco" });
-    updateUserById(idOf("Alice"), { name: "Marc" });
-
-    expect(peekInvite(token)).toMatchObject({ username: "Marco" });
-    const acc = await acceptInvite(token, { userAgent: "test" });
-    expect(acc.ok).toBe(true);
-    if (!acc.ok) return;
-    expect(acc.username).toBe("Marco");
-    expect(validateSession(acc.rawSessionId)?.userId).toBe(marcId);
-  });
-
   it("the binding persists across restarts; a name with no member is dropped and stays refused", async () => {
     let srv = (server = await startTestServer());
     await srv.seedOwner("Morgan");
@@ -324,26 +264,10 @@ describe("auth/invites: a failed binding save stops the boot", () => {
     await srv.seedMember("Marc");
     await srv.seedMember("Alice");
     const marcId = idOf("Marc");
-    const raw = randomBytes(32).toString("base64url");
+    // Bound by name, case-insensitively, at the next boot.
+    const raw = plantLegacyLink(srv.stateRoot, "marc");
     const tokenHash = createHash("sha256").update(raw).digest("hex");
     const file = join(srv.stateRoot, "invites.json");
-    const rows = JSON.parse(readFileSync(file, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    rows[tokenHash] = {
-      tokenHash,
-      tokenPrefix: raw.slice(0, 8),
-      username: "Marc",
-      role: "member",
-      createdBy: "Marc",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + INVITE_TTL_MS,
-      consumed: false,
-      consumedAt: null,
-      bootstrap: false,
-    };
-    writeFileSync(file, JSON.stringify(rows, null, 2));
     const rowOnDisk = () =>
       (
         JSON.parse(readFileSync(file, "utf-8")) as Record<
@@ -382,9 +306,12 @@ describe("auth/invites: a failed binding save stops the boot", () => {
 
     srv = server = await srv.restart();
     expect(rowOnDisk().userId).toBe(marcId);
+    // A rename chain after the binding cannot redirect the link: Marc ->
+    // Marco, then another member takes the name Marc.
     updateUserById(marcId, { name: "Marco" });
     updateUserById(idOf("Alice"), { name: "Marc" });
     srv = server = await srv.restart();
+    expect(peekInvite(raw)).toMatchObject({ username: "Marco" });
     const acc = await acceptInvite(raw, { userAgent: "test" });
     expect(acc.ok && validateSession(acc.rawSessionId)?.userId).toBe(marcId);
   });
@@ -416,34 +343,7 @@ describe("auth/invites: peek never consumes", () => {
   });
 });
 
-describe("auth/invites: accept happy path + refusal matrix", () => {
-  it("accept signs the existing member in, ends their pending state, and consumes the link", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const inv = await mintMemberLink("Newbie");
-    expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
-
-    const acc = await acceptInvite(inv.rawToken, { userAgent: "ua/1" });
-    expect(acc.ok).toBe(true);
-    if (!acc.ok) return;
-
-    expect(acc.username).toBe("Newbie");
-    expect(acc.role).toBe("member");
-    expect(acc.isBootstrap).toBe(false);
-    expect(acc.inviteNeedsName).toBe(false);
-    expect(acc.rawSessionId.length).toBeGreaterThan(20);
-    expect(acc.absoluteExpiresAt).toBeGreaterThan(acc.expiresAt);
-
-    const rec = getUserByName("Newbie");
-    expect(rec?.id).toBe(inv.userId);
-    expect(rec?.role).toBe("member");
-    expect(rec?.pendingSignIn).toBeUndefined();
-    // Invite burnt.
-    expect(peekInvite(inv.rawToken)).toEqual({ error: "consumed" });
-    const replay = await acceptInvite(inv.rawToken, { userAgent: "ua/1" });
-    expect(replay).toEqual({ ok: false, error: "consumed" });
-  });
-
+describe("auth/invites: accept refusal matrix", () => {
   it("role_mismatch: the record's role changed between mint and accept", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");

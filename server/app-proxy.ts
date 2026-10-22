@@ -134,7 +134,7 @@ function connectionNominated(headers: Headers): Set<string> {
 // is left worth sending. Splitting on `;` is the whole grammar: cookie VALUES
 // cannot contain a semicolon or a comma unquoted, so there is no ambiguity to
 // get wrong here.
-export function stripIsomuxCookies(header: string | null): string | null {
+function stripIsomuxCookies(header: string | null): string | null {
   if (header === null) return null;
   const kept: string[] = [];
   for (const part of header.split(";")) {
@@ -209,7 +209,7 @@ export function _testResetRelay(): void {
 // mapping is unwrapped here. A genuine IPv6 peer is written bare, which is what
 // every terminator that writes this header does; the bracketed form belongs to
 // the `Forwarded` header's grammar, not this one.
-export function forwardedForValue(peer: string | null): string | null {
+function forwardedForValue(peer: string | null): string | null {
   if (peer === null || peer.length === 0) return null;
   const mapped = /^::ffff:((?:[0-9]{1,3}\.){3}[0-9]{1,3})$/i.exec(peer);
   return mapped ? mapped[1] : peer;
@@ -269,7 +269,7 @@ export function buildUpstreamHeaders(
   return out;
 }
 
-export function buildDownstreamHeaders(upstream: Response): Headers {
+function buildDownstreamHeaders(upstream: Response): Headers {
   const drop = connectionNominated(upstream.headers);
   const out = new Headers();
   for (const [name, value] of upstream.headers) {
@@ -572,9 +572,9 @@ function guardBody(
       }
     },
     // The client hung up, or the office tore the response down. Cancel the
-    // upstream reader AND abort the fetch: cancelling alone leaves the request
-    // running at the app, which is the half-closed state this whole slice is
-    // meant not to produce.
+    // upstream reader and abort the fetch. On Bun 1.4.2 (2026-10-22) the
+    // reader cancel alone already closes the app connection; the abort keeps
+    // that from depending on the runtime.
     cancel(reason) {
       opts.onStall();
       finish();

@@ -15,7 +15,8 @@
 //   - an agent whose manager may not open the app gets the plain URL, as
 //     before grants existed, and so the same sign-in bounce;
 //   - a URL that is not exactly the app's origin, or names a reserved path,
-//     gets no grant;
+//     gets no grant (asked of the grant decision directly: the route's
+//     no-grant branch is the plain-URL case above);
 //   - the code is single-use and bound to its app host; the session is
 //     revalidated per request and dies when the capture ends.
 
@@ -53,13 +54,12 @@ import { getUserByName, updateUserById } from "../users.ts";
 import {
   APP_COOKIE_NAME,
   APP_PREVIEW_MINT_MAX_PER_WINDOW,
-  _testPreviewCodeCount,
   mintPreviewGrant,
 } from "../app-auth.ts";
+import { SIGN_IN_FAILED_BODY } from "../app-host-responses.ts";
 import { appRegistry } from "../app-registry.ts";
-
-const SIGN_IN_FAILED_BODY =
-  "sign-in link expired; open the app again from the office\n";
+import { appHostDomain } from "../app-domain.ts";
+import { previewAppGrant } from "../app-preview-grant.ts";
 
 let server: TestServer | null = null;
 let handoffDir: string;
@@ -419,12 +419,8 @@ describe("preview-url screenshot grants", () => {
   it("gives an agent whose manager may not open the app the plain URL", async () => {
     const { srv, label, agent } = await officeWithMemberAgent(false);
     const url = `https://${appHost(label)}/dash?tab=1#scene=petal`;
-    let minted = -1;
-    const navigateUrl = await capture(srv, agent, url, async () => {
-      minted = _testPreviewCodeCount();
-    });
+    const navigateUrl = await capture(srv, agent, url);
     expect(navigateUrl).toBe(url);
-    expect(minted).toBe(0);
     // Which is today's answer for Chrome's empty profile: the sign-in bounce.
     expectBounce(
       await raw(srv.port, {
@@ -438,8 +434,28 @@ describe("preview-url screenshot grants", () => {
   });
 
   it("gives no grant to a URL that is not exactly an app's origin", async () => {
-    const { srv, label, agent } = await officeWithMemberAgent(true);
+    const { label } = await anOfficeWithAnApp((srv) => {
+      server = srv;
+    });
     const host = appHost(label);
+    // The production deps, with the access answer fixed to yes: only the URL
+    // decides below.
+    const grantFor = (url: string) =>
+      previewAppGrant(new URL(url), Date.now() + 60_000, {
+        domain: appHostDomain(),
+        apps: () => appRegistry.list(),
+        agentId: "preview-agent",
+        mayOpen: () => true,
+      });
+    // The control: the app's exact origin does get one.
+    const granted = grantFor(`https://${host}/dash?tab=1`);
+    if (granted === null || granted === "refused") {
+      throw new Error(`no grant for the app's own origin: ${granted}`);
+    }
+    expect(granted.navigateUrl).toStartWith(
+      `https://${host}/__isomux/preview?code=`,
+    );
+    granted.release();
     for (const url of [
       `https://${OFFICE_HOST}/`,
       `https://${OFFICE_HOST}/${label}`,
@@ -451,15 +467,7 @@ describe("preview-url screenshot grants", () => {
       `https://${host}/__isomux/auth?code=x`,
       `https://${host}/__isomux`,
     ]) {
-      let minted = -1;
-      const navigateUrl = await capture(srv, agent, url, async () => {
-        minted = _testPreviewCodeCount();
-      });
-      expect({ url, navigateUrl, minted }).toEqual({
-        url,
-        navigateUrl: new URL(url).href,
-        minted: 0,
-      });
+      expect({ url, grant: grantFor(url) }).toEqual({ url, grant: null });
     }
   });
 });

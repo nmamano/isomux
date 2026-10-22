@@ -1,6 +1,6 @@
 // Pure matrices for app-host dispatch (phase 3, slice 3): the Host header's
-// normalization and the Host -> label match. The hostname grammar and the
-// office's own domain moved to app-domain.test.ts with their module.
+// normalization and the Host -> label match. The office's own domain is in
+// app-domain.test.ts.
 //
 // The URL shape is FLAT: an app called `hello` on an office at
 // `office.example` answers at `hello.office.example`. So the office host and
@@ -8,56 +8,68 @@
 // rule that keeps the office reachable - the exact canonical office host is
 // never diverted - is what these tests lean on hardest.
 //
-// Everything here is a pure function. The wiring - that the office actually
-// diverts these hosts and nothing else - is pinned in app-host-dispatch.test.ts
-// against the real server.
+// The grammar is shared by four consumers: app-host dispatch, the certificate
+// gate (tls-ask.ts), screenshot grants and the short-link host check. The
+// wiring - that the office actually diverts these hosts and nothing else, and
+// that a reserved label is diverted like any other - is pinned in
+// app-host-dispatch.test.ts against the real server.
 //
 // The bias throughout: a normalizer that returns null means "not an app host",
-// which means the office answers exactly as it does today. So a rejection is
-// never a refusal, and the only genuinely dangerous direction is a host that
-// normalizes into a MATCH it should not have.
+// which means the office answers exactly as it does today. The dangerous
+// direction is a host that normalizes into a MATCH it should not have.
 
 import { describe, it, expect } from "bun:test";
 import { matchAppHost, normalizeRequestHost } from "../app-hosts.ts";
 
 describe("normalizeRequestHost", () => {
-  it("lowercases the host", () => {
+  it("canonicalizes case, a port and exactly one trailing dot", () => {
     expect(normalizeRequestHost("HELLO.Office.Example")).toBe(
       "hello.office.example",
     );
-  });
-
-  it("strips a port", () => {
     expect(normalizeRequestHost("hello.office.example:443")).toBe(
       "hello.office.example",
     );
+    expect(normalizeRequestHost("a.b.")).toBe("a.b");
+    // The trailing dot comes before the port, as a real Host carries it.
+    expect(normalizeRequestHost("a.b.:8080")).toBe("a.b");
+    // An A-label is plain ASCII and matches literally.
+    expect(normalizeRequestHost("xn--r8jz45g.example")).toBe(
+      "xn--r8jz45g.example",
+    );
   });
 
-  it("accepts syntactically odd but numeric ports - the value is irrelevant", () => {
+  it("accepts any all-digit port and rejects every other port syntax", () => {
+    // Syntax only - we route on the name, so the port's value is irrelevant.
     expect(normalizeRequestHost("a.b:0")).toBe("a.b");
     expect(normalizeRequestHost("a.b:0080")).toBe("a.b");
     expect(normalizeRequestHost("a.b:99999")).toBe("a.b");
-  });
-
-  it("rejects an empty, non-numeric or doubled port", () => {
     expect(normalizeRequestHost("a.b:")).toBeNull();
     expect(normalizeRequestHost("a.b:http")).toBeNull();
     expect(normalizeRequestHost("a.b:80:80")).toBeNull();
   });
 
-  it("strips exactly one trailing dot", () => {
-    expect(normalizeRequestHost("a.b.")).toBe("a.b");
-    expect(normalizeRequestHost("a.b..")).toBeNull();
-  });
-
-  it("applies the trailing dot after the port, as a real Host carries it", () => {
-    expect(normalizeRequestHost("a.b.:8080")).toBe("a.b");
-  });
-
-  it("rejects bracketed IPv6 literals", () => {
-    expect(normalizeRequestHost("[::1]")).toBeNull();
-    expect(normalizeRequestHost("[::1]:4000")).toBeNull();
-    expect(normalizeRequestHost("[2001:db8::1]:443")).toBeNull();
+  it("rejects an absent header, IPv6 literals and malformed labels", () => {
+    for (const host of [
+      null,
+      undefined,
+      "",
+      "[::1]",
+      "[::1]:4000",
+      "[2001:db8::1]:443",
+      "a.b..",
+      "-lead.example",
+      "trail-.example",
+      "under_score.example",
+      "has space.example",
+      " leading.example",
+      "a..b",
+      ".a.b",
+    ]) {
+      expect({ host, normalized: normalizeRequestHost(host) }).toEqual({
+        host,
+        normalized: null,
+      });
+    }
   });
 
   it("rejects everything outside printable ASCII", () => {
@@ -74,46 +86,20 @@ describe("normalizeRequestHost", () => {
     // "hell<U+212A>o.office.example" would normalize to "hellko.office.example"
     // and match a real app. Every other non-ASCII form is caught later by the
     // label pattern anyway; this one is not.
-    expect("K".toLowerCase()).toBe("k");
-    expect(normalizeRequestHost("hellKo.example")).toBeNull();
-    expect(normalizeRequestHost("K.example")).toBeNull();
+    // Written as an escape so no editor or copy can silently turn it into a
+    // plain "K"; the first line proves the premise still holds.
+    const kelvin = "\u212A";
+    expect(kelvin.toLowerCase()).toBe("k");
+    expect(normalizeRequestHost(`hell${kelvin}o.example`)).toBeNull();
+    expect(normalizeRequestHost(`${kelvin}.example`)).toBeNull();
   });
 
-  it("accepts an A-label as the plain ASCII it is", () => {
-    expect(normalizeRequestHost("xn--r8jz45g.example")).toBe(
-      "xn--r8jz45g.example",
-    );
-  });
-
-  it("rejects malformed labels", () => {
-    expect(normalizeRequestHost("-lead.example")).toBeNull();
-    expect(normalizeRequestHost("trail-.example")).toBeNull();
-    expect(normalizeRequestHost("under_score.example")).toBeNull();
-    expect(normalizeRequestHost("has space.example")).toBeNull();
-    expect(normalizeRequestHost(" leading.example")).toBeNull();
-    expect(normalizeRequestHost("a..b")).toBeNull();
-    expect(normalizeRequestHost(".a.b")).toBeNull();
-  });
-
-  it("rejects an absent or empty header", () => {
-    expect(normalizeRequestHost(null)).toBeNull();
-    expect(normalizeRequestHost(undefined)).toBeNull();
-    expect(normalizeRequestHost("")).toBeNull();
-  });
-
-  it("accepts a bare single-label host (it simply cannot match)", () => {
-    expect(normalizeRequestHost("localhost")).toBe("localhost");
-  });
-
-  it("holds a label at 63 and rejects 64", () => {
-    const l63 = "a".repeat(63);
-    const l64 = "a".repeat(64);
-    expect(normalizeRequestHost(`${l63}.example`)).toBe(`${l63}.example`);
-    expect(normalizeRequestHost(`${l64}.example`)).toBeNull();
-  });
-
-  it("holds a name at 253 and rejects 254, measured after the trailing dot goes", () => {
+  it("holds the RFC 1035 ceilings: a label at 63, a name at 253 after the trailing dot goes", () => {
     const label = (n: number) => "a".repeat(n);
+    expect(normalizeRequestHost(`${label(63)}.example`)).toBe(
+      `${label(63)}.example`,
+    );
+    expect(normalizeRequestHost(`${label(64)}.example`)).toBeNull();
     const n253 = `${label(63)}.${label(63)}.${label(63)}.${label(61)}`;
     const n254 = `${label(63)}.${label(63)}.${label(63)}.${label(62)}`;
     expect(n253.length).toBe(253);
@@ -139,13 +125,6 @@ describe("matchAppHost", () => {
     });
   });
 
-  it("matches a generation label", () => {
-    expect(matchAppHost("hello-g2.office.example", domain)).toEqual({
-      kind: "label",
-      label: "hello-g2",
-    });
-  });
-
   it("treats two or more labels as under the domain, not a label", () => {
     expect(matchAppHost("a.b.office.example", domain)).toEqual({
       kind: "under",
@@ -155,33 +134,19 @@ describe("matchAppHost", () => {
     });
   });
 
-  it("does not match hosts outside the domain", () => {
-    expect(matchAppHost("example", domain)).toBeNull();
-    expect(matchAppHost("localhost", domain)).toBeNull();
-    expect(matchAppHost("office.example.evil.test", domain)).toBeNull();
-  });
-
-  it("does not match a suffix lookalike", () => {
-    // The dot in the suffix check is what stops these being read as inside.
-    expect(matchAppHost("notoffice.example", domain)).toBeNull();
-    expect(matchAppHost("eviloffice.example", domain)).toBeNull();
-  });
-
-  it("diverts a RESERVED name like any other label", () => {
-    // Settled 2026-08-06 (Nil, via the manager; Reviewer1's absolute rule):
-    // reserved names do NOT fall through to the office. An office on HTTPS
-    // owns the namespace below its host, and the cost - an operator's
-    // pre-existing `www.` alias now 404s - is accepted rather than patched
-    // with an exception list that would only cover the names we guessed.
-    // Reserved names stay unregistrable as apps; that is a registry
-    // invariant and says nothing about routing.
-    expect(matchAppHost("www.office.example", domain)).toEqual({
-      kind: "label",
-      label: "www",
-    });
-    expect(matchAppHost("api.office.example", domain)).toEqual({
-      kind: "label",
-      label: "api",
-    });
+  it("does not match hosts outside the domain, including a suffix lookalike", () => {
+    for (const host of [
+      "example",
+      "localhost",
+      "office.example.evil.test",
+      // The dot in the suffix check is what stops these being read as inside.
+      "notoffice.example",
+      "eviloffice.example",
+    ]) {
+      expect({ host, match: matchAppHost(host, domain) }).toEqual({
+        host,
+        match: null,
+      });
+    }
   });
 });

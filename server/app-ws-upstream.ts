@@ -147,11 +147,11 @@ const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 // request - into what the app receives.
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
-export function isSafeHeaderName(name: string): boolean {
+function isSafeHeaderName(name: string): boolean {
   return TOKEN_PATTERN.test(name);
 }
 
-export function isSafeHeaderValue(value: string): boolean {
+function isSafeHeaderValue(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
     // No CR, LF, NUL or any other C0 control; no DEL. A leading or trailing
@@ -164,7 +164,7 @@ export function isSafeHeaderValue(value: string): boolean {
 // The request target, which is a path the office already validated and then
 // re-serialized from a URL - so this is a last structural check rather than the
 // first: one leading slash, no whitespace, printable ASCII only.
-export function isSafeRequestTarget(target: string): boolean {
+function isSafeRequestTarget(target: string): boolean {
   if (!target.startsWith("/")) return false;
   for (let i = 0; i < target.length; i++) {
     const code = target.charCodeAt(i);
@@ -241,7 +241,7 @@ const HANDSHAKE_FAILURES: Record<
   protocol: "handshake_protocol",
 };
 
-export function handshakeAccept(key: string): string {
+function handshakeAccept(key: string): string {
   return createHash("sha1")
     .update(key + WS_GUID)
     .digest("base64");
@@ -748,33 +748,18 @@ export class AppUpstream {
   // Reaching here at all means the connection was not already finished, and that
   // narrows things sharply:
   //
-  //   - an echo still OWED (finalizeWhenFlushed) is the app-initiated case: its
-  //     close arrived, ours was queued, and the socket died before those bytes
-  //     could leave. The handshake did not complete. The peer's code and reason
-  //     are still the truth about WHY, so they are kept - but calling this clean
-  //     would make a peer that vanishes mid-goodbye look exactly like one that
-  //     completed the exchange, which is the false-clean error in the opposite
-  //     direction.
-  //   - a pending close of OUR OWN with nothing owed back is the other direction:
-  //     we said goodbye and the peer never answered.
-  //   - neither: nothing was exchanged at all, so there is no code to report.
+  //   - a pending close: either we said goodbye and the peer never answered, or
+  //     the peer's close arrived and the socket died before our echo could leave
+  //     (pendingClose then holds the peer's event). The handshake did not
+  //     complete either way. The code and reason are still the truth about WHY,
+  //     so they are kept - but calling this clean would make a peer that
+  //     vanishes mid-goodbye look exactly like one that completed the exchange.
+  //   - none: nothing was exchanged at all, so there is no code to report.
   //
   // The completed-handshake cases never arrive here: both of them call finish()
   // at the moment they complete - when the peer answers our close, and when the
   // echo's last byte leaves - so a later transport signal is idempotently ignored.
   private transportDied(cause: string): void {
-    const owedEcho = this.finalizeWhenFlushed;
-    if (owedEcho !== null) {
-      this.finish({
-        ...owedEcho,
-        abnormal: true,
-        detail: withCause(
-          owedEcho.detail,
-          `${cause} before the close echo was sent`,
-        ),
-      });
-      return;
-    }
     const ours = this.pendingClose;
     if (ours !== null) {
       this.finish({

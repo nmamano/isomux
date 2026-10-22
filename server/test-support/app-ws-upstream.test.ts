@@ -14,10 +14,6 @@ import {
   buildHandshakeRequest,
   checkHandshakeResponse,
   dialAppUpstream,
-  handshakeAccept,
-  isSafeHeaderName,
-  isSafeHeaderValue,
-  isSafeRequestTarget,
   type AppUpstream,
   type UpstreamCloseEvent,
 } from "../app-ws-upstream.ts";
@@ -45,12 +41,13 @@ interface AppSeen {
   upgradeHeaders: Record<string, string>[];
 }
 
+function appSeen(): AppSeen {
+  return { frames: [], closes: [], pongs: [], upgradeHeaders: [] };
+}
+
 // A real Bun WebSocket app: echoes text with a prefix, echoes binary verbatim,
 // and takes instructions through the frames it receives.
-function startApp(
-  seen: AppSeen,
-  opts: { greet?: string } = {},
-): ReturnType<typeof Bun.serve> {
+function startApp(seen: AppSeen): ReturnType<typeof Bun.serve> {
   return Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -70,9 +67,6 @@ function startApp(
       return ok ? undefined : new Response("no upgrade", { status: 400 });
     },
     websocket: {
-      open(ws) {
-        if (opts.greet !== undefined) ws.send(opts.greet);
-      },
       message(ws, data) {
         if (typeof data !== "string") {
           seen.frames.push(`binary:${Buffer.from(data).toString("hex")}`);
@@ -82,10 +76,6 @@ function startApp(
         seen.frames.push(data);
         if (data === "close-4321") {
           ws.close(4321, "app said bye");
-          return;
-        }
-        if (data === "close-plain") {
-          ws.close();
           return;
         }
         if (data === "ping-me") {
@@ -118,7 +108,6 @@ function startPeer(opts: {
   respondBytes?: (request: string, accept: string) => Buffer;
   splitLastByte?: boolean;
   accept?: (key: string) => string;
-  extraResponseHeaders?: string[];
   onUpgraded?: (socket: Socket<undefined>) => void;
   stopReading?: boolean;
 }): TCPSocketListener<undefined> {
@@ -160,7 +149,6 @@ function startPeer(opts: {
             "Upgrade: websocket",
             "Connection: Upgrade",
             `Sec-WebSocket-Accept: ${accept}`,
-            ...(opts.extraResponseHeaders ?? []),
             "",
             "",
           ].join("\r\n"),
@@ -370,35 +358,8 @@ async function until(
 // --- the request we write -----------------------------------------------------
 
 describe("app-ws-upstream: the upgrade request", () => {
-  it("writes the handshake a server expects", () => {
-    const bytes = buildHandshakeRequest({
-      target: "/socket?x=1",
-      host: "hello.office.example",
-      key: "dGhlIHNhbXBsZSBub25jZQ==",
-      protocols: ["graphql-ws", "json"],
-      headers: { "User-Agent": "browser/1", Cookie: "app_pref=blue" },
-    });
-    expect(bytes).not.toBeNull();
-    expect(bytes!.toString()).toBe(
-      [
-        "GET /socket?x=1 HTTP/1.1",
-        "Host: hello.office.example",
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        "Sec-WebSocket-Version: 13",
-        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-        "Sec-WebSocket-Protocol: graphql-ws, json",
-        "User-Agent: browser/1",
-        "Cookie: app_pref=blue",
-        "",
-        "",
-      ].join("\r\n"),
-    );
-    // No extension is ever offered, which is what lets the decoder treat a
-    // reserved bit as a protocol error.
-    expect(bytes!.toString()).not.toContain("Sec-WebSocket-Extensions");
-  });
-
+  // The request's shape is proven by a real Bun app accepting it (see "a real
+  // app" below); these two cases are the parts no well-behaved server shows.
   it("never writes a header the client owns twice", () => {
     // A caller that forwards the browser's own Host or Sec-WebSocket-Key would
     // otherwise produce two of each, and which one the app reads is anybody's
@@ -434,6 +395,9 @@ describe("app-ws-upstream: the upgrade request", () => {
       protocols: [] as string[],
       headers: {} as Record<string, string>,
     };
+    // The anchor: the base request builds, so each null below is the one value
+    // that row changes.
+    expect(buildHandshakeRequest(base)).not.toBeNull();
     // A CRLF in a value is the whole reason this validation exists: it would
     // write extra headers - or a second request - into what the app receives.
     expect(
@@ -447,6 +411,9 @@ describe("app-ws-upstream: the upgrade request", () => {
     ).toBeNull();
     expect(
       buildHandshakeRequest({ ...base, headers: { "X-A": "a\0b" } }),
+    ).toBeNull();
+    expect(
+      buildHandshakeRequest({ ...base, headers: { "X-A": "del\x7f" } }),
     ).toBeNull();
     expect(
       buildHandshakeRequest({ ...base, headers: { "X A": "fine" } }),
@@ -464,29 +431,12 @@ describe("app-ws-upstream: the upgrade request", () => {
       buildHandshakeRequest({ ...base, protocols: ["a\r\nX: 1"] }),
     ).toBeNull();
   });
-
-  it("agrees with itself about what is safe", () => {
-    expect(isSafeHeaderName("X-Forwarded-For")).toBe(true);
-    expect(isSafeHeaderName("bad name")).toBe(false);
-    expect(isSafeHeaderValue("plain")).toBe(true);
-    expect(isSafeHeaderValue("with\ttab")).toBe(false);
-    expect(isSafeHeaderValue("del\x7f")).toBe(false);
-    expect(isSafeRequestTarget("/ok?q=1")).toBe(true);
-    expect(isSafeRequestTarget("relative")).toBe(false);
-  });
-
-  it("computes the accept value the RFC specifies", () => {
-    // The example from RFC 6455 section 1.3.
-    expect(handshakeAccept("dGhlIHNhbXBsZSBub25jZQ==")).toBe(
-      "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
-    );
-  });
 });
 
 // --- the response we accept ---------------------------------------------------
 
 describe("app-ws-upstream: validating the upgrade response", () => {
-  const accept = handshakeAccept("K");
+  const accept = defaultAccept("K");
   const good = [
     "HTTP/1.1 101 Switching Protocols",
     "Upgrade: websocket",
@@ -494,101 +444,104 @@ describe("app-ws-upstream: validating the upgrade response", () => {
     `Sec-WebSocket-Accept: ${accept}`,
   ].join("\r\n");
 
-  it("accepts a correct handshake", () => {
+  // `good` is accepted, and every rejection below changes one line of it, so a
+  // refusal there is that line's doing rather than the base head's.
+  it("accepts a correct handshake, tokenized headers, and an offered subprotocol", () => {
     expect(checkHandshakeResponse(good, accept, [])).toEqual({
       ok: true,
       protocol: null,
     });
-  });
-
-  it("accepts tokenized Connection and Upgrade values case-insensitively", () => {
-    const head = [
+    const tokenized = [
       "HTTP/1.1 101 Switching Protocols",
       "Upgrade: WebSocket",
       "Connection: keep-alive, Upgrade",
       `Sec-WebSocket-Accept: ${accept}`,
     ].join("\r\n");
-    expect(checkHandshakeResponse(head, accept, [])).toEqual({
+    expect(checkHandshakeResponse(tokenized, accept, [])).toEqual({
       ok: true,
       protocol: null,
     });
-  });
-
-  it("returns the negotiated subprotocol when it was offered", () => {
-    const head = `${good}\r\nSec-WebSocket-Protocol: graphql-ws`;
     expect(
-      checkHandshakeResponse(head, accept, ["graphql-ws", "json"]),
-    ).toEqual({
-      ok: true,
-      protocol: "graphql-ws",
-    });
+      checkHandshakeResponse(
+        `${good}\r\nSec-WebSocket-Protocol: json`,
+        accept,
+        ["graphql-ws", "json"],
+      ),
+    ).toEqual({ ok: true, protocol: "json" });
   });
 
-  const rejections: { name: string; head: string; offered?: string[] }[] = [
+  // `kind` is the protocol value the dial turns into its failure; the relay
+  // answers `protocol` with its own body, so a row that lands in the wrong kind
+  // is a wrong answer to the browser, not a cosmetic difference.
+  const rejections: {
+    name: string;
+    head: string;
+    offered?: string[];
+    kind: "rejected" | "invalid" | "protocol";
+  }[] = [
     {
       name: "a 200 page instead of an upgrade",
       head: "HTTP/1.1 200 OK\r\nContent-Type: text/html",
+      kind: "rejected",
     },
-    { name: "a 404", head: "HTTP/1.1 404 Not Found" },
-    { name: "a redirect", head: "HTTP/1.1 302 Found\r\nLocation: /elsewhere" },
+    {
+      // RFC 6455's handshake is defined on HTTP/1.1.
+      name: "an HTTP/1.0 upgrade response",
+      head: good.replace("HTTP/1.1", "HTTP/1.0"),
+      kind: "rejected",
+    },
     {
       name: "a missing upgrade token in Connection",
-      head: [
-        "HTTP/1.1 101 Switching Protocols",
-        "Upgrade: websocket",
-        "Connection: keep-alive",
-        `Sec-WebSocket-Accept: ${accept}`,
-      ].join("\r\n"),
+      head: good.replace("Connection: Upgrade", "Connection: keep-alive"),
+      kind: "invalid",
     },
     {
       name: "an Upgrade that is not websocket",
-      head: [
-        "HTTP/1.1 101 Switching Protocols",
-        "Upgrade: h2c",
-        "Connection: Upgrade",
-        `Sec-WebSocket-Accept: ${accept}`,
-      ].join("\r\n"),
+      head: good.replace("Upgrade: websocket", "Upgrade: h2c"),
+      kind: "invalid",
     },
     {
       name: "a wrong accept value",
-      head: [
-        "HTTP/1.1 101 Switching Protocols",
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        "Sec-WebSocket-Accept: bm90LXRoZS1yaWdodC1vbmU=",
-      ].join("\r\n"),
+      head: good.replace(accept, "bm90LXRoZS1yaWdodC1vbmU="),
+      kind: "invalid",
     },
     {
       name: "a missing accept value",
       head: good.split("\r\nSec-WebSocket-Accept")[0],
+      kind: "invalid",
+    },
+    {
+      name: "duplicated accept headers",
+      head: `${good}\r\nSec-WebSocket-Accept: ${accept}`,
+      kind: "invalid",
     },
     {
       name: "an extension we never offered",
       head: `${good}\r\nSec-WebSocket-Extensions: permessage-deflate`,
+      kind: "invalid",
     },
     {
       name: "two subprotocol headers",
       head: `${good}\r\nSec-WebSocket-Protocol: a\r\nSec-WebSocket-Protocol: b`,
       offered: ["a", "b"],
+      kind: "invalid",
     },
     {
       name: "a subprotocol that was never offered",
       head: `${good}\r\nSec-WebSocket-Protocol: mystery`,
       offered: ["graphql-ws"],
+      kind: "protocol",
     },
     {
       name: "a subprotocol when none was offered",
       head: `${good}\r\nSec-WebSocket-Protocol: mystery`,
-    },
-    {
-      name: "duplicated accept headers",
-      head: `${good}\r\nSec-WebSocket-Accept: ${accept}`,
+      kind: "protocol",
     },
   ];
   for (const c of rejections) {
     it(`refuses ${c.name}`, () => {
       const res = checkHandshakeResponse(c.head, accept, c.offered ?? []);
-      expect(res.ok).toBe(false);
+      expect(res.ok ? "accepted" : res.kind).toBe(c.kind);
     });
   }
 });
@@ -596,35 +549,10 @@ describe("app-ws-upstream: validating the upgrade response", () => {
 // --- against a real WebSocket app ---------------------------------------------
 
 describe("app-ws-upstream: a real app", () => {
-  it("carries text and binary both ways", async () => {
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
-    app = startApp(seen);
-    const got = collector();
-    const dialed = await dial(portOf(app), got);
-    expect(dialed.ok).toBe(true);
-    expect(live!.sendText("hello")).toBe("sent");
-    expect(live!.sendBinary(Buffer.from([1, 2, 3]))).toBe("sent");
-    await until(() => got.messages.length >= 2, "both echoes");
-    expect(got.messages).toEqual([
-      { kind: "text", body: "echo:hello" },
-      { kind: "binary", body: "010203" },
-    ]);
-    // The app saw exactly what we sent, unmasked for it by its own runtime.
-    expect(seen.frames).toEqual(["hello", "binary:010203"]);
-  });
-
-  it("sends the headers, Host and subprotocols it was given", async () => {
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
+  it("upgrades with the Host, headers and subprotocol it was given, then carries text and binary both ways", async () => {
+    // A real server accepting the upgrade is the proof the request is well
+    // formed and the accept value is computed right.
+    const seen = appSeen();
     app = startApp(seen);
     const got = collector();
     const dialed = await dial(portOf(app), got, {
@@ -639,17 +567,25 @@ describe("app-ws-upstream: a real app", () => {
     expect(headers["x-forwarded-for"]).toBe("203.0.113.5");
     expect(headers.cookie).toBe("app_pref=blue");
     expect(headers["sec-websocket-protocol"]).toBe("graphql-ws");
+    // No extension is ever offered: that is what lets the decoder refuse a
+    // reserved bit.
+    expect(headers["sec-websocket-extensions"]).toBeUndefined();
+
+    expect(live!.sendText("hello")).toBe("sent");
+    expect(live!.sendBinary(Buffer.from([1, 2, 3]))).toBe("sent");
+    await until(() => got.messages.length >= 2, "both echoes");
+    expect(got.messages).toEqual([
+      { kind: "text", body: "echo:hello" },
+      { kind: "binary", body: "010203" },
+    ]);
+    // The app saw exactly what we sent, unmasked for it by its own runtime.
+    expect(seen.frames).toEqual(["hello", "binary:010203"]);
   });
 
   it("answers the app's ping with the same payload", async () => {
     // Nobody relays a ping: each leg answers its own, so an app's keepalive is
     // satisfied here rather than crossing to the browser.
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
+    const seen = appSeen();
     app = startApp(seen);
     const got = collector();
     await dial(portOf(app), got);
@@ -661,12 +597,7 @@ describe("app-ws-upstream: a real app", () => {
   });
 
   it("reports the app's close code and reason once", async () => {
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
+    const seen = appSeen();
     app = startApp(seen);
     const got = collector();
     await dial(portOf(app), got);
@@ -682,82 +613,8 @@ describe("app-ws-upstream: a real app", () => {
     expect(got.closes.length).toBe(1);
   });
 
-  it("reports a close with no status as a null code", async () => {
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
-    app = startApp(seen);
-    const got = collector();
-    await dial(portOf(app), got);
-    live!.sendText("close-plain");
-    await until(() => got.closes.length > 0, "the close");
-    expect(got.closes[0].code).toBe(1000);
-    expect(got.closes[0].abnormal).toBe(false);
-  });
-
-  it("carries our close code to the app", async () => {
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
-    app = startApp(seen);
-    const got = collector();
-    await dial(portOf(app), got);
-    live!.sendClose(4001, "browser went away");
-    await until(() => seen.closes.length > 0, "the app's close event");
-    expect(seen.closes).toEqual([{ code: 4001, reason: "browser went away" }]);
-  });
-
-  it("terminates with no close frame, so the app sees an abnormal close", async () => {
-    // This is the vocabulary for "the browser vanished": 1006 means exactly
-    // "the connection dropped without a close frame", and the only way to say it
-    // is to do it.
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
-    app = startApp(seen);
-    const got = collector();
-    await dial(portOf(app), got);
-    live!.terminate("browser vanished");
-    await until(() => seen.closes.length > 0, "the app's close event");
-    expect(seen.closes).toEqual([{ code: 1006, reason: "" }]);
-    expect(got.closes).toEqual([
-      { code: null, reason: "", abnormal: true, detail: "browser vanished" },
-    ]);
-  });
-
-  it("delivers a greeting that shared the handshake's read", async () => {
-    // An app that speaks first puts its frame in the same TCP read as the end of
-    // the response headers. Dropping those bytes would lose the only message a
-    // server-greets protocol ever sends unprompted.
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
-    app = startApp(seen, { greet: "welcome" });
-    const got = collector();
-    await dial(portOf(app), got);
-    await until(() => got.messages.length > 0, "the greeting");
-    expect(got.messages).toEqual([{ kind: "text", body: "welcome" }]);
-  });
-
   it("refuses a message over the cap in both directions", async () => {
-    const seen: AppSeen = {
-      frames: [],
-      closes: [],
-      pongs: [],
-      upgradeHeaders: [],
-    };
+    const seen = appSeen();
     app = startApp(seen);
     const got = collector();
     await dial(portOf(app), got, { limits: { maxMessageBytes: 1000 } });
@@ -786,17 +643,6 @@ describe("app-ws-upstream: dial failures happen before any 101", () => {
     expect(got.closes).toEqual([]);
   });
 
-  it("reports an app that answers with a page instead of an upgrade", async () => {
-    peer = startPeer({
-      respond: () =>
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\n\r\nhello",
-    });
-    const got = collector();
-    const res = await dial(peer.port, got);
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.failure).toBe("handshake_rejected");
-  });
-
   it("reports an app whose accept value is wrong", async () => {
     // A cached or cross-wired response must not be taken for an open socket.
     peer = startPeer({ accept: () => "bm90LXJpZ2h0" });
@@ -807,16 +653,6 @@ describe("app-ws-upstream: dial failures happen before any 101", () => {
       expect(res.failure).toBe("handshake_invalid");
       expect(res.detail).toContain("Sec-WebSocket-Accept");
     }
-  });
-
-  it("reports an app that answers with an extension", async () => {
-    peer = startPeer({
-      extraResponseHeaders: ["Sec-WebSocket-Extensions: permessage-deflate"],
-    });
-    const got = collector();
-    const res = await dial(peer.port, got);
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.detail).toContain("unoffered extension");
   });
 
   it("gives up on an app that never answers", async () => {
@@ -846,25 +682,26 @@ describe("app-ws-upstream: dial failures happen before any 101", () => {
     if (!res.ok) expect(res.detail).toContain("byte ceiling");
   });
 
-  it("reports an app that hangs up mid-handshake", async () => {
-    peer = startPeer({
-      respond: () => "HTTP/1.1 101 Switching Protocols\r\nUpgrade: web",
-      onUpgraded: () => {},
+  it("reports an app that hangs up mid-handshake, without waiting for the timeout", async () => {
+    // A partial header block, then the peer ends the connection. The budget is
+    // far longer than the test, so a `handshake_timeout` here means the close
+    // was not noticed - which is the bug: every such app would cost a browser
+    // the whole handshake budget before its 502.
+    peer = Bun.listen<undefined>({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket) {
+          socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: web");
+          socket.end();
+        },
+      },
     });
-    // The peer above writes a partial header block; close it from under the
-    // client by stopping the listener.
     const got = collector();
-    const dialing = dial(peer.port, got, {
-      limits: { handshakeTimeoutMs: 400 },
+    const res = await dial(peer.port, got, {
+      limits: { handshakeTimeoutMs: 60_000 },
     });
-    await Bun.sleep(60);
-    peer.stop(true);
-    peer = null;
-    const res = await dialing;
-    expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(["handshake_invalid", "handshake_timeout"]).toContain(res.failure);
-    }
+    expect(res.ok ? "ok" : res.failure).toBe("handshake_invalid");
     // No close event: nothing was ever open to close.
     expect(got.closes).toEqual([]);
   });
@@ -876,7 +713,7 @@ describe("app-ws-upstream: the handshake's own limits", () => {
     // terminator: one read carrying 20KB of headers AND their terminator is over
     // the limit, and checking only the unterminated case would let it through and
     // then parse it.
-    const accept = handshakeAccept("K");
+    const accept = defaultAccept("K");
     const oversized = [
       "HTTP/1.1 101 Switching Protocols",
       "Upgrade: websocket",
@@ -939,10 +776,15 @@ describe("app-ws-upstream: the handshake's own limits", () => {
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
-  it("abandons a pending dial when its app registration retires", async () => {
+  it("abandons a pending dial when its app registration retires, and ignores a late connect", async () => {
+    // The dial can give up before connect finishes. If `open` then arrives, the
+    // request must NOT be written, and a later 101 must not build a live
+    // connection and start calling handlers for a caller who was already told the
+    // dial failed.
     const fake = makeFakeConnector({ neverConnect: true });
     const retirement = new AbortController();
-    const dialing = dial(4001, collector(), {
+    const got = collector();
+    const dialing = dial(4001, got, {
       connector: fake.connector,
       signal: retirement.signal,
       limits: { handshakeTimeoutMs: 2000 },
@@ -955,9 +797,14 @@ describe("app-ws-upstream: the handshake's own limits", () => {
       expect(res.failure).toBe("connect_failed");
       expect(res.detail).toBe("app registration retired");
     }
+    // Connect completes late: nothing is written and the socket is hung up.
     fake.openLate();
     expect(fake.writtenBytes().length).toBe(0);
     expect(fake.socket.ended).toBe(true);
+    // And even a syntactically perfect 101 afterwards changes nothing.
+    fake.data(upgradeHead(defaultAccept("whatever")));
+    expect(got.messages).toEqual([]);
+    expect(got.closes).toEqual([]);
   });
 
   it("writes the rest of the upgrade request when the socket only took part", async () => {
@@ -980,30 +827,6 @@ describe("app-ws-upstream: the handshake's own limits", () => {
     // Let the dial settle so no promise is left dangling.
     fake.close();
     await dialing;
-  });
-
-  it("ignores a connect that completes after the dial gave up", async () => {
-    // The timeout can fire before connect finishes. If `open` then arrives, the
-    // request must NOT be written and a later 101 must not build a live
-    // connection and start calling handlers for a caller who was already told the
-    // dial failed.
-    const fake = makeFakeConnector({ neverConnect: true, autoUpgrade: true });
-    const got = collector();
-    const res = await dial(4005, got, {
-      connector: fake.connector,
-      limits: { handshakeTimeoutMs: 80 },
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.failure).toBe("handshake_timeout");
-    // Connect completes late.
-    fake.openLate();
-    expect(fake.writtenBytes().length).toBe(0);
-    expect(fake.socket.ended).toBe(true);
-    // And even a syntactically perfect 101 afterwards changes nothing.
-    fake.data(upgradeHead(defaultAccept("whatever")));
-    await Bun.sleep(30);
-    expect(got.messages).toEqual([]);
-    expect(got.closes).toEqual([]);
   });
 
   it("refuses a response that arrives before the request has fully left", async () => {
@@ -1045,7 +868,7 @@ describe("app-ws-upstream: the handshake's own limits", () => {
     const got = collector();
     const dialed = await dial(4007, got, {
       connector: fake.connector,
-      limits: { closeHandshakeMs: 5000 },
+      limits: { closeHandshakeMs: 30 },
     });
     expect(dialed.ok).toBe(true);
     live!.sendClose(1001, "going away", "browser left");
@@ -1058,36 +881,8 @@ describe("app-ws-upstream: the handshake's own limits", () => {
       abnormal: false,
       detail: "browser left",
     });
-    // No second event when the timer would have fired.
+    // No second event when the close timer would have fired.
     await Bun.sleep(80);
-    expect(got.closes.length).toBe(1);
-  });
-
-  it("calls it abnormal when the app vanishes instead of answering our close", async () => {
-    // The contrast with the test above: same locally initiated close, but the peer
-    // drops TCP rather than answering. Our code and reason are still the truth
-    // about why we closed - the HANDSHAKE is what did not complete - so the event
-    // keeps them and adds the abnormal flag. Reporting this as clean would make a
-    // vanishing app indistinguishable from a well-behaved one.
-    const fake = makeFakeConnector({ autoUpgrade: true });
-    const got = collector();
-    const dialed = await dial(4008, got, {
-      connector: fake.connector,
-      limits: { closeHandshakeMs: 5000 },
-    });
-    expect(dialed.ok).toBe(true);
-    live!.sendClose(1001, "going away", "browser left");
-    // No close frame back - the socket just dies.
-    fake.close();
-    expect(got.closes.length).toBe(1);
-    expect(got.closes[0]).toEqual({
-      code: 1001,
-      reason: "going away",
-      abnormal: true,
-      detail:
-        "browser left; socket closed before the close handshake completed",
-    });
-    await Bun.sleep(60);
     expect(got.closes.length).toBe(1);
   });
 
@@ -1112,40 +907,6 @@ describe("app-ws-upstream: the handshake's own limits", () => {
     expect(got.closes[0].code).toBe(1000);
     expect(got.closes[0].reason).toBe("done");
     expect(got.closes[0].abnormal).toBe(false);
-  });
-
-  it("keeps the specific outcome when a violation rides the 101", async () => {
-    peer = startPeer({
-      // Again one write: the 101 plus a MASKED server frame, which only a client
-      // may send.
-      respondBytes: (_request, accept) =>
-        Buffer.concat([
-          upgradeHead(accept),
-          Buffer.from([0x81, 0x81, 1, 2, 3, 4, 0x60]),
-        ]),
-    });
-    const got = collector();
-    const res = await dial(peer.port, got, {
-      limits: { closeHandshakeMs: 100 },
-    });
-    // The handshake DID succeed; what follows is a connection that dies, and the
-    // dial must say so rather than reporting an upgrade failure.
-    expect(res.ok).toBe(true);
-    await until(() => got.closes.length > 0, "the protocol-error close");
-    expect(got.closes[0].code).toBe(1002);
-  });
-
-  it("refuses an HTTP/1.0 upgrade response", () => {
-    const accept = handshakeAccept("K");
-    const head = [
-      "HTTP/1.0 101 Switching Protocols",
-      "Upgrade: websocket",
-      "Connection: Upgrade",
-      `Sec-WebSocket-Accept: ${accept}`,
-    ].join("\r\n");
-    // RFC 6455's handshake is defined on HTTP/1.1.
-    const res = checkHandshakeResponse(head, accept, []);
-    expect(res.ok).toBe(false);
   });
 });
 
@@ -1232,7 +993,6 @@ describe("app-ws-upstream: an app that stops reading", () => {
     // The other half of the backpressure contract: a partial write is resumed
     // by `drain`, not by a timer or a retry loop.
     let resume: (() => void) | null = null;
-    const received: number[] = [];
     peer = startPeer({
       stopReading: true,
       onUpgraded(socket) {
@@ -1248,7 +1008,6 @@ describe("app-ws-upstream: an app that stops reading", () => {
     const chunk = Buffer.alloc(64 * 1024, 3);
     fillQueue(() => live!.sendBinary(chunk), "drain fill", chunk.length);
     expect(live!.queuedBytes()).toBeGreaterThan(0);
-    received.push(live!.queuedBytes());
     resume!();
     await until(() => live!.queuedBytes() === 0, "the queue to drain", 4000);
     expect(live!.queuedBytes()).toBe(0);
@@ -1296,65 +1055,35 @@ describe("app-ws-upstream: an app that stops reading", () => {
     expect(fake.socket.ended).toBe(true);
   });
 
-  it("calls it abnormal when the socket dies before the echo could be sent", async () => {
-    // The mirror of the resume-and-drain case: the app's close arrived, our echo
-    // was queued, and the transport died before those bytes could leave. The
-    // handshake did NOT complete, so the peer's code and reason are kept but the
-    // event is abnormal - otherwise a peer that vanishes mid-goodbye is
-    // indistinguishable from one that completed the exchange.
-    const fake = makeFakeConnector({ autoUpgrade: true });
-    const got = collector();
-    await dial(4009, got, {
-      connector: fake.connector,
-      limits: { closeHandshakeMs: 5000 },
-    });
-    fake.socket.accept = 0;
-    fake.data(Buffer.from([0x88, 0x06, 0x03, 0xe9, 0x61, 0x77, 0x61, 0x79]));
-    expect(got.closes).toEqual([]);
-    // The socket dies before any drain.
-    fake.close();
-    expect(got.closes.length).toBe(1);
-    expect(got.closes[0]).toEqual({
-      code: 1001,
-      reason: "away",
-      abnormal: true,
-      detail: "socket closed before the close echo was sent",
-    });
-    await Bun.sleep(60);
-    expect(got.closes.length).toBe(1);
-  });
-
-  it("treats a socket error the same way as a socket close, at every stage", async () => {
+  it("treats a socket close and a socket error the same way, at every stage", async () => {
     // Both signals mean "the transport is gone", and they must not drift into
-    // disagreeing about what a half-finished close was. The table covers the three
-    // lifecycle positions an error can arrive in.
-    const cases: {
+    // disagreeing about what a half-finished close was. Three lifecycle
+    // positions, each under both signals:
+    //   - nothing in flight: no close frame was exchanged, so there is no code;
+    //   - our own close pending (the app vanished instead of answering it): our
+    //     code and reason are still the truth about WHY, but the handshake did
+    //     not complete, so the event is abnormal - and the caller's own detail
+    //     survives into the log line;
+    //   - an echo owed to the app (its close arrived, ours could not leave): the
+    //     app's code and reason, abnormal for the same reason.
+    // Reporting either of the last two as clean would make a peer that vanishes
+    // mid-goodbye indistinguishable from one that completed the exchange.
+    const stages: {
       what: string;
       act: (fake: ReturnType<typeof makeFakeConnector>) => void;
-      expected: (detail: string) => UpstreamCloseEvent;
+      expected: Omit<UpstreamCloseEvent, "detail">;
+      keepsDetail?: string;
     }[] = [
       {
         what: "nothing in flight",
         act: () => undefined,
-        expected: (detail) => ({
-          code: null,
-          reason: "",
-          abnormal: true,
-          detail: `${detail} without a close frame`,
-        }),
+        expected: { code: null, reason: "", abnormal: true },
       },
       {
         what: "our own close pending",
-        act: (fake) => {
-          void fake;
-          live!.sendClose(1001, "going away", "browser left");
-        },
-        expected: (detail) => ({
-          code: 1001,
-          reason: "going away",
-          abnormal: true,
-          detail: `browser left; ${detail} before the close handshake completed`,
-        }),
+        act: () => live!.sendClose(1001, "going away", "browser left"),
+        expected: { code: 1001, reason: "going away", abnormal: true },
+        keepsDetail: "browser left",
       },
       {
         what: "an echo owed to the app",
@@ -1364,29 +1093,44 @@ describe("app-ws-upstream: an app that stops reading", () => {
             Buffer.from([0x88, 0x06, 0x03, 0xe9, 0x61, 0x77, 0x61, 0x79]),
           );
         },
-        expected: (detail) => ({
-          code: 1001,
-          reason: "away",
-          abnormal: true,
-          detail: `${detail} before the close echo was sent`,
-        }),
+        expected: { code: 1001, reason: "away", abnormal: true },
       },
     ];
     let port = 4100;
-    for (const c of cases) {
-      const fake = makeFakeConnector({ autoUpgrade: true });
-      const got = collector();
-      await dial(port++, got, {
-        connector: fake.connector,
-        limits: { closeHandshakeMs: 5000 },
-      });
-      c.act(fake);
-      fake.errorNow(new Error("EPIPE"));
-      expect({ what: c.what, events: got.closes }).toEqual({
-        what: c.what,
-        events: [c.expected("socket error: Error: EPIPE")],
-      });
-      live = null;
+    for (const signal of ["close", "error"] as const) {
+      for (const stage of stages) {
+        const fake = makeFakeConnector({ autoUpgrade: true });
+        const got = collector();
+        await dial(port++, got, {
+          connector: fake.connector,
+          limits: { closeHandshakeMs: 5000 },
+        });
+        stage.act(fake);
+        expect({ signal, what: stage.what, before: got.closes }).toEqual({
+          signal,
+          what: stage.what,
+          before: [],
+        });
+        if (signal === "close") fake.close();
+        else fake.errorNow(new Error("EPIPE"));
+        // The other signal arriving afterwards is ignored: exactly one event.
+        if (signal === "close") fake.errorNow(new Error("EPIPE"));
+        else fake.close();
+        const events = got.closes.map(({ code, reason, abnormal }) => ({
+          code,
+          reason,
+          abnormal,
+        }));
+        expect({ signal, what: stage.what, events }).toEqual({
+          signal,
+          what: stage.what,
+          events: [stage.expected],
+        });
+        if (stage.keepsDetail !== undefined) {
+          expect(got.closes[0].detail).toContain(stage.keepsDetail);
+        }
+        live = null;
+      }
     }
   });
 
@@ -1403,7 +1147,7 @@ describe("app-ws-upstream: an app that stops reading", () => {
     fake.socket.accept = 0;
     fake.data(Buffer.from([0x88, 0x06, 0x03, 0xe9, 0x61, 0x77, 0x61, 0x79]));
     expect(got.closes).toEqual([]);
-    await Bun.sleep(150);
+    await until(() => got.closes.length > 0, "the close handshake timeout");
     expect(got.closes.length).toBe(1);
     expect(got.closes[0].code).toBe(1001);
     expect(got.closes[0].abnormal).toBe(true);

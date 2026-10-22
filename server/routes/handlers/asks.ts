@@ -56,8 +56,6 @@ import {
   askLinkFor,
 } from "../../../shared/office-links.ts";
 
-export { ASK_DISMISSED_TEXT };
-
 export interface AsksDeps {
   store: AskStore;
   // The agent as it is now, or null when it is gone.

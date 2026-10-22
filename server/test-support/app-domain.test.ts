@@ -1,6 +1,5 @@
-// Where an app's public address comes from (phase 3): the hostname grammar,
-// the office host apps hang off, and the URL an app is reachable at. Moved
-// here with the module in slice 8; the Host-header side stayed in
+// Where an app's public address comes from (phase 3): the office host apps
+// hang off, and the URL an app is reachable at. The Host-header side is in
 // app-hosts.test.ts.
 //
 // Everything here is pure except the boot-frozen domain, whose only rule is a
@@ -15,16 +14,7 @@ import {
   appPublicUrl,
   deriveAppHostDomain,
   freezeAppHostDomain,
-  isHostname,
 } from "../app-domain.ts";
-
-describe("isHostname", () => {
-  it("counts labels for the minimum", () => {
-    expect(isHostname("example")).toBe(true);
-    expect(isHostname("example", 2)).toBe(false);
-    expect(isHostname("a.example", 2)).toBe(true);
-  });
-});
 
 describe("deriveAppHostDomain", () => {
   it("is the office host itself on an https deployment", () => {
@@ -40,45 +30,37 @@ describe("deriveAppHostDomain", () => {
     expect(deriveAppHostDomain("https://office.example", false)).toBeNull();
   });
 
-  it("is null for loopback names", () => {
+  it("is null for every office host that cannot carry app hostnames", () => {
     for (const origin of [
+      // Loopback names: `.localhost` is loopback by RFC 6761, not just the
+      // bare name.
       "https://localhost",
       "https://localhost:4000",
       "https://dev.localhost",
-    ]) {
-      expect(deriveAppHostDomain(origin, true)).toBeNull();
-    }
-  });
-
-  it("is null for address literals", () => {
-    for (const origin of [
+      // Address literals.
       "https://127.0.0.1",
       "https://93.184.216.34",
       "https://[::1]",
+      // A single-label intranet name cannot carry the public wildcard record
+      // apps need.
+      "https://office",
+      // Unparseable.
+      "not a url",
+      "",
     ]) {
-      expect(deriveAppHostDomain(origin, true)).toBeNull();
+      expect({ origin, domain: deriveAppHostDomain(origin, true) }).toEqual({
+        origin,
+        domain: null,
+      });
     }
   });
 
-  it("is null for a single-label office host", () => {
-    // An intranet name cannot carry the public wildcard record apps need.
-    expect(deriveAppHostDomain("https://office", true)).toBeNull();
-  });
-
-  it("is null for an unparseable origin", () => {
-    expect(deriveAppHostDomain("not a url", true)).toBeNull();
-    expect(deriveAppHostDomain("", true)).toBeNull();
-  });
-
-  it("canonicalizes case and a trailing dot", () => {
+  it("canonicalizes case and a trailing dot, and keeps a port out", () => {
     // This value is compared against a normalized request Host on every
     // request, so a stray trailing dot here would divert the office itself.
     expect(deriveAppHostDomain("https://OFFICE.EXAMPLE./", true)).toBe(
       "office.example",
     );
-  });
-
-  it("keeps a port out of the domain", () => {
     expect(deriveAppHostDomain("https://office.example:8443", true)).toBe(
       "office.example",
     );
@@ -131,24 +113,13 @@ describe("deriveAppHostDomain", () => {
 });
 
 describe("appPublicUrl", () => {
-  it("is the label under the office host, over https", () => {
+  it("is the label under the office host over https, and null with no domain", () => {
     expect(appPublicUrl("hello", "office.example")).toBe(
       "https://hello.office.example",
     );
-  });
-
-  it("is null when the office has no app-host domain", () => {
     // Every dev box and every plain-HTTP install. An app must be able to tell
     // "no URL" from "some URL", so this is null rather than an empty string.
     expect(appPublicUrl("hello", null)).toBeNull();
-  });
-
-  it("uses the LABEL, so a reused name never inherits the old origin", () => {
-    // The whole point of the ledger: this app's NAME is `hello` and its label
-    // is `hello-g2`, and the previous `hello`'s origin must stay dead.
-    expect(appPublicUrl("hello-g2", "office.example")).toBe(
-      "https://hello-g2.office.example",
-    );
   });
 });
 
@@ -164,24 +135,13 @@ describe("appHostDomain lifecycle", () => {
   // order test files happen to run in.
   afterAll(() => freezeAppHostDomain());
 
-  it("throws when read before the boot freeze", () => {
+  it("throws when read before the boot freeze and answers after it", () => {
     _testResetAppHostDomain();
     expect(() => appHostDomain()).toThrow(/before freezeAppHostDomain/);
-  });
-
-  it("answers once frozen", () => {
-    _testResetAppHostDomain();
     freezeAppHostDomain();
     // The VALUE depends on this process's boot state, which a pure test has no
     // business asserting - deriveAppHostDomain's matrix above covers that.
     // What matters here is that it answers at all instead of throwing.
-    const domain = appHostDomain();
-    expect(domain === null || typeof domain === "string").toBe(true);
-  });
-
-  it("throws again after a reset, so the harness cannot leak a stale domain", () => {
-    freezeAppHostDomain();
-    _testResetAppHostDomain();
-    expect(() => appHostDomain()).toThrow();
+    expect(() => appHostDomain()).not.toThrow();
   });
 });

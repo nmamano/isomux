@@ -1,9 +1,12 @@
 // Prompt history is kept like memory (Nil, 2026-10-14): every write to a
 // surface that feeds an agent system prompt (the office prompt, a room prompt,
 // an agent's custom instructions, a member's special instructions) keeps the
-// stored text after the write in its audit row, for humans and agents alike.
-// A restore writes an earlier row's text back through the normal route and
-// gets its own row. A refused write keeps no text.
+// stored text after the write in its audit row, for humans and agents alike,
+// so a restore can write an earlier row's text back through the same route.
+//
+// One row per write route below. office.setSettings and users.update keep
+// their prompt-text rows in routes-office-settings-rest and routes-users-rest;
+// a refused write adds no row (route-executor "executor audit").
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -103,24 +106,6 @@ async function bodyOf<T>(
   return res.body as T;
 }
 
-const officePrompt: Surface = {
-  operation: "office.setSettings",
-  target: () => "office",
-  write: async (o, auth, text) => {
-    const { version } = await bodyOf<{ version: string }>(
-      o,
-      "/api/office/settings",
-    );
-    return (
-      await call(o.srv, "PUT", "/api/office/settings", {
-        ...auth,
-        body: { prompt: text, version },
-      })
-    ).status;
-  },
-  stored: (o) => o.srv.agentManager.getOfficeSettings().prompt,
-};
-
 const roomPrompt: Surface = {
   operation: "rooms.setSettings",
   target: (o) => o.roomId,
@@ -157,24 +142,6 @@ const agentInstructions: Surface = {
   stored: (o) => o.srv.agentManager.getAgent(targetAgentId)!.customInstructions,
 };
 
-const memberPrompt: Surface = {
-  operation: "users.update",
-  target: (o) => getUserByName(o.member.username)!.id,
-  write: async (o, auth, text) => {
-    const path = `/api/users/${o.member.username}`;
-    const { memberPromptVersion } = await bodyOf<{
-      memberPromptVersion: string;
-    }>(o, `${path}/member-prompt`);
-    return (
-      await call(o.srv, "PATCH", path, {
-        ...auth,
-        body: { memberPrompt: text, memberPromptVersion },
-      })
-    ).status;
-  },
-  stored: (o) => getUserByName(o.member.username)!.memberPrompt,
-};
-
 // The same surfaces through their instructions routes (task 379ae5db).
 function instructionsRoute(
   operation: string,
@@ -201,8 +168,8 @@ function instructionsRoute(
 const officeInstructions = instructionsRoute(
   "office.setInstructions",
   () => "/api/office/instructions",
-  officePrompt.target,
-  officePrompt.stored,
+  () => "office",
+  (o) => o.srv.agentManager.getOfficeSettings().prompt,
 );
 const roomInstructions = instructionsRoute(
   "rooms.setInstructions",
@@ -219,26 +186,9 @@ const agentInstructionsRoute = instructionsRoute(
 const memberInstructions = instructionsRoute(
   "users.setInstructions",
   (o) => `/api/users/${o.member.username}/instructions`,
-  memberPrompt.target,
-  memberPrompt.stored,
+  (o) => getUserByName(o.member.username)!.id,
+  (o) => getUserByName(o.member.username)!.memberPrompt,
 );
-
-// The agent PATCH with the new field names.
-const agentInstructionsField: Surface = {
-  ...agentInstructions,
-  write: async (o, auth, text) => {
-    const { version } = await bodyOf<{ version: string }>(
-      o,
-      `/api/agents/${targetAgentId}/instructions`,
-    );
-    return (
-      await call(o.srv, "PATCH", `/api/agents/${targetAgentId}`, {
-        ...auth,
-        body: { instructions: text, instructionsVersion: version },
-      })
-    ).status;
-  },
-};
 
 async function spawnTarget(o: Office): Promise<void> {
   const res = await call(o.srv, "POST", "/api/agents", {
@@ -255,85 +205,43 @@ async function spawnTarget(o: Office): Promise<void> {
   targetAgentId = (res.body as { agent: { id: string } }).agent.id;
 }
 
-describe.each([
-  ["office prompt", officePrompt],
-  ["room prompt", roomPrompt],
-  ["agent custom instructions", agentInstructions],
-  ["member special instructions", memberPrompt],
-  ["office instructions route", officeInstructions],
-  ["room instructions route", roomInstructions],
-  ["agent instructions route", agentInstructionsRoute],
-  ["member instructions route", memberInstructions],
-  ["agent instructions field", agentInstructionsField],
-] as const)("%s", (_label, surface) => {
-  it("keeps the text after each write, names the writer, and restores an earlier text", async () => {
+describe("rows that keep prompt text", () => {
+  it("each prompt route keeps the stored text after the write, and an empty text after a clear", async () => {
     const o = await office();
     await spawnTarget(o);
     const asAgent = { bearer: o.agent };
-    const asOwner = { session: o.morgan.rawSessionId };
-
-    expect(await surface.write(o, asAgent, "Text A")).toBeLessThan(300);
-    expect(await surface.write(o, asOwner, "Text B")).toBeLessThan(300);
-    expect(surface.stored(o)).toBe("Text B");
-
-    const written = (await rows(o, surface.operation)).filter((row) =>
-      row.targets.includes(surface.target(o)),
-    );
-    expect(written.map((row) => row.promptContent)).toEqual([
-      "Text B",
-      "Text A",
-    ]);
-    expect(written[1].actor).toEqual(
-      expect.objectContaining({
-        kind: "agent",
-        id: "morgan-privileged",
-        ownerId: o.morganId,
-      }),
-    );
-    expect(written[0].actor).toEqual(
-      expect.objectContaining({ kind: "member", id: o.morganId }),
-    );
-
-    // Restore: the agent writes row A's text back through the same route.
-    expect(
-      await surface.write(o, asAgent, written[1].promptContent!),
-    ).toBeLessThan(300);
-    expect(surface.stored(o)).toBe("Text A");
-    const restored = (await rows(o, surface.operation)).filter((row) =>
-      row.targets.includes(surface.target(o)),
-    )[0];
-    expect(restored.sequence).toBeGreaterThan(written[0].sequence);
-    expect(restored.promptContent).toBe("Text A");
-    expect(restored.actor.kind).toBe("agent");
-
-    // A cleared prompt keeps "".
-    expect(await surface.write(o, asOwner, "")).toBeLessThan(300);
-    expect(
-      (await rows(o, surface.operation)).filter((row) =>
-        row.targets.includes(surface.target(o)),
-      )[0].promptContent,
-    ).toBe("");
+    for (const [label, surface] of [
+      ["office instructions route", officeInstructions],
+      ["room prompt", roomPrompt],
+      ["room instructions route", roomInstructions],
+      ["agent custom instructions", agentInstructions],
+      ["agent instructions route", agentInstructionsRoute],
+      ["member instructions route", memberInstructions],
+    ] as const) {
+      const newest = async () =>
+        (await rows(o, surface.operation)).find((row) =>
+          row.targets.includes(surface.target(o)),
+        );
+      const text = `Text for ${label}`;
+      expect([label, (await surface.write(o, asAgent, text)) < 300]).toEqual([
+        label,
+        true,
+      ]);
+      expect([label, surface.stored(o)]).toEqual([label, text]);
+      expect([label, (await newest())?.promptContent]).toEqual([label, text]);
+      const before = (await newest())!.sequence;
+      expect(await surface.write(o, asAgent, "")).toBeLessThan(300);
+      const cleared = await newest();
+      expect([
+        label,
+        cleared!.sequence > before,
+        cleared!.promptContent,
+      ]).toEqual([label, true, ""]);
+    }
   });
 });
 
 describe("rows that keep no prompt text", () => {
-  it("a refused write keeps no row and no text", async () => {
-    const o = await office();
-    expect(await officePrompt.write(o, { bearer: o.agent }, "Kept")).toBe(204);
-    const before = await rows(o, "office.setSettings");
-    const stale = await call(o.srv, "PUT", "/api/office/settings", {
-      bearer: o.agent,
-      body: { prompt: "Refused", version: "000000000000" },
-    });
-    expect(stale.status).toBe(409);
-    const after = await rows(o, "office.setSettings");
-    expect(after.map((row) => row.sequence)).toEqual(
-      before.map((row) => row.sequence),
-    );
-    expect(after.map((row) => row.promptContent)).not.toContain("Refused");
-    expect(officePrompt.stored(o)).toBe("Kept");
-  });
-
   it("a write that does not touch a prompt keeps no text", async () => {
     const o = await office();
     await spawnTarget(o);
@@ -363,6 +271,8 @@ describe("rows that keep no prompt text", () => {
     ).toBe(204);
     for (const operation of ["agents.update", "users.update", "rooms.rename"]) {
       const [row] = await rows(o, operation);
+      // The row exists: the absence is of the text, not of the row.
+      expect([operation, row?.operation]).toEqual([operation, operation]);
       expect([operation, Object.keys(row).includes("promptContent")]).toEqual([
         operation,
         false,
@@ -391,6 +301,7 @@ describe("rows that keep no prompt text", () => {
         ownerId: o.morganId,
       }),
     );
+    expect(Object.keys(byName("Plain"))).toContain("operation");
     expect(Object.keys(byName("Plain"))).not.toContain("promptContent");
   });
 

@@ -4,7 +4,7 @@ export const APP_FAVICON_PATH = "/favicon.ico";
 
 // Keep app tabs in the Isomux family without making every tab the same green.
 // The name is stable across process and browser restarts, so its color is too.
-export function appAccentHue(name: string): number {
+function appAccentHue(name: string): number {
   let hash = 2166136261;
   for (let i = 0; i < name.length; i++) {
     hash ^= name.charCodeAt(i);

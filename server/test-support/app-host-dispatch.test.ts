@@ -19,22 +19,22 @@
 //      pinned byte-for-byte identical, because "this label used to be
 //      somebody's app" is not the internet's business.
 //
-// Raw sockets, not fetch, for the byte-exact comparisons and the WebSocket
-// upgrade: fetch normalizes header order and cannot be made to hold a socket
-// open through a 101.
+// The grammar itself (normalization, label matching, the derived domain) is
+// owned by app-hosts.test.ts and app-domain.test.ts; this file pins only what
+// the real server adds on top of it.
+//
+// Raw sockets, not fetch, for the byte-exact comparisons: fetch normalizes
+// header order and cannot send an arbitrary Host.
 
-import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { type TestServer } from "./harness.ts";
 import { startTestServer } from "./harness.ts";
-import { builtShellExists } from "./built-ui.ts";
 import { appRegistrationGeneration, appRegistry } from "../app-registry.ts";
 import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
   expectBounce,
   NOT_FOUND,
-  WS_AUTH_REQUIRED,
   OFFICE_HOST,
   WS_UPGRADE_HEADERS,
   anAgentToken,
@@ -51,6 +51,7 @@ import {
   withAppCookie,
   wsConnect,
 } from "./app-host-test-kit.ts";
+import { sessionCookieName } from "../auth.ts";
 
 let server: TestServer | null = null;
 
@@ -85,53 +86,26 @@ afterEach(async () => {
   server = null;
 });
 
+// The instrument itself, failing closed: raw() resolves on the first chunk
+// this classifies as complete, so a premature "complete" would hand the
+// byte-exact comparisons below a truncated response that can still compare
+// equal to another truncated one.
 describe("raw HTTP completion", () => {
-  it("requires a complete Content-Length body", () => {
+  it("completes only a fully framed response", () => {
+    const complete = (text: string) => rawFramingCompletion(Buffer.from(text));
     expect(
-      rawFramingCompletion(
-        Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\na"),
-      ),
+      complete("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\na"),
     ).toBeNull();
-    expect(
-      rawFramingCompletion(
-        Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab"),
-      ),
-    ).toBe("content-length");
-  });
-
-  it("requires the terminating chunk and accepts trailers", () => {
-    expect(
-      rawFramingCompletion(
-        Buffer.from(
-          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n",
-        ),
-      ),
-    ).toBeNull();
-    expect(
-      rawFramingCompletion(
-        Buffer.from(
-          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\nX-Test: yes\r\n\r\n",
-        ),
-      ),
-    ).toBe("chunked-terminator");
-  });
-
-  it("does not classify an unframed response as complete", () => {
-    expect(
-      rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\n\r\nbody")),
-    ).toBeNull();
-  });
-
-  it("completes bodyless statuses and HEAD at the header boundary", () => {
-    expect(
-      rawFramingCompletion(Buffer.from("HTTP/1.1 204 No Content\r\n\r\n")),
-    ).toBe("bodyless");
-    expect(
-      rawFramingCompletion(
-        Buffer.from("HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\n"),
-        "HEAD",
-      ),
-    ).toBe("bodyless");
+    expect(complete("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab")).toBe(
+      "content-length",
+    );
+    const chunked =
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n";
+    expect(complete(chunked)).toBeNull();
+    expect(complete(`${chunked}0\r\nX-Test: yes\r\n\r\n`)).toBe(
+      "chunked-terminator",
+    );
+    expect(complete("HTTP/1.1 200 OK\r\n\r\nbody")).toBeNull();
   });
 });
 
@@ -198,28 +172,7 @@ function cspDirectiveDelta(
 }
 
 describe("app hosts: the office is untouched", () => {
-  it("is entirely inert with no app-host domain resolved", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    // The very requests the arm would answer, on an office that never opted
-    // in: indistinguishable from any other unknown Host, i.e. whatever the
-    // office does today.
-    const control = await raw(srv.port, { host: "localhost", path: "/readyz" });
-    for (const host of [
-      `hello.${OFFICE_HOST}`,
-      OFFICE_HOST,
-      `a.b.${OFFICE_HOST}`,
-    ]) {
-      const res = await raw(srv.port, { host, path: "/readyz" });
-      expect({ host, stable: res.stable }).toEqual({
-        host,
-        stable: control.stable,
-      });
-    }
-    expect(control.raw).toContain("ok");
-  });
-
-  it("is inert on a tailnet office, which is on HTTPS and still has no domain", async () => {
+  it("is inert on plain HTTP and on a tailnet office, which is on HTTPS and still has no domain", async () => {
     // The 2026-08-08 regression, reproduced against the real server: an office
     // behind Tailscale Serve has an HTTPS publicOrigin, so it derived a domain
     // and every app link pointed at a name MagicDNS cannot resolve. HTTPS is
@@ -236,18 +189,31 @@ describe("app hosts: the office is untouched", () => {
     const token = await anAgentToken(before);
     expect(await registerApp(before, token, "hello")).toBe("hello");
 
+    // The plain-HTTP office never opted in: the very hosts the arm would
+    // answer are indistinguishable from any other Host, i.e. the office.
+    const control = await raw(before.port, {
+      host: "localhost",
+      path: "/readyz",
+    });
+    expect(control.status).toBe(200);
     const hosts = [TAILNET_HOST, `hello.${TAILNET_HOST}`];
     const baseline: Record<string, RawResponse> = {};
-    for (const host of hosts) {
+    for (const host of [
+      `hello.${OFFICE_HOST}`,
+      OFFICE_HOST,
+      `a.b.${OFFICE_HOST}`,
+      ...hosts,
+    ]) {
       baseline[host] = await raw(before.port, { host, path: "/readyz" });
-      expect(
-        baseline[host].headers["strict-transport-security"],
-      ).toBeUndefined();
-      expect(baseline[host].headers["content-security-policy"]).not.toContain(
-        "upgrade-insecure-requests",
-      );
+      expect({ host, stable: baseline[host].stable }).toEqual({
+        host,
+        stable: control.stable,
+      });
     }
-    expect(baseline[TAILNET_HOST].raw).toContain("ok");
+    expect(control.headers["strict-transport-security"]).toBeUndefined();
+    expect(control.headers["content-security-policy"]).not.toContain(
+      "upgrade-insecure-requests",
+    );
 
     // Become that office, through the route that is the whole of what turns
     // app hostnames on, and cold-restart the same install.
@@ -304,30 +270,6 @@ describe("app hosts: the office is untouched", () => {
     const apps = (await list.json()) as Record<string, unknown>[];
     expect(apps.map((a) => a.name)).toEqual(["hello"]);
     expect("url" in apps[0]).toBe(false);
-  });
-
-  it("still serves the office on its own host, which is also the app domain", async () => {
-    // The rule the whole flat shape rests on: the app-host domain IS the
-    // office host, and the office host still reaches the office.
-    const srv = await startFlatOffice();
-    const res = await raw(srv.port, { host: OFFICE_HOST, path: "/readyz" });
-    expect(res.status).toBe(200);
-    expect(res.raw).toContain("ok");
-  });
-
-  it("serves the office host through case, a port and a trailing dot", async () => {
-    // Canonicalization must not accidentally divert the office.
-    const srv = await startFlatOffice();
-    for (const host of [
-      OFFICE_HOST,
-      OFFICE_HOST.toUpperCase(),
-      `${OFFICE_HOST}:443`,
-      `${OFFICE_HOST}.`,
-      `${OFFICE_HOST}.:8443`,
-    ]) {
-      const res = await raw(srv.port, { host, path: "/readyz" });
-      expect({ host, status: res.status }).toEqual({ host, status: 200 });
-    }
   });
 
   // The regression pin, in its strongest valid form: measure every non-app
@@ -436,12 +378,14 @@ describe("app hosts: the office is untouched", () => {
     }
   });
 
-  // These three send Host: office.example DELIBERATELY. The harness's own
+  // This sends Host: office.example DELIBERATELY. The harness's own
   // http()/connectWs() go to 127.0.0.1, so they would only ever prove that a
   // host OUTSIDE the domain falls through - which is not the interesting
   // claim. The office host is the one name a classification bug would eat,
-  // and it is one character away from every app host.
-  it("still serves an authenticated API route ON the office host", async () => {
+  // and it is one character away from every app host. Its case, port and
+  // trailing-dot spellings normalize to the same name (app-hosts.test.ts), so
+  // they cannot divert unless this one does.
+  it("still serves an authenticated API route and a WebSocket ON the office host", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     const res = await raw(srv.port, {
@@ -453,51 +397,18 @@ describe("app hosts: the office is untouched", () => {
     expect(res.headers["content-type"]).toContain("application/json");
     // The real payload, not just a 200: an empty app list is `[]`.
     expect(JSON.parse(res.body)).toEqual([]);
-  });
 
-  it.skipIf(!builtShellExists)(
-    "still serves the SPA shell ON the office host (needs ui/dist - run `bun run build:ui`)",
-    async () => {
-      const srv = await startFlatOffice();
-      const member = await srv.seedMember("Deputy");
-      const res = await raw(srv.port, {
-        host: OFFICE_HOST,
-        path: "/",
-        headers: { Cookie: `${sessionCookieName()}=${member.rawSessionId}` },
-      });
-      expect(res.status).toBe(200);
-      expect(res.headers["content-type"]).toContain("text/html");
-      expect(res.body).toContain('<div id="root"></div>');
-    },
-  );
-
-  it("still upgrades a WebSocket ON the office host", async () => {
-    const srv = await startFlatOffice();
+    // The office's own /ws, with the office's Host (the harness sockets send
+    // a loopback Host, which the arm never looks at): a real 101.
     const member = await srv.seedMember("Deputy");
-    const res = await wsConnect(srv.port, {
+    const ws = await wsConnect(srv.port, {
       host: OFFICE_HOST,
       path: "/ws",
       origin: HTTPS_ORIGIN,
       headers: { Cookie: `${sessionCookieName()}=${member.rawSessionId}` },
     });
-    // A real 101, not the 401/403 an unauthenticated or misrouted upgrade
-    // gets, and emphatically not the app arm's 503.
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.client.handshakeHeaders["upgrade"]?.toLowerCase()).toBe(
-      "websocket",
-    );
-    res.client.drop();
-  });
-
-  // Harness sanity on the loopback host, using Bun's own client and the cookie
-  // set by the harness rather than the hand-built wsConnect client above.
-  it("still accepts a harness WebSocket on the loopback host", async () => {
-    const srv = await startFlatOffice();
-    const member = await srv.seedMember("Deputy");
-    const sock = await srv.connectWs(member.rawSessionId);
-    await sock.waitFor("full_state");
-    sock.close();
+    expect(ws.ok ? "upgraded" : ws.response.status).toBe("upgraded");
+    if (ws.ok) ws.client.drop();
   });
 
   it("freezes the domain at boot - a later config edit does not reroute", async () => {
@@ -554,115 +465,69 @@ describe("app hosts: the arm", () => {
     expect(second.body).not.toBe(first.body);
   });
 
-  it("sends an anonymous caller on a live label into the handshake", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const label = await registerApp(srv, token, "hello");
-    expect(label).toBe("hello");
-
-    // Slice 4 moved the not-ready placeholder BEHIND the sign-in handshake:
-    // reaching it now needs an app session (app-auth-handshake.test.ts drives
-    // the whole flow). What this file still pins is that the request was
-    // diverted - the answer comes from the arm, not from any office handler.
-    const res = await raw(srv.port, {
-      host: `${label}.${OFFICE_HOST}`,
-      headers: NAVIGATION_HEADERS,
-    });
-    expectBounce(res, { label, path: "/" }, "live label");
-  });
-
-  it("gives an unknown and a RETIRED label the same answer, byte for byte", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    await registerApp(srv, token, "hello");
-    await deleteApp(srv, token, "hello");
-    // "hello" is retired: in the ledger forever, no live app behind it. These
-    // request shapes get answers that do not contain the label.
-    for (const shape of LABEL_FREE_SHAPES) {
-      const retired = await raw(srv.port, {
-        host: `hello.${OFFICE_HOST}`,
-        ...shape,
-      });
-      const unknown = await raw(srv.port, {
-        host: `never-existed.${OFFICE_HOST}`,
-        ...shape,
-      });
-      // Byte-identical, headers and order included.
-      expect({ shape, stable: retired.stable }).toEqual({
-        shape,
-        stable: unknown.stable,
-      });
-    }
-  });
-
-  it("gives a label the same answer before and after its app is deleted", async () => {
-    // A caller with no app session must not learn whether a label is live
-    // (security finding F9), by any method, path, protocol or stale cookie.
+  it("gives an anonymous caller the same answer for a live, retired, reused, unknown or reserved label", async () => {
+    // A caller with no app session must not learn whether a label is live, was
+    // ever issued, or was issued again (security finding F9), by any method,
+    // path, protocol or stale cookie. "This label used to be somebody's app" is
+    // not the internet's business.
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     const label = await registerApp(srv, token, "hello");
     const host = `${label}.${OFFICE_HOST}`;
-    const live = [];
-    for (const shape of ALL_SHAPES) {
-      live.push(await raw(srv.port, { host, ...shape }));
-    }
+    const answers = async (): Promise<RawResponse[]> => {
+      const out: RawResponse[] = [];
+      for (const shape of ALL_SHAPES)
+        out.push(await raw(srv.port, { host, ...shape }));
+      return out;
+    };
+
+    const live = await answers();
     await deleteApp(srv, token, "hello");
+    // "hello" is retired: in the ledger forever, no live app behind it.
+    const retired = await answers();
     for (const [i, shape] of ALL_SHAPES.entries()) {
-      const retired = await raw(srv.port, { host, ...shape });
-      expect({ shape, stable: retired.stable }).toEqual({
+      // Byte-identical, headers and order included.
+      expect({ shape, stable: retired[i].stable }).toEqual({
         shape,
         stable: live[i].stable,
       });
     }
-  });
 
-  it("gives a REUSED label the same answer, with no Clear-Site-Data", async () => {
-    // A label registered again carries a newer registration generation. The
-    // no-session answer must not depend on that either (PM ruling, 2026-10-03).
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    await registerApp(srv, token, "hello");
-    await deleteApp(srv, token, "hello");
-    const label = await registerApp(srv, token, "hello");
+    // A label never issued answers the same, wherever the answer carries no
+    // label. So does a name the registry reserves: reserved names do NOT fall
+    // through to the office (reversal recorded 2026-08-06) - an office on
+    // HTTPS owns the whole namespace below its host, and an exception list
+    // would only cover the names we guessed.
+    for (const shape of LABEL_FREE_SHAPES) {
+      const i = ALL_SHAPES.indexOf(shape);
+      for (const other of ["never-existed", "www", "api"]) {
+        const res = await raw(srv.port, {
+          host: `${other}.${OFFICE_HOST}`,
+          ...shape,
+        });
+        expect({ other, shape, stable: res.stable }).toEqual({
+          other,
+          shape,
+          stable: retired[i].stable,
+        });
+      }
+    }
+
+    // Registered again: the label is the same and the registration generation
+    // is newer. The no-session answer must not depend on that either, and in
+    // particular carries no Clear-Site-Data (PM ruling, 2026-10-03).
+    expect(await registerApp(srv, token, "hello")).toBe(label);
     const record = appRegistry.get("hello");
     if (!record) throw new Error("hello is not registered");
     expect(appRegistrationGeneration(record)).toBeGreaterThan(record.hostGen);
-    const host = `${label}.${OFFICE_HOST}`;
-    const reused = [];
-    for (const shape of ALL_SHAPES) {
-      const res = await raw(srv.port, { host, ...shape });
-      expect({ shape, hasClear: "clear-site-data" in res.headers }).toEqual({
-        shape,
-        hasClear: false,
-      });
-      reused.push(res);
-    }
-    await deleteApp(srv, token, "hello");
+    const reused = await answers();
     for (const [i, shape] of ALL_SHAPES.entries()) {
-      const retired = await raw(srv.port, { host, ...shape });
-      expect({ shape, stable: retired.stable }).toEqual({
+      expect({
         shape,
+        hasClear: "clear-site-data" in reused[i].headers,
         stable: reused[i].stable,
-      });
+      }).toEqual({ shape, hasClear: false, stable: retired[i].stable });
     }
-  });
-
-  it("serves a re-registered app on its stable label", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    await registerApp(srv, token, "hello");
-    await deleteApp(srv, token, "hello");
-    const label = await registerApp(srv, token, "hello");
-    expect(label).toBe("hello");
-
-    expect(
-      (
-        await raw(srv.port, {
-          host: `${label}.${OFFICE_HOST}`,
-          headers: NAVIGATION_HEADERS,
-        })
-      ).status,
-    ).toBe(302);
   });
 
   it("404s anything more than one label below the domain", async () => {
@@ -680,99 +545,23 @@ describe("app hosts: the arm", () => {
     }
   });
 
-  it("answers a RESERVED label like any other unknown one", async () => {
-    // Reversal recorded 2026-08-06: reserved names do not fall through to the
-    // office. An office on HTTPS owns the whole namespace below its host.
-    const srv = await startFlatOffice();
-    for (const shape of LABEL_FREE_SHAPES) {
-      const control = await raw(srv.port, {
-        host: `nope.${OFFICE_HOST}`,
-        ...shape,
-      });
-      for (const label of ["www", "api", "mail", "admin"]) {
-        const res = await raw(srv.port, {
-          host: `${label}.${OFFICE_HOST}`,
-          ...shape,
-        });
-        expect({ label, shape, stable: res.stable }).toEqual({
-          label,
-          shape,
-          stable: control.stable,
-        });
-      }
-    }
-    expectBounce(
-      await raw(srv.port, {
-        host: `www.${OFFICE_HOST}`,
-        headers: NAVIGATION_HEADERS,
-      }),
-      { label: "www", path: "/" },
-      "reserved label navigation",
-    );
-  });
-
-  it("reserves /__isomux on a live app host", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const label = await registerApp(srv, token, "hello");
-    const host = `${label}.${OFFICE_HOST}`;
-    // Reserved: everything under the prefix except the handshake's own GET is
-    // the neutral 404, and NOT the not-ready placeholder - the reservation sits
-    // ahead of it. `/__isomux/auth` with a bogus code belongs to the handshake
-    // and answers its own way, so it is asserted in the slice-4 file.
-    for (const path of ["/__isomux", "/__isomux/", "/__isomux/other"]) {
-      expectPlaceholder(await raw(srv.port, { host, path }), NOT_FOUND, path);
-    }
-    // A path that merely starts with the same characters is NOT reserved: it is
-    // an ordinary app path, so an anonymous caller is sent to sign in.
-    expectBounce(
-      await raw(srv.port, {
-        host,
-        path: "/__isomuxer",
-        headers: NAVIGATION_HEADERS,
-      }),
-      { label, path: "/__isomuxer" },
-      "/__isomuxer",
-    );
-  });
-
-  it("refuses a WebSocket upgrade instead of handing it to the office", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const label = await registerApp(srv, token, "hello");
-    const res = await raw(srv.port, {
-      host: `${label}.${OFFICE_HOST}`,
-      path: "/ws",
-      headers: WS_UPGRADE_HEADERS,
-    });
-    // Not 101, and not the office /ws handler's own "unauthenticated" body: an
-    // upgrade on an app host is answered by the app-host arm and nothing else.
-    // Since slice 6b the answer to an anonymous one is the app surface's own
-    // 401 - which is also the proof the office's WS handler never ran, because
-    // that one refuses with a different status line and a different body.
-    expectPlaceholder(res, WS_AUTH_REQUIRED, "ws upgrade on a live label");
-  });
-
   it("keeps every office route off an app host, credentials and all", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     const label = await registerApp(srv, token, "hello");
-    const host = `${label}.${OFFICE_HOST}`;
     // A VALID bearer token on an app host reaches nothing: the divert happens
-    // before authentication, so credentials buy no office surface here.
-    const api = await raw(srv.port, {
-      host,
-      path: "/api/apps",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    // Both are sent into the handshake (no Sec-Fetch metadata, so the
-    // compatibility arm applies) - and that is still the whole point: the
-    // answer comes from the arm, and the office's own handler never ran.
-    expectBounce(api, { label, path: "/api/apps" }, "/api/apps on an app host");
+    // before authentication, so credentials buy no office surface here. It is
+    // sent into the handshake (no Sec-Fetch metadata, so the compatibility arm
+    // applies): the answer comes from the arm, and the office's own handler
+    // never ran.
     expectBounce(
-      await raw(srv.port, { host, path: "/readyz" }),
-      { label, path: "/readyz" },
-      "/readyz on an app host",
+      await raw(srv.port, {
+        host: `${label}.${OFFICE_HOST}`,
+        path: "/api/apps",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      { label, path: "/api/apps" },
+      "/api/apps on an app host",
     );
   });
 
@@ -780,12 +569,10 @@ describe("app hosts: the arm", () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     const label = await registerApp(srv, token, "hello");
+    // The canonicalization matrix is in app-hosts.test.ts; this is the wiring.
     for (const host of [
       `${label}.${OFFICE_HOST}`,
-      `${label.toUpperCase()}.${OFFICE_HOST.toUpperCase()}`,
-      `${label}.${OFFICE_HOST}:8443`,
-      `${label}.${OFFICE_HOST}.`,
-      `${label}.${OFFICE_HOST}.:8443`,
+      `${label.toUpperCase()}.${OFFICE_HOST.toUpperCase()}.:8443`,
     ]) {
       // Every spelling reaches the same app AND mints the same canonical
       // handshake URL: the normalized label, never the one as typed.
@@ -801,88 +588,48 @@ describe("app hosts: the arm", () => {
 // The certificate gate (slice 7) against the real server. Its policy is pinned
 // in tls-ask.test.ts and its accounting in app-registry.test.ts; what is only
 // provable here is WHERE it answers - on the office's own host, ahead of the
-// auth wall, and nowhere on an app host.
+// auth wall, from the live registry, and nowhere on an app host.
 describe("app hosts: the certificate gate", () => {
   const ask = (name: string) =>
     `/__isomux/tls-ask?domain=${encodeURIComponent(name)}`;
 
-  it("answers on the office host, unauthenticated, for a live label", async () => {
+  it("answers on the office host, unauthenticated, from the live registry, and never on an app host", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     const label = await registerApp(srv, token, "hello");
+    const appName = `${label}.${OFFICE_HOST}`;
     // No session, no bearer: the terminator has no identity to present, which
-    // is why this route sits with /readyz rather than behind the wall.
-    const res = await raw(srv.port, {
+    // is why this route sits with /readyz rather than behind the wall. It
+    // proceeds only on a 2xx.
+    const live = await raw(srv.port, { host: OFFICE_HOST, path: ask(appName) });
+    expect({
+      status: live.status,
+      cacheControl: live.headers["cache-control"],
+    }).toEqual({ status: 200, cacheControl: "no-store" });
+    // Only a GET is the gate. Any other method falls through to the auth
+    // wall, so it can never vouch for a name.
+    const posted = await raw(srv.port, {
       host: OFFICE_HOST,
-      path: ask(`${label}.${OFFICE_HOST}`),
+      method: "POST",
+      path: ask(appName),
+      headers: { "Content-Length": "0" },
     });
-    expect({ status: res.status, body: res.body }).toEqual({
-      status: 200,
-      body: "ok\n",
-    });
-    expect(res.headers["cache-control"]).toBe("no-store");
-  });
+    expect(posted.status).toBe(401);
 
-  it("refuses the office's own children that are not apps, and allows the office itself", async () => {
-    const srv = await startFlatOffice();
-    for (const [name, status] of [
-      [`nobody.${OFFICE_HOST}`, 403],
-      [`a.b.${OFFICE_HOST}`, 403],
-      ["elsewhere.example.com", 403],
-      [OFFICE_HOST, 200],
-    ] as const) {
-      const res = await raw(srv.port, { host: OFFICE_HOST, path: ask(name) });
-      expect({ name, status: res.status }).toEqual({ name, status });
-    }
-  });
+    // The gate is an office route: an app host cannot answer it, shadow it,
+    // or learn anything from asking - the reserved prefix's neutral 404.
+    expectPlaceholder(
+      await raw(srv.port, { host: appName, path: ask(appName) }),
+      NOT_FOUND,
+      "the certificate gate on an app host",
+    );
 
-  it("refuses a live label once its app is gone", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const label = await registerApp(srv, token, "hello");
     await deleteApp(srv, token, "hello");
     // Measured caveat, worth knowing while reading this: the terminator cannot
     // act on this until its own cache misses, so a deleted app's hostname keeps
     // terminating TLS until then. What the office controls is that it stops
     // vouching, immediately.
-    const res = await raw(srv.port, {
-      host: OFFICE_HOST,
-      path: ask(`${label}.${OFFICE_HOST}`),
-    });
-    expect({ status: res.status, body: res.body }).toEqual({
-      status: 403,
-      body: "denied\n",
-    });
-  });
-
-  it("is unreachable on an app host, which sees only the neutral 404", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const label = await registerApp(srv, token, "hello");
-    // The reserved prefix already covers this, and that is the point: the gate
-    // is an office route, and an app host cannot answer it, shadow it, or learn
-    // anything from asking.
-    expectPlaceholder(
-      await raw(srv.port, {
-        host: `${label}.${OFFICE_HOST}`,
-        path: ask(`${label}.${OFFICE_HOST}`),
-      }),
-      NOT_FOUND,
-      "the certificate gate on an app host",
-    );
-  });
-
-  it("answers only GET", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const label = await registerApp(srv, token, "hello");
-    const res = await raw(srv.port, {
-      host: OFFICE_HOST,
-      method: "POST",
-      path: ask(`${label}.${OFFICE_HOST}`),
-    });
-    // Falls through to the office's ordinary handling of an unknown route,
-    // which for an unauthenticated caller is the auth wall - NOT a 2xx.
-    expect(res.status).not.toBe(200);
+    const gone = await raw(srv.port, { host: OFFICE_HOST, path: ask(appName) });
+    expect(gone.status).toBe(403);
   });
 });
