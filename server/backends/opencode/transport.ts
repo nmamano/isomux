@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   openCodeErrorMessage,
+  openCodeProviderLine,
   openCodeProviderRefusal,
   openCodeRetryMessage,
 } from "./errors.ts";
@@ -37,7 +38,12 @@ import {
   EFFORT_LEVELS,
   type EffortLevel,
 } from "../../../shared/types.ts";
-import { msg } from "../../../shared/i18n/log-message.ts";
+import {
+  joinLogText,
+  msg,
+  type LogText,
+} from "../../../shared/i18n/log-message.ts";
+import { providerText } from "../provider-text.ts";
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
@@ -1062,9 +1068,17 @@ export class OpenCodeTransport {
     let overflowPending = false;
     let settled = false;
     // A turn that ends on a sign-in failure sends auth_needed first.
-    const settle = (event: NormalizedEvent): void => {
+    const settle = (
+      event: NormalizedEvent,
+      options: { authNeeded?: boolean } = {},
+    ): void => {
       if (settled) return;
       settled = true;
+      if (options.authNeeded) {
+        sink({ kind: "auth_needed" });
+        sink(event);
+        return;
+      }
       for (const out of authSignal(event, detectOpenCodeAuthError)) sink(out);
     };
     const fail = (error: unknown, context: string): void => {
@@ -1621,6 +1635,21 @@ export class OpenCodeTransport {
                 refusal === null
                   ? await this.classifyProviderFailure(event.error)
                   : null;
+              if (
+                failure === "authentication" ||
+                failure === "provider_not_connected"
+              ) {
+                const signIn = await this.signInFailure(event.error, failure);
+                settle(
+                  {
+                    kind: "turn_completed",
+                    status: "failed",
+                    error: signIn.error,
+                  },
+                  { authNeeded: signIn.authNeeded },
+                );
+                return;
+              }
               settle({
                 kind: "turn_completed",
                 status: "failed",
@@ -1628,9 +1657,7 @@ export class OpenCodeTransport {
                   refusal ??
                   (failure === "model_unavailable"
                     ? openCodeModelUnavailableFailure(this.model)
-                    : failure === "authentication"
-                      ? OPENCODE_AUTH_FAILURE
-                      : openCodeErrorMessage(event.error)),
+                    : openCodeErrorMessage(event.error)),
               });
               return;
             }
@@ -1916,7 +1943,8 @@ export class OpenCodeTransport {
     error: SafeOpenCodeError,
   ): Promise<OpenCodeProviderFailure> {
     if (error.statusCode === 403) return "model_unavailable";
-    if (error.statusCode === 401) return "authentication";
+    if (error.statusCode === 401 || error.name === "ProviderAuthError")
+      return "authentication";
     if (
       error.name !== "UnknownError" ||
       !error.message?.startsWith(openCodeModelNotFoundPrefix(this.model))
@@ -1927,10 +1955,50 @@ export class OpenCodeTransport {
       const connected = allowConnectedProviders(await response.json());
       return connected.includes(splitModel(this.model)[0])
         ? "model_unavailable"
-        : "authentication";
+        : "provider_not_connected";
     } catch {
       return null;
     }
+  }
+
+  // The sign-in line and its OPENCODE_API_KEY guidance only when that key
+  // would fix the failure: a model of a provider the key serves that is not
+  // free, on a server started without the key. Otherwise a free model's
+  // refusal, a rejected key or another provider's failure would read as
+  // missing sign-in (task 10a09ec8). OpenCode's own words go with either.
+  private async signInFailure(
+    error: SafeOpenCodeError,
+    failure: "authentication" | "provider_not_connected",
+  ): Promise<{ error: LogText; authNeeded: boolean }> {
+    const provider = splitModel(this.model)[0];
+    const words = providerText(error.message);
+    const withWords = (line: LogText): LogText =>
+      words === null
+        ? line
+        : joinLogText([line, openCodeProviderLine(provider, words)], "\n");
+    if (await this.needsOpenCodeKey(provider))
+      return { error: withWords(OPENCODE_AUTH_FAILURE), authNeeded: true };
+    if (failure === "provider_not_connected")
+      return {
+        error: withWords(openCodeModelUnavailableFailure(this.model)),
+        authNeeded: false,
+      };
+    return {
+      error:
+        words === null
+          ? openCodeErrorMessage(error)
+          : openCodeProviderLine(provider, words),
+      authNeeded: false,
+    };
+  }
+
+  private async needsOpenCodeKey(provider: string): Promise<boolean> {
+    if (!OPENCODE_KEY_PROVIDERS.has(provider)) return false;
+    if (this.lease?.hasLaunchVariable("OPENCODE_API_KEY") === true)
+      return false;
+    // A catalog that does not load, or a model it does not list, is not free.
+    const models = await this.withinCatalogWait(this.catalog()).catch(() => []);
+    return models.find((model) => model.id === this.model)?.isFree !== true;
   }
 }
 
@@ -2538,7 +2606,11 @@ function allowError(value: unknown): SafeOpenCodeError {
 export type OpenCodeProviderFailure =
   | "authentication"
   | "model_unavailable"
+  | "provider_not_connected"
   | null;
+
+// The providers OPENCODE_API_KEY signs in to: OpenCode Zen and OpenCode Go.
+const OPENCODE_KEY_PROVIDERS = new Set(["opencode", "opencode-go"]);
 
 function allowConnectedProviders(raw: unknown): string[] {
   const connected = asRecord(raw).connected;

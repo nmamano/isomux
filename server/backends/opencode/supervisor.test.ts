@@ -602,8 +602,9 @@ describe("OpenCode shared server supervisor", () => {
       OPENCODE_DISABLE_SHARE: "0",
       ISOMUX_OPENCODE_DEBUG: "1",
     };
-    const first = makeSupervisor(path, config, 1000, hostileAmbient, binary);
-    const second = makeSupervisor(path, config, 1000, hostileAmbient, binary);
+    const launchEnv = { ...hostileAmbient, OPENCODE_API_KEY: "zen-test-key" };
+    const first = makeSupervisor(path, config, 1000, launchEnv, binary);
+    const second = makeSupervisor(path, config, 1000, launchEnv, binary);
     const [leaseA, leaseB] = await Promise.all([
       first.acquire(),
       second.acquire(),
@@ -612,6 +613,12 @@ describe("OpenCode shared server supervisor", () => {
     expect(leaseA.serverKey, "an adoption keeps the server key").toBe(
       leaseB.serverKey,
     );
+    // Task 10a09ec8: the started and the adopted lease both know the key.
+    expect(
+      [leaseA, leaseB].map((lease) =>
+        lease.hasLaunchVariable("OPENCODE_API_KEY"),
+      ),
+    ).toStrictEqual([true, true]);
     // Both leases have completed health checks, so the launch record exists.
     // Count this test's launches; other suites can start or stop OpenCode.
     expect(await readFile(launchMarker, "utf8")).toBe(`${leaseA.pid}\n`);
@@ -931,7 +938,8 @@ describe("OpenCode shared server supervisor", () => {
       path,
       { share: "disabled" },
       1000,
-      { S4_ENV_CANARY: "before" },
+      // An empty value is no key (task 10a09ec8).
+      { S4_ENV_CANARY: "before", OPENCODE_API_KEY: "" },
       binary,
     );
     const long = await supervisor.acquire();
@@ -939,8 +947,14 @@ describe("OpenCode shared server supervisor", () => {
     const priorPid = long.pid;
     await expectChildEnvironment(priorPid, { S4_ENV_CANARY: "before" });
     expect(long.replacementPending).toBe(false);
+    expect(long.hasLaunchVariable("S4_ENV_CANARY")).toBe(true);
+    expect(long.hasLaunchVariable("OPENCODE_API_KEY")).toBe(false);
     supervisor.updateLaunchEnvironment(
-      { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "after" },
+      {
+        OPENCODE_CONFIG_DIR: memberDir,
+        S4_ENV_CANARY: "after",
+        OPENCODE_API_KEY: "zen-test-key",
+      },
       "revision-after",
     );
     const launches = async () =>
@@ -960,6 +974,10 @@ describe("OpenCode shared server supervisor", () => {
     expect(next.replacementPending, "the new turn uses the old settings").toBe(
       true,
     );
+    expect(
+      next.hasLaunchVariable("OPENCODE_API_KEY"),
+      "a saved key is not on the running server",
+    ).toBe(false);
     const models = await within(discoverOpenCodeModels(supervisor, path), 5000);
     expect(models).toEqual([expect.objectContaining({ id: "fake/m" })]);
     expect(alive(priorPid)).toBe(true);
@@ -985,6 +1003,10 @@ describe("OpenCode shared server supervisor", () => {
     );
     expect(after.replacementPending).toBe(false);
     await expectChildEnvironment(after.pid, { S4_ENV_CANARY: "after" });
+    expect(
+      [after, long].map((lease) => lease.hasLaunchVariable("OPENCODE_API_KEY")),
+      "the replacement and a retained lease have the key",
+    ).toStrictEqual([true, true]);
     after.endTurn();
     after.release();
     long.release();

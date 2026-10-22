@@ -829,12 +829,18 @@ JSONL.
 S2 pulls one narrow provider-discovery check forward from S5. When OC1 reports
 the observed no-credential `UnknownError` / selected-model-not-found shape, the
 transport queries the server's sanitized `connected` provider IDs on that error
-path only. A disconnected selected provider is authentication failure; a
-connected provider with a missing model is not. This prevents the current
-`opencode/fake` tracer model, deprecated models, and mistyped models from
-producing false login cards. Recorded 401 and 403 API errors remain structured
-authentication failures. Free-form error messages are used for classification
-but are never persisted.
+path only. A connected provider with a missing model is "model unavailable".
+This prevents the current `opencode/fake` tracer model, deprecated models, and
+mistyped models from producing false login cards.
+
+A `ProviderAuthError`, a 401, or a model-not-found with the provider not
+connected is a sign-in failure only when `OPENCODE_API_KEY` would fix it: the
+model is of `opencode` or `opencode-go`, the server process started without
+that key, and the kept catalog does not list the model as free (task
+10a09ec8). Only then does the transport send `auth_needed`. Otherwise the
+member reads OpenCode's message as the provider's words, under the "model
+unavailable" line for a provider that is not connected. A 403 is a provider
+refusal.
 
 Isomux does not keep a copy of the server's output below `STATE_ROOT`.
 OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in

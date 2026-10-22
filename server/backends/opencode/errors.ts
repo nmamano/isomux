@@ -31,6 +31,15 @@ export function openCodeProviderRefusal(
       ? /rate.?limit|too many requests|quota|usage limit/i.test(message)
       : status >= 400 && status <= 499 && status !== 401;
   if (!refused) return null;
+  return openCodeProviderLine(provider, message);
+}
+
+// The provider's words as the member reads them. `message` is already
+// providerText output.
+export function openCodeProviderLine(
+  provider: string,
+  message: string,
+): LogText {
   const line = providerRefusal(provider, message);
   return FREE_TIER_REFUSAL.test(message)
     ? [line, "\n", msg("systemEntries.openCodeFreeTierHint")]
@@ -50,8 +59,10 @@ export function openCodeErrorMessage(
   const message = error.message ?? "";
   if (error.name === "ContextOverflowError")
     return "The conversation is too long for this model.";
+  // A missing key is the transport's call (task 10a09ec8): a free model's
+  // refusal can arrive as this error too.
   if (error.name === "ProviderAuthError")
-    return "OpenCode authentication is not configured.";
+    return "OpenCode could not complete this turn.";
   if (error.statusCode === 429)
     return "The provider rate limit was reached (HTTP 429).";
   if (

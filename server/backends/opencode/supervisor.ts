@@ -108,6 +108,9 @@ export interface OpenCodeLease {
   // the /reload-plugins reply says that wait. The server.replace marker is
   // not read here: this getter is sync.
   readonly replacementPending: boolean;
+  // A non-empty value for this variable in the env this server process was
+  // started with. A saved variable reaches the server only when it is replaced.
+  hasLaunchVariable(name: string): boolean;
   // Ends the hold acquire() takes. Until then, or until beginTurn counts the
   // turn, or release(), a pending replacement does not stop this server.
   settle(): void;
@@ -155,6 +158,12 @@ export class OpenCodeSupervisor {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private record: ServerRecord | null = null;
+  // The variables with a value in the env each server process started with.
+  // An adopted server matched the environment revision, so it has that env.
+  private readonly recordLaunchVariables = new WeakMap<
+    ServerRecord,
+    ReadonlySet<string>
+  >();
   private unresponsive: { pid: number; afterPrompt: boolean } | null = null;
   // A member's reload waits for the replacement, like a stale record.
   private reloadRequested = false;
@@ -254,6 +263,8 @@ export class OpenCodeSupervisor {
       get replacementPending() {
         return replacementPending();
       },
+      hasLaunchVariable: (name: string): boolean =>
+        this.recordLaunchVariables.get(currentRecord())?.has(name) === true,
       settle: () => {
         entry?.();
         entry = null;
@@ -470,11 +481,11 @@ export class OpenCodeSupervisor {
     });
     await host.fs.chmod(configPath, 0o600);
     const password = randomBytes(32).toString("base64url");
+    const launchEnv = { ...host.baseEnv(), ...this.launchEnv };
     const { stdout, stderr, exitCode } = await host.run(this.helperCommand(), {
       cwd: this.serverCwd,
       env: {
-        ...host.baseEnv(),
-        ...this.launchEnv,
+        ...launchEnv,
         ...this.helperLockEnvironment(),
         ISOMUX_AGENT_TOKEN: undefined,
         // Debug capture is an operator-only process setting. An agent's
@@ -509,6 +520,14 @@ export class OpenCodeSupervisor {
     this.record = await this.readRecord();
     if (!this.record)
       throw new Error("OpenCode startup did not write its server record.");
+    this.recordLaunchVariables.set(
+      this.record,
+      new Set(
+        Object.entries(launchEnv)
+          .filter(([, value]) => value)
+          .map(([name]) => name),
+      ),
+    );
     if (this.record.pid !== this.unresponsive?.pid) this.unresponsive = null;
   }
 

@@ -35,6 +35,7 @@ import {
   openCodeProviderRefusal,
   openCodeRetryMessage,
 } from "./errors.ts";
+import { providerRefusal } from "../provider-text.ts";
 import toolInputSequences from "./fixtures/tool-input-sequences.json";
 
 type ToolUpdate = Parameters<typeof toolUpdateEvents>[1];
@@ -860,12 +861,19 @@ describe("OpenCode permission event integration", () => {
     connectedProviders: string[] = [],
     laterTurns: unknown[][] = [],
     stopOnText = false,
+    // The agent's model, the full /provider body (null: /provider fails)
+    // and the variables the lease's server was started with.
+    server: {
+      model?: string;
+      provider?: object | null;
+      launchVariables?: string[];
+    } = {},
   ) {
     const replies: unknown[] = [];
     const replyIds: string[] = [];
     const contexts: number[] = [];
     const turns = [frames, ...laterTurns];
-    const server = Bun.serve({
+    const http = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
@@ -880,7 +888,11 @@ describe("OpenCode permission event integration", () => {
           );
         }
         if (url.pathname === "/provider")
-          return Response.json({ connected: connectedProviders });
+          return server.provider === null
+            ? new Response("unavailable", { status: 500 })
+            : Response.json(
+                server.provider ?? { connected: connectedProviders },
+              );
         if (url.pathname === "/experimental/tool/ids")
           return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) return new Response(null);
@@ -895,8 +907,10 @@ describe("OpenCode permission event integration", () => {
     const supervisor = {
       acquire: async () => ({
         pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
+        baseUrl: `http://127.0.0.1:${http.port}`,
         authHeader: "Basic test",
+        hasLaunchVariable: (name: string) =>
+          (server.launchVariables ?? []).includes(name),
         settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
@@ -907,7 +921,7 @@ describe("OpenCode permission event integration", () => {
     } as unknown as OpenCodeSupervisor;
     const transport = new OpenCodeTransport({
       cwd: "/tmp",
-      model: "provider/model",
+      model: server.model ?? "provider/model",
       systemPrompt: "system",
       supervisor,
       sessionId: "session-1",
@@ -930,7 +944,7 @@ describe("OpenCode permission event integration", () => {
         await Bun.sleep(5);
     }
     transport.close();
-    await server.stop(true);
+    await http.stop(true);
     return { events, replies, replyIds, contexts };
   }
 
@@ -1253,33 +1267,259 @@ describe("OpenCode permission event integration", () => {
     });
   });
 
-  it("keeps the observed missing-auth failure classified as authentication", async () => {
-    const result = await runFrames([
-      {
-        type: "session.error",
-        properties: {
-          sessionID: "session-1",
-          error: {
-            name: "APIError",
-            data: {
-              message: "invalid gate credential",
-              statusCode: 401,
-              isRetryable: false,
-            },
+  // Task 10a09ec8: the sign-in line and its OPENCODE_API_KEY guidance only
+  // when that key would fix the failure: a model of OpenCode's own providers
+  // that is not free, on a server started without the key. Every other
+  // classified auth failure shows OpenCode's words, with no sign-in signal.
+  describe("sign-in failures", () => {
+    const catalog = (connected: string[]) => ({
+      connected,
+      all: [
+        {
+          id: "opencode",
+          name: "OpenCode Zen",
+          models: {
+            "free-model": { name: "Free", cost: { input: 0, output: 0 } },
+            "paid-model": { name: "Paid", cost: { input: 1, output: 5 } },
           },
         },
+        {
+          id: "opencode-go",
+          name: "OpenCode Go",
+          models: {
+            "go-model": { name: "Go", cost: { input: 1, output: 2 } },
+          },
+        },
+        {
+          id: "anthropic",
+          name: "Anthropic",
+          models: {
+            claude: { name: "Claude", cost: { input: 3, output: 15 } },
+          },
+        },
+      ],
+    });
+    const allConnected = catalog(["opencode", "opencode-go", "anthropic"]);
+    const key = ["OPENCODE_API_KEY"];
+    const keyMissing =
+      "OpenCode API key is missing. Pass it using the 'apiKey' parameter.";
+    const invalidKey = "Invalid API key for this request.";
+    // OpenCode 1.18.35 sends the AI SDK's LoadAPIKeyError as
+    // ProviderAuthError, and a provider's 401 as APIError.
+    const providerAuth = (message?: string) =>
+      frame("session.error", {
+        error: {
+          name: "ProviderAuthError",
+          data: { providerID: "opencode", ...(message ? { message } : {}) },
+        },
+      });
+    const unauthorized = (message?: string) =>
+      frame("session.error", {
+        error: {
+          name: "APIError",
+          data: {
+            statusCode: 401,
+            isRetryable: false,
+            ...(message ? { message } : {}),
+          },
+        },
+      });
+    const modelNotFound = (model: string) =>
+      `Model not found: ${model}. Did you mean: other`;
+    const notFound = (model: string) =>
+      frame("session.error", {
+        error: {
+          name: "UnknownError",
+          data: { message: modelNotFound(model) },
+        },
+      });
+
+    async function fail(
+      errorFrame: object,
+      server: {
+        model: string;
+        provider?: object | null;
+        launchVariables?: string[];
       },
-    ]);
-    // The sign-in signal comes first: the orchestrator reads it when the
-    // failed turn arrives.
-    expect(result.events.slice(-2)).toEqual([
-      { kind: "auth_needed" },
-      {
-        kind: "turn_completed",
-        status: "failed",
-        error: "OpenCode authentication is not configured.",
-      },
-    ]);
+    ) {
+      const { events } = await runFrames(
+        [errorFrame],
+        undefined,
+        [],
+        [],
+        false,
+        { provider: allConnected, ...server },
+      );
+      const ends = events.filter((event) => event.kind === "turn_completed");
+      expect(ends, "one failed turn ends the run").toHaveLength(1);
+      const end = events.at(-1) as Extract<
+        NormalizedEvent,
+        { kind: "turn_completed" }
+      >;
+      expect(end.kind).toBe("turn_completed");
+      expect(end.status).toBe("failed");
+      return {
+        events,
+        error: english(end.error!),
+        signIns: events.filter((event) => event.kind === "auth_needed").length,
+        signalFirst: events.at(-2)?.kind === "auth_needed",
+      };
+    }
+
+    const signIn = async (
+      errorFrame: object,
+      server: Parameters<typeof fail>[1],
+      message?: string,
+    ) => {
+      const result = await fail(errorFrame, server);
+      expect(result.signIns, "one sign-in signal").toBe(1);
+      expect(result.signalFirst, "the signal comes before the end").toBe(true);
+      expect(result.error).toContain(OPENCODE_AUTH_FAILURE);
+      if (message !== undefined) expect(result.error).toContain(message);
+      return result;
+    };
+
+    const noSignIn = async (
+      errorFrame: object,
+      server: Parameters<typeof fail>[1],
+      message?: string,
+    ) => {
+      const result = await fail(errorFrame, server);
+      expect(result.signIns, "no sign-in signal").toBe(0);
+      expect(result.error).not.toContain(OPENCODE_AUTH_FAILURE);
+      if (message !== undefined) expect(result.error).toContain(message);
+      return result;
+    };
+
+    it("asks for the key for a paid or unlisted model of OpenCode's providers on a server without it, with OpenCode's words", async () => {
+      for (const model of [
+        "opencode/paid-model",
+        // With no key, OpenCode lists only the free Zen models.
+        "opencode/unlisted-model",
+        "opencode-go/go-model",
+      ]) {
+        const auth = await signIn(
+          providerAuth(keyMissing),
+          { model },
+          keyMissing,
+        );
+        expect(auth.error).toContain(
+          english(providerRefusal(model.split("/")[0], keyMissing)),
+        );
+        await signIn(unauthorized(invalidKey), { model }, invalidKey);
+      }
+    });
+
+    it("treats a model as not free when the catalog does not load", async () => {
+      await signIn(
+        unauthorized(invalidKey),
+        { model: "opencode/free-model", provider: null },
+        invalidKey,
+      );
+    });
+
+    it("shows the sign-in line alone when OpenCode sends no words", async () => {
+      const result = await signIn(providerAuth(), {
+        model: "opencode/paid-model",
+      });
+      expect(result.error).toBe(OPENCODE_AUTH_FAILURE);
+    });
+
+    it("shows a free model's refusal as the provider's, not as missing sign-in", async () => {
+      const model = "opencode/free-model";
+      const auth = await noSignIn(
+        providerAuth(keyMissing),
+        { model },
+        keyMissing,
+      );
+      expect(auth.error).toContain(
+        english(providerRefusal("opencode", keyMissing)),
+      );
+      const http = await noSignIn(
+        unauthorized(invalidKey),
+        { model },
+        invalidKey,
+      );
+      expect(http.error).toContain(
+        english(providerRefusal("opencode", invalidKey)),
+      );
+    });
+
+    it("shows the provider's words when the server has the key", async () => {
+      for (const model of ["opencode/paid-model", "opencode-go/go-model"]) {
+        const provider = model.split("/")[0];
+        const auth = await noSignIn(
+          providerAuth(keyMissing),
+          { model, launchVariables: key },
+          keyMissing,
+        );
+        expect(auth.error).toContain(
+          english(providerRefusal(provider, keyMissing)),
+        );
+        const http = await noSignIn(
+          unauthorized(invalidKey),
+          { model, launchVariables: key },
+          invalidKey,
+        );
+        expect(http.error).toContain(
+          english(providerRefusal(provider, invalidKey)),
+        );
+      }
+    });
+
+    it("never names OPENCODE_API_KEY for another provider's auth failure", async () => {
+      const model = "anthropic/claude";
+      const auth = await noSignIn(
+        providerAuth(keyMissing),
+        { model },
+        keyMissing,
+      );
+      expect(auth.error).toContain(
+        english(providerRefusal("anthropic", keyMissing)),
+      );
+      const http = await noSignIn(
+        unauthorized(invalidKey),
+        { model },
+        invalidKey,
+      );
+      expect(http.error).toContain(
+        english(providerRefusal("anthropic", invalidKey)),
+      );
+    });
+
+    it("keeps OpenCode's no-words copy for a refusal that needs no key", async () => {
+      const model = "opencode/free-model";
+      const auth = await noSignIn(providerAuth(), { model });
+      expect(auth.error).toBe(openCodeErrorMessage({ name: "UnknownError" }));
+      const http = await noSignIn(unauthorized(), { model });
+      expect(http.error).toBe(
+        openCodeErrorMessage({ name: "APIError", statusCode: 401 }),
+      );
+    });
+
+    it("classifies model-not-found by the model's provider and the server's key", async () => {
+      // OpenCode's provider is not connected, the server has no key.
+      const zen = "opencode/paid-model";
+      await signIn(
+        notFound(zen),
+        { model: zen, provider: catalog(["anthropic"]) },
+        modelNotFound(zen),
+      );
+      // With the key, a missing OpenCode provider is no sign-in failure.
+      await noSignIn(
+        notFound(zen),
+        { model: zen, provider: catalog(["anthropic"]), launchVariables: key },
+        modelNotFound(zen),
+      );
+      // Another provider that is not connected: pick another model.
+      const other = "anthropic/claude";
+      const result = await noSignIn(
+        notFound(other),
+        { model: other, provider: catalog(["opencode"]) },
+        modelNotFound(other),
+      );
+      expect(result.error).toContain(openCodeModelUnavailableFailure(other));
+    });
   });
 
   it("classifies model-not-found through connected-provider discovery", async () => {
@@ -1295,12 +1535,6 @@ describe("OpenCode permission event integration", () => {
         },
       },
     };
-    const disconnected = await runFrames([frame]);
-    expect(disconnected.events.at(-1)).toEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error: OPENCODE_AUTH_FAILURE,
-    });
     const connected = await runFrames([frame], undefined, ["provider"]);
     expect(connected.events.at(-1)).toEqual({
       kind: "turn_completed",

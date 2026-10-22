@@ -31,7 +31,7 @@ import {
 import type { Backend } from "../backends/types.ts";
 import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
 import { OPENCODE_AUTH_FAILURE } from "../backends/opencode/transport.ts";
-import { authSignal } from "../backends/auth-signal.ts";
+import { providerRefusal } from "../backends/provider-text.ts";
 import { openCodeSupervisorForEnvironment } from "../backends/opencode/supervisor.ts";
 import { openCodeProfilePaths } from "../backends/opencode/profile-paths.ts";
 import { processIsRunning } from "../backends/opencode/process-identity.ts";
@@ -800,21 +800,24 @@ describe("AgentManager DI (temp-state isolated)", () => {
   });
 
   it("surfaces OpenCode missing auth as the backend's guidance without a terminal card", async () => {
-    // The production OpenCode auth detection and guidance behind a scripted
-    // session that fails its turn the way the OpenCode transport does.
+    // The production OpenCode guidance behind a scripted session that fails
+    // its turn the way the OpenCode transport does: the sign-in signal, then
+    // the sign-in line with OpenCode's own words (task 10a09ec8).
     const opencode = createOpenCodeBackend();
+    const openCodeWords = "API key is missing for this request.";
     const fake = new FakeBackend({
       session: {
         onSend: (_text, _attachments, session) => {
-          for (const event of authSignal(
-            {
-              kind: "turn_completed",
-              status: "failed",
-              error: OPENCODE_AUTH_FAILURE,
-            },
-            (text) => opencode.detectAuthError(text),
-          ))
-            session.push(event);
+          session.push({ kind: "auth_needed" });
+          session.push({
+            kind: "turn_completed",
+            status: "failed",
+            error: [
+              OPENCODE_AUTH_FAILURE,
+              "\n",
+              providerRefusal("opencode", openCodeWords),
+            ],
+          });
         },
       },
     });
@@ -865,6 +868,15 @@ describe("AgentManager DI (temp-state isolated)", () => {
       "the OpenCode guidance is logged",
     ).toBe(true);
     expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
+    expect(
+      logs.some(
+        (entry) =>
+          entry.kind === "error" &&
+          entry.content.includes(OPENCODE_AUTH_FAILURE) &&
+          entry.content.includes(openCodeWords),
+      ),
+      "the failure keeps OpenCode's words",
+    ).toBe(true);
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });
 
