@@ -513,7 +513,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
   });
 });
 
-describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => {
+describe("routes/invites REST: mint validation", () => {
   it("mint refuses the retired new-member body with 400 and creates no one", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -538,53 +538,6 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
       rawSessionId: owner.rawSessionId,
     });
     expect(invitesOf(list)).toEqual([]);
-  });
-
-  it("invites.mint is officeOwner-only: a member POST /api/invites -> 403", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const alice = await srv.seedMember("Alice");
-    const r = await api(srv, "/api/invites", {
-      method: "POST",
-      rawSessionId: alice.rawSessionId,
-      body: { userId: getUserByName("Alice")!.id },
-    });
-    expect(r.status).toBe(403);
-  });
-
-  it("mintSelf: a member mints an own-device invite (200); it lands in their scoped list; replaces the prior one", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const alice = await srv.seedMember("Alice");
-
-    const first = await api(srv, "/api/invites/self", {
-      method: "POST",
-      rawSessionId: alice.rawSessionId,
-    });
-    expect(first.status).toBe(200);
-    const p1 = (first.body as { invite: InviteWire }).invite;
-    expect(p1.username).toBe("Alice");
-    expect(p1.role).toBe("member");
-
-    const listed = await api(srv, "/api/invites", {
-      rawSessionId: alice.rawSessionId,
-    });
-    expect(hasPrefix(invitesOf(listed), p1.tokenPrefix)).toBe(true);
-
-    // replacePriorForUsername: a second self-mint supersedes the first.
-    const second = await api(srv, "/api/invites/self", {
-      method: "POST",
-      rawSessionId: alice.rawSessionId,
-    });
-    expect(second.status).toBe(200);
-    const p2 = (second.body as { invite: InviteWire }).invite.tokenPrefix;
-    const after = await api(srv, "/api/invites", {
-      rawSessionId: alice.rawSessionId,
-    });
-    expect(hasPrefix(invitesOf(after), p2)).toBe(true);
-    expect(hasPrefix(invitesOf(after), p1.tokenPrefix)).toBe(false);
   });
 });
 

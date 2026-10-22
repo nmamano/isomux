@@ -179,7 +179,9 @@ describe("routes/legacy-retired: path shapes that skirt a naive match", () => {
     const res = await srv.http("/tasks%252fabc", {
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).not.toBe(404);
+    // The SPA shell, as for any other unknown page path.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
   });
 });
 

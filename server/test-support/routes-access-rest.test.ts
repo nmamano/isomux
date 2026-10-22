@@ -3,7 +3,7 @@
 //
 // What this freezes:
 //   - getAccess returns AccessSettings; owner-only (a member gets 403; an
-//     owner's agent: routes-office-settings-agents.test.ts).
+//     owner's agent: routes-office-settings-rest.test.ts).
 //   - setAccess enable persists config, returns {signInUrl, restartRequired},
 //     mints the owner self-invite, and fans out a scoped invites_list (double-
 //     signal). Disable persists false/null and mints no signInUrl.

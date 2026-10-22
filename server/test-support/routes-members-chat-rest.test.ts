@@ -1,9 +1,4 @@
-// Members chat on the unified REST surface (opIds membersChat.*), through the
-// in-process harness. What is pinned here is the ACCESS story as much as the
-// behaviour: a cookie user, an API token and a privileged agent reach the chat;
-// an ordinary agent, a cron run and an app get 403 on read and write alike.
-//
-// Seam: startTestServer(). Zero LLM.
+// Members chat on the unified REST surface (opIds membersChat.*).
 
 import { describe, it, expect, afterEach } from "bun:test";
 import {
@@ -20,705 +15,889 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { MEMBERS_CHAT_MAX_CHARS } from "../members-chat.ts";
 
-let server: TestServer | null = null;
+describe("members chat", () => {
+  // Members chat on the unified REST surface (opIds membersChat.*), through the
+  // in-process harness. What is pinned here is the ACCESS story as much as the
+  // behaviour: a cookie user, an API token and a privileged agent reach the chat;
+  // an ordinary agent, a cron run and an app get 403 on read and write alike.
+  //
+  // Seam: startTestServer(). Zero LLM.
 
-afterEach(async () => {
-  await server?.stop();
-  server = null;
-});
+  let server: TestServer | null = null;
 
-interface Res {
-  status: number;
-  body: unknown;
-}
-
-async function api(
-  srv: TestServer,
-  path: string,
-  init: {
-    method?: string;
-    body?: unknown;
-    rawSessionId?: string;
-    bearer?: string;
-  } = {},
-): Promise<Res> {
-  const headers: Record<string, string> = {};
-  if (init.body !== undefined) headers["Content-Type"] = "application/json";
-  if (init.bearer) headers["Authorization"] = `Bearer ${init.bearer}`;
-  const res = await srv.http(path, {
-    method: init.method ?? "GET",
-    headers,
-    rawSessionId: init.rawSessionId,
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+  afterEach(async () => {
+    await server?.stop();
+    server = null;
   });
-  let body: unknown = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = null;
+
+  interface Res {
+    status: number;
+    body: unknown;
   }
-  return { status: res.status, body };
-}
 
-const post = (srv: TestServer, session: string, text: string) =>
-  api(srv, "/api/members-chat", {
-    method: "POST",
-    body: { text },
-    rawSessionId: session,
-  });
-
-const messagesOf = (s: TestSocket): MembersChatMessage[] =>
-  s.messages
-    .filter((m) => (m as { type?: string }).type === "members_chat_message")
-    .map((m) => (m as { message: MembersChatMessage }).message);
-
-async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
-  const roomId = srv.agentManager.getRooms()[0].id;
-  const info = await srv.agentManager.spawn(
-    name,
-    srv.stateRoot,
-    "default",
-    undefined,
-    undefined,
-    roomId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    "codex",
-  );
-  if (!info) throw new Error(`spawn ${name} returned null`);
-  return info;
-}
-
-async function upload(
-  srv: TestServer,
-  session: string,
-  name: string,
-  bytes: string,
-  type = "text/plain",
-) {
-  const fd = new FormData();
-  fd.append("files", new File([bytes], name, { type }));
-  return srv.http("/api/members-chat/uploads", {
-    method: "POST",
-    body: fd,
-    rawSessionId: session,
-  });
-}
-
-describe("members chat REST: post, page, fan-out", () => {
-  it("a post reaches every other socket and pages back with the caller's unread", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
-    const memberWs = await server.connectWs(member.rawSessionId);
-    await memberWs.waitFor("full_state");
-
-    const res = await post(server, owner.rawSessionId, "hello **members**");
-    expect(res.status).toBe(201);
-    const posted = res.body as MembersChatMessage;
-    expect(posted.kind).toBe("user");
-    expect(posted.userName).toBe("Nil");
-    expect(posted.content).toBe("hello **members**");
-    expect(posted.attachments).toEqual([]);
-
-    const seen = await memberWs.waitFor("members_chat_message");
-    expect((seen.message as MembersChatMessage).id).toBe(posted.id);
-
-    const page = await api(server, "/api/members-chat", {
-      rawSessionId: member.rawSessionId,
+  async function api(
+    srv: TestServer,
+    path: string,
+    init: {
+      method?: string;
+      body?: unknown;
+      rawSessionId?: string;
+      bearer?: string;
+    } = {},
+  ): Promise<Res> {
+    const headers: Record<string, string> = {};
+    if (init.body !== undefined) headers["Content-Type"] = "application/json";
+    if (init.bearer) headers["Authorization"] = `Bearer ${init.bearer}`;
+    const res = await srv.http(path, {
+      method: init.method ?? "GET",
+      headers,
+      rawSessionId: init.rawSessionId,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
-    expect(page.status).toBe(200);
-    const body = page.body as MembersChatPageRes;
-    expect(body.messages.map((m) => m.id)).toEqual([posted.id]);
-    expect(body.hasMore).toBe(false);
-    expect(body.readPointer).toBeNull();
-    expect(body.unread).toBe(1);
-    memberWs.close();
-  });
-
-  it("pages newest-first in slices and follows the before cursor", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const ids: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const r = await post(server, owner.rawSessionId, `m${i}`);
-      ids.push((r.body as MembersChatMessage).id);
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
     }
-    const p1 = (
-      await api(server, "/api/members-chat?limit=2", {
-        rawSessionId: owner.rawSessionId,
-      })
-    ).body as MembersChatPageRes;
-    expect(p1.messages.map((m) => m.id)).toEqual(ids.slice(1));
-    expect(p1.hasMore).toBe(true);
-    const p2 = (
-      await api(server, `/api/members-chat?limit=2&before=${ids[1]}`, {
-        rawSessionId: owner.rawSessionId,
-      })
-    ).body as MembersChatPageRes;
-    expect(p2.messages.map((m) => m.id)).toEqual([ids[0]]);
-    expect(p2.hasMore).toBe(false);
-  });
+    return { status: res.status, body };
+  }
 
-  it("refuses empty text and text over the cap, and a device label rides along", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    expect((await post(server, owner.rawSessionId, "   ")).status).toBe(400);
-    expect(
-      (
-        await post(
-          server,
-          owner.rawSessionId,
-          "x".repeat(MEMBERS_CHAT_MAX_CHARS + 1),
-        )
-      ).status,
-    ).toBe(400);
-    const withDevice = await api(server, "/api/members-chat", {
+  const post = (srv: TestServer, session: string, text: string) =>
+    api(srv, "/api/members-chat", {
       method: "POST",
-      body: { text: "from my phone", device: "Phone" },
-      rawSessionId: owner.rawSessionId,
+      body: { text },
+      rawSessionId: session,
     });
-    expect(withDevice.status).toBe(201);
-    expect((withDevice.body as MembersChatMessage).device).toBe("Phone");
-  });
-});
 
-describe("members chat REST: edit and delete ownership", () => {
-  it("edit is own-only; delete is own, or any for an office owner", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
-    const ownerWs = await server.connectWs(owner.rawSessionId);
-    await ownerWs.waitFor("full_state");
+  const messagesOf = (s: TestSocket): MembersChatMessage[] =>
+    s.messages
+      .filter((m) => (m as { type?: string }).type === "members_chat_message")
+      .map((m) => (m as { message: MembersChatMessage }).message);
 
-    const mine = (await post(server, member.rawSessionId, "draft"))
-      .body as MembersChatMessage;
-    const theirs = (await post(server, owner.rawSessionId, "morgan note"))
-      .body as MembersChatMessage;
+  async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const info = await srv.agentManager.spawn(
+      name,
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      roomId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "codex",
+    );
+    if (!info) throw new Error(`spawn ${name} returned null`);
+    return info;
+  }
 
-    // Member edits own: 200, and the edit fans out as an upsert.
-    const edited = await api(server, `/api/members-chat/${mine.id}`, {
-      method: "PATCH",
-      body: { text: "final" },
-      rawSessionId: member.rawSessionId,
+  async function upload(
+    srv: TestServer,
+    session: string,
+    name: string,
+    bytes: string,
+    type = "text/plain",
+  ) {
+    const fd = new FormData();
+    fd.append("files", new File([bytes], name, { type }));
+    return srv.http("/api/members-chat/uploads", {
+      method: "POST",
+      body: fd,
+      rawSessionId: session,
     });
-    expect(edited.status).toBe(200);
-    expect((edited.body as MembersChatMessage).content).toBe("final");
-    expect((edited.body as MembersChatMessage).editedAt).toBeGreaterThan(0);
-    // The socket also receives both posts. Harness waitFor returns buffered
-    // events by type without consuming them, so yield until this edit arrives.
-    const sawEdit = () =>
-      messagesOf(ownerWs).some(
-        (m) => m.id === mine.id && m.content === "final",
-      );
-    const editDeadline = Date.now() + 2000;
-    while (!sawEdit() && Date.now() < editDeadline) {
-      await Bun.sleep(5);
-    }
-    expect(
-      messagesOf(ownerWs).map((m) => ({ id: m.id, content: m.content })),
-    ).toContainEqual({ id: mine.id, content: "final" });
+  }
 
-    // Member edits the owner's: 403. Member deletes the owner's: 403.
-    expect(
-      (
-        await api(server, `/api/members-chat/${theirs.id}`, {
-          method: "PATCH",
-          body: { text: "hijack" },
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await api(server, `/api/members-chat/${theirs.id}`, {
-          method: "DELETE",
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(403);
+  describe("members chat REST: post, page, fan-out", () => {
+    it("a post reaches every other socket and pages back with the caller's unread", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+      const memberWs = await server.connectWs(member.rawSessionId);
+      await memberWs.waitFor("full_state");
 
-    // Owner deletes the member's: 204 + members_chat_deleted; then 404.
-    expect(
-      (
-        await api(server, `/api/members-chat/${mine.id}`, {
-          method: "DELETE",
+      const res = await post(server, owner.rawSessionId, "hello **members**");
+      expect(res.status).toBe(201);
+      const posted = res.body as MembersChatMessage;
+      expect(posted.kind).toBe("user");
+      expect(posted.userName).toBe("Nil");
+      expect(posted.content).toBe("hello **members**");
+      expect(posted.attachments).toEqual([]);
+
+      const seen = await memberWs.waitFor("members_chat_message");
+      expect((seen.message as MembersChatMessage).id).toBe(posted.id);
+
+      const page = await api(server, "/api/members-chat", {
+        rawSessionId: member.rawSessionId,
+      });
+      expect(page.status).toBe(200);
+      const body = page.body as MembersChatPageRes;
+      expect(body.messages.map((m) => m.id)).toEqual([posted.id]);
+      expect(body.hasMore).toBe(false);
+      expect(body.readPointer).toBeNull();
+      expect(body.unread).toBe(1);
+      memberWs.close();
+    });
+
+    it("pages newest-first in slices and follows the before cursor", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const r = await post(server, owner.rawSessionId, `m${i}`);
+        ids.push((r.body as MembersChatMessage).id);
+      }
+      const p1 = (
+        await api(server, "/api/members-chat?limit=2", {
           rawSessionId: owner.rawSessionId,
         })
-      ).status,
-    ).toBe(204);
-    const gone = await ownerWs.waitFor("members_chat_deleted");
-    expect(gone.id).toBe(mine.id);
-    expect(
-      (
-        await api(server, `/api/members-chat/${mine.id}`, {
-          method: "PATCH",
-          body: { text: "zombie" },
-          rawSessionId: member.rawSessionId,
+      ).body as MembersChatPageRes;
+      expect(p1.messages.map((m) => m.id)).toEqual(ids.slice(1));
+      expect(p1.hasMore).toBe(true);
+      const p2 = (
+        await api(server, `/api/members-chat?limit=2&before=${ids[1]}`, {
+          rawSessionId: owner.rawSessionId,
         })
-      ).status,
-    ).toBe(404);
-    ownerWs.close();
-  });
-});
-
-describe("members chat REST: read pointer", () => {
-  it("markRead advances the pointer, reports unread, and reaches the user's other socket", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
-    const laptop = await server.connectWs(member.rawSessionId);
-    await laptop.waitFor("full_state");
-    const ownerWs = await server.connectWs(owner.rawSessionId);
-    await ownerWs.waitFor("full_state");
-
-    const a = (await post(server, owner.rawSessionId, "a"))
-      .body as MembersChatMessage;
-    const b = (await post(server, owner.rawSessionId, "b"))
-      .body as MembersChatMessage;
-
-    const read = await api(server, "/api/members-chat/read", {
-      method: "POST",
-      body: { lastReadId: a.id },
-      rawSessionId: member.rawSessionId,
-    });
-    expect(read.status).toBe(200);
-    expect(read.body).toEqual({ readPointer: a.id, unread: 1 });
-    const synced = await laptop.waitFor("members_chat_read");
-    expect(synced).toMatchObject({ readPointer: a.id, unread: 1 });
-    // The owner's socket is not told about the member's pointer.
-    expect(
-      ownerWs.messages.some(
-        (m) => (m as { type?: string }).type === "members_chat_read",
-      ),
-    ).toBe(false);
-
-    // A stale device cannot move the pointer back.
-    await api(server, "/api/members-chat/read", {
-      method: "POST",
-      body: { lastReadId: b.id },
-      rawSessionId: member.rawSessionId,
-    });
-    const back = await api(server, "/api/members-chat/read", {
-      method: "POST",
-      body: { lastReadId: a.id },
-      rawSessionId: member.rawSessionId,
-    });
-    expect(back.body).toEqual({ readPointer: b.id, unread: 0 });
-    laptop.close();
-    ownerWs.close();
-  });
-
-  it("full_state carries each user's own pointer, unread and newest live id", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
-    const summaryAt = async (session: string) => {
-      const socket = await server!.connectWs(session);
-      const full = await socket.waitFor("full_state");
-      socket.close();
-      return full.membersChat;
-    };
-    expect(await summaryAt(owner.rawSessionId)).toEqual({
-      readPointer: null,
-      unread: 0,
-      latestId: null,
+      ).body as MembersChatPageRes;
+      expect(p2.messages.map((m) => m.id)).toEqual([ids[0]]);
+      expect(p2.hasMore).toBe(false);
     });
 
-    const a = (await post(server, owner.rawSessionId, "a"))
-      .body as MembersChatMessage;
-    const b = (await post(server, owner.rawSessionId, "b"))
-      .body as MembersChatMessage;
-    const c = (await post(server, member.rawSessionId, "c"))
-      .body as MembersChatMessage;
-    await api(server, "/api/members-chat/read", {
-      method: "POST",
-      body: { lastReadId: a.id },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(await summaryAt(owner.rawSessionId)).toEqual({
-      readPointer: a.id,
-      unread: 2,
-      latestId: c.id,
-    });
-    // Same count as GET: every live message after the pointer, own included.
-    expect(await summaryAt(member.rawSessionId)).toEqual({
-      readPointer: null,
-      unread: 3,
-      latestId: c.id,
-    });
-
-    // A deleted message is neither the newest id nor unread.
-    expect(
-      (
-        await api(server, `/api/members-chat/${c.id}`, {
-          method: "DELETE",
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(204);
-    expect(await summaryAt(owner.rawSessionId)).toEqual({
-      readPointer: a.id,
-      unread: 1,
-      latestId: b.id,
-    });
-    expect(await summaryAt(member.rawSessionId)).toEqual({
-      readPointer: null,
-      unread: 2,
-      latestId: b.id,
+    it("refuses empty text and text over the cap, and a device label rides along", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      expect((await post(server, owner.rawSessionId, "   ")).status).toBe(400);
+      expect(
+        (
+          await post(
+            server,
+            owner.rawSessionId,
+            "x".repeat(MEMBERS_CHAT_MAX_CHARS + 1),
+          )
+        ).status,
+      ).toBe(400);
+      const withDevice = await api(server, "/api/members-chat", {
+        method: "POST",
+        body: { text: "from my phone", device: "Phone" },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(withDevice.status).toBe(201);
+      expect((withDevice.body as MembersChatMessage).device).toBe("Phone");
     });
   });
-});
 
-describe("members chat REST: attachments", () => {
-  it("uploads, posts with the attachment, serves the bytes, and refuses an unknown filename", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
+  describe("members chat REST: edit and delete ownership", () => {
+    it("edit is own-only; delete is own, or any for an office owner", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+      const ownerWs = await server.connectWs(owner.rawSessionId);
+      await ownerWs.waitFor("full_state");
 
-    const up = await upload(
-      server,
-      owner.rawSessionId,
-      "notes.txt",
-      "hi there",
-    );
-    expect(up.status).toBe(200);
-    const { attachments } = (await up.json()) as {
-      attachments: MembersChatMessage["attachments"];
-    };
-    expect(attachments).toHaveLength(1);
-    expect(attachments[0].originalName).toBe("notes.txt");
+      const mine = (await post(server, member.rawSessionId, "draft"))
+        .body as MembersChatMessage;
+      const theirs = (await post(server, owner.rawSessionId, "morgan note"))
+        .body as MembersChatMessage;
 
-    const posted = await api(server, "/api/members-chat", {
-      method: "POST",
-      body: { text: "", attachments },
-      rawSessionId: owner.rawSessionId,
+      // Member edits own: 200, and the edit fans out as an upsert.
+      const edited = await api(server, `/api/members-chat/${mine.id}`, {
+        method: "PATCH",
+        body: { text: "final" },
+        rawSessionId: member.rawSessionId,
+      });
+      expect(edited.status).toBe(200);
+      expect((edited.body as MembersChatMessage).content).toBe("final");
+      expect((edited.body as MembersChatMessage).editedAt).toBeGreaterThan(0);
+      // The socket also receives both posts. Harness waitFor returns buffered
+      // events by type without consuming them, so yield until this edit arrives.
+      const sawEdit = () =>
+        messagesOf(ownerWs).some(
+          (m) => m.id === mine.id && m.content === "final",
+        );
+      const editDeadline = Date.now() + 2000;
+      while (!sawEdit() && Date.now() < editDeadline) {
+        await Bun.sleep(5);
+      }
+      expect(
+        messagesOf(ownerWs).map((m) => ({ id: m.id, content: m.content })),
+      ).toContainEqual({ id: mine.id, content: "final" });
+
+      // Member edits the owner's: 403. Member deletes the owner's: 403.
+      expect(
+        (
+          await api(server, `/api/members-chat/${theirs.id}`, {
+            method: "PATCH",
+            body: { text: "hijack" },
+            rawSessionId: member.rawSessionId,
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await api(server, `/api/members-chat/${theirs.id}`, {
+            method: "DELETE",
+            rawSessionId: member.rawSessionId,
+          })
+        ).status,
+      ).toBe(403);
+
+      // Owner deletes the member's: 204 + members_chat_deleted; then 404.
+      expect(
+        (
+          await api(server, `/api/members-chat/${mine.id}`, {
+            method: "DELETE",
+            rawSessionId: owner.rawSessionId,
+          })
+        ).status,
+      ).toBe(204);
+      const gone = await ownerWs.waitFor("members_chat_deleted");
+      expect(gone.id).toBe(mine.id);
+      expect(
+        (
+          await api(server, `/api/members-chat/${mine.id}`, {
+            method: "PATCH",
+            body: { text: "zombie" },
+            rawSessionId: member.rawSessionId,
+          })
+        ).status,
+      ).toBe(404);
+      ownerWs.close();
     });
-    expect(posted.status).toBe(201);
-    expect((posted.body as MembersChatMessage).attachments).toEqual(
-      attachments,
-    );
-
-    // Any member can fetch the bytes.
-    const got = await server.http(
-      `/api/members-chat/files/${attachments[0].filename}`,
-      { rawSessionId: member.rawSessionId },
-    );
-    expect(got.status).toBe(200);
-    expect(await got.text()).toBe("hi there");
-    expect(got.headers.get("cache-control")).toBe("private, no-cache");
-    // An opened attachment runs in an opaque origin, not as office content.
-    expect(got.headers.get("content-security-policy")).toMatch(
-      /(^|;\s*)sandbox allow-scripts$/,
-    );
-    expect(got.headers.get("x-content-type-options")).toBe("nosniff");
-
-    // A filename the chat does not hold is refused, and traversal is a 404.
-    const bogus = await api(server, "/api/members-chat", {
-      method: "POST",
-      body: {
-        text: "see file",
-        attachments: [{ ...attachments[0], filename: "not-uploaded.txt" }],
-      },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(bogus.status).toBe(400);
-    expect(
-      (
-        await server.http("/api/members-chat/files/..%2Freads.json", {
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(404);
   });
-});
 
-describe("members chat REST: who may enter", () => {
-  it("an ordinary agent and a cron run get 403 on read and write; a privileged agent posts as itself", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Nil");
-    const ownerId = getUserByName("Nil")!.id;
-    const bot = await spawnAgent(server, "Bot");
-    const plain = mintAgentToken(bot.id, ownerId);
-    for (const bearer of [plain, mintRunToken("job-1", "run-1", ownerId)]) {
-      expect((await api(server, "/api/members-chat", { bearer })).status).toBe(
-        403,
+  describe("members chat REST: read pointer", () => {
+    it("markRead advances the pointer, reports unread, and reaches the user's other socket", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+      const laptop = await server.connectWs(member.rawSessionId);
+      await laptop.waitFor("full_state");
+      const ownerWs = await server.connectWs(owner.rawSessionId);
+      await ownerWs.waitFor("full_state");
+
+      const a = (await post(server, owner.rawSessionId, "a"))
+        .body as MembersChatMessage;
+      const b = (await post(server, owner.rawSessionId, "b"))
+        .body as MembersChatMessage;
+
+      const read = await api(server, "/api/members-chat/read", {
+        method: "POST",
+        body: { lastReadId: a.id },
+        rawSessionId: member.rawSessionId,
+      });
+      expect(read.status).toBe(200);
+      expect(read.body).toEqual({ readPointer: a.id, unread: 1 });
+      const synced = await laptop.waitFor("members_chat_read");
+      expect(synced).toMatchObject({ readPointer: a.id, unread: 1 });
+      // The owner's socket is not told about the member's pointer.
+      expect(
+        ownerWs.messages.some(
+          (m) => (m as { type?: string }).type === "members_chat_read",
+        ),
+      ).toBe(false);
+
+      // A stale device cannot move the pointer back.
+      await api(server, "/api/members-chat/read", {
+        method: "POST",
+        body: { lastReadId: b.id },
+        rawSessionId: member.rawSessionId,
+      });
+      const back = await api(server, "/api/members-chat/read", {
+        method: "POST",
+        body: { lastReadId: a.id },
+        rawSessionId: member.rawSessionId,
+      });
+      expect(back.body).toEqual({ readPointer: b.id, unread: 0 });
+      laptop.close();
+      ownerWs.close();
+    });
+
+    it("full_state carries each user's own pointer, unread and newest live id", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+      const summaryAt = async (session: string) => {
+        const socket = await server!.connectWs(session);
+        const full = await socket.waitFor("full_state");
+        socket.close();
+        return full.membersChat;
+      };
+      expect(await summaryAt(owner.rawSessionId)).toEqual({
+        readPointer: null,
+        unread: 0,
+        latestId: null,
+      });
+
+      const a = (await post(server, owner.rawSessionId, "a"))
+        .body as MembersChatMessage;
+      const b = (await post(server, owner.rawSessionId, "b"))
+        .body as MembersChatMessage;
+      const c = (await post(server, member.rawSessionId, "c"))
+        .body as MembersChatMessage;
+      await api(server, "/api/members-chat/read", {
+        method: "POST",
+        body: { lastReadId: a.id },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(await summaryAt(owner.rawSessionId)).toEqual({
+        readPointer: a.id,
+        unread: 2,
+        latestId: c.id,
+      });
+      // Same count as GET: every live message after the pointer, own included.
+      expect(await summaryAt(member.rawSessionId)).toEqual({
+        readPointer: null,
+        unread: 3,
+        latestId: c.id,
+      });
+
+      // A deleted message is neither the newest id nor unread.
+      expect(
+        (
+          await api(server, `/api/members-chat/${c.id}`, {
+            method: "DELETE",
+            rawSessionId: member.rawSessionId,
+          })
+        ).status,
+      ).toBe(204);
+      expect(await summaryAt(owner.rawSessionId)).toEqual({
+        readPointer: a.id,
+        unread: 1,
+        latestId: b.id,
+      });
+      expect(await summaryAt(member.rawSessionId)).toEqual({
+        readPointer: null,
+        unread: 2,
+        latestId: b.id,
+      });
+    });
+  });
+
+  describe("members chat REST: attachments", () => {
+    it("uploads, posts with the attachment, serves the bytes, and refuses an unknown filename", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+
+      const up = await upload(
+        server,
+        owner.rawSessionId,
+        "notes.txt",
+        "hi there",
       );
+      expect(up.status).toBe(200);
+      const { attachments } = (await up.json()) as {
+        attachments: MembersChatMessage["attachments"];
+      };
+      expect(attachments).toHaveLength(1);
+      expect(attachments[0].originalName).toBe("notes.txt");
+
+      const posted = await api(server, "/api/members-chat", {
+        method: "POST",
+        body: { text: "", attachments },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(posted.status).toBe(201);
+      expect((posted.body as MembersChatMessage).attachments).toEqual(
+        attachments,
+      );
+
+      // Any member can fetch the bytes.
+      const got = await server.http(
+        `/api/members-chat/files/${attachments[0].filename}`,
+        { rawSessionId: member.rawSessionId },
+      );
+      expect(got.status).toBe(200);
+      expect(await got.text()).toBe("hi there");
+      expect(got.headers.get("cache-control")).toBe("private, no-cache");
+      // An opened attachment runs in an opaque origin, not as office content.
+      expect(got.headers.get("content-security-policy")).toMatch(
+        /(^|;\s*)sandbox allow-scripts$/,
+      );
+      expect(got.headers.get("x-content-type-options")).toBe("nosniff");
+
+      // A filename the chat does not hold is refused, and traversal is a 404.
+      const bogus = await api(server, "/api/members-chat", {
+        method: "POST",
+        body: {
+          text: "see file",
+          attachments: [{ ...attachments[0], filename: "not-uploaded.txt" }],
+        },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(bogus.status).toBe(400);
+      expect(
+        (
+          await server.http("/api/members-chat/files/..%2Freads.json", {
+            rawSessionId: member.rawSessionId,
+          })
+        ).status,
+      ).toBe(404);
+    });
+  });
+
+  describe("members chat REST: who may enter", () => {
+    it("an ordinary agent and a cron run get 403 on read and write; a privileged agent posts as itself", async () => {
+      server = await startTestServer();
+      await server.seedOwner("Nil");
+      const ownerId = getUserByName("Nil")!.id;
+      const bot = await spawnAgent(server, "Bot");
+      const plain = mintAgentToken(bot.id, ownerId);
+      for (const bearer of [plain, mintRunToken("job-1", "run-1", ownerId)]) {
+        expect(
+          (await api(server, "/api/members-chat", { bearer })).status,
+        ).toBe(403);
+        expect(
+          (
+            await api(server, "/api/members-chat", {
+              method: "POST",
+              body: { text: "let me in" },
+              bearer,
+            })
+          ).status,
+        ).toBe(403);
+      }
+      // Nothing landed.
+      const owner = await server.seedMember("Pau");
+      const empty = (
+        await api(server, "/api/members-chat", {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).body as MembersChatPageRes;
+      expect(empty.messages).toEqual([]);
+
+      const privileged = mintAgentToken(bot.id, ownerId, true);
+      const asAgent = await api(server, "/api/members-chat", {
+        method: "POST",
+        body: { text: "status: all green", device: "ignored" },
+        bearer: privileged,
+      });
+      expect(asAgent.status).toBe(201);
+      const m = asAgent.body as MembersChatMessage;
+      expect(m.kind).toBe("agent");
+      expect(m.userName).toBe("Bot");
+      expect(m.userId).toBe(ownerId);
+      expect(m.device).toBeUndefined();
+      // The agent shares its manager's identity for ownership: the manager can edit it.
+      const page = (
+        await api(server, "/api/members-chat", { bearer: privileged })
+      ).body as MembersChatPageRes;
+      expect(page.messages.map((x) => x.id)).toEqual([m.id]);
+    });
+
+    it("an API token posts as its user with the token name as device; an app token gets 403", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const ownerId = getUserByName("Nil")!.id;
+      const minted = await server.http("/api/me/api-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Phone", expiresInDays: 30 }),
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(minted.status).toBe(201);
+      const { token } = (await minted.json()) as ApiTokenCreateRes;
+      const viaApi = await api(server, "/api/members-chat", {
+        method: "POST",
+        body: { text: "from the road", device: "ignored" },
+        bearer: token,
+      });
+      expect(viaApi.status).toBe(201);
+      const m = viaApi.body as MembersChatMessage;
+      expect(m.kind).toBe("api");
+      expect(m.userId).toBe(ownerId);
+      expect(m.userName).toBe("Nil");
+      expect(m.device).toBe("Phone");
+      // Same person: the cookie session may edit what the token posted.
+      expect(
+        (
+          await api(server, `/api/members-chat/${m.id}`, {
+            method: "PATCH",
+            body: { text: "from the road, edited" },
+            rawSessionId: owner.rawSessionId,
+          })
+        ).status,
+      ).toBe(200);
+
+      const bot = await spawnAgent(server, "AppBot");
+      const agentToken = mintAgentToken(bot.id, ownerId);
+      const reg = await api(server, "/api/apps", {
+        method: "POST",
+        body: {
+          name: "lobbyapp",
+          command: "bun run serve.ts",
+          cwd: server.stateRoot,
+        },
+        bearer: agentToken,
+      });
+      expect(reg.status).toBe(201);
+      const appToken = server.appSupervisor.tokenFiles.get("lobbyapp");
+      if (!appToken) throw new Error("no app token file");
+      expect(
+        (
+          await api(server, `/api/members-chat/${m.id}/pin`, {
+            method: "PUT",
+            body: { active: true },
+            bearer: appToken,
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (await api(server, "/api/members-chat", { bearer: appToken })).status,
+      ).toBe(403);
       expect(
         (
           await api(server, "/api/members-chat", {
             method: "POST",
-            body: { text: "let me in" },
-            bearer,
+            body: { text: "beep" },
+            bearer: appToken,
           })
         ).status,
       ).toBe(403);
-    }
-    // Nothing landed.
-    const owner = await server.seedMember("Pau");
-    const empty = (
-      await api(server, "/api/members-chat", {
-        rawSessionId: owner.rawSessionId,
-      })
-    ).body as MembersChatPageRes;
-    expect(empty.messages).toEqual([]);
-
-    const privileged = mintAgentToken(bot.id, ownerId, true);
-    const asAgent = await api(server, "/api/members-chat", {
-      method: "POST",
-      body: { text: "status: all green", device: "ignored" },
-      bearer: privileged,
     });
-    expect(asAgent.status).toBe(201);
-    const m = asAgent.body as MembersChatMessage;
-    expect(m.kind).toBe("agent");
-    expect(m.userName).toBe("Bot");
-    expect(m.userId).toBe(ownerId);
-    expect(m.device).toBeUndefined();
-    // The agent shares its manager's identity for ownership: the manager can edit it.
-    const page = (
-      await api(server, "/api/members-chat", { bearer: privileged })
-    ).body as MembersChatPageRes;
-    expect(page.messages.map((x) => x.id)).toEqual([m.id]);
   });
 
-  it("an API token posts as its user with the token name as device; an app token gets 403", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const ownerId = getUserByName("Nil")!.id;
-    const minted = await server.http("/api/me/api-tokens", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Phone", expiresInDays: 30 }),
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(minted.status).toBe(201);
-    const { token } = (await minted.json()) as ApiTokenCreateRes;
-    const viaApi = await api(server, "/api/members-chat", {
-      method: "POST",
-      body: { text: "from the road", device: "ignored" },
-      bearer: token,
-    });
-    expect(viaApi.status).toBe(201);
-    const m = viaApi.body as MembersChatMessage;
-    expect(m.kind).toBe("api");
-    expect(m.userId).toBe(ownerId);
-    expect(m.userName).toBe("Nil");
-    expect(m.device).toBe("Phone");
-    // Same person: the cookie session may edit what the token posted.
-    expect(
-      (
-        await api(server, `/api/members-chat/${m.id}`, {
-          method: "PATCH",
-          body: { text: "from the road, edited" },
-          rawSessionId: owner.rawSessionId,
-        })
-      ).status,
-    ).toBe(200);
-
-    const bot = await spawnAgent(server, "AppBot");
-    const agentToken = mintAgentToken(bot.id, ownerId);
-    const reg = await api(server, "/api/apps", {
-      method: "POST",
-      body: {
-        name: "lobbyapp",
-        command: "bun run serve.ts",
-        cwd: server.stateRoot,
-      },
-      bearer: agentToken,
-    });
-    expect(reg.status).toBe(201);
-    const appToken = server.appSupervisor.tokenFiles.get("lobbyapp");
-    if (!appToken) throw new Error("no app token file");
-    expect(
-      (
-        await api(server, `/api/members-chat/${m.id}/pin`, {
-          method: "PUT",
-          body: { active: true },
-          bearer: appToken,
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (await api(server, "/api/members-chat", { bearer: appToken })).status,
-    ).toBe(403);
-    expect(
-      (
-        await api(server, "/api/members-chat", {
+  describe("members chat REST: reply target validation", () => {
+    it("derives the snapshot and rejects missing, deleted and malformed targets", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+      const target = (
+        await post(server, owner.rawSessionId, "original **text**")
+      ).body as MembersChatMessage;
+      const sendReply = (replyTo: unknown) =>
+        api(server!, "/api/members-chat", {
           method: "POST",
-          body: { text: "beep" },
-          bearer: appToken,
-        })
-      ).status,
-    ).toBe(403);
-  });
-});
-
-describe("members chat REST: reply target validation", () => {
-  it("derives the snapshot and rejects missing, deleted and malformed targets", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
-    const target = (await post(server, owner.rawSessionId, "original **text**"))
-      .body as MembersChatMessage;
-    const sendReply = (replyTo: unknown) =>
-      api(server!, "/api/members-chat", {
-        method: "POST",
-        rawSessionId: member.rawSessionId,
-        body: { text: "reply", replyTo, userName: "spoof", excerpt: "spoof" },
+          rawSessionId: member.rawSessionId,
+          body: { text: "reply", replyTo, userName: "spoof", excerpt: "spoof" },
+        });
+      const response = await sendReply(target.id);
+      expect(response.status).toBe(201);
+      expect((response.body as MembersChatMessage).replyTo).toEqual({
+        id: target.id,
+        userName: "Nil",
+        excerpt: "original **text**",
       });
-    const response = await sendReply(target.id);
-    expect(response.status).toBe(201);
-    expect((response.body as MembersChatMessage).replyTo).toEqual({
-      id: target.id,
-      userName: "Nil",
-      excerpt: "original **text**",
-    });
-    expect(
-      (await sendReply({ id: target.id, userName: "spoof", excerpt: "spoof" }))
-        .status,
-    ).toBe(400);
-    expect((await sendReply("missing")).status).toBe(404);
-    await api(server, `/api/members-chat/${target.id}`, {
-      method: "DELETE",
-      rawSessionId: owner.rawSessionId,
-    });
-    const gone = await sendReply(target.id);
-    expect(gone.status).toBe(404);
-    expect(gone.body).toMatchObject({ error: { code: "reply_not_found" } });
-    const page = (
-      await api(server, "/api/members-chat", {
-        rawSessionId: member.rawSessionId,
-      })
-    ).body as MembersChatPageRes;
-    expect(page.messages[0].replyTo).toEqual(
-      (response.body as MembersChatMessage).replyTo,
-    );
-  });
-});
-
-describe("members chat REST: pins", () => {
-  it("lets a member pin another author's unloaded message and emits an update without adding unread", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const member = await server.seedMember("Pau");
-    const target = (await post(server, owner.rawSessionId, "pin this"))
-      .body as MembersChatMessage;
-    const socket = await server.connectWs(owner.rawSessionId);
-    await socket.waitFor("full_state");
-    const pinPath = `/api/members-chat/${target.id}/pin`;
-    const pinned = await api(server, pinPath, {
-      method: "PUT",
-      body: { active: true },
-      rawSessionId: member.rawSessionId,
-    });
-    expect(pinned.status).toBe(200);
-    expect((pinned.body as MembersChatMessage).pinnedAt).toBeGreaterThan(0);
-    const event = await socket.waitFor("members_chat_message");
-    expect(event.updateOnly).toBe(true);
-    expect((event.message as MembersChatMessage).pinnedAt).toBe(
-      (pinned.body as MembersChatMessage).pinnedAt,
-    );
-    socket.close();
-    const repeated = await api(server, pinPath, {
-      method: "PUT",
-      body: { active: true },
-      rawSessionId: member.rawSessionId,
-    });
-    expect((repeated.body as MembersChatMessage).pinnedAt).toBe(
-      (pinned.body as MembersChatMessage).pinnedAt,
-    );
-    await post(server, owner.rawSessionId, "latest");
-    const page = (
-      await api(server, "/api/members-chat?limit=1", {
-        rawSessionId: member.rawSessionId,
-      })
-    ).body as MembersChatPageRes;
-    expect(page.messages[0].content).toBe("latest");
-    expect(page.pinned.map((message) => message.id)).toEqual([target.id]);
-    expect(page.unread).toBe(2);
-    expect(
-      (
-        await api(server, pinPath, {
-          method: "PUT",
-          body: { active: "yes" },
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(400);
-    expect(
-      (
-        await api(server, "/api/members-chat/missing/pin", {
-          method: "PUT",
-          body: { active: true },
-          rawSessionId: member.rawSessionId,
-        })
-      ).status,
-    ).toBe(404);
-    const unpinned = await api(server, pinPath, {
-      method: "PUT",
-      body: { active: false },
-      rawSessionId: member.rawSessionId,
-    });
-    expect((unpinned.body as MembersChatMessage).pinnedAt).toBeUndefined();
-    expect(
-      (
+      expect(
         (
-          await api(server, "/api/members-chat", {
+          await sendReply({
+            id: target.id,
+            userName: "spoof",
+            excerpt: "spoof",
+          })
+        ).status,
+      ).toBe(400);
+      expect((await sendReply("missing")).status).toBe(404);
+      await api(server, `/api/members-chat/${target.id}`, {
+        method: "DELETE",
+        rawSessionId: owner.rawSessionId,
+      });
+      const gone = await sendReply(target.id);
+      expect(gone.status).toBe(404);
+      expect(gone.body).toMatchObject({ error: { code: "reply_not_found" } });
+      const page = (
+        await api(server, "/api/members-chat", {
+          rawSessionId: member.rawSessionId,
+        })
+      ).body as MembersChatPageRes;
+      expect(page.messages[0].replyTo).toEqual(
+        (response.body as MembersChatMessage).replyTo,
+      );
+    });
+  });
+
+  describe("members chat REST: pins", () => {
+    it("lets a member pin another author's unloaded message and emits an update without adding unread", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const member = await server.seedMember("Pau");
+      const target = (await post(server, owner.rawSessionId, "pin this"))
+        .body as MembersChatMessage;
+      const socket = await server.connectWs(owner.rawSessionId);
+      await socket.waitFor("full_state");
+      const pinPath = `/api/members-chat/${target.id}/pin`;
+      const pinned = await api(server, pinPath, {
+        method: "PUT",
+        body: { active: true },
+        rawSessionId: member.rawSessionId,
+      });
+      expect(pinned.status).toBe(200);
+      expect((pinned.body as MembersChatMessage).pinnedAt).toBeGreaterThan(0);
+      const event = await socket.waitFor("members_chat_message");
+      expect(event.updateOnly).toBe(true);
+      expect((event.message as MembersChatMessage).pinnedAt).toBe(
+        (pinned.body as MembersChatMessage).pinnedAt,
+      );
+      socket.close();
+      const repeated = await api(server, pinPath, {
+        method: "PUT",
+        body: { active: true },
+        rawSessionId: member.rawSessionId,
+      });
+      expect((repeated.body as MembersChatMessage).pinnedAt).toBe(
+        (pinned.body as MembersChatMessage).pinnedAt,
+      );
+      await post(server, owner.rawSessionId, "latest");
+      const page = (
+        await api(server, "/api/members-chat?limit=1", {
+          rawSessionId: member.rawSessionId,
+        })
+      ).body as MembersChatPageRes;
+      expect(page.messages[0].content).toBe("latest");
+      expect(page.pinned.map((message) => message.id)).toEqual([target.id]);
+      expect(page.unread).toBe(2);
+      expect(
+        (
+          await api(server, pinPath, {
+            method: "PUT",
+            body: { active: "yes" },
             rawSessionId: member.rawSessionId,
           })
-        ).body as MembersChatPageRes
-      ).pinned,
-    ).toEqual([]);
-  });
-
-  it("admits API tokens and privileged agents and refuses ordinary agents and scheduled runs", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Nil");
-    const ownerId = getUserByName("Nil")!.id;
-    const target = (await post(server, owner.rawSessionId, "shared pin"))
-      .body as MembersChatMessage;
-    const pinPath = `/api/members-chat/${target.id}/pin`;
-    const minted = await server.http("/api/me/api-tokens", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Pin client", expiresInDays: 30 }),
-      rawSessionId: owner.rawSessionId,
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await api(server, "/api/members-chat/missing/pin", {
+            method: "PUT",
+            body: { active: true },
+            rawSessionId: member.rawSessionId,
+          })
+        ).status,
+      ).toBe(404);
+      const unpinned = await api(server, pinPath, {
+        method: "PUT",
+        body: { active: false },
+        rawSessionId: member.rawSessionId,
+      });
+      expect((unpinned.body as MembersChatMessage).pinnedAt).toBeUndefined();
+      expect(
+        (
+          (
+            await api(server, "/api/members-chat", {
+              rawSessionId: member.rawSessionId,
+            })
+          ).body as MembersChatPageRes
+        ).pinned,
+      ).toEqual([]);
     });
-    const { token } = (await minted.json()) as ApiTokenCreateRes;
-    expect(
-      (
-        await api(server, pinPath, {
-          method: "PUT",
-          body: { active: true },
-          bearer: token,
-        })
-      ).status,
-    ).toBe(200);
-    const bot = await spawnAgent(server, "Pin helper");
-    expect(
-      (
-        await api(server, pinPath, {
-          method: "PUT",
-          body: { active: false },
-          bearer: mintAgentToken(bot.id, ownerId, true),
-        })
-      ).status,
-    ).toBe(200);
-    for (const bearer of [
-      mintAgentToken(bot.id, ownerId),
-      mintRunToken("job", "run", ownerId),
-    ])
+
+    it("admits API tokens and privileged agents and refuses ordinary agents and scheduled runs", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const ownerId = getUserByName("Nil")!.id;
+      const target = (await post(server, owner.rawSessionId, "shared pin"))
+        .body as MembersChatMessage;
+      const pinPath = `/api/members-chat/${target.id}/pin`;
+      const minted = await server.http("/api/me/api-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Pin client", expiresInDays: 30 }),
+        rawSessionId: owner.rawSessionId,
+      });
+      const { token } = (await minted.json()) as ApiTokenCreateRes;
       expect(
         (
           await api(server, pinPath, {
             method: "PUT",
             body: { active: true },
-            bearer,
+            bearer: token,
           })
         ).status,
-      ).toBe(403);
+      ).toBe(200);
+      const bot = await spawnAgent(server, "Pin helper");
+      expect(
+        (
+          await api(server, pinPath, {
+            method: "PUT",
+            body: { active: false },
+            bearer: mintAgentToken(bot.id, ownerId, true),
+          })
+        ).status,
+      ).toBe(200);
+      for (const bearer of [
+        mintAgentToken(bot.id, ownerId),
+        mintRunToken("job", "run", ownerId),
+      ])
+        expect(
+          (
+            await api(server, pinPath, {
+              method: "PUT",
+              body: { active: true },
+              bearer,
+            })
+          ).status,
+        ).toBe(403);
+    });
+  });
+});
+
+describe("members chat reactions", () => {
+  let server: TestServer | undefined;
+  afterEach(async () => {
+    await server?.stop();
+    server = undefined;
+  });
+
+  it("sets each member's reaction idempotently and emits updates without changing readers", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Nil");
+    const member = await srv.seedMember("Pau");
+    const nilId = getUserByName("Nil")!.id;
+    const pauId = getUserByName("Pau")!.id;
+    const request = (
+      method: string,
+      path: string,
+      body: unknown,
+      rawSessionId = owner.rawSessionId,
+    ) =>
+      srv.http(path, {
+        method,
+        rawSessionId,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const posted = await request("POST", "/api/members-chat", {
+      text: "React here",
+    });
+    const message = (await posted.json()) as MembersChatMessage;
+    await request("POST", "/api/members-chat/read", { lastReadId: message.id });
+    const socket = await srv.connectWs(member.rawSessionId);
+    await socket.waitFor("full_state");
+    const path = `/api/members-chat/${message.id}/thumbs-up`;
+    const set = await request("PUT", path, {
+      active: true,
+      userId: pauId,
+      kind: "agent",
+      userName: "Spoof",
+    });
+    expect(set.status).toBe(200);
+    const reacted = (await set.json()) as MembersChatMessage;
+    expect(reacted.thumbsUp).toEqual([
+      { kind: "user", userId: nilId, userName: "Nil" },
+    ]);
+    expect(await socket.waitFor("members_chat_message")).toMatchObject({
+      updateOnly: true,
+      message: reacted,
+    });
+    expect(
+      (await (await request("PUT", path, { active: true })).json()).thumbsUp,
+    ).toEqual(reacted.thumbsUp);
+    const second = await (
+      await request("PUT", path, { active: true }, member.rawSessionId)
+    ).json();
+    expect(second.thumbsUp.map((r: { userId: string }) => r.userId)).toEqual([
+      nilId,
+      pauId,
+    ]);
+    const unset = await (await request("PUT", path, { active: false })).json();
+    expect(unset.thumbsUp).toEqual([
+      { kind: "user", userId: pauId, userName: "Pau" },
+    ]);
+    expect(
+      (
+        await (
+          await srv.http("/api/members-chat", {
+            rawSessionId: owner.rawSessionId,
+          })
+        ).json()
+      ).unread,
+    ).toBe(0);
+    expect(
+      (
+        await (
+          await srv.http("/api/members-chat", {
+            rawSessionId: member.rawSessionId,
+          })
+        ).json()
+      ).unread,
+    ).toBe(1);
+    expect((await request("PUT", path, { active: "true" })).status).toBe(400);
+    await request("DELETE", `/api/members-chat/${message.id}`, {});
+    expect((await request("PUT", path, { active: true })).status).toBe(404);
+    expect(
+      (
+        await request("PUT", "/api/members-chat/202609-00000000/thumbs-up", {
+          active: true,
+        })
+      ).status,
+    ).toBe(404);
+    socket.close();
+    const editSocket = await srv.connectWs(member.rawSessionId);
+    await editSocket.waitFor("full_state");
+    const another = await (
+      await request("POST", "/api/members-chat", { text: "Edit me" })
+    ).json();
+    await editSocket.waitFor("members_chat_message");
+    editSocket.messages.length = 0;
+    await request("PATCH", `/api/members-chat/${another.id}`, {
+      text: "Edited",
+    });
+    expect(await editSocket.waitFor("members_chat_message")).toMatchObject({
+      updateOnly: true,
+      message: { content: "Edited" },
+    });
+    editSocket.close();
+  });
+
+  it("uses the existing guard and preserves privileged-agent and API reactor attribution", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Nil");
+    const userId = getUserByName("Nil")!.id;
+    const post = await srv.http("/api/members-chat", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Attribution" }),
+    });
+    const message = (await post.json()) as MembersChatMessage;
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const bot = await srv.agentManager.spawn(
+      "Helper",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      roomId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "codex",
+    );
+    expect(!!bot).toBe(true);
+    const path = `/api/members-chat/${message.id}/thumbs-up`;
+    const react = (bearer: string, active = true) =>
+      srv.http(path, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${bearer}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ active, userName: "Spoof", kind: "user" }),
+      });
+    expect((await react(mintAgentToken(bot!.id, userId, false))).status).toBe(
+      403,
+    );
+    const privileged = mintAgentToken(bot!.id, userId, true);
+    const response = await react(privileged);
+    expect(response.status).toBe(200);
+    expect((await response.json()).thumbsUp).toEqual([
+      { kind: "agent", userId, userName: "Helper" },
+    ]);
+    await react(privileged, false);
+    const minted = await srv.http("/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Phone", expiresInDays: 30 }),
+    });
+    const { token } = await minted.json();
+    const api = await react(token);
+    expect(api.status).toBe(200);
+    expect((await api.json()).thumbsUp).toEqual([
+      { kind: "api", userId, userName: "Nil", device: "Phone" },
+    ]);
   });
 });

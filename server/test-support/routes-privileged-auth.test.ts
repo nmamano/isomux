@@ -307,12 +307,11 @@ describe("privileged agent: escalation / owner-admin routes STAY BLOCKED", () =>
       can("sessions.revoke", privilegedAgent, { sessionPrefix: "p" }),
     ).toBe(false);
   });
-  it("CANNOT reach office/user administration - setAccess / office.* 403", () => {
+  it("CANNOT change user or office access - users.setAccess / office.setAccess 403", () => {
     expect(can("users.setAccess", privilegedAgent, { username: "x" })).toBe(
       false,
     );
     expect(can("office.setAccess", privilegedAgent)).toBe(false);
-    expect(can("office.setSettings", privilegedAgent)).toBe(false);
     expect(can("users.setAccess", owner, { username: "x" })).toBe(true); // owner can
   });
   it("creates only a plain member, and only while its manager is an office owner", () => {

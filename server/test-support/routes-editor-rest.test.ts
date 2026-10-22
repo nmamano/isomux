@@ -15,7 +15,6 @@ import {
   writeFileSync,
   readFileSync,
   statSync,
-  mkdirSync,
   unlinkSync,
   utimesSync,
 } from "fs";
@@ -99,104 +98,51 @@ async function spawnAt(srv: TestServer, name: string, roomId: string) {
 }
 
 describe("agents.openFile REST (Phase 3d slice 6b)", () => {
-  it("owner GET -> 200 with { path, content, mtime, language, size }", async () => {
+  it("open and close need a live connection of the caller's own session; a missing file is 404", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1);
-    mkdirSync(srv.stateRoot, { recursive: true });
-    const file = join(srv.stateRoot, "hello.ts");
-    writeFileSync(file, "export const x = 1;\n", "utf8");
-    const { connectionId } = await connect(srv, owner.rawSessionId);
+    const path = join(srv.stateRoot, "a.txt");
+    writeFileSync(path, "a\n", "utf8");
+    const open = (connectionId?: string) =>
+      req(srv, "GET", `/api/agents/${x.id}/file?path=${path}`, {
+        rawSessionId: owner.rawSessionId,
+        connectionId,
+      });
 
-    const res = await req(srv, "GET", `/api/agents/${x.id}/file?path=${file}`, {
-      rawSessionId: owner.rawSessionId,
-      connectionId,
-    });
-    expect(res.status).toBe(200);
-    const body = res.body as {
-      path: string;
-      content: string;
-      language: string;
-    };
-    expect(body.path).toBe(file);
-    expect(body.content).toContain("export const x");
-    expect(body.language).toBe("javascript");
-  });
+    const missing = await open();
+    expect(missing.status).toBe(400);
+    expect(errCode(missing.body)).toBe("missing_connection");
+    // The owner clears the agentParam guard (room access), but a connectionId
+    // that names no socket of theirs fails verifyConnection - the SAME exact-
+    // session check that blocks aiming a watch at another tab's socket.
+    const foreign = await open("not-my-connection");
+    expect(foreign.status).toBe(403);
+    expect(errCode(foreign.body)).toBe("bad_connection");
 
-  it("non-existent path -> 404", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
     const { connectionId } = await connect(srv, owner.rawSessionId);
-    const res = await req(
+    expect((await open(connectionId)).status).toBe(200);
+    const gone = await req(
       srv,
       "GET",
       `/api/agents/${x.id}/file?path=${join(srv.stateRoot, "nope.txt")}`,
       { rawSessionId: owner.rawSessionId, connectionId },
     );
-    expect(res.status).toBe(404);
-  });
+    expect(gone.status).toBe(404);
 
-  it("missing X-Isomux-Connection-Id header -> 400", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    const res = await req(
+    const close = await req(
       srv,
-      "GET",
-      `/api/agents/${x.id}/file?path=${join(srv.stateRoot, "a.txt")}`,
-      { rawSessionId: owner.rawSessionId },
+      "DELETE",
+      `/api/agents/${x.id}/file/watch?path=${path}`,
+      { rawSessionId: owner.rawSessionId, connectionId },
     );
-    expect(res.status).toBe(400);
-    expect(errCode(res.body)).toBe("missing_connection");
-  });
-
-  it("a connectionId not owned by the caller's session -> 403 bad_connection", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    // The owner clears the agentParam guard (room access), but a connectionId
-    // that names no socket of theirs fails verifyConnection - the SAME exact-
-    // session check that blocks aiming a watch at another tab's socket.
-    const res = await req(
-      srv,
-      "GET",
-      `/api/agents/${x.id}/file?path=${join(srv.stateRoot, "a.txt")}`,
-      { rawSessionId: owner.rawSessionId, connectionId: "not-my-connection" },
-    );
-    expect(res.status).toBe(403);
-    expect(errCode(res.body)).toBe("bad_connection");
+    expect(close.status).toBe(204);
   });
 });
 
 describe("agents.saveFile REST (Phase 3d slice 6b)", () => {
-  it("owner PUT -> 200 { ok, mtime } and the bytes land on disk", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    const file = join(srv.stateRoot, "save.txt");
-    writeFileSync(file, "old\n", "utf8");
-    const mtime = Math.floor(statSync(file).mtimeMs);
-
-    const res = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
-      rawSessionId: owner.rawSessionId,
-      body: { path: file, content: "new\n", expectedMtime: mtime },
-    });
-    expect(res.status).toBe(200);
-    expect((res.body as { ok?: boolean }).ok).toBe(true);
-    expect(typeof (res.body as { mtime?: number }).mtime).toBe("number");
-  });
-
   it("stale write -> 409 stale with currentMtime in the envelope", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -220,81 +166,62 @@ describe("agents.saveFile REST (Phase 3d slice 6b)", () => {
     ).toBe(current);
   });
 
-  it("missing path -> 400; non-number expectedMtime -> 422", async () => {
+  it("a save with expectedMtime and no expectedRev (an older client) -> 200, and the bytes land", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1);
-    const missingPath = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
-      rawSessionId: owner.rawSessionId,
-      body: { content: "x", expectedMtime: 0 },
-    });
-    expect(missingPath.status).toBe(400);
-    const badMtime = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
-      rawSessionId: owner.rawSessionId,
-      body: { path: "/tmp/x", content: "x", expectedMtime: "soon" },
-    });
-    expect(badMtime.status).toBe(422);
-  });
+    const file = join(srv.stateRoot, "save.txt");
+    writeFileSync(file, "old\n", "utf8");
+    const mtime = Math.floor(statSync(file).mtimeMs);
 
-  it("non-boolean force -> 422 and the file is NOT overwritten", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    const file = join(srv.stateRoot, "force.txt");
-    writeFileSync(file, "original\n", "utf8");
-    const current = Math.floor(statSync(file).mtimeMs);
-    // A truthy non-boolean force would, under `?? false`, force-overwrite past the
-    // stale guard. The handler must reject it at the boundary, untouched.
     const res = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
       rawSessionId: owner.rawSessionId,
-      body: {
-        path: file,
-        content: "hacked\n",
-        expectedMtime: current - 1000, // stale
-        force: "false",
-      },
+      body: { path: file, content: "new\n", expectedMtime: mtime },
     });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(200);
+    expect((res.body as { ok?: boolean }).ok).toBe(true);
+    expect(readFileSync(file, "utf8")).toBe("new\n");
+  });
+
+  it("refuses a malformed save body and leaves the file alone", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    const file = join(srv.stateRoot, "keep.txt");
+    writeFileSync(file, "original\n", "utf8");
+    const current = Math.floor(statSync(file).mtimeMs);
+    const p = JSON.stringify(file);
+    // Raw bodies: JSON.stringify cannot carry Infinity (-> null), and the
+    // server's JSON.parse turns 1e999 into Infinity. `currentMtime > Infinity`
+    // is false, so only Number.isFinite at the boundary blocks that bypass.
+    // A truthy non-boolean force would, under `?? false`, overwrite past the
+    // stale guard.
+    for (const [body, status] of [
+      [`{"content":"x","expectedMtime":0}`, 400],
+      [`{"path":${p},"content":"x","expectedMtime":"soon"}`, 422],
+      [`{"path":${p},"content":"x","expectedMtime":1e999}`, 422],
+      [
+        `{"path":${p},"content":"x","expectedMtime":0,"expectedRev":1e999}`,
+        422,
+      ],
+      [
+        `{"path":${p},"content":"hacked","expectedMtime":${current - 1000},"force":"false"}`,
+        422,
+      ],
+    ] as const) {
+      const res = await srv.http(`/api/agents/${x.id}/file`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+        rawSessionId: owner.rawSessionId,
+      });
+      expect([body, res.status]).toEqual([body, status]);
+    }
     expect(readFileSync(file, "utf8")).toBe("original\n");
-  });
-
-  it("non-finite expectedMtime (Infinity) -> 422", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    // JSON.stringify can't carry Infinity (-> null), so hand-craft the body: the
-    // server's JSON.parse turns 1e999 into Infinity, and `currentMtime > Infinity`
-    // is false - Number.isFinite at the boundary blocks that stale-guard bypass.
-    const p = join(srv.stateRoot, "inf.txt");
-    const res = await srv.http(`/api/agents/${x.id}/file`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: `{"path":${JSON.stringify(p)},"content":"x","expectedMtime":1e999}`,
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
-  });
-
-  it("non-finite expectedRev (Infinity) -> 422", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    const p = join(srv.stateRoot, "inf-rev.txt");
-    const res = await srv.http(`/api/agents/${x.id}/file`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: `{"path":${JSON.stringify(p)},"content":"x","expectedMtime":0,"expectedRev":1e999}`,
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(422);
   });
 });
 
@@ -307,7 +234,7 @@ describe("editor revision + deletion contract", () => {
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1);
-    const file = join(srv.stateRoot, "rev.txt");
+    const file = join(srv.stateRoot, "rev.ts");
     writeFileSync(file, "v0\n", "utf8");
     const { connectionId } = await connect(srv, owner.rawSessionId);
 
@@ -318,7 +245,18 @@ describe("editor revision + deletion contract", () => {
       { rawSessionId: owner.rawSessionId, connectionId },
     );
     expect(open.status).toBe(200);
-    const opened = open.body as { mtime: number; rev: number };
+    const opened = open.body as {
+      path: string;
+      content: string;
+      language: string;
+      mtime: number;
+      rev: number;
+    };
+    expect(opened).toMatchObject({
+      path: file,
+      content: "v0\n",
+      language: "javascript",
+    });
     expect(typeof opened.rev).toBe("number");
 
     const save = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
@@ -333,9 +271,11 @@ describe("editor revision + deletion contract", () => {
       },
     });
     expect(save.status).toBe(200);
-    const saved = save.body as { ok: boolean; rev: number };
+    const saved = save.body as { ok: boolean; mtime: number; rev: number };
     expect(saved.ok).toBe(true);
+    expect(typeof saved.mtime).toBe("number");
     expect(saved.rev).toBeGreaterThan(opened.rev);
+    expect(readFileSync(file, "utf8")).toBe("v1 with more bytes\n");
   });
 
   it("rev mismatch -> 409 stale even when mtime moved BACKWARDS (rollback)", async () => {
@@ -424,23 +364,5 @@ describe("editor revision + deletion contract", () => {
     });
     expect(forced.status).toBe(200);
     expect(readFileSync(file, "utf8")).toBe("recreated\n");
-  });
-});
-
-describe("agents.closeFile REST (Phase 3d slice 6b)", () => {
-  it("owner DELETE -> 204 (no-op safe on an un-watched path)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    const { connectionId } = await connect(srv, owner.rawSessionId);
-    const res = await req(
-      srv,
-      "DELETE",
-      `/api/agents/${x.id}/file/watch?path=${join(srv.stateRoot, "a.txt")}`,
-      { rawSessionId: owner.rawSessionId, connectionId },
-    );
-    expect(res.status).toBe(204);
   });
 });

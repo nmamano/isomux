@@ -200,7 +200,7 @@ describe("member secrets", () => {
     });
     const plainAgent = mintAgentToken("plain-secrets-agent", ownerId, false);
     // A privileged agent of another member: outside its manager's reach.
-    // An owner's privileged agent: routes-integrations-agents.test.ts.
+    // An owner's privileged agent: routes-integrations.test.ts.
     const privilegedAgent = mintAgentToken(
       "privileged-secrets-agent",
       otherId,
@@ -261,7 +261,7 @@ describe("member secrets", () => {
 
 describe("office secrets", () => {
   // Members read the list as a summary (Nil, 2026-10-13); see
-  // routes-integrations-owner.test.ts. Every change stays owner-only.
+  // routes-integrations.test.ts. Every change stays owner-only.
   it("are owner-only to change, as the office variables are", async () => {
     server = await startTestServer();
     const srv = server;

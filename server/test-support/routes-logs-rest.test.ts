@@ -159,27 +159,6 @@ function seedLog(srv: TestServer, agentId: string, sessionId = "s-seed"): void {
 }
 
 describe("routes/logs REST: the three modes", () => {
-  it("no query lists the agent's sessions", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
-    seedLog(srv, agent.id);
-
-    const r = await api(srv, `/api/agents/${agent.id}/logs`, {
-      bearer: mintAgentToken(agent.id, getUserByName(owner.username)!.id),
-    });
-    expect(r.status).toBe(200);
-    expect(r.body.sessions).toEqual([
-      {
-        sessionId: "s-seed",
-        topic: "The marmalade problem",
-        lastModified: 4_000,
-      },
-    ]);
-  });
-
   // Task 29daebe2. The field is TYPE-CHECKED here, not just read off an `any`:
   // the body is assigned to the declared contract types, so removing
   // pendingPrompt from LogSessionIndexResp / LogRetrieveResp (or adding it to
@@ -450,8 +429,10 @@ describe("routes/logs REST: the three modes", () => {
     const indexBody = index.body as unknown as LogSessionIndexResp;
     expect(indexBody.sessions).toHaveLength(25);
     expect(indexBody.truncated).toBe(false);
-    expect(indexBody.sessions[0]).toMatchObject({
+    expect(indexBody.sessions[0]).toEqual({
       sessionId: "s24",
+      topic: "Topic s24",
+      lastModified: 1_024,
       summary: "The marmalade importer was fixed for task 1234abcd.",
     });
 
@@ -495,37 +476,7 @@ describe("routes/logs REST: the three modes", () => {
 });
 
 describe("routes/logs REST: authorization matrix", () => {
-  it("an agent reads its OWN logs", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
-    seedLog(srv, agent.id);
-
-    const r = await api(srv, `/api/agents/${agent.id}/logs`, {
-      bearer: mintAgentToken(agent.id, getUserByName(owner.username)!.id),
-    });
-    expect(r.status).toBe(200);
-  });
-
-  it("an agent reads a ROOM-MATE's logs - the widening past self-only actually works", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const alpha = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
-    const beta = await spawnOwnedBy(srv, "Beta", roomA, 1, owner.username);
-    seedLog(srv, beta.id);
-
-    const r = await api(srv, `/api/agents/${beta.id}/logs?q=marmalade`, {
-      bearer: mintAgentToken(alpha.id, getUserByName(owner.username)!.id),
-    });
-    expect(r.status).toBe(200);
-    expect(r.body.totalMatches).toBe(2);
-  });
-
-  it("an agent reads an agent in ANOTHER room its manager can access", async () => {
+  it("an agent reads an agent in ANOTHER room its manager can access, and gets that agent's history", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -535,11 +486,13 @@ describe("routes/logs REST: authorization matrix", () => {
     const gamma = await spawnOwnedBy(srv, "Gamma", roomB, 0, owner.username);
     seedLog(srv, gamma.id);
 
-    // The owner reaches every room by rule, so its agent does too.
-    const r = await api(srv, `/api/agents/${gamma.id}/logs`, {
+    // The owner reaches every room by rule, so its agent does too. Only
+    // Gamma has history, so the hits prove the read is Gamma's, not Alpha's.
+    const r = await api(srv, `/api/agents/${gamma.id}/logs?q=marmalade`, {
       bearer: mintAgentToken(alpha.id, getUserByName(owner.username)!.id),
     });
     expect(r.status).toBe(200);
+    expect(r.body.totalMatches).toBe(2);
   });
 
   it("an agent CANNOT read an agent in a room its manager cannot access", async () => {
@@ -657,23 +610,23 @@ describe("routes/logs REST: authorization matrix", () => {
     ).toBe(200);
   });
 
-  it("a CRON-RUN token is refused - a run has no history and holds no log:read", async () => {
+  it("a CRON-RUN token is refused, for a live agent and a killed one its user spawned - a run holds no log:read", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const roomA = srv.agentManager.getRooms()[0].id;
+    const ownerId = getUserByName(owner.username)!.id;
     const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
+    const dead = await spawnOwnedBy(srv, "Dead", roomA, 1, owner.username);
     seedLog(srv, agent.id);
+    seedLog(srv, dead.id);
+    await srv.agentManager.kill(dead.id);
 
-    const runToken = mintRunToken(
-      "job-1",
-      "run-1",
-      getUserByName(owner.username)!.id,
-    );
-    const r = await api(srv, `/api/agents/${agent.id}/logs`, {
-      bearer: runToken,
-    });
-    expect(r.status).toBe(403);
+    const runToken = mintRunToken("job-1", "run-1", ownerId);
+    for (const id of [agent.id, dead.id]) {
+      const r = await api(srv, `/api/agents/${id}/logs`, { bearer: runToken });
+      expect([id, r.status]).toEqual([id, 403]);
+    }
   });
 
   it("an unknown agent denies exactly like an inaccessible one (non-leak)", async () => {
@@ -798,22 +751,5 @@ describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
     expect(foreign.status).toBe(ghost.status);
     expect(errCode(foreign)).toBe(errCode(ghost));
     expect(foreign.status).toBe(403);
-  });
-
-  it("a CRON-RUN token is still refused, even for a killed agent its user spawned", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const roomA = srv.agentManager.getRooms()[0].id;
-    const ownerId = getUserByName(owner.username)!.id;
-
-    const dead = await spawnOwnedBy(srv, "Dead", roomA, 0, owner.username);
-    seedLog(srv, dead.id);
-    await srv.agentManager.kill(dead.id);
-
-    const r = await api(srv, `/api/agents/${dead.id}/logs`, {
-      bearer: mintRunToken("job-1", "run-1", ownerId),
-    });
-    expect(r.status).toBe(403);
   });
 });

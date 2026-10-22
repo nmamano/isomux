@@ -1,6 +1,6 @@
 // readPlainTextForm: how a text/plain body and its query become the body
 // object a JSON caller sends. The wiring through the real server is in
-// server/test-support/routes-plain-text-messages.test.ts.
+// server/test-support/routes-conversation-rest.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import {

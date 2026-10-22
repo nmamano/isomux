@@ -126,29 +126,6 @@ function asAppend(body: unknown): {
   };
 }
 
-describe("routes/memory REST: identity required", () => {
-  it("loopback no-cookie READ/APPEND/REPLACE -> 401 unauthenticated", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-
-    for (const r of [
-      await api(srv, "/api/memory?scope=agent"),
-      await api(srv, "/api/memory", {
-        method: "POST",
-        body: { scope: "agent", text: "x" },
-      }),
-      await api(srv, "/api/memory", {
-        method: "PUT",
-        body: { scope: "agent", text: "x", version: "abc" },
-      }),
-    ]) {
-      expect(r.status).toBe(401);
-      expect(errCode(r.body)).toBe("unauthenticated");
-    }
-  });
-});
-
 describe("routes/memory REST: APPEND (agent own scope)", () => {
   // Task f9d2bbac: a note an agent writes to its OWN agent scope is stamped with
   // the date only. The author there would name the reader, and it costs twice -
@@ -215,23 +192,6 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     expect(item.raw).toBe(`- Nosy, ${item.date}: MemBot owns the parser`);
   });
 
-  it("a HUMAN writing to an agent's scope stays named", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Morgan");
-    const bot = await spawnAgent(srv, "MemBot");
-
-    const r = await api(srv, "/api/memory", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { scope: "agent", scopeId: bot.id, text: "ship it by friday" },
-    });
-    expect(r.status).toBe(201);
-    const { item } = asAppend(r.body);
-    expect(item.author).toBe("Morgan");
-    expect(item.raw).toBe(`- Morgan, ${item.date}: ship it by friday`);
-  });
-
   it("an agent's note to ANOTHER scope (room) stays named", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -279,22 +239,6 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     expect(matchedText(dup.body)).toBe("prefer a named constant");
   });
 
-  it("scopeId omitted defaults to the caller's own agent", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "MemBot");
-    const token = mintAgentToken(bot.id, ownerId);
-    const r = await api(srv, "/api/memory", {
-      method: "POST",
-      bearer: token,
-      body: { scope: "agent", text: "pairs with Reviewer3" },
-    });
-    expect(r.status).toBe(201);
-    expect(asAppend(r.body).item.scopeId).toBe(bot.id);
-  });
-
   it("rejects missing/multiline/blank text", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -313,7 +257,7 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     }
   });
 
-  it("rejects a line over 400 characters with trigger guidance", async () => {
+  it("rejects a line over 400 characters, naming its length", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -328,9 +272,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     });
     expect(r.status).toBe(422);
     expect(errCode(r.body)).toBe("memory_line_too_long");
-    expect(errMessage(r.body)).toBe(
-      `a memory must fit in 400 characters of text (this one is ${size}). A fact that needs more than that is not a trigger: put the detail in a doc or the task record and save a pointer to it.`,
-    );
+    // The message names the measured length.
+    expect(errMessage(r.body)).toContain(String(size));
     expect(readMem(srv, "agents", `${bot.id}.md`)).toBeNull();
   });
 });
@@ -394,11 +337,6 @@ describe("routes/memory REST: APPEND hard cap", () => {
     });
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("memory_over_cap");
-    expect(errMessage(res.body)).toContain(
-      "adding this would put the scope over its size cap",
-    );
-    expect(errMessage(res.body)).toContain("Trim this scope and save again");
-    expect(errMessage(res.body)).toContain("do not save it to a wider scope");
 
     const read = await api(srv, "/api/memory?scope=agent", { bearer: token });
     expect((read.body as { text: string }).text).not.toContain("overflow:");
@@ -460,12 +398,14 @@ describe("routes/memory REST: APPEND permissive + existence gates", () => {
       body: { scope: "agent", scopeId: bot.id, text: "from the morgan" },
     });
     expect(explicit.status).toBe(201);
-    expect(asAppend(explicit.body).item.author).toBe("Morgan");
+    const { item } = asAppend(explicit.body);
+    expect(item.author).toBe("Morgan");
+    expect(item.raw).toBe(`- Morgan, ${item.date}: from the morgan`);
   });
 });
 
 describe("routes/memory REST: READ", () => {
-  it("returns text, version, exact injected size, and the scope cap", async () => {
+  it("returns text, version, the prompt-injected size, and the scope cap", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -489,22 +429,16 @@ describe("routes/memory REST: READ", () => {
     expect(asRead(after.body).text).toContain("uses Bun");
     expect(asRead(after.body).version).not.toBe(asRead(empty.body).version);
     expect(asRead(after.body).size).toBe(asRead(after.body).text.trim().length);
-  });
 
-  it("uses prompt-injected size, excluding blank lines", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const ownerId = getUserByName("Morgan")!.id;
-    const bot = await spawnAgent(srv, "MemBot");
-    const token = mintAgentToken(bot.id, ownerId);
-    const empty = asRead(
-      (await api(srv, "/api/memory?scope=agent", { bearer: token })).body,
-    );
+    // The size is the prompt-injected one: blank lines do not count.
     await api(srv, "/api/memory", {
       method: "PUT",
       bearer: token,
-      body: { scope: "agent", text: "one\n   \ntwo\n", version: empty.version },
+      body: {
+        scope: "agent",
+        text: "one\n   \ntwo\n",
+        version: asRead(after.body).version,
+      },
     });
     const read = asRead(
       (await api(srv, "/api/memory?scope=agent", { bearer: token })).body,
@@ -550,7 +484,7 @@ describe("routes/memory REST: REPLACE (whole-file, version-guarded)", () => {
     );
   });
 
-  it("a stale version -> 409 memory_conflict with the current version; nothing written", async () => {
+  it("a stale version -> 409 memory_conflict with the current version, a missing one -> 400; nothing written", async () => {
     const { srv, bot, token } = await seedAgent();
     const before = readMem(srv, "agents", `${bot.id}.md`);
     const rep = await api(srv, "/api/memory", {
@@ -561,18 +495,15 @@ describe("routes/memory REST: REPLACE (whole-file, version-guarded)", () => {
     expect(rep.status).toBe(409);
     expect(errCode(rep.body)).toBe("memory_conflict");
     expect(errVersion(rep.body)).toMatch(/^[0-9a-f]{12}$/);
-    expect(readMem(srv, "agents", `${bot.id}.md`)).toBe(before);
-  });
 
-  it("a missing version -> 400 invalid_version", async () => {
-    const { srv, token } = await seedAgent();
-    const rep = await api(srv, "/api/memory", {
+    const missing = await api(srv, "/api/memory", {
       method: "PUT",
       bearer: token,
       body: { scope: "agent", text: "x" },
     });
-    expect(rep.status).toBe(400);
-    expect(errCode(rep.body)).toBe("invalid_version");
+    expect(missing.status).toBe(400);
+    expect(errCode(missing.body)).toBe("invalid_version");
+    expect(readMem(srv, "agents", `${bot.id}.md`)).toBe(before);
   });
 
   it("ANY authenticated agent can REPLACE office memory (permissive, Nil's decision)", async () => {

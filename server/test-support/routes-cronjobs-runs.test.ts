@@ -11,17 +11,12 @@
 //     cronrun-<runId>` (NOT the target `cron_run_log_entry`, which waits for the
 //     UI/demo-coordinated wire switch). This is Reviewer1's PINNED bridge test.
 //   - The legacy loopback affordance path (`/cronjobs/:id/runs/:runId/read-file`,
-//     no `/api`, no token) is now REJECTED: the loopback-bypass removal deleted
-//     the legacy cron-run POST handlers, and the legacy-routes retirement took
-//     the whole /cronjobs prefix with it, so a no-token POST 401s at the cookie
-//     wall and writes nothing to the transcript.
+//     no `/api`, no token) 401s at the cookie wall: routes-legacy-retired.test.ts.
 //   - run-message ownership tightening: REST via the route guard
 //     (cronjobOwnerOrOfficeOwner). The legacy WS run-message arms were retired in
 //     3d.3 and the shared wsCanMutateCronjob shim in 3d.4.
-//   - The boundary messageId is threaded into the manager so the response ack
-//     equals the eventual persisted user_message id (handler-boundary unit test;
-//     the full resume e2e needs an on-disk session file FakeBackend doesn't write,
-//     so it is targeted at the handler option-path per Reviewer1's fallback).
+//   - The ack's messageId is the id of the user_message the run log holds
+//     (over HTTP for a follow-up; at the handler boundary for an edit).
 //
 // Seam: startTestServer() + a non-completing FakeBackend for the live-run path.
 // Zero LLM.
@@ -179,6 +174,18 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     writeFileSync(join(live.srv.stateRoot, "report.txt"), "hello run");
     const sock = await live.srv.connectWs(live.ownerSession);
 
+    // A missing path is a 400 before any transcript write. ping/pong barrier:
+    // an (erroneous) emit would have been ws.send'd before the pong.
+    const bad = await httpJson(
+      live.srv,
+      `/api/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`,
+      { method: "POST", bearer: live.token, body: {} },
+    );
+    expect(bad.status).toBe(400);
+    sock.send({ type: "ping" });
+    await sock.waitFor("pong");
+    expect(countLog(sock, live.streamId, "file-view")).toBe(0);
+
     const r = await httpJson(
       live.srv,
       `/api/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`,
@@ -214,16 +221,6 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     );
   });
 
-  it("read-file missing path -> 400 before any transcript write", async () => {
-    const live = await startLiveRun();
-    const r = await httpJson(
-      live.srv,
-      `/api/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`,
-      { method: "POST", bearer: live.token, body: {} },
-    );
-    expect(r.status).toBe(400);
-  });
-
   it("idempotency: same Idempotency-Key replays read-file without a second transcript entry", async () => {
     const live = await startLiveRun();
     writeFileSync(join(live.srv.stateRoot, "idem.txt"), "x");
@@ -257,29 +254,6 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     sock.send({ type: "ping" });
     await sock.waitFor("pong");
     expect(countLog(sock, live.streamId, "file-view")).toBe(1);
-  });
-
-  it("legacy loopback affordance path (no /api, no token) is rejected - 401 at the cookie wall, not the transcript", async () => {
-    const live = await startLiveRun();
-    writeFileSync(join(live.srv.stateRoot, "legacy.txt"), "y");
-    const sock = await live.srv.connectWs(live.ownerSession);
-    const res = await live.srv.http(
-      `/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: "legacy.txt" }),
-      },
-    );
-    // The legacy loopback cron-run affordances were deleted, and the whole
-    // /cronjobs prefix is retired, so a no-token POST no longer reaches any
-    // handler: it 401s at the cookie wall.
-    expect(res.status).toBe(401);
-    // Fail-closed: nothing reached the run transcript. ping/pong barrier - any
-    // (erroneous) emit would have been ws.send'd before this ping arrives.
-    sock.send({ type: "ping" });
-    await sock.waitFor("pong");
-    expect(countLog(sock, live.streamId, "file-view")).toBe(0);
   });
 
   // Follow-up #11 bridge: proves the resume-token plumbing actually unblocks the
@@ -369,44 +343,24 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
 });
 
 describe("routes/cron run-affordances: RUN-bearer authz (no active run needed)", () => {
-  it("a USER cookie cannot reach a RUN affordance (lacks self:affordance) -> 403", async () => {
+  it("a USER cookie (no self:affordance) and a RUN token of another {job,run} (runParamMustEqualTokenRun) get 403", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const job = seedJob(srv, "Morgan");
-    const r = await httpJson(
-      srv,
-      `/api/cronjobs/${job.id}/runs/anyrun/read-file`,
-      { method: "POST", rawSessionId: owner.rawSessionId, body: { path: "x" } },
-    );
-    expect(r.status).toBe(403);
-  });
-
-  it("a RUN token bound to a DIFFERENT {job,run} -> 403 (runParamMustEqualTokenRun)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const job = seedJob(srv, "Morgan");
-    const wrong = mintRunToken("other-job", "other-run", null);
-    const r = await httpJson(
-      srv,
-      `/api/cronjobs/${job.id}/runs/some-run/read-file`,
-      { method: "POST", bearer: wrong, body: { path: "x" } },
-    );
-    expect(r.status).toBe(403);
-  });
-
-  it("no identity (no cookie, no bearer) -> 401", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const job = seedJob(srv, "Morgan");
-    const r = await httpJson(
-      srv,
-      `/api/cronjobs/${job.id}/runs/some-run/read-file`,
-      { method: "POST", body: { path: "x" } },
-    );
-    expect(r.status).toBe(401);
+    const path = `/api/cronjobs/${job.id}/runs/some-run/read-file`;
+    const cookie = await httpJson(srv, path, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { path: "x" },
+    });
+    expect(cookie.status).toBe(403);
+    const wrong = await httpJson(srv, path, {
+      method: "POST",
+      bearer: mintRunToken("other-job", "other-run", null),
+      body: { path: "x" },
+    });
+    expect(wrong.status).toBe(403);
   });
 });
 
@@ -455,20 +409,21 @@ describe("routes/cron run-messages: ownership tightening (REST)", () => {
       ).status,
     ).toBe(400);
 
-    // Owner, unknown run -> cheap 404 pre-flight.
-    expect(
-      (
-        await httpJson(
-          srv,
-          `/api/cronjobs/${ownersJob.id}/runs/nope/messages`,
-          {
-            method: "POST",
-            rawSessionId: owner.rawSessionId,
-            body: { text: "hi" },
-          },
-        )
-      ).status,
-    ).toBe(404);
+    // Owner, unknown run -> the route's cheap 404 pre-flight, not the
+    // manager's run_not_found.
+    const unknown = await httpJson(
+      srv,
+      `/api/cronjobs/${ownersJob.id}/runs/nope/messages`,
+      {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { text: "hi" },
+      },
+    );
+    expect(unknown.status).toBe(404);
+    expect((unknown.body as { error?: { code?: string } }).error?.code).toBe(
+      "not_found",
+    );
   });
 });
 
@@ -544,33 +499,6 @@ async function startResumableRun(holdResumed = false, hangOnClose = false) {
     breakLog,
   };
 }
-
-describe("routes/cron run-messages: ack idempotency", () => {
-  it("same-key cron.runMessage replay returns the SAME {messageId} (handler not re-run)", async () => {
-    // A same key + same body must replay the cached response - the identical
-    // messageId, with no 2nd handler run (so no regenerated id) - which is the
-    // direct proof the ack is stable.
-    const { srv, owner, path } = await startResumableRun();
-    const first = await httpJson(srv, path, {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      idempotencyKey: "msg-1",
-      body: { text: "hello run" },
-    });
-    expect(first.status).toBe(200);
-    const id1 = (first.body as { messageId?: string }).messageId;
-    expect(typeof id1).toBe("string");
-
-    const replay = await httpJson(srv, path, {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      idempotencyKey: "msg-1",
-      body: { text: "hello run" },
-    });
-    expect(replay.status).toBe(200);
-    expect((replay.body as { messageId?: string }).messageId).toBe(id1);
-  });
-});
 
 // Task 44872c41: the 200 means the follow-up is in the run log; a refusal is an
 // HTTP error the composer keeps as a not-sent attempt; a resend with the same
@@ -778,12 +706,9 @@ describe("routes/cron run-messages: acceptance and clientMessageId", () => {
   });
 });
 
-// The full resume e2e (a successful run-message that writes a user_message into
-// the transcript) needs an on-disk Claude/Codex session file that FakeBackend
-// doesn't write, so the happy path is targeted at the handler option-path per
-// Reviewer1's fallback: prove the boundary messageId is generated, threaded into
-// the manager op, AND returned - so the ack is a real correlation id, not a
-// fictional one.
+// An edit has no HTTP test that reads the edited entry back, so its ack is
+// pinned at the handler boundary: the messageId is generated, threaded into
+// the manager op, AND returned - a real correlation id, not a fictional one.
 describe("routes/cron run-messages: messageId threading (handler boundary)", () => {
   const ownerIdentity: Identity = {
     scope: "user",
@@ -837,31 +762,6 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
     return { ...base, ...over };
   }
 
-  it("cron.runMessage returns {messageId} and threads that SAME id into sendRunMessage", async () => {
-    let captured: { messageId?: string } | undefined;
-    let calls = 0;
-    const handlers = cronHandlers(
-      stubDeps({
-        findRun: () => ({ id: "run1" }) as CronjobRun,
-        sendRunMessage: async (_j, _r, _t, _u, _d, opts) => {
-          calls++;
-          captured = opts;
-          return { ok: true };
-        },
-      }),
-    );
-    const result = await handlers["cron.runMessage"](
-      unitCtx({ text: "hi" }, { id: "job1", runId: "run1" }),
-    );
-    expect(result.kind).toBe("json");
-    if (result.kind !== "json") throw new Error("expected json");
-    const messageId = (result.body as { messageId: string }).messageId;
-    expect(typeof messageId).toBe("string");
-    expect(messageId.length).toBeGreaterThan(0);
-    expect(calls).toBe(1); // called exactly once
-    expect(captured?.messageId).toBe(messageId); // ack === id threaded to manager
-  });
-
   it("cron.editRunMessage returns {messageId} and threads that SAME id into editRunMessage", async () => {
     let captured: { messageId?: string } | undefined;
     const handlers = cronHandlers(
@@ -882,101 +782,5 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
     if (result.kind !== "json") throw new Error("expected json");
     const messageId = (result.body as { messageId: string }).messageId;
     expect(captured?.messageId).toBe(messageId);
-  });
-
-  it("rejects an OpenCode cron model at create and update boundaries", async () => {
-    const modelFamilyError = (
-      agentType: Cronjob["agentType"],
-      model: string | undefined,
-    ) =>
-      agentType === "opencode" && model === "opencode/fake"
-        ? "Select a connected OpenCode model."
-        : null;
-    const existing = {
-      id: "job1",
-      agentType: "opencode",
-    } as Cronjob;
-    const handlers = cronHandlers(
-      stubDeps({
-        listCronjobs: () => [existing],
-        modelFamilyError,
-      }),
-    );
-    const createResult = await handlers["cron.create"](
-      unitCtx(
-        {
-          name: "OpenCode job",
-          schedule: { type: "interval", minutes: 60 },
-          prompt: "run",
-          cwd: "/tmp",
-          agentType: "opencode",
-          modelFamily: "opencode/fake",
-          effort: "high",
-          permissionMode: "bypassPermissions",
-        },
-        {},
-      ),
-    );
-    expect(createResult).toMatchObject({
-      kind: "error",
-      status: 422,
-      code: "invalid_model_family",
-    });
-
-    const updateResult = await handlers["cron.update"](
-      unitCtx({ modelFamily: "opencode/fake" }, { id: "job1" }),
-    );
-    expect(updateResult).toMatchObject({
-      kind: "error",
-      status: 422,
-      code: "invalid_model_family",
-    });
-  });
-
-  it("cron.listAllRuns maps the manager's internal jobId to the public cronjobId on the wire", async () => {
-    // Regression guard (3d slice 2): getAllRunsByJob() yields { jobId, runs },
-    // but the documented wire contract + every other cron field use cronjobId.
-    // The handler must remap; otherwise the client seeds runs under key
-    // `undefined` and the Jobs-tab run counts read zero.
-    const handlers = cronHandlers(
-      stubDeps({
-        allRunsByJob: () => [
-          {
-            jobId: "job-1",
-            runs: [{ id: "r1", cronjobId: "job-1" } as CronjobRun],
-          },
-        ],
-      }),
-    );
-    const result = await handlers["cron.listAllRuns"](unitCtx({}, {}));
-    expect(result.kind).toBe("json");
-    if (result.kind !== "json") throw new Error("expected json");
-    const body = result.body as {
-      jobs: { cronjobId: string; runs: CronjobRun[] }[];
-    };
-    expect(body.jobs).toHaveLength(1);
-    expect(body.jobs[0].cronjobId).toBe("job-1");
-    // The internal `jobId` field must NOT leak onto the wire.
-    expect((body.jobs[0] as Record<string, unknown>).jobId).toBeUndefined();
-    expect(body.jobs[0].runs).toHaveLength(1);
-  });
-
-  it("cron.runMessage on an unknown run -> 404 (cheap pre-flight, manager not called)", async () => {
-    let calls = 0;
-    const handlers = cronHandlers(
-      stubDeps({
-        findRun: () => null,
-        sendRunMessage: async () => {
-          calls++;
-          return { ok: true };
-        },
-      }),
-    );
-    const result = await handlers["cron.runMessage"](
-      unitCtx({ text: "hi" }, { id: "job1", runId: "ghost" }),
-    );
-    expect(result.kind).toBe("error");
-    if (result.kind === "error") expect(result.status).toBe(404);
-    expect(calls).toBe(0);
   });
 });

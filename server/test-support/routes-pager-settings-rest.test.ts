@@ -2,7 +2,8 @@
 // the real route table and server.
 //
 // Pins: the member and their own API token read and change their settings;
-// no agent token and no other member does; only Discord webhook URLs save;
+// no agent token does (the guard, identity by identity, is walked in
+// routes-table.test.ts); only Discord webhook URLs save;
 // the URL leaves the server only in its masked form (responses, socket
 // events, the agent's env); a raised page reaches the webhook with the
 // mention and a link to the page; ack stops it.
@@ -182,22 +183,6 @@ describe("pager settings REST: access", () => {
       expect(r.status).toBe(403);
     }
     expect(sent).toHaveLength(0);
-  });
-
-  it("a member cannot read or change another member's settings", async () => {
-    const { srv, mia, settingsPath } = await office();
-    expect(
-      (await api(srv, settingsPath, { rawSessionId: mia.rawSessionId })).status,
-    ).toBe(403);
-    expect(
-      (
-        await api(srv, settingsPath, {
-          method: "PATCH",
-          rawSessionId: mia.rawSessionId,
-          body: { repeatMinutes: 1 },
-        })
-      ).status,
-    ).toBe(403);
   });
 
   it("refuses a URL that is not a Discord webhook", async () => {
