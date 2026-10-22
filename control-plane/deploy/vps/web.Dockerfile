@@ -9,7 +9,7 @@
 
 FROM oven/bun:1.3.11-slim AS bun
 
-FROM node:24.21.0-bookworm-slim AS deps
+FROM node:24.22.1-bookworm-slim AS deps
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 COPY control-plane/deploy/vercel-root/package.json control-plane/deploy/vercel-root/bun.lock ./
@@ -26,7 +26,7 @@ FROM deps AS runtime-deps
 RUN bun install --frozen-lockfile --production \
     && cd control-plane/web && bun install --frozen-lockfile --production
 
-FROM node:24.21.0-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 WORKDIR /app
 COPY --from=runtime-deps /app ./
 COPY control-plane ./control-plane

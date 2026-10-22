@@ -377,7 +377,7 @@ async function remote(opts: {
   const bare = join(root, "repo.git");
   git(dir, "init", "-q", "--bare", bare);
 
-  const nodeBin = join(tools, "node-v24.19.0-linux-x64", "bin");
+  const nodeBin = join(tools, "node-v24.22.1-linux-x64", "bin");
   const bunDir = join(tools, "bun-1.4.2");
   const pgBin = join(
     tools,
