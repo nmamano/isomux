@@ -100,6 +100,7 @@ describe("Stripe writes", () => {
       "cancel.ts",
       "reinstatement-operations.ts",
       "stripe/checkout.ts",
+      "stripe/customer-email.ts",
       "stripe/test-clock.ts",
     ]);
   });
@@ -147,6 +148,7 @@ describe("the subscription insert", () => {
     // and a rule that skipped tests would let a "just for the fixture" writer in.
     // reconcile.ts is still the only production caller.
     expect(callersOf("insertSubscription")).toEqual([
+      "account-email.test.ts",
       "cancel.test.ts",
       "exercises/cancel-live.ts",
       "lifecycle-tick.test.ts",

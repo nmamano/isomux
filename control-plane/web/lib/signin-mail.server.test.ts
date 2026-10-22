@@ -6,7 +6,12 @@
 // rejection, and nothing it leaves in the result or the log may carry the key.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { SIGNIN_MAIL_FROM, sendSignInMail } from "./signin-mail.server";
+import {
+  SIGNIN_MAIL_FROM,
+  sendEmailChangeMail,
+  sendEmailChangedNotice,
+  sendSignInMail,
+} from "./signin-mail.server";
 
 const KEY = "re_test_key_7f3a9c1e5b2d4086";
 const LINK = "https://hosted.example.com/signin/email#token=abc.def";
@@ -105,6 +110,66 @@ describe("the request to Resend", () => {
     expect(sent.length).toBe(2);
     expect(sent[0].body.subject).not.toBe(sent[1].body.subject);
     expect(sent[0].body.text).not.toBe(sent[1].body.text);
+  });
+});
+
+describe("the email change mails", () => {
+  const CHANGE_LINK = "https://hosted.example.com/account/email#token=abc.def";
+
+  test("the confirmation goes to the new address, carries its link, and is not the sign-in mail", async () => {
+    const { sent, fetch } = recorder(() => Response.json({ id: "x" }));
+    expect(
+      await sendEmailChangeMail(
+        { to: "work@example.com", link: CHANGE_LINK, language: "en" },
+        { apiKey: KEY, fetch },
+      ),
+    ).toEqual({ ok: true });
+    await sendSignInMail(
+      { to: "work@example.com", link: LINK, language: "en" },
+      { apiKey: KEY, fetch },
+    );
+    const [change, signIn] = sent;
+    expect(change.url).toBe("https://api.resend.com/emails");
+    expect(change.headers.get("authorization")).toBe(`Bearer ${KEY}`);
+    expect([change.body.to].flat()).toEqual(["work@example.com"]);
+    expect(String(change.body.text)).toContain(CHANGE_LINK);
+    expect(String(change.body.html)).toContain(CHANGE_LINK);
+    // A customer must be able to tell "change my address" from "sign in".
+    expect(change.body.subject).not.toBe(signIn.body.subject);
+  });
+
+  test("the notice goes to the old address and names the new one", async () => {
+    const { sent, fetch } = recorder(() => Response.json({ id: "x" }));
+    expect(
+      await sendEmailChangedNotice(
+        {
+          to: "customer.name@gmail.com",
+          newEmail: "work@example.com",
+          language: "en",
+        },
+        { apiKey: KEY, fetch },
+      ),
+    ).toEqual({ ok: true });
+    const [notice] = sent;
+    expect([notice.body.to].flat()).toEqual(["customer.name@gmail.com"]);
+    expect(String(notice.body.text)).toContain("work@example.com");
+  });
+
+  test("a failed send of either is a value, not a rejection", async () => {
+    captureConsole();
+    const { fetch } = recorder(() => {
+      throw new TypeError("fetch failed");
+    });
+    const change = await sendEmailChangeMail(
+      { to: "work@example.com", link: CHANGE_LINK, language: "en" },
+      { apiKey: KEY, fetch },
+    );
+    const notice = await sendEmailChangedNotice(
+      { to: "old@example.com", newEmail: "work@example.com", language: "en" },
+      { apiKey: KEY, fetch },
+    );
+    expect([change.ok, notice.ok]).toEqual([false, false]);
+    expect(logged.join("\n")).not.toContain(KEY);
   });
 });
 

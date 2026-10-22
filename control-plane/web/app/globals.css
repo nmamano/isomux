@@ -362,6 +362,11 @@ main strong {
   justify-content: space-between;
   gap: 16px;
 }
+.account-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
 .page-back {
   max-width: 760px;
   margin: 24px auto 0;

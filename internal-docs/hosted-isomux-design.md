@@ -125,7 +125,12 @@ first slice and test it against a real cheap VPS.
 
 - Landing page + docs (copy rules: describe capabilities, no internal
   mechanisms; no "simple/lightweight" small-signaling).
-- Google OAuth (NextAuth/Auth.js) and Stripe Checkout are implemented. Signed
+- Sign-in is Google OAuth (NextAuth/Auth.js) or an emailed sign-in link; the
+  session carries the account id. The account page (`/account`) changes the
+  account's email, applied only from a link mailed to the new address, with the
+  Stripe customers' email following and a notice to the old address, and it
+  removes a bound Google sign-in, after which email is the way in.
+- Stripe Checkout is implemented. Signed
   Stripe webhooks reach the provisioner and refresh the subscription cache from
   Stripe's API; self-serve trials are not part of the deployed product.
 - Provisioning state machine driving the Webdock API: create server, inject

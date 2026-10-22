@@ -77,21 +77,26 @@ export function Dashboard({
         <p className="note" data-testid="signed-in-as">
           {i18n.t("home.signedInAs", { email: email ?? "" })}
         </p>
-        {/* Still a form around the button, so the flex row and the click target
-            are the ones the page has always had. What changed is who handles the
-            submit: a server action cannot live in a client component, so this
-            calls Auth.js from the browser. `redirectTo` is the option this
-            version of next-auth declares; `callbackUrl` is deprecated. */}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void signOut({ redirectTo: "/" });
-          }}
-        >
-          <button type="submit" data-testid="sign-out">
-            {i18n.t("common.signOut")}
-          </button>
-        </form>
+        <div className="account-actions">
+          <Link href="/account" data-testid="account-link">
+            {i18n.t("home.account")}
+          </Link>
+          {/* Still a form around the button, so the flex row and the click target
+              are the ones the page has always had. What changed is who handles the
+              submit: a server action cannot live in a client component, so this
+              calls Auth.js from the browser. `redirectTo` is the option this
+              version of next-auth declares; `callbackUrl` is deprecated. */}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void signOut({ redirectTo: "/" });
+            }}
+          >
+            <button type="submit" data-testid="sign-out">
+              {i18n.t("common.signOut")}
+            </button>
+          </form>
+        </div>
       </div>
       {/* The English splits at MORE THAN ONE, which is not where Intl.PluralRules
           splits: an account with no office reads "Your office" today, and a

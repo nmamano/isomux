@@ -51,6 +51,40 @@ export const ca: Catalog = {
   "signIn.mailNote":
     "Funciona una vegada, durant {minutes} minuts. Si no l'has demanat, ignora aquest correu.",
 
+  "home.account": "Compte",
+  "account.heading": "Compte",
+  "account.email": "Correu",
+  "account.newEmailLabel": "Correu nou",
+  "account.changeEmailSubmit": "Envia l'enllaç de confirmació",
+  "account.changeEmailSent":
+    "Hem enviat un enllaç a {email}. Obre'l en {minutes} minuts per confirmar.",
+  "account.changeEmailUnchanged": "Aquest ja és el teu correu.",
+  "account.changeEmailTaken": "Un altre compte fa servir aquest correu.",
+  "account.changeEmailUnavailable": "El canvi de correu no està disponible.",
+  "account.googleHeading": "Inici de sessió amb Google",
+  "account.googleOn": "També pots iniciar sessió amb Google.",
+  "account.googleRemove": "Treu l'inici de sessió amb Google",
+  "account.googleRemoveNote":
+    "Després, inicies sessió amb un enllaç enviat a {email}.",
+  "account.googleRemoved": "Inici de sessió amb Google tret.",
+  "account.googleRemoveFailed":
+    "No hem pogut treure l'inici de sessió amb Google. Torna-ho a provar d'aquí a un moment.",
+  "account.confirmHeading": "Canvia el correu",
+  "account.confirmButton": "Canvia el correu a {email}",
+  "account.confirmDone": "El teu correu ara és {email}.",
+  "account.confirmFailed":
+    "No hem pogut canviar el teu correu ara mateix. Torna-ho a provar d'aquí a un moment.",
+  "account.linkInvalid":
+    "Aquest enllaç no és vàlid. <account>Demana'n un de nou</account>.",
+  "account.linkFailed":
+    "Aquest enllaç ha caducat o ja s'ha fet servir. <account>Demana'n un de nou</account>.",
+  "account.mailSubject": "Confirma el teu correu nou d'Isomux",
+  "account.mailIntro":
+    "Obre aquest enllaç perquè aquest sigui el teu correu de Hosted Isomux:",
+  "account.noticeSubject": "El teu correu d'Isomux ha canviat",
+  "account.noticeBody":
+    "El teu correu de Hosted Isomux ara és {email}. Si no has fet aquest canvi, escriu a {support}.",
+
   "signup.heading": "Configura la teva oficina",
   "signup.continue": "Continua el registre",
   "signup.officeName": "Nom de l'oficina",

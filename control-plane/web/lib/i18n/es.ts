@@ -53,6 +53,40 @@ export const es: Catalog = {
   "signIn.mailNote":
     "Funciona una vez, durante {minutes} minutos. Si no lo has pedido, ignora este correo.",
 
+  "home.account": "Cuenta",
+  "account.heading": "Cuenta",
+  "account.email": "Correo",
+  "account.newEmailLabel": "Nuevo correo",
+  "account.changeEmailSubmit": "Enviar enlace de confirmación",
+  "account.changeEmailSent":
+    "Hemos enviado un enlace a {email}. Ábrelo en {minutes} minutos para confirmar.",
+  "account.changeEmailUnchanged": "Este ya es tu correo.",
+  "account.changeEmailTaken": "Otra cuenta usa este correo.",
+  "account.changeEmailUnavailable": "El cambio de correo no está disponible.",
+  "account.googleHeading": "Inicio de sesión con Google",
+  "account.googleOn": "También puedes iniciar sesión con Google.",
+  "account.googleRemove": "Quitar el inicio de sesión con Google",
+  "account.googleRemoveNote":
+    "Después, inicias sesión con un enlace enviado a {email}.",
+  "account.googleRemoved": "Inicio de sesión con Google quitado.",
+  "account.googleRemoveFailed":
+    "No hemos podido quitar el inicio de sesión con Google. Inténtalo de nuevo en un momento.",
+  "account.confirmHeading": "Cambiar correo",
+  "account.confirmButton": "Cambiar el correo a {email}",
+  "account.confirmDone": "Tu correo ahora es {email}.",
+  "account.confirmFailed":
+    "No hemos podido cambiar tu correo ahora mismo. Inténtalo de nuevo en un momento.",
+  "account.linkInvalid":
+    "Este enlace no es válido. <account>Pide uno nuevo</account>.",
+  "account.linkFailed":
+    "Este enlace ha caducado o ya se ha usado. <account>Pide uno nuevo</account>.",
+  "account.mailSubject": "Confirma tu nuevo correo de Isomux",
+  "account.mailIntro":
+    "Abre este enlace para que este sea tu correo de Hosted Isomux:",
+  "account.noticeSubject": "Tu correo de Isomux ha cambiado",
+  "account.noticeBody":
+    "Tu correo de Hosted Isomux ahora es {email}. Si no has hecho este cambio, escribe a {support}.",
+
   "signup.heading": "Configura tu oficina",
   "signup.continue": "Continuar el registro",
   "signup.officeName": "Nombre de la oficina",

@@ -1,5 +1,8 @@
 import { auth } from "../../../auth";
-import { officesForAccount } from "../../../lib/services.server";
+import {
+  accountSettings,
+  officesForAccount,
+} from "../../../lib/services.server";
 import type { SessionView } from "../../../lib/session-view";
 
 export const dynamic = "force-dynamic";
@@ -34,10 +37,13 @@ export async function GET(request: Request): Promise<Response> {
     return answer({ signedIn: true, email, offices: null });
   }
 
+  // The dashboard shows the account's address, which an email change moves
+  // after the session was issued; the session keeps the one it signed in with.
   const offices = await officesForAccount(accountId);
+  const account = await accountSettings(accountId);
   return answer({
     signedIn: true,
-    email,
+    email: account?.email ?? email,
     offices: offices.map((office) => ({
       instanceId: office.instanceId,
       officeName: office.officeName,

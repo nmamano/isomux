@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  createEmailChangeTokens,
   createSignInTokens,
   normalizeEmail,
   SIGNIN_LINK_TTL_MS,
@@ -112,6 +113,88 @@ describe("redeeming a token", () => {
       ok: true,
       email: "d@example.com",
     });
+  });
+});
+
+describe("email change links", () => {
+  // A change link moves an account to an address, so it is a stronger
+  // credential than a sign-in link: one must never stand in for the other.
+  const CLAIMS = { a: "acct-1", e: "work@example.com" };
+
+  test("checking does not spend a link; redeeming spends it once", () => {
+    const tokens = createEmailChangeTokens({ secret: SECRET });
+    const token = tokens.create(CLAIMS, T0);
+    const first = tokens.check(token, T0 + 1000);
+    const second = tokens.check(token, T0 + 2000);
+    expect(first.ok && first.claims).toEqual(CLAIMS);
+    expect(second.ok && second.claims).toEqual(CLAIMS);
+    const redeemed = tokens.redeem(token, T0 + 3000);
+    expect(redeemed.ok && redeemed.claims).toEqual(CLAIMS);
+    expect(tokens.redeem(token, T0 + 4000)).toEqual({
+      ok: false,
+      reason: "used",
+    });
+    expect(tokens.check(token, T0 + 4000)).toEqual({
+      ok: false,
+      reason: "used",
+    });
+  });
+
+  test("two links for the same change carry different nonces", () => {
+    // The Stripe idempotency key is per link: a nonce shared by two links
+    // would replay the first change's answer for the second.
+    const tokens = createEmailChangeTokens({ secret: SECRET });
+    const one = tokens.check(tokens.create(CLAIMS, T0), T0);
+    const two = tokens.check(tokens.create(CLAIMS, T0), T0);
+    if (!one.ok || !two.ok) throw new Error("fresh links must verify");
+    expect(one.nonce.length).toBeGreaterThan(0);
+    expect(one.nonce).not.toBe(two.nonce);
+    expect(one.expiresAt).toBe(T0 + SIGNIN_LINK_TTL_MS);
+  });
+
+  test("a link past its TTL is refused by check and by redeem", () => {
+    const tokens = createEmailChangeTokens({ secret: SECRET });
+    const token = tokens.create(CLAIMS, T0);
+    const late = T0 + SIGNIN_LINK_TTL_MS + 1;
+    expect(tokens.check(token, late)).toEqual({ ok: false, reason: "expired" });
+    expect(tokens.redeem(token, late)).toEqual({
+      ok: false,
+      reason: "expired",
+    });
+  });
+
+  test("an account swapped into a signed payload is refused", () => {
+    const tokens = createEmailChangeTokens({ secret: SECRET });
+    const token = tokens.create(CLAIMS, T0);
+    const [payload, signature] = token.split(".");
+    const claims = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(claims.a).toBe("acct-1");
+    const forged = `${base64url(JSON.stringify({ ...claims, a: "acct-victim" }))}.${signature}`;
+    expect(tokens.check(forged, T0)).toEqual({
+      ok: false,
+      reason: "bad-signature",
+    });
+    expect(tokens.check(token, T0).ok).toBe(true);
+  });
+
+  test("under one secret, a sign-in link is not a change link and a change link is not a sign-in link", () => {
+    const change = createEmailChangeTokens({ secret: SECRET });
+    const signIn = createSignInTokens({ secret: SECRET });
+    expect(change.check(signIn.create("work@example.com", T0), T0)).toEqual({
+      ok: false,
+      reason: "bad-signature",
+    });
+    expect(signIn.redeem(change.create(CLAIMS, T0), T0)).toEqual({
+      ok: false,
+      reason: "bad-signature",
+    });
+    // Each still verifies in its own context.
+    expect(change.check(change.create(CLAIMS, T0), T0).ok).toBe(true);
+    expect(signIn.redeem(signIn.create("work@example.com", T0), T0).ok).toBe(
+      true,
+    );
   });
 });
 

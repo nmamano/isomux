@@ -222,7 +222,9 @@ export async function casAccount(
   store: Store,
   id: string,
   expectedVersion: number,
-  patch: Partial<Pick<AccountRow, "google_subject" | "stripe_customer_id">>,
+  patch: Partial<
+    Pick<AccountRow, "email" | "google_subject" | "stripe_customer_id">
+  >,
 ): Promise<AccountRow | null> {
   assertInTx(store, "casAccount");
   return casRow<AccountRow>(

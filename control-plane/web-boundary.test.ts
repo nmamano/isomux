@@ -73,10 +73,13 @@ describe("only one file reaches the store", () => {
     // Adding an entry here is a deliberate act, which is the point: a new way
     // into the control plane cannot appear as a side effect of writing a page.
     expect(exported).toEqual([
+      "accountSettings",
       "acknowledgeOpsInstance",
+      "changeAccountEmailFor",
       "checkTrustedOrigin",
       "confirmHandoff",
       "continueSignup",
+      "emailChangeRefusalFor",
       "identityForSignIn",
       "officeRouteForAccount",
       "officesForAccount",
@@ -85,6 +88,7 @@ describe("only one file reaches the store", () => {
       "plans",
       "progressForAccount",
       "reinstateOffice",
+      "removeGoogleSignInFor",
       "requestCancel",
       "requestInvite",
       "requestRestart",
@@ -92,7 +96,9 @@ describe("only one file reaches the store", () => {
       "revealInvite",
       "signUpOffice",
       "signupPageState",
+      "stripeCustomersFor",
       "unsubscribeWelcomeMail",
+      "updateStripeCustomerEmail",
     ]);
     // And nothing exports a store, a database or a transaction.
     expect(source).not.toMatch(/export .*\bStore\b/);
@@ -140,6 +146,8 @@ describe("only one file reaches the store", () => {
       "../../store",
       "../../stripe/client",
       "../../stripe/checkout",
+      // The customer's email at Stripe, which follows an account email change.
+      "../../stripe/customer-email",
       "../../stripe/reader",
       "../../stripe/billing-store",
       // Slice 4b. `requests` is the customer's three verbs over the store;

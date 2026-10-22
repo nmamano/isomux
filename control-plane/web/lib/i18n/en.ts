@@ -52,6 +52,41 @@ export const en = {
   "signIn.mailNote":
     "It works once, for {minutes} minutes. If you did not ask for it, ignore this email.",
 
+  // ------------------------------------------------------------- account
+  "home.account": "Account",
+  "account.heading": "Account",
+  "account.email": "Email",
+  "account.newEmailLabel": "New email",
+  "account.changeEmailSubmit": "Send confirmation link",
+  "account.changeEmailSent":
+    "We sent a link to {email}. Open it within {minutes} minutes to confirm.",
+  "account.changeEmailUnchanged": "This is already your email.",
+  "account.changeEmailTaken": "Another account uses this email.",
+  "account.changeEmailUnavailable": "Email change is not available.",
+  "account.googleHeading": "Google sign-in",
+  "account.googleOn": "You can also sign in with Google.",
+  "account.googleRemove": "Remove Google sign-in",
+  "account.googleRemoveNote":
+    "After this, you sign in with an email link to {email}.",
+  "account.googleRemoved": "Google sign-in removed.",
+  "account.googleRemoveFailed":
+    "We could not remove Google sign-in. Try again in a moment.",
+  "account.confirmHeading": "Change email",
+  "account.confirmButton": "Change email to {email}",
+  "account.confirmDone": "Your email is now {email}.",
+  "account.confirmFailed":
+    "We could not change your email just now. Try again in a moment.",
+  "account.linkInvalid":
+    "This link is not valid. <account>Ask for a new one</account>.",
+  "account.linkFailed":
+    "This link has expired or was already used. <account>Ask for a new one</account>.",
+  "account.mailSubject": "Confirm your new Isomux email",
+  "account.mailIntro":
+    "Open this link to make this address your Hosted Isomux email:",
+  "account.noticeSubject": "Your Isomux email changed",
+  "account.noticeBody":
+    "Your Hosted Isomux email is now {email}. If you did not make this change, write to {support}.",
+
   // ------------------------------------------------------------- sign up
   "signup.heading": "Set up your office",
   "signup.continue": "Continue signup",

@@ -1,4 +1,5 @@
-// The sign-in mail, sent through Resend's HTTP API
+// The sign-in mail, the email change link and the notice to the old address,
+// sent through Resend's HTTP API
 // (https://resend.com/docs/api-reference/emails/send-email).
 //
 // A failed send comes back as a value, never a rejection: the route answers it
@@ -25,20 +26,99 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Ours, and the same in every language (components/office-view.tsx). */
+const SUPPORT_EMAIL = "llc@isomux.com";
+
 export async function sendSignInMail(
   mail: { to: string; link: string; language: SupportedLanguageCode },
   deps: { apiKey: string; fetch?: typeof fetch },
 ): Promise<SendResult> {
   const { t } = translatorFor(mail.language);
-  const minutes = SIGNIN_LINK_TTL_MS / 60_000;
-  const intro = t("signIn.mailIntro");
-  const note = t("signIn.mailNote", { minutes });
+  return sendLinkMail(
+    {
+      to: mail.to,
+      subject: t("signIn.mailSubject"),
+      intro: t("signIn.mailIntro"),
+      link: mail.link,
+      note: t("signIn.mailNote", { minutes: SIGNIN_LINK_TTL_MS / 60_000 }),
+    },
+    deps,
+  );
+}
+
+/** The link that confirms an email change, mailed to the NEW address. */
+export async function sendEmailChangeMail(
+  mail: { to: string; link: string; language: SupportedLanguageCode },
+  deps: { apiKey: string; fetch?: typeof fetch },
+): Promise<SendResult> {
+  const { t } = translatorFor(mail.language);
+  return sendLinkMail(
+    {
+      to: mail.to,
+      subject: t("account.mailSubject"),
+      intro: t("account.mailIntro"),
+      link: mail.link,
+      note: t("signIn.mailNote", { minutes: SIGNIN_LINK_TTL_MS / 60_000 }),
+    },
+    deps,
+  );
+}
+
+/** The notice to the OLD address after the change applied. */
+export async function sendEmailChangedNotice(
+  mail: { to: string; newEmail: string; language: SupportedLanguageCode },
+  deps: { apiKey: string; fetch?: typeof fetch },
+): Promise<SendResult> {
+  const { t } = translatorFor(mail.language);
+  const body = t("account.noticeBody", {
+    email: mail.newEmail,
+    support: SUPPORT_EMAIL,
+  });
+  return send(
+    {
+      to: mail.to,
+      subject: t("account.noticeSubject"),
+      text: `${body}\n`,
+      html: `<p>${escapeHtml(body)}</p>`,
+    },
+    deps,
+  );
+}
+
+function sendLinkMail(
+  mail: {
+    to: string;
+    subject: string;
+    intro: string;
+    link: string;
+    note: string;
+  },
+  deps: { apiKey: string; fetch?: typeof fetch },
+): Promise<SendResult> {
   const link = escapeHtml(mail.link);
-  const send = deps.fetch ?? globalThis.fetch;
+  return send(
+    {
+      to: mail.to,
+      subject: mail.subject,
+      text: `${mail.intro}\n\n${mail.link}\n\n${mail.note}\n`,
+      html:
+        `<p>${escapeHtml(mail.intro)}</p>` +
+        `<p><a href="${link}">${link}</a></p>` +
+        `<p>${escapeHtml(mail.note)}</p>`,
+    },
+    deps,
+  );
+}
+
+async function send(
+  mail: { to: string; subject: string; text: string; html: string },
+  deps: { apiKey: string; fetch?: typeof fetch },
+): Promise<SendResult> {
+  const post = deps.fetch ?? globalThis.fetch;
   const redact = (text: string) =>
     redactLogText(text, [deps.apiKey, ...credentialValues(process.env)]);
   try {
-    const response = await send(RESEND_URL, {
+    const response = await post(RESEND_URL, {
       method: "POST",
       headers: {
         authorization: `Bearer ${deps.apiKey}`,
@@ -47,12 +127,9 @@ export async function sendSignInMail(
       body: JSON.stringify({
         from: SIGNIN_MAIL_FROM,
         to: [mail.to],
-        subject: t("signIn.mailSubject"),
-        text: `${intro}\n\n${mail.link}\n\n${note}\n`,
-        html:
-          `<p>${escapeHtml(intro)}</p>` +
-          `<p><a href="${link}">${link}</a></p>` +
-          `<p>${escapeHtml(note)}</p>`,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
       }),
     });
     if (response.ok) return { ok: true };

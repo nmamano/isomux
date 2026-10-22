@@ -192,7 +192,8 @@ export const WEB_GRANTS: readonly TableGrant[] = [
     table: "accounts",
     verbs: ["select", "insert", "update"],
     because:
-      "sign-in binds a Google subject to an account and creates one on first arrival",
+      "sign-in binds a Google subject to an account and creates one on first arrival; " +
+      "the account page changes its email and removes its Google subject",
   },
   {
     table: "name_reservations",
@@ -678,7 +679,11 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "identityForSignIn -> signup:bindGoogleSubject, signup:accountForEmailSignIn " +
       "(accountByGoogleSubject, accountByAddress); continueSignup -> " +
       "stripe/billing-store:getAccount; ops:opsFloor, ops:opsInstance, " +
-      "ops:acknowledgeInstance -> operator.ts isOperator",
+      "ops:acknowledgeInstance -> operator.ts isOperator; accountSettings -> " +
+      "stripe/billing-store:getAccount; emailChangeRefusalFor, changeAccountEmailFor " +
+      "-> signup:emailChangeRefusal, signup:changeAccountEmail (getAccount, " +
+      "accountByAddress); stripeCustomersFor -> signup:stripeCustomersForAccount; " +
+      "removeGoogleSignInFor -> signup:removeGoogleSignIn (getAccount)",
   },
   {
     table: "accounts",
@@ -694,7 +699,10 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "identityForSignIn -> signup:bindGoogleSubject -> stripe/billing-store.ts " +
       "casAccount binds the Google subject; ops:opsFloor, ops:opsInstance and " +
       "ops:acknowledgeInstance -> operator.ts isOperator, whose select ... for " +
-      "share inside a transaction needs UPDATE on the row it locks",
+      "share inside a transaction needs UPDATE on the row it locks; " +
+      "changeAccountEmailFor -> signup:changeAccountEmail and removeGoogleSignInFor " +
+      "-> signup:removeGoogleSignIn -> stripe/billing-store.ts casAccount write " +
+      "the email and clear the Google subject",
   },
   {
     table: "name_reservations",
@@ -790,7 +798,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "store.appendAudit, from signup:reserveOffice, requests:requestInvite, " +
       "cancel:requestCancel, cancel:requestUncancel, " +
-      "reinstatement:prepareReinstatementCheckout, ops:acknowledgeInstance",
+      "reinstatement:prepareReinstatementCheckout, ops:acknowledgeInstance, " +
+      "signup:changeAccountEmail, signup:removeGoogleSignIn",
   },
   {
     table: "instance_liveness",
@@ -809,7 +818,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     verb: "update",
     via:
       "store.nextSeq, from store.appendAudit and requests.ts openCustomerOperation " +
-      "(requests:requestInvite) and cancel:requestCancel's request key",
+      "(requests:requestInvite) and cancel:requestCancel's request key; " +
+      "signup:changeAccountEmail and signup:removeGoogleSignIn audit rows",
   },
   {
     table: "subscriptions",
@@ -817,7 +827,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "signupPageState and continueSignup -> stripe/billing-store:" +
       "subscriptionForInstance; cancel:requestCancel and requests:requestRestart " +
-      "-> reinstatement.ts currentSubscriptionForInstance; progress:projectionFor",
+      "-> reinstatement.ts currentSubscriptionForInstance; progress:projectionFor; " +
+      "stripeCustomersFor -> signup:stripeCustomersForAccount",
   },
   {
     table: "reinstatement_attempts",
@@ -893,21 +904,26 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "accountForEmailSignIn",
       "advanceExpiredOrdinaryCheckout",
       "bindGoogleSubject",
+      "changeAccountEmail",
       "checkoutInputsFor",
       "customerReason",
+      "emailChangeRefusal",
       "instanceOwnedBy",
       "originIsTrusted",
       "recordOrdinaryCheckoutSession",
       "recordTerminalOrdinarySession",
+      "removeGoogleSignIn",
       "reservationByName",
       "reservationsForAccount",
       "reserveOffice",
+      "stripeCustomersForAccount",
       "validateSignup",
     ],
     store: ["Store"],
     "stripe/billing-store": ["getAccount", "subscriptionForInstance"],
     "stripe/checkout": ["CheckoutCreationError", "openCheckout"],
     "stripe/client": ["StripeClient"],
+    "stripe/customer-email": ["updateCustomerEmail"],
     "stripe/mode": ["resolveStripeMode", "stripeKeyFromEnv"],
     "stripe/reader": ["LiveStripeReader"],
   };
@@ -957,6 +973,8 @@ export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
   "stripe/checkout:openCheckout":
     "creates a Stripe Checkout session; it writes nothing to the store (stripe/checkout.ts)",
   "stripe/client:StripeClient": "HTTP to Stripe",
+  "stripe/customer-email:updateCustomerEmail":
+    "writes the Stripe customer's email; it writes nothing to the store",
   "stripe/mode:resolveStripeMode": "reads the Stripe mode from the environment",
   "stripe/mode:stripeKeyFromEnv": "reads the Stripe key from the environment",
   "stripe/reader:LiveStripeReader": "reads Checkout sessions from Stripe",

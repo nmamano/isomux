@@ -1181,6 +1181,66 @@ export async function identityForSignIn(args: {
   }
 }
 
+// ---------------------------------------------------------------- account
+//
+// The account page: its address, its Google sign-in, and the email change.
+// The rules live in lib/account-email-request.server.ts; these are the store
+// and Stripe ends it is wired to.
+
+/** What the account page and the dashboard show: the address from the account
+ * row (not the session, which keeps the address it signed in with) and whether
+ * a Google sign-in is bound. Null when the account does not exist. */
+export async function accountSettings(
+  accountId: string,
+): Promise<{ email: string; google: boolean } | null> {
+  const { getAccount } = await import("../../stripe/billing-store");
+  const account = await withStore((store) => getAccount(store, accountId));
+  if (!account) return null;
+  return { email: account.email, google: account.google_subject !== null };
+}
+
+export async function emailChangeRefusalFor(
+  accountId: string,
+  newEmail: string,
+): Promise<import("../../signup").EmailChangeRefusal | null> {
+  const { emailChangeRefusal } = await import("../../signup");
+  return withStore((store) => emailChangeRefusal(store, accountId, newEmail));
+}
+
+export async function stripeCustomersFor(accountId: string): Promise<string[]> {
+  const { stripeCustomersForAccount } = await import("../../signup");
+  return withStore((store) => stripeCustomersForAccount(store, accountId));
+}
+
+/** Throws when Stripe is not configured. */
+export async function updateStripeCustomerEmail(
+  customerId: string,
+  email: string,
+  idempotencyKey: string,
+): Promise<import("../../stripe/customer-email").CustomerEmailResult> {
+  const [{ StripeClient }, { updateCustomerEmail }] = await Promise.all([
+    import("../../stripe/client"),
+    import("../../stripe/customer-email"),
+  ]);
+  const client = new StripeClient(await stripeRuntime());
+  return updateCustomerEmail(client, customerId, email, idempotencyKey);
+}
+
+export async function changeAccountEmailFor(args: {
+  accountId: string;
+  newEmail: string;
+}): Promise<import("../../signup").EmailChangeOutcome> {
+  const { changeAccountEmail } = await import("../../signup");
+  return withStore((store) => changeAccountEmail(store, args));
+}
+
+export async function removeGoogleSignInFor(
+  accountId: string,
+): Promise<boolean> {
+  const { removeGoogleSignIn } = await import("../../signup");
+  return withStore((store) => removeGoogleSignIn(store, accountId));
+}
+
 /**
  * Opt the account behind an unsubscribe token out of the welcome series. An
  * unknown token changes nothing and is not an error.

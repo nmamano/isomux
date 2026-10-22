@@ -307,6 +307,153 @@ export async function accountForEmailSignIn(
   });
 }
 
+// ------------------------------------------------------------ email change
+
+/** Why a new address cannot become this account's address. */
+export type EmailChangeRefusal = "unchanged" | "taken" | "no-account";
+
+export type EmailChangeOutcome =
+  | { ok: true; oldEmail: string; changed: boolean }
+  | { ok: false; code: "taken" | "no-account" };
+
+/** The form an address is stored in. `accounts_email` is a unique index on
+ * the exact string, and an email sign-in writes lowercase, so only a lowercase
+ * write lets the index refuse a second account at one inbox. */
+function storedAddress(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function refusalFor(
+  account: AccountRow | null,
+  holder: AccountRow | null,
+  email: string,
+): EmailChangeRefusal | null {
+  if (!account) return "no-account";
+  if (account.email.toLowerCase() === email) return "unchanged";
+  if (holder && holder.id !== account.id) return "taken";
+  return null;
+}
+
+/**
+ * The read check before a change link is mailed and before Stripe is written.
+ * Null when the address may become this account's address.
+ */
+export async function emailChangeRefusal(
+  store: Store,
+  accountId: string,
+  newEmail: string,
+): Promise<EmailChangeRefusal | null> {
+  const email = storedAddress(newEmail);
+  return refusalFor(
+    await getAccount(store, accountId),
+    await accountByAddress(store, email),
+    email,
+  );
+}
+
+/**
+ * Move an account to a new address, after its holder opened the link mailed
+ * there. The address is stored lowercased; the audit row names the account id
+ * only, because an address is display data (the ops.ts rule).
+ *
+ * The read check is a fast path. The decision is the unique index: an account
+ * made at the address by a sign-in that has not committed yet is invisible to
+ * the read, and the update then waits on it and fails, inside a savepoint so
+ * the answer is "taken" and not an aborted transaction.
+ */
+export async function changeAccountEmail(
+  store: Store,
+  args: { accountId: string; newEmail: string },
+): Promise<EmailChangeOutcome> {
+  const email = storedAddress(args.newEmail);
+  return store.tx(async (): Promise<EmailChangeOutcome> => {
+    const account = await getAccount(store, args.accountId);
+    const refusal = refusalFor(
+      account,
+      await accountByAddress(store, email),
+      email,
+    );
+    if (refusal === "no-account") return { ok: false, code: "no-account" };
+    if (refusal === "taken") return { ok: false, code: "taken" };
+    if (refusal === "unchanged") {
+      return { ok: true, oldEmail: account!.email, changed: false };
+    }
+    let changed: AccountRow | null;
+    try {
+      changed = await store.recoverable(() =>
+        casAccount(store, account!.id, account!.version, { email }),
+      );
+    } catch (err) {
+      if (isUniqueViolation(err)) return { ok: false, code: "taken" };
+      throw err;
+    }
+    if (!changed) {
+      throw new Error(
+        `account ${account!.id} is being changed by another process; try again`,
+      );
+    }
+    await appendAccountAudit(store, account!.id, "account.email_changed");
+    return { ok: true, oldEmail: account!.email, changed: true };
+  });
+}
+
+/** Every Stripe customer that bills this account: one per office's
+ * subscription, and the account's own when the operator CLI set one. */
+export async function stripeCustomersForAccount(
+  store: Store,
+  accountId: string,
+): Promise<string[]> {
+  const rows = await store.sqlAll<{ customer: string }>(
+    "select stripe_customer_id as customer from subscriptions where account_id = $1 " +
+      "union select stripe_customer_id as customer from accounts " +
+      "where id = $1 and stripe_customer_id is not null order by customer",
+    [accountId],
+  );
+  return rows.map((row) => row.customer);
+}
+
+/**
+ * Unbind the account's Google sign-in. False when none was bound.
+ *
+ * Afterwards that Google account reaches this one only by its address, the way
+ * an unbound Google sign-in does (bindGoogleSubject): after an email change it
+ * no longer does, and email is the way in.
+ */
+export async function removeGoogleSignIn(
+  store: Store,
+  accountId: string,
+): Promise<boolean> {
+  return store.tx(async () => {
+    const account = await getAccount(store, accountId);
+    if (!account?.google_subject) return false;
+    const unbound = await casAccount(store, account.id, account.version, {
+      google_subject: null,
+    });
+    if (!unbound) {
+      throw new Error(
+        `account ${account.id} is being changed by another process; try again`,
+      );
+    }
+    await appendAccountAudit(store, account.id, "account.google_removed");
+    return true;
+  });
+}
+
+async function appendAccountAudit(
+  store: Store,
+  accountId: string,
+  action: string,
+): Promise<void> {
+  await store.appendAudit({
+    actor: `account:${accountId}`,
+    instance_id: null,
+    action,
+    target: `account:${accountId}`,
+    outcome: "succeeded",
+    detail: null,
+  });
+}
+
 /**
  * Is this the origin the deployment answers on?
  *
