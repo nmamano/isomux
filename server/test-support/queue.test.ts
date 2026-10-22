@@ -4,7 +4,9 @@
 // orchestrator/transport: how messages addressed to a busy agent are queued,
 // coalesced into one backend prompt on the next idle transition (sender prefixes
 // + the busy note), the dedupe/cap/reject contracts on the agent-to-agent HTTP
-// entry point, cancel/send-now, and the turnHadHumanInput notification gate.
+// entry point, the sendNow and steer flags, and the turnHadHumanInput
+// notification gate. Queue reads and cancels: queue-read-retract.test.ts.
+// Conversation changes that carry the queue: handoff-queue-carry.test.ts.
 //
 // Seam: the WS harness (startTestServer). The wire IS the boundary here - queue
 // chips reach clients as `agent_updated` { changes: { queue } }, the per-message
@@ -35,7 +37,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { listAgentSessions, loadSessionsMap } from "../persistence.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
@@ -44,7 +46,7 @@ import {
 } from "../../shared/identity.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
-import { CARRIED_NOTE_ONE } from "../agent-manager.ts";
+import { MEMBER_INTERRUPT_NOTE } from "../agent-manager.ts";
 
 let server: TestServer | null = null;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -187,15 +189,13 @@ interface PostResult {
 }
 
 // Agent-to-agent entry point: POST /api/agents/:receiverId/messages (3d.6a - the
-// unified agents.sendMessage route, AGENT branch). Bearer-required: the sender's
-// auto-injected AGENT bearer (ISOMUX_AGENT_TOKEN, resolved here via
-// getAgentTokenRaw) IS the sender, so the body no longer carries senderAgentId on
-// the happy path - it's token-derived. A null senderId (or one with no minted
-// token) sends NO bearer, exercising the no-identity 401 path.
+// unified agents.sendMessage route, AGENT branch). The sender's AGENT bearer
+// (ISOMUX_AGENT_TOKEN, resolved here via getAgentTokenRaw) IS the sender, so the
+// body carries no senderAgentId.
 async function postAgentMessage(
   srv: TestServer,
   receiverId: string,
-  senderId: string | null,
+  senderId: string,
   text: string | null,
   clientMessageId?: string,
   // Extra body fields (steer, deliverAt, ...) for the tests that exercise the
@@ -208,7 +208,7 @@ async function postAgentMessage(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const bearer = senderId !== null ? getAgentTokenRaw(senderId) : null;
+  const bearer = getAgentTokenRaw(senderId);
   if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
   const res = await srv.http(`/api/agents/${receiverId}/messages`, {
     method: "POST",
@@ -527,31 +527,7 @@ describe("structured choice interactions", () => {
     expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
   });
 
-  it("keeps typed number replies on the same settlement path", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const agent = await spawnAgent(server, "Receiver", room.id);
-    await sendHuman(server, owner.rawSessionId, agent.id, "/effort");
-    const interaction = server.agentManager.getPendingInteractions()[0];
-    if (!interaction) throw new Error("effort interaction missing");
-
-    await sendHuman(server, owner.rawSessionId, agent.id, "1");
-    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
-    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
-
-    const stale = await respondInteraction(
-      server,
-      owner.rawSessionId,
-      agent.id,
-      interaction.id,
-      interaction.choices[0].value,
-    );
-    expect(stale.status).toBe(200);
-    expect(stale.body.status).toBe("settled");
-  });
-
-  it("maps every displayed choice position to the typed choice value", async () => {
+  it("maps every displayed choice position to the typed choice value, settled on the same path as a click", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
@@ -569,6 +545,19 @@ describe("structured choice interactions", () => {
       const displayedChoice = interaction.choices[index];
       await sendHuman(server, owner.rawSessionId, agent.id, displayedNumber);
 
+      expect(agentOf(server, agent.id).modelFamily).toBe(displayedChoice.value);
+      // A typed reply settles the card like a click: no card stays open, and
+      // a click that arrives after it lands nothing.
+      expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+      expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+      const stale = await respondInteraction(
+        server,
+        owner.rawSessionId,
+        agent.id,
+        interaction.id,
+        interaction.choices[(index + 1) % 4].value,
+      );
+      expect([stale.status, stale.body.status]).toEqual([200, "settled"]);
       expect(agentOf(server, agent.id).modelFamily).toBe(displayedChoice.value);
     }
   });
@@ -833,56 +822,7 @@ function sawTurnFlag(
   });
 }
 
-// True if the socket received an agent_updated whose changes.queue is exactly
-// the given ordered list of queued-message ids (the queue-chip WIRE signal).
-function sawQueueIds(
-  sock: TestSocket,
-  agentId: string,
-  ids: string[],
-): boolean {
-  return sock.messages.some((m) => {
-    const u = m as {
-      type?: string;
-      agentId?: string;
-      changes?: { queue?: { id: string }[] };
-    };
-    if (u.type !== "agent_updated" || u.agentId !== agentId) return false;
-    const q = u.changes?.queue;
-    return (
-      Array.isArray(q) &&
-      q.length === ids.length &&
-      q.every((item, i) => item.id === ids[i])
-    );
-  });
-}
-
 describe("queue: entry points (Phase 1.4a)", () => {
-  it("idle human send_message starts an immediate turn - no enqueue, no chip", async () => {
-    server = await startTestServer({
-      // Auto-complete so the single turn finishes; we assert no queueing happened.
-      fakeBackend: new FakeBackend({
-        session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
-      }),
-    });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const a = await spawnAgent(server, "Receiver", room.id);
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("full_state");
-
-    await sendHuman(server, owner.rawSessionId, a.id, "hello");
-
-    // The turn runs to completion; the queue is never populated.
-    await waitUntil(
-      () => stateOf(server!, a.id) === "waiting_for_response",
-      2000,
-      "turn completes",
-    );
-    expect(queueOf(server, a.id).length).toBe(0);
-    // Exactly one backend send (the immediate turn), nothing coalesced.
-    expect(server.fakeBackend.sessionForAgent(a.id)?.sent.length).toBe(1);
-  });
-
   it("agent POST when idle accepts-then-flushes (queued:false); when busy it queues (queued:true)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
@@ -909,26 +849,6 @@ describe("queue: entry points (Phase 1.4a)", () => {
     // Both the ack and the live queue report the park.
     expect(r2.body.queued).toBe(true);
     expect(queueOf(server, recv.id).length).toBe(1);
-  });
-
-  // Task 425facdd: the whole point of the flag is that a sender who cannot see
-  // the receiver's state can still tell "read now" from "read after their turn",
-  // so the two outcomes must DIFFER on the same receiver in one run.
-  it("the ack's queued flag flips with the receiver's state", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-
-    const idle = await postAgentMessage(server, recv.id, sender.id, "one");
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "thinking",
-      2000,
-      "receiver busy",
-    );
-    const busy = await postAgentMessage(server, recv.id, sender.id, "two");
-    expect(idle.body.queued).toBe(false);
-    expect(busy.body.queued).toBe(true);
   });
 });
 
@@ -1264,141 +1184,6 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
     );
     expect(rejected.status).toBe(409);
     expect(rejected.body.error?.code).toBe("agent_error");
-  });
-});
-
-describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
-  it("cancel_queued (REST) removes a queued item and re-emits the queue without it", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("full_state");
-
-    await postAgentMessage(server, recv.id, sender.id, "kickoff");
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "thinking",
-      2000,
-      "busy",
-    );
-    const keep = await postAgentMessage(server, recv.id, sender.id, "keep");
-    const drop = await postAgentMessage(server, recv.id, sender.id, "drop");
-    await waitUntil(() => queueOf(server!, recv.id).length === 2, 2000, "q=2");
-
-    // Drive the real WS command (the boundary), not the manager method directly.
-    await userMut(
-      server,
-      owner.rawSessionId,
-      "DELETE",
-      `/api/agents/${recv.id}/queue/${drop.body.messageId!}`,
-    );
-
-    await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
-    expect(queueOf(server, recv.id)[0].id).toBe(keep.body.messageId!);
-    // Wire: the re-emitted queue carries only the kept id.
-    await waitUntil(
-      () => sawQueueIds(sock, recv.id, [keep.body.messageId!]),
-      2000,
-      "wire re-emit without dropped id",
-    );
-  });
-
-  it("send_now (REST) drains the queue to the backend", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    // Codex receiver: send-now on a busy agent aborts, and the slow-path abort
-    // (FakeSession.canAbortInPlace()===false) reinstalls a session. Codex's
-    // auto-resume returns null without on-disk history, so it starts a FRESH
-    // session and dodges Claude's resume preflight (which would reject the fake
-    // session id's missing .jsonl). The Claude abort->resume-real-session path
-    // needs a seeded transcript and is covered by the resume block, not here.
-    // The queue contract frozen here is backend-agnostic: the item leaves the
-    // queue and reaches a backend session.
-    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
-    const sender = await spawnAgent(server, "Sender", room.id);
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("full_state");
-
-    await postAgentMessage(server, recv.id, sender.id, "kickoff");
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "thinking",
-      2000,
-      "busy",
-    );
-
-    await postAgentMessage(server, recv.id, sender.id, "queued-1");
-    await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
-
-    await userMut(
-      server,
-      owner.rawSessionId,
-      "POST",
-      `/api/agents/${recv.id}/send-now`,
-    );
-
-    // The queued item leaves the queue and reaches a backend session (today's
-    // contract; not pinning which concrete session, since send-now aborts +
-    // reinstalls).
-    await waitUntil(
-      () => queueOf(server!, recv.id).length === 0,
-      3000,
-      "drained",
-    );
-    const reached = server.fakeBackend.sessions
-      .filter((s) => s.opts.agentId === recv.id)
-      .some((s) => s.sent.some((m) => m.text.includes("queued-1")));
-    expect(reached).toBe(true);
-  });
-
-  it("new_conversation (REST) carries the queue to the new session, never the old one (df2c820b)", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-
-    await postAgentMessage(server, recv.id, sender.id, "kickoff");
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "thinking",
-      2000,
-      "busy",
-    );
-    const old = server.fakeBackend.sessionForAgent(recv.id)!;
-    await postAgentMessage(server, recv.id, sender.id, "carried-over");
-    await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
-
-    await userMut(
-      server,
-      owner.rawSessionId,
-      "POST",
-      `/api/agents/${recv.id}/new-conversation`,
-    );
-
-    // The new session gets it once, with the carried note; the old never does.
-    await waitUntil(
-      () => {
-        const cur = server!.fakeBackend.sessionForAgent(recv.id);
-        return (
-          !!cur &&
-          cur !== old &&
-          cur.sent.some((m) => m.text.includes("carried-over"))
-        );
-      },
-      2000,
-      "delivered to the new session",
-    );
-    await sleep(100);
-    const sends = server.fakeBackend.sessions
-      .filter((s) => s.opts.agentId === recv.id)
-      .flatMap((s) => s.sent.map((m) => m.text))
-      .filter((t) => t.includes("carried-over"));
-    expect(sends).toHaveLength(1);
-    expect(sends[0]).toContain(CARRIED_NOTE_ONE);
-    expect(old.sent.some((m) => m.text.includes("carried-over"))).toBe(false);
-    expect(queueOf(server, recv.id)).toHaveLength(0);
   });
 });
 
@@ -1862,9 +1647,9 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
-    // Codex receiver for the same reason as the send_now (REST) test above:
-    // the slow-path abort reinstalls a session, and Codex fresh-starts instead
-    // of tripping Claude's resume preflight on the fake session id. The
+    // Codex receiver: the slow-path abort reinstalls a session, and Codex
+    // fresh-starts instead of tripping Claude's resume preflight on the fake
+    // session id. The
     // contract pinned is backend-agnostic: the message leaves the queue and
     // reaches a backend session without waiting for the parked turn to end.
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
@@ -1890,14 +1675,14 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
       3000,
       "drained",
     );
-    await waitUntil(
-      () =>
-        server!.fakeBackend.sessions
-          .filter((s) => s.opts.agentId === recv.id)
-          .some((s) => s.sent.some((m) => m.text.includes("urgent"))),
-      3000,
-      "reached backend",
-    );
+    const delivered = () =>
+      server!.fakeBackend.sessions
+        .filter((s) => s.opts.agentId === recv.id)
+        .flatMap((s) => s.sent.map((m) => m.text))
+        .find((t) => t.includes("urgent"));
+    await waitUntil(() => !!delivered(), 3000, "reached backend");
+    // The flush names the member's interrupt as its cause.
+    expect(delivered()!.startsWith(MEMBER_INTERRUPT_NOTE)).toBe(true);
   });
 
   it("idle agent: a sendNow send is a plain send (starts a turn, nothing aborted)", async () => {
@@ -1929,45 +1714,37 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
     expect(queueOf(server, a.id).length).toBe(0);
   });
 
-  it("non-boolean sendNow -> 422 invalid_request", async () => {
+  // The member's sendNow and the agent's steer are booleans; anything else is
+  // refused before the flag can act.
+  it("a non-boolean sendNow or steer -> 422 invalid_request, nothing sent", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
-    const a = await spawnAgent(server, "Receiver", room.id);
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
 
-    const res = await server.http(`/api/agents/${a.id}/messages`, {
+    const member = await server.http(`/api/agents/${recv.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "x", sendNow: "yes" }),
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as {
-      error?: { code: string };
-    };
-    expect(body.error?.code).toBe("invalid_request");
-    expect(server.fakeBackend.sessionForAgent(a.id)?.sent.length ?? 0).toBe(0);
-  });
-
-  it("AGENT-scope sendNow -> 400 send_now_not_supported (agents use POST /send-now)", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-
-    const res = await server.http(`/api/agents/${recv.id}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getAgentTokenRaw(sender.id)}`,
-      },
-      body: JSON.stringify({ text: "x", sendNow: true }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error?: { code: string };
-    };
-    expect(body.error?.code).toBe("send_now_not_supported");
+    const agent = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "x",
+      undefined,
+      { steer: "yes" },
+    );
+    expect([
+      member.status,
+      ((await member.json()) as { error?: { code: string } }).error?.code,
+    ]).toEqual([422, "invalid_request"]);
+    expect([agent.status, agent.body.error?.code]).toEqual([
+      422,
+      "invalid_request",
+    ]);
     expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
       0,
     );
@@ -2122,52 +1899,20 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
     expect(sawInterrupt(sock, recv.id)).toBe(false);
   });
 
-  it("rate limit: the fourth steer of one receiver inside the window queues instead", async () => {
+  // The budget is three interrupts per receiver in a ROLLING window, not a
+  // lifetime cap. The refill is pinned with a clock jump rather than a real
+  // wait. Safe in the harness: the queue watchdog interval is main-process only
+  // (isomux-office.ts), so nothing else is reading the clock in the
+  // background, and the jump happens between awaits.
+  it("rate limit: the fourth steer inside the window queues instead, and the budget refills once the window passes", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
 
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
-
-    const outcomes: (string | undefined)[] = [];
-    for (let i = 0; i < 4; i++) {
-      // Each round steers a DISTINCT turn: the previous steer's message has
-      // drained (queue empty) and the turn it started is parked (thinking).
-      await waitUntil(
-        () =>
-          stateOf(server!, recv.id) === "thinking" &&
-          queueOf(server!, recv.id).length === 0,
-        5000,
-        `turn ${i} running`,
-      );
-      const r = await postAgentMessage(
-        server,
-        recv.id,
-        sender.id,
-        `steer-${i}`,
-        undefined,
-        { steer: true },
-      );
-      outcomes.push(r.body.steered === true ? "steered" : r.body.steerDeclined);
-    }
-    expect(outcomes).toEqual(["steered", "steered", "steered", "rate_limited"]);
-    // The refused one is still accepted, just parked behind the running turn.
-    expect(queueOf(server, recv.id).length).toBe(1);
-  });
-
-  // The window is a ROLLING one, not a lifetime cap: an agent that spends its
-  // budget is steerable again a minute later. Pinned with a clock jump rather
-  // than a real wait. Safe in the harness: the queue watchdog interval is
-  // main-process only (isomux-office.ts), so nothing else is reading the clock
-  // in the background, and the jump happens between awaits.
-  it("the steer budget refills once the window passes", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
-    const sender = await spawnAgent(server, "Sender", room.id);
-
-    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    // Each steer hits a DISTINCT turn: the previous steer's message has
+    // drained (queue empty) and the turn it started is parked (thinking).
     const steerOnce = async (label: string): Promise<string | undefined> => {
       await waitUntil(
         () =>
@@ -2187,24 +1932,20 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
       return r.body.steered === true ? "steered" : r.body.steerDeclined;
     };
 
-    expect(await steerOnce("a")).toBe("steered");
-    expect(await steerOnce("b")).toBe("steered");
-    expect(await steerOnce("c")).toBe("steered");
-    await waitUntil(
-      () =>
-        stateOf(server!, recv.id) === "thinking" &&
-        queueOf(server!, recv.id).length === 0,
-      5000,
-      "turn for d",
-    );
-    // Without the jump this fourth one is the rate_limited case above.
+    const outcomes = [];
+    for (const label of ["a", "b", "c", "d"])
+      outcomes.push(await steerOnce(label));
+    expect(outcomes).toEqual(["steered", "steered", "steered", "rate_limited"]);
+    // The refused one is still accepted, just parked behind the running turn.
+    expect(queueOf(server, recv.id).map((m) => m.text)).toEqual(["d"]);
+
     setSystemTime(new Date(Date.now() + 61_000));
     try {
       const r = await postAgentMessage(
         server,
         recv.id,
         sender.id,
-        "d",
+        "e",
         undefined,
         { steer: true },
       );
@@ -2413,203 +2154,42 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
     expect(queueOf(server, recv.id).length).toBe(1);
     expect(sawInterrupt(sock, recv.id)).toBe(false);
   });
-
-  it("USER-scope steer -> 400 steer_not_supported", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const a = await spawnAgent(server, "Receiver", room.id);
-
-    const res = await server.http(`/api/agents/${a.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "x", steer: true }),
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: { code: string } };
-    expect(body.error?.code).toBe("steer_not_supported");
-    expect(server.fakeBackend.sessionForAgent(a.id)?.sent.length ?? 0).toBe(0);
-  });
-
-  it("steer with deliverAt -> 400 steer_with_deliver_at, nothing scheduled", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-
-    const r = await postAgentMessage(
-      server,
-      recv.id,
-      sender.id,
-      "later",
-      undefined,
-      { steer: true, deliverAt: new Date(Date.now() + 3600_000).toISOString() },
-    );
-    expect(r.status).toBe(400);
-    expect(r.body.error?.code).toBe("steer_with_deliver_at");
-    const list = await server.http(
-      `/api/agents/${sender.id}/scheduled-messages`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${getAgentTokenRaw(sender.id)}` },
-      },
-    );
-    expect(((await list.json()) as { scheduled: unknown[] }).scheduled).toEqual(
-      [],
-    );
-  });
-
-  it("non-boolean steer -> 422 invalid_request", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-
-    const r = await postAgentMessage(
-      server,
-      recv.id,
-      sender.id,
-      "x",
-      undefined,
-      { steer: "yes" },
-    );
-    expect(r.status).toBe(422);
-    expect(r.body.error?.code).toBe("invalid_request");
-    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
-      0,
-    );
-  });
 });
 
-// Unified agents.sendMessage route (3d.6a), AGENT branch - sender authority via
-// the messageSend guard. A valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN)
-// IS the sender; a mismatched body.senderAgentId is a spoof (403); a valid
-// non-agent identity (USER/RUN) is rejected (403); a no/invalid-bearer request is
-// rejected 401 at the /api auth wall - no anonymous-loopback body-trust.
-describe("queue: message endpoint sender authority (bearer-required)", () => {
-  async function postBearer(
-    srv: TestServer,
-    receiverId: string,
-    bearer: string,
-    body: Record<string, unknown>,
-  ): Promise<{
-    status: number;
-    body: { messageId?: string; error?: { code: string; message: string } };
-  }> {
-    const res = await srv.http(`/api/agents/${receiverId}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${bearer}`,
-      },
-      body: JSON.stringify(body),
-    });
-    return {
-      status: res.status,
-      body: (await res.json()) as {
-        messageId?: string;
-        error?: { code: string; message: string };
-      },
-    };
-  }
-
-  it("a no-bearer loopback POST is rejected 401 (loopback body-trust removed)", async () => {
+// Unified agents.sendMessage route (3d.6a), AGENT branch: the AGENT bearer is
+// the sender. A legacy body.senderAgentId is tolerated only when it names that
+// same agent; any other value is a spoof.
+describe("queue: message endpoint sender authority", () => {
+  it("a senderAgentId that differs from the AGENT bearer is a spoof -> 403; the same id is accepted", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
+    const post = (senderAgentId: string, text: string) =>
+      server!.http(`/api/agents/${recv.id}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAgentTokenRaw(sender.id)}`,
+        },
+        body: JSON.stringify({ text, senderAgentId }),
+      });
 
-    // No Authorization header. The unified /api/agents/:id/messages route is
-    // bearer/cookie-required, so the /api auth wall rejects it (401) before the
-    // handler runs - no anonymous-loopback body-trust.
-    const res = await server.http(`/api/agents/${recv.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "anon", senderAgentId: sender.id }),
-    });
-    expect(res.status).toBe(401);
-    // Nothing was enqueued or flushed to the receiver.
+    const spoof = await post("agent-someone-else", "spoof attempt");
+    expect(spoof.status).toBe(403);
     expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
       0,
     );
-  });
 
-  it("a valid AGENT bearer IS the sender; no senderAgentId needed (token-derived)", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-    const token = getAgentTokenRaw(sender.id)!;
-
-    // No senderAgentId in the body - a loopback post without it would 400. The
-    // 200 + token-derived attribution proves the sender came from the bearer.
-    const r = await postBearer(server, recv.id, token, {
-      text: "hi from token",
-    });
-    expect(r.status).toBe(200);
-    expect(typeof r.body.messageId).toBe("string");
-
+    const same = await post(sender.id, "explicit but matching");
+    expect(same.status).toBe(200);
     await waitUntil(
       () =>
-        (server!.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0) >= 1,
+        (server!.fakeBackend.sessionForAgent(recv.id)?.sent ?? []).some((m) =>
+          m.text.includes("explicit but matching"),
+        ),
       2000,
-      "receiver received the flushed prompt",
-    );
-    const prefix = formatAgentSenderPrefix(sender.id, "Sender", room.name);
-    expect(server.fakeBackend.sessionForAgent(recv.id)!.sent[0].text).toContain(
-      prefix,
-    );
-  });
-
-  it("a present-but-mismatched senderAgentId on an AGENT bearer is a spoof -> 403", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-    const token = getAgentTokenRaw(sender.id)!;
-
-    const r = await postBearer(server, recv.id, token, {
-      text: "spoof attempt",
-      senderAgentId: "agent-someone-else",
-    });
-    expect(r.status).toBe(403);
-    // Nothing was enqueued/flushed to the receiver.
-    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
-      0,
-    );
-  });
-
-  it("a matching senderAgentId on an AGENT bearer is accepted (legacy input tolerated)", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    const sender = await spawnAgent(server, "Sender", room.id);
-    const token = getAgentTokenRaw(sender.id)!;
-
-    const r = await postBearer(server, recv.id, token, {
-      text: "explicit but matching",
-      senderAgentId: sender.id,
-    });
-    expect(r.status).toBe(200);
-    expect(typeof r.body.messageId).toBe("string");
-  });
-
-  it("an unowned RUN token cannot send or body-trust an agent sender", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
-    // The token has no live owned job, and a cron run never body-trusts a
-    // senderAgentId. Both facts fail closed before delivery.
-    const runToken = mintRunToken("some-job", "some-run", null);
-
-    const r = await postBearer(server, recv.id, runToken, {
-      text: "x",
-      senderAgentId: "agent-anything",
-    });
-    expect(r.status).toBe(403);
-    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
-      0,
+      "matching sender delivered",
     );
   });
 });

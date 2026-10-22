@@ -11,7 +11,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
-import { loadMessageQueuesRaw } from "../persistence.ts";
+import { loadLog, loadMessageQueuesRaw } from "../persistence.ts";
 import {
   CARRIED_NOTE_ONE,
   CARRIED_NOTE_OTHER,
@@ -463,24 +463,6 @@ describe("conversation changes carry the queue to the next session (df2c820b)", 
     ).toEqual([moved(2)]);
   });
 
-  it("typed /clear with no queue leaves the agent dormant until the next message", async () => {
-    const fake = fakeBackend();
-    const { mgr } = makeManager(fake);
-    const info = await spawn(mgr);
-    const old = await startTurn(mgr, fake, info.id);
-    old.completeTurn();
-    await waitUntil(
-      () => stateOf(mgr, info.id) === "waiting_for_response",
-      "at rest",
-    );
-    await mgr.sendMessage(info.id, "/clear");
-    expect(mgr.getAgent(info.id)?.dormant).toBe(true);
-    expect(fake.sessions).toHaveLength(1);
-    void mgr.sendMessage(info.id, "after clear");
-    const fresh = await freshSession(fake, info.id, old);
-    expect(fresh.isResume).toBe(false);
-  });
-
   it("a typed /clear that fails shows the error to the member", async () => {
     const fake = fakeBackend();
     const { mgr, logs, fault } = makeManager(fake);
@@ -560,6 +542,17 @@ describe("conversation changes carry the queue to the next session (df2c820b)", 
       ),
     );
     expect(logs.filter((e) => e.content === moved(2))).toHaveLength(1);
+    // ...and comes before the carried messages it announces.
+    await waitUntil(
+      () => mgr.getAgentLogs(info.id).some((e) => e.content === "CARRIED-ONE"),
+      "carried message logged",
+    );
+    const after = mgr.getAgentLogs(info.id).map((e) => e.content);
+    expect(after.indexOf(moved(2))).toBeLessThan(after.indexOf("CARRIED-ONE"));
+    // Written to the resumed conversation's file, not only shown.
+    expect(
+      loadLog(info.id, first.sessionId).some((e) => e.content === moved(2)),
+    ).toBe(true);
   });
 
   it("resume of the current session keeps the queue as it is", async () => {
@@ -831,15 +824,11 @@ describe("a native command in the carried queue", () => {
     expect(fresh.sent[2].text).toContain("CARRIED-TWO");
   }
 
+  // Typed /clear runs the same reset ("typed /clear runs the same reset"
+  // above), so one conversation change covers both.
   it("new conversation", async () => {
     const { mgr, info, fake, old } = await busyWithNativeBetween();
     await mgr.newConversation(info.id);
-    await expectNativeAloneInOrder(fake, info.id, old);
-  });
-
-  it("typed /clear", async () => {
-    const { mgr, info, fake, old } = await busyWithNativeBetween();
-    await mgr.sendMessage(info.id, "/clear");
     await expectNativeAloneInOrder(fake, info.id, old);
   });
 });

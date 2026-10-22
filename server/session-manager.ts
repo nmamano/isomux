@@ -27,6 +27,7 @@ import {
   backendStoppedDuringTurn,
   backendFailureMeta,
   humanizeBackendFailure,
+  STREAM_ENDED_MID_TURN,
 } from "./backend-failure-text.ts";
 import {
   AuthNeededError,
@@ -412,21 +413,19 @@ export class SessionManager<H extends SessionHost = SessionHost> {
           // over a live turn and interfere with its lifecycle. Queued items
           // stay durable and deliver after human recovery.
           try {
-            turn.reject(
-              new Error("Backend stream ended unexpectedly mid-turn."),
-            );
+            turn.reject(new Error(STREAM_ENDED_MID_TURN));
           } catch {}
-          // The rejection text above stays raw - it is an internal Error that
-          // callers log to the console. What the USER reads uses the shared
-          // death wording, so this doesn't become a fourth
-          // inconsistent death surface. There is no exit code or subtype on
-          // this path (the stream simply ended), so it gets the generic line.
+          // What the USER reads uses the shared death wording, so this
+          // doesn't become a fourth inconsistent death surface. There is no
+          // exit code or subtype on this path (the stream simply ended), so it
+          // gets the generic line. The rejection text classifies as the same
+          // death, so the owning caller's catch adds no second line.
           this.deps.addLogEntry(
             this.agentId,
             "error",
             backendStoppedDuringTurn(),
             {
-              backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
+              backendFailureRaw: STREAM_ENDED_MID_TURN,
             },
           );
           this.lastBackendFailure = "stopped-during-turn";

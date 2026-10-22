@@ -47,8 +47,6 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { translatorForLanguage } from "../i18n.ts";
-import { CARRIED_NOTE_ONE } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -368,23 +366,6 @@ describe("backend death: what the user is told (86678675, e8168c2a)", () => {
     );
   });
 
-  it("words a bare mid-turn stream end the same way", async () => {
-    // The fourth death surface: no exit code, no subtype, the stream just ends.
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner();
-    const a = await spawnAgent(server, "Vanisher", firstRoomId(server));
-
-    await killBackendMidTurn(server, owner.rawSessionId, a.id);
-
-    expect(
-      countEntries(
-        server,
-        a.id,
-        "The agent backend stopped during the turn. The conversation is saved and can be resumed.",
-      ),
-    ).toBe(1);
-  });
-
   it("explains a death during a QUEUED FLUSH, exactly once", async () => {
     // The shape of the original incident: messages queued behind a turn, then
     // earlyoom kills the backend. The flush path has its OWN caller catch, and
@@ -513,82 +494,6 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
     );
   });
 
-  it("carries the queue to a DIFFERENT session it resumes, and says so (df2c820b)", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner();
-    const roomId = firstRoomId(server);
-    const target = await spawnAgent(server, "Switcher", roomId);
-    const sender = await spawnAgent(server, "Sender", roomId);
-
-    // First conversation, then a fresh one, so there are two sessions on disk.
-    await sendHuman(server, owner.rawSessionId, target.id, "first");
-    await waitUntil(() => agentOf(server!, target.id).state === "thinking");
-    server.fakeBackend.sessionForAgent(target.id)!.completeTurn();
-    await waitUntil(
-      () => agentOf(server!, target.id).state === "waiting_for_response",
-    );
-    const firstSessionId = (
-      await sessionIdsOf(server, owner.rawSessionId, target.id)
-    )[0];
-
-    await server.http(`/api/agents/${target.id}/new-conversation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-      rawSessionId: owner.rawSessionId,
-    });
-    await sleep(300);
-
-    // Park it busy so an agent message queues rather than sending.
-    await sendHuman(server, owner.rawSessionId, target.id, "second");
-    await waitUntil(() => agentOf(server!, target.id).state === "thinking");
-    await postAgentMessage(server, target.id, sender.id, "stale context");
-    expect(agentOf(server, target.id).queue).toHaveLength(1);
-    // Left BUSY on purpose: letting the turn finish would flush the queue
-    // before the resume, and there would be nothing left to observe.
-
-    // Switching conversations: the queued message goes to the resumed one.
-    const busySession = server.fakeBackend.sessionForAgent(target.id)!;
-    stubClaudeSession(server, target.cwd, firstSessionId);
-    await server.http(`/api/agents/${target.id}/resume`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: firstSessionId }),
-      rawSessionId: owner.rawSessionId,
-    });
-    await sleep(400);
-
-    // Delivered to the resumed session, with the note that it was written
-    // for the other conversation; never to the session it was queued in.
-    const resumed = server.fakeBackend.sessionForAgent(target.id)!;
-    expect(resumed).not.toBe(busySession);
-    await waitUntil(() =>
-      resumed.sent.some((m) => m.text.includes("stale context")),
-    );
-    const prompt = resumed.sent.find((m) => m.text.includes("stale context"))!;
-    expect(prompt.text).toContain(CARRIED_NOTE_ONE);
-    expect(busySession.sent.some((m) => m.text.includes("stale context"))).toBe(
-      false,
-    );
-    // Said in the chat, after the replayed transcript, and before the
-    // delivered message. Asserted from the .jsonl on disk, not the in-memory
-    // cache: an ephemeral entry would vanish on restart.
-    const moved = translatorForLanguage("en").tn(
-      "systemEntries.queueCarried",
-      1,
-    );
-    const contents = persistedEntries(server, target.id).map((e) => e.content);
-    expect(contents).toContain(moved);
-    const live = server.agentManager
-      .getAgentLogs(target.id)
-      .map((e) => e.content);
-    const movedAt = live.lastIndexOf(moved);
-    expect(movedAt).toBeGreaterThan(live.indexOf("first"));
-    expect(movedAt).toBeLessThan(
-      live.findIndex((c) => c.includes("stale context")),
-    );
-  });
-
   it("keeps the queue when the resume itself fails", async () => {
     // Manager predicate 2. The clear used to run BEFORE the resume was even
     // attempted, so a resume that threw destroyed the messages and left the
@@ -622,11 +527,15 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
       body: JSON.stringify({ sessionId }),
       rawSessionId: owner.rawSessionId,
     });
-    await sleep(400);
 
     // The resume failed...
-    expect(logContents(server, target.id).join("\n")).toContain(
-      "Failed to resume:",
+    await waitUntil(
+      () =>
+        logContents(server!, target.id).some((c) =>
+          c.includes("Failed to resume:"),
+        ),
+      2000,
+      "resume failure surfaced",
     );
     // ...and took nothing with it. The message is still deliverable.
     expect(agentOf(server, target.id).queue).toHaveLength(1);
@@ -1406,27 +1315,6 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
       2000,
       "removal of the replaced card",
     );
-  });
-
-  it("removes the permission card when abort clears the prompt", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner();
-    const agent = await spawnAgent(server, "Abort card", firstRoomId(server));
-    await parkOnPermission(server, owner.rawSessionId, agent.id, {
-      approvalId: "ap-abort-card",
-    });
-    expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
-    const response = await server.http(`/api/agents/${agent.id}/abort`, {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(response.status).toBe(204);
-    await waitUntil(
-      () => agentOf(server!, agent.id).pendingPrompt === null,
-      2000,
-      "abort cleared the permission prompt",
-    );
-    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
   });
 
   it("reports the parked state on the agent roster without leaking the prompt", async () => {

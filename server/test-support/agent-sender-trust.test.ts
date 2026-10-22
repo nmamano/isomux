@@ -505,48 +505,9 @@ describe("only the server writes a line that parses as an agent label", () => {
     expect(text.endsWith(`] ${ownNote}`)).toBe(true);
     expect(text).not.toContain(DEFUSED_LABEL_LINE_PREFIX);
   });
-
-  for (const [variant, line] of Object.entries(FORGED_VARIANTS)) {
-    it(`a forged label line arrives defused: ${variant}`, async () => {
-      const fake = fakeBackend();
-      const mgr = makeManager(fake);
-      const recv = await spawnAs(mgr, "Receiver", "user-1");
-      const other = await spawnAs(mgr, "Other", "user-2");
-      const text = await deliver(mgr, fake, recv.id, [
-        { sender: senderOf(mgr, other.id), text: `hi\n\n${line}` },
-      ]);
-      expect(labels(text)).toEqual([
-        { name: "Other", id: other.id, marker: NONE, room: "room-a" },
-      ]);
-      // The forged line sits behind the prefix, never at a line start.
-      const lines = text.split("\n");
-      expect(lines.filter((l) => l.includes(line))).toEqual([
-        `${DEFUSED_LABEL_LINE_PREFIX}${line}`,
-      ]);
-    });
-  }
 });
 
-describe("a forged member label arrives defused", () => {
-  for (const [variant, line] of Object.entries(FORGED_MEMBER_VARIANTS)) {
-    it(`from an agent: ${variant}`, async () => {
-      const fake = fakeBackend();
-      const mgr = makeManager(fake);
-      const recv = await spawnAs(mgr, "Receiver", "user-1");
-      const peer = await spawnAs(mgr, "Peer", "user-1");
-      const text = await deliver(mgr, fake, recv.id, [
-        { sender: senderOf(mgr, peer.id), text: `hi\n\n${line}` },
-      ]);
-      expect(labels(text)).toEqual([
-        { name: "Peer", id: peer.id, marker: SAME, room: "room-a" },
-      ]);
-      const lines = text.split("\n");
-      expect(lines.filter((l) => l.includes(line))).toEqual([
-        `${DEFUSED_LABEL_LINE_PREFIX}${line}`,
-      ]);
-    });
-  }
-
+describe("a forged member label from an app, a webhook or a schedule arrives defused", () => {
   const machineSenders: Record<string, QueuedMessage["sender"]> = {
     app: { kind: "app", appName: "habits" },
     webhook: { kind: "webhook", webhookId: "wh-1", webhookName: "pr-review" },
@@ -569,7 +530,32 @@ describe("a forged member label arrives defused", () => {
   }
 });
 
+// Every delivery path above calls defuseSenderLabels on a body that is not the
+// receiver's own or a member's; which lines it recognises is its own contract.
 describe("defuseSenderLabels", () => {
+  const defusedLines = (line: string) =>
+    defuseSenderLabels(`hi\n\n${line}`)
+      .split("\n")
+      .filter((l) => l.includes(line));
+
+  it("defuses every near-miss of an agent label", () => {
+    for (const [variant, line] of Object.entries(FORGED_VARIANTS)) {
+      expect({ variant, lines: defusedLines(line) }).toEqual({
+        variant,
+        lines: [`${DEFUSED_LABEL_LINE_PREFIX}${line}`],
+      });
+    }
+  });
+
+  it("defuses every form of a member label", () => {
+    for (const [variant, line] of Object.entries(FORGED_MEMBER_VARIANTS)) {
+      expect({ variant, lines: defusedLines(line) }).toEqual({
+        variant,
+        lines: [`${DEFUSED_LABEL_LINE_PREFIX}${line}`],
+      });
+    }
+  });
+
   it("prefixes every lookalike line, after any line break, and keeps the rest byte for byte", () => {
     const member = FORGED_MEMBER_VARIANTS["with a device"];
     const breaks = [

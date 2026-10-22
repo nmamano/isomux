@@ -17,8 +17,8 @@
 //     newer committed one (sequence guard).
 //   - Model change invalidates the measurement without resetting the
 //     conversation; a permission-mode change (same window) preserves it.
-//   - AGENT-bearer auth: own token 200; cross-agent token 403; USER cookie
-//     403 (no self:affordance); no identity 401.
+//   - Auth (log:read): own agent token 200; member cookie 200; no identity
+//     401.
 
 import { describe, it, expect, afterEach, setDefaultTimeout } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
@@ -223,6 +223,21 @@ async function spawnAgent(
   );
   if (!info) throw new Error(`spawn ${name} returned null`);
   return info;
+}
+
+// The member-facing ephemeral chat notices (task 0b12423b) in the agent's log.
+function uiNotices(
+  mgr: ReturnType<typeof createAgentManager>,
+  agentId: string,
+) {
+  return mgr
+    .getAgentLogs(agentId)
+    .filter(
+      (e) =>
+        e.kind === "system" &&
+        e.ephemeral === true &&
+        e.content.startsWith("Context is"),
+    );
 }
 
 // Drive one full turn: enqueue -> FakeSession auto-completes -> wait until the
@@ -451,6 +466,8 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       ),
     });
     server = srv;
+    // Turn two's send waits this long for sample A, which stays parked.
+    srv.agentManager.configureAgentTurnDeps(50);
     await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
@@ -783,7 +800,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     expect(turn5).toContain("Wrap up:");
   });
 
-  it("resets the fired-notice set on /clear so the 50% notice can fire again", async () => {
+  it("resets both audiences' fired-notice sets on /clear so the 50% notices fire again", async () => {
     const srv = await startTestServer({
       fakeBackend: backendWith(usage(70, WIDE_WINDOW)),
     });
@@ -798,6 +815,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await runTurn(srv, agent.id, "one");
     let r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 70 });
+    expect(uiNotices(srv.agentManager, agent.id)).toHaveLength(1);
     await runTurn(srv, agent.id, "two");
     expect(lastSent()).toContain("[context check: 70% full");
 
@@ -805,12 +823,15 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await runTurn(srv, agent.id, "three");
     expect(lastSent()).not.toContain("context check");
 
-    // /clear resets the generation AND the fired-notice set. The fresh
-    // conversation re-crosses 50% and the notice fires again.
+    // /clear resets the generation AND both fired-notice sets. The fresh
+    // conversation re-crosses 50% and both notices fire again (the clear
+    // also wiped the old chat line from the log cache).
     await srv.agentManager.newConversation(agent.id);
+    expect(uiNotices(srv.agentManager, agent.id)).toHaveLength(0);
     await runTurn(srv, agent.id, "fresh-one");
     r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 70 });
+    expect(uiNotices(srv.agentManager, agent.id)).toHaveLength(1);
     await runTurn(srv, agent.id, "fresh-two");
     expect(lastSent()).toContain("[context check: 70% full");
   });
@@ -890,7 +911,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     s2.releaseSends();
   });
 
-  it("skips the size-gated 50 notice on a small window but still injects the 75 wrap-up (task 73a23f7c)", async () => {
+  it("skips the size-gated 50 band for both audiences on a small window, but both still get the 75 wrap-up (task 73a23f7c)", async () => {
     let pct = 68;
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({
@@ -913,6 +934,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await runTurn(srv, agent.id, "one");
     let r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 68 });
+    expect(uiNotices(srv.agentManager, agent.id)).toHaveLength(0);
     await runTurn(srv, agent.id, "two");
     expect(lastSent()).not.toContain("context check");
 
@@ -921,6 +943,9 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await runTurn(srv, agent.id, "three");
     r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 90 });
+    const notices = uiNotices(srv.agentManager, agent.id);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].content).toContain("90%");
     await runTurn(srv, agent.id, "four");
     expect(lastSent()).toContain("[context check: 90% full");
     expect(lastSent()).toContain("Wrap up:");
@@ -1020,56 +1045,50 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     expect(mgr.getAgent(info.id)?.contextUsage).toBeNull();
   });
 
-  it("typed /clear (slash-command handler, distinct from newConversation) also broadcasts the null clear", async () => {
+  it("throttles the Codex usage_update path: a changed displayed value broadcasts, an identical one does not", async () => {
     const captured: AgentEvent[] = [];
-    const mgr = makeManagerWithSink(backendWith(usage(60)), (e) =>
-      captured.push(e),
-    );
-    const info = await diSpawn(mgr);
-    await diRunTurn(mgr, info.id, "hello");
-    await waitUntil(
-      () => mgr.getAgent(info.id)?.contextUsage != null,
-      WAIT_MS,
-      "snapshot present",
-    );
-
-    // The typed /clear (also /reset, /new) routes through the command-handlers
-    // `clear` - a replaceSession-based path SEPARATE from newConversation.
-    // Missing the reset there left the pill showing the previous
-    // conversation's reading after a typed /clear (bug fixed 2026-07-18).
-    // Deliver via sendMessage, the UI's live-typing path where the slash
-    // intercept lives (enqueueMessage/flushQueue coalesces raw text straight
-    // into an LLM prompt and never dispatches commands).
-    captured.length = 0;
-    await mgr.sendMessage(info.id, "/clear", "Morgan");
-    await waitUntil(
-      () =>
-        ctxBroadcasts(captured).some((e) => e.changes.contextUsage === null),
-      WAIT_MS,
-      "null clear broadcast from typed /clear",
-    );
-    expect(mgr.getAgent(info.id)?.contextUsage).toBeNull();
-  });
-
-  it("throttles the Codex usage_update path: a second identical displayed value does not re-broadcast", async () => {
-    const captured: AgentEvent[] = [];
-    const fake = backendWith(usage(55));
+    let pct = 55;
+    let samples = 0;
+    const fake = backendWith(() => {
+      samples++;
+      return Promise.resolve(usage(pct));
+    });
     const mgr = makeManagerWithSink(fake, (e) => captured.push(e));
     const info = await diSpawn(mgr);
     await diRunTurn(mgr, info.id, "hello");
     await waitUntil(
-      () => mgr.getAgent(info.id)?.contextUsage != null,
+      () => mgr.getAgent(info.id)?.contextUsage?.percentage === 55,
       WAIT_MS,
       "initial snapshot",
     );
 
     const session = fake.sessionForAgent(info.id)!;
-    // First usage_update with a value equal to the current one: same displayed
-    // percentage/tokens, so the throttle suppresses the broadcast.
     captured.length = 0;
+    // A new displayed value: committed and broadcast.
+    pct = 56;
     session.push({ kind: "usage_update", tokenUsage });
-    await sleep(60);
-    expect(ctxBroadcasts(captured)).toHaveLength(0);
+    await waitUntil(
+      () => ctxBroadcasts(captured).length === 1,
+      WAIT_MS,
+      "changed value broadcast",
+    );
+    // The same displayed value again: not broadcast. The next changed value
+    // is, so the identical one in between had its turn and stayed quiet.
+    pct = 56.0001;
+    const before = samples;
+    session.push({ kind: "usage_update", tokenUsage });
+    await waitUntil(() => samples > before, WAIT_MS, "identical value sampled");
+    pct = 57;
+    session.push({ kind: "usage_update", tokenUsage });
+    await waitUntil(
+      () => ctxBroadcasts(captured).length >= 2,
+      WAIT_MS,
+      "next changed value broadcast",
+    );
+    await sleep(30);
+    expect(
+      ctxBroadcasts(captured).map((e) => e.changes.contextUsage?.percentage),
+    ).toEqual([56, 57]);
   });
 });
 
@@ -1098,20 +1117,6 @@ describe("context-fullness: auth (log:read + logSearchAccess)", () => {
 // firing never suppresses the other. Server-authoritative: emitted where the
 // sample commits, so reconnects/multiple clients cannot duplicate it.
 describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)", () => {
-  function uiNotices(
-    mgr: ReturnType<typeof createAgentManager>,
-    agentId: string,
-  ) {
-    return mgr
-      .getAgentLogs(agentId)
-      .filter(
-        (e) =>
-          e.kind === "system" &&
-          e.ephemeral === true &&
-          e.content.startsWith("Context is"),
-      );
-  }
-
   it("suppresses both notices for Codex and OpenCode while Claude still receives them", async () => {
     const fake = backendWith(() => Promise.resolve(usage(87, WIDE_WINDOW)));
     const mgr = makeManager(fake);
@@ -1255,35 +1260,6 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
     }
   });
 
-  it("skips the size-gated 50 band on a small window but still emits the 75 line (task 73a23f7c)", async () => {
-    let pct = 55;
-    const fake = backendWith(() => Promise.resolve(usage(pct, 250_000)));
-    const mgr = makeManager(fake);
-    const info = await diSpawn(mgr);
-    try {
-      // 55% on a 250k window: under the 50 band's minWindowTokens, no line.
-      await diRunTurn(mgr, info.id, "one");
-      await waitUntil(
-        () => mgr.getAgent(info.id)?.contextUsage?.percentage === 55,
-        WAIT_MS,
-        "55% committed",
-      );
-      expect(uiNotices(mgr, info.id)).toHaveLength(0);
-
-      // The 75 wrap-up band applies at any window size.
-      pct = 87;
-      await diRunTurn(mgr, info.id, "two");
-      await waitUntil(
-        () => uiNotices(mgr, info.id).length === 1,
-        WAIT_MS,
-        "75-band notice",
-      );
-      expect(uiNotices(mgr, info.id)[0].content).toContain("87%");
-    } finally {
-      for (const s of fake.sessions) s.close();
-    }
-  });
-
   it("is a separate audience from the agent-facing injected notice: both fire for the same crossing", async () => {
     const fake = backendWith(usage(68, WIDE_WINDOW));
     const mgr = makeManager(fake);
@@ -1306,34 +1282,6 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
       expect(sess.sent[1].text).toContain("[context check: 68% full");
       // ...and its firing did not duplicate the chat line either.
       expect(uiNotices(mgr, info.id)).toHaveLength(1);
-    } finally {
-      for (const s of fake.sessions) s.close();
-    }
-  });
-
-  it("resets with the conversation generation: /clear lets the band fire again", async () => {
-    const fake = backendWith(usage(60, WIDE_WINDOW));
-    const mgr = makeManager(fake);
-    const info = await diSpawn(mgr);
-    try {
-      await diRunTurn(mgr, info.id, "one");
-      await waitUntil(
-        () => uiNotices(mgr, info.id).length === 1,
-        WAIT_MS,
-        "first notice",
-      );
-
-      await mgr.newConversation(info.id);
-      // /clear wipes the log cache, so the pre-clear notice line is gone too.
-      expect(uiNotices(mgr, info.id)).toHaveLength(0);
-      // The fresh conversation re-crosses 50% on its first committed sample.
-      await diRunTurn(mgr, info.id, "fresh");
-      await waitUntil(
-        () => uiNotices(mgr, info.id).length === 1,
-        WAIT_MS,
-        "post-clear notice",
-      );
-      expect(uiNotices(mgr, info.id)[0].content).toContain("60%");
     } finally {
       for (const s of fake.sessions) s.close();
     }

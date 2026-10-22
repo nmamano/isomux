@@ -23,12 +23,11 @@
 //      here. The idle-install residue clear has no honest public path and is an
 //      S2 direct-unit obligation (ruling 8).
 //   4. Clean stream end while bound. Owned turn: queue-reliability.test.ts
-//      "mid-turn clean stream end settles the turn, surfaces the error, releases
-//      the dead session, and the agent recovers" and "mid-turn stream end with a
-//      queued item: no replacement turn races the dying caller; the item
-//      delivers after human recovery"; agent-death-recovery.test.ts "words a bare
-//      mid-turn stream end the same way". Idle: agent-idle-eviction.di.test.ts
-//      "backend-death wake: same warning, worded for an unexpected end". Added
+//      "mid-turn clean stream end fails the turn and releases the dead session;
+//      no replacement turn races the dying caller, and the queued item delivers
+//      after human recovery". Idle: agent-idle-eviction.di.test.ts
+//      "backend-death wake: same warning, worded for an unexpected end,
+//      delivered once". Added
 //      here: the no-owner pre-send branch.
 //   5. createTurnDeferred rejects a stale pending turn: no honest public path
 //      (every entry is gated on pendingTurn); S2 direct-unit obligation

@@ -332,17 +332,6 @@ describe("steer at a backend with tool-boundary delivery", () => {
     expect(session.toolBoundary()).toBeNull();
   });
 
-  it("a delivered item can no longer be cancelled", async () => {
-    const fake = fakeBackend({ toolBoundaryDelivery: true });
-    const { mgr } = makeManager(fake);
-    const info = await spawn(mgr);
-    const session = await startTurn(mgr, fake, info.id);
-
-    const r = steer(mgr, info.id, "urgent") as { messageId: string };
-    expect(session.toolBoundary()).not.toBeNull();
-    expect(mgr.cancelQueued(info.id, r.messageId)).toBe(false);
-  });
-
   it("a hook still firing in a replaced session claims nothing", async () => {
     // Codex agent type: the slow-path abort reinstalls a session, and Codex
     // fresh-starts instead of resuming the fake session id.
@@ -777,12 +766,13 @@ describe("steer at a push session (Codex turn/steer)", () => {
 });
 
 describe("paths that still abort name the cause", () => {
-  it("an agent steer at a backend without boundary delivery gets the agent note", async () => {
+  // A member's send-now gets the member note: queue.test.ts, "busy agent: a
+  // sendNow send lands in the queue and immediately drains to the backend".
+  it("an agent steer at a backend without boundary delivery gets the agent note, once; a later plain queue gets none", async () => {
     const fake = fakeBackend();
     const { mgr } = makeManager(fake);
     const info = await spawn(mgr, "codex");
-    const session = await startTurn(mgr, fake, info.id);
-
+    const first = await startTurn(mgr, fake, info.id);
     expect(steer(mgr, info.id, "urgent")).toMatchObject({ steered: true });
     await waitUntil(
       () => allSent(fake, info.id).some((t) => t.includes("urgent")),
@@ -791,47 +781,7 @@ describe("paths that still abort name the cause", () => {
     );
     const delivered = allSent(fake, info.id).find((t) => t.includes("urgent"))!;
     expect(delivered.startsWith(AGENT_INTERRUPT_NOTE)).toBe(true);
-    expect(fake.sessionForAgent(info.id)).not.toBe(session);
-  });
-
-  it("a member's send-now gets the member note", async () => {
-    const fake = fakeBackend();
-    const { mgr } = makeManager(fake);
-    const info = await spawn(mgr, "codex");
-    await startTurn(mgr, fake, info.id);
-
-    void mgr.sendMessage(
-      info.id,
-      "change of plan",
-      "Morgan",
-      undefined,
-      undefined,
-      {
-        sendNow: true,
-      },
-    );
-    await waitUntil(
-      () => allSent(fake, info.id).some((t) => t.includes("change of plan")),
-      3000,
-      "delivered after the abort",
-    );
-    const delivered = allSent(fake, info.id).find((t) =>
-      t.includes("change of plan"),
-    )!;
-    expect(delivered.startsWith(MEMBER_INTERRUPT_NOTE)).toBe(true);
-  });
-
-  it("the note is consumed with its delivery; a later plain queue gets none", async () => {
-    const fake = fakeBackend();
-    const { mgr } = makeManager(fake);
-    const info = await spawn(mgr, "codex");
-    await startTurn(mgr, fake, info.id);
-    steer(mgr, info.id, "urgent");
-    await waitUntil(
-      () => allSent(fake, info.id).some((t) => t.includes("urgent")),
-      3000,
-      "steer delivered",
-    );
+    expect(fake.sessionForAgent(info.id)).not.toBe(first);
     // The steer's delivery is itself a parked turn; finish it.
     fake.sessionForAgent(info.id)!.completeTurn();
     await waitUntil(

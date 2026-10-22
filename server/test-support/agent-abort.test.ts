@@ -189,12 +189,16 @@ describe("agents.abort from an ordinary agent", () => {
 });
 
 describe("agents.abort rate limit for agent callers", () => {
-  it("refuses the fourth stop of one receiver inside the window with 429", async () => {
+  it("refuses the fourth stop of one receiver inside the window with 429; a stop that found nothing does not count", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const [r1] = server.agentManager.getRooms();
     const target = await spawnAgent(server, "Target", r1.id);
     const stopper = await spawnAgent(server, "Stopper", r1.id);
 
+    for (let i = 0; i < 3; i++) {
+      const idle = await abortAs(server, target.id, stopper.id);
+      expect(idle.code).toBe("nothing_to_abort");
+    }
     const outcomes: (number | string | undefined)[] = [];
     for (let i = 0; i < 4; i++) {
       await startTurn(server, target.id, stopper.id, `turn-${i}`);
@@ -238,25 +242,6 @@ describe("agents.abort rate limit for agent callers", () => {
     const r = await abortAs(server, target.id, stopper.id);
     expect(r.status).toBe(429);
     expect(r.code).toBe("rate_limited");
-  });
-
-  it("does not count a stop that found nothing to stop", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const [r1] = server.agentManager.getRooms();
-    const target = await spawnAgent(server, "Target", r1.id);
-    const stopper = await spawnAgent(server, "Stopper", r1.id);
-
-    for (let i = 0; i < 3; i++) {
-      const idle = await abortAs(server, target.id, stopper.id);
-      expect(idle.code).toBe("nothing_to_abort");
-    }
-    const outcomes: (number | string | undefined)[] = [];
-    for (let i = 0; i < 3; i++) {
-      await startTurn(server, target.id, stopper.id, `turn-${i}`);
-      const r = await abortAs(server, target.id, stopper.id);
-      outcomes.push(r.status === 204 ? 204 : r.code);
-    }
-    expect(outcomes).toEqual([204, 204, 204]);
   });
 
   // abort() sets its in-flight flag synchronously, so calls made in one tick
@@ -378,50 +363,37 @@ describe("the stop notice", () => {
   });
 
   // Stops that find nothing never run abort()'s in-flight path, so both calls
-  // arm before either answers. Neither may leave a note behind.
-  it("leaves no note after concurrent stops that both found nothing", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const [r1] = server.agentManager.getRooms();
-    const target = await spawnAgent(server, "Target", r1.id);
-    const sender = await spawnAgent(server, "Sender", r1.id);
-    const results = await Promise.all([
-      server.agentManager.abortByAgent(target.id),
-      server.agentManager.abortByAgent(target.id),
-    ]);
-    expect(results.map((r) => (r.ok ? "ok" : r.code))).toEqual([
-      "nothing_to_abort",
-      "nothing_to_abort",
-    ]);
-    await startTurn(server, target.id, sender.id, "first");
-    const first = sentTexts(server, target.id).find((t) =>
-      t.includes("first"),
-    )!;
-    expect(first).not.toContain(AGENT_STOP_NOTE);
-  });
-
-  it("keeps a real note through concurrent stops that found nothing", async () => {
+  // arm before either answers. They may neither leave a note behind nor clear
+  // a real one.
+  it("concurrent stops that found nothing leave no note, and keep a real one", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const [r1] = server.agentManager.getRooms();
     const target = await spawnAgent(server, "Target", r1.id);
     const stopper = await spawnAgent(server, "Stopper", r1.id);
+    const nothingTwice = async () => {
+      const results = await Promise.all([
+        server!.agentManager.abortByAgent(target.id),
+        server!.agentManager.abortByAgent(target.id),
+      ]);
+      expect(results.map((r) => (r.ok ? "ok" : r.code))).toEqual([
+        "nothing_to_abort",
+        "nothing_to_abort",
+      ]);
+    };
+    const sentFor = (marker: string) =>
+      sentTexts(server!, target.id).find((t) => t.includes(marker))!;
+
+    await nothingTwice();
     await startTurn(server, target.id, stopper.id, "first");
+    expect(sentFor("first")).not.toContain(AGENT_STOP_NOTE);
+
     expect((await abortAs(server, target.id, stopper.id)).status).toBe(204);
     await waitUntil(
       () => agentOf(server!, target.id).state === "waiting_for_response",
     );
-    const results = await Promise.all([
-      server.agentManager.abortByAgent(target.id),
-      server.agentManager.abortByAgent(target.id),
-    ]);
-    expect(results.map((r) => (r.ok ? "ok" : r.code))).toEqual([
-      "nothing_to_abort",
-      "nothing_to_abort",
-    ]);
+    await nothingTwice();
     await startTurn(server, target.id, stopper.id, "second");
-    const second = sentTexts(server, target.id).find((t) =>
-      t.includes("second"),
-    )!;
-    expect(second).toContain(AGENT_STOP_NOTE);
+    expect(sentFor("second")).toContain(AGENT_STOP_NOTE);
   });
 
   it("rides the flush a stop starts when messages were queued", async () => {

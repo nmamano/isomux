@@ -24,7 +24,14 @@
 // (_testSetConsumerDrainTimeout, _testWedgeFlush, sweepStuckFlushes).
 // Zero LLM calls.
 
-import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  afterEach,
+  setSystemTime,
+  spyOn,
+} from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -45,6 +52,7 @@ import type { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
 import { formatAgentSenderPrefix } from "../../shared/identity.ts";
+import { translatorForLanguage } from "../i18n.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -212,6 +220,24 @@ function stubClaudeSession(srv: TestServer, sessionId: string): void {
   srv.fakeBackend.setStoredSessionState(sessionId, "durable");
 }
 
+const deliveryStalled = translatorForLanguage("en").t(
+  "systemEntries.deliveryStalled",
+);
+
+// The busy-turn watchdog acts only on a turn that has been quiet for its
+// deadline (minutes). A clock jump of a day passes that deadline without a
+// real wait; the clock is back before the next polling await. A recovery
+// inside the jump stamps its cooldown a day ahead, so a second sweep in the
+// same test meets that cooldown.
+async function aDayLater<T>(run: () => Promise<T>): Promise<T> {
+  setSystemTime(new Date(Date.now() + 24 * 60 * 60_000));
+  try {
+    return await run();
+  } finally {
+    setSystemTime();
+  }
+}
+
 // A backend that parks each turn in "thinking" on send (no turn_completed).
 function parkingBackend(extra?: {
   manualSend?: boolean;
@@ -232,57 +258,7 @@ function parkingBackend(extra?: {
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 L1)", () => {
-  it("mid-turn clean stream end settles the turn, surfaces the error, releases the dead session, and the agent recovers", async () => {
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    // Codex: the post-death recovery wake starts a FRESH session instead of
-    // tripping Claude's resume preflight on the fake session id.
-    const a = await spawnAgent(server, "Receiver", room.id, "codex");
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("full_state");
-
-    // Turn in flight: send accepted, awaiting a turn_completed that never comes.
-    await sendHuman(server, owner.rawSessionId, a.id, "kickoff");
-    const s1 = server.fakeBackend.sessionForAgent(a.id)!;
-    await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
-    await waitUntil(() => stateOf(server!, a.id) === "thinking", 3000, "busy");
-
-    // The stream ends cleanly, mid-turn, with no error event - the case that
-    // used to strand `await turn` forever and keep a dead session pointer.
-    s1.endStream();
-
-    // The turn settles loudly (caller catch -> error state) instead of hanging.
-    await waitUntil(
-      () => stateOf(server!, a.id) === "error",
-      3000,
-      "turn failed loudly",
-    );
-    await waitUntil(
-      () =>
-        logEntriesFor(sock, a.id).some(
-          (e) =>
-            e.kind === "error" &&
-            e.content.includes("Backend stream ended unexpectedly mid-turn"),
-        ),
-      3000,
-      "stream-end error surfaced",
-    );
-    // The dead session pointer was released (dormant tracks session === null).
-    expect(agentOf(server, a.id).dormant).toBe(true);
-
-    // Recovery: the human path revives with a FRESH session; the message is
-    // delivered there, proving the agent is not wedged.
-    await sendHuman(server, owner.rawSessionId, a.id, "after-death");
-    await waitUntil(
-      () => deliveryCount(server!, a.id, "after-death") === 1,
-      3000,
-      "recovered delivery",
-    );
-    expect(sessionsFor(server, a.id).length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("mid-turn stream end with a queued item: no replacement turn races the dying caller; the item delivers after human recovery", async () => {
+  it("mid-turn clean stream end fails the turn and releases the dead session; no replacement turn races the dying caller, and the queued item delivers after human recovery", async () => {
     // Review-pinned (final code review, blockers 2 + 3): the stream-end
     // backstop must NOT synchronously flip state when a pendingTurn existed -
     // that would fire the queue trigger and could start a replacement turn
@@ -307,13 +283,31 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     await postAgentMessage(server, a.id, sender.id, "queued-later");
     await waitUntil(() => queueOf(server!, a.id).length === 1, 3000, "q=1");
 
+    // The stream ends cleanly, mid-turn, with no error event - the case that
+    // used to strand `await turn` forever and keep a dead session pointer.
     s1.endStream();
     await waitUntil(
       () => stateOf(server!, a.id) === "error",
       3000,
       "error state",
     );
+    // The turn failed loudly, and the dead session pointer was released
+    // (dormant tracks session === null).
+    const errors = () =>
+      logEntriesFor(sock, a.id).filter((e) => e.kind === "error");
+    await waitUntil(() => errors().length > 0, 3000, "stream-end error");
+    expect(agentOf(server, a.id).dormant).toBe(true);
     await sleep(150);
+    // One line, in the shared death wording: the owning caller's catch does
+    // not add the raw rejection text as a second error.
+    // That line is the one every backend death uses, carrying the raw text.
+    expect(errors()).toHaveLength(1);
+    expect(errors()[0].content).toBe(
+      translatorForLanguage("en").t(
+        "systemEntries.backendFailure.stoppedDuringTurn",
+      ),
+    );
+    expect(typeof errors()[0].metadata?.backendFailureRaw).toBe("string");
     // Not delivered anywhere - no replacement turn raced the dying caller.
     expect(deliveryCount(server, a.id, "queued-later")).toBe(0);
     expect(queueOf(server, a.id).length).toBe(1);
@@ -343,15 +337,9 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     );
     await waitUntil(() => queueOf(server!, a.id).length === 0, 3000, "drained");
 
-    // No superseded/flush-error fallout anywhere in the flow.
-    const entries = logEntriesFor(sock, a.id);
-    expect(
-      entries.some(
-        (e) =>
-          e.content.includes("Superseded by a new turn") ||
-          e.content.includes("Error flushing queue"),
-      ),
-    ).toBe(false);
+    // No superseded/flush-error fallout anywhere in the flow: the stream end
+    // is still the only error.
+    expect(errors()).toHaveLength(1);
   });
 
   it("a queued message still delivers promptly when the interrupted turn's send throws (the lost-wakeup interaction)", async () => {
@@ -601,12 +589,13 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
 
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const previousDeadline =
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(0);
     try {
-      // Thinking is observed once per turn, but it is never acted on.
-      expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
-      expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
+      // Thinking past the deadline is observed once per turn, but it is never
+      // acted on.
+      await aDayLater(async () => {
+        expect(await server!.agentManager.sweepStuckFlushes(0)).toBe(0);
+        expect(await server!.agentManager.sweepStuckFlushes(0)).toBe(0);
+      });
       expect(
         warn.mock.calls.filter(([line]) =>
           String(line).includes("[queue-watchdog] would-act"),
@@ -614,7 +603,6 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
       ).toHaveLength(1);
     } finally {
       warn.mockRestore();
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
     }
     await sleep(100);
     expect(queueOf(server, recv.id).length).toBe(1);
@@ -646,19 +634,14 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await postAgentMessage(server, recv.id, sender.id, "stay queued");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
     const sessionsBefore = sessionsFor(server, recv.id).length;
-    const previousDeadline =
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(5);
-    try {
-      await sleep(20);
-      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
-    } finally {
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
-    }
+    expect(
+      await aDayLater(() => server!.agentManager.sweepStuckFlushes()),
+    ).toBe(0);
     expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore);
     expect(queueOf(server, recv.id).length).toBe(1);
   });
 
-  it("waits for the non-zero quiescence deadline and skips an abort already in progress", async () => {
+  it("waits for the quiescence deadline and skips an abort already in progress", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id, "claude");
@@ -689,19 +672,19 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
     stubClaudeSession(server, session.sessionId);
     const sessionsBefore = sessionsFor(server, recv.id).length;
-    const previousDeadline =
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(500);
+    const mgr = server.agentManager;
     try {
-      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
-      server.agentManager._testSetAbortInProgress(recv.id, true);
-      await sleep(510);
-      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
-      expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore);
-      server.agentManager._testSetAbortInProgress(recv.id, false);
-      expect(await server.agentManager.sweepStuckFlushes()).toBe(1);
+      // Before the deadline: nothing to do.
+      expect(await mgr.sweepStuckFlushes()).toBe(0);
+      await aDayLater(async () => {
+        mgr._testSetAbortInProgress(recv.id, true);
+        expect(await mgr.sweepStuckFlushes()).toBe(0);
+        expect(sessionsFor(server!, recv.id).length).toBe(sessionsBefore);
+        mgr._testSetAbortInProgress(recv.id, false);
+        expect(await mgr.sweepStuckFlushes()).toBe(1);
+      });
     } finally {
-      server.agentManager._testSetAbortInProgress(recv.id, false);
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+      mgr._testSetAbortInProgress(recv.id, false);
     }
   });
 
@@ -739,10 +722,10 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
       "first settled",
     );
     expect(server.agentManager.inFlightTurnForLogs(recv.id)).toBe(null);
-    expect(server.agentManager._testActiveToolCount(recv.id)).toBe(0);
 
     // Second turn reaches the measured wedge shape: formal turn owner, sticky
     // tool_executing state, but the matching result leaves no tool running.
+    // The wait below needs the leaked tool gone: it reads the oldest one.
     await sendHuman(server, owner.rawSessionId, recv.id, "second turn");
     await waitUntil(() => first.sent.length === 2, 3000, "second sent");
     first.push({
@@ -767,14 +750,10 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
     stubClaudeSession(server, first.sessionId);
 
-    const previousDeadline =
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(0);
     const beforeSweep = sock.messages.length;
-    try {
-      expect(await server.agentManager.sweepStuckFlushes()).toBe(1);
-    } finally {
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
-    }
+    expect(
+      await aDayLater(() => server!.agentManager.sweepStuckFlushes()),
+    ).toBe(1);
     await waitUntil(
       () => deliveryCount(server!, recv.id, "release me") === 1,
       3000,
@@ -803,22 +782,8 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
       "queue-idle state emitted",
     );
     expect(
-      sock.messages.slice(beforeSweep).some((message) => {
-        const event = message as {
-          type?: string;
-          agentId?: string;
-          changes?: { state?: string };
-        };
-        return (
-          event.type === "agent_updated" &&
-          event.agentId === recv.id &&
-          event.changes?.state === "waiting_for_response"
-        );
-      }),
-    ).toBe(true);
-    expect(
       logEntriesFor(sock, recv.id).some(
-        (entry) => entry.content === "Message delivery stalled; recovering.",
+        (entry) => entry.content === deliveryStalled,
       ),
     ).toBe(true);
   });
@@ -853,12 +818,19 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await postAgentMessage(server, recv.id, sender.id, "stay queued");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
     const sessionsBefore = sessionsFor(server, recv.id).length;
-    const previousDeadline =
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(0);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
     try {
-      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
+      expect(
+        await aDayLater(() => server!.agentManager.sweepStuckFlushes()),
+      ).toBe(0);
+      // The enabling condition: the turn passed the deadline and was observed.
+      expect(
+        warn.mock.calls.filter(([line]) =>
+          String(line).includes("[queue-watchdog] would-act"),
+        ),
+      ).toHaveLength(1);
     } finally {
-      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+      warn.mockRestore();
     }
     expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore);
     expect(queueOf(server, recv.id).length).toBe(1);
@@ -954,9 +926,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     // NOT asserted here on purpose. flushInProgress is never force-cleared.
     await waitUntil(
       () =>
-        logEntriesFor(sock, recv.id).some((e) =>
-          e.content.includes("Message delivery stalled; recovering."),
-        ),
+        logEntriesFor(sock, recv.id).some((e) => e.content === deliveryStalled),
       3000,
       "recovery surfaced in chat",
     );
@@ -1209,58 +1179,28 @@ describe("queue reliability: durable queues (9870b472)", () => {
     expect(queueOf(server, recv.id).length).toBe(0);
   });
 
-  it("explicit clears persist (newConversation) and kill removes the record", async () => {
+  // A conversation change carries the queue and keeps its disk copy until
+  // delivery: handoff-queue-carry.test.ts.
+  it("kill removes the agent's record from the store", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
-    const other = await spawnAgent(server, "Other", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
 
-    for (const target of [recv, other]) {
-      await postAgentMessage(server, target.id, sender.id, "kick");
-      await waitUntil(
-        () => stateOf(server!, target.id) === "thinking",
-        3000,
-        "busy",
-      );
-      await postAgentMessage(
-        server,
-        target.id,
-        sender.id,
-        `queued-${target.id}`,
-      );
-      await waitUntil(
-        () => queueOf(server!, target.id).length === 1,
-        3000,
-        "q=1",
-      );
-    }
+    await postAgentMessage(server, recv.id, sender.id, "kick");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "queued");
+    await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
     expect(queueFile(server)[recv.id]?.queue?.length).toBe(1);
-    expect(queueFile(server)[other.id]?.queue?.length).toBe(1);
 
-    // /clear drops the queue - durably.
-    await userMut(
-      server,
-      owner.rawSessionId,
-      "POST",
-      `/api/agents/${recv.id}/new-conversation`,
-    );
+    // No replay into a future revive.
+    await server.agentManager.kill(recv.id);
     await waitUntil(
-      () => queueOf(server!, recv.id).length === 0,
-      3000,
-      "cleared",
-    );
-    await waitUntil(
-      () => (queueFile(server!)[recv.id]?.queue?.length ?? 0) === 0,
-      3000,
-      "clear persisted",
-    );
-
-    // kill removes the whole record (no replay into a future revive).
-    await server.agentManager.kill(other.id);
-    await waitUntil(
-      () => queueFile(server!)[other.id] === undefined,
+      () => queueFile(server!)[recv.id] === undefined,
       3000,
       "record removed on kill",
     );

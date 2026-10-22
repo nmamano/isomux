@@ -233,8 +233,9 @@ describe("idle eviction - demote / dormant / wake", () => {
     expect(getAgentTokenRaw(id)).toBeTruthy();
 
     // Seed the on-disk session file so the resume preflight passes, then wake
-    // via an inter-agent message: resumes the same thread, clears dormant.
-    seedClaudeSession(STATE_ROOT, sid!);
+    // via an inter-agent message: resumes the same thread, clears dormant. The
+    // transcript ends on a shutdown marker, which an idle release must ignore.
+    seedClaudeSession(STATE_ROOT, sid!, SHUTDOWN_TRANSCRIPT);
     const r = mgr.enqueueMessage(id, {
       sender: {
         kind: "agent",
@@ -260,6 +261,13 @@ describe("idle eviction - demote / dormant / wake", () => {
     expect(
       logs.some((e) => String(e.content ?? "").includes("ended unexpectedly")),
     ).toBe(false);
+    // Nothing was interrupted: no shutdown warning in the chat, and none on the
+    // wire to cost the agent context.
+    expect(logText(mgr, id)).not.toContain(WAKE_PARTIAL);
+    expect(logText(mgr, id)).not.toContain(WAKE_REJECTION_TALK);
+    expect(
+      (fake.lastSession?.sent ?? []).map((m) => m.text).join("\n"),
+    ).not.toContain(WAKE_BLOCK_OPEN);
     fake.lastSession?.close();
   });
 
@@ -326,16 +334,6 @@ describe("idle eviction - demote / dormant / wake", () => {
     expect(fake.resumeSessionCount).toBe(1);
     expect(fake.createSessionCount).toBe(1);
     fake.lastSession?.close();
-  });
-
-  it("does not re-demote an already-dormant agent", async () => {
-    const fake = makeFake();
-    const mgr = makeManager(fake);
-    const id = await spawnReady(mgr, "A");
-    expect(await mgr.demoteToLazy(id)).toBe(true);
-    // session === null now → canDemote is false, second call is a no-op.
-    expect(await mgr.demoteToLazy(id)).toBe(false);
-    expect(fake.resumeSessionCount).toBe(0);
   });
 
   it("boot lazy-restore: restores agents dormant with NO subprocess, then wakes on message", async () => {
@@ -458,16 +456,27 @@ describe("idle eviction - demote / dormant / wake", () => {
     fake.lastSession?.close();
   });
 
-  it("sweepIdleAgents honors the idle threshold", async () => {
+  it("sweepIdleAgents honors the idle threshold and skips a never-messaged agent", async () => {
     const fake = makeFake();
     const mgr = makeManager(fake);
     const id = await spawnReady(mgr, "A");
+    // Lazy spawn: B never got a message, so it holds no session to release.
+    const blank = await mgr.spawn(
+      "B",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-a",
+    );
     // Just-active agent: a 60s threshold demotes nobody.
     expect(await mgr.sweepIdleAgents(60_000)).toBe(0);
     expect(mgr.getAgent(id)?.dormant ?? false).toBe(false);
-    // Zero threshold: every idle resumable agent demotes.
+    // Zero threshold: every idle resumable agent demotes, and only those.
     expect(await mgr.sweepIdleAgents(0)).toBe(1);
     expect(mgr.getAgent(id)?.dormant).toBe(true);
+    expect(mgr.getAgent(blank!.id)?.dormant).toBe(true);
+    expect(fake.createSessionCount).toBe(1);
     // Idempotent: a second sweep finds nothing live to demote.
     expect(await mgr.sweepIdleAgents(0)).toBe(0);
   });
@@ -672,38 +681,6 @@ describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () =
     expect(logs.some((e) => String(e.content ?? "").includes("Resumed"))).toBe(
       false,
     );
-    fake.lastSession?.close();
-  });
-
-  it("lazy spawn composes with the idle sweep: never-messaged agent is skipped, then demotable after waking", async () => {
-    wireClaudeConfigDir();
-    const fake = makeFake();
-    const mgr = makeManager(fake);
-    const info = await mgr.spawn(
-      "A",
-      STATE_ROOT,
-      "default",
-      undefined,
-      undefined,
-      "room-a",
-    );
-    if (!info) throw new Error("spawn returned null");
-    // Already dormant (session === null) → the sweep skips it even at a zero
-    // threshold; there is nothing to release.
-    expect(await mgr.sweepIdleAgents(0)).toBe(0);
-    expect(mgr.getAgent(info.id)?.dormant).toBe(true);
-    expect(fake.createSessionCount).toBe(0);
-
-    // Wake it, then a zero-threshold sweep NOW demotes it - proving lazy spawn
-    // and the sweep compose (spawn skipped, the woken agent later reclaimed).
-    const r = mgr.enqueueMessage(info.id, {
-      sender: { kind: "user", username: "tester" },
-      text: "hi",
-    });
-    expect(r.ok).toBe(true);
-    await waitUntil(() => isLiveAndDemotable(mgr, info.id), "woke");
-    expect(await mgr.sweepIdleAgents(0)).toBe(1);
-    expect(mgr.getAgent(info.id)?.dormant).toBe(true);
     fake.lastSession?.close();
   });
 
@@ -938,7 +915,7 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     expect(log).not.toContain(WAKE_REJECTION_TALK);
   });
 
-  it("backend-death wake: same warning, worded for an unexpected end", async () => {
+  it("backend-death wake: same warning, worded for an unexpected end, delivered once", async () => {
     wireClaudeConfigDir();
     const fake = makeFake();
     const mgr = makeManager(fake);
@@ -965,11 +942,21 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     expect(text).toContain(WAKE_STREAM_END);
     expect(text).toContain(WAKE_PARTIAL);
     expect(text).toContain(WAKE_CATEGORICAL);
-    const sent = sentText(fake);
-    expect(sent).toContain(WAKE_BLOCK_OPEN);
-    expect(sent).toContain(WAKE_STREAM_END);
-    expect(sent).toContain(WAKE_CATEGORICAL);
-    fake.lastSession?.close();
+    const woken = fake.lastSession!;
+    await waitUntil(() => woken.sent.length === 1, "first message sent");
+    expect(woken.sent[0].text).toContain(WAKE_BLOCK_OPEN);
+    expect(woken.sent[0].text).toContain(WAKE_STREAM_END);
+    expect(woken.sent[0].text).toContain(WAKE_CATEGORICAL);
+
+    // Delivered once: the next message on the same live session carries no
+    // wake block (the agent already knows about the shutdown).
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "second",
+    });
+    await waitUntil(() => woken.sent.length === 2, "second message sent");
+    expect(woken.sent[1].text).not.toContain(WAKE_BLOCK_OPEN);
+    woken.close();
   });
 
   // A backend that refuses any send carrying the wake block, so the notice is
@@ -1082,67 +1069,5 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     await waitUntil(() => woken.sent.length === 2, "second textarea message");
     expect(woken.sent[1].text).not.toContain(WAKE_BLOCK_OPEN);
     woken.close();
-  });
-
-  it("delivers the note ONCE: the next message carries no wake block", async () => {
-    wireClaudeConfigDir();
-    const fake = makeFake();
-    const mgr = makeManager(fake);
-    const id = await spawnReady(mgr, "A");
-    const sid = mgr.getCurrentSessionId(id)!;
-    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
-    fake.lastSession!.endStream();
-    await waitUntil(
-      () => (mgr.getAgent(id)?.dormant ?? false) === true,
-      "went dormant on stream end",
-    );
-    mgr.enqueueMessage(id, {
-      sender: { kind: "user", username: "tester" },
-      text: "first",
-    });
-    await waitUntil(
-      () => (mgr.getAgent(id)?.dormant ?? false) === false,
-      "woke after stream end",
-    );
-    const woken = fake.lastSession!;
-    await waitUntil(() => woken.sent.length === 1, "first message sent");
-    expect(woken.sent[0].text).toContain(WAKE_BLOCK_OPEN);
-
-    // Second message on the SAME live session: the note was consumed, so the
-    // agent isn't re-told about a shutdown it already knows about.
-    mgr.enqueueMessage(id, {
-      sender: { kind: "user", username: "tester" },
-      text: "second",
-    });
-    await waitUntil(() => woken.sent.length === 2, "second message sent");
-    expect(woken.sent[1].text).not.toContain(WAKE_BLOCK_OPEN);
-    woken.close();
-  });
-
-  it("idle-eviction wake says nothing about shutdowns", async () => {
-    // The calm branch must not inherit the alarm: nothing was interrupted.
-    wireClaudeConfigDir();
-    const fake = makeFake();
-    const mgr = makeManager(fake);
-    const id = await spawnReady(mgr, "A");
-    const sid = mgr.getCurrentSessionId(id)!;
-    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
-    expect(await mgr.demoteToLazy(id)).toBe(true);
-    const r = mgr.enqueueMessage(id, {
-      sender: { kind: "user", username: "tester" },
-      text: "back",
-    });
-    expect(r.ok).toBe(true);
-    await waitUntil(
-      () => (mgr.getAgent(id)?.dormant ?? false) === false,
-      "woke from idle demote",
-    );
-    const text = logText(mgr, id);
-    expect(text).toContain("released while idle");
-    expect(text).not.toContain(WAKE_PARTIAL);
-    expect(text).not.toContain(WAKE_REJECTION_TALK);
-    // And costs the agent no context: no block on the wire either, even though
-    // a shutdown-marked transcript is sitting on disk.
-    expect(sentText(fake)).not.toContain(WAKE_BLOCK_OPEN);
   });
 });

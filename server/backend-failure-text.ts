@@ -80,6 +80,14 @@ export function backendStoppedDuringTurn(): LogMessage {
   return msg("systemEntries.backendFailure.stoppedDuringTurn");
 }
 
+/**
+ * The rejection the session manager gives an owned turn when the stream ends
+ * mid-turn. It writes the shared wording itself, so this text classifies as the
+ * same death and the owning caller's catch stays quiet.
+ */
+export const STREAM_ENDED_MID_TURN =
+  "Backend stream ended unexpectedly mid-turn.";
+
 export interface BackendFailureText {
   // What the user reads in chat: a message each reader words, or the raw
   // string itself when it passes through.
@@ -154,6 +162,14 @@ export function humanizeBackendFailure(raw: string): BackendFailureText {
     // the common causes of those with something specific, so adding a vague
     // sentence here would only push its hint further down the chat.
     return { text: raw, id: "unclassified" };
+  }
+
+  if (raw === STREAM_ENDED_MID_TURN) {
+    return {
+      text: backendStoppedDuringTurn(),
+      raw,
+      id: "stopped-during-turn",
+    };
   }
 
   // The SDK's error-subtype result. The [ede_diagnostic] blob it carries is

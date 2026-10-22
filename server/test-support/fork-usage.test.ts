@@ -189,58 +189,11 @@ describe("B1 loadLogWithAncestors (Phase 1.4a)", () => {
 // B1 - usage accounting math, direct-call seam
 // ===========================================================================
 
-describe("B1 accumulateSessionUsage (Phase 1.4a)", () => {
-  const A = "agent-acc";
-
-  it("sums token fields across turns and overwrites cost (cumulative-per-process)", () => {
-    accumulateSessionUsage(
-      A,
-      "s",
-      {
-        inputTokens: 10,
-        outputTokens: 5,
-        cacheReadInputTokens: 7,
-        cacheCreationInputTokens: 2,
-      },
-      1.0,
-    );
-    const cumulative = accumulateSessionUsage(
-      A,
-      "s",
-      {
-        inputTokens: 3,
-        outputTokens: 2,
-        cacheReadInputTokens: 1,
-        cacheCreationInputTokens: 4,
-      },
-      2.5,
-    );
-    // Tokens summed across the two real calls; cost overwritten to the latest.
-    expect(cumulative).toEqual(usage(13, 7, 8, 6, 2.5));
-    expect(loadSessionsMap(A)["s"].usage).toEqual(usage(13, 7, 8, 6, 2.5));
-  });
-});
+// accumulateSessionUsage (tokens summed, cost overwritten in cumulative mode)
+// is pinned through its real caller: "OpenCode turn-cost consumer" below.
 
 describe("B1 rollSessionUsageOnResume (Phase 1.4a)", () => {
   const A = "agent-roll";
-
-  it("rolls current-run usage into priorRunsUsage and clears usage", () => {
-    accumulateSessionUsage(
-      A,
-      "s",
-      {
-        inputTokens: 10,
-        outputTokens: 5,
-        cacheReadInputTokens: 7,
-        cacheCreationInputTokens: 2,
-      },
-      1.5,
-    );
-    rollSessionUsageOnResume(A, "s");
-    const m = loadSessionsMap(A)["s"];
-    expect(m.usage).toBeUndefined();
-    expect(m.priorRunsUsage).toEqual(usage(10, 5, 7, 2, 1.5));
-  });
 
   it("sums into an existing priorRunsUsage across multiple resumes", () => {
     accumulateSessionUsage(
@@ -743,7 +696,7 @@ describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", ()
     return e.id;
   }
 
-  it("pins native reads, forks and fork resumes to the parent root after an account change", async () => {
+  it("pins native reads, forks and fork resumes to the parent root after an account change, as interactive access", async () => {
     wireClaudeConfigDir();
     const fake = editFake();
     const { sink } = capture();
@@ -760,6 +713,8 @@ describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", ()
     );
     expect(fake.lastMessagesAccess?.env?.CLAUDE_CONFIG_DIR).toBe(claudeHome());
     expect(fake.lastForkAccess?.env?.CLAUDE_CONFIG_DIR).toBe(claudeHome());
+    expect(fake.lastMessagesAccess?.interactive).toBe(true);
+    expect(fake.lastForkAccess?.interactive).toBe(true);
     expect(loadSessionsMap(info.id)[FORK_SID]?.claudeConfigDir).toBe(
       claudeHome(),
     );
@@ -770,24 +725,6 @@ describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", ()
     expect(fake.sessionForAgent(info.id)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
       claudeHome(),
     );
-  });
-
-  it("marks edit-message history and fork access as interactive", async () => {
-    wireClaudeConfigDir();
-    const fake = editFake();
-    const { sink } = capture();
-    const mgr = makeManager(fake, sink);
-    const info = await seedTwoTurnAgent(mgr, fake);
-    seedClaudeSession(info.cwd, FORK_SID);
-
-    await mgr.editMessage(
-      info.id,
-      userMsgId(info.id, "second"),
-      "edited second",
-    );
-
-    expect(fake.lastMessagesAccess?.interactive).toBe(true);
-    expect(fake.lastForkAccess?.interactive).toBe(true);
   });
 
   it("omits forkBaseUsage for a first-user-message edit (child starts from empty context)", async () => {

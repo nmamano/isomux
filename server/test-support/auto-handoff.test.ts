@@ -114,6 +114,8 @@ function makeHarness(
     toolBoundaryDelivery?: boolean;
     // A transcript holding one member message "work", so it can be edited.
     editable?: boolean;
+    // How long a send waits for the last turn's sample (production: 500 ms).
+    sampleWaitMs?: number;
   } = {},
 ): Harness {
   const measure: Harness["measure"] = { now: null };
@@ -160,7 +162,7 @@ function makeHarness(
     initialRooms: [],
     eventSink: sink,
   });
-  mgr.configureAgentTurnDeps();
+  mgr.configureAgentTurnDeps(opts.sampleWaitMs);
   activeFakes.push(fake);
   return { mgr, fake, logs, measure, brief };
 }
@@ -246,18 +248,23 @@ const NEXT = "NEXT-MESSAGE";
 const sent = (s: FakeSession | undefined, needle: string) =>
   texts(s).some((t) => t.includes(needle));
 
-// After a crossing turn: the agent rests armed, with no brief turn and no
-// reset, until a message arrives. Then a member's message arrives.
-async function nextMessage(h: Harness, id: string, text = NEXT) {
+// At rest after a turn, with the sample the test set committed: arming is
+// decided in that commit, so from here the agent is armed or it is not.
+async function atRestMeasured(h: Harness, id: string): Promise<void> {
+  const tokens = h.measure.now?.totalTokens;
   await waitUntil(
-    () => stateOf(h, id) === "waiting_for_response",
-    "at rest after the crossing turn",
+    () =>
+      stateOf(h, id) === "waiting_for_response" &&
+      h.mgr.getAgent(id)?.contextUsage?.totalTokens === tokens,
+    "at rest with the turn's sample committed",
   );
-  await settle();
-  const s = h.fake.sessionForAgent(id);
-  expect(texts(s).some(isBriefPrompt)).toBe(false);
-  // No reset: the current session is still the newest one.
-  expect(h.fake.sessions.at(-1)).toBe(s);
+}
+
+// After a crossing turn, a member's message arrives. That the armed agent
+// rests with no brief turn and no reset until then is checked once per kind
+// of message ("the next message starts it").
+async function nextMessage(h: Harness, id: string, text = NEXT) {
+  await atRestMeasured(h, id);
   void h.mgr.sendMessage(id, text);
 }
 
@@ -385,7 +392,7 @@ describe("automatic handoff: arming", () => {
     });
   }
 
-  it("with the switch off, nothing changes: no brief turn, no reset, and the wrap-up notice shows", async () => {
+  it("with the switch off, nothing changes: no brief turn, no reset, and both wrap-up notices show", async () => {
     const h = makeHarness();
     const info = await spawn(h, { autoHandoff: false });
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
@@ -393,7 +400,11 @@ describe("automatic handoff: arming", () => {
       () => systemLines(h).some((l) => l.startsWith("Context is 95% full.")),
       "member wrap-up notice",
     );
-    await settle();
+    await atRestMeasured(h, info.id);
+    // The next message runs in place, with the agent's wrap-up advice.
+    const s = await startTurn(h, info.id, "next");
+    expect(s).toBe(old);
+    expect(texts(s).at(-1)).toContain("--- begin isomux: context-check ---");
     expect(h.fake.sessions).toHaveLength(1);
     expect(texts(old).some(isBriefPrompt)).toBe(false);
   });
@@ -505,11 +516,7 @@ describe("automatic handoff: the agent's own token value", () => {
   }> {
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(510_000, 1_000_000));
-    await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest after the crossing turn",
-    );
-    await settle();
+    await atRestMeasured(h, info.id);
     return { info, old };
   }
 
@@ -542,6 +549,8 @@ describe("automatic handoff: the agent's own token value", () => {
 });
 
 describe("automatic handoff: the next message starts it", () => {
+  // A scheduled or cron message enqueues like an agent's message and meets
+  // the same flushQueue gate, so the agent's message stands for them.
   const kinds: {
     name: string;
     send: (h: Harness, id: string) => void;
@@ -560,25 +569,6 @@ describe("automatic handoff: the next message starts it", () => {
       marker: "AGENT-NEXT",
     },
     {
-      name: "a scheduled message",
-      send: (h, id) =>
-        void h.mgr.enqueueMessage(id, {
-          sender: SENDER,
-          text: "SCHEDULED-NEXT",
-          scheduledFor: Date.now(),
-        }),
-      marker: "SCHEDULED-NEXT",
-    },
-    {
-      name: "a cron message",
-      send: (h, id) =>
-        void h.mgr.enqueueMessage(id, {
-          sender: { kind: "cronjob", cronjobId: "c1", cronjobName: "nightly" },
-          text: "CRON-NEXT",
-        }),
-      marker: "CRON-NEXT",
-    },
-    {
       name: "a member's skill",
       send: (h, id) => void h.mgr.sendMessage(id, "/nextskill"),
       marker: "NEXT-SKILL-BODY",
@@ -594,12 +584,16 @@ describe("automatic handoff: the next message starts it", () => {
       const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
       // Armed at rest: the reply stays, with no brief turn and no reset.
       await waitUntil(
-        () => stateOf(h, info.id) === "waiting_for_response",
+        () =>
+          stateOf(h, info.id) === "waiting_for_response" ||
+          texts(old).some(isBriefPrompt),
         "at rest after the crossing turn",
       );
       await settle();
       expect(texts(old).some(isBriefPrompt)).toBe(false);
       expect(h.fake.sessions).toHaveLength(1);
+      // The enabling condition: the crossing sample is committed.
+      expect(h.mgr.getAgent(info.id)?.contextUsage?.totalTokens).toBe(190_000);
       expect(systemLines(h)).not.toContain(
         en.t("systemEntries.autoHandoff.writingPercent", { percent: 85 }),
       );
@@ -616,11 +610,7 @@ describe("automatic handoff: the next message starts it", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest after the crossing turn",
-    );
-    await settle();
+    await atRestMeasured(h, info.id);
     expect(await h.mgr.handoff(info.id, "MANUAL-BRIEF")).toMatchObject({
       ok: true,
     });
@@ -642,11 +632,7 @@ describe("automatic handoff: the next message starts it", () => {
     };
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest after the crossing turn",
-    );
-    await settle();
+    await atRestMeasured(h, info.id);
     void h.mgr.sendMessage(
       info.id,
       "NOW-NEXT",
@@ -673,11 +659,7 @@ describe("automatic handoff: the next message starts it", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest after the crossing turn",
-    );
-    await settle();
+    await atRestMeasured(h, info.id);
     expect(await h.mgr.sweepIdleAgents(0)).toBe(1);
     expect(h.mgr.getAgent(info.id)?.dormant).toBe(true);
 
@@ -700,11 +682,7 @@ describe("automatic handoff: an edit", () => {
     const h = makeHarness({ editable: true });
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest after the crossing turn",
-    );
-    await settle();
+    await atRestMeasured(h, info.id);
     const entry = h.mgr
       .getAgentLogs(info.id)
       .find((e) => e.kind === "user_message" && e.content === "work")!;
@@ -891,27 +869,6 @@ describe("automatic handoff: the queue", () => {
     ]);
   });
 
-  it("the brief is the text after the brief turn's last tool call", async () => {
-    const h = makeHarness();
-    h.brief.answer = (s) => {
-      s.push({ kind: "assistant_text", text: "Checking git status first." });
-      s.push({
-        kind: "tool_call",
-        toolUseId: "t1",
-        name: "Bash",
-        input: { command: "git status" },
-      });
-      s.push({ kind: "tool_result", toolUseId: "t1", content: "clean" });
-      s.completeTurn({ text: BRIEF });
-    };
-    const info = await spawn(h);
-    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await nextMessage(h, info.id);
-    const fresh = await freshSession(h, info.id, old);
-    expect(fresh.sent[0].text).toContain(BRIEF);
-    expect(fresh.sent[0].text).not.toContain("Checking git status");
-  });
-
   it("writes an audit row with its own actor kind and the agent as target", async () => {
     const h = makeHarness();
     const info = await spawn(h);
@@ -930,44 +887,56 @@ describe("automatic handoff: the queue", () => {
 });
 
 describe("automatic handoff: a sample that lands late", () => {
+  // The sample lands after a send stops waiting for it.
+  const LATE = { waitMs: 50, delayMs: 150 };
+  const committed = (h: Harness, id: string, tokens: number) =>
+    h.mgr.getAgent(id)?.contextUsage?.totalTokens === tokens;
+
   it("arms behind the batch that went to the old session; switching off before the brief turn drops it", async () => {
-    const h = makeHarness();
+    const h = makeHarness({ sampleWaitMs: LATE.waitMs });
     const info = await spawn(h);
     const old = await startTurn(h, info.id);
     h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "QUEUED-ONE" });
     // Past flushQueue's bounded wait: the batch goes to the old session.
-    h.measure.delayMs = 700;
+    h.measure.delayMs = LATE.delayMs;
     h.measure.now = ctx(190_000, 200_000);
     old.completeTurn({ text: "done" });
     await waitUntil(
       () => texts(old).some((t) => t.includes("QUEUED-ONE")),
       "batch sent to the old session",
     );
-    await sleep(800);
+    // The enabling condition: the batch went before the sample landed.
+    expect(committed(h, info.id, 190_000)).toBe(false);
+    await waitUntil(() => committed(h, info.id, 190_000), "late sample");
     // Armed during the batch turn; the brief turn waits for it to end.
     expect(texts(old).some(isBriefPrompt)).toBe(false);
     await h.mgr.editAgent(info.id, { autoHandoff: false });
     h.measure.delayMs = 0;
     h.measure.now = ctx(20_000, 200_000);
     old.completeTurn({ text: "batch done" });
-    await settle();
+    // The next message, which an armed agent would hand off with, runs in
+    // place.
+    await nextMessage(h, info.id);
+    await waitUntil(() => sent(old, NEXT), "message runs in the old session");
     expect(texts(old).some(isBriefPrompt)).toBe(false);
     expect(h.fake.sessions).toHaveLength(1);
   });
 
   it("with the switch left on, the brief turn starts at the next message after the batch turn", async () => {
-    const h = makeHarness();
+    const h = makeHarness({ sampleWaitMs: LATE.waitMs });
     const info = await spawn(h);
     const old = await startTurn(h, info.id);
     h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "QUEUED-ONE" });
-    h.measure.delayMs = 700;
+    h.measure.delayMs = LATE.delayMs;
     h.measure.now = ctx(190_000, 200_000);
     old.completeTurn({ text: "done" });
     await waitUntil(
       () => texts(old).some((t) => t.includes("QUEUED-ONE")),
       "batch sent to the old session",
     );
-    await sleep(800);
+    // The enabling condition: the batch went before the sample landed.
+    expect(committed(h, info.id, 190_000)).toBe(false);
+    await waitUntil(() => committed(h, info.id, 190_000), "late sample");
     h.measure.delayMs = 0;
     old.completeTurn({ text: "batch done" });
     await nextMessage(h, info.id);
@@ -1208,32 +1177,20 @@ describe("automatic handoff: wrap-up notices", () => {
       systemLines(h).some((l) => l.startsWith("Context is 80% full.")),
     ).toBe(false);
   });
-
-  it("show as before with the switch off", async () => {
-    const h = makeHarness();
-    const info = await spawn(h, { autoHandoff: false });
-    await turnEndingAt(h, info.id, ctx(160_000, 200_000));
-    await waitUntil(
-      () => systemLines(h).some((l) => l.startsWith("Context is 80% full.")),
-      "member notice",
-    );
-    await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest",
-    );
-    const s = await startTurn(h, info.id, "next");
-    expect(texts(s).at(-1)).toContain("--- begin isomux: context-check ---");
-  });
 });
 
-describe("automatic handoff: the switch survives a restart", () => {
-  it("restores an agent persisted with the switch on, and one without it as off", async () => {
+describe("automatic handoff: the settings survive a restart", () => {
+  it("restores the switch and the agent's own token value; an agent persisted without the switch is off", async () => {
     const fake = new FakeBackend();
     activeFakes.push(fake);
-    const persisted = (id: string, autoHandoff?: boolean) => ({
+    const persisted = (
+      id: string,
+      desk: number,
+      extra: { autoHandoff?: boolean; autoHandoffTokens?: number },
+    ) => ({
       id,
       name: id,
-      desk: id === "on" ? 0 : 1,
+      desk,
       cwd: STATE_ROOT,
       outfit: {
         hat: "none" as const,
@@ -1252,7 +1209,7 @@ describe("automatic handoff: the switch survives a restart", () => {
       customInstructions: null,
       userId: null,
       username: null,
-      ...(autoHandoff !== undefined ? { autoHandoff } : {}),
+      ...extra,
     });
     const mgr = createAgentManager({
       resolveBackend: () => fake,
@@ -1262,53 +1219,20 @@ describe("automatic handoff: the switch survives a restart", () => {
           id: "room-a",
           name: "room-a",
           prompt: null,
-          agents: [persisted("on", true), persisted("legacy")],
+          agents: [
+            persisted("custom", 0, {
+              autoHandoff: true,
+              autoHandoffTokens: 300_000,
+            }),
+            persisted("legacy", 1, {}),
+          ],
         },
       ],
     });
     mgr.configureAgentTurnDeps();
     await mgr.restoreAgents();
-    expect(mgr.getAgent("on")?.autoHandoff).toBe(true);
-    expect(mgr.getAgent("legacy")?.autoHandoff ?? false).toBe(false);
-  });
-
-  it("restores the agent's own token value", async () => {
-    const fake = new FakeBackend();
-    activeFakes.push(fake);
-    const persisted = {
-      id: "custom",
-      name: "custom",
-      desk: 0,
-      cwd: STATE_ROOT,
-      outfit: {
-        hat: "none" as const,
-        color: "#ffffff",
-        hair: "#000000",
-        hairStyle: "short" as const,
-        skin: "#ffffff",
-        beard: "none" as const,
-        accessory: null,
-      },
-      permissionMode: "default" as const,
-      modelFamily: "opus",
-      agentType: "claude" as const,
-      lastSessionId: null,
-      topic: null,
-      customInstructions: null,
-      userId: null,
-      username: null,
-      autoHandoff: true,
-      autoHandoffTokens: 300_000,
-    };
-    const mgr = createAgentManager({
-      resolveBackend: () => fake,
-      officeState: new OfficeState({ rooms }),
-      initialRooms: [
-        { id: "room-a", name: "room-a", prompt: null, agents: [persisted] },
-      ],
-    });
-    mgr.configureAgentTurnDeps();
-    await mgr.restoreAgents();
+    expect(mgr.getAgent("custom")?.autoHandoff).toBe(true);
     expect(mgr.getAgent("custom")?.autoHandoffTokens).toBe(300_000);
+    expect(mgr.getAgent("legacy")?.autoHandoff ?? false).toBe(false);
   });
 });

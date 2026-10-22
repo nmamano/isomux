@@ -437,9 +437,7 @@ export function detectAuthErrorForEnvironment(
   return detect(text);
 }
 
-export function backendSessionHasFixedCwd(
-  agentType: AgentInfo["agentType"],
-): boolean {
+function backendSessionHasFixedCwd(agentType: AgentInfo["agentType"]): boolean {
   return agentType === "codex" || agentType === "opencode";
 }
 
@@ -5985,7 +5983,6 @@ export function createAgentManager(deps: ManagerDeps) {
   // action shares the older forced-recovery cooldown because both replace the
   // session; warn-only observations never consume that recovery budget.
   const BUSY_TURN_WATCHDOG_STUCK_MS = 10 * 60_000;
-  let busyTurnWatchdogStuckMs = BUSY_TURN_WATCHDOG_STUCK_MS;
   const FORCED_RECOVERY_COOLDOWN_MS = 5 * 60_000;
 
   async function sweepStuckFlushes(
@@ -6010,7 +6007,7 @@ export function createAgentManager(deps: ManagerDeps) {
         !managed.sessionManager.aborting &&
         managed.sessionManager.abortPromise === null &&
         quiescenceStartedAt > 0 &&
-        now - quiescenceStartedAt >= busyTurnWatchdogStuckMs;
+        now - quiescenceStartedAt >= BUSY_TURN_WATCHDOG_STUCK_MS;
       if (busySignature) {
         const tailKind = (logCache.get(agentId) ?? []).at(-1)?.kind ?? "none";
         if (
@@ -11963,13 +11960,6 @@ export function createAgentManager(deps: ManagerDeps) {
     return prev;
   }
 
-  // Test-only: override the busy-turn quiescence deadline without sleeping.
-  function _testSetBusyTurnWatchdogStuckMs(ms: number): number {
-    const prev = busyTurnWatchdogStuckMs;
-    busyTurnWatchdogStuckMs = ms;
-    return prev;
-  }
-
   // Test-only: hold both abort guards without starting a real replacement.
   function _testSetAbortInProgress(agentId: string, blocked: boolean) {
     const managed = agents.get(agentId);
@@ -11996,10 +11986,6 @@ export function createAgentManager(deps: ManagerDeps) {
 
   function _testLastForcedRecoveryAt(agentId: string): number | undefined {
     return agents.get(agentId)?.lastForcedRecoveryAt;
-  }
-
-  function _testActiveToolCount(agentId: string): number | undefined {
-    return agents.get(agentId)?.toolCallTimestamps.size;
   }
 
   function _testDormantReason(
@@ -12190,12 +12176,10 @@ export function createAgentManager(deps: ManagerDeps) {
     terminalStatus,
     _testSeedTerminalBuffer,
     _testSetConsumerDrainTimeout,
-    _testSetBusyTurnWatchdogStuckMs,
     _testSetAbortInProgress,
     _testLastForcedRecoveryAt,
     _testAutoHandoffGateHits,
     _testHoldQueue,
-    _testActiveToolCount,
     _testDormantReason,
     _testWedgeFlush,
     _testStrandMessage,
