@@ -416,112 +416,59 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
   });
 });
 
-describe("routes/validate.env REST: explicit typed path (users-page follow-up 4733fa30)", () => {
-  it("member validates a TYPED path for self: overrides the stored env; missing file -> {ok:false}; provided-blank path is rejected", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const member = await srv.seedMember("Alice");
-
-    // Stored env: 3 keys. Typed candidate: 2 keys. The response keyCount tells
-    // us which one was actually validated.
-    const typedPath = join(srv.stateRoot, "alice-typed.env");
-    writeFileSync(typedPath, "X=1\nY=2\n");
-    const alice = getUserByName("Alice");
-    expect(alice).toBeTruthy();
-    writeManagedUserEnv(alice!.id, { A: "1", B: "2", C: "3" });
-
-    const typed = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: member.rawSessionId,
-      body: { scope: "user", username: "Alice", path: typedPath },
-    });
-    expect(typed.status).toBe(200);
-    expect(typed.body).toEqual({ ok: true, keyCount: 2 });
-
-    // A typed path that doesn't resolve surfaces the error even though the
-    // STORED env is fine - this is the whole point (validate before save).
-    const missing = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: member.rawSessionId,
-      body: {
-        scope: "user",
-        username: "Alice",
-        path: join(srv.stateRoot, "nope.env"),
-      },
-    });
-    expect(missing.status).toBe(200);
-    expect((missing.body as { ok: boolean }).ok).toBe(false);
-
-    // A PROVIDED blank/whitespace path is a boundary error - it must not
-    // silently fall back to the stored env and report a misleading ok.
-    // (Omitted path -> stored resolution is pinned by the earlier tests.)
-    const blank = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: member.rawSessionId,
-      body: { scope: "user", username: "Alice", path: "   " },
-    });
-    expect(blank.status).toBe(200);
-    expect((blank.body as { ok: boolean }).ok).toBe(false);
-    expect(typeof (blank.body as { error?: string }).error).toBe("string");
-  });
-
-  it("owner validates a TYPED path for ANOTHER user; path with scope 'office' is rejected", async () => {
+// The `path` override is retired (task df6d9b56): it let any member make the
+// server parse a file of their choice, and a parse error quotes the line it
+// failed on. A body that names a path is refused before anything is read.
+describe("routes/validate.env REST: a body that names a path", () => {
+  it("is refused with 422 and reads no file, for a member and an owner, whatever the scope", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-    await srv.seedMember("Alice");
-
-    const typedPath = join(srv.stateRoot, "candidate.env");
-    writeFileSync(typedPath, "A=1\nB=2\n");
-
-    // Owner probing a typed path on a member subject: allowed, validates the
-    // TYPED path (Alice has no stored env, so keyCount proves the override).
-    const other = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { scope: "user", username: "Alice", path: typedPath },
-    });
-    expect(other.status).toBe(200);
-    expect(other.body).toEqual({ ok: true, keyCount: 2 });
-
-    // The override exists only for the user-scope settings UI; any other
-    // scope + path combination is rejected rather than left ambiguous.
-    const office = await api(srv, "/api/validate/env", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { scope: "office", path: typedPath },
-    });
-    expect(office.status).toBe(200);
-    expect((office.body as { ok: boolean }).ok).toBe(false);
-    expect(typeof (office.body as { error?: string }).error).toBe("string");
-  });
-
-  it("typed path does NOT widen the subject policy: member + another user's subject stays 403 even with a path", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Alice");
+    const secretLine = "SECRET-LINE-not-a-dotenv-entry";
+    const file = join(srv.stateRoot, "not-env.txt");
+    writeFileSync(file, `${secretLine}\n`);
 
-    const anyPath = join(srv.stateRoot, "whatever.env");
-    writeFileSync(anyPath, "A=1\n");
-    expect(
-      (
-        await api(srv, "/api/validate/env", {
-          method: "POST",
-          rawSessionId: member.rawSessionId,
-          body: { scope: "user", username: "Morgan", path: anyPath },
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await api(srv, "/api/validate/env", {
-          method: "POST",
-          rawSessionId: member.rawSessionId,
-          body: { scope: "office", path: anyPath },
-        })
-      ).status,
-    ).toBe(403);
+    // The enabling condition: without a path, the same member is answered.
+    const plain = await api(srv, "/api/validate/env", {
+      method: "POST",
+      rawSessionId: member.rawSessionId,
+      body: { scope: "user" },
+    });
+    expect(plain.status).toBe(200);
+
+    for (const [who, rawSessionId, body] of [
+      ["member", member.rawSessionId, { scope: "user", path: file }],
+      [
+        "member",
+        member.rawSessionId,
+        { scope: "user", username: "Alice", path: "   " },
+      ],
+      [
+        "owner",
+        owner.rawSessionId,
+        { scope: "user", username: "Alice", path: file },
+      ],
+      ["owner", owner.rawSessionId, { scope: "office", path: file }],
+    ] as const) {
+      const res = await srv.http("/api/validate/env", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        rawSessionId,
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      expect({ who, body, leaked: text.includes(secretLine) }).toEqual({
+        who,
+        body,
+        leaked: false,
+      });
+      expect({ who, body, status: res.status }).toEqual({
+        who,
+        body,
+        status: 422,
+      });
+      expect(JSON.parse(text).error.code).toBe("invalid_request");
+    }
   });
 });

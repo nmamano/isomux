@@ -299,16 +299,18 @@ describe("routes that take a path", () => {
       expect(readFileSync(file).includes(Buffer.from(FAKE))).toBe(false);
   });
 
+  // A caller can no longer name the file (task df6d9b56); a legacy office
+  // env file path that names a credential file is the reach left.
   it("validate.env quotes no line of a credential file", async () => {
     server = await startTestServer();
     const srv = server;
-    const member = await srv.seedMember("Alice");
-    await srv.seedOwner("Morgan");
+    const owner = await srv.seedOwner("Morgan");
     const paths = seedStore(srv.stateRoot);
     for (const path of Object.values(paths)) {
+      srv.agentManager.setOfficeSettings(null, path, null);
       const res = await call(srv, "POST", "/api/validate/env", {
-        session: member.rawSessionId,
-        body: { scope: "user", username: "Alice", path },
+        session: owner.rawSessionId,
+        body: { scope: "office" },
       });
       expect(res.status).toBe(200);
       expect(res.text).not.toContain(FAKE);

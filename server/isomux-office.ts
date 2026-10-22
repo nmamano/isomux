@@ -2122,26 +2122,16 @@ function applyOfficeSettings(
 // scope:"user", an explicit username targets THAT user; an omitted username
 // targets the CALLER's OWN env (selfUserId) - the subject the precondition
 // already authorized as "self". Without this self-resolution an authorized
-// own-env probe would validate nothing and return a false ok.
-//
-// An explicit non-empty `path` validates THAT path instead of the stored one, so
-// the settings UI can check a typed-but-unsaved value on blur. The override
-// applies ONLY to scope:"user" (the REST handler rejects other combinations at
-// the boundary; this core gate keeps the rule even for future callers). AUTH is
-// unchanged - the precondition still authorizes the scope/username subject, and
-// the subject could save the same path via users.update and validate it stored,
-// so this exposes no new filesystem information; it only makes the probe
-// non-mutating.
+// own-env probe would validate nothing and return a false ok. The caller never
+// names the file: the core reads only the office env file or a user's managed
+// env file, because a parse error quotes the line it failed on.
 function resolveAndValidateEnv(
   scope: string,
   username: string | undefined,
   selfUserId: string | undefined,
-  path?: string,
 ): { ok: boolean; keyCount?: number; error?: string; envFile: string | null } {
   let envFile: string | null = null;
-  if (scope === "user" && path !== undefined && path.trim() !== "") {
-    envFile = path.trim();
-  } else if (scope === "office") {
+  if (scope === "office") {
     envFile = agentManager.getOfficeSettings().envFile;
   } else if (scope === "user") {
     const rec = username
@@ -6030,8 +6020,8 @@ function buildExecutorDeps(
           return errMessage(err, "Invalid directory");
         }
       },
-      validateEnv: (scope, username, selfUserId, path) =>
-        resolveAndValidateEnv(scope, username, selfUserId, path),
+      validateEnv: (scope, username, selfUserId) =>
+        resolveAndValidateEnv(scope, username, selfUserId),
     }),
   );
   register(
