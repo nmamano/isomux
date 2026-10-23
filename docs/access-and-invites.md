@@ -42,7 +42,7 @@ If you are signed out of every device, you cannot make a device link. An owner s
 
 `Sign out`, at the bottom of `Settings`, ends the session on this device. Your other devices stay signed in.
 
-To end a session on another device, revoke it. Owners see every session in `Settings` → `Office` → `Sessions`. Every member sees their own in `Settings` → `You` → `Sign-in links`. An open tab on that device disconnects within about a second.
+To end a session on another device, revoke it. Owners see every session in `Settings` → `Housekeeping` → `Sessions`. Every member sees their own in `Settings` → `You` → `Sign-in links`. An open tab on that device disconnects within about a second.
 
 Isomux refuses to sign out or revoke the last owner session in the office. Sign in on a second device first. For the same reason, it refuses to demote or delete a signed-in owner when no other owner is signed in.
 

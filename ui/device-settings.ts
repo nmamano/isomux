@@ -253,6 +253,33 @@ export function setIntegrationsTab(tab: string): void {
   } catch {}
 }
 
+// The Settings sidebar groups a member opened on this device (Rooms,
+// Members), by group id. A group not in the set starts collapsed.
+// Stored as a JSON array of group ids; a value that is not one reads as none.
+const KEY_SETTINGS_GROUPS_OPEN = "isomux-settings-groups-open";
+
+export function getSettingsGroupsOpen(): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(KEY_SETTINGS_GROUPS_OPEN) ?? "[]",
+    );
+    return Array.isArray(parsed) && parsed.every((id) => typeof id === "string")
+      ? new Set(parsed)
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function setSettingsGroupOpen(id: string, open: boolean): void {
+  const ids = getSettingsGroupsOpen();
+  if (open) ids.add(id);
+  else ids.delete(id);
+  try {
+    localStorage.setItem(KEY_SETTINGS_GROUPS_OPEN, JSON.stringify([...ids]));
+  } catch {}
+}
+
 // What a pane showed when it last loaded on this device. While it loads
 // again, it holds that layout, so it keeps its height when the answer arrives
 // (task 0eab60fd). Before a pane's first load on a device it holds its fuller
@@ -323,7 +350,7 @@ export function setExternalAccessLayout(layout: ExternalAccessLayout): void {
   setHeldLayout(KEY_EXTERNAL_ACCESS_LAYOUT, layout);
 }
 
-// Settings → You → Pager: whether a webhook was saved (its row is taller than
+// Integrations → Pager: whether a webhook was saved (its row is taller than
 // the "not set" line).
 const KEY_PAGER_LAYOUT = "isomux-pager-layout";
 

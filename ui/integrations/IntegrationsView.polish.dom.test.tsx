@@ -12,7 +12,7 @@ const { setApiShim } = await import("../api.ts");
 const { IntegrationsFake, EMPTY_CONNECTIONS } =
   await import("../test-support/integrations-fake.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { OWNER, card, click, open, pick, tab } =
+const { OWNER, card, click, open, pick, selectedTab, tab } =
   await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
@@ -28,10 +28,7 @@ beforeEach(() => {
 });
 
 type View = Awaited<ReturnType<typeof open>>;
-const selected = (view: View) =>
-  view.container
-    .querySelector('[role="tab"][aria-selected="true"]')
-    ?.getAttribute("data-integrations-tab") ?? null;
+const selected = selectedTab;
 
 describe("the last tab", () => {
   it("opens on the tab picked last on this device", async () => {

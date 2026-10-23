@@ -28,8 +28,10 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
+// The page with the Members group open: it starts collapsed (task db800fd8),
+// and the device keeps it open after the first case.
 function renderSettings(over = {}) {
-  return render(
+  const view = render(
     onLanguage(
       "en",
       createElement(UserSettingsView, {
@@ -39,6 +41,11 @@ function renderSettings(over = {}) {
       over,
     ),
   );
+  const members = view.container.querySelector(
+    '[data-sidebar-group-toggle="members"][aria-expanded="false"]',
+  );
+  if (members) fireEvent.click(members);
+  return view;
 }
 
 it("marks a member who never signed in on the owner's roster", () => {

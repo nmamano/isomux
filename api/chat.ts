@@ -261,7 +261,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Self-hosted browser auth: every request is gated by a session cookie. No accounts, no passwords.
 - Single-use invite links: the office owner mints a URL in Settings → Office → Invites for each new member, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. Existing members add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link from the Invites section.
 - Two roles: office owner (can invite members, revoke sessions, and set per-user room access) and member (can act in the rooms the office owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office - office owners pick which rooms each member sees, either on the member's invite (so they land in the right rooms from the first click) or any time from their member settings. Each member also picks which of their accessible rooms are displayed in their own view; notifications are limited to displayed rooms. A member can also tuck displayed rooms into a +N chip at the end of the room tab bar; the chip still shows who is in them and their agent activity.
-- The owner can revoke active sessions from Settings → Office → Sessions and unconsumed invites from Settings → Office → Invites; revocation force-closes the affected WebSocket within ~1s.
+- The owner can revoke active sessions from Settings → Housekeeping → Sessions and unconsumed invites from Settings → Office → Invites; revocation force-closes the affected WebSocket within ~1s.
 - Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.
 - To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/hosting walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
@@ -308,7 +308,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - An agent can leave a member a question that can wait (an ask). It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
 
 ### Other
-- Office language: each person picks English, Spanish, Catalan or Simplified Chinese under Settings → You → Preferences, and the whole office reads in it
+- Office language: each person picks English, Spanish, Catalan or Simplified Chinese under Settings → You → Language, and the whole office reads in it
 - Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - Per-member profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
 - Managed variables for config and provider API keys: on the Integrations page (Variables tab), office owners edit office-wide variables and each member edits personal ones. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. A change applies to the agent's next session.

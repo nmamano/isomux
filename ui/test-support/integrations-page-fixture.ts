@@ -65,6 +65,15 @@ export async function tab(view: View, id: string) {
   await click(view.container.querySelector(`[data-integrations-tab="${id}"]`));
 }
 
+// The selected sidebar row's tab id, or null.
+export function selectedTab(view: View): string | null {
+  return (
+    view.baseElement
+      .querySelector('[data-integrations-tab][aria-current="true"]')
+      ?.getAttribute("data-integrations-tab") ?? null
+  );
+}
+
 export function card(view: View, which: "office" | "personal"): HTMLElement {
   return view.container.querySelector<HTMLElement>(
     `[data-integrations-card="${which}"]`,

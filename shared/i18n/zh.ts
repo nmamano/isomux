@@ -367,7 +367,6 @@ App 的一些原则：
   "common.moreActions": "更多操作",
   "common.settings": "设置",
   "common.theme": "主题",
-  "common.preferences": "偏好设置",
   "common.checking": "正在检查…",
   "common.copied": "已复制",
   "common.copy": "复制",
@@ -386,8 +385,7 @@ App 的一些原则：
   "common.automations": "自动化",
   "common.apps": "App",
   "common.changeTheme": "更改主题",
-  "preferences.intro":
-    "这些设置会同步到登录的所有设备。仅适用于此浏览器的设置位于「设备」。",
+  "preferences.intro": "你的语言会同步到你登录的所有设备。",
   "preferences.language": "语言",
   "preferences.languageHint":
     "界面、智能体所写内容以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。",
@@ -404,6 +402,8 @@ App 的一些原则：
   "settings.sidebar.sessions": "会话",
   "settings.sidebar.usage": "用量",
   "settings.sidebar.storage": "存储",
+  "settings.sidebar.language": "语言",
+  "settings.sidebar.housekeeping": "维护",
   "settings.sidebar.updates": "更新",
   "settings.sidebar.profile": "个人资料",
   "settings.sidebar.apiTokens": "API 令牌",

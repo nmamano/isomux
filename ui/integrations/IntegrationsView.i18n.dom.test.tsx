@@ -1,5 +1,6 @@
 // The Integrations page reads in the language the signed-in user is on: the
-// tabs, the intros, the cards, and the provider sign-in card inside it.
+// tabs, the intros, the cards, the provider sign-in card inside it, and the
+// API tokens pane.
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -29,6 +30,9 @@ const ANCHOR = {
   status: translationsFor("settings.signIn.status"),
   honesty: translationsFor("integrations.secretsHonesty"),
   addSecret: translationsFor("integrations.secrets.add"),
+  // The API tokens pane, which moved here from Settings (task db800fd8).
+  howToUse: translationsFor("settings.apiTokens.howToUse"),
+  noTokens: translationsFor("settings.apiTokens.empty"),
 } as const;
 
 const page = (language: "ca" | "es" | null) =>
@@ -71,6 +75,19 @@ describe("the Integrations page", () => {
     shows(view, ANCHOR.honesty.ca);
     shows(view, ANCHOR.addSecret.ca);
     expect(view.queryByText(ANCHOR.tabMcp.en)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(
+        view.container.querySelector('[data-integrations-tab="api-tokens"]')!,
+      );
+    });
+    shows(view, ANCHOR.howToUse.ca);
+    shows(view, ANCHOR.noTokens.ca);
+    await act(async () => {
+      fireEvent.click(
+        view.container.querySelector('[data-integrations-tab="secrets"]')!,
+      );
+    });
 
     view.rerender(page("es"));
     await act(async () => {});

@@ -118,7 +118,7 @@ export function PagerView({
   onFocusAgent?: (agentId: string) => void;
   selectRequest?: PagerSelectRequest | null;
   onSelectRequestHandled?: () => void;
-  // Settings > You > Pager, where the member sets where pages go.
+  // Integrations > Pager, where the member sets where pages go.
   onOpenPagerSettings?: () => void;
 }) {
   const {

@@ -172,7 +172,7 @@ These exclusions do not make a boundary. A token can spawn an agent, and the age
 
 ### 5.2 Mint and storage
 
-Each member can mint tokens in **Settings → You → API tokens**. Only a browser session can mint a token. An agent, an app or another token cannot. An agent reaches this page only in a Chrome tab that its manager offered on the office (section 6.5).
+Each member can mint tokens in **Integrations → API tokens**. Only a browser session can mint a token. An agent, an app or another token cannot. An agent reaches this page only in a Chrome tab that its manager offered on the office (section 6.5).
 
 Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the dates, and a display prefix: `isomux_pat_` and the first 8 characters of the secret. The file is `api-tokens.json` (mode 0600).
 
@@ -272,7 +272,7 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 - **Schedules.** A schedule belongs to a room, or to no room. The members of its room see the schedule, its runs and their transcripts. A run uses the environment of the maker, so a transcript can show their secrets. Only the maker and owners can change, delete or run it, and the agent that made it (section 6.1). A schedule with no room, or whose room was closed, is visible only to the maker and owners.
 - **Integrations.** An owner manages the variables, secrets and MCP servers of every member, but never reads the value of a member's variable or secret: an owner sets or removes one variable at a time, and replaces or removes a secret. A member reads the names, hosts and notes of the office's variables, secrets and MCP servers, never a value, an MCP server's URL path or the name of its credential. Show returns a saved secret's value to the member who owns it, or an office secret's value to an owner. No agent token, privileged or not, can call Show, and each Show writes an audit row with the secret's name. A privileged agent changes integrations with its manager's reach (section 6.2); the audit row names the agent. An agent with a shell can still read the secret files (section 3.2). An audit row of an owner's change to a member's integration names that member. Removing a member deletes their variables, secrets and MCP servers.
 - **Agent managers.** Only an office owner, signed in to the office, can give an agent another manager. No agent or API token can, an owner's included: the agent would then run on another member's credentials. The agent gets a new token with the same privilege, its conversation restarts under the new manager, and the apps, schedules and webhooks it made move to the new manager. A resumed session from before the change still uses the old manager's Claude connection, and the chat says so. Removing a member passes their agents to the oldest office owner.
-- **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke it in Settings → You → Sign-in links, or an owner revokes it in Settings → Office → Sessions: an open tab closes in about one second.
+- **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke it in Settings → You → Sign-in links, or an owner revokes it in Settings → Housekeeping → Sessions: an open tab closes in about one second.
 
 ---
 

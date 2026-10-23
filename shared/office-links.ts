@@ -1,6 +1,6 @@
 // The office pages an ask can link to (task 3ea6fdb3), and the lists they
 // come from: the UI's full-page views (ui/routes.ts) and the Integrations
-// tabs (ui/integrations/IntegrationsView.tsx). The server checks a link
+// sidebar tabs (ui/integrations/IntegrationsView.tsx). The server checks a link
 // against OFFICE_LINK_PATHS and the UI opens the page officeLinkFor names, so
 // a new page or tab is a link target with no second list.
 //
@@ -30,6 +30,10 @@ export const INTEGRATIONS_TABS = [
   "variables",
   "voice",
   "browser",
+  // The viewer's own: where their pages go, and their personal API tokens.
+  // They moved here from Settings (task db800fd8).
+  "pager",
+  "api-tokens",
 ] as const;
 export type IntegrationsTab = (typeof INTEGRATIONS_TABS)[number];
 

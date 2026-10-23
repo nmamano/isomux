@@ -1101,15 +1101,21 @@ describe("settings page: panes and initialTarget routing", () => {
     const en = translatorFor("en");
     for (const group of [
       en.t("settings.sidebar.office"),
-      en.t("common.rooms"),
-      en.t("settings.sidebar.members"),
       en.t("common.you"),
       en.t("common.device"),
+      en.t("settings.sidebar.housekeeping"),
     ]) {
       expect(html).toContain(`>${group}</div>`);
     }
-    // The Rooms group is built from the live room list, not a fixed set.
-    expect(html).toContain("Conference Room");
+    // Rooms and Members have a header that opens them, and start collapsed
+    // (task db800fd8): a server render has no device to remember an open one.
+    for (const group of ["rooms", "members"])
+      expect(html).toMatch(
+        new RegExp(
+          `<button[^>]*(data-sidebar-group-toggle="${group}"[^>]*aria-expanded="false"|aria-expanded="false"[^>]*data-sidebar-group-toggle="${group}")`,
+        ),
+      );
+    expect(html).not.toContain("Conference Room");
     // The renamed rows, which the old labels would silently survive.
     expect(html).toContain(en.t("settings.sidebar.signInLinks"));
   });

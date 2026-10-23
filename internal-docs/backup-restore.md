@@ -51,7 +51,7 @@ omitted and the concrete recovery action.
   top-level directory, normally `.isomux/`.
 - **Settings:** the office owner sets how often (1 to 720 hours, default
   24), how many copies to keep (1 to 100, default 7) and the folder in
-  Settings → Office → Storage (`PUT /api/backup/settings`). They live in
+  Settings → Housekeeping → Storage (`PUT /api/backup/settings`). They live in
   `office-config.json` as `backupIntervalHours`, `backupRetention` and
   `backupDir`. Each hourly check reads them once and uses that snapshot for
   the whole run, so a change needs no restart and a save during a run does not

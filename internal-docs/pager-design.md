@@ -85,7 +85,7 @@ Discord, not Web Push, because a send is one HTTPS POST with a JSON body to a
 URL the member pastes in. There is no service worker work, no key management,
 and no device subscriptions.
 
-Member settings (Settings → You):
+Member settings (Integrations → Pager; Settings → You until task db800fd8):
 
 - Discord webhook URL. The URL is a credential: store it with the member's
   other secrets, show it masked, and never log it or put it in a page record.

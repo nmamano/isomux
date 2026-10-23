@@ -1,9 +1,8 @@
 // S3 of the office i18n loop (internal-docs/i18n-loop.md): the access panes -
-// Invites, Sessions, External access, API tokens, the shared tables and empty
-// states in access-shared.tsx - render in the language the signed-in user is
-// on. The Integrations page,
-// which took over the connections panes, has its own file
-// (ui/integrations/IntegrationsView.i18n.dom.test.tsx).
+// Invites, Sessions, External access, the shared tables and empty states in
+// access-shared.tsx - render in the language the signed-in user is on. The
+// Integrations page, which took over the connections panes and API tokens, has
+// its own file (ui/integrations/IntegrationsView.i18n.dom.test.tsx).
 //
 // Every sidebar click is proven by aria-current before its pane is read.
 //
@@ -43,7 +42,6 @@ setApiShim(async (_method, path) => {
       boundLoopback: true,
     };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
-  if (path === "/api/me/api-tokens") return { apiTokens: [] };
   if (path.endsWith("/env/names"))
     return {
       names: [],
@@ -114,7 +112,6 @@ const SIDEBAR = {
   invites: translationsFor("settings.sidebar.invites"),
   sessions: translationsFor("settings.sidebar.sessions"),
   access: translationsFor("settings.sidebar.access"),
-  apiTokens: translationsFor("settings.sidebar.apiTokens"),
 } as const;
 
 // One anchor per pane, each a string only that pane shows.
@@ -134,8 +131,6 @@ const ANCHOR = {
   emptyList: translationsFor("settings.access.none"),
   externalAccess: translationsFor("settings.externalAccess.title"),
   enableExternal: translationsFor("settings.externalAccess.enable"),
-  howToUse: translationsFor("settings.apiTokens.howToUse"),
-  noTokens: translationsFor("settings.apiTokens.empty"),
 } as const;
 
 /**
@@ -202,11 +197,6 @@ describe("the access and connections panes", () => {
     await settle();
     shows(view, ANCHOR.externalAccess.ca);
     shows(view, ANCHOR.enableExternal.ca);
-
-    open(view, SIDEBAR.apiTokens.ca);
-    await settle();
-    shows(view, ANCHOR.howToUse.ca);
-    shows(view, ANCHOR.noTokens.ca);
 
     // Spanish: every fresh pane reads it.
     view.rerender(page("es"));

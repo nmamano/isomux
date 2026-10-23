@@ -393,7 +393,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.moreActions": "More actions",
   "common.settings": "Settings",
   "common.theme": "Theme",
-  "common.preferences": "Preferences",
   "common.checking": "Checking…",
   "common.copied": "Copied",
   "common.copy": "Copy",
@@ -414,7 +413,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.changeTheme": "Change theme",
 
   "preferences.intro":
-    "These follow you to every device you sign in from. Settings that are about this browser in particular live under Device.",
+    "Your language follows you to every device you sign in from.",
   "preferences.language": "Language",
   "preferences.languageHint":
     "The language of the interface, of what your agents write, and of voice input and playback. Agents pick it up on their next conversation.",
@@ -433,6 +432,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.sessions": "Sessions",
   "settings.sidebar.usage": "Usage",
   "settings.sidebar.storage": "Storage",
+  "settings.sidebar.language": "Language",
+  // The group of rare, mostly read-only panes at the end of the Settings
+  // sidebar. One string, so a rename is one line.
+  "settings.sidebar.housekeeping": "Housekeeping",
   "settings.sidebar.updates": "Updates",
   "settings.sidebar.profile": "Profile",
   "settings.sidebar.apiTokens": "API tokens",
@@ -3224,7 +3227,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
     "Welcome to the lobby. In a real office I answer questions about Isomux and about this office. This is a demo, so nothing was sent to a model.",
-  // Settings → You → Pager (server/pager-settings.ts) and the delivery
+  // Integrations → Pager (server/pager-settings.ts) and the delivery
   // failure classes (server/pager-delivery.ts).
   "settings.sidebar.pager": "Pager",
   "pager.settings.intro":

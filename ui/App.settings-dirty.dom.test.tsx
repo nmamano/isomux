@@ -116,6 +116,10 @@ describe("dirty settings", () => {
       ),
     );
 
+    // Rooms starts collapsed (task db800fd8): its header opens it.
+    fireEvent.click(
+      view.container.querySelector('[data-sidebar-group-toggle="rooms"]')!,
+    );
     fireEvent.click(view.getByRole("button", { name: "Blue Room" }));
     const nameField = await view.findByPlaceholderText(
       en["settings.room.namePlaceholder"],

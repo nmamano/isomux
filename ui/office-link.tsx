@@ -27,13 +27,16 @@ const PAGE_LABEL: Record<Page, PlainMessageKey> = {
   asks: "asks.title",
 };
 
-const TAB_LABEL: Record<IntegrationsTab, PlainMessageKey> = {
+// Also the Integrations page's sidebar rows.
+export const TAB_LABEL: Record<IntegrationsTab, PlainMessageKey> = {
   providers: "integrations.tabs.providers",
   mcp: "integrations.tabs.mcp",
   secrets: "integrations.tabs.secrets",
   variables: "integrations.tabs.variables",
   voice: "integrations.tabs.voice",
   browser: "integrations.tabs.browser",
+  pager: "settings.sidebar.pager",
+  "api-tokens": "settings.sidebar.apiTokens",
 };
 
 /** The catalog key of the page or tab a link opens. */

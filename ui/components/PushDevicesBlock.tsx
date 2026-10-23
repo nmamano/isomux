@@ -1,4 +1,4 @@
-// Settings → You → Pager → This device: switch pager pushes on or off for
+// Integrations → Pager → This device: switch pager pushes on or off for
 // this browser, send a test, and remove the member's other devices (a
 // collapsed row). Server side: server/web-push-*.ts and the pushDevices.* routes.
 

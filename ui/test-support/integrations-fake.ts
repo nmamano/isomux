@@ -8,6 +8,7 @@
 
 import { ApiError, setApiShim, type ApiMethod } from "../api.ts";
 import type {
+  ApiTokenWire,
   ConnectionsListRes,
   ConnectionTestResult,
   McpServerWire,
@@ -93,6 +94,8 @@ export class IntegrationsFake {
     host: "api.example.com",
     account: "octocat",
   };
+  // GET /api/me/api-tokens: the viewer's own tokens.
+  apiTokens: ApiTokenWire[] = [];
   private holds = new Map<string, Promise<void>>();
 
   constructor(
@@ -188,6 +191,13 @@ export class IntegrationsFake {
       };
     if (path.startsWith("/api/memory"))
       return { text: "", version: "0", size: 0, cap: 4000 };
+    // The Pager and API tokens tabs: the viewer's own, read-only here.
+    if (path === "/api/me/api-tokens" && method === "GET")
+      return { apiTokens: this.apiTokens };
+    if (/^\/api\/users\/[^/]+\/pager-settings$/.test(path) && method === "GET")
+      return { webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 };
+    if (/^\/api\/users\/[^/]+\/push-devices$/.test(path) && method === "GET")
+      return { publicKey: "", devices: [] };
 
     const office = path.startsWith("/api/office/");
     const userMatch = path.match(/^\/api\/users\/([^/]+)(\/.*)$/);

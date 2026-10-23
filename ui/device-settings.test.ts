@@ -33,6 +33,8 @@ const {
   setMembersChatWidth,
   getUsagePin,
   setUsagePin,
+  getSettingsGroupsOpen,
+  setSettingsGroupOpen,
 } = await import("./device-settings.ts");
 
 // The usage pill's pinned limit (task df489513). Stored per device per agent
@@ -122,4 +124,28 @@ it("reads a missing or unknown desktop chat visibility value as no saved choice"
   expect(getMembersChatHidden()).toBe(true);
   store.set("isomux-members-chat-hidden", "false");
   expect(getMembersChatHidden()).toBe(false);
+});
+
+// The Settings groups opened on this device (task db800fd8). A value the
+// device cannot read, from an older build or a hand edit, leaves every group
+// collapsed instead of breaking the Settings page.
+describe("settings groups open", () => {
+  beforeEach(() => store.clear());
+
+  it("opens and closes a group by id", () => {
+    expect([...getSettingsGroupsOpen()]).toEqual([]);
+    setSettingsGroupOpen("rooms", true);
+    setSettingsGroupOpen("members", true);
+    setSettingsGroupOpen("rooms", false);
+    expect([...getSettingsGroupsOpen()]).toEqual(["members"]);
+  });
+
+  it("reads a broken value as no group open, and a later open still saves", () => {
+    for (const raw of ["{not json", '{"rooms":true}', '"rooms"', "[1]"]) {
+      store.set("isomux-settings-groups-open", raw);
+      expect([...getSettingsGroupsOpen()], raw).toEqual([]);
+    }
+    setSettingsGroupOpen("rooms", true);
+    expect([...getSettingsGroupsOpen()]).toEqual(["rooms"]);
+  });
 });

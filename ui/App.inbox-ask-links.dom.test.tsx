@@ -34,7 +34,7 @@ it("opens an ask's office page over the Asks tab, and Back returns to the Asks t
   expect(window.location.pathname).toBe("/integrations");
   expect(
     view.container
-      .querySelector('[data-integrations-tab][aria-selected="true"]')
+      .querySelector('[data-integrations-tab][aria-current="true"]')
       ?.getAttribute("data-integrations-tab"),
   ).toBe("mcp");
   expect(view.container.querySelector("[data-asks-group]")).toBeNull();

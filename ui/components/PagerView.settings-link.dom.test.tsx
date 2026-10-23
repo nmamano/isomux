@@ -1,8 +1,8 @@
-// Pager settings stay in Settings > You > Pager (task fe0c21fd); the pager view
-// links there. A notice says so when the member's reads answer with no
-// Discord destination and no device with notifications on, and only then: a
-// load or a failed read never claims both are absent. The empty list links
-// there too.
+// Pager settings live in Integrations > Pager (task db800fd8; before that
+// Settings > You > Pager, task fe0c21fd); the pager view links there. A notice
+// says so when the member's reads answer with no Discord destination and no
+// device with notifications on, and only then: a load or a failed read never
+// claims both are absent. The empty list links there too.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";

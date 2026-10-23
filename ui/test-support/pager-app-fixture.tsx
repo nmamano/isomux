@@ -40,6 +40,17 @@ export function setupPagerAppTests() {
         unread: 0,
       });
     if (path === "/api/apps") return Promise.resolve([]);
+    // The Integrations page, which the pager's settings link opens.
+    if (path === "/api/me/provider-accounts")
+      return Promise.resolve({ accounts: [] });
+    if (/^\/api\/users\/[^/]+\/pager-settings$/.test(path))
+      return Promise.resolve({
+        webhookUrlMasked: null,
+        discordUserId: null,
+        repeatMinutes: 5,
+      });
+    if (/^\/api\/users\/[^/]+\/push-devices$/.test(path))
+      return Promise.resolve({ publicKey: "", devices: [] });
     return Promise.resolve({});
   });
   afterAll(() => {

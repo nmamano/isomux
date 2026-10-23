@@ -1,4 +1,5 @@
-// Self-scoped "Preferences" pane on the Settings page:
+// Self-scoped "Language" pane on the Settings page (it was "Preferences" while
+// it held more than the language):
 // the settings that belong to a PERSON rather than to a browser, so they
 // follow them to their phone. Sits next to My devices, which is its opposite
 // number - the device label there stays local on purpose.
@@ -22,12 +23,7 @@ import {
   resolvePreferenceForm,
   type PreferenceEdits,
 } from "../preference-form.ts";
-import {
-  dialogLabel,
-  dialogHint,
-  dialogSaveBtn,
-  disabledLook,
-} from "./dialog-styles.ts";
+import { dialogHint, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 
 export function PreferencesPane() {
@@ -72,7 +68,7 @@ export function PreferencesPane() {
   if (!self) {
     return (
       <div style={{ marginTop: 24 }}>
-        <h4 style={sectionHeader}>{t("common.preferences")}</h4>
+        <h4 style={sectionHeader}>{t("settings.sidebar.language")}</h4>
         <p style={hint}>{t("common.loading")}</p>
       </div>
     );
@@ -80,14 +76,14 @@ export function PreferencesPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("common.preferences")}</h4>
+      <h4 style={sectionHeader}>{t("settings.sidebar.language")}</h4>
       <p style={{ ...hint, marginTop: 4 }}>{t("preferences.intro")}</p>
 
       <div style={cardStyle}>
-        <label style={{ ...dialogLabel, marginTop: 0 }}>
-          {t("preferences.language")}
-        </label>
+        {/* The heading names the field, so the select takes the word as
+            its accessible name rather than a second visible label. */}
         <select
+          aria-label={t("preferences.language")}
           value={language}
           onChange={(e) => {
             setEdits((prev) => ({

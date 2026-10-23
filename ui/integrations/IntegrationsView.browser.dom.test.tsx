@@ -10,7 +10,7 @@ setUpDomTestFile();
 const { setApiShim } = await import("../api.ts");
 const { IntegrationsFake } =
   await import("../test-support/integrations-fake.ts");
-const { OWNER, card, open, pick, tab } =
+const { OWNER, card, open, pick, selectedTab, tab } =
   await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
@@ -23,12 +23,9 @@ beforeEach(() => {
 });
 
 type View = Awaited<ReturnType<typeof open>>;
-const selected = (view: View) =>
-  view.container
-    .querySelector('[role="tab"][aria-selected="true"]')
-    ?.getAttribute("data-integrations-tab") ?? null;
-const panel = (view: View) =>
-  view.container.querySelector('[role="tabpanel"]')!;
+const selected = selectedTab;
+// The sidebar holds no cards, so the whole page stands for the open tab.
+const panel = (view: View) => view.container;
 
 describe("the Browser Use tab", () => {
   it("shows an owner their own Chrome while a member is picked, and keeps the pick for the other tabs", async () => {

@@ -1,8 +1,11 @@
 // The Integrations page (task 911c9bbb, design A of the mocks): what agents
-// can use, in five tabs - model providers, MCP servers, secrets, variables,
-// browser. Each tab but Browser shows the office-wide ones, then the personal
-// ones; Browser pairs only the viewer's own Chrome (task f2d5cf9f moved it
-// here from Settings). An owner can
+// can use, and how the office reaches the viewer. A sidebar like Settings'
+// (task db800fd8) lists the tabs: model providers, MCP servers, secrets,
+// variables, voice, browser, pager and API tokens. The first four show the
+// office-wide ones, then the personal ones. Browser pairs only the viewer's
+// own Chrome (task f2d5cf9f moved it here from Settings); Pager and API tokens
+// are the viewer's own too (they moved here from Settings in task db800fd8),
+// so they need a session and never follow the member picker. An owner can
 // pick another member's personal ones; the card then turns orange, takes the
 // member's name and offers a way back, and every form names the member, so an
 // owner cannot forget whose items they are changing (Nil, 2026-10-13).
@@ -10,7 +13,8 @@
 // The member choice lives in this component only. Each open starts on You.
 // The tab is remembered on the device: an open starts on the last one, except
 // an MCP sign-in that came back, which opens MCP servers on the card of the
-// server it signed in to, and a request that names a tab.
+// server it signed in to, and a request that names a tab. On a phone the list
+// shows first, like Settings, unless the open names a tab.
 
 import {
   useEffect,
@@ -38,6 +42,14 @@ import { targetKey, type Role, type Target } from "./target.ts";
 import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
 import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
 import { BrowserPane } from "../components/BrowserPane.tsx";
+import { PagerSettingsPane } from "../components/PagerSettingsPane.tsx";
+import { TAB_LABEL } from "../office-link.tsx";
+import { ApiTokensPane } from "../components/ApiTokensPane.tsx";
+import { isExpandedEditorOpen } from "../components/ExpandableTextarea.tsx";
+import {
+  SidebarGroupRows,
+  type SidebarGroup,
+} from "../components/SidebarGroups.tsx";
 import {
   INTEGRATIONS_TABS,
   type IntegrationsTab,
@@ -51,17 +63,15 @@ export type IntegrationsRequest = {
 };
 
 export type { IntegrationsTab };
-// Shared with the server, which checks an ask's link to a tab.
-const TABS = INTEGRATIONS_TABS;
-
-const TAB_LABEL = {
-  providers: "integrations.tabs.providers",
-  mcp: "integrations.tabs.mcp",
-  secrets: "integrations.tabs.secrets",
-  variables: "integrations.tabs.variables",
-  voice: "integrations.tabs.voice",
-  browser: "integrations.tabs.browser",
-} as const;
+// The tabs that are the viewer's own, shown only with a session.
+const SELF_TABS: readonly IntegrationsTab[] = ["pager", "api-tokens"];
+// The tabs that carry the office and personal cards.
+const CARD_TABS: readonly IntegrationsTab[] = [
+  "providers",
+  "mcp",
+  "secrets",
+  "variables",
+];
 
 const TAB_INTRO = {
   providers: "integrations.tabIntro.providers",
@@ -70,6 +80,9 @@ const TAB_INTRO = {
   variables: "integrations.tabIntro.variables",
   voice: "integrations.tabIntro.voice",
   browser: "browser.intro",
+  // Pager and API tokens: the panes carry their own heading and intro.
+  pager: null,
+  "api-tokens": null,
 } as const;
 
 type IntegrationsProps = {
@@ -97,16 +110,31 @@ function IntegrationsPage({
   const role: Role = sessionContext?.role === "owner" ? "owner" : "member";
   const self = sessionContext?.username ?? "";
 
+  // Shared with the server, which checks an ask's link to a tab. Pager and
+  // API tokens show only with a session; a remembered or requested one
+  // without a session falls back like an unknown tab.
+  const tabs = sessionContext
+    ? INTEGRATIONS_TABS
+    : INTEGRATIONS_TABS.filter((id) => !SELF_TABS.includes(id));
+
   // Read once: the request is one-shot, and App clears it below.
   const [initial] = useState(() => request);
+  const requestedTab =
+    initial?.tab && tabs.includes(initial.tab) ? initial.tab : null;
   const [tab, setTabState] = useState<IntegrationsTab>(() =>
     initial?.signIn
       ? "mcp"
-      : (initial?.tab ?? getIntegrationsTab(TABS) ?? "providers"),
+      : (requestedTab ?? getIntegrationsTab(tabs) ?? "providers"),
+  );
+  // On a phone the list and a tab take turns, like Settings: the list shows
+  // first unless the open names a tab.
+  const [listShown, setListShown] = useState(
+    () => isMobile && !initial?.signIn && requestedTab === null,
   );
   const setTab = (next: IntegrationsTab) => {
     setTabState(next);
     setIntegrationsTab(next);
+    setListShown(false);
   };
   const others = [...users.values()]
     .filter((user) => user.id !== sessionContext?.userId)
@@ -147,7 +175,7 @@ function IntegrationsPage({
 
   useEffect(() => {
     // A named tab counts as picked, so the next open starts there too.
-    if (initial?.tab) setIntegrationsTab(initial.tab);
+    if (requestedTab) setIntegrationsTab(requestedTab);
     if (request) onRequestHandled?.();
     // Once, on mount: the page has what it needs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -255,12 +283,42 @@ function IntegrationsPage({
             onGone={memberGone}
           />
         );
-      // The Voice and Browser Use tabs have no cards (see the page below).
+      // The Voice, Browser Use, Pager and API tokens tabs have no cards (see
+      // the page below).
       case "voice":
       case "browser":
+      case "pager":
+      case "api-tokens":
         return null;
     }
   }
+
+  // Escape on a phone's tab goes back to the list, like Settings. Capture and
+  // stopPropagation, so App's own Escape never closes the page instead.
+  useEffect(() => {
+    if (!isMobile || listShown) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key !== "Escape" || isExpandedEditorOpen()) return;
+      e.stopPropagation();
+      setListShown(true);
+    }
+    window.addEventListener("keydown", handleKey, true);
+    return () => window.removeEventListener("keydown", handleKey, true);
+  }, [isMobile, listShown]);
+
+  // One unlabelled group: the page title already names it.
+  const group: SidebarGroup<IntegrationsTab> = {
+    id: "integrations",
+    rows: tabs.map((id) => ({
+      key: id,
+      label: t(TAB_LABEL[id]),
+      selected: id === tab,
+      target: id,
+    })),
+  };
+  const intro = TAB_INTRO[tab];
+  const showSidebar = !isMobile || listShown;
+  const showDetail = !isMobile || !listShown;
 
   return (
     <div
@@ -290,205 +348,219 @@ function IntegrationsPage({
           zIndex: 500,
         }}
       >
+        {/* On a phone the open tab has its own back row to the list, so
+            this control says Close, as on Settings. */}
         <button
           onClick={onClose}
           data-page-close=""
-          aria-label={t("common.back")}
+          aria-label={isMobile ? undefined : t("common.back")}
           style={{
             background: "none",
             border: "none",
             color: "var(--text-muted)",
-            fontSize: 18,
+            fontSize: isMobile ? 13 : 18,
             cursor: "pointer",
             padding: "2px 8px",
+            whiteSpace: "nowrap",
           }}
         >
-          &larr;
+          {isMobile ? <>&larr; {t("common.close")}</> : <>&larr;</>}
         </button>
         <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
           {t("common.integrations")}
         </h1>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        <div
-          style={{
-            maxWidth: 900,
-            margin: "0 auto",
-            padding: isMobile ? "14px 14px 40px" : "20px 24px 60px",
-          }}
-        >
-          <p style={{ ...hintText, margin: "0 0 16px" }}>
-            {role === "owner"
-              ? t("integrations.ownerIntro")
-              : t("integrations.memberIntro")}
-          </p>
-          <div
-            role="tablist"
+      {/* Body: sidebar + the open tab, as in Settings. On a phone exactly
+          one shows. */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {showSidebar && (
+          <nav
             aria-label={t("common.integrations")}
             style={{
-              display: "flex",
-              gap: 2,
-              borderBottom: "1px solid var(--border)",
-              // Five tabs do not fit a phone's width in one row: they wrap,
-              // so no tab hides past the edge.
-              flexWrap: isMobile ? "wrap" : undefined,
-              overflowX: "auto",
-              marginBottom: 16,
+              width: isMobile ? "100%" : 260,
+              flexShrink: 0,
+              borderRight: isMobile
+                ? undefined
+                : "1px solid var(--border-subtle)",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+              padding: "12px 0",
             }}
           >
-            {TABS.map((id) => {
-              const on = id === tab;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  id={`integrations-tab-${id}`}
-                  aria-selected={on}
-                  aria-controls="integrations-panel"
-                  data-integrations-tab={id}
-                  onClick={() => setTab(id)}
-                  style={{
-                    padding: isMobile ? "9px 10px" : "9px 14px",
-                    border: "none",
-                    borderBottom: `2px solid ${on ? "var(--accent-text)" : "transparent"}`,
-                    background: "none",
-                    color: on ? "var(--text-primary)" : "var(--text-muted)",
-                    fontWeight: on ? 650 : 500,
-                    fontSize: 13,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {t(TAB_LABEL[id])}
-                </button>
-              );
-            })}
-          </div>
+            <SidebarGroupRows
+              group={group}
+              first
+              onSelect={setTab}
+              rowAttrs={(row) => ({ "data-integrations-tab": row.target })}
+            />
+          </nav>
+        )}
+
+        {showDetail && (
           <div
-            role="tabpanel"
-            id="integrations-panel"
-            aria-labelledby={`integrations-tab-${tab}`}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+            }}
           >
-            <p style={{ ...hintText, margin: "0 0 16px" }}>
-              {t(TAB_INTRO[tab])}
-              {tab === "secrets" && (
-                <>
-                  <br />
-                  {t("integrations.secretsHonesty")}
-                  <br />
-                  <span data-secrets-model-keys="">
-                    {rich("integrations.secrets.modelKeys", {
-                      code: (chunk) => <Data>{chunk}</Data>,
-                      link: (chunk) => (
-                        <Btn
-                          kind="link"
-                          onClick={() => setTab("variables")}
-                          data-go-variables
-                        >
-                          {chunk}
-                        </Btn>
-                      ),
-                    })}
-                  </span>
-                </>
-              )}
-              {tab === "variables" && (
-                <>
-                  <br />
-                  {rich("integrations.variables.modelKeys", {
-                    code: (chunk) => <Data>{chunk}</Data>,
-                  })}
-                </>
-              )}
-            </p>
-            {/* No note, or none for a card on this page. */}
-            {signIn &&
-              !signInFor(office) &&
-              !signInFor(personal) &&
-              tab === "mcp" && (
-                <SignInNotice
-                  code={signIn.code}
-                  server={null}
-                  style={{ margin: "0 0 14px" }}
-                />
-              )}
-            {connectionsFailed && tab === "mcp" && (
-              <p
-                role="alert"
-                data-connections-failed
+            {isMobile && (
+              <button
+                onClick={() => setListShown(true)}
+                data-integrations-back=""
                 style={{
-                  ...hintText,
-                  color: "var(--red-text)",
-                  margin: "0 0 14px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  padding: "10px 14px 0",
                 }}
               >
-                {t("integrations.connectionsFailed")}
-              </p>
+                &larr; {t("common.integrations")}
+              </button>
             )}
-
-            {tab === "voice" ? (
-              <VoiceSection onVariables={() => setTab("variables")} />
-            ) : tab === "browser" ? (
-              // Only a session has its own Chrome to pair.
-              sessionContext && <BrowserPane />
-            ) : (
-              <>
-                <section
-                  data-integrations-card="office"
-                  style={card}
-                  onClickCapture={actOn(office)}
-                >
-                  <CardHead
-                    icon={BuildingIcon}
-                    title={t("integrations.office")}
-                    sub={
-                      role === "owner"
-                        ? t("integrations.officeWho")
-                        : t("integrations.officeWhoMember")
-                    }
-                    action={
-                      tab === "providers" ? (
-                        <Btn
-                          small
-                          disabled={accounts.refreshing}
-                          onClick={accounts.refresh}
-                          data-providers-refresh
-                        >
-                          {accounts.refreshing
-                            ? t("settings.connections.refreshing")
-                            : t("settings.connections.refresh")}
-                        </Btn>
-                      ) : undefined
-                    }
+            <div
+              style={{
+                maxWidth: 900,
+                padding: isMobile ? "14px 14px 40px" : "20px 24px 60px",
+              }}
+            >
+              {intro !== null && (
+                <>
+                  <p style={{ ...hintText, margin: "0 0 16px" }}>
+                    {role === "owner"
+                      ? t("integrations.ownerIntro")
+                      : t("integrations.memberIntro")}
+                  </p>
+                  <p style={{ ...hintText, margin: "0 0 16px" }}>
+                    {t(intro)}
+                    {tab === "secrets" && (
+                      <>
+                        <br />
+                        {t("integrations.secretsHonesty")}
+                        <br />
+                        <span data-secrets-model-keys="">
+                          {rich("integrations.secrets.modelKeys", {
+                            code: (chunk) => <Data>{chunk}</Data>,
+                            link: (chunk) => (
+                              <Btn
+                                kind="link"
+                                onClick={() => setTab("variables")}
+                                data-go-variables
+                              >
+                                {chunk}
+                              </Btn>
+                            ),
+                          })}
+                        </span>
+                      </>
+                    )}
+                    {tab === "variables" && (
+                      <>
+                        <br />
+                        {rich("integrations.variables.modelKeys", {
+                          code: (chunk) => <Data>{chunk}</Data>,
+                        })}
+                      </>
+                    )}
+                  </p>
+                </>
+              )}
+              {/* No note, or none for a card on this page. */}
+              {signIn &&
+                !signInFor(office) &&
+                !signInFor(personal) &&
+                tab === "mcp" && (
+                  <SignInNotice
+                    code={signIn.code}
+                    server={null}
+                    style={{ margin: "0 0 14px" }}
                   />
-                  {section(office)}
-                </section>
-
-                <PersonalCard
-                  cardRef={personalRef}
-                  target={personal}
-                  role={role}
-                  others={others.map((user) => user.name)}
-                  onPick={pick}
-                  gone={goneMember}
-                  onClickCapture={actOn(personal)}
-                >
-                  {section(personal)}
-                </PersonalCard>
-
-                {tab === "providers" && (
-                  <ProvidersFooter onVariables={() => setTab("variables")} />
                 )}
-                <p style={{ ...hintText, marginTop: 8 }}>
-                  {t("integrations.applies")}
+              {connectionsFailed && tab === "mcp" && (
+                <p
+                  role="alert"
+                  data-connections-failed
+                  style={{
+                    ...hintText,
+                    color: "var(--red-text)",
+                    margin: "0 0 14px",
+                  }}
+                >
+                  {t("integrations.connectionsFailed")}
                 </p>
-              </>
-            )}
+              )}
+
+              {tab === "voice" ? (
+                <VoiceSection onVariables={() => setTab("variables")} />
+              ) : tab === "browser" ? (
+                // Only a session has its own Chrome to pair.
+                sessionContext && <BrowserPane />
+              ) : tab === "pager" ? (
+                sessionContext && (
+                  <PagerSettingsPane username={sessionContext.username} />
+                )
+              ) : tab === "api-tokens" ? (
+                sessionContext && <ApiTokensPane />
+              ) : CARD_TABS.includes(tab) ? (
+                <>
+                  <section
+                    data-integrations-card="office"
+                    style={card}
+                    onClickCapture={actOn(office)}
+                  >
+                    <CardHead
+                      icon={BuildingIcon}
+                      title={t("integrations.office")}
+                      sub={
+                        role === "owner"
+                          ? t("integrations.officeWho")
+                          : t("integrations.officeWhoMember")
+                      }
+                      action={
+                        tab === "providers" ? (
+                          <Btn
+                            small
+                            disabled={accounts.refreshing}
+                            onClick={accounts.refresh}
+                            data-providers-refresh
+                          >
+                            {accounts.refreshing
+                              ? t("settings.connections.refreshing")
+                              : t("settings.connections.refresh")}
+                          </Btn>
+                        ) : undefined
+                      }
+                    />
+                    {section(office)}
+                  </section>
+
+                  <PersonalCard
+                    cardRef={personalRef}
+                    target={personal}
+                    role={role}
+                    others={others.map((user) => user.name)}
+                    onPick={pick}
+                    gone={goneMember}
+                    onClickCapture={actOn(personal)}
+                  >
+                    {section(personal)}
+                  </PersonalCard>
+
+                  {tab === "providers" && (
+                    <ProvidersFooter onVariables={() => setTab("variables")} />
+                  )}
+                  <p style={{ ...hintText, marginTop: 8 }}>
+                    {t("integrations.applies")}
+                  </p>
+                </>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

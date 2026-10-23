@@ -383,7 +383,6 @@ Coses que pots fer per ell:
   "common.moreActions": "Més accions",
   "common.settings": "Configuració",
   "common.theme": "Tema",
-  "common.preferences": "Preferències",
   "common.checking": "Comprovant…",
   "common.copied": "Copiat",
   "common.copy": "Copia",
@@ -404,7 +403,7 @@ Coses que pots fer per ell:
   "common.changeTheme": "Canvia el tema",
 
   "preferences.intro":
-    "Et segueixen a tots els dispositius des dels quals inicies la sessió. La configuració específica d'aquest navegador és a Dispositiu.",
+    "El teu idioma et segueix a tots els dispositius des dels quals inicies la sessió.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
     "L'idioma de la interfície, del que escriuen els teus agents i de l'entrada de veu i la lectura en veu alta. Els agents l'apliquen a la conversa següent.",
@@ -422,6 +421,8 @@ Coses que pots fer per ell:
   "settings.sidebar.sessions": "Sessions",
   "settings.sidebar.usage": "Ús",
   "settings.sidebar.storage": "Emmagatzematge",
+  "settings.sidebar.language": "Idioma",
+  "settings.sidebar.housekeeping": "Manteniment",
   "settings.sidebar.updates": "Actualitzacions",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens d'API",

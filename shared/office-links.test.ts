@@ -1,5 +1,6 @@
 // The office pages an ask can link to: one per page and one per Integrations
-// tab, matched exactly.
+// tab, matched exactly. Pager and API tokens are Integrations tabs since task
+// db800fd8, so an ask can link to them.
 
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
@@ -31,6 +32,8 @@ describe("office links", () => {
         "/integrations/variables",
         "/integrations/voice",
         "/integrations/browser",
+        "/integrations/pager",
+        "/integrations/api-tokens",
       ].sort(),
     );
   });

@@ -383,7 +383,6 @@ Cosas que puedes hacer por él:
   "common.moreActions": "Más acciones",
   "common.settings": "Ajustes",
   "common.theme": "Tema",
-  "common.preferences": "Preferencias",
   "common.checking": "Comprobando…",
   "common.copied": "Copiado",
   "common.copy": "Copiar",
@@ -404,7 +403,7 @@ Cosas que puedes hacer por él:
   "common.changeTheme": "Cambiar el tema",
 
   "preferences.intro":
-    "Te siguen a todos los dispositivos desde los que inicias sesión. Los ajustes propios de este navegador están en Dispositivo.",
+    "Tu idioma te sigue a todos los dispositivos desde los que inicias sesión.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
     "El idioma de la interfaz, de lo que escriben tus agentes y de la entrada de voz y la lectura en voz alta. Los agentes lo aplican en su siguiente conversación.",
@@ -422,6 +421,8 @@ Cosas que puedes hacer por él:
   "settings.sidebar.sessions": "Sesiones",
   "settings.sidebar.usage": "Uso",
   "settings.sidebar.storage": "Almacenamiento",
+  "settings.sidebar.language": "Idioma",
+  "settings.sidebar.housekeeping": "Mantenimiento",
   "settings.sidebar.updates": "Actualizaciones",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens de API",

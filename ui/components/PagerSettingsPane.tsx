@@ -1,4 +1,4 @@
-// Settings → You → Pager: where the member's pages go, in three sections:
+// Integrations → Pager: where the member's pages go, in three sections:
 // this device (Web Push, PushDevicesBlock), Discord (the webhook, the user to
 // mention and a test send), and how often an open page repeats, which saves
 // on its own. Server side: server/pager-settings.ts and the pagerSettings.*

@@ -78,7 +78,7 @@ it("points API keys at the Variables tab", async () => {
   expect(
     view.container
       .querySelector('[data-integrations-tab="variables"]')!
-      .getAttribute("aria-selected"),
+      .getAttribute("aria-current"),
   ).toBe("true");
 });
 

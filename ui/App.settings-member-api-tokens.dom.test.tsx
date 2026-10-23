@@ -90,6 +90,14 @@ beforeEach(() => {
 type View = ReturnType<typeof render>;
 
 async function clickRow(view: View, name: string) {
+  // Members starts collapsed (task db800fd8): its header opens it.
+  const members = view.container.querySelector(
+    '[data-sidebar-group-toggle="members"][aria-expanded="false"]',
+  );
+  if (members)
+    await act(async () => {
+      fireEvent.click(members);
+    });
   // A roster row's text starts with the display name.
   const row = view
     .getAllByRole("button")

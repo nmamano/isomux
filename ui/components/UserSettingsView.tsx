@@ -7,10 +7,11 @@ import { ordinaryRooms } from "../../shared/types.ts";
 // App's main view switch, closed via the header back arrow, ESC, or the
 // browser back button (popstate).
 //
-// Layout: a sidebar (master) shows the account section (Access / Invites /
-// Sessions for owners, My devices for members) ABOVE the user list - so the
-// entries stay reachable however long the roster grows - with Sign out pinned
-// at the bottom; the detail area shows the selected user's editor,
+// Layout: a sidebar (master) shows the Office, You and Device groups ABOVE
+// the Rooms and Members lists, which start collapsed so the fixed entries
+// stay reachable however long the roster grows, then the Housekeeping group,
+// with Sign out pinned at the bottom; the detail area shows the selected
+// user's editor,
 // organized into sections (Identity / Rooms / Agent context) with a sticky
 // save footer. On mobile exactly one of the two panes shows at a time - the
 // list first, then the detail with a back row.
@@ -21,7 +22,7 @@ import { ordinaryRooms } from "../../shared/types.ts";
 // session count / last-seen summary derived from the active-sessions list.
 // Non-owner viewers get only the dot and a bare "online".
 
-import { cloneElement, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -45,7 +46,13 @@ import {
   type GhostVariant,
 } from "../../shared/avatar.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
-import { BuildingIcon, DeviceIcon, DoorIcon, UserIcon } from "./NavIcons.tsx";
+import { BuildingIcon, DeviceIcon, UserIcon } from "./NavIcons.tsx";
+import {
+  SidebarGroupHeader,
+  SidebarGroupRows,
+  type SidebarGroup as SharedSidebarGroup,
+  type SidebarRow as SharedSidebarRow,
+} from "./SidebarGroups.tsx";
 import {
   dialogLabel,
   dialogInput,
@@ -66,8 +73,7 @@ import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
-import { PagerSettingsPane } from "./PagerSettingsPane.tsx";
-import { ApiTokenCards, ApiTokensPane } from "./ApiTokensPane.tsx";
+import { ApiTokenCards } from "./ApiTokensPane.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -76,6 +82,10 @@ import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { forgetThisDevice } from "../push-subscription.ts";
+import {
+  getSettingsGroupsOpen,
+  setSettingsGroupOpen,
+} from "../device-settings.ts";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -85,7 +95,8 @@ import { forgetThisDevice } from "../push-subscription.ts";
 // links and sessions for signing in elsewhere, not devices, and the label now
 // says so. The connections panes moved to their own page, Integrations; the
 // office bar, the phone menu and the i key open it, never Settings (Nil,
-// 2026-10-14: two ways in read as two places).
+// 2026-10-14: two ways in read as two places). Pager and API tokens followed
+// them there (task db800fd8).
 export type SettingsSection =
   | "audit"
   | "office"
@@ -95,40 +106,13 @@ export type SettingsSection =
   | "invites"
   | "sessions"
   | "prefs"
-  | "pager"
-  | "apiTokens"
   | "signInLinks"
   | "updates"
   | "deviceLabel"
   | "theme";
 
-// One sidebar entry: it moves the detail pane to `target`. The row holds the
-// target as DATA rather than a closure over select(), because select() routes
-// through the unsaved-changes guard and must not be captured during render.
-type SidebarRow = {
-  key: string;
-  label: string;
-  selected: boolean;
-  target: Selection;
-};
-
-// A labelled group of sidebar entries. The Members group carries no rows: it
-// renders the live roster instead, which needs per-user avatars and status.
-// `dynamic` marks a group whose rows come from live data rather than from a
-// fixed list, and gives those rows the roster's shape (a glyph and a name) so
-// the two kinds of row never look alike.
-type SidebarGroup = {
-  id: string;
-  label: string;
-  // The office / user / device marker the nav bar used to carry, drawn beside
-  // the group label. A group whose rows stand for live things (Rooms,
-  // Members) marks the ROWS with a glyph instead and leaves its header plain,
-  // so the same door never appears once per row under one more of itself.
-  icon?: React.ReactElement<React.SVGProps<SVGSVGElement>>;
-  rows: SidebarRow[];
-  roster?: boolean;
-  dynamic?: boolean;
-};
+type SidebarRow = SharedSidebarRow<Selection>;
+type SidebarGroup = SharedSidebarGroup<Selection>;
 
 // What the detail pane shows: a user's editor, or one settings section.
 // null = nothing selected - on mobile that means the list is showing; on
@@ -155,6 +139,28 @@ export type Selection =
   | { kind: "room"; roomId: string }
   // An owner creating a member: the member editor with no record behind it.
   | { kind: "newMember" };
+
+// The groups whose header opens and closes them: the two whose rows come
+// from live data and can run long.
+const COLLAPSIBLE_GROUPS = new Set(["rooms", "members"]);
+
+// The collapsible group that holds a selection, if it is closed in `open`,
+// added to a copy of it. Your own profile is the You > Profile row, so it
+// opens nothing.
+function withGroupOf(
+  open: Set<string>,
+  selection: Selection | null,
+  session: { userId: string } | null | undefined,
+): Set<string> {
+  const group =
+    selection?.kind === "room"
+      ? "rooms"
+      : selection?.kind === "newMember" ||
+          (selection?.kind === "user" && selection.id !== session?.userId)
+        ? "members"
+        : null;
+  return group === null || open.has(group) ? open : new Set(open).add(group);
+}
 
 export function UserSettingsView({
   initialUserId,
@@ -240,6 +246,28 @@ export function UserSettingsView({
     return null;
   });
 
+  // Rooms and Members start collapsed (task db800fd8). A header click opens
+  // or closes its group and is kept on the device; a selection that lands in
+  // a closed group opens it for this visit only, so the open row is never
+  // hidden and a header click always changes what shows.
+  const [openGroups, setOpenGroups] = useState(() =>
+    withGroupOf(getSettingsGroupsOpen(), selection, sessionContext),
+  );
+  function show(next: Selection | null) {
+    setSelection(next);
+    setOpenGroups((open) => withGroupOf(open, next, sessionContext));
+  }
+  function toggleGroup(id: string) {
+    const open = !openGroups.has(id);
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    setSettingsGroupOpen(id, open);
+  }
+
   // The default selection (initialUserId, or self on desktop) can't resolve
   // if the page mounts before the users roster has hydrated (e.g. a view
   // restore racing the users_list broadcast). Apply it as soon as a roster
@@ -268,8 +296,10 @@ export function UserSettingsView({
         // App's view restore. Safe to bypass the dirty gate: the ref being
         // unconsumed means no explicit selection was ever made, so no
         // editor with unsaved state can be mounted.
+        const next: Selection = { kind: "user", id: u.id };
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setSelection({ kind: "user", id: u.id });
+        setSelection(next);
+        setOpenGroups((open) => withGroupOf(open, next, sessionContext));
         return;
       }
     }
@@ -296,7 +326,7 @@ export function UserSettingsView({
     defaultAppliedRef.current = true;
     const same = selection !== null && sameSelection(selection, next);
     if (same) return;
-    leaveEdit(() => setSelection(next));
+    leaveEdit(() => show(next));
   }
 
   // Mobile back-to-list. An explicit "show me the list" also consumes the
@@ -377,15 +407,7 @@ export function UserSettingsView({
               ? [
                   sectionRow("access", t("settings.sidebar.access")),
                   sectionRow("invites", t("settings.sidebar.invites")),
-                  sectionRow("sessions", t("settings.sidebar.sessions")),
-                  sectionRow("audit", t("audit.title")),
                 ]
-              : []),
-            sectionRow("usage", t("settings.sidebar.usage")),
-            // Storage is owner-only, matching the server: prune is gated on
-            // officeOwner and the usage read strips paths for anyone else.
-            ...(isOwner
-              ? [sectionRow("storage", t("settings.sidebar.storage"))]
               : []),
             sectionRow("updates", t("settings.sidebar.updates")),
           ],
@@ -409,9 +431,7 @@ export function UserSettingsView({
                   },
                 ]
               : []),
-            sectionRow("prefs", t("common.preferences")),
-            sectionRow("pager", t("settings.sidebar.pager")),
-            sectionRow("apiTokens", t("settings.sidebar.apiTokens")),
+            sectionRow("prefs", t("settings.sidebar.language")),
             sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
           ],
         },
@@ -445,6 +465,26 @@ export function UserSettingsView({
           rows: [],
           roster: true,
         },
+        // Mostly read-only panes a member rarely needs, out of the way at
+        // the end (Nil, 2026-10-23).
+        {
+          id: "housekeeping",
+          label: t("settings.sidebar.housekeeping"),
+          rows: [
+            ...(isOwner
+              ? [
+                  sectionRow("sessions", t("settings.sidebar.sessions")),
+                  sectionRow("audit", t("audit.title")),
+                ]
+              : []),
+            sectionRow("usage", t("settings.sidebar.usage")),
+            // Storage is owner-only, matching the server: prune is gated on
+            // officeOwner and the usage read strips paths for anyone else.
+            ...(isOwner
+              ? [sectionRow("storage", t("settings.sidebar.storage"))]
+              : []),
+          ],
+        },
       ]
     : [];
 
@@ -473,6 +513,12 @@ export function UserSettingsView({
       }
     });
   }
+
+  // The header props of a group that opens and closes; none for the rest.
+  const collapsible = (id: string) =>
+    COLLAPSIBLE_GROUPS.has(id)
+      ? { collapsed: !openGroups.has(id), onToggle: () => toggleGroup(id) }
+      : {};
 
   const showSidebar = !isMobile || selection === null;
   const showDetail = !isMobile || selection !== null;
@@ -564,177 +610,184 @@ export function UserSettingsView({
                 group={group}
                 first={i === 0}
                 onSelect={(target) => select(target)}
+                {...collapsible(group.id)}
               />
             ))}
 
-            <div
-              style={{
-                ...sidebarSectionLabel,
-                marginTop: groupsBeforeRoster.length > 0 ? 18 : 0,
-              }}
-            >
-              {rosterGroup?.label ?? t("settings.sidebar.members")}
-            </div>
-            {userList.map((u) => {
-              const isMe = sessionContext?.userId === u.id;
-              const selected =
-                selection?.kind === "user" && selection.id === u.id;
-              const editable = canEdit(u);
-              const online = onlineSet.has(u.id);
-              // Session count / last-seen are OWNER-only signals (task
-              // 8e882cd4); non-owner viewers get just the online dot and a
-              // bare "online". The server already scopes /api/sessions to the
-              // caller, but the design keeps even a member's own session
-              // stats off the roster for consistency.
-              const summary = summarizeRoster(
-                online,
-                isOwner ? (sessionStats.get(u.id) ?? null) : null,
-                isOwner && u.pendingSignIn === true,
-                i18n,
-              );
-              // Editable rows are real <button>s (keyboard-focusable, with
-              // aria-current marking the selection); rows the session can't
-              // edit render as plain non-interactive divs.
-              const Row = editable ? "button" : "div";
-              return (
-                <Row
-                  key={u.id}
-                  onClick={
-                    editable
-                      ? () => select({ kind: "user", id: u.id })
-                      : undefined
-                  }
-                  aria-current={selected ? "true" : undefined}
-                  title={editable ? undefined : t("settings.members.editHint")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    textAlign: "left",
-                    font: "inherit",
-                    padding: "8px 14px",
-                    border: "none",
-                    cursor: editable ? "pointer" : "default",
-                    background: selected ? "var(--bg-hover)" : "transparent",
-                    borderLeft: selected
-                      ? "2px solid var(--accent)"
-                      : "2px solid transparent",
-                    color: editable ? "inherit" : "var(--text-hint)",
-                  }}
-                >
-                  <span
-                    style={{
-                      position: "relative",
-                      display: "flex",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <GhostGraphic
-                      variant={u.avatarVariant}
-                      color={u.avatarColor}
-                      size={22}
-                    />
-                    {online && (
-                      <span
-                        style={onlineDotStyle}
-                        title={t("settings.members.onlineNow")}
-                      />
-                    )}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
+            <SidebarGroupHeader
+              groupId="members"
+              label={rosterGroup?.label ?? t("settings.sidebar.members")}
+              first={groupsBeforeRoster.length === 0}
+              {...collapsible("members")}
+            />
+            {openGroups.has("members") && (
+              <>
+                {userList.map((u) => {
+                  const isMe = sessionContext?.userId === u.id;
+                  const selected =
+                    selection?.kind === "user" && selection.id === u.id;
+                  const editable = canEdit(u);
+                  const online = onlineSet.has(u.id);
+                  // Session count / last-seen are OWNER-only signals (task
+                  // 8e882cd4); non-owner viewers get just the online dot and a
+                  // bare "online". The server already scopes /api/sessions to the
+                  // caller, but the design keeps even a member's own session
+                  // stats off the roster for consistency.
+                  const summary = summarizeRoster(
+                    online,
+                    isOwner ? (sessionStats.get(u.id) ?? null) : null,
+                    isOwner && u.pendingSignIn === true,
+                    i18n,
+                  );
+                  // Editable rows are real <button>s (keyboard-focusable, with
+                  // aria-current marking the selection); rows the session can't
+                  // edit render as plain non-interactive divs.
+                  const Row = editable ? "button" : "div";
+                  return (
+                    <Row
+                      key={u.id}
+                      onClick={
+                        editable
+                          ? () => select({ kind: "user", id: u.id })
+                          : undefined
+                      }
+                      aria-current={selected ? "true" : undefined}
+                      title={
+                        editable ? undefined : t("settings.members.editHint")
+                      }
                       style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: editable
-                          ? "var(--text-primary)"
-                          : "var(--text-hint)",
                         display: "flex",
                         alignItems: "center",
-                        gap: 6,
-                        minWidth: 0,
+                        gap: 10,
+                        width: "100%",
+                        textAlign: "left",
+                        font: "inherit",
+                        padding: "8px 14px",
+                        border: "none",
+                        cursor: editable ? "pointer" : "default",
+                        background: selected
+                          ? "var(--bg-hover)"
+                          : "transparent",
+                        borderLeft: selected
+                          ? "2px solid var(--accent)"
+                          : "2px solid transparent",
+                        color: editable ? "inherit" : "var(--text-hint)",
                       }}
                     >
                       <span
-                        {...noTranslate()}
                         style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          position: "relative",
+                          display: "flex",
+                          flexShrink: 0,
                         }}
                       >
-                        {u.name}
+                        <GhostGraphic
+                          variant={u.avatarVariant}
+                          color={u.avatarColor}
+                          size={22}
+                        />
+                        {online && (
+                          <span
+                            style={onlineDotStyle}
+                            title={t("settings.members.onlineNow")}
+                          />
+                        )}
                       </span>
-                      {isMe && (
-                        <span
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
                           style={{
-                            fontSize: 11,
-                            fontWeight: 400,
-                            color: "var(--text-muted)",
-                            flexShrink: 0,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: editable
+                              ? "var(--text-primary)"
+                              : "var(--text-hint)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            minWidth: 0,
                           }}
                         >
-                          {t("settings.you")}
-                        </span>
-                      )}
-                      <RoleBadge role={u.role} />
-                    </div>
-                    {summary && (
-                      <div
-                        style={{
-                          fontSize: 10,
-                          color: "var(--text-muted)",
-                          fontFamily: "var(--font-ui)",
-                          marginTop: 2,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {summary}
+                          <span
+                            {...noTranslate()}
+                            style={{
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {u.name}
+                          </span>
+                          {isMe && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 400,
+                                color: "var(--text-muted)",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {t("settings.you")}
+                            </span>
+                          )}
+                          <RoleBadge role={u.role} />
+                        </div>
+                        {summary && (
+                          <div
+                            style={{
+                              fontSize: 10,
+                              color: "var(--text-muted)",
+                              fontFamily: "var(--font-ui)",
+                              marginTop: 2,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {summary}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </Row>
-              );
-            })}
-            {isOwner && (
-              <button
-                onClick={() => select({ kind: "newMember" })}
-                aria-current={
-                  selection?.kind === "newMember" ? "true" : undefined
-                }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  width: "100%",
-                  textAlign: "left",
-                  font: "inherit",
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  padding: "8px 14px",
-                  border: "none",
-                  cursor: "pointer",
-                  background:
-                    selection?.kind === "newMember"
-                      ? "var(--bg-hover)"
-                      : "transparent",
-                  borderLeft:
-                    selection?.kind === "newMember"
-                      ? "2px solid var(--accent)"
-                      : "2px solid transparent",
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{ width: 22, textAlign: "center", fontSize: 16 }}
-                >
-                  +
-                </span>
-                {t("settings.members.newMember")}
-              </button>
+                    </Row>
+                  );
+                })}
+                {isOwner && (
+                  <button
+                    onClick={() => select({ kind: "newMember" })}
+                    aria-current={
+                      selection?.kind === "newMember" ? "true" : undefined
+                    }
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      width: "100%",
+                      textAlign: "left",
+                      font: "inherit",
+                      fontSize: 13,
+                      color: "var(--text-muted)",
+                      padding: "8px 14px",
+                      border: "none",
+                      cursor: "pointer",
+                      background:
+                        selection?.kind === "newMember"
+                          ? "var(--bg-hover)"
+                          : "transparent",
+                      borderLeft:
+                        selection?.kind === "newMember"
+                          ? "2px solid var(--accent)"
+                          : "2px solid transparent",
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{ width: 22, textAlign: "center", fontSize: 16 }}
+                    >
+                      +
+                    </span>
+                    {t("settings.members.newMember")}
+                  </button>
+                )}
+              </>
             )}
 
             {groupsAfterRoster.map((group) => (
@@ -743,6 +796,7 @@ export function UserSettingsView({
                 group={group}
                 first={false}
                 onSelect={(target) => select(target)}
+                {...collapsible(group.id)}
               />
             ))}
 
@@ -869,10 +923,6 @@ export function UserSettingsView({
                   <DevicePane closeRef={detailCloseRef} />
                 ) : selection.section === "theme" ? (
                   <ThemePane />
-                ) : selection.section === "apiTokens" && sessionContext ? (
-                  <ApiTokensPane />
-                ) : selection.section === "pager" && sessionContext ? (
-                  <PagerSettingsPane username={sessionContext.username} />
                 ) : null}
               </div>
             ) : selection?.kind === "room" ? (
@@ -2359,132 +2409,6 @@ const onlineDotStyle: React.CSSProperties = {
   border: "1.5px solid var(--bg-base)",
 };
 
-// One labelled group of sidebar rows. A row that opens another page never
-// paints as selected, because nothing of it is showing in the detail pane.
-// A dynamic group (Rooms) borrows the roster's row shape - glyph on the left,
-// name beside it, no extra indent - so a row that stands for a live thing
-// never reads as one of the fixed rows above it.
-function SidebarGroupRows({
-  group,
-  first,
-  onSelect,
-}: {
-  group: SidebarGroup;
-  first: boolean;
-  onSelect: (target: Selection) => void;
-}) {
-  if (group.rows.length === 0) return null;
-  const dynamic = !!group.dynamic;
-  return (
-    <>
-      <div style={{ ...sidebarSectionLabel, marginTop: first ? 0 : 18 }}>
-        {group.icon && (
-          <GroupIcon
-            icon={group.icon}
-            active={group.rows.some((row) => row.selected)}
-          />
-        )}
-        {group.label}
-      </div>
-      {group.rows.map((row) => (
-        <button
-          key={row.key}
-          onClick={() => onSelect(row.target)}
-          aria-current={row.selected ? "true" : undefined}
-          style={{
-            display: dynamic ? "flex" : undefined,
-            alignItems: dynamic ? "center" : undefined,
-            gap: dynamic ? 10 : undefined,
-            width: "100%",
-            textAlign: "left",
-            font: "inherit",
-            padding: dynamic ? "8px 14px" : "8px 14px 8px 22px",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            border: "none",
-            cursor: "pointer",
-            background: row.selected ? "var(--bg-hover)" : "transparent",
-            borderLeft: row.selected
-              ? "2px solid var(--accent)"
-              : "2px solid transparent",
-          }}
-        >
-          {dynamic && <RoomGlyph />}
-          {dynamic ? (
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {row.label}
-            </span>
-          ) : (
-            row.label
-          )}
-        </button>
-      ))}
-    </>
-  );
-}
-
-// A group's header marker: the nav bar's icon, which draws itself at 15px
-// against an 11px label, brought down to the sidebar's 10px label. The icons
-// are elements rather than components, so the size arrives through
-// cloneElement; a smaller wrapper box would clip them instead. The group
-// holding the open row lifts to --text-primary, the same emphasis its row
-// carries.
-function GroupIcon({
-  icon,
-  active,
-}: {
-  icon: React.ReactElement<React.SVGProps<SVGSVGElement>>;
-  active: boolean;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        display: "flex",
-        flexShrink: 0,
-        color: active ? "var(--text-primary)" : "var(--text-dim)",
-      }}
-    >
-      {cloneElement(icon, { width: 13, height: 13 })}
-    </span>
-  );
-}
-
-// The Rooms rows' counterpart to the roster's ghost: the nav bar's door,
-// drawn at the ghost's size so both lists line up, and dimmed to the weight a
-// row marker carries rather than the label's.
-function RoomGlyph() {
-  return (
-    <span
-      aria-hidden="true"
-      style={{ display: "flex", flexShrink: 0, color: "var(--text-dim)" }}
-    >
-      {cloneElement(DoorIcon, { width: 22, height: 22 })}
-    </span>
-  );
-}
-
-const sidebarSectionLabel: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  fontSize: 10,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  color: "var(--text-ghost)",
-  padding: "0 14px",
-  marginBottom: 6,
-};
 // Section headers inside the user editor: a titled rule that groups the
 // fields the old modal ran together in one long column.
 const sectionTitleStyle: React.CSSProperties = {

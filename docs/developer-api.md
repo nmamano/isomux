@@ -15,7 +15,7 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 ## Personal API tokens
 
-A signed-in member can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
+A signed-in member can create a named personal API token in **Integrations → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
 A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, and can change the office instructions, name and member usage cap (see Instructions and Office settings). These exclusions are defense in depth: a token can spawn an agent that runs commands.
 

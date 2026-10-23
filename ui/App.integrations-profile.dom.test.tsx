@@ -61,6 +61,15 @@ async function openProfile(state: typeof initialState, name: string) {
   const view = render(
     createElement(StateCtx.Provider, { value: state }, createElement(App, {})),
   );
+  // Members starts collapsed (task db800fd8): its header opens it. The
+  // device keeps it open for the next case.
+  const members = view.container.querySelector(
+    '[data-sidebar-group-toggle="members"][aria-expanded="false"]',
+  );
+  if (members)
+    await act(async () => {
+      fireEvent.click(members);
+    });
   const row = view
     .getAllByRole("button")
     .find((el) => (el.textContent ?? "").startsWith(name));

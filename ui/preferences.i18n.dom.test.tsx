@@ -21,7 +21,8 @@ afterEach(() => setApiShim(OK));
 afterAll(() => setApiShim(null));
 
 const SAVE = translationsFor("common.save");
-const TITLE = translationsFor("common.preferences");
+// The pane is named for its one control (task db800fd8).
+const TITLE = translationsFor("settings.sidebar.language");
 const LANGUAGE = translationsFor("preferences.language");
 const INTRO = translationsFor("preferences.intro");
 const LANGUAGE_HINT = translationsFor("preferences.languageHint");
@@ -31,6 +32,10 @@ const SAVE_FAILED = translationsFor("preferences.saveFailed");
 const pane = (language: "ca" | "es" | null) =>
   onLanguage(language, createElement(PreferencesPane));
 
+// The pane's heading: the label beside the select can read the same word.
+const heading = (view: ReturnType<typeof render>) =>
+  view.container.querySelector("h4")?.textContent ?? null;
+
 async function settle(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -39,7 +44,7 @@ async function settle(): Promise<void> {
 
 describe("the preferences pane", () => {
   it("resolves each anchor in every shipped language", () => {
-    for (const anchor of [SAVE, TITLE]) {
+    for (const anchor of [SAVE]) {
       expect(Object.keys(anchor).sort()).toEqual(
         [...SHIPPED_LANGUAGE_CODES].sort(),
       );
@@ -51,7 +56,7 @@ describe("the preferences pane", () => {
 
   it("reads Catalan for a user on ca, Spanish on es, and English for one who never chose", () => {
     const view = render(pane("ca"));
-    expect(view.queryByText(TITLE.ca)).not.toBeNull();
+    expect(heading(view)).toBe(TITLE.ca);
     expect(view.queryByText(LANGUAGE.ca)).not.toBeNull();
     expect(view.queryByText(INTRO.ca)).not.toBeNull();
     expect(view.queryByText(LANGUAGE_HINT.ca)).not.toBeNull();
@@ -63,12 +68,12 @@ describe("the preferences pane", () => {
     ).toEqual(SUPPORTED_LANGUAGES.map(({ label }) => label));
 
     view.rerender(pane("es"));
-    expect(view.queryByText(TITLE.es)).not.toBeNull();
+    expect(heading(view)).toBe(TITLE.es);
     expect(view.queryByText(SAVE.es)).not.toBeNull();
     expect(view.queryByText(SAVE.ca)).toBeNull();
 
     view.rerender(pane(null));
-    expect(view.queryByText(TITLE.en)).not.toBeNull();
+    expect(heading(view)).toBe(TITLE.en);
     expect(view.queryByText(SAVE.en)).not.toBeNull();
   });
 

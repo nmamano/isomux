@@ -134,7 +134,7 @@ describe("back from an MCP sign-in", () => {
       expect(
         view.baseElement
           .querySelector('[data-integrations-tab="mcp"]')!
-          .getAttribute("aria-selected"),
+          .getAttribute("aria-current"),
       ).toBe("true");
       // The card shows whose server it was; the row, which one.
       expect(member(view)).toBe("Beth");
@@ -283,7 +283,7 @@ describe("a pasted tab URL", () => {
     expect(page(view)).not.toBeNull();
     const selected = [
       ...view.baseElement.querySelectorAll(
-        '[data-integrations-tab][aria-selected="true"]',
+        '[data-integrations-tab][aria-current="true"]',
       ),
     ].map((el) => el.getAttribute("data-integrations-tab"));
     expect(selected).toEqual(["variables"]);

@@ -105,8 +105,8 @@ const CA = {
   you: translationsFor("common.you").ca,
   self: translationsFor("settings.you").ca,
   profile: translationsFor("settings.sidebar.profile").ca,
-  preferences: translationsFor("common.preferences").ca,
-  apiTokens: translationsFor("settings.sidebar.apiTokens").ca,
+  language: translationsFor("settings.sidebar.language").ca,
+  housekeeping: translationsFor("settings.sidebar.housekeeping").ca,
   signInLinks: translationsFor("settings.sidebar.signInLinks").ca,
   device: translationsFor("common.device").ca,
   deviceLabel: translationsFor("settings.sidebar.deviceLabel").ca,
@@ -197,8 +197,8 @@ describe("the settings page", () => {
       CA.updates,
       CA.you,
       CA.profile,
-      CA.preferences,
-      CA.apiTokens,
+      CA.language,
+      CA.housekeeping,
       CA.signInLinks,
       CA.device,
       CA.deviceLabel,
@@ -210,10 +210,11 @@ describe("the settings page", () => {
     expect(view.queryByText(CA.signOut)).not.toBeNull();
     expect(view.queryByText(STORAGE.en)).toBeNull();
 
-    // Desktop opens on the signed-in user's editor.
+    // Desktop opens on the signed-in user's editor, on the Profile row; the
+    // Members group stays collapsed, so the editor heading alone names them.
     expect(view.queryByText(CA.identity)).not.toBeNull();
-    // Once on the roster row, once in the editor heading.
-    expect(view.queryAllByText(CA.self).length).toBe(2);
+    expect(row(view, CA.profile).getAttribute("aria-current")).toBe("true");
+    expect(view.queryAllByText(CA.self).length).toBe(1);
 
     // Its inline discard prompt, in Catalan, holds the navigation until
     // Discard is pressed.
@@ -264,6 +265,10 @@ describe("the settings page", () => {
     // The room pane's intro is read in the language, never pinned as copy
     // (Nil, 2026-09-14): the English sentence is absent on ca and on es, and
     // the pane's paragraphs change between the two, so the pane re-read it.
+    // Rooms starts collapsed: its header opens it.
+    fireEvent.click(
+      view.container.querySelector('[data-sidebar-group-toggle="rooms"]')!,
+    );
     open(view, ROOM.name);
     expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
     const caParagraphs = paragraphs(view);
