@@ -72,6 +72,10 @@ export type Capability =
   | "session:manage"
   | "cron:read"
   | "cron:manage"
+  // Read, change, delete and run only the schedules this agent made, within
+  // its own mode and folder (server/cron-agent-limits.ts). The AGENT baseline;
+  // cron:manage, where held, is the wider right and wins.
+  | "cron:own"
   | "editor:use"
   | "file:upload"
   | "terminal:use"
@@ -226,9 +230,9 @@ export const USER_CAPABILITIES: readonly Capability[] = [
 // and the app registry. An agent can message as itself, use the task board and
 // shared memory, register and manage its user's apps, read conversation logs
 // and usage checks it can reach, and use the self-affordances on its own chat.
-// It cannot spawn/kill,
-// touch settings, mint invites, mutate cronjobs, or read cronjob transcripts -
-// those capabilities are simply absent.
+// It reaches only the schedules it made itself (cron:own). It cannot
+// spawn/kill, touch settings or mint invites - those capabilities are simply
+// absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:send-as-self",
   "agent:send-to-api-token",
@@ -241,6 +245,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "app:write",
   "webhook:read",
   "webhook:write",
+  "cron:own",
   "self:affordance",
   "pager:raise",
   "pager:read",
@@ -435,6 +440,16 @@ export function actsForAgent(identity: Identity): boolean {
     identity.scope === "app" &&
     typeof identity.ownerAgentId === "string" &&
     identity.ownerAgentId.length > 0
+  );
+}
+
+// An ordinary agent, or an app of one: it holds cron:own but not cron:manage,
+// so it reaches only the schedules its agent made.
+export function cronOwnOnly(identity: Identity): boolean {
+  return (
+    actsForAgent(identity) &&
+    identityHasCapability(identity, "cron:own") &&
+    !identityHasCapability(identity, "cron:manage")
   );
 }
 

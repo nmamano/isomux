@@ -27,6 +27,8 @@ import {
 import { mintAgentToken } from "../identity/tokens.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { saveFile } from "../persistence.ts";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "fs";
+import { join } from "path";
 
 describe("cronjob REST", () => {
   // Phase 3a slice 2 - Cronjobs on the unified REST surface (opIds cron.*).
@@ -1281,5 +1283,564 @@ describe("cronjob rooms", () => {
       );
       expect(markerFor(makersJob.id)).toBe(true);
     });
+  });
+});
+
+describe("schedules an ordinary agent makes", () => {
+  // Task c4233bfd. An ordinary agent (cron:own, no cron:manage) creates,
+  // reads, edits, deletes and runs only the schedules IT made, and each one is
+  // capped at the agent's current mode and folder (server/cron-agent-limits.ts;
+  // the whole mode table is in server/cron-agent-limits.test.ts). The cap
+  // holds at the agent's writes and triggers (403 schedule_exceeds_agent) and
+  // at every run start, whoever starts it (a failed run). The room is checked
+  // only where a request sets it.
+  //
+  // Seam: startTestServer(). Zero LLM.
+
+  let server: TestServer | null = null;
+  afterEach(async () => {
+    await server?.stop();
+    server = null;
+  });
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  interface Res {
+    status: number;
+    body: unknown;
+  }
+  type Caller = { bearer: string } | { rawSessionId: string };
+  async function api(
+    srv: TestServer,
+    path: string,
+    caller: Caller,
+    init: { method?: string; body?: unknown } = {},
+  ): Promise<Res> {
+    const headers: Record<string, string> = {};
+    if ("bearer" in caller)
+      headers["Authorization"] = `Bearer ${caller.bearer}`;
+    if (init.body !== undefined) headers["Content-Type"] = "application/json";
+    const res = await srv.http(path, {
+      method: init.method ?? "GET",
+      headers,
+      ...("rawSessionId" in caller
+        ? { rawSessionId: caller.rawSessionId }
+        : {}),
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    return { status: res.status, body };
+  }
+  const errCode = (r: Res) =>
+    (r.body as { error?: { code?: string } } | null)?.error?.code;
+  // Status and error code together, so a refusal from an earlier check
+  // (a 404 room, a 400 cwd) cannot pass for the cap.
+  const outcome = (r: Res) => [r.status, errCode(r) ?? null];
+  const CAP_REFUSED = [403, "schedule_exceeds_agent"];
+
+  function createBody(
+    cwd: string,
+    over: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      name: "Nightly",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "do the thing",
+      cwd,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      ...over,
+    };
+  }
+
+  // An office with an owner, rooms A and B, and Alice, who reaches both and
+  // manages an ordinary Claude agent in room A with full access in `home`.
+  async function office() {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Morgan");
+    const roomA = srv.agentManager.createRoom("Alpha");
+    const roomB = srv.agentManager.createRoom("Beta");
+    const alice = await srv.seedMember("Alice");
+    const aliceId = getUserByName("Alice")!.id;
+    expect(updateUserById(aliceId, { allowedRooms: [roomA, roomB] }).ok).toBe(
+      true,
+    );
+    const work = mkdtempSync(join(srv.stateRoot, "own-cron-"));
+    const home = join(work, "home");
+    const sub = join(home, "sub");
+    const outside = join(work, "outside");
+    for (const dir of [home, sub, outside]) mkdirSync(dir);
+
+    async function spawnAgent(
+      name: string,
+      opts: {
+        permissionMode?: AgentInfo["permissionMode"];
+        agentType?: AgentInfo["agentType"];
+        codexSandbox?: AgentInfo["codexSandbox"];
+        cwd?: string;
+        privileged?: boolean;
+      } = {},
+    ) {
+      const info = await srv.agentManager.spawn(
+        name,
+        opts.cwd ?? home,
+        opts.permissionMode ?? "bypassPermissions",
+        undefined,
+        undefined,
+        roomA,
+        undefined,
+        undefined,
+        undefined,
+        "Alice",
+        opts.agentType ?? "claude",
+        opts.codexSandbox,
+        aliceId,
+      );
+      if (!info) throw new Error(`spawn ${name} returned null`);
+      if (opts.privileged) await srv.agentManager.setPrivileged(info.id, true);
+      return {
+        info,
+        as: { bearer: mintAgentToken(info.id, aliceId, opts.privileged) },
+      };
+    }
+
+    const bot = await spawnAgent("Bot");
+    return {
+      srv,
+      roomA,
+      roomB,
+      aliceId,
+      asAlice: { rawSessionId: alice.rawSessionId },
+      bot,
+      spawnAgent,
+      home,
+      sub,
+      outside,
+    };
+  }
+
+  async function create(
+    srv: TestServer,
+    caller: Caller,
+    body: Record<string, unknown>,
+  ): Promise<CronjobListWire> {
+    const made = await api(srv, "/api/cronjobs", caller, {
+      method: "POST",
+      body,
+    });
+    expect(made.status).toBe(201);
+    return made.body as CronjobListWire;
+  }
+
+  const runsOf = (srv: TestServer, jobId: string) =>
+    srv.cronjobManager.getRunsForCronjob(jobId);
+  const runById = (srv: TestServer, jobId: string, runId: string) =>
+    runsOf(srv, jobId).find((r) => r.id === runId);
+  // A member's Run now, which the agent cap at the route never sees: only the
+  // run-start check can refuse it.
+  async function memberRun(
+    srv: TestServer,
+    asAlice: Caller,
+    jobId: string,
+  ): Promise<CronjobRun> {
+    const res = await api(srv, `/api/cronjobs/${jobId}/runs`, asAlice, {
+      method: "POST",
+      body: {},
+    });
+    expect(res.status).toBe(200);
+    const runId = (res.body as { runId: string }).runId;
+    const run = runById(srv, jobId, runId);
+    if (!run) throw new Error(`run ${runId} not recorded`);
+    return run;
+  }
+  // Whether a run was refused at its start: failed with a reason. A run the
+  // check lets through starts (the fake backend may already have completed
+  // it) and carries no reason.
+  const refusedAtStart = (run: CronjobRun) => [
+    run.status === "failed",
+    typeof run.errorReason === "string" && run.errorReason.length > 0,
+  ];
+  const REFUSED_RUN = [true, true];
+  const STARTED_RUN = [false, false];
+
+  it("an ordinary agent creates, reads, edits, runs and deletes its own schedule", async () => {
+    const { srv, roomA, aliceId, bot, home } = await office();
+    const job = await create(srv, bot.as, createBody(home));
+    // The job is Alice's, made by the agent, in the agent's room.
+    expect(job).toMatchObject({
+      userId: aliceId,
+      createdByAgentId: bot.info.id,
+      roomId: roomA,
+      canManage: true,
+    });
+
+    const listed = await api(srv, "/api/cronjobs", bot.as);
+    expect(listed.status).toBe(200);
+    expect((listed.body as CronjobListWire[]).map((c) => c.id)).toEqual([
+      job.id,
+    ]);
+    const got = await api(srv, `/api/cronjobs/${job.id}`, bot.as);
+    expect([got.status, (got.body as CronjobListWire).canManage]).toEqual([
+      200,
+      true,
+    ]);
+
+    const edited = await api(srv, `/api/cronjobs/${job.id}`, bot.as, {
+      method: "PATCH",
+      body: { prompt: "do the other thing" },
+    });
+    expect(edited.status).toBe(200);
+    expect(
+      srv.cronjobManager.listCronjobs().find((c) => c.id === job.id)?.prompt,
+    ).toBe("do the other thing");
+
+    const ran = await api(srv, `/api/cronjobs/${job.id}/runs`, bot.as, {
+      method: "POST",
+      body: {},
+    });
+    expect(ran.status).toBe(200);
+    const runId = (ran.body as { runId: string }).runId;
+    expect(refusedAtStart(runById(srv, job.id, runId)!)).toEqual(STARTED_RUN);
+    const runs = await api(srv, `/api/cronjobs/${job.id}/runs`, bot.as);
+    expect(
+      (runs.body as { runs: CronjobRun[] }).runs.map((r) => r.id),
+    ).toContain(runId);
+    const transcript = await api(
+      srv,
+      `/api/cronjobs/${job.id}/runs/${runId}`,
+      bot.as,
+    );
+    expect(transcript.status).toBe(200);
+
+    const deleted = await api(srv, `/api/cronjobs/${job.id}`, bot.as, {
+      method: "DELETE",
+    });
+    expect(deleted.status).toBe(204);
+    expect(srv.cronjobManager.listCronjobs().map((c) => c.id)).not.toContain(
+      job.id,
+    );
+  });
+
+  it("an ordinary agent has no reach over its member's schedule, another agent's, or a privileged agent's, even in its own room", async () => {
+    const { srv, roomA, asAlice, bot, spawnAgent, home } = await office();
+    const peer = await spawnAgent("Peer");
+    const boss = await spawnAgent("Boss", { privileged: true });
+    const own = await create(srv, bot.as, createBody(home, { name: "own" }));
+    const others = {
+      member: await create(
+        srv,
+        asAlice,
+        createBody(home, { name: "member", roomId: roomA }),
+      ),
+      peer: await create(srv, peer.as, createBody(home, { name: "peer" })),
+      privileged: await create(
+        srv,
+        boss.as,
+        createBody(home, { name: "privileged" }),
+      ),
+    };
+    // Every other job sits in room A, the agent's room, made for Alice.
+    for (const job of Object.values(others)) expect(job.roomId).toBe(roomA);
+    const memberRunId = (await memberRun(srv, asAlice, others.member.id)).id;
+
+    const listed = await api(srv, "/api/cronjobs", bot.as);
+    expect((listed.body as CronjobListWire[]).map((c) => c.id)).toEqual([
+      own.id,
+    ]);
+    const allRuns = await api(srv, "/api/cron-runs", bot.as);
+    expect(allRuns.status).toBe(200);
+    expect(
+      (allRuns.body as { jobs: { cronjobId: string }[] }).jobs.map(
+        (j) => j.cronjobId,
+      ),
+    ).not.toContain(others.member.id);
+
+    for (const [who, job] of Object.entries(others)) {
+      const statuses = {
+        get: (await api(srv, `/api/cronjobs/${job.id}`, bot.as)).status,
+        systemPrompt: (
+          await api(srv, `/api/cronjobs/${job.id}/system-prompt`, bot.as)
+        ).status,
+        runs: (await api(srv, `/api/cronjobs/${job.id}/runs`, bot.as)).status,
+        patch: (
+          await api(srv, `/api/cronjobs/${job.id}`, bot.as, {
+            method: "PATCH",
+            body: { name: "HIJACKED" },
+          })
+        ).status,
+        runNow: (
+          await api(srv, `/api/cronjobs/${job.id}/runs`, bot.as, {
+            method: "POST",
+            body: {},
+          })
+        ).status,
+        delete: (
+          await api(srv, `/api/cronjobs/${job.id}`, bot.as, {
+            method: "DELETE",
+          })
+        ).status,
+      };
+      expect([who, statuses]).toEqual([
+        who,
+        {
+          get: 404,
+          systemPrompt: 404,
+          runs: 404,
+          patch: 403,
+          runNow: 403,
+          delete: 403,
+        },
+      ]);
+    }
+    expect(
+      (
+        await api(
+          srv,
+          `/api/cronjobs/${others.member.id}/runs/${memberRunId}`,
+          bot.as,
+        )
+      ).status,
+    ).toBe(404);
+
+    // Nothing changed, and no run started on another's job.
+    const stored = srv.cronjobManager.listCronjobs();
+    for (const job of Object.values(others)) {
+      expect(stored.find((c) => c.id === job.id)?.name).toBe(job.name);
+    }
+    expect(runsOf(srv, others.peer.id)).toHaveLength(0);
+    expect(runsOf(srv, others.privileged.id)).toHaveLength(0);
+    expect(runsOf(srv, others.member.id).map((r) => r.id)).toEqual([
+      memberRunId,
+    ]);
+
+    // Alice and the privileged agent keep today's reach over the agent's job.
+    expect((await api(srv, `/api/cronjobs/${own.id}`, boss.as)).status).toBe(
+      200,
+    );
+    expect(
+      (
+        await api(srv, `/api/cronjobs/${own.id}`, asAlice, {
+          method: "PATCH",
+          body: { name: "renamed by Alice" },
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("refuses a schedule that reaches more than the agent: a wider mode, another folder, a link out of the folder, another room", async () => {
+    const { srv, roomB, bot, spawnAgent, home, sub, outside } = await office();
+    const before = srv.cronjobManager.listCronjobs().length;
+    const linkOut = join(home, "link-out");
+    symlinkSync(outside, linkOut);
+    const autoBot = await spawnAgent("Auto", { permissionMode: "auto" });
+    const codexBot = await spawnAgent("Codex", {
+      agentType: "codex",
+      permissionMode: "never",
+      codexSandbox: "workspace-write",
+    });
+    const codexJob = (sandbox: string) =>
+      createBody(home, {
+        agentType: "codex",
+        modelFamily: CODEX_MODELS[0].value,
+        permissionMode: "never",
+        codexSandbox: sandbox,
+      });
+
+    const refusals: Array<[string, Caller, Record<string, unknown>]> = [
+      ["auto Claude agent, Claude job", autoBot.as, createBody(home)],
+      [
+        "workspace-write Codex agent, Claude job",
+        codexBot.as,
+        createBody(home),
+      ],
+      [
+        "workspace-write Codex agent, full-access Codex job",
+        codexBot.as,
+        codexJob("danger-full-access"),
+      ],
+      ["a folder outside the agent's", bot.as, createBody(outside)],
+      [
+        "a link in the agent's folder that points out",
+        bot.as,
+        createBody(linkOut),
+      ],
+      ["another room", bot.as, createBody(home, { roomId: roomB })],
+    ];
+    for (const [label, caller, body] of refusals) {
+      const res = await api(srv, "/api/cronjobs", caller, {
+        method: "POST",
+        body,
+      });
+      expect([label, ...outcome(res)]).toEqual([label, ...CAP_REFUSED]);
+    }
+    expect(srv.cronjobManager.listCronjobs()).toHaveLength(before);
+
+    // Within the limits: a narrower Codex job, a folder inside the agent's,
+    // and no room.
+    await create(srv, codexBot.as, codexJob("read-only"));
+    await create(srv, codexBot.as, codexJob("workspace-write"));
+    await create(srv, bot.as, createBody(sub));
+    const roomless = await create(
+      srv,
+      bot.as,
+      createBody(home, { roomId: "" }),
+    );
+    expect(roomless.roomId).toBeUndefined();
+  });
+
+  it("re-checks the agent's own edits and runs against its current settings; turning the job off and deleting it stay open", async () => {
+    const { srv, roomA, roomB, bot, home, outside } = await office();
+    const job = await create(srv, bot.as, createBody(home));
+    const patch = (body: Record<string, unknown>) =>
+      api(srv, `/api/cronjobs/${job.id}`, bot.as, { method: "PATCH", body });
+
+    // Folder and room on an edit, while the agent still has full access.
+    expect(outcome(await patch({ cwd: outside }))).toEqual(CAP_REFUSED);
+    expect(outcome(await patch({ roomId: roomB }))).toEqual(CAP_REFUSED);
+    // The room is checked only where an edit sets it: once the agent moves
+    // to room B, an edit of the job filed in room A still passes.
+    expect(srv.agentManager.moveAgent(bot.info.id, roomB)).toBe(true);
+    expect((await patch({ name: "after the move" })).status).toBe(200);
+    expect(
+      srv.cronjobManager.listCronjobs().find((c) => c.id === job.id)?.roomId,
+    ).toBe(roomA);
+
+    // A hook on the job, while the agent may still run it.
+    const hook = (name: string) =>
+      api(srv, "/api/webhooks", bot.as, {
+        method: "POST",
+        body: {
+          name,
+          scheme: "github-hmac-sha256",
+          rules: [{ event: "pull_request" }],
+          target: { kind: "cronjob", cronjobId: job.id },
+        },
+      });
+    expect((await hook("before")).status).toBe(201);
+    // And a run of it, which the agent may steer while within its limits.
+    const ran = await api(srv, `/api/cronjobs/${job.id}/runs`, bot.as, {
+      method: "POST",
+      body: {},
+    });
+    expect(ran.status).toBe(200);
+    const runPath = `/api/cronjobs/${job.id}/runs/${(ran.body as { runId: string }).runId}`;
+    const runsBefore = runsOf(srv, job.id).length;
+
+    // Alice lowers the agent to ask-before-acting.
+    await srv.agentManager.editAgent(bot.info.id, {
+      permissionMode: "default",
+    });
+    expect(srv.agentManager.getAgent(bot.info.id)?.permissionMode).toBe(
+      "default",
+    );
+
+    expect(outcome(await patch({ prompt: "rewrite what it does" }))).toEqual(
+      CAP_REFUSED,
+    );
+    const runNow = await api(srv, `/api/cronjobs/${job.id}/runs`, bot.as, {
+      method: "POST",
+      body: {},
+    });
+    expect(outcome(runNow)).toEqual(CAP_REFUSED);
+    expect(runsOf(srv, job.id)).toHaveLength(runsBefore);
+    // Steering the existing run is refused too.
+    const steer = await api(srv, `${runPath}/messages`, bot.as, {
+      method: "POST",
+      body: { text: "now do more" },
+    });
+    expect(outcome(steer)).toEqual(CAP_REFUSED);
+    const editSteer = await api(srv, `${runPath}/messages/entry-1`, bot.as, {
+      method: "PATCH",
+      body: { newText: "now do more" },
+    });
+    expect(outcome(editSteer)).toEqual(CAP_REFUSED);
+    // The same caller set the same target before the change, so the 403
+    // stands for the cap (the hook routes keep their own error codes).
+    expect((await hook("after")).status).toBe(403);
+
+    expect((await patch({ enabled: false })).status).toBe(200);
+    expect(
+      srv.cronjobManager.listCronjobs().find((c) => c.id === job.id)?.enabled,
+    ).toBe(false);
+    expect(
+      (await api(srv, `/api/cronjobs/${job.id}`, bot.as, { method: "DELETE" }))
+        .status,
+    ).toBe(204);
+  });
+
+  it("refuses a run start the agent's current limits do not cover, whoever starts it: mode lowered, folder swapped for a link out; a privileged or removed maker lifts it", async () => {
+    const { srv, asAlice, bot, spawnAgent, home, sub, outside } =
+      await office();
+    const job = await create(srv, bot.as, createBody(home));
+    const inSub = await create(srv, bot.as, createBody(sub, { name: "sub" }));
+    const webhookRun = (jobId: string) => {
+      const run = srv.cronjobManager.runCronjobFromWebhook(
+        jobId,
+        {
+          webhookId: "hook0001",
+          webhookName: "hook",
+          deliveryRowId: "delivery1",
+        },
+        "payload",
+      );
+      if (!run) throw new Error("no webhook run");
+      return run;
+    };
+
+    // Within the limits, a member's run starts.
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      STARTED_RUN,
+    );
+
+    // The agent's folder entry is swapped for a link out of it: the stored
+    // cwd is unchanged, the folder it names is not.
+    rmSync(sub, { recursive: true });
+    symlinkSync(outside, sub);
+    expect(refusedAtStart(await memberRun(srv, asAlice, inSub.id))).toEqual(
+      REFUSED_RUN,
+    );
+
+    // Alice lowers the agent: a member's Run now and a webhook run of its
+    // full-access job are refused at the start.
+    await srv.agentManager.editAgent(bot.info.id, {
+      permissionMode: "default",
+    });
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      REFUSED_RUN,
+    );
+    expect(refusedAtStart(webhookRun(job.id))).toEqual(REFUSED_RUN);
+
+    // Made privileged, the agent's cron:manage wins and the job runs.
+    await srv.agentManager.setPrivileged(bot.info.id, true);
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      STARTED_RUN,
+    );
+    await srv.agentManager.setPrivileged(bot.info.id, false);
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      REFUSED_RUN,
+    );
+
+    // Removed, the agent no longer limits the job: it is Alice's.
+    await srv.agentManager.kill(bot.info.id);
+    await sleep(0);
+    expect(srv.agentManager.getAgent(bot.info.id)).toBeFalsy();
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      STARTED_RUN,
+    );
+    // A schedule another ordinary agent made in its own folder is unaffected
+    // by Bot's settings.
+    const other = await spawnAgent("Other", { cwd: outside });
+    const othersJob = await create(srv, other.as, createBody(outside));
+    expect(refusedAtStart(await memberRun(srv, asAlice, othersJob.id))).toEqual(
+      STARTED_RUN,
+    );
   });
 });

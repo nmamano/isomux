@@ -537,7 +537,18 @@ import {
   probeEditFile,
   probeReadFile,
 } from "./affordance-checks.ts";
-import { actsForAgent, reachAgentId, type Identity } from "./identity/index.ts";
+import {
+  actsForAgent,
+  cronOwnOnly,
+  reachAgentId,
+  type Identity,
+} from "./identity/index.ts";
+import {
+  scheduleExceedsAgent,
+  scheduleLimitBreach,
+  scheduleRunRefusal,
+  type ScheduleLimitAgent,
+} from "./cron-agent-limits.ts";
 import {
   appVisibleTo,
   viewerUserId,
@@ -886,6 +897,13 @@ function createManagers(startOpts: StartServerOpts): void {
   );
   cronjobManager = createProductionCronjobManager({
     resolveBackend: startOpts.resolveBackend,
+    limitRefusal: (job) => {
+      const maker = job.createdByAgentId
+        ? ordinaryScheduleMaker(job.createdByAgentId)
+        : null;
+      const breach = maker ? scheduleLimitBreach(job, maker) : null;
+      return maker && breach ? scheduleRunRefusal(breach, maker.name) : null;
+    },
   });
   // Register the production instance for the module-read bridge that
   // command-handlers/usage-report use (they don't hold the instance).
@@ -2815,6 +2833,31 @@ function taskViewerForIdentity(identity: Identity): TaskViewer {
   return taskViewerForUser(roomAccessUserFor(identity));
 }
 
+// The live agent whose settings limit a schedule it made: an ordinary agent.
+// Null when it is gone or privileged (cron:manage wins), so the job is then
+// limited only as any member's job is (task c4233bfd).
+function ordinaryScheduleMaker(agentId: string): AgentInfo | null {
+  const agent = agentManager.getAgent(agentId);
+  return agent && !agent.privileged ? agent : null;
+}
+
+// The settings of the agent whose reach the caller has, for the limits on
+// its own schedules.
+function ownScheduleLimitsFor(
+  identity: Identity,
+): (ScheduleLimitAgent & { roomId: string }) | null {
+  const agentId = reachAgentId(identity);
+  const agent = agentId ? agentManager.getAgent(agentId) : undefined;
+  if (!agent) return null;
+  return {
+    agentType: agent.agentType,
+    permissionMode: agent.permissionMode,
+    ...(agent.codexSandbox ? { codexSandbox: agent.codexSandbox } : {}),
+    cwd: agent.cwd,
+    roomId: agent.roomId,
+  };
+}
+
 // The room a create with NO roomId in the body defaults to: an AGENT caller's
 // OWN room (an app's: its owner agent's current room), else undefined
 // (office-global) for a user, cron-run, or unknown identity. The agent's room is used verbatim even if its
@@ -2886,11 +2929,12 @@ function appViewerFacts(
 // live ordinary room, so a closed room leaves the job to its maker and office
 // owners (it keeps firing: the run never depended on the room).
 function cronjobFacts(
-  job: Pick<Cronjob, "userId" | "roomId">,
+  job: Pick<Cronjob, "userId" | "roomId" | "createdByAgentId">,
 ): CronjobVisibilityFacts {
   const roomId = job.roomId;
   return {
     makerUserId: job.userId ?? null,
+    makerAgentId: job.createdByAgentId ?? null,
     liveRoomId:
       roomId && agentManager.getOrdinaryRooms().some((r) => r.id === roomId)
         ? roomId
@@ -3727,12 +3771,21 @@ function buildExecutorDeps(
       agentReachableByUser: webhookAgentReachable,
       cronjobExists: (cronjobId) =>
         cronjobManager.listCronjobs().some((job) => job.id === cronjobId),
-      callerManagesCronjob: (identity, cronjobId) =>
-        cronjobOwnerOrOfficeOwner("id")({
+      // An ordinary agent's own job must also still be within its limits,
+      // as for its Run now.
+      callerManagesCronjob: (identity, cronjobId) => {
+        const manages = cronjobOwnerOrOfficeOwner("id")({
           identity,
           params: { id: cronjobId },
           deps: buildLiveGuardDeps(),
-        }).ok,
+        }).ok;
+        if (!manages || !cronOwnOnly(identity)) return manages;
+        const job = cronjobManager
+          .listCronjobs()
+          .find((c) => c.id === cronjobId);
+        const limits = ownScheduleLimitsFor(identity);
+        return !!job && !!limits && scheduleExceedsAgent(job, limits) === null;
+      },
       userMayRunCronjob: (userId, cronjobId) =>
         webhookCronjobRunnable(userId, cronjobId) === "ok",
     }),
@@ -3795,6 +3848,7 @@ function buildExecutorDeps(
         );
       },
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
+      ownScheduleLimits: ownScheduleLimitsFor,
       buildCronjobSystemPrompt: (cronjob) =>
         cronjobManager.buildCronjobSystemPrompt(cronjob),
       // A Codex job with no model, made or switched to Codex, takes its
@@ -3807,8 +3861,9 @@ function buildExecutorDeps(
             input.agentType === "codex" && !input.modelFamily && input.userId
               ? await resolveCodexDefaultModel(input.userId, input.cwd)
               : input.modelFamily,
-          // cron:manage is USER-only, so a valid caller always resolves a
-          // username; the fallback only satisfies the definite-string contract.
+          // Every caller that can create (a user, an API token, an agent)
+          // resolves a member; the fallback only satisfies the
+          // definite-string contract.
           username: input.username ?? "unknown",
         }),
       updateCronjob: async (id, changes) => {

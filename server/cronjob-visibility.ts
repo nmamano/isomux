@@ -7,6 +7,8 @@
 //            member of the job's room while that room is live.
 //   MANAGE - run/edit/delete: the maker or an office owner, plus
 //            `cron:manage`. Read authority alone never reports canManage.
+//   An ordinary agent (cron:own, no cron:manage) sees and manages only the
+//   jobs its agent made, and none through the room or its manager.
 //
 // The maker and office-owner arms are cronjobOwnerOrOfficeOwner's: an office
 // owner is a USER-scope owner (a privileged agent or API token of an owner gets
@@ -17,7 +19,9 @@
 import type { Cronjob, CronjobListWire } from "../shared/types.ts";
 import {
   actsForAgent,
+  cronOwnOnly,
   identityHasCapability,
+  reachAgentId,
   type Identity,
 } from "./identity/index.ts";
 
@@ -26,6 +30,8 @@ export interface CronjobVisibilityFacts {
   // The job's roomId when it names a live ordinary room, else null. A job with
   // no room, or whose room was closed, is maker + owners only.
   liveRoomId: string | null;
+  // The agent that made the job, when an agent did.
+  makerAgentId?: string | null;
 }
 
 export interface CronjobViewer {
@@ -39,6 +45,9 @@ export interface CronjobViewer {
   // cron:manage.
   canManage: boolean;
   hasRoomAccess(roomId: string): boolean;
+  // Set for an own-only caller (cronOwnOnly): the agent whose jobs alone it
+  // sees and manages. Absent for every other viewer.
+  ownAgentId?: string | null;
 }
 
 function makerOrOfficeOwner(
@@ -53,10 +62,25 @@ function makerOrOfficeOwner(
   );
 }
 
+// An own-only viewer's whole rule: the job its agent made, while it is still
+// that agent's manager's.
+function madeByOwnAgent(
+  facts: CronjobVisibilityFacts,
+  viewer: CronjobViewer,
+): boolean {
+  return (
+    !!viewer.ownAgentId &&
+    facts.makerAgentId === viewer.ownAgentId &&
+    viewer.userId !== null &&
+    facts.makerUserId === viewer.userId
+  );
+}
+
 export function cronjobVisibleTo(
   facts: CronjobVisibilityFacts,
   viewer: CronjobViewer,
 ): boolean {
+  if (viewer.ownAgentId) return madeByOwnAgent(facts, viewer);
   if (!viewer.canRead) return false;
   if (makerOrOfficeOwner(facts, viewer)) return true;
   return facts.liveRoomId !== null && viewer.hasRoomAccess(facts.liveRoomId);
@@ -66,6 +90,7 @@ export function cronjobManageFor(
   facts: CronjobVisibilityFacts,
   viewer: CronjobViewer,
 ): boolean {
+  if (viewer.ownAgentId) return madeByOwnAgent(facts, viewer);
   return (
     viewer.canRead && viewer.canManage && makerOrOfficeOwner(facts, viewer)
   );
@@ -89,6 +114,7 @@ export function cronjobViewerForIdentity(
 ): CronjobViewer {
   const isUser = identity.scope === "user";
   const operator = actsForAgent(identity) || identity.scope === "api";
+  const ownAgentId = cronOwnOnly(identity) ? reachAgentId(identity) : null;
   return {
     userId: identity.userId,
     isOfficeOwner: isUser && identity.role === "owner",
@@ -97,5 +123,6 @@ export function cronjobViewerForIdentity(
     canManage:
       isUser || (operator && identityHasCapability(identity, "cron:manage")),
     hasRoomAccess,
+    ...(ownAgentId ? { ownAgentId } : {}),
   };
 }

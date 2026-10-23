@@ -99,6 +99,30 @@ const latestAudit = (operation: string) =>
 const isPrivileged = (srv: TestServer, id: string) =>
   srv.agentManager.getAgent(id)?.privileged === true;
 
+// A schedule its manager made on the Schedules page: a privileged agent's
+// reach covers it, an ordinary agent's (cron:own) never does.
+function seedManagerJob(srv: TestServer, manager: string): string {
+  return srv.cronjobManager.addCronjob({
+    name: "Manager's job",
+    schedule: { type: "none" },
+    prompt: "p",
+    cwd: srv.stateRoot,
+    agentType: "claude",
+    modelFamily: "opus",
+    effort: "medium",
+    permissionMode: "bypassPermissions",
+    username: manager,
+    userId: getUserByName(manager)?.id ?? null,
+  }).id;
+}
+
+// The schedule ids the caller sees.
+async function cronjobIds(srv: TestServer, bearer: string) {
+  const res = await call(srv, "GET", "/api/cronjobs", bearer);
+  expect(res.status).toBe(200);
+  return (res.body as { id: string }[]).map((job) => job.id);
+}
+
 describe("app owner reach: the same token follows the owner agent live", () => {
   it("loses the privileged routes when its owner is demoted", async () => {
     const srv = await startTestServer();
@@ -107,16 +131,14 @@ describe("app owner reach: the same token follows the owner agent live", () => {
     const owner = await spawn(srv, "PrivBot", "Morgan");
     await srv.agentManager.setPrivileged(owner.id, true);
     const { appToken } = await register(srv, owner, "priv-app");
+    const jobId = seedManagerJob(srv, "Morgan");
 
     expect(isPrivileged(srv, owner.id)).toBe(true);
-    expect((await call(srv, "GET", "/api/cronjobs", appToken)).status).toBe(
-      200,
-    );
+    expect(await cronjobIds(srv, appToken)).toEqual([jobId]);
     await srv.agentManager.setPrivileged(owner.id, false);
     expect(isPrivileged(srv, owner.id)).toBe(false);
-    expect((await call(srv, "GET", "/api/cronjobs", appToken)).status).toBe(
-      403,
-    );
+    // An ordinary owner reaches only the schedules it made itself.
+    expect(await cronjobIds(srv, appToken)).toEqual([]);
     // Still its owner's ordinary reach.
     expect((await call(srv, "GET", "/api/tasks", appToken)).status).toBe(200);
   });
@@ -296,9 +318,8 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
     expect(
       (record.body as { createdByAgentId?: string }).createdByAgentId,
     ).toBe(ordinary.id);
-    expect((await call(srv, "GET", "/api/cronjobs", appToken)).status).toBe(
-      403,
-    );
+    const jobId = seedManagerJob(srv, "Morgan");
+    expect(await cronjobIds(srv, appToken)).not.toContain(jobId);
 
     // While the owner is ordinary, the ordinary agent changes command and cwd.
     expect(

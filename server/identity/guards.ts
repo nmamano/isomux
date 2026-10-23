@@ -13,7 +13,13 @@
 // `allowedRooms` to rule-based access by replacing the GuardDeps implementation,
 // never a guard signature.
 
-import { actsForAgent, identityHasCapability, type Identity } from "./index.ts";
+import {
+  actsForAgent,
+  cronOwnOnly,
+  identityHasCapability,
+  reachAgentId,
+  type Identity,
+} from "./index.ts";
 
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
 // the envelope strings identical across the whole authz surface - tests pin the
@@ -61,6 +67,8 @@ export interface GuardDeps {
   userIdForUsername(username: string): string | null;
   // The creator userId of `cronjobId`, or null if unknown / unowned.
   cronjobCreatorUserId(cronjobId: string): string | null;
+  // The agent that made `cronjobId`, or null if unknown or a member made it.
+  cronjobCreatorAgentId(cronjobId: string): string | null;
   // The OWNER userId of the app registered under `name`, or null if no such app
   // exists / it has no owner. Unknown and unowned collapse into the same null,
   // so a caller cannot use a denial to probe which names are taken.
@@ -624,13 +632,15 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
 //
 // By default an AGENT carries its spawning user's userId, so a NARROW agent
 // inheriting that user's cronjob ownership would be a confused-deputy
-// escalation - which is why a normal agent never holds `cron:manage` and is
-// blocked at stage 1 before this guard runs. A PRIVILEGED agent is granted
+// escalation - which is why a normal agent never holds `cron:manage`. A PRIVILEGED agent is granted
 // cron:manage deliberately, so here we let it own-match exactly like its user
 // would. The privilege signal is the capability itself (keying authz on scope +
 // capabilities, never a separate role/flag axis), so a cron-run or normal-agent
 // identity - neither of which carries cron:manage - still can't reach the
 // owner-match.
+//
+// An ordinary agent holds cron:own instead, and its arm matches the maker
+// agent, never the user (see cronOwnOnly).
 //
 // The officeOwner branch is unchanged and still requires scope==="user" + owner,
 // so a privileged agent can NEVER get office-wide cron powers - only its own
@@ -638,6 +648,21 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
 export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
   return (ctx) => {
     const { identity, params, deps } = ctx;
+    // An ordinary agent (cron:own, no cron:manage) reaches only the jobs its
+    // agent made, and only while they are still its manager's: no office-owner
+    // arm and no member-maker arm (task c4233bfd).
+    if (cronOwnOnly(identity)) {
+      const cronjobId = params[idParamName];
+      if (!cronjobId) return FORBIDDEN;
+      const agentId = reachAgentId(identity);
+      const creatorUserId = deps.cronjobCreatorUserId(cronjobId);
+      return agentId !== null &&
+        deps.cronjobCreatorAgentId(cronjobId) === agentId &&
+        creatorUserId !== null &&
+        creatorUserId === identity.userId
+        ? ALLOW
+        : FORBIDDEN;
+    }
     const isUser = identity.scope === "user";
     // The in-guard cap check is the PRIVILEGE SIGNAL, not redundant bookkeeping:
     // do NOT delete it assuming stage-1 `cron:manage` covers it. This guard is

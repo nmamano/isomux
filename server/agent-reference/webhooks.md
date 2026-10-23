@@ -2,7 +2,7 @@
 
 Register a webhook only when a member or an agent with the same manager asks for one. A webhook lets an outside service such as GitHub message an agent or run a schedule. Every delivery that reaches its target costs a billed turn, so match narrowly.
 
-Use `POST /api/webhooks` with `{name, scheme, rules, target}`. The scheme is `github-hmac-sha256`, or `hmac-sha256` with `signatureHeader`. The target is `{kind:"agent", agentId, note?}` (default: you) or `{kind:"cronjob", cronjobId}`; a schedule target needs a privileged agent that owns the schedule. A rule is `{event, match?, args?}`; the first matching rule wins. `match` maps a dotted payload path to an exact string. `args` maps a name to a template such as `{{payload.pull_request.number}}`.
+Use `POST /api/webhooks` with `{name, scheme, rules, target}`. The scheme is `github-hmac-sha256`, or `hmac-sha256` with `signatureHeader`. The target is `{kind:"agent", agentId, note?}` (default: you) or `{kind:"cronjob", cronjobId}`; a schedule target must be a schedule you can manage (page `cronjob-management`). A rule is `{event, match?, args?}`; the first matching rule wins. `match` maps a dotted payload path to an exact string. `args` maps a name to a template such as `{{payload.pull_request.number}}`.
 
 The event header is not signed: a captured delivery can come back under another event name. A rule whose effect matters must also match a body field that only that event carries, such as `pull_request.base.ref`.
 

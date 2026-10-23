@@ -66,6 +66,7 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     roomIdForAgent: () => "r-1",
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => SPAWNER,
+    cronjobCreatorAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
     isOfficeOwnerUserId: () => false,
@@ -269,7 +270,6 @@ describe("privileged agent: room management (Nil-approved expansion)", () => {
 describe("privileged agent: full cron over its OWN jobs (Nil-approved)", () => {
   it("creates cronjobs and manages jobs its spawning user owns", () => {
     expect(can("cron.create", privilegedAgent)).toBe(true);
-    expect(can("cron.create", normalAgent)).toBe(false); // no cron:manage
     for (const op of ["cron.update", "cron.delete", "cron.runNow"]) {
       expect(can(op, privilegedAgent, CRON_PARAMS)).toBe(true); // owner-match
     }
@@ -286,6 +286,65 @@ describe("privileged agent: full cron over its OWN jobs (Nil-approved)", () => {
   it("cron.setPrompt stays OFFICE-OWNER only - blocked for a privileged agent", () => {
     expect(can("cron.setPrompt", privilegedAgent)).toBe(false);
     expect(can("cron.setPrompt", owner)).toBe(true);
+  });
+});
+
+// Task c4233bfd: an ordinary agent holds cron:own, which reaches only the jobs
+// that agent made, while they are still its manager's. Its manager's own jobs
+// (the user owner-match a privileged agent gets) stay out of reach.
+describe("ordinary agent: cron over only the jobs it made", () => {
+  const CRON_MUTATIONS: Array<[string, Record<string, string>]> = [
+    ["cron.update", CRON_PARAMS],
+    ["cron.delete", CRON_PARAMS],
+    ["cron.runNow", CRON_PARAMS],
+    ["cron.runMessage", { ...CRON_PARAMS, runId: "run-1" }],
+    [
+      "cron.editRunMessage",
+      { ...CRON_PARAMS, runId: "run-1", logEntryId: "e-1" },
+    ],
+  ];
+  const outcomes = (identity: Identity, d: GuardDeps) =>
+    CRON_MUTATIONS.map(([op, params]) => [
+      op,
+      can(op, identity, params, undefined, d),
+    ]);
+  const all = (allowed: boolean) => CRON_MUTATIONS.map(([op]) => [op, allowed]);
+
+  it("creates, and manages a job it made for its manager", () => {
+    expect(can("cron.create", normalAgent)).toBe(true);
+    const made = deps({ cronjobCreatorAgentId: () => normalAgent.agentId! });
+    expect(outcomes(normalAgent, made)).toEqual(all(true));
+  });
+
+  it("cannot manage its manager's job, another agent's, or its own job once it belongs to another member", () => {
+    const cases: Array<[string, GuardDeps]> = [
+      // The default deps: the spawning user's job, made by no agent.
+      ["manager's job", deps()],
+      ["another agent's", deps({ cronjobCreatorAgentId: () => "a-2" })],
+      [
+        "made by it, now another member's",
+        deps({
+          cronjobCreatorAgentId: () => normalAgent.agentId!,
+          cronjobCreatorUserId: () => "someone-else",
+        }),
+      ],
+      ["unknown job", deps({ cronjobCreatorUserId: () => null })],
+    ];
+    for (const [label, d] of cases) {
+      expect([label, outcomes(normalAgent, d)]).toEqual([label, all(false)]);
+    }
+    // The same manager's job is the privileged agent's (the contrast).
+    expect(outcomes(privilegedAgent, deps())).toEqual(all(true));
+  });
+
+  it("keeps the schedule instructions out of reach", () => {
+    for (const op of [
+      "cron.setPrompt",
+      "cron.readInstructions",
+      "cron.setInstructions",
+    ]) {
+      expect([op, can(op, normalAgent)]).toEqual([op, false]);
+    }
   });
 });
 

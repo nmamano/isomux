@@ -228,6 +228,11 @@ export interface CronjobManagerDeps {
   // memoryStore.renderForPromptMulti). Injected so buildCronjobSystemPrompt stays
   // off real state in tests; default (omitted) renders no memory.
   renderMemoryForPrompt?: (refs: readonly MemoryScopeRef[]) => string | null;
+  // Why a run of this job may not start (server/cron-agent-limits.ts): a job
+  // whose live maker agent is ordinary and now reaches less than the job.
+  // Null to start. A refusal makes a failed run, like a missing folder.
+  // Omitted: no limit.
+  limitRefusal?: (job: Cronjob) => string | null;
 }
 
 // Public surface of a CronjobManager instance, derived from the explicitly
@@ -1255,14 +1260,23 @@ How to answer questions about Isomux itself: the source lives at https://github.
         : `${job.prompt}\n\n${extra.block}`;
 
     // Validate cwd before spawning so a moved directory surfaces as a failed
-    // run rather than an opaque backend process-exit message.
-    let cwdValid = true;
-    let cwdError: string | null = null;
+    // run rather than an opaque backend process-exit message. A job that
+    // reaches more than the ordinary agent that made it fails the same way,
+    // whoever starts it (task c4233bfd).
+    let startable = true;
+    let startError: string | null = null;
     try {
       validateCwd(job.cwd);
     } catch (err) {
-      cwdValid = false;
-      cwdError = errMessage(err) || "Invalid cwd";
+      startable = false;
+      startError = errMessage(err) || "Invalid cwd";
+    }
+    if (startable) {
+      const refusal = deps.limitRefusal?.(job) ?? null;
+      if (refusal !== null) {
+        startable = false;
+        startError = refusal;
+      }
     }
 
     const runId = generateCronjobRunId();
@@ -1273,10 +1287,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
       cronjobId: jobId,
       cronjobName: job.name,
       trigger,
-      status: cwdValid ? "running" : "failed",
+      status: startable ? "running" : "failed",
       startedAt: now,
-      endedAt: cwdValid ? null : now,
-      errorReason: cwdError,
+      endedAt: startable ? null : now,
+      errorReason: startError,
       promptSnapshot: prompt,
       agentTypeSnapshot: job.agentType,
       modelFamilySnapshot: job.modelFamily,
@@ -1286,14 +1300,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
       rootSessionId: placeholderSessionId,
       currentSessionId: placeholderSessionId,
-      previewText: cwdError ?? "",
+      previewText: startError ?? "",
       ...(triggeredBy ? { triggeredBy } : {}),
       ...(webhook ? { webhook } : {}),
     };
     appendRun(jobId, run);
     eventHandler({ type: "cronjob_run_updated", run });
 
-    if (!cwdValid) {
+    if (!startable) {
       // Update next fire for scheduled trigger so we don't loop.
       if (trigger === "scheduled") {
         job.lastFireAt = now;
@@ -2639,8 +2653,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
 // in-memory persistence) instead.
 export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
+  limitRefusal?: CronjobManagerDeps["limitRefusal"];
 }): CronjobManager {
   return createCronjobManager({
+    ...(overrides?.limitRefusal
+      ? { limitRefusal: overrides.limitRefusal }
+      : {}),
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     resolveEnv: defaultResolveEnv,
     resolveEnvironmentKey: defaultResolveEnvironmentKey,

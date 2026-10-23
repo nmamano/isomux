@@ -221,7 +221,7 @@ Default target: when an agent creates a hook and gives no target, the target is 
 
 The target is checked at create and update time, and again at each dispatch. The check is a new route precondition, `webhookTargetAllowed`, because it reads live state. On PATCH, the server merges the request into the stored record and checks the whole result, also when the request does not name `target`. So an edit to rules, note or `enabled` cannot keep a target that the caller would not be allowed to set.
 
-- Cronjob target: the caller must pass `cronjobOwnerOrOfficeOwner` for that cronjob. An ordinary agent does not hold `cron:manage`, so it cannot target a cronjob. A webhook therefore never lets an ordinary agent start a run that it cannot start itself. At dispatch time, the cronjob must exist and the hook owner must still own it or be an office owner.
+- Cronjob target: the caller must pass `cronjobOwnerOrOfficeOwner` for that cronjob. An ordinary agent holds `cron:own`, so it can target only a cronjob that it made, and only while the cronjob is within the agent's limits (server/cron-agent-limits.ts). The run-start check in fire() applies those limits again to each webhook run. A webhook therefore never lets an ordinary agent start a run that it cannot start itself. At dispatch time, the cronjob must exist and the hook owner must still own it or be an office owner.
 - Agent target: the agent must exist, and the hook owner (the user, not the calling agent) must have room access to it. This is the rule that `messageTargetAgentId` uses for apps. At dispatch time the same check runs again.
 
 A failed check at dispatch time gives `target_unavailable`. The log row says why, for example "schedule deleted". Log rows follow the hook's visibility (section 7).

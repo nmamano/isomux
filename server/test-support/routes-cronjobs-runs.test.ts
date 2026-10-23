@@ -731,6 +731,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
   }
   function stubDeps(over: Partial<CronDeps>): CronDeps {
     const base: CronDeps = {
+      ownScheduleLimits: () => null,
       listCronjobs: () => [],
       listCronjobsFor: () => [],
       projectCronjobFor: () => null,

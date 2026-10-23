@@ -116,6 +116,7 @@ ${appHostingSection(appsUnsupported)}
 - You need a credential you do not have: ask for it as a secret, so the member types it outside the chat. Never ask for it in chat. Page: \`connections\`.
 - The member needs you to read or act on a page in their own Chrome, for example behind their login: control their browser. Page: \`browser\`.
 - The member asks about schedules or their runs: inspect them. Page: \`cronjobs\`.
+- The member wants work to run on a schedule with nobody present: create a schedule. Page: \`cronjob-management\`.
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.
 - A relationship or flow is easier to see than to read: draw it in chat. Page: \`visuals\`.
 - The session goal is complete: close the session with the built-in \`/wrap-session\` skill, without waiting to be asked.
@@ -146,7 +147,6 @@ You act as yourself with your manager's room access. These actions are attribute
 
 - The member asks you to set up, move, reconfigure, or remove an agent, or to drive another agent's conversation. Page: \`agent-management\`.
 - The member asks you to create, rename, or close a room, or to change its prompt or look. Page: \`rooms\`.
-- The member wants work to run on a schedule with nobody present: create a schedule. Page: \`cronjob-management\`.
 - The member asks you to tell all the humans in the office something: post in members chat. Page: \`members-chat\`.
 - The member asks you to add a person to the office, and your manager is an office owner: create a member. Page: \`members\`.
 - The member asks you to edit member special instructions: read and update the prompt. Page: \`members\`.

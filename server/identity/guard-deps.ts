@@ -52,7 +52,11 @@ export interface GuardDepsLiveReaders {
   // token's user through this seam rather than trusting identity.role.
   getUserById(userId: string): { role: "owner" | "member" } | null;
   // The live cronjob list; id → creator userId. cronjobManager.listCronjobs.
-  listCronjobs(): readonly { id: string; userId?: string | null }[];
+  listCronjobs(): readonly {
+    id: string;
+    userId?: string | null;
+    createdByAgentId?: string;
+  }[];
   // The registered apps; name → owner userId. appRegistry.list. A corrupt
   // registry THROWS here rather than reading as an empty list - see the
   // adapter below for why the guard lets that through.
@@ -97,6 +101,11 @@ export function buildProductionGuardDeps(
     cronjobCreatorUserId(cronjobId: string): string | null {
       const job = live.listCronjobs().find((j) => j.id === cronjobId);
       return job?.userId ?? null;
+    },
+
+    cronjobCreatorAgentId(cronjobId: string): string | null {
+      const job = live.listCronjobs().find((j) => j.id === cronjobId);
+      return job?.createdByAgentId ?? null;
     },
 
     appOwnerUserId(name: string): string | null {

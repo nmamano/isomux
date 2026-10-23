@@ -65,6 +65,10 @@ const AGENT_EXACT: Capability[] = [
   "webhook:write",
   // Voice through OpenAI; each call spends the manager's voice key.
   "voice:use",
+  // Schedules the agent made itself, within its own mode and folder (task
+  // c4233bfd). The cronjobOwnerOrOfficeOwner guard scopes it to the maker
+  // agent; cron:manage stays privileged.
+  "cron:own",
 ];
 const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
   ["AGENT", AGENT_CAPABILITIES, AGENT_EXACT],

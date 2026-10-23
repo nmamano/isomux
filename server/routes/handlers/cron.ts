@@ -16,7 +16,8 @@
 // REST routes are now the SOLE path and enforce via authorize(); the WS command
 // arms (and their wsCanMutateCronjob / wsIsOfficeOwner shims) were retired in 3d.4.
 //
-// LEAF over the executor + shared types. Only the injected CronDeps surface.
+// LEAF over the executor, shared types and the schedule limits
+// (cron-agent-limits.ts). Only the injected CronDeps surface.
 
 import {
   ok,
@@ -31,7 +32,14 @@ import {
   instructionsRes,
   parseInstructionsWrite,
 } from "./instructions.ts";
-import type { Identity } from "../../identity/index.ts";
+import { cronOwnOnly, type Identity } from "../../identity/index.ts";
+import {
+  SCHEDULE_EXCEEDS_AGENT,
+  SCHEDULE_ROOM_REFUSAL,
+  scheduleExceedsAgent,
+  type ScheduleLimitAgent,
+  type ScheduleLimitJob,
+} from "../../cron-agent-limits.ts";
 import type { RunSendResult } from "../../internal-types.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import type {
@@ -66,6 +74,12 @@ export interface CronDeps {
   assignableRoomIds(identity: Identity): ReadonlySet<string>;
   // The room a create with no roomId defaults to: an agent caller's own room.
   defaultCreateRoomId(identity: Identity): string | undefined;
+  // The live settings of the agent whose reach the caller has (the agent, or
+  // an app's owner agent), for the limits on its own schedules. Null when that
+  // agent is gone or the caller acts for no agent.
+  ownScheduleLimits(
+    identity: Identity,
+  ): (ScheduleLimitAgent & { roomId: string }) | null;
   buildCronjobSystemPrompt(cronjob: Cronjob): string;
   createCronjob(input: {
     name: string;
@@ -167,7 +181,45 @@ function roomIdFromBody(
   return { ok: false, response: fail(404, "not_found") };
 }
 
+// An ordinary agent's limits on a schedule it made (task c4233bfd): the
+// refusal when the job, as it would be, reaches more than the agent's current
+// mode or folder, or when a request sets a room other than the agent's own.
+// Null for every other caller, and within the limits.
+function ownScheduleRefusal(
+  identity: Identity,
+  deps: CronDeps,
+  job: ScheduleLimitJob,
+  roomId?: string,
+): ReturnType<typeof fail> | null {
+  if (!cronOwnOnly(identity)) return null;
+  const limits = deps.ownScheduleLimits(identity);
+  if (!limits) return fail(404, "not_found");
+  if (roomId !== undefined && roomId !== "" && roomId !== limits.roomId)
+    return fail(403, SCHEDULE_EXCEEDS_AGENT, SCHEDULE_ROOM_REFUSAL);
+  const reason = scheduleExceedsAgent(job, limits);
+  return reason === null ? null : fail(403, SCHEDULE_EXCEEDS_AGENT, reason);
+}
+
+// Turning a job off only narrows it, as a delete does.
+function onlyTurnsOff(body: CronUpdateReq): boolean {
+  const keys = Object.keys(body);
+  return keys.length === 1 && keys[0] === "enabled" && body.enabled === false;
+}
+
+function jobById(deps: CronDeps, id: string | undefined): Cronjob | undefined {
+  return deps.listCronjobs().find((cronjob) => cronjob.id === id);
+}
+
 export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
+  // A run started or steered by an ordinary agent: the job as it is must be
+  // within the agent's current limits.
+  const runRefusal = (identity: Identity, jobId: string | undefined) => {
+    if (!cronOwnOnly(identity)) return null;
+    const job = jobById(deps, jobId);
+    return job
+      ? ownScheduleRefusal(identity, deps, job)
+      : fail(404, "not_found");
+  };
   return {
     "cron.list": (ctx) => ok(deps.listCronjobsFor(ctx.identity)),
 
@@ -222,6 +274,17 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       if (familyErr) return fail(422, "invalid_model_family", familyErr);
       const room = roomIdFromBody(body, ctx.identity, deps);
       if (!room.ok) return room.response;
+      const refusal = ownScheduleRefusal(
+        ctx.identity,
+        deps,
+        {
+          agentType: body.agentType ?? "claude",
+          codexSandbox: body.codexSandbox,
+          cwd: body.cwd,
+        },
+        room.roomId,
+      );
+      if (refusal) return refusal;
       deps.saveRecentCwd(body.cwd);
       const { username } = deps.attributionFor(ctx.identity);
       const job = await deps.createCronjob({
@@ -262,7 +325,6 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       if (body.cwd !== undefined) {
         const cwdErr = deps.validateCwd(body.cwd);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
-        deps.saveRecentCwd(body.cwd);
       }
       if (body.modelFamily !== undefined || body.agentType !== undefined) {
         const existing = deps
@@ -275,6 +337,27 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         );
         if (familyErr) return fail(422, "invalid_model_family", familyErr);
       }
+      if (!onlyTurnsOff(body) && cronOwnOnly(ctx.identity)) {
+        const existing = jobById(deps, ctx.params.id);
+        if (!existing) return fail(404, "not_found");
+        const refusal = ownScheduleRefusal(
+          ctx.identity,
+          deps,
+          {
+            agentType: body.agentType ?? existing.agentType,
+            codexSandbox: Object.prototype.hasOwnProperty.call(
+              body,
+              "codexSandbox",
+            )
+              ? body.codexSandbox
+              : existing.codexSandbox,
+            cwd: body.cwd ?? existing.cwd,
+          },
+          room.roomId,
+        );
+        if (refusal) return refusal;
+      }
+      if (body.cwd !== undefined) deps.saveRecentCwd(body.cwd);
       const { roomId: _roomId, ...rest } = body;
       const job = await deps.updateCronjob(ctx.params.id, {
         ...rest,
@@ -288,6 +371,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       deps.deleteCronjob(ctx.params.id) ? noContent() : fail(404, "not_found"),
 
     "cron.runNow": (ctx) => {
+      const refusal = runRefusal(ctx.identity, ctx.params.id);
+      if (refusal) return refusal;
       const { username } = deps.attributionFor(ctx.identity);
       const run = deps.runNow(ctx.params.id, username ?? "unknown");
       return run ? ok({ runId: run.id }) : fail(404, "not_found");
@@ -377,6 +462,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       const { id: jobId, runId } = ctx.params;
       if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
+      const refusal = runRefusal(ctx.identity, jobId);
+      if (refusal) return refusal;
       const messageId = crypto.randomUUID();
       const { username } = deps.attributionFor(ctx.identity);
       const device = typeof body.device === "string" ? body.device : undefined;
@@ -399,6 +486,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       const { id: jobId, runId, logEntryId } = ctx.params;
       if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
+      const refusal = runRefusal(ctx.identity, jobId);
+      if (refusal) return refusal;
       const messageId = crypto.randomUUID();
       const { username } = deps.attributionFor(ctx.identity);
       const device = typeof body.device === "string" ? body.device : undefined;

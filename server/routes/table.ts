@@ -2720,21 +2720,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.list",
     method: "GET",
     path: "/api/cronjobs",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, CronjobListWire>({
     opId: "cron.get",
     method: "GET",
     path: "/api/cronjobs/:id",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, CronjobSystemPromptRes>({
     opId: "cron.readSystemPrompt",
     method: "GET",
     path: "/api/cronjobs/:id/system-prompt",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
     emits: [],
   }),
   defineRoute<CronCreateReq, CronjobListWire>({
@@ -2742,7 +2742,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs",
-    auth: cap("cron:manage", and(notApp, operationalAuthenticated)),
+    auth: cap(
+      ["cron:manage", "cron:own"],
+      and(notApp, operationalAuthenticated),
+    ),
     emits: ["cronjob_added"],
   }),
   defineRoute<CronUpdateReq, CronjobListWire>({
@@ -2750,7 +2753,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/cronjobs/:id",
-    auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
+    auth: cap(["cron:manage", "cron:own"], cronjobOwnerOrOfficeOwner("id")),
     emits: ["cronjob_updated"],
   }),
   defineRoute<void, NoContent>({
@@ -2758,7 +2761,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/cronjobs/:id",
-    auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
+    auth: cap(["cron:manage", "cron:own"], cronjobOwnerOrOfficeOwner("id")),
     emits: ["cronjob_deleted"],
   }),
   defineRoute<void, { runId: string }>({
@@ -2769,7 +2772,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "POST",
     path: "/api/cronjobs/:id/runs",
-    auth: cap("cron:manage", and(notApp, cronjobOwnerOrOfficeOwner("id"))),
+    auth: cap(
+      ["cron:manage", "cron:own"],
+      and(notApp, cronjobOwnerOrOfficeOwner("id")),
+    ),
     emits: ["cronjob_run_updated"],
   }),
   defineRoute<CronPromptReq, NoContent>({
@@ -2803,21 +2809,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.listRuns",
     method: "GET",
     path: "/api/cronjobs/:id/runs",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, { jobs: { cronjobId: string; runs: CronjobRun[] }[] }>({
     opId: "cron.listAllRuns",
     method: "GET",
     path: "/api/cron-runs",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, { run: CronjobRun; entries: LogEntry[] }>({
     opId: "cron.getRun",
     method: "GET",
     path: "/api/cronjobs/:id/runs/:runId",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
     emits: [],
   }),
   defineRoute<CronRunMessageReq, MessageAck>({
@@ -2825,7 +2831,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/messages",
-    auth: cap("cron:manage", and(notApp, cronjobOwnerOrOfficeOwner("id"))),
+    auth: cap(
+      ["cron:manage", "cron:own"],
+      and(notApp, cronjobOwnerOrOfficeOwner("id")),
+    ),
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<EditMessageReq, MessageAck>({
@@ -2833,7 +2842,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/cronjobs/:id/runs/:runId/messages/:logEntryId",
-    auth: cap("cron:manage", and(notApp, cronjobOwnerOrOfficeOwner("id"))),
+    auth: cap(
+      ["cron:manage", "cron:own"],
+      and(notApp, cronjobOwnerOrOfficeOwner("id")),
+    ),
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<AffordanceReadFileReq, OkTrue>({
