@@ -86,10 +86,9 @@ import { permissionInputSummary } from "../permission-audit.ts";
 import {
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
-  EFFORT_LEVELS,
   effortLevelsFor,
 } from "../../shared/types.ts";
-import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
+import type { ModelFamily } from "../../shared/types.ts";
 import { getAgentHost } from "../agent-host.ts";
 import { saveFile } from "../persistence.ts";
 import {
@@ -189,7 +188,7 @@ const CAPABILITIES: BackendCapabilities = {
 };
 
 // The SDK tool that asks the member to approve a plan and leave plan mode.
-export const EXIT_PLAN_MODE_TOOL = "ExitPlanMode";
+const EXIT_PLAN_MODE_TOOL = "ExitPlanMode";
 
 const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "default", label: "Default - prompt for each tool" },
@@ -259,10 +258,9 @@ export interface SdkOneShotOptions {
 // ~/.claude/settings.json. The one thing that still beats it is an operator
 // envFile setting CLAUDE_CODE_DISABLE_AUTO_MEMORY to an explicitly falsy
 // value ("0"/"false"), which the CLI checks before settings.
-export const CLAUDE_MEMORY_OFF_SETTINGS: Extract<Options["settings"], object> =
-  {
-    autoMemoryEnabled: false,
-  };
+const CLAUDE_MEMORY_OFF_SETTINGS: Extract<Options["settings"], object> = {
+  autoMemoryEnabled: false,
+};
 
 // Use the flag-settings env layer so the CLI keeps the inherited environment.
 // The umbrella switch also disables updates and plugin command-source runs;
@@ -647,7 +645,7 @@ export function registerMcpServers(
 export function wrapV1Query(
   q: V1QueryLike,
   input: PushableInput<SDKUserMessage>,
-  abortController?: AbortController,
+  abortController: AbortController,
   // The setMcpServers call. Every message waits for it, so the first turn
   // already has the servers; they are pushed in the order they were sent.
   mcpReady?: Promise<void> | null,
@@ -703,7 +701,7 @@ export function wrapV1Query(
       // and clean up resources"), which tears the subprocess down. Best-effort
       // and swallowed: close() is documented "never throws".
       try {
-        abortController?.abort();
+        abortController.abort();
       } catch {}
     },
     async setPermissionMode(mode) {
@@ -1703,7 +1701,7 @@ interface TrackedTask {
 // order of the event and the synthetic message does not matter. A subagent's
 // stop is ignored: the main thread then makes its own call and gets its own
 // message.
-export class ClaudeUsageLimitTracker {
+class ClaudeUsageLimitTracker {
   private latest: { status?: unknown; resetsAt?: unknown } | null = null;
   private stoppedThisTurn = false;
 
@@ -1853,7 +1851,7 @@ function trimInsertionOrdered(
 // opens files on demand (Read renders images and PDFs). This wrapper only
 // puts the shared lines into the SDK's ContentBlockParam shape.
 
-export function buildClaudeUserMessage(
+function buildClaudeUserMessage(
   agentId: string,
   text: string,
   attachments: AttachmentSpec[],
@@ -1905,11 +1903,9 @@ function claudeModelForEnvironment(
 // the main thread. The callback is in-process and synchronous; any throw is
 // answered with {} so the CLI never waits on it, and the generous timeout
 // keeps the CLI's timeout path (which ends the session) out of reach.
-export const TOOL_BOUNDARY_HOOK_TIMEOUT_S = 60;
+const TOOL_BOUNDARY_HOOK_TIMEOUT_S = 60;
 
-export function toolBoundaryHooks(
-  take: () => string | null,
-): HookCallbackMatcher[] {
+function toolBoundaryHooks(take: () => string | null): HookCallbackMatcher[] {
   return [
     {
       timeout: TOOL_BOUNDARY_HOOK_TIMEOUT_S,
@@ -2219,7 +2215,7 @@ export const claudeBackend: Backend = createClaudeBackend();
 // Flatten a session-store message's content into a plain text string. Used by
 // getSessionMessages so the orchestrator's editMessage matching can be a
 // straight content-equality check.
-export function flattenSessionMessageText(m: SessionMessage): string {
+function flattenSessionMessageText(m: SessionMessage): string {
   const msg = m.message as { content?: unknown } | null | undefined;
   const content = msg?.content;
   if (typeof content === "string") return content;
@@ -2235,8 +2231,3 @@ export function flattenSessionMessageText(m: SessionMessage): string {
     .map((b) => b.text)
     .join("");
 }
-
-// Re-export EFFORT_LEVELS so consumers can pick a default effort without
-// importing from shared/types separately if they don't already.
-export { EFFORT_LEVELS };
-export type { EffortLevel };

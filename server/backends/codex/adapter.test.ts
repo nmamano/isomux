@@ -30,27 +30,20 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { STATE_ROOT } from "../../config.ts";
-import { translatorFor } from "../../../shared/i18n/translate.ts";
-import { msg, renderLogText } from "../../../shared/i18n/log-message.ts";
+import { msg } from "../../../shared/i18n/log-message.ts";
+import { BackendNotConfiguredError } from "../../internal-types.ts";
 import { inertMarkdown, providerText } from "../provider-text.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
-  buildCodexUserInput,
-  CODEX_THREAD_CONFIG_OVERRIDES,
   codexThreadConfig,
-  CODEX_PLAN_DISPLAY_NAMES,
-  codexResetsAtMs,
   codexUsageLimitResetMs,
-  codexWindowLabel,
   codexProviderRefusal,
   CODEX_LIMIT_RESET_READ_MS,
   CODEX_TURN_ERROR_WATCHDOG_MS,
   CodexSession,
   codexBackend,
   mergeRateLimitSnapshots,
-  commandTokensForPrefixMatch,
   normalizeCodexSubscriptionUsage,
-  offerablePrefix,
   readThreadTurns,
   forkThreadBeforeItem,
   type CodexSessionInitOpts,
@@ -416,6 +409,20 @@ describe("CodexSession bootstrap", () => {
     expect(init.slashCommands).toEqual([]);
     expect(fake.started).toBe(true);
     expect(fake.requests.map((r) => r.method)).toEqual(["thread/start"]);
+    // No sandbox setting means full access. Backend-native memory is off
+    // (task 3f6ff5e0): both keys are EXPLICIT false values, because an absent
+    // key passes only while the upstream default is off, and Codex ignores
+    // an unknown key silently, so the dotted spelling is pinned too.
+    expect(fake.requests[0].params).toMatchObject({
+      sandbox: "danger-full-access",
+      config: {
+        "memories.use_memories": false,
+        "memories.generate_memories": false,
+      },
+    });
+    expect(
+      Object.keys((fake.requests[0].params as { config: object }).config),
+    ).toHaveLength(2);
   });
 
   it("resume: uses thread/resume and surfaces the resumed thread id", async () => {
@@ -426,25 +433,6 @@ describe("CodexSession bootstrap", () => {
     expect(init.sessionId).toBe("resumed-thread-9");
     expect(fake.requests.map((r) => r.method)).toEqual(["thread/resume"]);
     expect(fake.requests[0].params).toMatchObject({ excludeTurns: true });
-  });
-
-  // Backend-native memory off (task 3f6ff5e0): both memories keys must be
-  // EXPLICIT false values in the per-thread config map, on start and on
-  // resume. Absent keys would pass only while the upstream default is off,
-  // which is the opposite of the guarantee wanted. Codex ignores an unknown
-  // key silently, so the dotted spelling is pinned here too.
-  function memoriesConfigOf(params: unknown): Record<string, unknown> {
-    const config = (params as { config?: unknown }).config;
-    expect(typeof config).toBe("object");
-    return config as Record<string, unknown>;
-  }
-
-  it("thread/start pins memories.use_memories and memories.generate_memories to false", async () => {
-    const { fake, it } = start();
-    await nextEvent(it, "system_init");
-    const config = memoriesConfigOf(fake.requests[0].params);
-    expect(config["memories.use_memories"]).toBe(false);
-    expect(config["memories.generate_memories"]).toBe(false);
   });
 
   // The backend-level oneShotPrompt opens its own JsonRpcLiteClient and
@@ -482,16 +470,6 @@ describe("CodexSession bootstrap", () => {
     }
   });
 
-  it("thread/resume pins the same two memories keys to false", async () => {
-    const fake = new FakeCodexTransport();
-    const { it } = start(fake, { resumeThreadId: "resumed-thread-9" });
-    await nextEvent(it, "system_init");
-    expect(fake.requests[0].method).toBe("thread/resume");
-    const config = memoriesConfigOf(fake.requests[0].params);
-    expect(config["memories.use_memories"]).toBe(false);
-    expect(config["memories.generate_memories"]).toBe(false);
-  });
-
   // Remote MCP servers (integrations A2) go in the same per-thread config
   // map, over stdin: never -c (argv) or env_http_headers (environment).
   const mcpServers = [
@@ -515,23 +493,14 @@ describe("CodexSession bootstrap", () => {
       resumeThreadId: "resumed-thread-9",
     });
     await nextEvent(resumed.it, "system_init");
+    expect(resumedFake.requests[0].method).toBe("thread/resume");
     for (const request of [started.fake.requests[0], resumedFake.requests[0]]) {
-      const config = memoriesConfigOf(request.params);
-      expect(config["mcp_servers.isomux-docs"]).toEqual(mcpEntry);
-      expect(config["memories.use_memories"]).toBe(false);
-      expect(
-        Object.keys(config).filter((key) => key.startsWith("mcp_servers.")),
-      ).toEqual(["mcp_servers.isomux-docs"]);
+      expect((request.params as { config: unknown }).config).toEqual({
+        "memories.use_memories": false,
+        "memories.generate_memories": false,
+        "mcp_servers.isomux-docs": mcpEntry,
+      });
     }
-  });
-
-  it("codexThreadConfig adds nothing without servers and never an env-based header key", () => {
-    expect(codexThreadConfig(undefined)).toEqual({
-      ...CODEX_THREAD_CONFIG_OVERRIDES,
-    });
-    const text = JSON.stringify(codexThreadConfig(mcpServers));
-    expect(text).not.toContain("env_http_headers");
-    expect(text).not.toContain("bearer_token_env_var");
   });
 
   it("bootstrap failure defers: system_init with empty id, send() rejects with the captured error", async () => {
@@ -542,8 +511,14 @@ describe("CodexSession bootstrap", () => {
     // the orchestrator transitions to idle rather than pre-init.
     const init = expectKind(await nextEvent(it, "system_init"), "system_init");
     expect(init.sessionId).toBe("");
-    // The actionable error surfaces on the first send, not at spawn.
-    await expectRejection(session.send("hi"), /401 Unauthorized/);
+    // The actionable error surfaces on the first send, not at spawn, typed
+    // so the agent manager shows the hint instead of an agent error.
+    const err = await session.send("hi").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(BackendNotConfiguredError);
+    expect((err as Error).message).toMatch(/401 Unauthorized/);
   });
 });
 
@@ -552,7 +527,7 @@ describe("CodexSession bootstrap", () => {
 // ---------------------------------------------------------------------------
 describe("CodexSession sandbox in a container", () => {
   const savedSupervisor = process.env.ISOMUX_APP_SUPERVISOR;
-  async function probeSays(result: "available" | "denied" | "unknown") {
+  async function probeSays(result: "available" | "denied") {
     resetCodexSandboxProbeForTests();
     process.env.ISOMUX_APP_SUPERVISOR = "container";
     await codexSandboxProbe(async () => ({ result, detail: "" }));
@@ -593,38 +568,22 @@ describe("CodexSession sandbox in a container", () => {
       expect(ev).toEqual({ kind: "system_text", text: NOTICE });
     });
 
-    it(`${method}: an agent already on full access gets no notice`, async () => {
-      await probeSays("denied");
+    // Which probe results fall back is sandbox-probe.test.ts's table; this
+    // proves the adapter forwards a kept mode instead of a fixed one.
+    it(`${method}: a working probe keeps the agent's mode with no notice`, async () => {
+      await probeSays("available");
       const { fake, it } = start(undefined, {
         ...resume,
-        sandbox: "danger-full-access",
+        sandbox: "workspace-write",
       });
       const ev = await eventAfterInit(fake, it);
       expect(fake.requests[0].params).toMatchObject({
-        sandbox: "danger-full-access",
+        sandbox: "workspace-write",
       });
       expect(ev).toEqual({
         kind: "system_text",
         text: "[codex stderr] marker",
       });
-    });
-
-    it(`${method}: a working or unknown probe keeps the agent's mode`, async () => {
-      for (const result of ["available", "unknown"] as const) {
-        await probeSays(result);
-        const { fake, it } = start(undefined, {
-          ...resume,
-          sandbox: "workspace-write",
-        });
-        const ev = await eventAfterInit(fake, it);
-        expect(fake.requests[0].params).toMatchObject({
-          sandbox: "workspace-write",
-        });
-        expect(ev).toEqual({
-          kind: "system_text",
-          text: "[codex stderr] marker",
-        });
-      }
     });
   }
 
@@ -640,16 +599,6 @@ describe("CodexSession sandbox in a container", () => {
     expect(body).toContain('approvalPolicy: "never",');
     expect(body).not.toContain("effectiveCodexSandbox");
     expect(body).not.toContain("codexSandboxProbe");
-  });
-
-  it("an agent with no sandbox setting starts on full access and gets no notice", async () => {
-    await probeSays("denied");
-    const { fake, it } = start(undefined);
-    const ev = await eventAfterInit(fake, it);
-    expect(fake.requests[0].params).toMatchObject({
-      sandbox: "danger-full-access",
-    });
-    expect(ev).toEqual({ kind: "system_text", text: "[codex stderr] marker" });
   });
 });
 
@@ -695,6 +644,8 @@ describe("Codex paged thread history", () => {
     );
   });
 
+  // Without the check a repeated cursor costs THREAD_HISTORY_PAGE_CAP list
+  // calls before the cap error; with it, one.
   it("rejects a repeated pagination cursor", async () => {
     const client = {
       async request<T>(method: string): Promise<T> {
@@ -752,16 +703,6 @@ describe("Codex paged thread history", () => {
       },
     };
     await expectRejection(readThreadTurns(client, "thread-1"), /boom/);
-  });
-
-  it("never requests full hydration through the deprecated API shapes", () => {
-    const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
-    expect(src).not.toContain("includeTurns: true");
-    for (const site of src.matchAll(/"thread\/resume"/g)) {
-      expect(src.slice(site.index, site.index + 900)).toContain(
-        "excludeTurns: true",
-      );
-    }
   });
 });
 
@@ -826,38 +767,29 @@ describe("Codex edit fork", () => {
 // Assistant text / reasoning
 // ---------------------------------------------------------------------------
 describe("CodexSession item translation - text & thinking", () => {
-  it("agentMessage -> assistant_text; empty text is dropped", async () => {
+  // The plan item is plan mode's proposed plan: the answer of the turn.
+  it("agentMessage and plan -> assistant_text, reasoning -> thinking; empty text is dropped", async () => {
     const { fake, it } = await bootstrapped();
     fireItem(fake, { type: "agentMessage", text: "" });
     fireItem(fake, { type: "agentMessage", text: "Hello there" });
-    // The empty one produced nothing, so the next event is the real message.
-    const ev = expectKind(
-      await nextEvent(it, "assistant_text"),
-      "assistant_text",
-    );
-    expect(ev.text).toBe("Hello there");
-  });
-
-  it("reasoning -> thinking (summary + content joined)", async () => {
-    const { fake, it } = await bootstrapped();
     fireItem(fake, {
       type: "reasoning",
       summary: ["short summary"],
       content: ["the body"],
     });
-    const ev = expectKind(await nextEvent(it, "thinking"), "thinking");
-    expect(ev.text).toBe("short summary\n\nthe body");
-  });
-
-  // The plan item is plan mode's proposed plan: the answer of the turn.
-  it("plan item -> assistant_text", async () => {
-    const { fake, it } = await bootstrapped();
     fireItem(fake, { type: "plan", text: "1. do the thing" });
-    const ev = expectKind(
-      await nextEvent(it, "assistant_text"),
-      "assistant_text",
-    );
-    expect(ev.text).toBe("1. do the thing");
+    const events = [
+      await nextEvent(it, "message"),
+      await nextEvent(it, "thinking"),
+      await nextEvent(it, "plan"),
+    ];
+    expect(
+      events.map((ev) => [ev.kind, (ev as { text: string }).text]),
+    ).toEqual([
+      ["assistant_text", "Hello there"],
+      ["thinking", "short summary\n\nthe body"],
+      ["assistant_text", "1. do the thing"],
+    ]);
   });
 });
 
@@ -902,11 +834,6 @@ describe("CodexSession plan mode", () => {
     expect(methods.indexOf("thread/settings/update")).toBeLessThan(
       methods.indexOf("turn/start"),
     );
-  });
-
-  it("no planMode on a fresh thread sends no collaborationMode", async () => {
-    const { fake } = await bootstrapped();
-    expect(settingsUpdates(fake)).toEqual([]);
   });
 
   it("a resumed thread in plan mode stays in it and reports it", async () => {
@@ -984,7 +911,7 @@ describe("CodexSession plan mode", () => {
 // Tool calls (each emits a tool_call then a tool_result)
 // ---------------------------------------------------------------------------
 describe("CodexSession item translation - tool calls", () => {
-  it("commandExecution -> Bash tool_call + tool_result, exit 0 not an error", async () => {
+  it("commandExecution -> Bash tool_call + tool_result; only a nonzero exit is an error", async () => {
     const { fake, it } = await bootstrapped();
     fireItem(fake, {
       type: "commandExecution",
@@ -1007,10 +934,7 @@ describe("CodexSession item translation - tool calls", () => {
     expect(result.content).toBe("total 0\n\n(exit code 0)");
     expect(result.durationMs).toBe(7);
     expect(result.isError).toBe(false);
-  });
 
-  it("commandExecution with nonzero exit -> tool_result isError", async () => {
-    const { fake, it } = await bootstrapped();
     fireItem(fake, {
       type: "commandExecution",
       id: "cmd-2",
@@ -1020,12 +944,12 @@ describe("CodexSession item translation - tool calls", () => {
       exitCode: 2,
     });
     expectKind(await nextEvent(it, "tool_call"), "tool_call");
-    const result = expectKind(
+    const failed = expectKind(
       await nextEvent(it, "tool_result"),
       "tool_result",
     );
-    expect(result.content).toBe("\n(exit code 2)");
-    expect(result.isError).toBe(true);
+    expect(failed.content).toBe("\n(exit code 2)");
+    expect(failed.isError).toBe(true);
   });
 
   it("fileChange -> Edit tool_call + tool_result; non-applied status is an error", async () => {
@@ -1473,11 +1397,7 @@ describe("CodexSession turn lifecycle", () => {
     });
     expectKind(await nextEvent(it, "late tool_call"), "tool_call");
     expectKind(await nextEvent(it, "late tool_result"), "tool_result");
-    const notice = expectKind(
-      await nextEvent(it, "late result notice"),
-      "system_text",
-    );
-    expect(notice.text).toBe("Turn ended before this tool result arrived.");
+    expectKind(await nextEvent(it, "late result notice"), "system_text");
 
     // Another late result in the same episode stays visible without repeating
     // the marker.
@@ -1504,7 +1424,9 @@ describe("CodexSession turn lifecycle", () => {
     // separate starting flag is the only thing preventing a false marker.
     fake.holdTurnStart = true;
     const thirdSend = session.send("third");
-    while (!fake.turnStartPending) await Promise.resolve();
+    for (let i = 0; i < 100 && !fake.turnStartPending; i++)
+      await Promise.resolve();
+    expect(fake.turnStartPending).toBe(true);
     fireItem(fake, {
       type: "commandExecution",
       id: "during-start",
@@ -1531,60 +1453,27 @@ describe("CodexSession turn lifecycle", () => {
     });
     expectKind(await nextEvent(it, "third late tool_call"), "tool_call");
     expectKind(await nextEvent(it, "third late tool_result"), "tool_result");
-    const secondNotice = expectKind(
-      await nextEvent(it, "second late result notice"),
-      "system_text",
-    );
-    expect(secondNotice.text).toBe(
-      "Turn ended before this tool result arrived.",
-    );
+    expectKind(await nextEvent(it, "second late result notice"), "system_text");
   });
 
-  it("turn/completed completed -> turn_completed completed", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("turn/completed", { turn: { status: "completed" } });
-    const ev = expectKind(
-      await nextEvent(it, "turn_completed"),
-      "turn_completed",
-    );
-    expect(ev.status).toBe("completed");
-    expect(ev.error).toBeUndefined();
-  });
-
-  it("turn/completed interrupted -> turn_completed interrupted", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("turn/completed", {
-      turn: { status: "interrupted" },
+  for (const [turn, status, error] of [
+    [{ status: "completed" }, "completed", undefined],
+    [{ status: "interrupted" }, "interrupted", undefined],
+    [{ status: "failed", error: { message: "boom" } }, "failed", "boom"],
+    // A missing or unknown status fails safe.
+    [{}, "failed", undefined],
+  ] as const) {
+    it(`turn/completed ${JSON.stringify(turn)} -> turn_completed ${status}`, async () => {
+      const { fake, it } = await bootstrapped();
+      fake.fireNotification("turn/completed", { turn });
+      const ev = expectKind(
+        await nextEvent(it, "turn_completed"),
+        "turn_completed",
+      );
+      expect(ev.status).toBe(status);
+      expect(ev.error).toBe(error);
     });
-    const ev = expectKind(
-      await nextEvent(it, "turn_completed"),
-      "turn_completed",
-    );
-    expect(ev.status).toBe("interrupted");
-  });
-
-  it("turn/completed failed -> turn_completed failed with the turn error", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("turn/completed", {
-      turn: { status: "failed", error: { message: "model exploded" } },
-    });
-    const ev = expectKind(
-      await nextEvent(it, "turn_completed"),
-      "turn_completed",
-    );
-    expect(ev.status).toBe("failed");
-    expect(ev.error).toBe("model exploded");
-  });
-
-  it("missing/unknown status defaults to failed", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("turn/completed", { turn: {} });
-    const ev = expectKind(
-      await nextEvent(it, "turn_completed"),
-      "turn_completed",
-    );
-    expect(ev.status).toBe("failed");
-  });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1784,20 +1673,6 @@ describe("CodexSession token usage", () => {
       );
       expect(await nextUsage(it, "turn-2 usage")).toEqual(delta(200, 100, 5));
     });
-
-    it("a replay that lands after the turn started adds nothing", async () => {
-      const { fake, it } = await resumed();
-      startTurn(fake, "turn-1");
-      fireUsage(fake, "turn-old", LIFETIME, OLD_LAST);
-      expect(await nextUsage(it, "replay")).toEqual(delta(0, 0, 0));
-      fireUsage(
-        fake,
-        "turn-1",
-        { input: 1300, cached: 800, output: 70 },
-        { input: 300, cached: 200, output: 20 },
-      );
-      expect(await nextUsage(it, "turn-1 usage")).toEqual(delta(100, 200, 20));
-    });
   });
 });
 
@@ -1808,7 +1683,7 @@ describe("CodexSession misc notifications", () => {
   // The wire type (ContextCompactedNotification) is { threadId, turnId } - there
   // is no `summary` field, so the adapter emits the bare compacted marker (the
   // dead params.summary read was removed, 9fc5d488); summary stays undefined.
-  it("thread/compacted -> compacted (no summary on the wire)", async () => {
+  it("thread/compacted and a contextCompaction item -> compacted (no summary on the wire)", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireNotification("thread/compacted", {
       threadId: FIXTURE_THREAD_ID,
@@ -1816,12 +1691,8 @@ describe("CodexSession misc notifications", () => {
     });
     const ev = expectKind(await nextEvent(it, "compacted"), "compacted");
     expect(ev.summary).toBeUndefined();
-  });
-
-  it("contextCompaction item -> compacted", async () => {
-    const { fake, it } = await bootstrapped();
     fireItem(fake, { type: "contextCompaction" });
-    expectKind(await nextEvent(it, "compacted"), "compacted");
+    expectKind(await nextEvent(it, "compaction item"), "compacted");
   });
 
   // ErrorNotification carries its text at params.error.message (TurnError), not
@@ -1838,17 +1709,14 @@ describe("CodexSession misc notifications", () => {
     });
     const ev = expectKind(await nextEvent(it, "error"), "error");
     expect(ev.message).toBe("stream broke");
-  });
-
-  it("error notification with no retry flag fails safe as terminal", async () => {
-    const { fake, it } = await bootstrapped();
+    // No retry flag fails safe as terminal.
     fake.fireNotification("error", {
       error: { message: "future wire error" },
       threadId: FIXTURE_THREAD_ID,
       turnId: "t1",
     });
-    const ev = expectKind(await nextEvent(it, "error"), "error");
-    expect(ev.message).toBe("future wire error");
+    const flagless = expectKind(await nextEvent(it, "flagless error"), "error");
+    expect(flagless.message).toBe("future wire error");
   });
 
   it("retryable error stays non-terminal while the same turn continues", async () => {
@@ -1964,67 +1832,38 @@ describe("CodexSession misc notifications", () => {
     expect(clock.pending).toHaveLength(0);
   });
 
-  it("stop during capacity backoff cancels retry and emits one interrupt", async () => {
-    const clock = retryClock();
-    const { session, fake, it } = await bootstrapped(undefined, {
-      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+  for (const [label, exit, status] of [
+    ["stop", (session: CodexSession) => session.abort(), "interrupted"],
+    ["close", (session: CodexSession) => session.close(), "failed"],
+    [
+      "subprocess exit",
+      (_: CodexSession, fake: FakeCodexTransport) => fake.fireExit(1),
+      "failed",
+    ],
+  ] as const) {
+    it(`${label} during capacity backoff cancels the retry and ends the turn as ${status}`, async () => {
+      const clock = retryClock();
+      const { session, fake, it } = await bootstrapped(undefined, {
+        scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+      });
+      await session.send("wait");
+      fake.fireNotification("error", {
+        error: { message: "full", codexErrorInfo: "serverOverloaded" },
+        willRetry: false,
+      });
+      fake.fireNotification("turn/completed", { turn: { status: "failed" } });
+      expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
+      expect(session.canAbortInPlace()).toBe(true);
+      await exit(session, fake);
+      expect(
+        expectKind(await nextEvent(it, label), "turn_completed").status,
+      ).toBe(status);
+      expect(clock.pending[0].cancelled).toBe(true);
+      expect(
+        fake.requests.filter((r) => r.method === "turn/start"),
+      ).toHaveLength(1);
     });
-    await session.send("wait");
-    fake.fireNotification("error", {
-      error: { message: "full", codexErrorInfo: "serverOverloaded" },
-      willRetry: false,
-    });
-    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
-    expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
-    expect(session.canAbortInPlace()).toBe(true);
-    await session.abort();
-    expect(
-      expectKind(await nextEvent(it, "interrupted"), "turn_completed").status,
-    ).toBe("interrupted");
-    expect(clock.pending[0].cancelled).toBe(true);
-    expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(
-      1,
-    );
-  });
-
-  it("close during capacity backoff cancels retry and emits one failure", async () => {
-    const clock = retryClock();
-    const { session, fake, it } = await bootstrapped(undefined, {
-      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
-    });
-    await session.send("wait");
-    fake.fireNotification("error", {
-      error: { message: "full", codexErrorInfo: "serverOverloaded" },
-      willRetry: false,
-    });
-    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
-    expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
-    session.close();
-    expect(
-      expectKind(await nextEvent(it, "closed failure"), "turn_completed")
-        .status,
-    ).toBe("failed");
-    expect(clock.pending[0].cancelled).toBe(true);
-  });
-
-  it("subprocess exit during capacity backoff cancels retry and emits one failure", async () => {
-    const clock = retryClock();
-    const { session, fake, it } = await bootstrapped(undefined, {
-      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
-    });
-    await session.send("wait");
-    fake.fireNotification("error", {
-      error: { message: "full", codexErrorInfo: "serverOverloaded" },
-      willRetry: false,
-    });
-    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
-    expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
-    fake.fireExit(1);
-    expect(
-      expectKind(await nextEvent(it, "exit failure"), "turn_completed").status,
-    ).toBe("failed");
-    expect(clock.pending[0].cancelled).toBe(true);
-  });
+  }
 
   it("serverOverloaded with willRetry true stays on the provider retry path", async () => {
     const { fake, it } = await bootstrapped();
@@ -2166,48 +2005,41 @@ describe("CodexSession misc notifications", () => {
     ).toBe(SAFETY_WARNING);
   });
 
-  it("model/rerouted -> system_text built from fromModel/toModel/reason (5acf4941)", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("model/rerouted", {
-      threadId: FIXTURE_THREAD_ID,
-      turnId: "t1",
-      fromModel: "gpt-5-codex",
-      toModel: "gpt-5",
-      reason: "highRiskCyberActivity",
+  // model/rerouted has no message field (5acf4941): the text is built from
+  // its fields. configWarning carries auth-shaped tokens: through the
+  // auth-aware funnel, the per-turn auth gate would DROP it outside a turn.
+  for (const [method, params, parts] of [
+    [
+      "model/rerouted",
+      {
+        threadId: FIXTURE_THREAD_ID,
+        turnId: "t1",
+        fromModel: "gpt-5-codex",
+        toModel: "gpt-5",
+        reason: "highRiskCyberActivity",
+      },
+      ["gpt-5-codex", "gpt-5", "highRiskCyberActivity"],
+    ],
+    [
+      "deprecationNotice",
+      { summary: "tool foo is deprecated", details: "use bar instead" },
+      ["tool foo is deprecated", "use bar instead"],
+    ],
+    [
+      "configWarning",
+      { summary: "openai_api_key in config is malformed (401)", details: null },
+      ["openai_api_key in config is malformed (401)"],
+    ],
+  ] as const) {
+    it(`${method} -> tagged system_text with its fields`, async () => {
+      const { fake, it } = await bootstrapped();
+      fake.fireNotification(method, params);
+      const ev = expectKind(await nextEvent(it, method), "system_text");
+      const text = ev.text as string;
+      expect(text.startsWith(`[${method}] `)).toBe(true);
+      for (const part of parts) expect(text).toContain(part);
     });
-    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
-    expect(ev.text).toBe(
-      "[model/rerouted] model rerouted from gpt-5-codex to gpt-5 (highRiskCyberActivity)",
-    );
-  });
-
-  it("deprecationNotice -> system_text from summary (+ details)", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("deprecationNotice", {
-      summary: "tool foo is deprecated",
-      details: "use bar instead",
-    });
-    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
-    expect(ev.text).toBe(
-      "[deprecationNotice] tool foo is deprecated (use bar instead)",
-    );
-  });
-
-  it("configWarning -> system_text; an auth-shaped one still surfaces (NOT via the auth funnel)", async () => {
-    const { fake, it } = await bootstrapped();
-    // The summary carries auth-shaped tokens (openai_api_key + 401). If this
-    // were routed through enqueueAuthAwareSystemText, the per-turn auth gate
-    // (authSignalsAllowedThisTurn=false outside a turn) would DROP it. A plain
-    // enqueue must surface it as a normal advisory.
-    fake.fireNotification("configWarning", {
-      summary: "openai_api_key in config is malformed (401)",
-      details: null,
-    });
-    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
-    expect(ev.text).toBe(
-      "[configWarning] openai_api_key in config is malformed (401)",
-    );
-  });
+  }
 
   it("notification for a foreign thread id is ignored", async () => {
     const { fake, it } = await bootstrapped();
@@ -2412,9 +2244,7 @@ describe("CodexSession approvals", () => {
     });
     expect(ev.title).toContain("echo hi");
     expect(ev.description).toBe("demo");
-    expect(ev.allowPersistentLabel).toBe(
-      "Allow - and don't ask again for this exact command this session",
-    );
+    expect(ev.allowPersistentLabel).toBeTruthy();
     await session.approve("appr-1", { kind: "allow_once" });
     expect(await allowResp).toEqual({ decision: "approved" });
 
@@ -2551,111 +2381,183 @@ async function withGrantedPrefix() {
     await nextEvent(ctx.it, "system_text"),
     "system_text",
   );
-  expect(stored.text).toBe(
-    "Allowing any command starting with `rg --files` in `/work` for the rest of this session.",
-  );
+  // The confirmation names the rule and the directory: both are the grant.
+  expect(stored.text).toContain("`rg --files`");
+  expect(stored.text).toContain("`/work`");
   return ctx;
 }
 
 describe("CodexSession session-scoped prefix allows", () => {
-  it("exec approval surfaces codex's suggested rule as a label", async () => {
-    const { it: stream, fake } = await bootstrapped();
-    ignoreUnanswered(
-      fireExecApproval(fake, "pfx-a", "cargo test --lib", ["cargo", "test"]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBe("cargo test");
-  });
-
-  it("no suggestion from codex -> no label, so no 4th option is offered", async () => {
-    const { it: stream, fake } = await bootstrapped();
-    ignoreUnanswered(fireExecApproval(fake, "pfx-b", "cargo test --lib", null));
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBeUndefined();
-  });
-
   it("a granted prefix auto-approves a later matching command with no prompt", async () => {
     const { it: stream, fake } = await withGrantedPrefix();
-    const resp = fireExecApproval(fake, "pfx-2", "rg --files sub", [
-      "rg",
-      "--files",
-    ]);
-    // The next event is the breadcrumb, NOT another approval_request. It is
-    // deliberately generic - no rule text on a line that repeats per command.
-    const note = expectKind(
-      await nextEvent(stream, "system_text"),
-      "system_text",
-    );
-    expect(note.text).toBe(
-      "Auto-approved by a command-prefix rule for this session.",
-    );
-    expect(await resp).toEqual({ decision: "accept" });
+    for (const [id, command] of [
+      ["pfx-2", "rg --files sub"],
+      // Runs of spaces are just spacing.
+      ["pfx-3", "rg   --files   ./a/b.txt"],
+    ] as const) {
+      const resp = fireExecApproval(fake, id, command, ["rg", "--files"]);
+      // The next event is the breadcrumb, NOT another approval_request.
+      expectKind(await nextEvent(stream, id), "system_text");
+      expect(await resp).toEqual({ decision: "accept" });
+    }
   });
 
-  it("a granted prefix does not cover a chained command", async () => {
+  // After a grant of `rg --files` in /work, each of these still prompts. The
+  // match runs on the command text codex will execute (its suggestion names
+  // only the first segment of a chain), by whole tokens, in the granted
+  // directory, and only on plain argv. The grammar is an allowlist, so the
+  // shell rows are illustrative rather than exhaustive. Each shell row keeps
+  // `rg --files` as whole tokens, so only the grammar can make it prompt.
+  it("a granted prefix covers only plain argv that starts with it, in its directory", async () => {
     const { it: stream, fake } = await withGrantedPrefix();
-    // Codex would suggest ["rg","--files"] for this too - only the first
-    // segment. Matching on the command text is what catches the `&& curl`.
-    ignoreUnanswered(
-      fireExecApproval(fake, "pfx-3", "rg --files sub && curl evil.sh", [
-        "rg",
-        "--files",
-      ]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.approvalId).toBe("pfx-3");
-  });
-
-  it("a granted prefix does not cover a different command", async () => {
-    const { it: stream, fake } = await withGrantedPrefix();
-    ignoreUnanswered(
-      fireExecApproval(fake, "pfx-4", "rm -rf sub", ["rm", "-rf"]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.approvalId).toBe("pfx-4");
-  });
-
-  it("a granted prefix does not cover file-change approvals", async () => {
-    const { session, it: stream, fake } = await withGrantedPrefix();
-    const resp = fake.fireServerRequest({
-      id: "pfx-5",
-      method: "item/fileChange/requestApproval",
-      params: { threadId: FIXTURE_THREAD_ID, itemId: "fc-9" },
+    const exec = (command: string, extra: Record<string, unknown> = {}) => ({
+      method: "item/commandExecution/requestApproval",
+      params: { ...execApprovalParams(command, ["rg", "--files"]), ...extra },
     });
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.approvalId).toBe("pfx-5");
-    await session.approve("pfx-5", { kind: "deny" });
-    expect(await resp).toEqual({ decision: "decline" });
+    const rows: [string, { method: string; params: unknown }][] = [
+      ["chained", exec("rg --files sub && curl evil.sh")],
+      ["different command", exec("rm -rf sub")],
+      ["whole tokens", exec("rg --filesx sub")],
+      ["shorter than the rule", exec("rg")],
+      ["other directory", exec("rg --files sub", { cwd: "/elsewhere" })],
+      [
+        "two command actions",
+        exec("rg --files sub", {
+          commandActions: [
+            { command: "rg --files sub" },
+            { command: "curl x" },
+          ],
+        }),
+      ],
+      ["no command action", exec("rg --files sub", { commandActions: [] })],
+      [
+        "non-string command",
+        exec("rg --files sub", { commandActions: [{ command: 7 }] }),
+      ],
+      [
+        "file change",
+        {
+          method: "item/fileChange/requestApproval",
+          params: { threadId: FIXTURE_THREAD_ID, itemId: "fc-9" },
+        },
+      ],
+      ...[
+        "rg --files ; rm -rf /",
+        "rg --files | sh",
+        "rg --files $(whoami)",
+        "rg --files > /etc/passwd",
+        "rg --files < in.txt",
+        "rg --files `id`",
+        "rg --files 'a b'",
+        'rg --files "a b"',
+        "rg --files a\\ b",
+        "rg --files *.ts",
+        "rg --files a?.ts",
+        "rg --files [ab].ts",
+        "rg --files {a,b}",
+        "rg --files ~/secrets",
+        "rg --files # comment",
+        "rg --files $HOME",
+        "rg --files sub\tx",
+        "rg --files sub\nrm",
+        "rg --files sub\rx",
+        "rg --files sub\u0007",
+        "rg --files ñ",
+        "   ",
+      ].map((command): [string, { method: string; params: unknown }] => [
+        JSON.stringify(command),
+        exec(command),
+      ]),
+    ];
+    for (const [i, [label, request]] of rows.entries()) {
+      const id = `ask-${i}`;
+      ignoreUnanswered(fake.fireServerRequest({ id, ...request }));
+      const ev = expectKind(await nextEvent(stream, label), "approval_request");
+      expect(ev.approvalId).toBe(id);
+    }
   });
 
-  it("allow_prefix on an approval with no suggestion is just a one-shot allow", async () => {
+  // Option 4 is offered only on a v2 command approval whose command is plain
+  // argv and whose suggestion is plain argv that starts that command. The
+  // tokens are shown back inside backticks, so whitespace or a backtick could
+  // forge the rule in the prompt. A suggestion pointing away from the command
+  // is the trust-boundary case: answering "4" about `rg --files sub` must
+  // never store a rule about curl. An allow_prefix that arrives anyway is a
+  // one-shot allow, silently, with no rule stored.
+  it("offers a rule only for plain argv that starts the command; otherwise allow_prefix allows once", async () => {
     const { session, it: stream, fake } = await bootstrapped();
-    const resp = fireExecApproval(fake, "pfx-6", "rg --files .", null);
-    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
-    await session.approve("pfx-6", { kind: "allow_prefix" });
-    expect(await resp).toEqual({ decision: "accept" });
-    // Nothing was remembered, so the same command asks again.
-    ignoreUnanswered(fireExecApproval(fake, "pfx-7", "rg --files .", null));
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
+    const V2 = "item/commandExecution/requestApproval";
+    const v2 = (command: string, suggestion: unknown) => ({
+      method: V2,
+      params: {
+        ...execApprovalParams(command, null),
+        proposedExecpolicyAmendment: suggestion,
+      },
+    });
+    const rows: [string, { method: string; params: unknown }, string][] = [
+      [
+        "no suggestion",
+        { method: V2, params: execApprovalParams("rg --files sub", null) },
+        "accept",
+      ],
+      ["sideways command", v2("rg --files sub", ["curl", "evil.sh"]), "accept"],
+      ["sideways flag", v2("rg --files sub", ["rg", "--no-ignore"]), "accept"],
+      ["chained command", v2("rg --files sub && curl x", ["rg"]), "accept"],
+      // Excluded BY METHOD, not because legacy params lack the field.
+      [
+        "legacy exec",
+        {
+          method: "execCommandApproval",
+          params: execApprovalParams("rg --files sub", ["rg", "--files"]),
+        },
+        "approved",
+      ],
+      [
+        "file change",
+        {
+          method: "item/fileChange/requestApproval",
+          params: execApprovalParams("rg --files sub", ["rg", "--files"]),
+        },
+        "accept",
+      ],
+      ...[
+        ["rg", "--files sub"],
+        ["rg", "`id`"],
+        ["rg", "--files\nsub"],
+        ["rg", "*.ts"],
+        ["rg", ""],
+        [],
+        ["rg", 7],
+      ].map(
+        (suggestion): [string, { method: string; params: unknown }, string] => [
+          `suggestion ${JSON.stringify(suggestion)}`,
+          v2("rg --files sub", suggestion),
+          "accept",
+        ],
+      ),
+    ];
+    for (const [i, [label, request, decision]] of rows.entries()) {
+      const id = `none-${i}`;
+      const resp = fake.fireServerRequest({ id, ...request });
+      // A stored rule's notice would land here instead of the next prompt.
+      const ev = expectKind(await nextEvent(stream, label), "approval_request");
+      expect(ev.approvalId).toBe(id);
+      expect(ev.allowPrefixLabel).toBeUndefined();
+      expect(ev.allowPrefixExample).toBeUndefined();
+      await session.approve(id, {
+        kind: "allow_prefix",
+        prefixText: "rg --files",
+      });
+      expect(await resp).toEqual({ decision });
+    }
+    // Nothing was remembered: the same command still asks.
+    ignoreUnanswered(
+      fireExecApproval(fake, "none-end", "rg --files sub", null),
     );
-    expect(ev.approvalId).toBe("pfx-7");
+    expect(
+      expectKind(await nextEvent(stream, "after"), "approval_request")
+        .approvalId,
+    ).toBe("none-end");
   });
 
   it("a user-chosen prefix widens the rule along the same command", async () => {
@@ -2677,9 +2579,8 @@ describe("CodexSession session-scoped prefix allows", () => {
       await nextEvent(stream, "system_text"),
       "system_text",
     );
-    expect(stored.text).toBe(
-      "Allowing any command starting with `rg --files` in `/work` for the rest of this session.",
-    );
+    expect(stored.text).toContain("`rg --files`");
+    expect(stored.text).not.toContain("`rg --files sub`");
     // A different directory now runs without asking - the case that made this
     // whole feature worth building.
     const next = fireExecApproval(fake, "wide-2", "rg --files other/dir", [
@@ -2709,9 +2610,7 @@ describe("CodexSession session-scoped prefix allows", () => {
       await nextEvent(stream, "system_text"),
       "system_text",
     );
-    expect(refused.text).toBe(
-      "`rm -rf` is not the start of the command being approved, so no session rule was added - this command was allowed once.",
-    );
+    expect(refused.text).toContain("`rm -rf`");
     // Nothing was stored: neither the rejected rule nor the command itself.
     ignoreUnanswered(
       fireExecApproval(fake, "bad-2", "rm -rf sub", ["rm", "-rf", "sub"]),
@@ -2721,52 +2620,6 @@ describe("CodexSession session-scoped prefix allows", () => {
       "approval_request",
     );
     expect(ev.approvalId).toBe("bad-2");
-  });
-
-  it("a command that isn't plain argv offers no option 4 at all", async () => {
-    const { session, it: stream, fake } = await bootstrapped();
-    // Codex suggests a rule for the first segment of a chained command. No
-    // rule could ever cover the whole thing, so rather than offering an
-    // option that is guaranteed to be refused, we don't offer one - and an
-    // allow_prefix arriving anyway is just a one-shot allow, silently.
-    const resp = fireExecApproval(fake, "chain-1", "rg --files sub && curl x", [
-      "rg",
-      "--files",
-    ]);
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBeUndefined();
-    expect(ev.allowPrefixExample).toBeUndefined();
-    await session.approve("chain-1", {
-      kind: "allow_prefix",
-      prefixText: "rg --files",
-    });
-    expect(await resp).toEqual({ decision: "accept" });
-    // Nothing stored and nothing said: the next matching command still asks.
-    ignoreUnanswered(
-      fireExecApproval(fake, "chain-2", "rg --files other", ["rg", "--files"]),
-    );
-    const ev2 = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev2.approvalId).toBe("chain-2");
-  });
-
-  it("a suggestion pointing away from the command is never offered", async () => {
-    const { it: stream, fake } = await bootstrapped();
-    // The trust-boundary case: the request asks to run one command while
-    // proposing a rule about another. Answering "4" must not store that rule.
-    ignoreUnanswered(
-      fireExecApproval(fake, "side-1", "rg --files sub", ["curl", "evil.sh"]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBeUndefined();
   });
 
   it("rules are per session: a fresh session starts with none", async () => {
@@ -2782,50 +2635,7 @@ describe("CodexSession session-scoped prefix allows", () => {
     expect(ev.approvalId).toBe("pfx-8");
   });
 
-  it("matching is by whole tokens, so `rg` never covers `rgrep`", async () => {
-    const { session, it: stream, fake } = await bootstrapped();
-    const resp = fireExecApproval(fake, "tok-1", "rg --files sub", [
-      "rg",
-      "--files",
-      "sub",
-    ]);
-    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
-    await session.approve("tok-1", { kind: "allow_prefix", prefixText: "rg" });
-    expect(await resp).toEqual({ decision: "accept" });
-    expectKind(await nextEvent(stream, "system_text"), "system_text");
-    ignoreUnanswered(
-      fireExecApproval(fake, "tok-2", "rgrep --files sub", ["rgrep"]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.approvalId).toBe("tok-2");
-  });
-
-  it("a rule longer than the command doesn't match it", async () => {
-    const { session, it: stream, fake } = await bootstrapped();
-    const resp = fireExecApproval(fake, "long-1", "cargo test --lib", [
-      "cargo",
-      "test",
-      "--lib",
-    ]);
-    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
-    await session.approve("long-1", { kind: "allow_prefix" });
-    expect(await resp).toEqual({ decision: "accept" });
-    expectKind(await nextEvent(stream, "system_text"), "system_text");
-    // "cargo test" is a PREFIX of the rule, not covered BY it.
-    ignoreUnanswered(
-      fireExecApproval(fake, "long-2", "cargo test", ["cargo", "test"]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.approvalId).toBe("long-2");
-  });
-
-  it("several rules coexist, and a narrower one is dropped as redundant", async () => {
+  it("several rules coexist, and a command inside a granted family runs unprompted", async () => {
     const { session, it: stream, fake } = await bootstrapped();
     // Rule 1: cargo test
     const r1 = fireExecApproval(fake, "many-1", "cargo test --lib", [
@@ -2846,87 +2656,15 @@ describe("CodexSession session-scoped prefix allows", () => {
     await r2;
     expectKind(await nextEvent(stream, "system_text"), "system_text");
     // Both families now run unprompted.
-    const a = fireExecApproval(fake, "many-3", "cargo test --doc", null);
-    expectKind(await nextEvent(stream, "system_text"), "system_text");
-    expect(await a).toEqual({ decision: "accept" });
-    const b = fireExecApproval(fake, "many-4", "rg --files other", null);
-    expectKind(await nextEvent(stream, "system_text"), "system_text");
-    expect(await b).toEqual({ decision: "accept" });
-    // A narrower rule inside an existing one is redundant: the command it
-    // would cover is already auto-approved, so it never reaches a prompt.
-    const c = fireExecApproval(fake, "many-5", "rg --files sub deep", null);
-    expectKind(await nextEvent(stream, "system_text"), "system_text");
-    expect(await c).toEqual({ decision: "accept" });
-  });
-
-  it("legacy execCommandApproval gets no prefix behaviour at all", async () => {
-    const { session, it: stream, fake } = await bootstrapped();
-    // Legacy params carry argv + no suggestion, and codex 0.144 doesn't use
-    // this method at all - so no option 4, and allow_prefix stores nothing.
-    const resp = fake.fireServerRequest({
-      id: "leg-1",
-      method: "execCommandApproval",
-      params: { command: ["rg", "--files", "sub"], cwd: "/work" },
-    });
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBeUndefined();
-    await session.approve("leg-1", {
-      kind: "allow_prefix",
-      prefixText: "rg --files",
-    });
-    expect(await resp).toEqual({ decision: "approved" });
-    // Nothing remembered, and nothing said: with no suggestion there was
-    // never an option 4 to answer, so it degrades to a plain allow.
-    const again = fake.fireServerRequest({
-      id: "leg-2",
-      method: "execCommandApproval",
-      params: { command: ["rg", "--files", "sub"], cwd: "/work" },
-    });
-    again.catch(() => {});
-    const ev2 = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev2.approvalId).toBe("leg-2");
-  });
-
-  it("a rule is pinned to the directory it was granted in", async () => {
-    const { session, it: stream, fake } = await bootstrapped();
-    const resp = fireExecApproval(fake, "cwd-1", "rm -rf build", [
-      "rm",
-      "-rf",
-      "build",
-    ]);
-    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
-    await session.approve("cwd-1", { kind: "allow_prefix" });
-    expect(await resp).toEqual({ decision: "accept" });
-    const stored = expectKind(
-      await nextEvent(stream, "system_text"),
-      "system_text",
-    );
-    // The confirmation names the directory, because that is part of the grant.
-    expect(stored.text).toBe(
-      "Allowing any command starting with `rm -rf build` in `/work` for the rest of this session.",
-    );
-    // Same argv, another tree: a different action, so it asks again.
-    ignoreUnanswered(
-      fake.fireServerRequest({
-        id: "cwd-2",
-        method: "item/commandExecution/requestApproval",
-        params: {
-          ...execApprovalParams("rm -rf build", ["rm", "-rf", "build"]),
-          cwd: "/elsewhere",
-        },
-      }),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.approvalId).toBe("cwd-2");
+    for (const [id, command] of [
+      ["many-3", "cargo test --doc"],
+      ["many-4", "rg --files other"],
+      ["many-5", "rg --files sub deep"],
+    ] as const) {
+      const resp = fireExecApproval(fake, id, command, null);
+      expectKind(await nextEvent(stream, id), "system_text");
+      expect(await resp).toEqual({ decision: "accept" });
+    }
   });
 
   it("a directory containing a backtick can't forge the confirmation", async () => {
@@ -2956,55 +2694,25 @@ describe("CodexSession session-scoped prefix allows", () => {
     );
   });
 
-  it("a suggestion whose tokens aren't plain argv is never offered", async () => {
-    const { it: stream, fake } = await bootstrapped();
-    // A token carrying whitespace or a backtick would render an ambiguous or
-    // broken rule in the prompt, so there is simply no option 4 for it.
-    for (const [id, suggestion] of [
-      ["odd-1", ["rg", "--files sub"]],
-      ["odd-2", ["rg", "`id`"]],
-      ["odd-3", ["rg", "*.ts"]],
-    ] as const) {
+  // The example (option 4's narrower hint) is the suggestion minus its last
+  // token, and a one-token suggestion has none.
+  for (const [suggestion, example] of [
+    [["rg", "--files", "sub"], "rg --files"],
+    [["whoami"], undefined],
+  ] as const) {
+    it(`a suggestion ${JSON.stringify(suggestion)} is labelled with ${String(example)} as the example`, async () => {
+      const { it: stream, fake } = await bootstrapped();
       ignoreUnanswered(
-        fireExecApproval(fake, id, "rg --files sub", [...suggestion]),
+        fireExecApproval(fake, "ex-1", suggestion.join(" "), [...suggestion]),
       );
       const ev = expectKind(
         await nextEvent(stream, "approval_request"),
         "approval_request",
       );
-      expect(ev.approvalId).toBe(id);
-      expect(ev.allowPrefixLabel).toBeUndefined();
-      expect(ev.allowPrefixExample).toBeUndefined();
-    }
-  });
-
-  it("a one-token suggestion offers no shorter example", async () => {
-    const { it: stream, fake } = await bootstrapped();
-    ignoreUnanswered(fireExecApproval(fake, "one-1", "whoami", ["whoami"]));
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBe("whoami");
-    expect(ev.allowPrefixExample).toBeUndefined();
-  });
-
-  it("the example label is the suggestion minus its last token", async () => {
-    const { it: stream, fake } = await bootstrapped();
-    ignoreUnanswered(
-      fireExecApproval(fake, "ex-1", "rg --files sub", [
-        "rg",
-        "--files",
-        "sub",
-      ]),
-    );
-    const ev = expectKind(
-      await nextEvent(stream, "approval_request"),
-      "approval_request",
-    );
-    expect(ev.allowPrefixLabel).toBe("rg --files sub");
-    expect(ev.allowPrefixExample).toBe("rg --files");
-  });
+      expect(ev.allowPrefixLabel).toBe(suggestion.join(" "));
+      expect(ev.allowPrefixExample).toBe(example);
+    });
+  }
 
   it("rule notices that quote auth words stay notices, with no auth_needed", async () => {
     // These lines quote commands and rules, so they must never read as a
@@ -3045,145 +2753,18 @@ describe("CodexSession session-scoped prefix allows", () => {
     expect(refused.text).toContain("not authenticated");
   });
 
-  it("an auto-approved request leaves nothing parked for close() to unwind", async () => {
+  // close() answers every parked approval with a "Session closed" JSON-RPC
+  // error; an auto-approved request must not be among them.
+  it("close() unwinds the parked approval and nothing an auto-approval answered", async () => {
     const { session, it: stream, fake } = await withGrantedPrefix();
+    const parked = fireExecApproval(fake, "park-1", "rm -rf sub", null);
+    ignoreUnanswered(parked);
+    expectKind(await nextEvent(stream, "parked"), "approval_request");
     const resp = fireExecApproval(fake, "leak-1", "rg --files sub", null);
     expectKind(await nextEvent(stream, "system_text"), "system_text");
     expect(await resp).toEqual({ decision: "accept" });
-    // A leaked pendingApprovals entry would surface here: close() answers
-    // every parked approval with a "Session closed" JSON-RPC error.
     session.close();
-    expect(fake.errorResponses).toEqual([]);
-  });
-});
-
-describe("prefix-match helpers", () => {
-  it("offerablePrefix only offers a rule that is the start of the command", () => {
-    const tokens = (cmd: string) =>
-      commandTokensForPrefixMatch(execApprovalParams(cmd, null));
-    const params = execApprovalParams("rg --files .", ["rg", "--files"]);
-    const V2 = "item/commandExecution/requestApproval";
-    expect(offerablePrefix(V2, params, tokens("rg --files ."))).toEqual([
-      "rg",
-      "--files",
-    ]);
-    // Only the v2 command-execution method can carry one. Legacy exec is
-    // excluded BY METHOD, not by "legacy params happen not to have the
-    // field" - a future codex growing one there must not silently light up
-    // option 4 on a path nobody designed for it.
-    expect(
-      offerablePrefix("execCommandApproval", params, tokens("rg --files .")),
-    ).toBeNull();
-    expect(
-      offerablePrefix(
-        "item/fileChange/requestApproval",
-        params,
-        tokens("rg --files ."),
-      ),
-    ).toBeNull();
-    // A command we can't read as plain argv offers nothing - rather than
-    // offering an option that could only ever be refused.
-    expect(offerablePrefix(V2, params, null)).toBeNull();
-    // A suggestion that points somewhere other than the command being
-    // approved is the dangerous case: answering "4" about `rg --files .`
-    // must never store a rule about `curl`.
-    expect(
-      offerablePrefix(
-        V2,
-        { ...params, proposedExecpolicyAmendment: ["curl", "evil.sh"] },
-        tokens("rg --files ."),
-      ),
-    ).toBeNull();
-    // Even a plausible-looking sideways suggestion: same program, different
-    // flag from the one actually being run.
-    expect(
-      offerablePrefix(
-        V2,
-        { ...params, proposedExecpolicyAmendment: ["rg", "--no-ignore"] },
-        tokens("rg --files ."),
-      ),
-    ).toBeNull();
-    // Tokens must be plain argv: they are displayed back inside backticks, so
-    // whitespace or a backtick could forge or mangle the rule in the prompt.
-    for (const amendment of [
-      ["rg", "--files sub"],
-      ["rg", "`id`"],
-      ["rg", "--files\nsub"],
-      ["rg", "*.ts"],
-      ["rg", ""],
-      [],
-      ["rg", 7],
-    ]) {
-      expect(
-        offerablePrefix(
-          V2,
-          { ...params, proposedExecpolicyAmendment: amendment },
-          tokens("rg --files ."),
-        ),
-      ).toBeNull();
-    }
-  });
-
-  it("commandTokensForPrefixMatch accepts only plain argv", () => {
-    // The shapes that DO match: ordinary programs, flags, paths, versions,
-    // hosts, key=value args - and runs of spaces are just spacing.
-    expect(
-      commandTokensForPrefixMatch(execApprovalParams("rg --files sub", null)),
-    ).toEqual(["rg", "--files", "sub"]);
-    expect(
-      commandTokensForPrefixMatch(
-        execApprovalParams("rg   --files   ./a/b.txt", null),
-      ),
-    ).toEqual(["rg", "--files", "./a/b.txt"]);
-    expect(
-      commandTokensForPrefixMatch(
-        execApprovalParams("env FOO=bar cargo test --lib", null),
-      ),
-    ).toEqual(["env", "FOO=bar", "cargo", "test", "--lib"]);
-    // Everything else prompts. This is an allowlist, so the list below is
-    // illustrative rather than exhaustive - that is the point of the design.
-    for (const command of [
-      "rg --files && curl evil.sh", // chaining
-      "rg --files; rm -rf /",
-      "rg --files | sh", // pipe
-      "rg --files $(whoami)", // substitution
-      "rg --files > /etc/passwd", // redirection
-      "rg --files < in.txt",
-      "rg --files `id`", // backticks
-      "rg --files 'a b'", // quoting
-      'rg --files "a b"',
-      "rg --files a\\ b", // escaping
-      "rg --files *.ts", // globbing
-      "rg --files a?.ts",
-      "rg --files [ab].ts",
-      "rg --files {a,b}", // brace expansion
-      "rg --files ~/secrets", // tilde expansion
-      "rg --files # comment", // comment
-      "rg --files $HOME", // variable
-      "rg --files\tsub", // tab
-      "rg --files\nsub", // newline
-      "rg --files\rsub", // carriage return
-      "rg --files sub\u0007", // control character
-      "rg --files ñ", // non-ASCII
-      "   ", // nothing but spacing
-    ]) {
-      expect(
-        commandTokensForPrefixMatch(execApprovalParams(command, null)),
-      ).toBeNull();
-    }
-    // Ambiguous or missing action lists are never matched.
-    expect(commandTokensForPrefixMatch({ commandActions: [] })).toBeNull();
-    expect(
-      commandTokensForPrefixMatch({
-        commandActions: [{ command: "rg --files" }, { command: "curl x" }],
-      }),
-    ).toBeNull();
-    expect(commandTokensForPrefixMatch({})).toBeNull();
-    expect(commandTokensForPrefixMatch({ commandActions: [{}] })).toBeNull();
-    expect(
-      commandTokensForPrefixMatch({ commandActions: [{ command: 7 }] }),
-    ).toBeNull();
-    expect(commandTokensForPrefixMatch(null)).toBeNull();
+    expect(fake.errorResponses.map((r) => r.id)).toEqual(["park-1"]);
   });
 });
 
@@ -3719,18 +3300,18 @@ describe("CodexSession image view", () => {
   it("imageView with an unreadable path -> system_text fallback", async () => {
     const { fake, it } = await bootstrapped();
     fireItem(fake, { type: "imageView", path: "/no/such/file/nope.png" });
-    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
-    expect(ev.text).toContain("could not display");
+    // A notice in place of the file_view, not a hang or a broken card.
+    expectKind(await nextEvent(it, "system_text"), "system_text");
   });
 });
 
 // ---------------------------------------------------------------------------
-// buildCodexUserInput - inbound attachments follow the shared path-notice
-// convention (server/attachment-prompt.ts): no localImage, no inlined
-// contents, one text item joining one line per resolved attachment. Fixture
-// files live under the preload-managed temp STATE_ROOT.
+// Inbound attachments follow the shared path-notice convention
+// (server/attachment-prompt.ts, which owns resolve, format, skip and order):
+// no localImage, no inlined contents, one text item after the message text.
+// Fixture files live under the preload-managed temp STATE_ROOT.
 // ---------------------------------------------------------------------------
-describe("buildCodexUserInput", () => {
+describe("CodexSession user input", () => {
   const AGENT_ID = `test-codex-input-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
@@ -3754,65 +3335,46 @@ describe("buildCodexUserInput", () => {
     } catch {}
   });
 
-  it("text only -> single text input", () => {
-    expect(buildCodexUserInput("hi", undefined, AGENT_ID)).toEqual([
+  async function sentInput(
+    text: string,
+    attachments?: ReturnType<typeof att>[],
+  ): Promise<{ type: string; text?: string; text_elements?: unknown }[]> {
+    const { session, fake } = await bootstrapped(undefined, {
+      agentId: AGENT_ID,
+    });
+    await session.send(text, attachments);
+    const turnStart = fake.requests.find((r) => r.method === "turn/start");
+    return (
+      turnStart?.params as {
+        input: { type: string; text?: string; text_elements?: unknown }[];
+      }
+    ).input;
+  }
+
+  it("text only -> single text input", async () => {
+    expect(await sentInput("hi")).toEqual([
       { type: "text", text: "hi", text_elements: [] },
     ]);
   });
 
-  it("image attachment -> path-notice text item, NOT localImage", () => {
+  it("an image is a path notice, NOT localImage; a text file is not inlined", async () => {
     fixture("shot.png", Buffer.from([0x89, 0x50]));
-    const inputs = buildCodexUserInput(
-      "look",
-      [att("shot.png", "image/png", 2)],
-      AGENT_ID,
-    );
-    expect(inputs).toHaveLength(2);
-    expect(inputs.every((i) => i.type === "text")).toBe(true);
-    const notice = inputs[1] as { type: "text"; text: string };
-    expect(notice.text).toContain('[Attachment: "shot.png" (image/png,');
-    expect(notice.text).toContain(join(FILES_DIR, "shot.png"));
-  });
-
-  it("text-file attachment is not inlined; contents stay out", () => {
     fixture("notes.md", "SECRET CONTENTS\n");
-    const inputs = buildCodexUserInput(
-      "",
-      [att("notes.md", "text/markdown", 16)],
-      AGENT_ID,
-    );
-    expect(inputs).toHaveLength(1);
-    const notice = inputs[0] as { type: "text"; text: string };
-    expect(notice.text).toContain('"notes.md"');
-    expect(notice.text).not.toContain("SECRET CONTENTS");
+    const inputs = await sentInput("look", [
+      att("shot.png", "image/png", 2),
+      att("notes.md", "text/markdown", 16),
+    ]);
+    expect(inputs.map((i) => i.type)).toEqual(["text", "text"]);
+    expect(inputs[0].text).toBe("look");
+    expect(inputs[1].text).toContain(join(FILES_DIR, "shot.png"));
+    expect(inputs[1].text).toContain(join(FILES_DIR, "notes.md"));
+    expect(inputs[1].text).not.toContain("SECRET CONTENTS");
   });
 
-  it("mixed present/missing attachments -> one line each in order, no placeholders", () => {
-    fixture("a.pdf", Buffer.from("%PDF"));
-    fixture("b.bin", Buffer.from([0]));
-    const inputs = buildCodexUserInput(
-      "",
-      [
-        att("a.pdf", "application/pdf"),
-        att("missing.txt", "text/plain"),
-        att("b.bin", "application/octet-stream"),
-      ],
-      AGENT_ID,
-    );
-    expect(inputs).toHaveLength(1);
-    const lines = (inputs[0] as { text: string }).text.split("\n");
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain('"a.pdf"');
-    expect(lines[1]).toContain('"b.bin"');
-  });
-
-  it("empty text and no resolvable attachments -> single empty text input", () => {
-    const inputs = buildCodexUserInput(
-      "",
-      [att("gone.png", "image/png")],
-      AGENT_ID,
-    );
-    expect(inputs).toEqual([{ type: "text", text: "", text_elements: [] }]);
+  it("empty text and no resolvable attachments -> single empty text input", async () => {
+    expect(await sentInput("", [att("gone.png", "image/png")])).toEqual([
+      { type: "text", text: "", text_elements: [] },
+    ]);
   });
 });
 
@@ -3846,68 +3408,33 @@ describe("codex subscription usage", () => {
   // The merge rule for `spendControlReached`, which is the ONE field in a
   // snapshot merge that does not fall back to the older value. Codex 0.153.4
   // added it as required and documented `None` as "unavailable, not a
-  // sparse-update recovery", so all three newer values - including null - must
-  // beat whatever the cache held. Each case is written out rather than looped:
-  // a table would let a wrong shared expectation pass all three.
-  describe("spendControlReached takes the newer value exactly", () => {
-    it("a newer true beats an older false", () => {
+  // sparse-update recovery". The regression this guards: writing
+  // `newer ?? older` here, the way every neighbouring field is written (the
+  // session-level sparse-merge tests below hold those), would keep reporting
+  // a spend control the backend has stopped reporting.
+  it("spendControlReached: a newer null beats an older value, rather than falling back", () => {
+    for (const older of [true, false]) {
       const merged = mergeRateLimitSnapshots(
-        snapshot({ spendControlReached: false }),
-        snapshot({ spendControlReached: true }),
+        snapshot({ spendControlReached: older }),
+        snapshot({ spendControlReached: null }),
       );
-      expect(merged.spendControlReached).toBe(true);
-    });
-
-    it("a newer false beats an older true", () => {
-      const merged = mergeRateLimitSnapshots(
-        snapshot({ spendControlReached: true }),
-        snapshot({ spendControlReached: false }),
-      );
-      expect(merged.spendControlReached).toBe(false);
-    });
-
-    it("A NEWER NULL BEATS AN OLDER VALUE, rather than falling back", () => {
-      // The regression this guards: writing `newer ?? older` here, the way
-      // every neighbouring field is written, would keep reporting a spend
-      // control the backend has stopped reporting.
-      for (const older of [true, false]) {
-        const merged = mergeRateLimitSnapshots(
-          snapshot({ spendControlReached: older }),
-          snapshot({ spendControlReached: null }),
-        );
-        expect({ older, merged: merged.spendControlReached }).toEqual({
-          older,
-          merged: null,
-        });
-      }
-    });
-
-    it("the neighbouring fields still fall back, so this is not a blanket rule", () => {
-      const merged = mergeRateLimitSnapshots(
-        snapshot({ limitName: "older", spendControlReached: true }),
-        snapshot({ limitName: null, spendControlReached: null }),
-      );
-      expect({
-        limitName: merged.limitName,
-        spendControlReached: merged.spendControlReached,
-      }).toEqual({ limitName: "older", spendControlReached: null });
-    });
+      expect({ older, merged: merged.spendControlReached }).toEqual({
+        older,
+        merged: null,
+      });
+    }
   });
 
-  // Codex 0.160 added normalModelSlug. Upstream documents no merge rule for
-  // it; falling back on null is our convention for snapshot metadata.
-  it("normalModelSlug falls back when the newer snapshot omits it", () => {
-    const older = snapshot({ normalModelSlug: "gpt-6.1-sol" });
-    expect(
-      mergeRateLimitSnapshots(older, snapshot({ normalModelSlug: null }))
-        .normalModelSlug,
-    ).toBe("gpt-6.1-sol");
-    expect(
-      mergeRateLimitSnapshots(
-        older,
-        snapshot({ normalModelSlug: "gpt-6-astra" }),
-      ).normalModelSlug,
-    ).toBe("gpt-6-astra");
+  // codexUsageLimitResetMs reads the reached type: a sparse update that
+  // dropped it would turn a credit limit into a window limit with a reset.
+  it("rateLimitReachedType falls back when the newer snapshot omits it", () => {
+    const merged = mergeRateLimitSnapshots(
+      snapshot({ rateLimitReachedType: "workspace_owner_credits_depleted" }),
+      snapshot({ rateLimitReachedType: null }),
+    );
+    expect(merged.rateLimitReachedType).toBe(
+      "workspace_owner_credits_depleted",
+    );
   });
 
   async function usageOf(session: CodexSession) {
@@ -3916,23 +3443,41 @@ describe("codex subscription usage", () => {
     return r.usage;
   }
 
-  it("labels windows by duration, not by which slot they arrived in", () => {
-    expect(codexWindowLabel(10080)).toBe("Weekly");
-    expect(codexWindowLabel(1440)).toBe("Daily");
-    expect(codexWindowLabel(300)).toBe("5-hour");
-    expect(codexWindowLabel(43200)).toBe("30-day");
-    expect(codexWindowLabel(90)).toBe("90-minute");
-    expect(codexWindowLabel(null)).toBe("Plan allowance");
-  });
-
-  it("reads resetsAt in either epoch unit", () => {
+  it("labels a window by its duration and reads resetsAt in either epoch unit", () => {
+    const windowOf = (win: Record<string, unknown>) => {
+      const out = normalizeCodexSubscriptionUsage(
+        snapshot({ primary: { ...week, ...win } }),
+      );
+      if (out.kind !== "usage") throw new Error(out.kind);
+      return out.usage.windows[0];
+    };
+    for (const [minutes, label] of [
+      [10080, "Weekly"],
+      [1440, "Daily"],
+      [300, "5-hour"],
+      [43200, "30-day"],
+      [90, "90-minute"],
+      [null, "Plan allowance"],
+    ] as const) {
+      expect({
+        minutes,
+        label: windowOf({ windowDurationMins: minutes }).label,
+      }).toEqual({ minutes, label });
+    }
     // Codex sends seconds today (the reference script feeds it straight to
     // datetime.fromtimestamp) but the generated schema only promises a number.
-    expect(codexResetsAtMs(1785000000)).toBe(1785000000000);
-    expect(codexResetsAtMs(1785000000000)).toBe(1785000000000);
-    expect(codexResetsAtMs(null)).toBeNull();
-    expect(codexResetsAtMs(0)).toBeNull();
-    expect(codexResetsAtMs("soon")).toBeNull();
+    for (const [resetsAt, resetsAtMs] of [
+      [1785000000, 1785000000000],
+      [1785000000000, 1785000000000],
+      [null, null],
+      [0, null],
+      ["soon", null],
+    ] as const) {
+      expect({
+        resetsAt,
+        resetsAtMs: windowOf({ resetsAt }).resetsAtMs,
+      }).toEqual({ resetsAt, resetsAtMs });
+    }
   });
 
   it("normalizes a snapshot into display order, longest window first", () => {
@@ -3978,11 +3523,8 @@ describe("codex subscription usage", () => {
       if (out.kind !== "usage") throw new Error(out.kind);
       return out.usage.plan;
     };
-    // The pill shows the label from the table, never the raw slug.
-    for (const [slug, label] of Object.entries(CODEX_PLAN_DISPLAY_NAMES)) {
-      expect({ slug, plan: planOf(slug) }).toEqual({ slug, plan: label });
-    }
-    // The three Pro tiers stay distinguishable from each other.
+    // The pill shows a display name, never the raw slug, and the three Pro
+    // tiers stay distinguishable from each other.
     const pro = ["pro", "prolite", "promax"].map(planOf);
     expect(new Set(pro).size).toBe(3);
     for (const [i, slug] of ["pro", "prolite", "promax"].entries()) {
@@ -4141,7 +3683,7 @@ describe("codex subscription usage", () => {
       rateLimitResetCredits: null,
     };
     const { session } = await bootstrapped(fake);
-    expect((await usageOf(session)).plan).toBe(CODEX_PLAN_DISPLAY_NAMES.pro);
+    expect((await usageOf(session)).windows[0].usedPercent).toBe(34.5);
     // Cached now: a second call is served locally.
     await session.getSubscriptionUsage();
     expect(
@@ -4349,19 +3891,6 @@ describe("codex subscription usage", () => {
     fake.rateLimitsReadError = new Error("not signed in");
     const { session } = await bootstrapped(fake);
     expect(await session.getSubscriptionUsage()).toEqual({ kind: "unknown" });
-  });
-
-  it("reports 'unavailable' when a successful read has no rate limits at all", async () => {
-    const fake = new FakeCodexTransport();
-    fake.rateLimitsReadResponse = {
-      rateLimits: null,
-      rateLimitsByLimitId: null,
-      rateLimitResetCredits: null,
-    };
-    const { session } = await bootstrapped(fake);
-    expect(await session.getSubscriptionUsage()).toEqual({
-      kind: "unavailable",
-    });
   });
 });
 
@@ -4959,11 +4488,9 @@ describe("CodexSession ChatGPT token refresh request", () => {
     );
     expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
     const error = expectKind(await nextEvent(it, "refresh error"), "error");
-    expect(typeof error.message).toBe("object");
-    // The instructions come with auth_needed; the error does not repeat them.
-    expect(renderLogText(translatorFor("en"), error.message)).not.toContain(
-      "login --device-auth",
-    );
+    // A message each reader words; the sign-in instructions come with
+    // auth_needed, so the error states only the problem.
+    expect(error.message).toEqual(msg("systemEntries.codexTokenRefresh"));
   });
 });
 

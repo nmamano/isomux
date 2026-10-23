@@ -22,7 +22,6 @@ import {
   SECRET_VALUE,
   secretAgentEnvironment,
 } from "../../test-support/secret-env-fixture.ts";
-import { SAFETY_WARNING } from "./safety-hook.ts";
 
 const tmpDirs: string[] = [];
 
@@ -157,28 +156,6 @@ describe("JsonRpcLiteClient.close - real process reaping", () => {
     }, 15_000);
   }
 
-  it("starts the subprocess and returns the warning when safety preflight fails", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "codex-client-preflight-test-"));
-    tmpDirs.push(dir);
-    const invalidHome = join(dir, "not-a-directory");
-    writeFileSync(invalidHome, "x");
-    const pidFile = join(dir, "grandchild.pid");
-    const client = new JsonRpcLiteClient({
-      codexBin: writeFakeLauncher(dir),
-      args: ["default"],
-      cwd: dir,
-      env: {
-        ...process.env,
-        CODEX_HOME: invalidHome,
-        GC_PIDFILE: pidFile,
-      },
-    });
-    const result = await client.start();
-    expect(result.warning).toBe(SAFETY_WARNING);
-    expect(client.pid()).toBeDefined();
-    await client.close();
-  }, 15000);
-
   it("SIGKILL-escalates a SIGTERM-ignoring child AND reaps the native grandchild", async () => {
     const { client, pidFile } = makeClient(["ignore"]);
     await client.start();
@@ -273,9 +250,10 @@ describe("JsonRpcLiteClient.request - spawn failure", () => {
       }
       expect((rejection as Error | null)?.message).toMatch(/failed to launch/);
 
-      // child.on("error") is a macrotask; give it (and any unhandled-rejection
-      // report it triggers) time to land before asserting none appeared.
-      await new Promise((r) => setTimeout(r, 300));
+      // child.on("error") marks the client closed and fails what is pending;
+      // one more macrotask lets an unhandled-rejection report land.
+      expect(await waitFor(() => client.isClosed(), 4000)).toBe(true);
+      await new Promise((r) => setTimeout(r, 0));
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", onUnhandled);

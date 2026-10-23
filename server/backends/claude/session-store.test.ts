@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { STATE_ROOT } from "../../config.ts";
 import { claudeProjectDir } from "../../cwd-utils.ts";
 import { claudeSessionStore } from "./session-store.ts";
+import { LocalizedError } from "../../localized-error.ts";
 
 it("the real SDK reads and authors the fork only through the pinned store", async () => {
   const root = mkdtempSync(join(STATE_ROOT, "store-"));
@@ -61,29 +62,35 @@ it("the real SDK reads and authors the fork only through the pinned store", asyn
   ).toBeGreaterThan(0);
 });
 
-it("rejects unrelated reads, subpaths, and overwrites", async () => {
+// Confinement: the store serves only its own session, never a subpath, and
+// authors only a new fork under a UUID (a path as session id is refused).
+it("rejects unrelated reads, subpaths, paths and overwrites", async () => {
   const root = mkdtempSync(join(STATE_ROOT, "store-reject-"));
   const sid = crypto.randomUUID(),
     fork = crypto.randomUUID();
   const dir = claudeProjectDir(root, { CLAUDE_CONFIG_DIR: root });
   mkdirSync(dir, { recursive: true });
   const store = claudeSessionStore(sid, root, { CLAUDE_CONFIG_DIR: root });
-  await expectRejection(
-    store.load({ projectKey: root, sessionId: fork }),
-    /Cannot access this Claude conversation/,
-  );
-  await expectRejection(
+  const refused = async (attempt: Promise<unknown>) => {
+    const error = await attempt.then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(LocalizedError);
+    expect((error as LocalizedError).logMessage.key).toBe(
+      "systemEntries.claudeSession.invalid",
+    );
+  };
+  await refused(store.load({ projectKey: root, sessionId: fork }));
+  await refused(
     store.load({
       projectKey: root,
       sessionId: sid,
       subpath: "subagents/foreign",
     }),
-    /Cannot access this Claude conversation/,
   );
-  await expectRejection(
-    store.append({ projectKey: root, sessionId: sid }, []),
-    /Cannot access this Claude conversation/,
-  );
+  await refused(store.append({ projectKey: root, sessionId: sid }, []));
+  await refused(store.append({ projectKey: root, sessionId: "../x" }, []));
   await store.append({ projectKey: root, sessionId: fork }, []);
   await expectRejection(
     store.append({ projectKey: root, sessionId: fork }, []),

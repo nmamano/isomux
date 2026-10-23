@@ -3,8 +3,8 @@
 // Covers the resolver (missing-file skipping, order preservation, duplicates)
 // and the formatter (one-line invariant under hostile originalName input,
 // escaping, deterministic size formatting). Backend wrapper behavior is
-// frozen separately in claude.test.ts (buildClaudeUserMessage) and
-// codex/adapter.test.ts (buildCodexUserInput).
+// frozen separately through each session's send() in
+// backends/claude.session.test.ts and backends/codex/adapter.test.ts.
 import { describe, expect, it, afterAll } from "bun:test";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync } from "fs";

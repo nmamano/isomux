@@ -236,7 +236,7 @@ function authStatusKey(env: Env): string {
 // `claude auth status` exits 0 with loggedIn true, or 1 with loggedIn false.
 // Any other combination, and a process that was killed (the timeout included),
 // is "unknown".
-export function authStatusFromCli(
+function authStatusFromCli(
   exit: { exitCode: number | null; signalCode: string | null },
   stdout: string,
 ): ClaudeSignInState {
@@ -316,8 +316,4 @@ export function claudeSignInState(
   };
   authStatusProbes.set(key, probe);
   return probe.result;
-}
-
-export function resetClaudeSignInProbesForTest(): void {
-  authStatusProbes.clear();
 }

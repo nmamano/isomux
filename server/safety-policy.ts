@@ -2453,7 +2453,7 @@ function denyUnverifiablePath(toolName: string, rule: string): PolicyDecision {
  * the caller denies that as unverifiable rather than treating it as a runtime
  * checker fault.
  */
-export function extractApplyPatchPaths(patch: unknown): string[] | null {
+function extractApplyPatchPaths(patch: unknown): string[] | null {
   if (typeof patch !== "string") return null;
   const lines = patch.split("\n");
   if (lines[0] !== "*** Begin Patch") return null;

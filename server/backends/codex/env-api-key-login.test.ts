@@ -187,7 +187,7 @@ describe("the bundled Codex app-server, an OPENAI_API_KEY and an empty CODEX_HOM
     OPENAI_API_KEY: KEY,
   });
 
-  it("a session client is signed in with the key; the sign-in card is not", async () => {
+  it("a session client is signed in with the key; the sign-in card and the office usage probe are not", async () => {
     const homeEnv = env();
     const session = new JsonRpcLiteClient({ env: homeEnv });
     try {
@@ -201,7 +201,8 @@ describe("the bundled Codex app-server, an OPENAI_API_KEY and an empty CODEX_HOM
     } finally {
       await session.close();
     }
-    // Nothing was stored: the card on the same home sees no sign-in.
+    // Nothing was stored: the card and the office usage probe on the same
+    // home read the stored sign-in, not the key, and see none.
     const card = new CodexAccountClient(homeEnv);
     try {
       await card.start();
@@ -209,10 +210,7 @@ describe("the bundled Codex app-server, an OPENAI_API_KEY and an empty CODEX_HOM
     } finally {
       await card.close();
     }
-  }, 60_000);
-
-  it("the office usage probe reads the stored sign-in, not the key", async () => {
-    const probe = codexOfficeProbe(env());
+    const probe = codexOfficeProbe(homeEnv);
     try {
       expect(await probe.read()).toEqual({ kind: "signed_out" });
     } finally {

@@ -2,8 +2,8 @@
 // (createAgentManager + FakeBackend) with an injected clock for the resume
 // timers. A member's message starts each turn; the test plays the engine's
 // usage_limit_stop and the turn's end, then moves the clock. The engine
-// payloads behind usage_limit_stop are pinned in
-// server/backends/claude.usage-limit.test.ts and the Codex block of
+// payloads behind usage_limit_stop are pinned in the usage-limit blocks of
+// server/backends/claude.session.test.ts and
 // server/backends/codex/adapter.test.ts.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";

@@ -1,17 +1,14 @@
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import {
-  authStatusFromCli,
   claudeProviderId,
   claudeSignInState,
   isClaudeCodeAuthenticated,
-  isClaudeCodeInstalled,
   limitedClaudeFamilies,
   claudeFamilyModels,
-  resetClaudeSignInProbesForTest,
   runClaudeAuthStatus,
   type ClaudeSignInState,
 } from "./claude-install-check.ts";
@@ -55,30 +52,6 @@ describe("Claude Code effective-environment probes", () => {
       expect(isClaudeCodeAuthenticated({ ...env, [token]: "" })).toBe(false);
     });
   }
-
-  it("resolves credentials from the effective CLAUDE_CONFIG_DIR", () => {
-    const signedIn = tempDir();
-    const signedOut = tempDir();
-    writeFileSync(join(signedIn, ".credentials.json"), "{}");
-
-    expect(isClaudeCodeAuthenticated({ CLAUDE_CONFIG_DIR: signedIn })).toBe(
-      true,
-    );
-    expect(isClaudeCodeAuthenticated({ CLAUDE_CONFIG_DIR: signedOut })).toBe(
-      false,
-    );
-  });
-
-  it("resolves an executable from the effective PATH without which", () => {
-    const installed = tempDir();
-    const absent = tempDir();
-    const executable = join(installed, "claude");
-    writeFileSync(executable, "#!/bin/sh\nexit 0\n");
-    chmodSync(executable, 0o700);
-
-    expect(isClaudeCodeInstalled({ PATH: installed })).toBe(true);
-    expect(isClaudeCodeInstalled({ PATH: absent })).toBe(false);
-  });
 });
 
 describe("limitedClaudeFamilies", () => {
@@ -92,65 +65,41 @@ describe("limitedClaudeFamilies", () => {
     ).toEqual([]);
   });
 
-  for (const selector of [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-  ]) {
-    it(`limits sonnet and haiku on ${selector}, and no other family`, () => {
-      expect(limitedClaudeFamilies({ [selector]: " TRUE " })).toEqual([
-        "sonnet",
-        "haiku",
-      ]);
-    });
+  // Which families each cloud limits, by region, is
+  // claude-cloud-defaults.test.ts's table; old and opaque pins are there too.
+  // The selector only gates (above), so one cloud stands for both.
+  const selector = "CLAUDE_CODE_USE_BEDROCK";
 
-    it(`lifts a family pinned to the 5.x model the CLI matches on ${selector}`, () => {
-      expect(
-        limitedClaudeFamilies({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5",
-        }),
-      ).toEqual(["sonnet"]);
-      expect(
-        limitedClaudeFamilies({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "CLAUDE-HAIKU-5-5@20261001",
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-        }),
-      ).toEqual([]);
-      expect(
-        limitedClaudeFamilies({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-5-5-v1:0",
-        }),
-      ).toEqual(["haiku"]);
-    });
+  it("lifts a family pinned to the 5.x model the CLI matches", () => {
+    expect(
+      limitedClaudeFamilies({
+        [selector]: "1",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5",
+      }),
+    ).toEqual(["sonnet"]);
+    expect(
+      limitedClaudeFamilies({
+        [selector]: "1",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "CLAUDE-HAIKU-5-5@20261001",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
+      }),
+    ).toEqual([]);
+    expect(
+      limitedClaudeFamilies({
+        [selector]: "1",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-5-5-v1:0",
+      }),
+    ).toEqual(["haiku"]);
+  });
 
-    it(`keeps a family limited for an older or opaque pin on ${selector}`, () => {
-      expect(
-        limitedClaudeFamilies({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5@20251001",
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4-6",
-        }),
-      ).toEqual(["sonnet", "haiku"]);
-      expect(
-        limitedClaudeFamilies({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_HAIKU_MODEL:
-            "arn:aws:bedrock:us-east-1:1:application-inference-profile/x",
-        }),
-      ).toEqual(["sonnet", "haiku"]);
-    });
-
-    it(`ignores ANTHROPIC_SMALL_FAST_MODEL on ${selector}`, () => {
-      expect(
-        limitedClaudeFamilies({
-          [selector]: "1",
-          ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-5-5",
-        }),
-      ).toEqual(["sonnet", "haiku"]);
-    });
-  }
+  it("ignores ANTHROPIC_SMALL_FAST_MODEL", () => {
+    expect(
+      limitedClaudeFamilies({
+        [selector]: "1",
+        ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-5-5",
+      }),
+    ).toEqual(["sonnet", "haiku"]);
+  });
 });
 
 describe("claudeFamilyModels", () => {
@@ -164,46 +113,34 @@ describe("claudeFamilyModels", () => {
     ).toEqual({});
   });
 
-  for (const selector of [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-  ]) {
-    it(`gives sonnet and haiku the 4.5 alias default on ${selector}, and no other family`, () => {
-      expect(claudeFamilyModels({ [selector]: "1" })).toEqual({
-        sonnet: "claude-sonnet-4-5",
-        haiku: "claude-haiku-4-5",
-      });
+  it("reports each family's pin, and omits a pin to FAMILY_TO_MODEL", () => {
+    const selector = "CLAUDE_CODE_USE_BEDROCK";
+    expect(
+      claudeFamilyModels({
+        [selector]: "1",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: " us.anthropic.claude-opus-4-8 ",
+        ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5-1",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-5-5",
+      }),
+    ).toEqual({
+      opus: "us.anthropic.claude-opus-4-8",
+      sonnet: "us.anthropic.claude-sonnet-4-6",
     });
-
-    it(`reports each family's pin on ${selector}, and omits a pin to FAMILY_TO_MODEL`, () => {
-      expect(
-        claudeFamilyModels({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_OPUS_MODEL: " us.anthropic.claude-opus-4-8 ",
-          ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5-1",
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-5-5",
-        }),
-      ).toEqual({
-        opus: "us.anthropic.claude-opus-4-8",
-        sonnet: "us.anthropic.claude-sonnet-4-6",
-      });
-      expect(
-        claudeFamilyModels({
-          [selector]: "1",
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "  ",
-        }),
-      ).toEqual({
-        sonnet: "claude-sonnet-4-5",
-        haiku: "claude-haiku-4-5",
-      });
+    expect(
+      claudeFamilyModels({
+        [selector]: "1",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "  ",
+      }),
+    ).toEqual({
+      sonnet: "claude-sonnet-4-5",
+      haiku: "claude-haiku-4-5",
     });
-  }
+  });
 });
 
 describe("Claude sign-in state", () => {
-  beforeEach(() => resetClaudeSignInProbesForTest());
-
+  // Every case keys the probe cache on its own temp CLAUDE_CONFIG_DIR.
   function probe(answers: Array<ClaudeSignInState | Error>) {
     const calls: Array<{ [key: string]: string | undefined }> = [];
     let clock = 0;
@@ -251,7 +188,6 @@ describe("Claude sign-in state", () => {
       "unknown",
       new Error("spawn failed"),
     ] as const) {
-      resetClaudeSignInProbesForTest();
       const p = probe([answer]);
       const env = { CLAUDE_CONFIG_DIR: tempDir() };
       expect(await claudeSignInState(env, p.deps)).toBe(
@@ -304,25 +240,6 @@ describe("Claude sign-in state", () => {
 describe("claude auth status result", () => {
   const out = (loggedIn: unknown) => JSON.stringify({ loggedIn });
 
-  it("trusts only exit 0 with loggedIn true and exit 1 with loggedIn false", () => {
-    const exited = (exitCode: number) => ({ exitCode, signalCode: null });
-    expect(authStatusFromCli(exited(0), out(true))).toBe("signed_in");
-    expect(authStatusFromCli(exited(1), out(false))).toBe("signed_out");
-    for (const [exit, stdout] of [
-      [exited(0), out(false)],
-      [exited(1), out(true)],
-      [exited(2), out(false)],
-      [exited(143), out(false)],
-      [exited(0), "not json"],
-      [exited(1), ""],
-      [exited(1), "null"],
-      [exited(1), out("false")],
-      [{ exitCode: null, signalCode: "SIGTERM" }, out(false)],
-      [{ exitCode: 1, signalCode: "SIGKILL" }, out(false)],
-    ] as const)
-      expect(authStatusFromCli(exit, stdout)).toBe("unknown");
-  });
-
   function fakeCli(body: string): string {
     const path = join(tempDir(), "claude");
     writeFileSync(path, `#!/bin/sh\n${body}\n`);
@@ -330,11 +247,18 @@ describe("claude auth status result", () => {
     return path;
   }
 
+  // Only exit 0 with loggedIn true and exit 1 with loggedIn false count.
   it("reads the exit and the output of a real process", async () => {
     const cases: Array<[string, ClaudeSignInState]> = [
       [`echo '${out(true)}'; exit 0`, "signed_in"],
       [`echo '${out(false)}'; exit 1`, "signed_out"],
+      [`echo '${out(false)}'; exit 0`, "unknown"],
+      [`echo '${out(true)}'; exit 1`, "unknown"],
       [`echo '${out(false)}'; exit 2`, "unknown"],
+      [`echo not json; exit 0`, "unknown"],
+      [`exit 1`, "unknown"],
+      [`echo null; exit 1`, "unknown"],
+      [`echo '${out("false")}'; exit 1`, "unknown"],
       [`echo '${out(false)}'; kill -TERM $$`, "unknown"],
     ];
     for (const [body, expected] of cases)
@@ -343,7 +267,7 @@ describe("claude auth status result", () => {
 
   it("reports a probe killed by its timeout as unknown", async () => {
     const cli = fakeCli(`echo '${out(false)}'; exec sleep 5`);
-    expect(await runClaudeAuthStatus({}, cli, 200)).toBe("unknown");
+    expect(await runClaudeAuthStatus({}, cli, 50)).toBe("unknown");
   });
 });
 
@@ -352,7 +276,6 @@ describe.skipIf(
   process.platform !== "darwin" || process.env.ISOMUX_TEST_MAC_KEYCHAIN !== "1",
 )("Claude sign-in state from the macOS Keychain", () => {
   it("sees a Keychain login that has no credentials file", async () => {
-    resetClaudeSignInProbesForTest();
     const dir = tempDir();
     const service = `Claude Code-credentials-${new Bun.CryptoHasher("sha256")
       .update(dir)

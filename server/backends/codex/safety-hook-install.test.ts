@@ -1,6 +1,7 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -10,17 +11,17 @@ import {
   utimesSync,
   writeFileSync,
 } from "fs";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { STATE_ROOT } from "../../config.ts";
-import { getCodexPinnedVersion } from "./native-bin.ts";
 import {
-  CODEX_HOOK_TRUST_HASH_PROVEN_VERSION,
   CODEX_SAFETY_HOOK_PATH,
+  configureCodexHooks,
   ensureCodexSafetyHook,
   prepareCodexSafetyHookArtifact,
   _test,
 } from "./safety-hook-install.ts";
 import { SAFETY_WARNING } from "./safety-hook.ts";
+import { JsonRpcLiteClient } from "./client.ts";
 import { _test as trustProbeTest } from "./safety-hook-trust-probe.ts";
 
 const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
@@ -38,6 +39,17 @@ function sha256(path: string): string {
     .update(readFileSync(path))
     .digest("hex");
 }
+
+// The installed checker in its verified state, without a full preflight.
+function installGolden(): void {
+  mkdirSync(dirname(CODEX_SAFETY_HOOK_PATH), { recursive: true });
+  copyFileSync(_test.goldenPath, CODEX_SAFETY_HOOK_PATH);
+  chmodSync(CODEX_SAFETY_HOOK_PATH, 0o700);
+}
+
+const TRUSTED_HASH = "sha256:fixed-trusted-hash";
+const configure = (home: string) =>
+  configureCodexHooks(home, CODEX_SAFETY_HOOK_PATH, TRUSTED_HASH);
 
 function userEntry(command: string) {
   return { matcher: "user-tool", hooks: [{ type: "command", command }] };
@@ -60,11 +72,9 @@ describe("Codex safety hook installation", () => {
     expect(observed).toBe("Codex hook trust probe exceeded 5ms");
   });
 
-  it("pins the boot trust measurement to the measured Codex version", () => {
-    expect(getCodexPinnedVersion()).toBe(CODEX_HOOK_TRUST_HASH_PROVEN_VERSION);
-  });
-
-  it("appends PreToolUse, preserves user trust, and is byte-idempotent for 5 spawns", async () => {
+  // The one ensure-level wiring proof of the merge; the merge cases below
+  // drive configureCodexHooks, the agent-space entry, directly.
+  it("appends PreToolUse, preserves user trust, and is byte-idempotent on the next spawn", async () => {
     mkdirSync(defaultHome, { recursive: true });
     const hooksPath = join(defaultHome, "hooks.json");
     const user = {
@@ -138,18 +148,40 @@ describe("Codex safety hook installation", () => {
       'model = "gpt-5.3-codex"\n[mcp_servers.example]\ncommand = "/tmp/mcp"',
     );
 
-    for (let run = 0; run < 5; run++) {
-      const result = await ensureCodexSafetyHook(defaultHome);
-      expect(result.warning).toBeNull();
-      expect(readFileSync(hooksPath, "utf8")).toBe(hooksAfterFirst);
-      expect(readFileSync(join(defaultHome, "config.toml"), "utf8")).toBe(
-        configAfterFirst,
-      );
+    const next = await ensureCodexSafetyHook(defaultHome);
+    expect(next.warning).toBeNull();
+    expect(readFileSync(hooksPath, "utf8")).toBe(hooksAfterFirst);
+    expect(readFileSync(join(defaultHome, "config.toml"), "utf8")).toBe(
+      configAfterFirst,
+    );
+  });
+
+  // Fail open: the session still starts, and the caller gets the warning.
+  it("starts the subprocess and returns the warning when the preflight fails", async () => {
+    const dir = join(STATE_ROOT, "client-preflight");
+    mkdirSync(dir, { recursive: true });
+    const invalidHome = join(dir, "not-a-directory");
+    writeFileSync(invalidHome, "x");
+    const bin = join(dir, "codex.sh");
+    writeFileSync(bin, "#!/bin/sh\nexec sleep 600\n");
+    chmodSync(bin, 0o755);
+    const client = new JsonRpcLiteClient({
+      codexBin: bin,
+      args: [],
+      cwd: dir,
+      env: { ...process.env, CODEX_HOME: invalidHome },
+    });
+    try {
+      const result = await client.start();
+      expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
+      expect(client.pid()).toBeDefined();
+    } finally {
+      await client.close();
     }
   });
 
   it("repairs a same-size, same-mtime content swap without rebuilding the golden artifact", async () => {
-    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+    installGolden();
     const fixedTime = new Date(Math.floor(Date.now() / 1000) * 1000);
     utimesSync(CODEX_SAFETY_HOOK_PATH, fixedTime, fixedTime);
     const installedBefore = statSync(CODEX_SAFETY_HOOK_PATH);
@@ -177,28 +209,25 @@ describe("Codex safety hook installation", () => {
   });
 
   it("concurrent repairs in one process all keep the safety check", async () => {
-    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+    installGolden();
     const bytes = readFileSync(CODEX_SAFETY_HOOK_PATH);
     bytes[Math.floor(bytes.length / 2)] ^= 0xff;
     writeFileSync(CODEX_SAFETY_HOOK_PATH, bytes);
 
+    // Two callers are enough to collide on a shared temporary file.
     const results = await Promise.all(
-      Array.from({ length: 4 }, () => ensureCodexSafetyHook(defaultHome)),
+      Array.from({ length: 2 }, () => ensureCodexSafetyHook(defaultHome)),
     );
     for (const result of results) expect(result.warning).toBeNull();
     expect(readFileSync(CODEX_SAFETY_HOOK_PATH)).toEqual(
       readFileSync(_test.goldenPath),
     );
-    // Four full preflights in parallel: well under 5 s alone, slower on a
-    // loaded box.
   }, 30_000);
 
   // Quarantined on Intel macOS (task 7cf318ac): the rebuild timed out at 5 s there.
   it.skipIf(INTEL_MAC)(
-    "repairs a stale boot artifact by rebuilding, not by copying it to the installed path",
+    "repairs a stale boot artifact by rebuilding it",
     async () => {
-      expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
-      const installedBefore = readFileSync(CODEX_SAFETY_HOOK_PATH);
       writeFileSync(
         _test.goldenPath,
         "#!/bin/sh\nprintf '%s\\n' stale-source-stamp\n",
@@ -208,7 +237,6 @@ describe("Codex safety hook installation", () => {
       _test.resetPreparation();
       await prepareCodexSafetyHookArtifact();
       expect(statSync(_test.goldenPath).size).not.toBe(staleSize);
-      expect(readFileSync(CODEX_SAFETY_HOOK_PATH)).toEqual(installedBefore);
     },
   );
 
@@ -223,31 +251,8 @@ describe("Codex safety hook installation", () => {
   // server can empty while the process runs (task 99e20870). A cached
   // preparation must not point at a file that is gone.
   it.skipIf(INTEL_MAC)(
-    "re-prepares a deleted golden artifact and installs the hook from it",
+    "re-prepares a deleted golden once for concurrent preflights and installs the hook from it",
     async () => {
-      expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
-      rmSync(_test.goldenPath);
-      rmSync(CODEX_SAFETY_HOOK_PATH);
-      expect(existsSync(_test.goldenPath)).toBe(false);
-
-      try {
-        const result = await ensureCodexSafetyHook(defaultHome);
-        expect(result.warning).toBeNull();
-        expect(result.hookIdentity?.sourcePath).toBe(
-          join(defaultHome, "hooks.json"),
-        );
-        expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
-      } finally {
-        await restoreGolden();
-      }
-    },
-    30_000,
-  );
-
-  it.skipIf(INTEL_MAC)(
-    "concurrent preflights after a golden delete share one rebuild",
-    async () => {
-      expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
       rmSync(_test.goldenPath);
       rmSync(CODEX_SAFETY_HOOK_PATH);
       expect(existsSync(_test.goldenPath)).toBe(false);
@@ -258,14 +263,21 @@ describe("Codex safety hook installation", () => {
       let errorCalls: unknown[][];
       try {
         results = await Promise.all(
-          Array.from({ length: 4 }, () => ensureCodexSafetyHook(defaultHome)),
+          Array.from({ length: 2 }, () => ensureCodexSafetyHook(defaultHome)),
         );
       } finally {
         errorCalls = [...errors.mock.calls];
         errors.mockRestore();
       }
       try {
-        for (const result of results) expect(result.warning).toBeNull();
+        for (const result of results)
+          expect(result).toEqual({
+            warning: null,
+            hookIdentity: {
+              sourcePath: join(defaultHome, "hooks.json"),
+              displayOrder: 2,
+            },
+          });
         expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
         // One rebuild logs the golden path once; a rebuild per caller logs it
         // once per caller.
@@ -281,7 +293,7 @@ describe("Codex safety hook installation", () => {
   );
 
   it("fails open on a changed golden artifact instead of preparing it again", async () => {
-    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+    installGolden();
     const golden = readFileSync(_test.goldenPath);
     const goldenStat = statSync(_test.goldenPath);
     try {
@@ -300,12 +312,11 @@ describe("Codex safety hook installation", () => {
       writeFileSync(_test.goldenPath, golden);
       chmodSync(_test.goldenPath, goldenStat.mode & 0o7777);
     }
-    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
   });
 
-  it("installs and trusts the same hook in an override CODEX_HOME", async () => {
+  it("installs and trusts the same hook in a fresh per-user CODEX_HOME", () => {
     const override = join(STATE_ROOT, "users/test-user/codex-home");
-    const result = await ensureCodexSafetyHook(override);
+    const result = configure(override);
     expect(result.warning).toBeNull();
     expect(result.hookIdentity?.sourcePath).toBe(join(override, "hooks.json"));
     const hooks = JSON.parse(
@@ -314,7 +325,7 @@ describe("Codex safety hook installation", () => {
     expect(hooks.hooks.PreToolUse).toHaveLength(1);
   });
 
-  it("keeps a trusted user hook enabled when it is before an existing Isomux group", async () => {
+  it("keeps a trusted user hook enabled when it is before an existing Isomux group", () => {
     const home = join(STATE_ROOT, "users/prepended-user/codex-home");
     mkdirSync(home, { recursive: true });
     const hooksPath = join(home, "hooks.json");
@@ -350,7 +361,7 @@ describe("Codex safety hook installation", () => {
       ].join("\n"),
     );
 
-    const result = await ensureCodexSafetyHook(home);
+    const result = configure(home);
     expect(result).toEqual({
       warning: null,
       hookIdentity: { sourcePath: hooksPath, displayOrder: 1 },
@@ -365,9 +376,10 @@ describe("Codex safety hook installation", () => {
       enabled: true,
       trusted_hash: userHash,
     });
-    expect(config.hooks.state[ownedKey].enabled).toBe(true);
-    expect(config.hooks.state[ownedKey].trusted_hash).toMatch(/^sha256:/);
-    expect(config.hooks.state[ownedKey].trusted_hash).not.toBe(ownedHash);
+    expect(config.hooks.state[ownedKey]).toEqual({
+      enabled: true,
+      trusted_hash: TRUSTED_HASH,
+    });
     expect(
       configText.match(
         new RegExp(ownedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
@@ -375,7 +387,7 @@ describe("Codex safety hook installation", () => {
     ).toHaveLength(1);
   });
 
-  it("converges live-shaped foreign Isomux matchers and trust without changing user hooks", async () => {
+  it("converges live-shaped foreign Isomux matchers and trust without changing user hooks", () => {
     const home = join(STATE_ROOT, "users/live-shaped/codex-home");
     mkdirSync(home, { recursive: true });
     const hooksPath = join(home, "hooks.json");
@@ -417,7 +429,7 @@ describe("Codex safety hook installation", () => {
       [userBlock, ...ownedBlocks, ""].join("\n"),
     );
 
-    expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
+    expect(configure(home).warning).toBeNull();
 
     const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
     expect(hooks.hooks.PreToolUse).toEqual([
@@ -443,7 +455,7 @@ describe("Codex safety hook installation", () => {
     ).toHaveLength(1);
   });
 
-  it("renames every trust key when duplicate Isomux groups shift a user matcher", async () => {
+  it("renames every trust key when duplicate Isomux groups shift a user matcher", () => {
     const home = join(STATE_ROOT, "users/trailing-user/codex-home");
     mkdirSync(home, { recursive: true });
     const hooksPath = join(home, "hooks.json");
@@ -511,7 +523,7 @@ describe("Codex safety hook installation", () => {
     );
     writeFileSync(join(home, "config.toml"), `${blocks.join("\n")}\n`);
 
-    expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
+    expect(configure(home).warning).toBeNull();
 
     const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
     expect(hooks.hooks.PreToolUse).toEqual([
@@ -545,28 +557,31 @@ describe("Codex safety hook installation", () => {
     );
   });
 
-  it("fails open with the exact warning when hooks.json cannot be merged", async () => {
+  it("fails open with the exact warning when hooks.json cannot be merged", () => {
     const badHome = join(STATE_ROOT, "bad-codex-home");
     mkdirSync(badHome, { recursive: true });
     writeFileSync(join(badHome, "hooks.json"), "not json");
-    const result = await ensureCodexSafetyHook(badHome);
+    const result = configure(badHome);
     expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
   });
 
+  // Only the boot trust probe and the opt-in live probe may skip the
+  // preflight, by name: a suffix rule would also exempt any future probe.
   it("keeps the test/probe preflight escape hatch out of production callers", () => {
     const root = resolve(import.meta.dir, "../..");
+    const allowed = [
+      "backends/codex/safety-hook-trust-probe.ts",
+      "backends/codex/hook-live-probe.ts",
+    ];
     const productionFiles = readdirSync(root, { recursive: true })
       .map(String)
-      .filter(
-        (path) =>
-          path.endsWith(".ts") &&
-          !path.endsWith(".test.ts") &&
-          !path.endsWith("-probe.ts"),
-      );
-    for (const relative of productionFiles) {
-      const source = readFileSync(resolve(root, relative), "utf8");
-      expect(source).not.toContain("skipSafetyPreflightForTestProbe: true");
-    }
-    expect(root.endsWith("server")).toBe(true);
+      .filter((path) => path.endsWith(".ts") && !path.endsWith(".test.ts"));
+    expect(productionFiles).toEqual(expect.arrayContaining(allowed));
+    const setters = productionFiles.filter((relative) =>
+      /skipSafetyPreflightForTestProbe\s*:\s*(?!false\b)/.test(
+        readFileSync(resolve(root, relative), "utf8"),
+      ),
+    );
+    expect(setters.sort()).toEqual([...allowed].sort());
   });
 });

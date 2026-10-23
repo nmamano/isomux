@@ -14,7 +14,7 @@ export const SAFETY_WARNING =
   "this tool call, so the call ran unchecked. Tell the office owner and " +
   "check the isomux service logs.";
 
-export const EMBEDDED_SOURCE_SHA256 =
+const EMBEDDED_SOURCE_SHA256 =
   typeof ISOMUX_SAFETY_HOOK_SOURCE_SHA256 === "string"
     ? ISOMUX_SAFETY_HOOK_SOURCE_SHA256
     : "development-uncompiled";
@@ -60,7 +60,7 @@ function parseEnvelope(value: unknown): CodexHookEnvelope {
   return value as unknown as CodexHookEnvelope;
 }
 
-export function codexEnvelopeToAction(value: unknown): ProposedAction {
+function codexEnvelopeToAction(value: unknown): ProposedAction {
   const input = parseEnvelope(value);
   if (input.tool_name === "Bash") {
     return { kind: "shell", command: input.tool_input.command };
@@ -79,7 +79,7 @@ export function codexEnvelopeToAction(value: unknown): ProposedAction {
   };
 }
 
-export function policyDecisionToCodexOutput(
+function policyDecisionToCodexOutput(
   decision: PolicyDecision,
   systemMessage?: string,
 ): CodexHookOutput {

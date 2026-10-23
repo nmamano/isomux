@@ -220,11 +220,10 @@ function detectCodexAuthError(text: string): boolean {
 // mutation, and it holds for a per-user CODEX_HOME too). Codex type-checks
 // these keys (a non-boolean is rejected at thread/start) but ignores an
 // unknown key silently, so the adapter test pins the exact spelling.
-export const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> =
-  {
-    "memories.use_memories": false,
-    "memories.generate_memories": false,
-  };
+const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> = {
+  "memories.use_memories": false,
+  "memories.generate_memories": false,
+};
 
 // The thread config of an agent session: the pins above and the remote MCP
 // servers Isomux registers (server/mcp-servers.ts) as `mcp_servers.<name>`
@@ -548,7 +547,7 @@ const MINUTES_PER_WEEK = MINUTES_PER_DAY * 7;
 // its windows "primary"/"secondary", and which of the two is the weekly one
 // has moved across codex versions - the duration is the stable fact, so the
 // label (and the pick of which window the pill shows) comes from it.
-export function codexWindowLabel(minutes: number | null): string {
+function codexWindowLabel(minutes: number | null): string {
   if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes <= 0)
     return "Plan allowance";
   if (minutes === MINUTES_PER_WEEK) return "Weekly";
@@ -568,7 +567,7 @@ export function codexWindowLabel(minutes: number | null): string {
 // only for dates outside roughly 1970-5138, which no reset window is.
 const EPOCH_MS_THRESHOLD = 1e11;
 
-export function codexResetsAtMs(resetsAt: unknown): number | null {
+function codexResetsAtMs(resetsAt: unknown): number | null {
   if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt)) return null;
   if (resetsAt <= 0) return null;
   return resetsAt >= EPOCH_MS_THRESHOLD ? resetsAt : resetsAt * 1000;
@@ -584,7 +583,7 @@ export const CODEX_PREFERRED_LIMIT_ID = "codex";
 // separate from the keyed buckets so the two never merge into each other.
 export const CODEX_LEGACY_LIMIT_KEY = "";
 
-export function codexLimitKey(snapshot: RateLimitSnapshot): string {
+function codexLimitKey(snapshot: RateLimitSnapshot): string {
   return snapshot.limitId ?? CODEX_LEGACY_LIMIT_KEY;
 }
 
@@ -598,8 +597,7 @@ export function codexLimitKey(snapshot: RateLimitSnapshot): string {
 //   - several buckets cached: genuinely ambiguous. Return null and DROP the
 //     update rather than guess - a wrong guess would show one meter's number
 //     under another meter's name, and the next keyed push or read re-syncs.
-// Exported for tests.
-export function resolveCodexUpdateKey(
+function resolveCodexUpdateKey(
   buckets: Map<string, RateLimitSnapshot>,
   update: RateLimitSnapshot,
 ): string | null {
@@ -611,8 +609,7 @@ export function resolveCodexUpdateKey(
 
 // Pick the bucket the pill describes: the codex meter when the account has
 // one, otherwise the historical view, otherwise whatever single bucket exists.
-// Exported for tests.
-export function pickCodexLimitBucket(
+function pickCodexLimitBucket(
   buckets: Map<string, RateLimitSnapshot>,
 ): { key: string; snapshot: RateLimitSnapshot } | null {
   for (const key of [CODEX_PREFERRED_LIMIT_ID, CODEX_LEGACY_LIMIT_KEY]) {
@@ -630,7 +627,7 @@ export function pickCodexLimitBucket(
 // window would silently become "Plan allowance" with no reset time the first
 // time a percentage-only update arrived. usedPercent is the live value and is
 // always taken from the update; the nullable metadata falls back.
-export function mergeRateLimitWindow(
+function mergeRateLimitWindow(
   prev: RateLimitWindow | null,
   next: RateLimitWindow | null,
 ): RateLimitWindow | null {
@@ -682,8 +679,8 @@ export function mergeRateLimitSnapshots(
 // openai/codex rust-v0.160.0 codex-rs/tui/src/subscription.rs
 // (SubscriptionDisplay::Status). Typed over the whole PlanType union, so a
 // schema regen that adds a plan fails the typecheck until it has a label.
-// A slug outside the union passes through verbatim. Exported for tests.
-export const CODEX_PLAN_DISPLAY_NAMES: Record<PlanType, string> = {
+// A slug outside the union passes through verbatim.
+const CODEX_PLAN_DISPLAY_NAMES: Record<PlanType, string> = {
   free: "Free",
   go: "Go",
   plus: "Plus",
@@ -944,7 +941,6 @@ export interface CodexSessionInitOpts {
   sandbox?: string; // SandboxMode enum string; falls back to DEFAULT_SANDBOX_MODE
   env?: { [key: string]: string | undefined };
   resumeThreadId?: string;
-  ephemeral?: boolean;
   // Remote MCP servers for the thread config (codexThreadConfig).
   mcpServers?: AgentMcpServer[];
   // Codex's native plan collaboration mode: true sets it, false clears it,
@@ -961,7 +957,7 @@ export interface CodexSessionInitOpts {
   scheduleTurnWatchdog?: (delayMs: number, run: () => void) => () => void;
 }
 
-export const CODEX_CAPACITY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000] as const;
+const CODEX_CAPACITY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000] as const;
 
 // The longest a usage-limited turn's end waits for a rate-limit read.
 export const CODEX_LIMIT_RESET_READ_MS = 3_000;
@@ -1346,7 +1342,6 @@ export class CodexSession implements BackendSession {
       persistExtendedHistory: false,
       config: codexThreadConfig(this.opts.mcpServers),
     };
-    if (this.opts.ephemeral) params.ephemeral = true;
     if (this.opts.effort) {
       // ReasoningEffort enum string. Best-effort pass-through; codex
       // accepts a subset, mismatched values fail at handshake time.
@@ -3236,8 +3231,7 @@ function approvalCwd(params: unknown): string | null {
 //      invariant is the same one typed prefixes obey - a rule can only ever
 //      describe the command in front of you.
 //
-// Exported for tests.
-export function offerablePrefix(
+function offerablePrefix(
   method: string,
   params: unknown,
   commandTokens: string[] | null,
@@ -3287,8 +3281,7 @@ const PLAIN_ARGV_TOKEN = /^[A-Za-z0-9_./:@%+=,-]+$/;
 // Runs of spaces collapse - `rg  --files` and `rg --files` are the same
 // command line. Any other whitespace (tab, newline, CR) stays inside its
 // token and is rejected by the grammar.
-// Exported for tests.
-export function commandTokensForPrefixMatch(params: unknown): string[] | null {
+function commandTokensForPrefixMatch(params: unknown): string[] | null {
   if (!params || typeof params !== "object") return null;
   const actions = (params as Record<string, unknown>).commandActions;
   if (!Array.isArray(actions) || actions.length !== 1) return null;
@@ -3403,8 +3396,7 @@ function extractApprovalInput(
 // (server/attachment-prompt.ts), identical across backends; the agent opens
 // files on demand (view_image for images, shell tools otherwise). This
 // wrapper only puts the shared lines into Codex UserInput text items.
-// Exported for tests.
-export function buildCodexUserInput(
+function buildCodexUserInput(
   text: string,
   attachments: AttachmentSpec[] | undefined,
   agentId: string,
@@ -3448,10 +3440,11 @@ function toBackendModel(m: CodexProtocolModel): BackendModel {
   };
 }
 
-// The model/list client's launcher, for tests: a fake binary and its args.
-export type CodexListModelsClientOptions = Pick<
+// The model/list client's launcher, for tests: a fake binary, its args, and
+// no safety preflight (the fake runs no tools).
+type CodexListModelsClientOptions = Pick<
   JsonRpcLiteClientOptions,
-  "codexBin" | "args"
+  "codexBin" | "args" | "skipSafetyPreflightForTestProbe"
 >;
 
 // codexBackend.listModels, with the launcher open to tests. An abort of

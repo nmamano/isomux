@@ -44,7 +44,7 @@ Today every agent-facing env comes from `buildEnvForUserId` (server/env-loader.t
 | 18 | `sysctl` (macOS OpenCode) | server/backends/opencode/runtime.ts:69 | n/a | macOS only. |
 | 19 | Secret proxy (planned, secrets-design.md 2.2) | the server starts it directly, never through the runner | server | It holds secret values and never runs code that an agent chose. |
 
-The inventory found no other runtime spawns. The inventory search covered `spawn`, `spawnSync`, `exec*`, `fork`, `Bun.spawn*`, `Bun.$`, pty and `new Worker` in server/, tests excluded. Probes that run only as standalone scripts (hook-latency-probe.ts, safety-hook-benchmark.ts) are not runtime.
+The inventory found no other runtime spawns. The inventory search covered `spawn`, `spawnSync`, `exec*`, `fork`, `Bun.spawn*`, `Bun.$`, pty and `new Worker` in server/, tests excluded. Probes that run only as standalone scripts (safety-hook-benchmark.ts) are not runtime.
 
 ## 2. Spawn mechanism
 

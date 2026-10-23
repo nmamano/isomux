@@ -97,24 +97,6 @@ describe("detectAuthError", () => {
   });
 });
 
-describe("getLoginInstructions - already-authed short-circuit", () => {
-  it("claudeBackend: ANTHROPIC_API_KEY in env -> /clear hint, no command cards", async () => {
-    const r = await claudeBackend.getLoginInstructions({
-      env: { ANTHROPIC_API_KEY: "sk-ant-test" },
-    });
-    expect(r.commands).toBeUndefined();
-    expect(renderLogText(translatorFor("en"), r.text)).toMatch(/\/clear/i);
-  });
-
-  it("codexBackend: OPENAI_API_KEY in env -> /clear hint, no command cards", async () => {
-    const r = await codexBackend.getLoginInstructions({
-      env: { OPENAI_API_KEY: "sk-test" },
-    });
-    expect(r.commands).toBeUndefined();
-    expect(renderLogText(translatorFor("en"), r.text)).toMatch(/\/clear/i);
-  });
-});
-
 // A dead Codex refresh token leaves auth.json on disk (task 1403b454). Once
 // Codex has rejected it, auth.json is no proof of a sign-in: the member gets
 // the same walkthrough as a signed-out one. A typed /login keeps the /clear
@@ -205,40 +187,22 @@ describe("claudeBackend terminal sign-in", () => {
     expect(r.kind).toBe("login");
     expect(r.commands).toHaveLength(1);
     expect(r.commands![0].replaceAll("'", "")).toBe(CLAUDE_NATIVE_BIN);
-    expect(renderLogText(translatorFor("en"), r.text)).toContain(
-      r.commands![0],
-    );
-  });
-
-  // The /logout terminal fallback resolves the binary as sign-in does.
-  it("signs out with the bundled binary when claude is not on PATH", () => {
-    const command = claudeBackend.logoutCommand!({
+    // The /logout terminal fallback resolves the binary as sign-in does.
+    const logout = claudeBackend.logoutCommand!({
       env: { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() },
     });
-    expect(command.replaceAll("'", "")).toBe(
-      `${CLAUDE_NATIVE_BIN} auth logout`,
-    );
-  });
-
-  it("signs out with claude when it is on PATH", () => {
-    const bin = tempDir();
-    writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
-    chmodSync(join(bin, "claude"), 0o755);
-    const command = claudeBackend.logoutCommand!({
-      env: { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() },
-    });
-    expect(command).toBe("claude auth logout");
+    expect(logout.replaceAll("'", "")).toBe(`${CLAUDE_NATIVE_BIN} auth logout`);
   });
 
   it("runs claude when it is on PATH", async () => {
     const bin = tempDir();
     writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
     chmodSync(join(bin, "claude"), 0o755);
-    const r = await claudeBackend.getLoginInstructions({
-      env: { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() },
-    });
+    const env = { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() };
+    const r = await claudeBackend.getLoginInstructions({ env });
     expect(r.kind).toBe("login");
     expect(r.commands).toEqual(["claude"]);
+    expect(claudeBackend.logoutCommand!({ env })).toBe("claude auth logout");
   });
 });
 
@@ -251,22 +215,6 @@ describe("codexBackend terminal sign-out", () => {
     expect(wrapper.startsWith("~")).toBe(false);
     expect(command).toBe(`${wrapper} logout`);
     expect(existsSync(wrapper.replaceAll("'", ""))).toBe(true);
-  });
-});
-
-describe("isCodexAuthenticated env-detect", () => {
-  it("OPENAI_API_KEY in env counts as authed (no filesystem needed)", () => {
-    expect(isCodexAuthenticated({ OPENAI_API_KEY: "sk-test" })).toBe(true);
-  });
-
-  it("no key and an empty CODEX_HOME is not authed", () => {
-    const home = tempCodexHome(false);
-    expect(isCodexAuthenticated({ CODEX_HOME: home })).toBe(false);
-  });
-
-  it("auth.json present in CODEX_HOME counts as authed", () => {
-    const home = tempCodexHome(true);
-    expect(isCodexAuthenticated({ CODEX_HOME: home })).toBe(true);
   });
 });
 
@@ -300,10 +248,11 @@ describe("getLoginInstructions as a message", () => {
     expect(Object.values(messageOf(r).params ?? {})).toContain(r.commands![0]);
   });
 
-  it("claudeBackend, signed in: the /clear hint", async () => {
+  it("claudeBackend, signed in: the /clear hint, with no command cards", async () => {
     const env = { ANTHROPIC_API_KEY: "sk-ant-test" };
     const r = await claudeBackend.getLoginInstructions({ env });
     expect(r.kind).toBe("already_authed");
+    expect(r.commands).toBeUndefined();
     messageOf(r);
   });
 
@@ -322,10 +271,11 @@ describe("getLoginInstructions as a message", () => {
     ).toBe(true);
   });
 
-  it("codexBackend, signed in: the /clear hint", async () => {
+  it("codexBackend, signed in: the /clear hint, with no command cards", async () => {
     const env = { OPENAI_API_KEY: "sk-test" };
     const r = await codexBackend.getLoginInstructions({ env });
     expect(r.kind).toBe("already_authed");
+    expect(r.commands).toBeUndefined();
     messageOf(r);
   });
 

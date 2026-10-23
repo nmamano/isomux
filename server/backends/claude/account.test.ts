@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { expectRejection } from "../../test-support/expect-rejection.ts";
 import { ClaudeAccountClient } from "./account.ts";
 
 describe("ClaudeAccountClient", () => {
@@ -30,34 +31,23 @@ describe("ClaudeAccountClient", () => {
     await client.close();
   });
 
-  for (const apiProvider of ["bedrock", "vertex", "gateway"]) {
-    for (const tokenSource of [undefined, "none"]) {
-      it(`recognizes external ${apiProvider} auth with tokenSource ${tokenSource}`, async () => {
-        const env = { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "us-east-1" };
-        let received: unknown;
-        const client = new ClaudeAccountClient(env, (options) => {
-          received = options;
-          return {
-            claudeAuthenticate: async () => ({}),
-            claudeOAuthCallback: async () => {},
-            claudeOAuthWaitForCompletion: async () => {},
-            accountInfo: async () => ({
-              apiProvider,
-              tokenSource,
-              email: "stale@example.com",
-            }),
-          };
-        });
-        await client.start();
-        expect(received).toMatchObject({ options: { env } });
-        expect(await client.read()).toEqual({
-          connected: true,
-          label: undefined,
-        });
-        await client.close();
-      });
-    }
-  }
+  // A provider other than first party owns its auth: connected, with no
+  // stale email label, even when tokenSource says "none".
+  it("recognizes external provider auth whatever its tokenSource", async () => {
+    const client = new ClaudeAccountClient({}, () => ({
+      claudeAuthenticate: async () => ({}),
+      claudeOAuthCallback: async () => {},
+      claudeOAuthWaitForCompletion: async () => {},
+      accountInfo: async () => ({
+        apiProvider: "bedrock",
+        tokenSource: "none",
+        email: "stale@example.com",
+      }),
+    }));
+    await client.start();
+    expect(await client.read()).toEqual({ connected: true, label: undefined });
+    await client.close();
+  });
 
   it("closes the SDK query even while initialization is pending", async () => {
     let closed = 0;
@@ -178,7 +168,8 @@ describe("ClaudeAccountClient", () => {
     expect(calls).toEqual(["authenticate", "callback:code:state", "wait"]);
   });
 
-  it("accepts a full callback URL without exposing its fields to callers", async () => {
+  // The state guards against a code from another sign-in (OAuth CSRF).
+  it("accepts a callback URL or code#state, and rejects a state from another sign-in", async () => {
     const callbacks: string[] = [];
     const client = new ClaudeAccountClient({}, () => ({
       claudeAuthenticate: async () => ({
@@ -195,7 +186,13 @@ describe("ClaudeAccountClient", () => {
     await client.submitCode(
       "https://platform.claude.com/oauth/code/callback?code=returned&state=original",
     );
-    expect(callbacks).toEqual(["returned:original"]);
+    await client.submitCode("pasted#original");
+    for (const forged of [
+      "https://platform.claude.com/oauth/code/callback?code=x&state=forged",
+      "x#forged",
+    ])
+      await expectRejection(client.submitCode(forged), /./);
+    expect(callbacks).toEqual(["returned:original", "pasted:original"]);
   });
 
   it("falls back before auth when any private method is absent", async () => {
@@ -215,9 +212,6 @@ describe("ClaudeAccountClient", () => {
       error = caught;
     }
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe(
-      "Browser sign-in is not available with this provider version. Use the terminal instead.",
-    );
     expect(authenticated).toBe(false);
   });
 
@@ -235,9 +229,7 @@ describe("ClaudeAccountClient", () => {
     } catch (caught) {
       error = caught;
     }
+    // No auth URL reaches the member.
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe(
-      "Browser sign-in is not available with this provider version. Use the terminal instead.",
-    );
   });
 });

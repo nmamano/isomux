@@ -663,5 +663,4 @@ export const _test = {
   },
   goldenPath: GOLDEN_HOOK_PATH,
   trustSentinel: TRUST_SENTINEL,
-  discoverTrustedHash,
 };

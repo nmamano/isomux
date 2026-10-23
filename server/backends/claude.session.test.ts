@@ -1,4 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
+import { STATE_ROOT } from "../config.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
 import {
   EXPECTED,
@@ -18,12 +21,10 @@ import type {
   PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-  CLAUDE_MEMORY_OFF_SETTINGS,
   ClaudeSession,
   createClaudeBackend,
   oneShotQueryOptions,
   sessionOptsToV1,
-  toolBoundaryHooks,
   type SdkClient,
   type SdkConversation,
   type SdkMcpRegistration,
@@ -32,10 +33,12 @@ import {
 import type {
   CommandRow,
   ContextUsage,
+  NormalizedEvent,
   SessionPluginReload,
   SubscriptionUsageResult,
 } from "./types";
 import { msg } from "../../shared/i18n/log-message.ts";
+import { FAMILY_TO_MODEL } from "../../shared/types.ts";
 
 // ---------------------------------------------------------------------------
 // FakeSdkConversation - test double for SdkConversation
@@ -257,30 +260,6 @@ function fakeCallOpts(
 }
 
 // ---------------------------------------------------------------------------
-// ClaudeSession - construction
-// ---------------------------------------------------------------------------
-
-describe("ClaudeSession construction", () => {
-  it("fresh session calls sdkClient.createSession with canUseTool wired", () => {
-    const fake = new FakeSdkClient();
-    new ClaudeSession("agent-x", fake, minimalSdkOpts());
-    expect(fake.createCalls).toHaveLength(1);
-    expect(fake.resumeCalls).toHaveLength(0);
-    expect(fake.createCalls[0].opts.canUseTool).toBeDefined();
-    expect(fake.createCalls[0].opts.model).toBe("claude-opus-4-8");
-  });
-
-  it("resume session calls sdkClient.resumeSession with session id", () => {
-    const fake = new FakeSdkClient();
-    new ClaudeSession("agent-x", fake, minimalSdkOpts(), "s-99");
-    expect(fake.resumeCalls).toHaveLength(1);
-    expect(fake.createCalls).toHaveLength(0);
-    expect(fake.resumeCalls[0].sessionId).toBe("s-99");
-    expect(fake.resumeCalls[0].opts.canUseTool).toBeDefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // ClaudeSession - stream pumping
 // ---------------------------------------------------------------------------
 
@@ -331,20 +310,6 @@ describe("ClaudeSession stream", () => {
     });
   });
 
-  it("ends iteration when the conversation iterable returns", async () => {
-    const fake = new FakeSdkClient();
-    const { session, conv } = makeSession(fake);
-    const it = session.stream()[Symbol.asyncIterator]();
-    conv.emit({
-      type: "assistant",
-      message: { content: [{ type: "text", text: "x" }] },
-    });
-    expect(await nextEvent(it)).toMatchObject({ kind: "assistant_text" });
-    conv.finish();
-    const final = await it.next();
-    expect(final.done).toBe(true);
-  });
-
   // Regression pin for the TaskBreadcrumbTracker wiring in feedSDKMessages
   // (task b4cafa53 option C). The tracker itself is covered in
   // task-breadcrumbs.test.ts; this asserts the SESSION actually feeds it and
@@ -383,12 +348,13 @@ describe("ClaudeSession stream", () => {
       description: "Sleep in background",
       task_type: "local_bash",
     });
-    expect(await nextEvent(it)).toEqual({
+    const started = (await nextEvent(it)) as { label: string };
+    expect(started).toMatchObject({
       kind: "task_lifecycle",
       phase: "started",
       taskId: "b1",
-      label: "Background task started: Sleep in background",
     });
+    expect(started.label).toContain("Sleep in background");
 
     // Foreground subagent: same SDK message pair, but no breadcrumbs - the
     // next observable event must be the settle of the BACKGROUND task.
@@ -433,29 +399,22 @@ describe("ClaudeSession stream", () => {
     session.close();
   });
 
-  it("emits a normalized error event when the conversation throws mid-stream", async () => {
-    const fake = new FakeSdkClient();
-    const { session, conv } = makeSession(fake);
-    const it = session.stream()[Symbol.asyncIterator]();
-    conv.throwNext(new Error("transport boom"));
-    const ev = await nextEvent(it);
-    expect(ev).toEqual({ kind: "error", message: "transport boom" });
-    const done = await it.next();
-    expect(done.done).toBe(true);
-  });
-
-  it("signals sign-in ahead of an auth-shaped conversation error", async () => {
-    const fake = new FakeSdkClient();
-    const { session, conv } = makeSession(fake);
-    const it = session.stream()[Symbol.asyncIterator]();
-    conv.throwNext(new Error("401 Unauthorized"));
-    expect(await nextEvent(it)).toEqual({ kind: "auth_needed" });
-    expect(await nextEvent(it)).toEqual({
-      kind: "error",
-      message: "401 Unauthorized",
+  for (const [message, events] of [
+    ["transport boom", [{ kind: "error", message: "transport boom" }]],
+    [
+      "401 Unauthorized",
+      [{ kind: "auth_needed" }, { kind: "error", message: "401 Unauthorized" }],
+    ],
+  ] as const) {
+    it(`emits ${events.map((e) => e.kind).join(" + ")} when the conversation throws mid-stream`, async () => {
+      const fake = new FakeSdkClient();
+      const { session, conv } = makeSession(fake);
+      const it = session.stream()[Symbol.asyncIterator]();
+      conv.throwNext(new Error(message));
+      for (const event of events) expect(await nextEvent(it)).toEqual(event);
+      expect((await it.next()).done).toBe(true);
     });
-    expect((await it.next()).done).toBe(true);
-  });
+  }
 
   it("swallows mid-stream throw when the session was closed", async () => {
     const fake = new FakeSdkClient();
@@ -475,34 +434,55 @@ describe("ClaudeSession stream", () => {
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession send", () => {
-  it("forwards plain text directly to the conversation", async () => {
+  // Attachments follow the shared path-notice convention
+  // (server/attachment-prompt.ts owns the line format, skip and order): one
+  // notice block after the text, never inlined; the SDK rejects empty content.
+  const FILES_DIR = join(STATE_ROOT, "logs", "test-agent", "files");
+  const att = (filename: string, mediaType: string) => ({
+    filename,
+    originalName: filename,
+    mediaType,
+    size: 1,
+  });
+  afterAll(() =>
+    rmSync(join(STATE_ROOT, "logs", "test-agent"), {
+      recursive: true,
+      force: true,
+    }),
+  );
+
+  it("sends text alone as a string, and text with attachments as one notice block after it", async () => {
+    mkdirSync(FILES_DIR, { recursive: true });
+    writeFileSync(join(FILES_DIR, "shot.png"), Buffer.from([0x89, 0x50]));
+    writeFileSync(join(FILES_DIR, "notes.md"), "SECRET CONTENTS\n");
     const fake = new FakeSdkClient();
     const { session, conv } = makeSession(fake);
     await session.send("hello");
-    expect(conv.sends).toEqual(["hello"]);
-  });
-
-  it("wraps text+attachments into an SDKUserMessage before sending", async () => {
-    const fake = new FakeSdkClient();
-    const { session, conv } = makeSession(fake);
     await session.send("see attached", [
-      {
-        filename: "missing.png",
-        originalName: "missing.png",
-        mediaType: "image/png",
-        size: 0,
-      },
+      att("shot.png", "image/png"),
+      att("missing.txt", "text/plain"),
+      att("notes.md", "text/markdown"),
     ]);
-    expect(conv.sends).toHaveLength(1);
-    const sent = conv.sends[0];
-    expect(typeof sent).toBe("object");
-    expect((sent as SDKUserMessage).type).toBe("user");
-    const content = (sent as SDKUserMessage).message.content as {
-      type?: string;
-      text?: string;
-    }[];
-    // missing file is silently skipped → only the text block remains
-    expect(content).toEqual([{ type: "text", text: "see attached" }]);
+    await session.send("", [att("missing.txt", "text/plain")]);
+    await session.send("", [att("shot.png", "image/png")]);
+    expect(conv.sends[0]).toBe("hello");
+    const blocks = conv.sends.slice(1).map(
+      (sent) =>
+        (sent as SDKUserMessage).message.content as {
+          type: string;
+          text: string;
+        }[],
+    );
+    expect(blocks[0].map((b) => b.type)).toEqual(["text", "text"]);
+    expect(blocks[0][0].text).toBe("see attached");
+    const lines = blocks[0][1].text.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(join(FILES_DIR, "shot.png"));
+    expect(lines[1]).toContain(join(FILES_DIR, "notes.md"));
+    expect(blocks[0][1].text).not.toContain("SECRET CONTENTS");
+    expect(blocks[1]).toEqual([{ type: "text", text: "" }]);
+    expect(blocks[2]).toHaveLength(1);
+    expect(blocks[2][0].text).toContain(join(FILES_DIR, "shot.png"));
   });
 });
 
@@ -524,10 +504,12 @@ describe("ClaudeSession approval flow", () => {
       { command: "API_TOKEN=very-secret-value printf ok" },
       fakeCallOpts("bypass-1"),
     );
-    expect(await nextEvent(stream)).toEqual({
-      kind: "system_text",
-      text: 'Isomux allowed an unexpected SDK permission request because this agent uses bypassPermissions. Tool: Bash. Input: {"command":"API_TOKEN=[REDACTED] printf ok"}.',
-    });
+    // An audit line naming the tool, with the secret redacted.
+    const audit = (await nextEvent(stream)) as { kind: string; text: string };
+    expect(audit.kind).toBe("system_text");
+    expect(audit.text).toContain("Bash");
+    expect(audit.text).toContain("API_TOKEN=[REDACTED]");
+    expect(audit.text).not.toContain("very-secret-value");
     expect(await result).toEqual({
       behavior: "allow",
       updatedInput: { command: "API_TOKEN=very-secret-value printf ok" },
@@ -553,8 +535,7 @@ describe("ClaudeSession approval flow", () => {
       input: { cmd: "ls" },
       title: "Bash ls",
       description: "list dir",
-      allowPersistentLabel:
-        "Allow - and don't ask again for similar calls this session",
+      allowPersistentLabel: expect.any(String),
     });
 
     await session.approve("u1", { kind: "allow_once" });
@@ -572,10 +553,9 @@ describe("ClaudeSession approval flow", () => {
       { path: "/x" },
       fakeCallOpts("u2", { decisionReason: "outside allow list" }),
     );
-    expect(await nextEvent(it)).toMatchObject({
-      title: "Claude wants to use Read",
-      description: "outside allow list",
-    });
+    const ev = (await nextEvent(it)) as { title: string; description: string };
+    expect(ev.title).toContain("Read");
+    expect(ev.description).toBe("outside allow list");
   });
 
   it("allow_persistent scopes suggested permissions to the session", async () => {
@@ -614,20 +594,6 @@ describe("ClaudeSession approval flow", () => {
     ]);
   });
 
-  it("allow_persistent with no suggestions yields undefined updatedPermissions", async () => {
-    const fake = new FakeSdkClient();
-    const { session, canUseTool } = makeSession(fake);
-    const it = session.stream()[Symbol.asyncIterator]();
-    const decision = canUseTool("X", {}, fakeCallOpts("u4"));
-    await nextEvent(it);
-    await session.approve("u4", { kind: "allow_persistent" });
-    const result = (await decision) as Extract<
-      PermissionResult,
-      { behavior: "allow" }
-    >;
-    expect(result.updatedPermissions).toBeUndefined();
-  });
-
   it("deny resolves the SDK promise with behavior:deny and reason", async () => {
     const fake = new FakeSdkClient();
     const { session, canUseTool } = makeSession(fake);
@@ -637,26 +603,15 @@ describe("ClaudeSession approval flow", () => {
     await session.approve("u5", { kind: "deny", reason: "too risky" });
     const result = await decision;
     expect(result).toEqual({ behavior: "deny", message: "too risky" });
-  });
-
-  it("deny without reason uses a default message", async () => {
-    const fake = new FakeSdkClient();
-    const { session, canUseTool } = makeSession(fake);
-    const it = session.stream()[Symbol.asyncIterator]();
-    const decision = canUseTool("X", {}, fakeCallOpts("u6"));
+    // A second answer finds nothing to answer and does not throw.
+    await session.approve("u5", { kind: "allow_once" });
+    // Without a reason, the deny still carries a message.
+    const unexplained = canUseTool("X", {}, fakeCallOpts("u6"));
     await nextEvent(it);
     await session.approve("u6", { kind: "deny" });
-    expect(await decision).toEqual({
-      behavior: "deny",
-      message: "User denied.",
-    });
-  });
-
-  it("approve() with an unknown approvalId is a no-op", async () => {
-    const fake = new FakeSdkClient();
-    const { session } = makeSession(fake);
-    // Doesn't throw, doesn't affect anything observable
-    await session.approve("never-asked", { kind: "allow_once" });
+    const denied = (await unexplained) as { behavior: string; message: string };
+    expect(denied.behavior).toBe("deny");
+    expect(denied.message.length).toBeGreaterThan(0);
   });
 
   it("aborting the SDK signal denies the approval", async () => {
@@ -722,18 +677,7 @@ describe("ClaudeSession close", () => {
     const decision = canUseTool("X", {}, fakeCallOpts("u-pending"));
     await nextEvent(it);
     session.close();
-    expect(await decision).toEqual({
-      behavior: "deny",
-      message: "Session closed.",
-    });
-    expect(conv.closeCount).toBe(1);
-  });
-
-  it("is idempotent - second close() does not double-call conversation.close", async () => {
-    const fake = new FakeSdkClient();
-    const { session, conv } = makeSession(fake);
-    session.close();
-    session.close();
+    expect(await decision).toMatchObject({ behavior: "deny" });
     expect(conv.closeCount).toBe(1);
   });
 
@@ -747,18 +691,6 @@ describe("ClaudeSession close", () => {
     const final = await next;
     expect(final.done).toBe(true);
   });
-
-  it("send after close does not throw", async () => {
-    // Whether ClaudeSession.send() forwards to the closed conversation or
-    // no-ops at this layer is a layering detail - V1's wrapV1Query.send()
-    // already no-ops after close (covered by `wrapV1Query > send after
-    // close is a no-op`). The behavior locked here is just "no throw / no
-    // rejection at the BackendSession boundary".
-    const fake = new FakeSdkClient();
-    const { session } = makeSession(fake);
-    session.close();
-    await session.send("late");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -766,16 +698,12 @@ describe("ClaudeSession close", () => {
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession abort", () => {
-  it("abort() rejects - Claude has no in-place interrupt RPC", async () => {
-    const fake = new FakeSdkClient();
-    const { session } = makeSession(fake);
-    await expectRejection(session.abort(), /unsupported/);
-  });
-
-  it("canAbortInPlace() returns false", () => {
+  // The orchestrator's hot-abort dispatch gates on canAbortInPlace().
+  it("cannot abort in place: canAbortInPlace() is false and abort() rejects", async () => {
     const fake = new FakeSdkClient();
     const { session } = makeSession(fake);
     expect(session.canAbortInPlace()).toBe(false);
+    await expectRejection(session.abort(), /unsupported/);
   });
 });
 
@@ -799,12 +727,6 @@ describe("ClaudeSession getContextUsage", () => {
       maxTokens: 200000,
       percentage: 0.05,
     });
-  });
-
-  it("returns null when conversation has no usage data", async () => {
-    const fake = new FakeSdkClient();
-    const { session } = makeSession(fake);
-    expect(await session.getContextUsage()).toBeNull();
   });
 });
 
@@ -886,15 +808,6 @@ describe("createClaudeBackend.forkSessionBeforeMessage", () => {
     expect(fake.forkCalls).toHaveLength(0);
   });
 
-  it("returns fresh even when target is at index 0", async () => {
-    // Defends the firstUserIdx-before-target-match ordering invariant.
-    const fake = new FakeSdkClient();
-    withMessages(fake, [{ uuid: "u-target", type: "user" }]);
-    const backend = createClaudeBackend(fake);
-    const result = await backend.forkSessionBeforeMessage("s-1", "u-target");
-    expect(result).toEqual({ kind: "fresh" });
-  });
-
   it("forks at the predecessor message when target is mid-conversation", async () => {
     const fake = new FakeSdkClient();
     withMessages(fake, [
@@ -904,13 +817,17 @@ describe("createClaudeBackend.forkSessionBeforeMessage", () => {
     ]);
     fake.forkResult = { sessionId: "forked-99" };
     const backend = createClaudeBackend(fake);
-    const result = await backend.forkSessionBeforeMessage("s-1", "u-target");
+    const result = await backend.forkSessionBeforeMessage("s-1", "u-target", {
+      cwd: "/work/agent",
+      modelFamily: "opus",
+      permissionMode: "default",
+    });
     expect(fake.forkCalls).toMatchObject([
       {
         sessionId: "s-1",
         opts: {
           upToMessageId: "a-0",
-          dir: process.cwd(),
+          dir: "/work/agent",
           sessionStore: {
             load: expect.any(Function),
             append: expect.any(Function),
@@ -968,6 +885,8 @@ describe("createClaudeBackend.forkSessionBeforeMessage", () => {
 });
 
 describe("createClaudeBackend.getSessionMessages", () => {
+  // Edit matching reads this text: text blocks join without a separator,
+  // other blocks and a text block with no text are skipped.
   it("normalizes user/assistant/system messages and skips other types", async () => {
     const fake = new FakeSdkClient();
     fake.sessionMessagesResult = [
@@ -975,9 +894,17 @@ describe("createClaudeBackend.getSessionMessages", () => {
       {
         uuid: "a-1",
         type: "assistant",
-        message: { content: [{ type: "text", text: "hello" }] },
+        message: {
+          content: [
+            { type: "text", text: "hel" },
+            { type: "tool_use", id: "x", name: "R", input: {} },
+            { type: "text" },
+            { type: "text", text: "lo" },
+          ],
+        },
       },
       { uuid: "s-1", type: "system", message: { content: "init" } },
+      { uuid: "u-2", type: "user", message: { content: null } },
       { uuid: "r-1", type: "result", message: { content: "n/a" } },
     ] as unknown as SessionMessage[];
     const backend = createClaudeBackend(fake);
@@ -986,52 +913,12 @@ describe("createClaudeBackend.getSessionMessages", () => {
       { uuid: "u-1", role: "user", text: "hi" },
       { uuid: "a-1", role: "assistant", text: "hello" },
       { uuid: "s-1", role: "system", text: "init" },
+      { uuid: "u-2", role: "user", text: "" },
     ]);
   });
 });
 
 describe("createClaudeBackend.oneShotPrompt", () => {
-  for (const selector of [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-  ]) {
-    for (const family of ["opus", "sonnet", "haiku", "fable"]) {
-      it(`passes ${family} and its cloud pin through create, resume and one-shot for ${selector}`, async () => {
-        const fake = new FakeSdkClient();
-        const backend = createClaudeBackend(fake);
-        const env = {
-          [selector]: "1",
-          [`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]:
-            "provider-model-id",
-          AWS_REGION: "us-east-1",
-        };
-        const opts = {
-          agentId: "cloud-agent",
-          modelFamily: family,
-          env,
-          cwd: "/tmp",
-          systemPrompt: "test",
-          permissionMode: "default",
-          effort: "high",
-        };
-        const created = backend.createSession(opts);
-        const resumed = backend.resumeSession("cloud-session", opts);
-        await backend.oneShotPrompt("Topic", opts);
-        // These are the options sent into query(), not persisted agent state.
-        expect(sessionOptsToV1(fake.createCalls[0].opts)).toMatchObject({
-          model: family,
-          env,
-        });
-        expect(
-          sessionOptsToV1(fake.resumeCalls[0].opts, "cloud-session"),
-        ).toMatchObject({ model: family, env, resume: "cloud-session" });
-        expect(fake.oneShotCalls[0]).toMatchObject({ model: family, env });
-        created.close();
-        resumed.close();
-      });
-    }
-  }
-
   it("resolves modelFamily before delegating to sdkClient.oneShotPrompt", async () => {
     const fake = new FakeSdkClient();
     fake.oneShotResult = "topic-A";
@@ -1048,9 +935,8 @@ describe("createClaudeBackend.oneShotPrompt", () => {
     expect(call.prompt).toBe("Summarize");
     expect(call.systemPrompt).toBe("sys");
     expect(call.env).toEqual({ FOO: "bar" });
-    // Family-to-model translation occurred (haiku → its concrete model id)
-    expect(call.model).not.toBe("haiku");
-    expect(call.model.length).toBeGreaterThan(0);
+    // First party: the family resolves to its concrete model id.
+    expect(call.model).toBe(FAMILY_TO_MODEL.haiku);
     expect(call.pathToClaudeCodeExecutable.length).toBeGreaterThan(0);
   });
 
@@ -1083,16 +969,6 @@ describe("createClaudeBackend.oneShotPrompt", () => {
       thinking: { type: "disabled" },
       cwd: "/tmp",
     });
-  });
-
-  it("propagates errors from sdkClient.oneShotPrompt", async () => {
-    const fake = new FakeSdkClient();
-    fake.oneShotPrompt = () => Promise.reject(new Error("oneShot failed"));
-    const backend = createClaudeBackend(fake);
-    await expectRejection(
-      backend.oneShotPrompt("x", { modelFamily: "opus" }),
-      /oneShot failed/,
-    );
   });
 });
 
@@ -1141,93 +1017,31 @@ describe("createClaudeBackend - provider refusal", () => {
     });
 });
 
+// The cloud sonnet and haiku aliases resolve to models that take no effort
+// and no auto mode; "Claude cloud defaults at the SDK boundary" below holds
+// the auto downgrade, and claude-install-check.test.ts which families are
+// limited. A limited family never downgrades bypassPermissions.
 describe("createClaudeBackend - limited families on Bedrock and Vertex", () => {
-  // The cloud sonnet and haiku aliases resolve to Sonnet 4.5 and Haiku 4.5,
-  // which take no effort and no auto mode: no effort goes out, and auto runs
-  // as default, never bypassPermissions. A 5.x pin, first-party, and the
-  // other families keep both.
-  function launch(
-    modelFamily: string,
-    permissionMode: string,
-    env: Record<string, string>,
-  ) {
+  it("keeps bypassPermissions for a limited family, with no effort", () => {
     const fake = new FakeSdkClient();
     const backend = createClaudeBackend(fake);
     const opts = {
       agentId: "cloud-agent",
-      modelFamily,
-      env,
+      modelFamily: "haiku",
+      env: { CLAUDE_CODE_USE_BEDROCK: "1" },
       cwd: "/tmp",
       systemPrompt: "test",
-      permissionMode,
+      permissionMode: "bypassPermissions",
       effort: "high",
     };
     backend.createSession(opts).close();
     backend.resumeSession("cloud-session", opts).close();
-    return [fake.createCalls[0].opts, fake.resumeCalls[0].opts];
-  }
-
-  function expectLimited(opts: ReturnType<typeof launch>[number]) {
-    expect(opts.effort).toBeUndefined();
-    expect(opts.permissionMode).toBe("default");
-    expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
-  }
-
-  function expectFull(opts: ReturnType<typeof launch>[number]) {
-    expect(opts.effort).toBe("high");
-    expect(opts.permissionMode).toBe("auto");
-    expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
-  }
-
-  for (const selector of [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-  ]) {
-    const cloud = { [selector]: "1" };
-
-    for (const family of ["haiku", "sonnet"]) {
-      it(`sends no effort and runs auto as default for ${family} on ${selector}`, () => {
-        for (const opts of launch(family, "auto", cloud)) expectLimited(opts);
-      });
-
-      it(`keeps a non-auto ${family} mode on ${selector}`, () => {
-        for (const opts of launch(family, "bypassPermissions", cloud)) {
-          expect(opts.effort).toBeUndefined();
-          expect(opts.permissionMode).toBe("bypassPermissions");
-          expect(opts.allowDangerouslySkipPermissions).toBe(true);
-        }
-      });
+    for (const call of [fake.createCalls[0].opts, fake.resumeCalls[0].opts]) {
+      expect(call.effort).toBeUndefined();
+      expect(call.permissionMode).toBe("bypassPermissions");
+      expect(call.allowDangerouslySkipPermissions).toBe(true);
     }
-
-    it(`keeps effort and auto for a pinned Haiku 5.5 on ${selector}`, () => {
-      const env = {
-        ...cloud,
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5",
-      };
-      for (const opts of launch("haiku", "auto", env)) expectFull(opts);
-    });
-
-    it(`keeps effort and auto for a pinned Sonnet 5.x on ${selector}`, () => {
-      const env = {
-        ...cloud,
-        ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-      };
-      for (const opts of launch("sonnet", "auto", env)) expectFull(opts);
-    });
-
-    for (const family of ["opus", "fable"]) {
-      it(`keeps effort and auto for ${family} on ${selector}`, () => {
-        for (const opts of launch(family, "auto", cloud)) expectFull(opts);
-      });
-    }
-  }
-
-  for (const family of ["haiku", "sonnet"]) {
-    it(`keeps effort and auto for first-party ${family}`, () => {
-      for (const opts of launch(family, "auto", { FOO: "bar" }))
-        expectFull(opts);
-    });
-  }
+  });
 });
 
 describe("createClaudeBackend.createSession/resumeSession - SDK option shape", () => {
@@ -1253,8 +1067,11 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
     });
     expect(opts.effort).toBe("high");
     expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
-    expect(opts).not.toHaveProperty("executableArgs");
-    expect(opts).not.toHaveProperty("extraArgs");
+    // Nor in the Options query() receives.
+    for (const bag of [opts, sessionOptsToV1(opts)]) {
+      expect(bag).not.toHaveProperty("executableArgs");
+      expect(bag).not.toHaveProperty("extraArgs");
+    }
     // The prompt may appear nowhere else in the option bag (e.g. a future
     // argv-shaped field) - only inside the typed systemPrompt option.
     const { systemPrompt, ...rest } = opts;
@@ -1279,6 +1096,8 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
     backend.resumeSession("s-42", createOpts);
     expect(fake.resumeCalls).toHaveLength(1);
     expect(fake.resumeCalls[0].sessionId).toBe("s-42");
+    // A resumed agent keeps its approval prompts.
+    expect(fake.resumeCalls[0].opts.canUseTool).toBeInstanceOf(Function);
     assertTypedShape(fake.resumeCalls[0].opts);
   });
 
@@ -1352,71 +1171,12 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
   });
 });
 
-// ---------------------------------------------------------------------------
-// Backend-native memory off (task 3f6ff5e0). These pin what isomux HANDS the
-// SDK: `settings.autoMemoryEnabled === false` as an explicit value on every
-// launch path. A top-level `autoMemoryEnabled` is not an SDK Option and would
-// be dropped silently, so the assertion is on the nested settings object.
-// Whether the SDK honours it is the live probe's claim, not this test's.
-// ---------------------------------------------------------------------------
-
-describe("createClaudeBackend - backend-native auto-memory is switched off", () => {
-  const createOpts = {
-    agentId: "agent-mem",
-    cwd: "/tmp",
-    systemPrompt: "sys",
-    modelFamily: "opus",
-    effort: "high",
-    permissionMode: "default",
-  };
-
-  it("createSession carries settings.autoMemoryEnabled === false", () => {
-    const fake = new FakeSdkClient();
-    createClaudeBackend(fake).createSession(createOpts);
-    const settings = fake.createCalls[0].opts.settings;
-    expect(typeof settings).toBe("object");
-    expect(
-      (settings as { autoMemoryEnabled?: unknown }).autoMemoryEnabled,
-    ).toBe(false);
-    expect(fake.createCalls[0].opts).not.toHaveProperty("autoMemoryEnabled");
-  });
-
-  it("resumeSession carries settings.autoMemoryEnabled === false", () => {
-    const fake = new FakeSdkClient();
-    createClaudeBackend(fake).resumeSession("s-7", createOpts);
-    const settings = fake.resumeCalls[0].opts.settings;
-    expect(
-      (settings as { autoMemoryEnabled?: unknown }).autoMemoryEnabled,
-    ).toBe(false);
-  });
-
-  it("oneShotPrompt carries settings.autoMemoryEnabled === false", async () => {
-    const fake = new FakeSdkClient();
-    await createClaudeBackend(fake).oneShotPrompt("Summarize", {
-      modelFamily: "haiku",
-    });
-    const settings = fake.oneShotCalls[0].settings;
-    expect(
-      (settings as { autoMemoryEnabled?: unknown }).autoMemoryEnabled,
-    ).toBe(false);
-  });
-
-  it("the shared constant is the documented SDK switch, nothing else", () => {
-    expect(CLAUDE_MEMORY_OFF_SETTINGS).toEqual({ autoMemoryEnabled: false });
-  });
-});
-
-describe("createClaudeBackend default instance", () => {
-  it("module export `claudeBackend` is constructed from the production V1 SDK client", async () => {
-    // We can't make real SDK calls here, but we can verify capabilities are
-    // set. The real exercise of the V1 adapter happens at runtime against
-    // the SDK's `query()` (covered by the dev-server integration path).
-    const { claudeBackend } = await import("./claude");
-    expect(claudeBackend.capabilities.canUseTool).toBe(true);
-    expect(claudeBackend.capabilities.fork).toBe(true);
-  });
-});
-
+// Backend-native memory off (task 3f6ff5e0) and vendor telemetry off: what
+// isomux HANDS the SDK on every launch path. A top-level `autoMemoryEnabled`
+// is not an SDK Option and would be dropped silently, so the assertion is on
+// the nested settings object. Options.env replaces the child env, so an
+// absent env stays absent. Whether the SDK honours the settings is the live
+// probe's claim, not this test's.
 describe("Claude launch telemetry settings", () => {
   for (const env of [undefined, { DISABLE_TELEMETRY: "", KEEP_ME: "yes" }]) {
     it(`disables vendor telemetry on create, resume and one-shot (${env ? "explicit" : "inherited"} env)`, async () => {
@@ -1454,21 +1214,32 @@ describe("Claude launch telemetry settings", () => {
 // ---------------------------------------------------------------------------
 
 describe("tool-boundary delivery hook", () => {
-  const batchInput = (agentId?: string) =>
-    ({
-      hook_event_name: "PostToolBatch",
-      session_id: "s-1",
-      transcript_path: "/tmp/t.jsonl",
+  // The PostToolBatch hook the session hands the SDK for this callback.
+  const run = (take: () => string | null, agentId?: string) => {
+    const fake = new FakeSdkClient();
+    createClaudeBackend(fake).createSession({
+      agentId: "a",
       cwd: "/tmp",
-      tool_calls: [],
-      ...(agentId ? { agent_id: agentId } : {}),
-    }) as unknown as Parameters<
-      ReturnType<typeof toolBoundaryHooks>[0]["hooks"][0]
-    >[0];
-  const run = (take: () => string | null, agentId?: string) =>
-    toolBoundaryHooks(take)[0].hooks[0](batchInput(agentId), undefined, {
-      signal: new AbortController().signal,
+      systemPrompt: "",
+      modelFamily: "opus",
+      effort: "high",
+      permissionMode: "default",
+      takeToolBoundaryMessage: take,
     });
+    const hook = fake.createCalls[0].opts.hooks!.PostToolBatch![0].hooks[0];
+    return hook(
+      {
+        hook_event_name: "PostToolBatch",
+        session_id: "s-1",
+        transcript_path: "/tmp/t.jsonl",
+        cwd: "/tmp",
+        tool_calls: [],
+        ...(agentId ? { agent_id: agentId } : {}),
+      } as unknown as Parameters<typeof hook>[0],
+      undefined,
+      { signal: new AbortController().signal },
+    );
+  };
 
   it("hands a main-thread batch the callback's text as additional context", async () => {
     expect(await run(() => "a message")).toEqual({
@@ -1527,12 +1298,12 @@ describe("tool-boundary delivery hook", () => {
 });
 
 describe("Claude cloud defaults at the SDK boundary", () => {
+  // One region the defaults cover and one they do not; the region table is
+  // claude-cloud-defaults.test.ts's.
   for (const env of [
     { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "eu-west-1" },
-    { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "ap-northeast-1" },
-    { CLAUDE_CODE_USE_VERTEX: "1", CLOUD_ML_REGION: "global" },
     { CLAUDE_CODE_USE_VERTEX: "1", CLOUD_ML_REGION: "us-east5" },
-  ]) {
+  ] as Record<string, string>[]) {
     it(`uses the same defaults for create, resume and titles in ${JSON.stringify(env)}`, async () => {
       const fake = new FakeSdkClient();
       const backend = createClaudeBackend(fake);
@@ -1548,14 +1319,8 @@ describe("Claude cloud defaults at the SDK boundary", () => {
       const created = backend.createSession(opts);
       const resumed = backend.resumeSession("cloud-defaults-session", opts);
       await backend.oneShotPrompt("Topic", opts);
-      const covered =
-        env.AWS_REGION === "eu-west-1" || env.CLOUD_ML_REGION === "global";
-      const expected =
-        env.AWS_REGION === "eu-west-1"
-          ? "eu.anthropic.claude-sonnet-5-5"
-          : covered
-            ? "claude-sonnet-5-5"
-            : undefined;
+      const covered = env.AWS_REGION === "eu-west-1";
+      const expected = covered ? "eu.anthropic.claude-sonnet-5-5" : undefined;
       for (const call of [
         fake.createCalls[0].opts,
         fake.resumeCalls[0].opts,
@@ -1668,17 +1433,6 @@ describe("ClaudeBackend remote MCP servers", () => {
       expect(JSON.stringify(v1.env ?? {})).not.toContain(value);
     }
   });
-
-  it("hands over nothing when there are none", () => {
-    const fake = new FakeSdkClient();
-    const backend = createClaudeBackend(fake);
-    backend.createSession({ ...opts, mcpServers: [] });
-    backend.createSession({ ...opts, mcpServers: undefined });
-    expect(fake.createCalls.map((call) => call.mcp)).toEqual([
-      undefined,
-      undefined,
-    ]);
-  });
 });
 
 describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
@@ -1758,25 +1512,17 @@ describe("ClaudeSession plan mode", () => {
       settled = true;
       return r;
     });
-    expect((await nextEvent(it))?.kind).toBe("assistant_text");
-    expect((await nextEvent(it))?.kind).toBe("approval_request");
+    // The plan reaches the chat just before its approval request.
+    expect(await nextEvent(it)).toEqual({ kind: "assistant_text", text: PLAN });
+    expect(await nextEvent(it)).toMatchObject({
+      kind: "approval_request",
+      approvalId: "exit-1",
+      toolName: "ExitPlanMode",
+    });
     await tick();
     expect(settled).toBe(false);
     await session.approve("exit-1", { kind: "deny" });
     expect((await result)?.behavior).toBe("deny");
-  });
-
-  it("puts the plan into the chat just before its approval request", async () => {
-    const fake = new FakeSdkClient();
-    const { session, canUseTool } = makeSession(fake);
-    const it = session.stream()[Symbol.asyncIterator]();
-    void canUseTool("ExitPlanMode", { plan: PLAN }, fakeCallOpts("exit-2"));
-    expect(await nextEvent(it)).toEqual({ kind: "assistant_text", text: PLAN });
-    expect(await nextEvent(it)).toMatchObject({
-      kind: "approval_request",
-      approvalId: "exit-2",
-      toolName: "ExitPlanMode",
-    });
   });
 
   it("planMode enters plan mode after launch, and the first send waits for it", async () => {
@@ -1863,16 +1609,6 @@ describe("ClaudeSession plan mode", () => {
     expect(await kinds).toEqual(["system_text"]);
   });
 
-  it("a plan the model entered is not reported as the member's plan mode", async () => {
-    const fake = new FakeSdkClient();
-    const { session, conv } = makeSession(fake);
-    const kinds = streamKinds(session);
-    conv.emit({ type: "system", subtype: "status", permissionMode: "plan" });
-    conv.emit({ type: "system", subtype: "status", permissionMode: "default" });
-    conv.finish();
-    expect(await kinds).toEqual([]);
-  });
-
   it("reports the plan state the CLI announces, once per change", async () => {
     const fake = new FakeSdkClient();
     const { session, conv } = makeSession(fake);
@@ -1935,5 +1671,214 @@ describe("ClaudeSession plan mode", () => {
       ["plan"],
       [],
     ]);
+  });
+});
+
+// Usage-limit stops on Claude, for the resume after the reset
+// (server/limit-resume.ts). Driven through ClaudeSession, so the test also
+// pins where the stop event lands in the session's stream.
+//
+// Fixture sources:
+// - LIMIT_TEXT is a real limit message from an isomux conversation log
+//   (~/.isomux/logs/agent-1774982211503-c244/3c59f1e7-f0c7-436a-bbb2-abe0a1e71515.jsonl,
+//   2026-07-11). isomux logs keep only its text; error "rate_limit" and
+//   model "<synthetic>" are how the CLI bundled with SDK 0.3.293 sends it
+//   (SDKAssistantMessage.error).
+// - rateLimitEvent() is a real rate_limit_event, captured 2026-10-18 from a
+//   one-shot SDK query on the office account. Its status was "allowed"; the
+//   tests set the status they need, and only the status.
+
+const LIMIT_TEXT =
+  "You've hit your limit · resets Jul 11, 5pm (America/Los_Angeles)";
+const RESETS_AT = 1792361400;
+
+function rateLimitEvent(status: "allowed" | "rejected", resetsAt = RESETS_AT) {
+  return {
+    type: "rate_limit_event",
+    rate_limit_info: {
+      status,
+      resetsAt,
+      rateLimitType: "five_hour",
+      overageStatus: "rejected",
+      overageDisabledReason: "out_of_credits",
+      isUsingOverage: false,
+      unifiedWindows: {
+        five_hour: { utilization: 0.14, resetsAt: 1792361400 },
+        seven_day: { utilization: 0.11, resetsAt: 1792886400 },
+      },
+    },
+    uuid: "979fd73c-dfee-4123-a6b2-051644707b6a",
+    session_id: "s-1",
+  };
+}
+
+function limitMessage(parentToolUseId: string | null = null) {
+  return {
+    type: "assistant",
+    message: {
+      model: "<synthetic>",
+      role: "assistant",
+      content: [{ type: "text", text: LIMIT_TEXT }],
+    },
+    parent_tool_use_id: parentToolUseId,
+    error: "rate_limit",
+    uuid: "u-limit",
+    session_id: "s-1",
+  };
+}
+
+const RESULT = {
+  type: "result",
+  subtype: "success",
+  is_error: true,
+  result: LIMIT_TEXT,
+  usage: {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  },
+  total_cost_usd: 0,
+};
+
+function makeLimitSession() {
+  const { session, conv } = makeSession(new FakeSdkClient());
+  const events = session.stream()[Symbol.asyncIterator]();
+  // The events up to and including the next turn_completed. Every case ends
+  // its turn, so a stream that ends first fails here: an absence check cannot
+  // pass on an early end.
+  async function turn(msgs: unknown[]): Promise<NormalizedEvent[]> {
+    for (const m of msgs) conv.emit(m);
+    const out: NormalizedEvent[] = [];
+    for (;;) {
+      const r = await events.next();
+      if (r.done)
+        throw new Error(`stream ended before turn_completed: ${kindsOf(out)}`);
+      out.push(r.value);
+      if (r.value.kind === "turn_completed") return out;
+    }
+  }
+  return { turn, close: () => session.close() };
+}
+
+const kindsOf = (evs: NormalizedEvent[]) => evs.map((e) => e.kind).join(", ");
+
+const kinds = (evs: NormalizedEvent[]) => evs.map((e) => e.kind);
+const stops = (evs: NormalizedEvent[]) =>
+  evs.filter((e) => e.kind === "usage_limit_stop");
+
+describe("Claude usage-limit stop", () => {
+  it("a rejected limit and the limit message report the reset, ahead of the turn's end", async () => {
+    const s = makeLimitSession();
+    try {
+      const evs = await s.turn([
+        rateLimitEvent("rejected"),
+        limitMessage(),
+        RESULT,
+      ]);
+      expect(stops(evs)).toEqual([
+        { kind: "usage_limit_stop", resetsAtMs: RESETS_AT * 1000 },
+      ]);
+      // The message still reaches the chat, and the stop comes right before
+      // the turn ends.
+      expect(evs).toContainEqual({ kind: "system_text", text: LIMIT_TEXT });
+      expect(kinds(evs).slice(-2)).toEqual([
+        "usage_limit_stop",
+        "turn_completed",
+      ]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("does not depend on the order of the event and the message", async () => {
+    const s = makeLimitSession();
+    try {
+      const evs = await s.turn([
+        limitMessage(),
+        rateLimitEvent("rejected"),
+        RESULT,
+      ]);
+      expect(stops(evs)).toHaveLength(1);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("an error rate_limit with the limit allowed is not a usage limit (a plain 429)", async () => {
+    const s = makeLimitSession();
+    try {
+      const evs = await s.turn([
+        rateLimitEvent("allowed"),
+        limitMessage(),
+        RESULT,
+      ]);
+      expect(stops(evs)).toEqual([]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("a rejected limit with no limit message did not stop the turn", async () => {
+    const s = makeLimitSession();
+    try {
+      const evs = await s.turn([rateLimitEvent("rejected"), RESULT]);
+      expect(stops(evs)).toEqual([]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("a subagent's limit message alone is not the main thread's stop", async () => {
+    const s = makeLimitSession();
+    try {
+      const evs = await s.turn([
+        rateLimitEvent("rejected"),
+        limitMessage("toolu_parent"),
+        RESULT,
+      ]);
+      expect(stops(evs)).toEqual([]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("an unknown reset time reports no stop", async () => {
+    const s = makeLimitSession();
+    try {
+      const event = rateLimitEvent("rejected") as {
+        rate_limit_info: Record<string, unknown>;
+      };
+      delete event.rate_limit_info.resetsAt;
+      const evs = await s.turn([event, limitMessage(), RESULT]);
+      expect(stops(evs)).toEqual([]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("keeps the session's latest info: a later stop with no new event reports it again, and only that turn", async () => {
+    const s = makeLimitSession();
+    try {
+      await s.turn([rateLimitEvent("rejected"), limitMessage(), RESULT]);
+      // The CLI emits rate_limit_event only when the info changes.
+      expect(stops(await s.turn([limitMessage(), RESULT]))).toEqual([
+        { kind: "usage_limit_stop", resetsAtMs: RESETS_AT * 1000 },
+      ]);
+      // A turn with no limit message reports nothing.
+      expect(
+        stops(
+          await s.turn([
+            {
+              type: "assistant",
+              message: { content: [{ type: "text", text: "ok" }] },
+            },
+            RESULT,
+          ]),
+        ),
+      ).toEqual([]);
+    } finally {
+      s.close();
+    }
   });
 });

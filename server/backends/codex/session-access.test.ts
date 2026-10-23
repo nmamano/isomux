@@ -1,8 +1,8 @@
 // Task d32356f2: the Codex app-server that reads or forks a stored thread must
 // run with the agent's cwd and environment, so it opens the CODEX_HOME that
 // holds the thread (a personal or managed CODEX_HOME, not the office one).
-// Real code and the bundled Codex; the thread id is made up, so both calls
-// fail after the start - what matters is where the app-server ran.
+// Real code up to the spawn; both calls fail after the start - what matters
+// is where the app-server ran.
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
@@ -35,9 +35,11 @@ describe("Codex session access", () => {
       const spawns: SpawnChildOptions[] = [];
       setAgentHost({
         ...localAgentHost,
-        spawnChild: (argv, options = {}) => {
+        // The recorded options are the oracle, so the child need not be
+        // codex: it exits at once and the call fails after the start.
+        spawnChild: (_argv, options = {}) => {
           spawns.push(options);
-          return localAgentHost.spawnChild(argv, options);
+          return localAgentHost.spawnChild(["/bin/true"], options);
         },
       });
       const access = {

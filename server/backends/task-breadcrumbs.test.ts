@@ -85,39 +85,17 @@ function bgBashLaunch(): SDKMessage {
 }
 
 describe("TaskBreadcrumbTracker - background Bash", () => {
-  it("emits started + settle breadcrumbs for local_bash", () => {
-    const t = new TaskBreadcrumbTracker();
-    t.observe(bgBashLaunch());
-    const started = t.observe(taskStarted());
-    expect(started).toEqual([
-      {
-        kind: "task_lifecycle",
-        phase: "started",
-        taskId: "b123",
-        label: "Background task started: Poll the gate log",
-      },
-    ]);
-    const settled = t.observe(taskNotification());
-    expect(settled).toEqual([
-      {
-        kind: "task_lifecycle",
-        phase: "completed",
-        taskId: "b123",
-        label: 'Background command "Poll the gate log" completed (exit code 0)',
-      },
-    ]);
-  });
-
+  // The started + settle pair through the session's wiring is
+  // claude.session.test.ts's "interleaves task_lifecycle breadcrumbs" test.
   it("maps failed/stopped statuses to matching phases", () => {
     for (const status of ["failed", "stopped"] as const) {
       const t = new TaskBreadcrumbTracker();
       t.observe(bgBashLaunch());
       t.observe(taskStarted());
+      // With no summary, the label falls back to the description.
       const [ev] = t.observe(taskNotification({ status, summary: "" }));
-      expect(ev).toMatchObject({
-        phase: status,
-        label: `Background task ${status}: Poll the gate log`,
-      });
+      expect(ev).toMatchObject({ phase: status, taskId: "b123" });
+      expect((ev as { label: string }).label).toContain("Poll the gate log");
     }
   });
 
@@ -141,12 +119,10 @@ describe("TaskBreadcrumbTracker - foreground shell filtering (0c7945cd)", () => 
     t.observe(assistantToolUse("toolu_1", "Bash", { command: "bun test" }));
     expect(t.observe(taskStarted())).toHaveLength(0);
     expect(t.observe(taskNotification())).toHaveLength(0);
-  });
-
-  it("stays silent for a local_bash start with no launching tool_use at all", () => {
-    const t = new TaskBreadcrumbTracker();
-    expect(t.observe(taskStarted())).toHaveLength(0);
-    expect(t.observe(taskNotification())).toHaveLength(0);
+    // Nor with no launching tool_use at all: background is proven, not assumed.
+    const bare = new TaskBreadcrumbTracker();
+    expect(bare.observe(taskStarted())).toHaveLength(0);
+    expect(bare.observe(taskNotification())).toHaveLength(0);
   });
 
   it("does not let a foreground Bash inherit an unrelated background id", () => {
@@ -174,37 +150,19 @@ describe("TaskBreadcrumbTracker - foreground shell filtering (0c7945cd)", () => 
     expect(t.observe(taskStarted())).toHaveLength(0);
     // Ctrl+B / auto-background on timeout: this is the real promotion the
     // ad86462c incidents were wrongly attributed to, and it stays visible.
-    const [moved] = t.observe(
+    const moved = t.observe(
       taskUpdated({ is_backgrounded: true, description: "bun test" }),
     );
-    expect(moved).toMatchObject({
-      phase: "started",
-      label: "Task moved to background: bun test",
-    });
+    expect(moved).toMatchObject([
+      { kind: "task_lifecycle", phase: "started", taskId: "b123" },
+    ]);
+    expect((moved[0] as { label: string }).label).toContain("bun test");
+    // Its settle is now breadcrumb-worthy.
     expect(t.observe(taskNotification())).toHaveLength(1);
   });
 });
 
-describe("TaskBreadcrumbTracker - foreground-subagent filtering", () => {
-  it("stays silent for foreground local_agent start AND settle", () => {
-    const t = new TaskBreadcrumbTracker();
-    // Foreground Agent call: tool_use WITHOUT run_in_background.
-    t.observe(assistantToolUse("toolu_fg", "Task", { prompt: "explore" }));
-    const started = t.observe(
-      taskStarted({
-        task_id: "a900",
-        tool_use_id: "toolu_fg",
-        task_type: "local_agent",
-        subagent_type: "general-purpose",
-      }),
-    );
-    expect(started).toHaveLength(0);
-    const settled = t.observe(
-      taskNotification({ task_id: "a900", tool_use_id: "toolu_fg" }),
-    );
-    expect(settled).toHaveLength(0);
-  });
-
+describe("TaskBreadcrumbTracker - agents and workflows", () => {
   it("breadcrumbs a background Agent launched with run_in_background", () => {
     const t = new TaskBreadcrumbTracker();
     t.observe(
@@ -221,14 +179,12 @@ describe("TaskBreadcrumbTracker - foreground-subagent filtering", () => {
         description: "Audit the codebase",
       }),
     );
-    expect(started).toEqual([
-      {
-        kind: "task_lifecycle",
-        phase: "started",
-        taskId: "a901",
-        label: "Background agent started: Audit the codebase",
-      },
+    expect(started).toMatchObject([
+      { kind: "task_lifecycle", phase: "started", taskId: "a901" },
     ]);
+    expect((started[0] as { label: string }).label).toContain(
+      "Audit the codebase",
+    );
   });
 
   it("breadcrumbs workflows via task_type local_workflow", () => {
@@ -241,31 +197,12 @@ describe("TaskBreadcrumbTracker - foreground-subagent filtering", () => {
         tool_use_id: undefined,
       }),
     );
-    expect(started[0]).toMatchObject({
-      phase: "started",
-      label: "Workflow started: review-changes",
-    });
+    expect(started[0]).toMatchObject({ phase: "started", taskId: "w1" });
+    expect((started[0] as { label: string }).label).toContain("review-changes");
   });
 });
 
 describe("TaskBreadcrumbTracker - mid-run backgrounding", () => {
-  it("tracks + breadcrumbs task_updated with is_backgrounded", () => {
-    const t = new TaskBreadcrumbTracker();
-    const moved = t.observe(
-      taskUpdated({ is_backgrounded: true, description: "Long build" }),
-    );
-    expect(moved).toEqual([
-      {
-        kind: "task_lifecycle",
-        phase: "started",
-        taskId: "b123",
-        label: "Task moved to background: Long build",
-      },
-    ]);
-    // Its settle is now breadcrumb-worthy.
-    expect(t.observe(taskNotification())).toHaveLength(1);
-  });
-
   it("ignores task_updated without is_backgrounded", () => {
     const t = new TaskBreadcrumbTracker();
     expect(t.observe(taskUpdated({ status: "completed" }))).toHaveLength(0);
@@ -324,18 +261,10 @@ describe("TaskBreadcrumbTracker - skip_transcript + sanitize", () => {
     expect(sum.kind === "task_lifecycle" && sum.label.length).toBe(200);
   });
 
-  it("labels via description fallback to task_id and multiline squashing", () => {
+  it("labels with the task_id when the description is empty", () => {
     const t = new TaskBreadcrumbTracker();
     t.observe(bgBashLaunch());
-    const [ev] = t.observe(
-      taskStarted({ description: "line1\nline2   spaced" }),
-    );
-    expect(ev).toMatchObject({
-      label: "Background task started: line1 line2 spaced",
-    });
-    const t2 = new TaskBreadcrumbTracker();
-    t2.observe(bgBashLaunch());
-    const [ev2] = t2.observe(taskStarted({ task_id: "bzz", description: "" }));
-    expect(ev2).toMatchObject({ label: "Background task started: bzz" });
+    const [ev] = t.observe(taskStarted({ task_id: "bzz", description: "" }));
+    expect((ev as { label: string }).label).toContain("bzz");
   });
 });

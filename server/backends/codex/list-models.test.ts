@@ -97,20 +97,21 @@ function setup(mode: "list" | "hang") {
   const dir = mkdtempSync(join(tmpdir(), "codex-list-models-test-"));
   tmpDirs.push(dir);
   const pidFile = join(dir, "pids");
-  // A CODEX_HOME that is a file makes the safety preflight fail fast with a
-  // warning; the client still starts the launcher (client.test.ts).
-  const codexHome = join(dir, "codex-home-file");
-  writeFileSync(codexHome, "x");
   const opts = {
     cwd: dir,
     env: {
       ...process.env,
-      CODEX_HOME: codexHome,
+      CODEX_HOME: join(dir, "codex-home"),
       PID_FILE: pidFile,
       FAKE_MODE: mode,
     },
   };
-  const launcher = { codexBin: writeFakeAppServer(dir), args: [] };
+  // The fake runs no tools, so the safety preflight is not the contract.
+  const launcher = {
+    codexBin: writeFakeAppServer(dir),
+    args: [],
+    skipSafetyPreflightForTestProbe: true,
+  };
   const pids = async (): Promise<number[]> => {
     const ok = await waitFor(() => {
       try {

@@ -3,30 +3,22 @@
 // This file is the Claude half of the adapter-contract net (the Codex half is
 // server/backends/codex/adapter.test.ts). It freezes the claude-agent-sdk
 // SDKMessage -> NormalizedEvent translation by feeding curated SDK messages to
-// the pure `translateSDKMessage` generator and asserting the emitted events,
-// plus the user-message builder (`buildClaudeUserMessage`) and session-message
-// flattening. Zero LLM: plain `bun test` runs it always; refresh the fixtures
-// on claude-agent-sdk bumps. The session-lifecycle seam (ClaudeSession + the
-// injected SdkClient) is covered in claude.session.test.ts; the live
-// end-to-end smoke is server/backends/live-smoke.test.ts (T3, opt-in). See
+// the pure `translateSDKMessage` generator and asserting the emitted events.
+// Zero LLM: plain `bun test` runs it always; refresh the fixtures on
+// claude-agent-sdk bumps. The session-lifecycle seam (ClaudeSession + the
+// injected SdkClient), user messages and session-message flattening are
+// covered in claude.session.test.ts; the live end-to-end smoke is
+// server/backends/live-smoke.test.ts (T3, opt-in). See
 // internal-docs/generic-runtime-refactor.md, Testing strategy -> test tiers.
-import { describe, expect, it, afterAll } from "bun:test";
-import { join } from "path";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
-import { STATE_ROOT } from "../config.ts";
+import { describe, expect, it } from "bun:test";
 import {
   translateSDKMessage,
-  flattenSessionMessageText,
-  buildClaudeUserMessage,
   type ImageSink,
   type TranslateOptions,
 } from "./claude";
 import { msg } from "../../shared/i18n/log-message.ts";
 import { inertMarkdown, providerText } from "./provider-text.ts";
-import type {
-  SDKMessage,
-  SessionMessage,
-} from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,7 +74,7 @@ describe("translateSDKMessage - system", () => {
     ]);
   });
 
-  it("init carries the MCP servers and the API key source", () => {
+  it("init carries the MCP servers, the API key source and the plugins", () => {
     const [event] = translate({
       type: "system",
       subtype: "init",
@@ -94,6 +86,10 @@ describe("translateSDKMessage - system", () => {
         { name: "claude.ai Gmail", status: "pending", source: "claudeai" },
         { name: "local", status: "connected" },
       ],
+      plugins: [
+        { name: "p", path: "/plugins/p", source: "p@m" },
+        { name: "core", path: "builtin", source: "core@builtin" },
+      ],
     });
     expect(event).toMatchObject({
       kind: "system_init",
@@ -102,23 +98,6 @@ describe("translateSDKMessage - system", () => {
         { name: "claude.ai Gmail", status: "pending", source: "claudeai" },
         { name: "local", status: "connected" },
       ],
-    });
-  });
-
-  it("init carries the plugins the process loaded", () => {
-    const [event] = translate({
-      type: "system",
-      subtype: "init",
-      session_id: "s-1",
-      slash_commands: [],
-      model: "x",
-      plugins: [
-        { name: "p", path: "/plugins/p", source: "p@m" },
-        { name: "core", path: "builtin", source: "core@builtin" },
-      ],
-    });
-    expect(event).toMatchObject({
-      kind: "system_init",
       plugins: [
         { name: "p", path: "/plugins/p", source: "p@m" },
         { name: "core", path: "builtin", source: "core@builtin" },
@@ -126,11 +105,10 @@ describe("translateSDKMessage - system", () => {
     });
   });
 
-  it("init without session_id emits with undefined sessionId", () => {
+  it("init without session_id or slash_commands still emits", () => {
     const events = translate({
       type: "system",
       subtype: "init",
-      slash_commands: [],
       model: "x",
     });
     expect(events).toEqual([
@@ -143,97 +121,56 @@ describe("translateSDKMessage - system", () => {
     ]);
   });
 
-  it("init falls back to empty slash_commands when missing", () => {
-    const events = translate({
-      type: "system",
-      subtype: "init",
-      session_id: "s",
-    });
-    expect(events[0]).toMatchObject({ slashCommands: [] });
-  });
-
-  it("local_command_output with content emits system_text", () => {
+  it("local_command_output emits system_text; empty content is dropped", () => {
     const events = translate({
       type: "system",
       subtype: "local_command_output",
       content: "Hello",
     });
     expect(events).toEqual([{ kind: "system_text", text: "Hello" }]);
+    expect(
+      translate({
+        type: "system",
+        subtype: "local_command_output",
+        content: "",
+      }),
+    ).toEqual([]);
   });
 
-  it("local_command_output with empty content is dropped", () => {
-    const events = translate({
-      type: "system",
-      subtype: "local_command_output",
-      content: "",
-    });
-    expect(events).toEqual([]);
-  });
-
-  it("permission_denied emits a permission_denied event", () => {
-    const events = translate({
-      type: "system",
-      subtype: "permission_denied",
-      tool_name: "Bash",
-      tool_use_id: "toolu-1",
-      decision_reason_type: "classifier",
-      decision_reason: "Auto mode declined this command",
-      message: "Permission to use Bash has been denied.",
-      uuid: "u-1",
-      session_id: "s-1",
-    });
-    expect(events).toEqual([
+  // decision_reason and the subagent's agent_id are optional.
+  for (const [extra, expected] of [
+    [
       {
-        kind: "permission_denied",
-        toolUseId: "toolu-1",
-        toolName: "Bash",
+        decision_reason_type: "classifier",
+        decision_reason: "Auto mode declined this command",
+      },
+      { decisionReason: "Auto mode declined this command" },
+    ],
+    [{}, {}],
+    [{ agent_id: "subagent-7" }, { agentId: "subagent-7" }],
+  ] as const) {
+    it(`permission_denied ${JSON.stringify(Object.keys(extra))} emits a permission_denied event`, () => {
+      const events = translate({
+        type: "system",
+        subtype: "permission_denied",
+        tool_name: "Bash",
+        tool_use_id: "toolu-1",
         message: "Permission to use Bash has been denied.",
-        decisionReason: "Auto mode declined this command",
-      },
-    ]);
-  });
-
-  it("permission_denied without decision_reason omits decisionReason", () => {
-    const events = translate({
-      type: "system",
-      subtype: "permission_denied",
-      tool_name: "Write",
-      tool_use_id: "toolu-2",
-      message: "Denied by rule.",
-      uuid: "u-2",
-      session_id: "s-1",
+        uuid: "u-1",
+        session_id: "s-1",
+        ...extra,
+      });
+      expect(events).toEqual([
+        {
+          kind: "permission_denied",
+          toolUseId: "toolu-1",
+          toolName: "Bash",
+          message: "Permission to use Bash has been denied.",
+          ...expected,
+        },
+      ]);
     });
-    expect(events).toEqual([
-      {
-        kind: "permission_denied",
-        toolUseId: "toolu-2",
-        toolName: "Write",
-        message: "Denied by rule.",
-      },
-    ]);
-  });
-
-  it("permission_denied preserves the subagent agent_id", () => {
-    const events = translate({
-      type: "system",
-      subtype: "permission_denied",
-      tool_name: "Bash",
-      tool_use_id: "toolu-4",
-      agent_id: "subagent-7",
-      message: "Denied.",
-      uuid: "u-4",
-      session_id: "s-1",
-    });
-    expect(events).toEqual([
-      {
-        kind: "permission_denied",
-        toolUseId: "toolu-4",
-        toolName: "Bash",
-        message: "Denied.",
-        agentId: "subagent-7",
-      },
-    ]);
-  });
+  }
 
   it("permission_denied free text is collapsed to one capped line", () => {
     const events = translate({
@@ -253,25 +190,24 @@ describe("translateSDKMessage - system", () => {
     expect(ev.message.length).toBeLessThanOrEqual(200);
   });
 
-  it("unknown system subtype is dropped", () => {
-    const events = translate({ type: "system", subtype: "compact_boundary" });
-    expect(events).toEqual([]);
+  it("an unknown system subtype or message type is dropped", () => {
+    expect(translate({ type: "system", subtype: "compact_boundary" })).toEqual(
+      [],
+    );
+    expect(translate({ type: "tool_progress", whatever: 1 })).toEqual([]);
   });
 });
 
 describe("translateSDKMessage - assistant", () => {
-  it("text block emits assistant_text", () => {
+  it("an empty text or thinking block is dropped", () => {
     const events = translate({
       type: "assistant",
-      message: { content: [{ type: "text", text: "hi" }] },
-    });
-    expect(events).toEqual([{ kind: "assistant_text", text: "hi" }]);
-  });
-
-  it("empty text block is dropped", () => {
-    const events = translate({
-      type: "assistant",
-      message: { content: [{ type: "text", text: "" }] },
+      message: {
+        content: [
+          { type: "text", text: "" },
+          { type: "thinking", thinking: "" },
+        ],
+      },
     });
     expect(events).toEqual([]);
   });
@@ -299,18 +235,6 @@ describe("translateSDKMessage - assistant", () => {
     expect(events).toEqual([
       { kind: "system_text", text: "org text", claudeAccessDenied: true },
     ]);
-  });
-
-  it("other synthetic errors do not mark the notice claudeAccessDenied", () => {
-    const events = translate({
-      type: "assistant",
-      error: "authentication_failed",
-      message: {
-        model: "<synthetic>",
-        content: [{ type: "text", text: "Not logged in" }],
-      },
-    });
-    expect(events).toEqual([{ kind: "auth_needed" }]);
   });
 
   // Bedrock and Vertex own authentication: their words pass through, and
@@ -395,88 +319,51 @@ describe("translateSDKMessage - assistant", () => {
     });
   });
 
-  it("tool_use block emits tool_call with id/name/input", () => {
-    const events = translate({
-      type: "assistant",
-      message: {
-        content: [
-          { type: "tool_use", id: "u1", name: "Read", input: { path: "/x" } },
-        ],
-      },
-    });
-    expect(events).toEqual([
-      {
-        kind: "tool_call",
-        toolUseId: "u1",
-        name: "Read",
-        input: { path: "/x" },
-      },
-    ]);
-  });
-
-  it("tool_use without input defaults to empty object", () => {
-    const events = translate({
-      type: "assistant",
-      message: {
-        content: [{ type: "tool_use", id: "u1", name: "Read" }],
-      },
-    });
-    expect(events[0]).toMatchObject({ input: {} });
-  });
-
-  it("thinking block emits thinking event", () => {
-    const events = translate({
-      type: "assistant",
-      message: {
-        content: [{ type: "thinking", thinking: "ponder" }],
-      },
-    });
-    expect(events).toEqual([{ kind: "thinking", text: "ponder" }]);
-  });
-
-  it("empty thinking is dropped", () => {
-    const events = translate({
-      type: "assistant",
-      message: {
-        content: [{ type: "thinking", thinking: "" }],
-      },
-    });
-    expect(events).toEqual([]);
-  });
-
-  it("multiple blocks emit in order", () => {
+  it("thinking, text and tool_use blocks emit in order; a tool_use without input gets {}", () => {
     const events = translate({
       type: "assistant",
       message: {
         content: [
           { type: "thinking", thinking: "think" },
           { type: "text", text: "hi" },
-          { type: "tool_use", id: "u1", name: "X", input: {} },
+          { type: "tool_use", id: "u1", name: "Read", input: { path: "/x" } },
+          { type: "tool_use", id: "u2", name: "Read" },
         ],
       },
     });
-    expect(events.map((e) => e.kind)).toEqual([
-      "thinking",
-      "assistant_text",
-      "tool_call",
+    expect(events).toEqual([
+      { kind: "thinking", text: "think" },
+      { kind: "assistant_text", text: "hi" },
+      {
+        kind: "tool_call",
+        toolUseId: "u1",
+        name: "Read",
+        input: { path: "/x" },
+      },
+      { kind: "tool_call", toolUseId: "u2", name: "Read", input: {} },
     ]);
   });
 
-  it("non-array message content is dropped", () => {
-    const events = translate({
-      type: "assistant",
-      message: { content: "not-array" },
-    });
+  it("missing message content is dropped", () => {
+    const events = translate({ type: "assistant", message: {} });
     expect(events).toEqual([]);
   });
 });
 
 describe("translateSDKMessage - user (tool_result)", () => {
-  it("string content emits tool_result", () => {
+  it("string content emits tool_result; is_error sets isError", () => {
     const events = translate({
       type: "user",
       message: {
-        content: [{ type: "tool_result", tool_use_id: "u1", content: "ok" }],
+        content: [
+          { type: "tool_result", tool_use_id: "u1", content: "ok" },
+          {
+            type: "tool_result",
+            tool_use_id: "u2",
+            content: "err",
+            is_error: true,
+          },
+        ],
       },
     });
     expect(events).toEqual([
@@ -487,58 +374,39 @@ describe("translateSDKMessage - user (tool_result)", () => {
         attachments: undefined,
         isError: false,
       },
+      {
+        kind: "tool_result",
+        toolUseId: "u2",
+        content: "err",
+        attachments: undefined,
+        isError: true,
+      },
     ]);
   });
 
-  it("array of text blocks joins with newline", () => {
-    const events = translate({
-      type: "user",
-      message: {
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "u1",
-            content: [
-              { type: "text", text: "line1" },
-              { type: "text", text: "line2" },
-            ],
-          },
-        ],
-      },
+  for (const [label, content, flat] of [
+    [
+      "text blocks join with newline",
+      [
+        { type: "text", text: "line1" },
+        { type: "text", text: "line2" },
+      ],
+      "line1\nline2",
+    ],
+    ["object content stringifies to JSON", { foo: "bar" }, '{"foo":"bar"}'],
+  ] as const) {
+    it(`tool_result ${label}`, () => {
+      const events = translate({
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "u1", content }],
+        },
+      });
+      expect(events[0]).toMatchObject({ content: flat });
     });
-    expect(events[0]).toMatchObject({ content: "line1\nline2" });
-  });
+  }
 
-  it("is_error: true sets isError", () => {
-    const events = translate({
-      type: "user",
-      message: {
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "u1",
-            content: "err",
-            is_error: true,
-          },
-        ],
-      },
-    });
-    expect(events[0]).toMatchObject({ isError: true });
-  });
-
-  it("object content stringifies to JSON", () => {
-    const events = translate({
-      type: "user",
-      message: {
-        content: [
-          { type: "tool_result", tool_use_id: "u1", content: { foo: "bar" } },
-        ],
-      },
-    });
-    expect(events[0]).toMatchObject({ content: '{"foo":"bar"}' });
-  });
-
-  it("image block calls imageSink and attaches result", () => {
+  it("image block calls imageSink and attaches what it saved", () => {
     const { sink, calls } = recordingSink();
     const events = translate(
       {
@@ -574,10 +442,8 @@ describe("translateSDKMessage - user (tool_result)", () => {
     });
     // content is the joined text from non-image blocks
     expect(events[0]).toMatchObject({ content: "Here:" });
-  });
-
-  it("imageSink returning null leaves attachments undefined", () => {
-    const events = translate(
+    // A sink that saves nothing leaves no attachment, not [null].
+    const unsaved = translate(
       {
         type: "user",
         message: {
@@ -601,44 +467,11 @@ describe("translateSDKMessage - user (tool_result)", () => {
       },
       () => null,
     );
-    expect(events[0]).toMatchObject({ attachments: undefined });
+    expect(unsaved[0]).toMatchObject({ attachments: undefined });
   });
 
-  it("unknown image media_type falls back to default extension via suggestedName", () => {
-    // media_type like "image/svg+xml" → suggestedName uses split("/")[1] = "svg+xml"
-    const { sink, calls } = recordingSink();
-    translate(
-      {
-        type: "user",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "u1",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: "image/svg+xml",
-                    data: "AAAA",
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      },
-      sink,
-    );
-    expect(calls[0].suggestedName).toBe("image.svg+xml");
-  });
-
-  it("non-array user content is dropped", () => {
-    const events = translate({
-      type: "user",
-      message: { content: "not-array" },
-    });
+  it("missing user content is dropped", () => {
+    const events = translate({ type: "user", message: {} });
     expect(events).toEqual([]);
   });
 
@@ -679,16 +512,14 @@ describe("translateSDKMessage - result", () => {
         cost: 0.001,
       },
     ]);
-  });
-
-  it("success with missing usage subfields defaults to zero", () => {
-    const events = translate({
+    // Missing usage subfields default to zero.
+    const sparse = translate({
       type: "result",
       subtype: "success",
       usage: { input_tokens: 1 },
       total_cost_usd: 0,
     });
-    expect(events[0]).toMatchObject({
+    expect(sparse[0]).toMatchObject({
       usage: {
         inputTokens: 1,
         outputTokens: 0,
@@ -698,7 +529,7 @@ describe("translateSDKMessage - result", () => {
     });
   });
 
-  it("error subtype with errors → turn_completed failed with joined message", () => {
+  it("error subtype -> turn_completed failed, naming the subtype and its errors", () => {
     const events = translate({
       type: "result",
       subtype: "error_during_execution",
@@ -707,8 +538,19 @@ describe("translateSDKMessage - result", () => {
     expect(events[0]).toMatchObject({
       kind: "turn_completed",
       status: "failed",
-      error: "Agent stopped: error_during_execution. err1, err2",
     });
+    const { error } = events[0] as { error: string };
+    for (const part of ["error_during_execution", "err1", "err2"])
+      expect(error).toContain(part);
+    // With no errors listed, the line names the subtype and nothing undefined.
+    const [bare] = translate({
+      type: "result",
+      subtype: "error_max_turns",
+    }) as {
+      error: string;
+    }[];
+    expect(bare.error).toContain("error_max_turns");
+    expect(bare.error).not.toContain("undefined");
   });
 
   it("an auth-shaped failure is a sign-in signal ahead of the failed turn", () => {
@@ -722,16 +564,6 @@ describe("translateSDKMessage - result", () => {
       "turn_completed",
     ]);
     expect(events[1]).toMatchObject({ status: "failed" });
-  });
-
-  it("error subtype without errors yields empty error suffix", () => {
-    const events = translate({
-      type: "result",
-      subtype: "error_max_turns",
-    });
-    expect(events[0]).toMatchObject({
-      error: "Agent stopped: error_max_turns. ",
-    });
   });
 
   it("error-subtype usage is NOT trusted - coerced to undefined", () => {
@@ -768,81 +600,48 @@ describe("translateSDKMessage - subagent origin", () => {
     };
   }
 
-  it("marks a subagent's tool_call with the parent call id, type and description", () => {
-    const events = translate(subagentToolUse());
-    expect(events[0]).toMatchObject({
-      kind: "tool_call",
-      name: "Read",
-      subagent: {
+  for (const [label, over, subagent] of [
+    [
+      "with the parent call id, type and description",
+      {},
+      {
         parentToolUseId: "toolu_parent",
         type: "Explore",
         description: "Find every caller of foo",
       },
-    });
-  });
-
-  it("leaves the agent's own tool_call unmarked", () => {
-    const events = translate(
-      subagentToolUse({
+    ],
+    [
+      "with the parent id alone when the SDK omits type and description",
+      { subagent_type: undefined, task_description: undefined },
+      { parentToolUseId: "toolu_parent" },
+    ],
+    [
+      "with a multi-line task description collapsed to one line",
+      { task_description: "line one\n\n  line two  " },
+      {
+        parentToolUseId: "toolu_parent",
+        type: "Explore",
+        description: "line one line two",
+      },
+    ],
+    [
+      "not at all when it is the agent's own call",
+      {
         parent_tool_use_id: null,
         subagent_type: undefined,
         task_description: undefined,
-      }),
-    );
-    expect(events[0]).toMatchObject({ kind: "tool_call" });
-    expect(events[0]).not.toHaveProperty("subagent");
-  });
-
-  it("marks with the parent id alone when the SDK omits type/description", () => {
-    const events = translate(
-      subagentToolUse({
-        subagent_type: undefined,
-        task_description: undefined,
-      }),
-    );
-    expect(events[0]).toMatchObject({
-      subagent: { parentToolUseId: "toolu_parent" },
-    });
-    const { subagent } = events[0] as unknown as {
-      subagent: Record<string, unknown>;
-    };
-    expect(subagent).not.toHaveProperty("type");
-    expect(subagent).not.toHaveProperty("description");
-  });
-
-  it("collapses a multi-line task description to one line", () => {
-    const events = translate(
-      subagentToolUse({ task_description: "line one\n\n  line two  " }),
-    );
-    expect(events[0]).toMatchObject({
-      subagent: { description: "line one line two" },
-    });
-  });
-
-  it("leaves a subagent's text and thinking alone - this marks tool cards only", () => {
-    // Scope guard: the SDK only forwards subagent text when forwardSubagentText
-    // is set (isomux does not set it), and if that ever changes the events must
-    // keep their current shape rather than silently gaining a field.
-    const events = translate({
-      type: "assistant",
-      message: {
-        role: "assistant",
-        model: "claude-x",
-        content: [
-          { type: "thinking", thinking: "weighing options" },
-          { type: "text", text: "done" },
-        ],
       },
-      parent_tool_use_id: "toolu_parent",
-      subagent_type: "Explore",
+      undefined,
+    ],
+  ] as const) {
+    it(`marks a tool_call ${label}`, () => {
+      const [event] = translate(subagentToolUse(over));
+      expect(event).toMatchObject({ kind: "tool_call", name: "Read" });
+      expect((event as { subagent?: unknown }).subagent).toEqual(subagent);
     });
-    expect(events).toEqual([
-      { kind: "thinking", text: "weighing options" },
-      { kind: "assistant_text", text: "done" },
-    ]);
-  });
+  }
 
-  it("marks the subagent's tool_result too", () => {
+  it("marks the subagent's tool_result too, and not the agent's own", () => {
     const events = translate({
       type: "user",
       message: {
@@ -857,10 +656,7 @@ describe("translateSDKMessage - subagent origin", () => {
       kind: "tool_result",
       subagent: { parentToolUseId: "toolu_parent" },
     });
-  });
-
-  it("leaves the agent's own tool_result unmarked", () => {
-    const events = translate({
+    const [own] = translate({
       type: "user",
       message: {
         role: "user",
@@ -870,233 +666,6 @@ describe("translateSDKMessage - subagent origin", () => {
       },
       parent_tool_use_id: null,
     });
-    expect(events[0]).not.toHaveProperty("subagent");
-  });
-});
-
-describe("translateSDKMessage - unknown", () => {
-  it("ignores unknown message types", () => {
-    const events = translate({ type: "tool_progress" });
-    expect(events).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// flattenSessionMessageText
-// ---------------------------------------------------------------------------
-
-describe("flattenSessionMessageText", () => {
-  it("string content is returned verbatim", () => {
-    expect(
-      flattenSessionMessageText({
-        message: { content: "hello" },
-      } as unknown as SessionMessage),
-    ).toBe("hello");
-  });
-
-  it("array of text blocks is joined without separator", () => {
-    expect(
-      flattenSessionMessageText({
-        message: {
-          content: [
-            { type: "text", text: "a" },
-            { type: "text", text: "b" },
-          ],
-        },
-      } as unknown as SessionMessage),
-    ).toBe("ab");
-  });
-
-  it("non-text blocks are skipped", () => {
-    expect(
-      flattenSessionMessageText({
-        message: {
-          content: [
-            { type: "text", text: "a" },
-            { type: "tool_use", id: "x", name: "R", input: {} },
-            { type: "text", text: "b" },
-          ],
-        },
-      } as unknown as SessionMessage),
-    ).toBe("ab");
-  });
-
-  it("null content yields empty string", () => {
-    expect(
-      flattenSessionMessageText({
-        message: { content: null },
-      } as unknown as SessionMessage),
-    ).toBe("");
-  });
-
-  it("missing message yields empty string", () => {
-    expect(flattenSessionMessageText({} as unknown as SessionMessage)).toBe("");
-  });
-
-  it("malformed text block (missing text field) is skipped", () => {
-    expect(
-      flattenSessionMessageText({
-        message: {
-          content: [{ type: "text" }, { type: "text", text: "ok" }],
-        },
-      } as unknown as SessionMessage),
-    ).toBe("ok");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildClaudeUserMessage - real persistence under unique agent id
-// ---------------------------------------------------------------------------
-// buildClaudeUserMessage resolves attachments via getFilePath (looks under
-// STATE_ROOT/logs/<agentId>/files/<filename>). We allocate a unique agentId per
-// test and write fixtures directly under that path; an afterAll hook cleans up
-// the agent dir. Uses STATE_ROOT (the config-root seam) rather than a hardcoded
-// ~/.isomux, so it follows ISOMUX_HOME: the bun test preload points STATE_ROOT
-// at a temp dir, and getFilePath reads from there too (previously the hardcode
-// happened to match only because STATE_ROOT defaulted to ~/.isomux).
-
-const TEST_AGENT_ID = `test-build-msg-${Date.now()}-${Math.random()
-  .toString(36)
-  .slice(2, 8)}`;
-const AGENT_FILES_DIR = join(STATE_ROOT, "logs", TEST_AGENT_ID, "files");
-
-function fixtureFile(filename: string, contents: Buffer | string) {
-  mkdirSync(AGENT_FILES_DIR, { recursive: true });
-  writeFileSync(join(AGENT_FILES_DIR, filename), contents);
-}
-
-afterAll(() => {
-  try {
-    rmSync(join(STATE_ROOT, "logs", TEST_AGENT_ID), {
-      recursive: true,
-      force: true,
-    });
-  } catch {}
-});
-
-describe("buildClaudeUserMessage", () => {
-  it("text-only message has a single text block", () => {
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "hello world", []);
-    expect(msg.type).toBe("user");
-    expect(msg.parent_tool_use_id).toBeNull();
-    expect(msg.message.role).toBe("user");
-    expect(msg.message.content).toEqual([
-      { type: "text", text: "hello world" },
-    ]);
-  });
-
-  it("empty text with no attachments yields a single empty text block", () => {
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", []);
-    expect(msg.message.content).toEqual([{ type: "text", text: "" }]);
-  });
-
-  it("missing attachment file is silently skipped", () => {
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "hi", [
-      {
-        filename: "nope.png",
-        originalName: "nope.png",
-        mediaType: "image/png",
-        size: 0,
-      },
-    ]);
-    expect(msg.message.content).toEqual([{ type: "text", text: "hi" }]);
-  });
-
-  it("image attachment becomes a path-notice text block, not an inline image", () => {
-    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-    fixtureFile("pic.png", bytes);
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "see:", [
-      {
-        filename: "pic.png",
-        originalName: "pic.png",
-        mediaType: "image/png",
-        size: bytes.length,
-      },
-    ]);
-    const content = msg.message.content as { type?: string; text?: string }[];
-    expect(content).toHaveLength(2);
-    expect(content[0]).toEqual({ type: "text", text: "see:" });
-    expect(content[1].type).toBe("text");
-    expect(content[1].text).toContain('[Attachment: "pic.png" (image/png,');
-    expect(content[1].text).toContain(join(AGENT_FILES_DIR, "pic.png"));
-    expect(content.some((b) => b.type === "image")).toBe(false);
-  });
-
-  it("PDF attachment becomes a path-notice text block, not a document block", () => {
-    const bytes = Buffer.from("%PDF-1.4\nfake-pdf");
-    fixtureFile("doc.pdf", bytes);
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", [
-      {
-        filename: "doc.pdf",
-        originalName: "doc.pdf",
-        mediaType: "application/pdf",
-        size: bytes.length,
-      },
-    ]);
-    const content = msg.message.content as { type?: string; text?: string }[];
-    expect(content).toHaveLength(1);
-    expect(content[0].type).toBe("text");
-    expect(content[0].text).toContain(
-      '[Attachment: "doc.pdf" (application/pdf,',
-    );
-    expect(content[0].text).toContain(join(AGENT_FILES_DIR, "doc.pdf"));
-    expect(content.some((b) => b.type === "document")).toBe(false);
-  });
-
-  it("text-file attachment is not inlined; contents stay out of the prompt", () => {
-    fixtureFile("hello.ts", "export const x = 1;\n");
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "look:", [
-      {
-        filename: "hello.ts",
-        originalName: "hello.ts",
-        mediaType: "text/plain",
-        size: 20,
-      },
-    ]);
-    const content = msg.message.content as { type: "text"; text: string }[];
-    expect(content).toHaveLength(2);
-    expect(content[1].text).toContain('[Attachment: "hello.ts" (text/plain,');
-    expect(content[1].text).not.toContain("export const x = 1;");
-  });
-
-  it("multiple attachments join as one text block, one line each, in order", () => {
-    fixtureFile("a.png", Buffer.from([1]));
-    fixtureFile("b.bin", Buffer.from([2]));
-    const spec = (name: string, mediaType: string) => ({
-      filename: name,
-      originalName: name,
-      mediaType,
-      size: 1,
-    });
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", [
-      spec("a.png", "image/png"),
-      spec("missing.txt", "text/plain"),
-      spec("b.bin", "application/octet-stream"),
-    ]);
-    const content = msg.message.content as { type: "text"; text: string }[];
-    expect(content).toHaveLength(1);
-    const lines = content[0].text.split("\n");
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain('"a.png"');
-    expect(lines[1]).toContain('"b.bin"');
-    expect(content[0].text).not.toContain("missing.txt");
-  });
-
-  it("empty text with all attachments missing yields a single empty text block", () => {
-    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", [
-      {
-        filename: "gone1.png",
-        originalName: "gone1.png",
-        mediaType: "image/png",
-        size: 1,
-      },
-      {
-        filename: "gone2.pdf",
-        originalName: "gone2.pdf",
-        mediaType: "application/pdf",
-        size: 1,
-      },
-    ]);
-    expect(msg.message.content).toEqual([{ type: "text", text: "" }]);
+    expect(own).not.toHaveProperty("subagent");
   });
 });
