@@ -94,15 +94,6 @@ describe("planCompress", () => {
     // Planning is read-only.
     expect(existsSync(join(a, "old.jsonl"))).toBe(true);
   });
-
-  it("names a session once when a crash left both files", () => {
-    const logs = logsDir();
-    const a = join(logs, "agent-a");
-    writeAged(join(a, "both.jsonl"), body(3), 40);
-    writeAged(join(a, "both.jsonl.gz"), "stale", 40);
-    const plan = planCompress(30, deps(logs));
-    expect(plan.candidates.map((c) => c.sessionId)).toEqual(["both"]);
-  });
 });
 
 describe("applyCompress", () => {
@@ -136,31 +127,24 @@ describe("applyCompress", () => {
     expect(statSync(a).mtimeMs).toBe(dirSeconds * 1000);
   });
 
-  it("refuses a transcript that grew since the plan", async () => {
+  it("refuses a transcript that grew, or whose session became active, since the plan", async () => {
     const logs = logsDir();
-    const p = join(logs, "agent-a", "old.jsonl");
-    writeAged(p, body(3), 40);
-    const d = deps(logs);
-    const plan = planCompress(30, d);
-    appendFileSync(p, line("late") + "\n");
-
-    const result = await applyCompress(plan, d);
-
-    expect(result.compressed).toBe(0);
-    expect(result.refused.map((r) => r.path)).toEqual(["agent-a/old.jsonl"]);
-    expect(readdirSync(join(logs, "agent-a"))).toEqual(["old.jsonl"]);
-  });
-
-  it("refuses a session that became active since the plan", async () => {
-    const logs = logsDir();
-    writeAged(join(logs, "agent-a", "old.jsonl"), body(3), 40);
+    const a = join(logs, "agent-a");
+    writeAged(join(a, "grew.jsonl"), body(3), 40);
+    writeAged(join(a, "resumed.jsonl"), body(3), 40);
     const plan = planCompress(30, deps(logs));
+    appendFileSync(join(a, "grew.jsonl"), line("late") + "\n");
 
-    const result = await applyCompress(plan, deps(logs, ["old"]));
+    const result = await applyCompress(plan, deps(logs, ["resumed"]));
 
     expect(result.compressed).toBe(0);
-    expect(result.refused.map((r) => r.path)).toEqual(["agent-a/old.jsonl"]);
-    expect(readdirSync(join(logs, "agent-a"))).toEqual(["old.jsonl"]);
+    expect(
+      Object.fromEntries(result.refused.map((r) => [r.path, r.reason])),
+    ).toEqual({
+      "agent-a/grew.jsonl": "modified-since-plan",
+      "agent-a/resumed.jsonl": "not-in-fresh-plan",
+    });
+    expect(readdirSync(a).sort()).toEqual(["grew.jsonl", "resumed.jsonl"]);
   });
 
   it("settles a crash leftover on the .jsonl's content", async () => {
@@ -169,8 +153,10 @@ describe("applyCompress", () => {
     writeAged(join(a, "both.jsonl"), body(3), 40);
     writeAged(join(a, "both.jsonl.gz"), "stale", 40);
     const d = deps(logs);
+    const plan = planCompress(30, d);
+    expect(plan.candidates.map((c) => c.sessionId)).toEqual(["both"]);
 
-    expect((await applyCompress(planCompress(30, d), d)).compressed).toBe(1);
+    expect((await applyCompress(plan, d)).compressed).toBe(1);
 
     expect(readdirSync(a)).toEqual(["both.jsonl.gz"]);
     expect(readTranscriptSync(resolveTranscript(a, "both")!)).toBe(body(3));

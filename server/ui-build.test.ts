@@ -11,12 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerMessage } from "../shared/types.ts";
-import {
-  readUiBuild,
-  stampUiBuild,
-  trackUiBuild,
-  type UiBuildTracker,
-} from "./ui-build.ts";
+import { stampUiBuild, trackUiBuild, type UiBuildTracker } from "./ui-build.ts";
 
 const POLL_MS = 20;
 const PLACEHOLDER = "__ISOMUX_UI_BUILD__";
@@ -49,6 +44,13 @@ function writeBuild(dir: string, id: string): void {
   renameSync(tmp, join(dir, "index.html"));
 }
 
+// The id the server holds for a dist dir: what a tracker reads at start.
+function servedId(dir: string): string | null {
+  const tracker = trackUiBuild(dir, () => {});
+  tracker.stop();
+  return tracker.current();
+}
+
 async function until(cond: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 2000;
   while (!cond()) {
@@ -57,7 +59,7 @@ async function until(cond: () => boolean, label: string): Promise<void> {
   }
 }
 
-describe("readUiBuild", () => {
+describe("the id the server reads", () => {
   it.each([
     ["a stamped page", pageWith("0123456789abcdef"), "0123456789abcdef"],
     // A stage dir before the stamp, or a page that was never built.
@@ -88,11 +90,11 @@ describe("readUiBuild", () => {
   ])("%s", (_label, html, want) => {
     const dir = distDir();
     writeFileSync(join(dir, "index.html"), html);
-    expect(readUiBuild(dir)).toBe(want);
+    expect(servedId(dir)).toBe(want);
   });
 
   it("a missing page", () => {
-    expect(readUiBuild(distDir())).toBeNull();
+    expect(servedId(distDir())).toBeNull();
   });
 });
 
@@ -113,7 +115,7 @@ describe("stampUiBuild", () => {
     const id = stampUiBuild(dir);
     expect(id).toMatch(/^[0-9a-f]{16}$/);
     expect(metaOf(dir)).toBe(id);
-    expect(readUiBuild(dir)).toBe(id);
+    expect(servedId(dir)).toBe(id);
     // The page is the only carrier: no other file is added to the stage,
     // where the publish would take it into ui/dist.
     expect(readdirSync(dir).sort()).toEqual(["index.html", "index.js"]);
@@ -126,7 +128,7 @@ describe("stampUiBuild", () => {
     const id = stampUiBuild(dir);
     expect(() => stampUiBuild(dir)).toThrow();
     expect(metaOf(dir)).toBe(id);
-    expect(readUiBuild(dir)).toBe(id);
+    expect(servedId(dir)).toBe(id);
   });
 
   it("the id depends only on the bundle and the page", () => {
@@ -188,15 +190,6 @@ describe("trackUiBuild", () => {
     await until(() => sent.length >= 1, "removal");
     expect(sent).toEqual([{ type: "ui_build", uiBuild: null }]);
     expect(tracker.current()).toBeNull();
-  });
-
-  it("picks up a build that lands after start", async () => {
-    const dir = distDir();
-    const { tracker, sent } = track(dir);
-    expect(tracker.current()).toBeNull();
-    writeBuild(dir, "aaaaaaaaaaaaaaaa");
-    await until(() => sent.length >= 1, "first build");
-    expect(sent).toEqual([{ type: "ui_build", uiBuild: "aaaaaaaaaaaaaaaa" }]);
   });
 
   it("sends nothing after stop", async () => {

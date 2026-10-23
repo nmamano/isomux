@@ -480,28 +480,10 @@ describe("SessionManager consumer: an unclassified stream failure", () => {
 // auth-shaped in both cases, so a text sniff fails the second one.
 describe("SessionManager consumer: a stream failure and sign-in", () => {
   for (const needed of [true, false]) {
-    it(`leaves the desk ${needed ? "waiting when the turn needed sign-in" : "in error otherwise"}`, async () => {
-      const { deps, stateUpdates, diagnostics, auth } = fakeDeps();
-      auth.needed = needed;
-      const sm = new SessionManager<TestHost>("a1", deps);
-      const h = host({ info: { state: "thinking", dormant: false } });
-      const session = fakeSession();
-      sm.installSession(h, session);
-      const consumer = consumerOf(sm);
-      const turn = sm.createTurnDeferred();
-      turn.catch(() => {});
-
-      session.failStream(new Error("401 Unauthorized"));
-      await consumer;
-
-      expect(diagnostics.authAsked).toBe(1);
-      expect(stateUpdates).toEqual([needed ? "waiting_for_response" : "error"]);
-    });
-
     // The turn's owner tells a sign-in failure from a crash by the error it
     // gets, so the answer has to be known before the turn is rejected.
-    it(`rejects the turn with ${needed ? "AuthNeededError, keeping the message" : "the original error"}`, async () => {
-      const { deps, auth } = fakeDeps();
+    it(`${needed ? "a turn that needed sign-in leaves the desk waiting and rejects with AuthNeededError" : "otherwise the desk shows the error and the turn gets the original error"}`, async () => {
+      const { deps, stateUpdates, diagnostics, auth } = fakeDeps();
       auth.needed = needed;
       const sm = new SessionManager<TestHost>("a1", deps);
       const h = host({ info: { state: "thinking", dormant: false } });
@@ -518,6 +500,8 @@ describe("SessionManager consumer: a stream failure and sign-in", () => {
       session.failStream(original);
       await consumer;
 
+      expect(diagnostics.authAsked).toBe(1);
+      expect(stateUpdates).toEqual([needed ? "waiting_for_response" : "error"]);
       const err = await rejected;
       if (needed) {
         expect(err).toBeInstanceOf(AuthNeededError);

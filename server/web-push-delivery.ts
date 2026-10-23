@@ -43,7 +43,7 @@ import type { PushDeviceRecord, WebPushStore } from "./web-push-store.ts";
 import { pagerLink } from "./pager-delivery.ts";
 import { encryptPushPayload, vapidAuthorization } from "./web-push-crypto.ts";
 
-export const WEB_PUSH_SEND_TIMEOUT_MS = 10_000;
+const WEB_PUSH_SEND_TIMEOUT_MS = 10_000;
 // How long a push service keeps a message for a device that is offline.
 const TTL_SECONDS = 24 * 60 * 60;
 // The payload must fit one 4096-byte record (server/web-push-crypto.ts).
@@ -144,7 +144,7 @@ export function encodePayload(p: PushPayload): Uint8Array<ArrayBuffer> {
   }
 }
 
-export function buildPagePayload(
+function buildPagePayload(
   entry: PagerEntry,
   kind: MessageKind,
   ctx: { t: Translator["t"]; roomName: string | null },

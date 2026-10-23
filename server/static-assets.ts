@@ -65,7 +65,7 @@ async function defaultBrotli(bytes: Uint8Array): Promise<Uint8Array> {
 }
 
 /** True for a chunk name with bun's content hash, such as /index-9r7r4sjc.js. */
-export function isHashedAsset(pathname: string): boolean {
+function isHashedAsset(pathname: string): boolean {
   return /^\/[^/]+-[a-z0-9]{8}\.js$/.test(pathname);
 }
 

@@ -26,13 +26,15 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
+  statSync,
   utimesSync,
 } from "fs";
 import { join } from "path";
+import { gzipSync } from "zlib";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
 import { createTaskStore } from "../task-store.ts";
-import { compressTranscript } from "../transcript-files.ts";
+import { commitCompressed } from "../transcript-files.ts";
 import {
   loadAgents,
   saveAgents,
@@ -123,6 +125,18 @@ const OUTFIT: AgentOutfit = {
 // Round-trip: agents
 // ---------------------------------------------------------------------------
 
+// What a compress commits (server/storage-compress.ts): the gzip of the
+// .jsonl, with its mtime, in place of the .jsonl.
+function compressTranscript(dir: string, sessionId: string): void {
+  const plain = join(dir, `${sessionId}.jsonl`);
+  const { size, mtimeMs } = statSync(plain);
+  commitCompressed(
+    dir,
+    sessionId,
+    { size, mtimeMs },
+    gzipSync(readFileSync(plain)),
+  );
+}
 describe("agents persistence round-trip (Phase 1.3)", () => {
   it("preserves a multi-room, multi-agent Room[] losslessly through saveAgents -> loadAgents", () => {
     const claude: PersistedAgent = {

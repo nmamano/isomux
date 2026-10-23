@@ -23,7 +23,7 @@ import {
   unlinkSync,
   writeSync,
 } from "fs";
-import { constants as zlibConstants, gunzipSync, gzip, gzipSync } from "zlib";
+import { constants as zlibConstants, gunzipSync, gzip } from "zlib";
 import { isSafeId } from "./log-search.ts";
 
 export const TRANSCRIPT_SUFFIX = ".jsonl";
@@ -161,20 +161,6 @@ export function inflateTranscript(agentDir: string, sessionId: string): void {
   const bytes = readTranscriptBytes({ path: packed, compressed: true });
   writeDurably(agentDir, plain, bytes, statSync(packed).mtimeMs);
   unlinkSync(packed);
-}
-
-// Gzips <sessionId>.jsonl to <sessionId>.jsonl.gz with the same mtime, then
-// removes the .jsonl. The .gz is on disk (fsynced, directory too) before the
-// unlink. A stale .gz from a crash is replaced. Returns the sizes before and
-// after.
-export function compressTranscript(
-  agentDir: string,
-  sessionId: string,
-): { bytesBefore: number; bytesAfter: number } {
-  const plain = join(agentDir, sessionId + TRANSCRIPT_SUFFIX);
-  const source = statSync(plain);
-  const gz = gzipSync(readFileSync(plain));
-  return commitCompressed(agentDir, sessionId, source, gz)!;
 }
 
 export interface GzippedTranscript {

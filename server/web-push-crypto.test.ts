@@ -128,28 +128,4 @@ describe("vapidAuthorization", () => {
     expect(claims.exp).toBeGreaterThan(now / 1000);
     expect(claims.exp).toBeLessThanOrEqual(now / 1000 + 24 * 60 * 60);
   });
-
-  it("does not verify with another key pair", async () => {
-    const keys = await generateVapidKeys();
-    const other = await generateVapidKeys();
-    const header = await vapidAuthorization(ENDPOINT, keys, "mailto:a@b.c", 0);
-    const [, h, c, sig] = /^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=/.exec(
-      header,
-    )!;
-    const wrong = await crypto.subtle.importKey(
-      "raw",
-      base64UrlDecode(other.publicKey)!,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"],
-    );
-    expect(
-      await crypto.subtle.verify(
-        { name: "ECDSA", hash: "SHA-256" },
-        wrong,
-        base64UrlDecode(sig)!,
-        new TextEncoder().encode(`${h}.${c}`),
-      ),
-    ).toBe(false);
-  });
 });

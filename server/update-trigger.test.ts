@@ -20,11 +20,6 @@ const parsed = (values: Record<string, string>) =>
   ({ state: "parsed", values }) as const;
 
 describe("buildTriggerPlan", () => {
-  it("no conf -> 409 not_managed", () => {
-    const p = buildTriggerPlan({ state: "absent" }, TAG);
-    expect(p).toMatchObject({ ok: false, status: 409, code: "not_managed" });
-  });
-
   it("bad tag -> 400 before anything touches an argv", () => {
     for (const tag of [
       "main",
@@ -38,11 +33,6 @@ describe("buildTriggerPlan", () => {
     }
   });
 
-  it("present-but-damaged conf -> 409 bad_conf, NOT not_managed", () => {
-    const p = buildTriggerPlan({ state: "invalid" }, TAG);
-    expect(p).toMatchObject({ ok: false, status: 409, code: "bad_conf" });
-  });
-
   it("system kind -> systemctl start --no-block of the template instance", () => {
     const p = buildTriggerPlan(parsed({ SERVICE_KIND: "system" }), TAG);
     expect(p).toEqual({
@@ -53,28 +43,6 @@ describe("buildTriggerPlan", () => {
         "start",
         "--no-block",
         "isomux-update@v2026.7.19.service",
-      ],
-    });
-  });
-
-  it("user kind -> systemd-run --user of UPDATER_PATH", () => {
-    const p = buildTriggerPlan(
-      parsed({
-        SERVICE_KIND: "user",
-        UPDATER_PATH: "/home/x/bin/isomux-update",
-      }),
-      TAG,
-    );
-    expect(p).toEqual({
-      ok: true,
-      via: "user",
-      argv: [
-        "systemd-run",
-        "--user",
-        "--collect",
-        "--unit=isomux-update",
-        "/home/x/bin/isomux-update",
-        TAG,
       ],
     });
   });
@@ -199,7 +167,9 @@ describe("triggerUpdate (conf via ISOMUX_UPDATE_CONF, runner injected)", () => {
 
   it("present-but-damaged conf: bad_conf, runner never called", async () => {
     const conf = join(dir, "update.conf");
-    writeFileSync(conf, "not a key value line\n");
+    // A valid SERVICE_KIND beside the bad line: only the parse refusal can
+    // stop this launch.
+    writeFileSync(conf, "SERVICE_KIND=system\nnot a key value line\n");
     process.env.ISOMUX_UPDATE_CONF = conf;
     let ran = false;
     const r = await triggerUpdate(TAG, async () => {

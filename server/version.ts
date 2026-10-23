@@ -138,13 +138,6 @@ export function resolveVersion(
   };
 }
 
-export function resolveVersionInfo(
-  root: string,
-  env: Record<string, string | undefined> = process.env,
-): VersionInfo {
-  return resolveVersion(root, env).info;
-}
-
 // The newest CalVer release tag reachable from HEAD - the lineage anchor an
 // untagged checkout's update notice compares against the latest release
 // ("which release is this commit past?"). A dedicated query rather than

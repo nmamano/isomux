@@ -81,7 +81,9 @@ describe("one terminal recording", () => {
     b.advance(1500);
     b.rec.resize(100, 30);
     b.advance(250);
-    b.rec.input(alice);
+    // An input event names the member and carries nothing else.
+    const typist = { ...alice, ownerId: "u-owner", runId: "run-1" };
+    b.rec.input(typist);
     b.rec.output("ls\r\n");
     await b.rec.close();
     const { header, events } = b.read();
@@ -159,13 +161,6 @@ describe("who typed", () => {
     }
   };
 
-  it("one member typing a command is one event", async () => {
-    const b = bed();
-    keys(b.rec, alice, 20, b.advance, 50);
-    await b.rec.close();
-    expect(typists(b.read().events)).toEqual(["u-alice"]);
-  });
-
   it("two members taking turns give one event per turn", async () => {
     const b = bed();
     for (const actor of [alice, bob, alice])
@@ -191,21 +186,6 @@ describe("who typed", () => {
     keys(b.rec, alice, 12, b.advance, INPUT_BURST_GAP_MS * 2);
     await b.rec.close();
     expect(typists(b.read().events)).toEqual(["u-alice"]);
-  });
-
-  it("an input event names the member and carries nothing else", async () => {
-    const b = bed();
-    keys(b.rec, { ...alice, ownerId: "x", runId: "y" }, 30, b.advance, 10);
-    await b.rec.close();
-    const { events } = b.read();
-    for (const event of events.filter((e) => e[1] === "u")) {
-      expect(event).toHaveLength(3);
-      expect(Object.keys(event[2] as object).sort()).toEqual([
-        "id",
-        "kind",
-        "name",
-      ]);
-    }
   });
 });
 

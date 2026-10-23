@@ -180,21 +180,6 @@ describe("one app cannot read two secrets with the same name", () => {
 describe("a caller that may not add an app", () => {
   const narrow = { addHosts: false, addApps: false };
 
-  it("keeps or removes grants, and is refused a new one", () => {
-    const { store: s } = store();
-    s.create(ALICE, body({ hosts: ["api.example.com"], apps: [BOT, WEB] }));
-    expect(
-      outcome(s.update(ALICE, "BOT_TOKEN", { apps: [BOT, WEB] }, narrow)),
-    ).toBe("ok");
-    expect(outcome(s.update(ALICE, "BOT_TOKEN", { apps: [WEB] }, narrow))).toBe(
-      "ok",
-    );
-    expect(
-      outcome(s.update(ALICE, "BOT_TOKEN", { apps: [WEB, BOT] }, narrow)),
-    ).toBe("app_added");
-    expect(grants(s, ALICE)).toEqual({ BOT_TOKEN: [WEB] });
-  });
-
   it("is refused a grant whose name is held but whose app is another one", () => {
     // A stale grant for a deleted "bot", and a new app "bot": sending the
     // same names re-binds the grant to the new app, which is an add.

@@ -41,7 +41,7 @@ function fixture(buildEnvForUserId: TerminalDeps["buildEnvForUserId"]) {
   } as unknown as ReturnType<typeof Bun.spawn>);
   const emit = mock((_event: Parameters<TerminalDeps["emit"]>[0]) => {});
   spyOn(console, "log").mockImplementation(() => {});
-  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  spyOn(console, "warn").mockImplementation(() => {});
   const deps: TerminalDeps = {
     getAgent: () => managed,
     emit,
@@ -51,7 +51,6 @@ function fixture(buildEnvForUserId: TerminalDeps["buildEnvForUserId"]) {
     managed,
     spawn,
     emit,
-    warn,
     deps,
     env: () => JSON.parse(write.mock.calls[0][0]).env,
   };
@@ -94,18 +93,13 @@ describe("terminal environment", () => {
     });
   });
 
-  it("warns and exits without a sidecar when environment loading throws", () => {
-    const error = new Error("managed environment import pending");
+  it("exits without a sidecar when environment loading throws", () => {
     const f = fixture(() => {
-      throw error;
+      throw new Error("managed environment import pending");
     });
     expect(openTerminal("agent-terminal", f.deps)).toBe(false);
     expect(f.spawn).not.toHaveBeenCalled();
     expect(f.managed.ptySidecar).toBeNull();
-    expect(f.warn).toHaveBeenCalledWith(
-      "[terminal] cannot open PTY for agent-terminal:",
-      error,
-    );
     expect(f.emit).toHaveBeenCalledWith({
       type: "terminal_exit",
       agentId: "agent-terminal",
@@ -206,9 +200,7 @@ for (const structuredExit of [false, true]) {
   });
 }
 
-it("audits real terminal starts and stops, but not repeated opens or absent closes", async () => {
-  const { closeTerminal, restartTerminal } = await import("./terminal.ts");
-  const { officeAuditStore } = await import("./audit-store.ts");
+it("audits real terminal starts and stops, but not repeated opens or absent closes", () => {
   const f = fixture(() => ({}));
   f.spawn.mockImplementation(
     () =>
@@ -492,6 +484,29 @@ describe("terminal recording", () => {
       }
     });
   }
+
+  // A restart installs a new sidecar before the old one has exited: its late
+  // exit, structured or not, must not detach the new session.
+  it("keeps the new session attached when the replaced sidecar exits late", async () => {
+    const r = rig();
+    openTerminal(r.agentId, r.deps, alice);
+    restartTerminal(r.agentId, r.deps, alice);
+    const current = r.managed.ptySidecar;
+    expect(current).not.toBeNull();
+    r.sidecars[0].send({ type: "exit", exitCode: 0 });
+    r.sidecars[0].endOutput();
+    r.sidecars[0].exit(9);
+    await settle();
+    expect(r.managed.ptySidecar).toBe(current);
+    expect(r.events.filter((e) => e.type === "terminal_exit")).toEqual([]);
+    // The new sidecar's own exit still ends the session.
+    r.sidecars[1].send({ type: "exit", exitCode: 3 });
+    await settle();
+    expect(r.managed.ptySidecar).toBeNull();
+    expect(r.events.filter((e) => e.type === "terminal_exit")).toEqual([
+      { type: "terminal_exit", agentId: r.agentId, exitCode: 3 },
+    ]);
+  });
 
   it("writes one terminal.join row per member who joins a running session", async () => {
     let on = true;

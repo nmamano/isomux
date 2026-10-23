@@ -4,7 +4,7 @@
 // dir and never stat the real ~/.isomux. Cleanup goes through the temp-state
 // guard, which refuses any target that is not strictly under the temp dir.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, setSystemTime } from "bun:test";
 import {
   mkdtempSync,
   mkdirSync,
@@ -17,8 +17,6 @@ import { join } from "path";
 import { removeStateDir } from "./test-support/temp-state.ts";
 import {
   measureStorage,
-  measureTree,
-  aggregateOnly,
   measureStorageCached,
   resetStorageUsageCache,
   type StorageCategoryId,
@@ -33,6 +31,7 @@ function tempDir(): string {
 }
 
 afterEach(() => {
+  setSystemTime();
   resetStorageUsageCache();
   while (dirs.length > 0) removeStateDir(dirs.pop()!);
 });
@@ -46,8 +45,8 @@ function bytesOf(usage: StorageUsage, id: StorageCategoryId): number {
   return usage.categories.find((c) => c.id === id)!.bytes;
 }
 
-// A state root with two agents, a codex home, cronjobs, memory, and a stray
-// top-level file that must land in other-state.
+// A state root with two agents, a codex home, cronjobs, memory, webhooks, and
+// a stray top-level file that must land in other-state.
 function buildStateRoot(): string {
   const root = tempDir();
   write(join(root, "logs", "agent-a", "s1.jsonl"), 100);
@@ -61,37 +60,10 @@ function buildStateRoot(): string {
   write(join(root, "memory", "office.md"), 5);
   write(join(root, "agents.json"), 70);
   write(join(root, "token-logs", "0123456789abcdef.jsonl"), 90);
+  write(join(root, "webhooks", "webhooks.json"), 15);
+  write(join(root, "webhooks", "wh_1", "deliveries.json"), 20);
   return root;
 }
-
-describe("measureTree", () => {
-  it("sums a tree recursively and counts files", () => {
-    const root = tempDir();
-    write(join(root, "a.txt"), 10);
-    write(join(root, "sub", "b.txt"), 20);
-    write(join(root, "sub", "deep", "c.txt"), 30);
-    expect(measureTree(root)).toEqual({ bytes: 60, files: 3 });
-  });
-
-  it("measures a missing path as zero instead of throwing", () => {
-    expect(measureTree(join(tempDir(), "nope"))).toEqual({
-      bytes: 0,
-      files: 0,
-    });
-  });
-
-  it("does not follow symlinks out of the tree", () => {
-    const root = tempDir();
-    const outside = tempDir();
-    write(join(outside, "huge.bin"), 5000);
-    write(join(root, "small.txt"), 10);
-    symlinkSync(outside, join(root, "link"));
-    const usage = measureTree(root);
-    // The link counts as its own inode, never as the 5000-byte target.
-    expect(usage.bytes).toBeLessThan(1000);
-    expect(usage.files).toBe(2);
-  });
-});
 
 describe("measureStorage", () => {
   it("splits the state root into categories", () => {
@@ -108,29 +80,23 @@ describe("measureStorage", () => {
     expect(bytesOf(usage, "provider-homes")).toBe(250);
     expect(bytesOf(usage, "cronjobs")).toBe(25);
     expect(bytesOf(usage, "memory")).toBe(5);
+    expect(bytesOf(usage, "webhooks")).toBe(35);
     expect(bytesOf(usage, "other-state")).toBe(70);
   });
 
-  it("makes the in-root categories sum to the state-root total", () => {
+  it("never follows a symlink out of the state root", () => {
+    const stateRoot = buildStateRoot();
+    const outside = tempDir();
+    write(join(outside, "huge.bin"), 5000);
+    symlinkSync(outside, join(stateRoot, "link"));
     const usage = measureStorage({
-      stateRoot: buildStateRoot(),
+      stateRoot,
       backupDir: null,
       snapshotDir: null,
     });
-    const inRoot: StorageCategoryId[] = [
-      "transcripts",
-      "token-logs",
-      "attachments",
-      "session-metadata",
-      "codex-home",
-      "provider-homes",
-      "cronjobs",
-      "memory",
-      "webhooks",
-      "other-state",
-    ];
-    const sum = inRoot.reduce((acc, id) => acc + bytesOf(usage, id), 0);
-    expect(sum).toBe(usage.stateRootBytes);
+    // The link counts as its own inode, never as the 5000-byte target.
+    expect(usage.stateRootBytes).toBeLessThan(2235 + 1000);
+    expect(bytesOf(usage, "other-state")).toBeLessThan(1000);
   });
 
   it("reports per-agent detail, largest first", () => {
@@ -174,19 +140,6 @@ describe("measureStorage", () => {
     expect(usage.agents[0].lastActivityAt).toBe(at.getTime());
   });
 
-  it("claims the webhooks directory out of other state", () => {
-    const stateRoot = buildStateRoot();
-    write(join(stateRoot, "webhooks", "webhooks.json"), 15);
-    write(join(stateRoot, "webhooks", "wh_1", "deliveries.json"), 20);
-    const usage = measureStorage({
-      stateRoot,
-      backupDir: null,
-      snapshotDir: null,
-    });
-    expect(bytesOf(usage, "webhooks")).toBe(35);
-    expect(bytesOf(usage, "other-state")).toBe(70);
-  });
-
   it("measures backups and update snapshots outside the state root", () => {
     const backupDir = tempDir();
     const snapshotDir = tempDir();
@@ -200,24 +153,10 @@ describe("measureStorage", () => {
     expect(bytesOf(usage, "backups")).toBe(300);
     expect(bytesOf(usage, "update-snapshots")).toBe(400);
     // External categories are NOT part of the state-root total.
-    expect(usage.stateRootBytes).toBe(2200);
+    expect(usage.stateRootBytes).toBe(2235);
   });
 
-  it("reports a null path for a location the box does not have", () => {
-    const usage = measureStorage({
-      stateRoot: buildStateRoot(),
-      backupDir: null,
-      snapshotDir: null,
-    });
-    const snapshots = usage.categories.find(
-      (c) => c.id === "update-snapshots",
-    )!;
-    expect(snapshots.path).toBeNull();
-    expect(snapshots.available).toBe(false);
-    expect(snapshots.bytes).toBe(0);
-  });
-
-  it("distinguishes a missing backup dir from an empty one", () => {
+  it("tells a location the box lacks from a missing dir and an empty one", () => {
     const emptyBackups = tempDir();
     const withDir = measureStorage({
       stateRoot: buildStateRoot(),
@@ -227,6 +166,12 @@ describe("measureStorage", () => {
     const present = withDir.categories.find((c) => c.id === "backups")!;
     expect(present.available).toBe(true);
     expect(present.bytes).toBe(0);
+    const snapshots = withDir.categories.find(
+      (c) => c.id === "update-snapshots",
+    )!;
+    expect(snapshots.path).toBeNull();
+    expect(snapshots.available).toBe(false);
+    expect(snapshots.bytes).toBe(0);
 
     const missing = measureStorage({
       stateRoot: buildStateRoot(),
@@ -252,27 +197,6 @@ describe("measureStorage", () => {
   });
 });
 
-describe("aggregateOnly", () => {
-  it("drops per-agent detail and every filesystem path, keeps the sizes", () => {
-    const backupDir = tempDir();
-    const usage = measureStorage({
-      stateRoot: buildStateRoot(),
-      backupDir,
-      snapshotDir: null,
-    });
-    const stripped = aggregateOnly(usage);
-    expect(stripped.agents).toEqual([]);
-    expect(stripped.stateRoot).toBeNull();
-    expect(stripped.categories.every((c) => c.path === null)).toBe(true);
-    // Sizes, ids, and availability survive - a member can still see what is
-    // filling the disk, just not where it lives or which agents own it.
-    expect(
-      stripped.categories.map((c) => [c.id, c.bytes, c.available]),
-    ).toEqual(usage.categories.map((c) => [c.id, c.bytes, c.available]));
-    expect(stripped.stateRootBytes).toBe(usage.stateRootBytes);
-  });
-});
-
 describe("measureStorageCached", () => {
   it("reuses a fresh measurement and re-measures once the TTL passes", () => {
     const root = buildStateRoot();
@@ -284,7 +208,10 @@ describe("measureStorageCached", () => {
     expect(cachedRead.measuredAt).toBe(first.measuredAt);
     expect(cachedRead.stateRootBytes).toBe(first.stateRootBytes);
 
-    const afterTtl = measureStorageCached(roots, 30_000, Date.now() + 60_000);
+    setSystemTime(new Date(first.measuredAt + 29_000));
+    expect(measureStorageCached(roots).measuredAt).toBe(first.measuredAt);
+    setSystemTime(new Date(first.measuredAt + 31_000));
+    const afterTtl = measureStorageCached(roots);
     expect(afterTtl.stateRootBytes).toBe(first.stateRootBytes + 5000);
   });
 

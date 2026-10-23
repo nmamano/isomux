@@ -64,7 +64,6 @@ import {
   PUBLIC_PROGRESS_DIR,
   readText,
   UpdateProgressWatcher,
-  type ReadText,
 } from "./update-progress.ts";
 
 // Commit-mode drift target and the image-mode release channel. Host release
@@ -673,12 +672,8 @@ export function parseUpdateOutcome(
   return { target: r.target, at: r.at, messages: r.messages as string[] };
 }
 
-export function readUpdateOutcome(
-  running: string | null,
-  path: string = UPDATE_OUTCOME_PATH,
-  read: ReadText = readText,
-): UpdateOutcomeWire | null {
-  const raw = read(path);
+function readUpdateOutcome(running: string | null): UpdateOutcomeWire | null {
+  const raw = readText(UPDATE_OUTCOME_PATH);
   return typeof raw === "string" ? parseUpdateOutcome(raw, running) : null;
 }
 

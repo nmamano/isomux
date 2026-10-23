@@ -29,7 +29,7 @@ export const SUMMARY_RETRY_MAX_MS = 24 * 60 * 60_000;
 
 // The conversation entries (TIERS.conversation) after the marker, oldest
 // first. All of them when the marker is absent or not in the list.
-export function conversationEntriesAfter(
+function conversationEntriesAfter(
   entries: readonly LogEntry[],
   throughEntryId: string | undefined,
 ): LogEntry[] {
@@ -45,7 +45,7 @@ export function conversationEntriesAfter(
 // The content cut to at most SUMMARY_ENTRY_CAP characters, head and tail kept.
 const CUT_MARK = "\n[...]\n";
 
-export function capEntryContent(content: string): string {
+function capEntryContent(content: string): string {
   if (content.length <= SUMMARY_ENTRY_CAP) return content;
   const keep = SUMMARY_ENTRY_CAP - CUT_MARK.length;
   const head = Math.ceil(keep / 2);
@@ -71,7 +71,7 @@ function renderEntry(entry: LogEntry): string {
 
 // The next chunk, oldest first: entries while their capped content stays
 // within SUMMARY_CHUNK_CHARS, and always at least one entry.
-export function nextChunk(entries: readonly LogEntry[]): LogEntry[] {
+function nextChunk(entries: readonly LogEntry[]): LogEntry[] {
   const chunk: LogEntry[] = [];
   let chars = 0;
   for (const entry of entries) {
@@ -114,7 +114,7 @@ export function buildSummaryPrompt(
 
 // The paragraph to store: trimmed, redacted, capped at SUMMARY_MAX_CHARS.
 // Null when nothing is left.
-export function cleanSummary(text: string): string | null {
+function cleanSummary(text: string): string | null {
   const cleaned = redactSecretText(text.trim())
     .slice(0, SUMMARY_MAX_CHARS)
     .trim();

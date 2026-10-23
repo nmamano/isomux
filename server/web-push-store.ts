@@ -50,7 +50,7 @@ const PUSH_HOSTS: ReadonlyArray<string | RegExp> = [
   /^([a-z0-9-]+\.)*notify\.windows\.com$/,
 ];
 
-export function isPushEndpoint(raw: string): boolean {
+function isPushEndpoint(raw: string): boolean {
   if (raw.length > ENDPOINT_MAX) return false;
   let url: URL;
   try {

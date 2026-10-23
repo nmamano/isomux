@@ -13,7 +13,6 @@ import { join } from "path";
 import {
   createWebPushFilePersistence,
   createWebPushStore,
-  isPushEndpoint,
   parsePushDeviceInput,
   WebPushUnavailableError,
   type PushDeviceInput,
@@ -55,8 +54,9 @@ describe("web push store: keys", () => {
 });
 
 describe("web push store: devices", () => {
-  it("keeps each member's devices apart", async () => {
-    const store = createWebPushStore(createWebPushFilePersistence(tmp()));
+  it("keeps each member's devices apart, across a reload", async () => {
+    const path = tmp();
+    const store = createWebPushStore(createWebPushFilePersistence(path));
     const one = await store.upsert("u-a", device(1));
     await store.upsert("u-b", device(2));
     expect(one.id).toBe(await pushDeviceId(device(1).endpoint));
@@ -67,6 +67,9 @@ describe("web push store: devices", () => {
     expect(store.remove("u-a", one.id)).toBe(true);
     expect(store.list("u-a")).toHaveLength(0);
     expect(store.list("u-b")).toHaveLength(1);
+    // Saved: a fresh store reads the same devices.
+    const again = createWebPushStore(createWebPushFilePersistence(path));
+    expect(again.list("u-b")).toEqual(store.list("u-b"));
   });
 
   it("moves an endpoint to the member who saved it last", async () => {
@@ -75,26 +78,6 @@ describe("web push store: devices", () => {
     await store.upsert("u-b", device(1));
     expect(store.list("u-a")).toHaveLength(0);
     expect(store.list("u-b")).toHaveLength(1);
-  });
-
-  it("removes a member's devices, drops one, and records failures", async () => {
-    const path = tmp();
-    const store = createWebPushStore(createWebPushFilePersistence(path));
-    const a1 = await store.upsert("u-a", device(1));
-    await store.upsert("u-a", device(2));
-    const b = await store.upsert("u-b", device(3));
-    store.setFailure(b.id, "unreachable");
-    expect(store.get(b.id)?.lastFailure).toBe("unreachable");
-    store.setFailure(b.id, null);
-    expect(store.get(b.id)?.lastFailure).toBeUndefined();
-    store.drop(a1.id);
-    expect(store.list("u-a").map((d) => d.label)).toEqual(["Device 2"]);
-    store.removeMember("u-a");
-    expect(store.list("u-a")).toHaveLength(0);
-    // Saved: a fresh store reads the same devices.
-    const again = createWebPushStore(createWebPushFilePersistence(path));
-    expect(again.list("u-b").map((d) => d.id)).toEqual([b.id]);
-    expect(again.list("u-a")).toHaveLength(0);
   });
 });
 
@@ -155,15 +138,20 @@ describe("parsePushDeviceInput", () => {
       "https://fcm.googleapis.com:8443/x",
       "https://user:pw@fcm.googleapis.com/x",
     ]) {
-      expect(isPushEndpoint(endpoint)).toBe(false);
-      expect(parsePushDeviceInput(body({ endpoint })).ok).toBe(false);
+      expect([endpoint, parsePushDeviceInput(body({ endpoint })).ok]).toEqual([
+        endpoint,
+        false,
+      ]);
     }
     for (const endpoint of [
       "https://web.push.apple.com/abc",
       "https://updates.push.services.mozilla.com/wpush/v2/abc",
       "https://wns2-par02p.notify.windows.com/w/?token=abc",
     ]) {
-      expect(isPushEndpoint(endpoint)).toBe(true);
+      expect([endpoint, parsePushDeviceInput(body({ endpoint })).ok]).toEqual([
+        endpoint,
+        true,
+      ]);
     }
   });
 

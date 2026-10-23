@@ -26,7 +26,7 @@
 
 import { existsSync, readFileSync } from "fs";
 
-export const DEFAULT_UPDATE_CONF = "/etc/isomux/update.conf";
+const DEFAULT_UPDATE_CONF = "/etc/isomux/update.conf";
 
 export function updateConfPath(): string {
   return process.env.ISOMUX_UPDATE_CONF || DEFAULT_UPDATE_CONF;

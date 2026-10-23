@@ -3,7 +3,6 @@ import { recordAudit } from "./audit-store.ts";
 import { join } from "path";
 import type { ManagedAgent } from "./internal-types.ts";
 import { getAgentHost, type AgentHost } from "./agent-host.ts";
-import { createTerminalFinalizer } from "./terminal-finalizer.ts";
 import { startTerminalRecording } from "./terminal-recorder.ts";
 
 const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
@@ -130,17 +129,15 @@ export function openTerminal(
     });
   managed.ptyBuffer = "";
 
-  const finalize = createTerminalFinalizer({
-    // A restarted terminal may already have installed a replacement sidecar.
-    // A late exit from the old process must not detach that replacement.
-    isCurrent: () => managed.ptySidecar === sidecar,
-    detach: () => {
-      managed.ptySidecar = null;
-      endSession(managed);
-    },
-    emitExit: (exitCode) =>
-      deps.emit({ type: "terminal_exit", agentId, exitCode }),
-  });
+  // A restarted terminal may already have installed a replacement sidecar.
+  // A late exit from the old process must not detach that replacement. The
+  // first exit detaches, so a second exit from this sidecar returns here too.
+  const finalize = (exitCode: number) => {
+    if (managed.ptySidecar !== sidecar) return;
+    managed.ptySidecar = null;
+    endSession(managed);
+    deps.emit({ type: "terminal_exit", agentId, exitCode });
+  };
 
   const outputDone = (async () => {
     const reader = sidecar.stdout.getReader();

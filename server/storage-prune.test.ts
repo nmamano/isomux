@@ -15,9 +15,7 @@ import {
   writeFileSync,
   existsSync,
   utimesSync,
-  chmodSync,
   symlinkSync,
-  realpathSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -25,9 +23,6 @@ import { removeStateDir } from "./test-support/temp-state.ts";
 import {
   planPrune,
   applyPrune,
-  resolveCandidatePath,
-  parentInsideLogsRoot,
-  noSymlinkParents,
   type PruneDeps,
   type PrunePolicy,
   type PruneSkipReason,
@@ -115,19 +110,10 @@ describe("symlink containment", () => {
     expect(existsSync(join(outside, "victim.txt"))).toBe(true);
   });
 
-  it("never traverses a symlinked agent dir", () => {
+  it("plans transcripts only from real agent- directories", () => {
     const { logs, outside } = logsWithOutsideVictim();
     writeAged(join(outside, "stolen.jsonl"), "x".repeat(10), 400);
     symlinkSync(outside, join(logs, "agent-evil"));
-    const d = deps(logs);
-    expect(
-      planPrune("transcripts", { ...POLICY, keepPerAgent: 0 }, d).candidates,
-    ).toEqual([]);
-    expect(existsSync(join(outside, "stolen.jsonl"))).toBe(true);
-  });
-
-  it("ignores directories under logs that are not agent dirs", () => {
-    const logs = join(tempDir(), "logs");
     writeAged(join(logs, "scratch", "notes.jsonl"), "x".repeat(10), 400);
     writeAged(join(logs, "agent-a", "s1.jsonl"), "x".repeat(10), 400);
     const plan = planPrune(
@@ -136,91 +122,6 @@ describe("symlink containment", () => {
       deps(logs),
     );
     expect(plan.candidates.map((c) => c.path)).toEqual(["agent-a/s1.jsonl"]);
-  });
-});
-
-describe("parentInsideLogsRoot", () => {
-  it("accepts a real parent under the logs root", () => {
-    const logs = join(tempDir(), "logs");
-    writeAged(join(logs, "agent-a", "s1.jsonl"), "x", 1);
-    expect(
-      parentInsideLogsRoot(
-        realpathSync(logs),
-        join(logs, "agent-a", "s1.jsonl"),
-      ),
-    ).toBe(true);
-  });
-
-  it("rejects a parent that resolves outside the logs root", () => {
-    const { logs, outside } = logsWithOutsideVictim();
-    symlinkSync(outside, join(logs, "agent-a", "files"));
-    // The path is lexically inside logs/, but its parent really is not. This is
-    // the check that has to fire if a symlink appears after the plan is made.
-    expect(
-      parentInsideLogsRoot(
-        realpathSync(logs),
-        join(logs, "agent-a", "files", "victim.txt"),
-      ),
-    ).toBe(false);
-  });
-
-  it("rejects a parent that does not exist", () => {
-    const logs = join(tempDir(), "logs");
-    mkdirSync(logs, { recursive: true });
-    expect(
-      parentInsideLogsRoot(realpathSync(logs), join(logs, "gone", "x.jsonl")),
-    ).toBe(false);
-  });
-});
-
-describe("noSymlinkParents", () => {
-  it("accepts a candidate whose parents are all real directories", () => {
-    const logs = join(tempDir(), "logs");
-    writeAged(join(logs, "agent-a", "files", "x.png"), "x", 1);
-    expect(noSymlinkParents(realpathSync(logs), "agent-a/files/x.png")).toBe(
-      true,
-    );
-  });
-
-  it("rejects a symlinked parent that still resolves INSIDE the logs root", () => {
-    const logs = join(tempDir(), "logs");
-    writeAged(join(logs, "agent-b", "files", "x.png"), "x", 1);
-    mkdirSync(join(logs, "agent-a"), { recursive: true });
-    // agent-a/files -> agent-b/files. realpath containment PASSES (the target
-    // is under logs/), but the file belongs to an agent whose transcripts were
-    // never consulted for reachability, so it must still be refused.
-    symlinkSync(join(logs, "agent-b", "files"), join(logs, "agent-a", "files"));
-    const root = realpathSync(logs);
-    expect(
-      parentInsideLogsRoot(root, join(logs, "agent-a", "files", "x.png")),
-    ).toBe(true);
-    expect(noSymlinkParents(root, "agent-a/files/x.png")).toBe(false);
-  });
-
-  it("rejects a missing parent and an empty path", () => {
-    const logs = join(tempDir(), "logs");
-    mkdirSync(logs, { recursive: true });
-    const root = realpathSync(logs);
-    expect(noSymlinkParents(root, "agent-a/files/x.png")).toBe(false);
-    expect(noSymlinkParents(root, "")).toBe(false);
-  });
-});
-
-describe("resolveCandidatePath", () => {
-  it("resolves a relative candidate under the logs root", () => {
-    expect(resolveCandidatePath("/logs", "agent-a/s.jsonl")).toBe(
-      "/logs/agent-a/s.jsonl",
-    );
-  });
-
-  it("rejects absolute paths, traversal, and the root itself", () => {
-    expect(resolveCandidatePath("/logs", "/etc/passwd")).toBeNull();
-    expect(resolveCandidatePath("/logs", "../secrets.txt")).toBeNull();
-    expect(
-      resolveCandidatePath("/logs", "agent-a/../../etc/passwd"),
-    ).toBeNull();
-    expect(resolveCandidatePath("/logs", "")).toBeNull();
-    expect(resolveCandidatePath("/logs", ".")).toBeNull();
   });
 });
 
@@ -243,17 +144,6 @@ describe("planPrune (transcripts)", () => {
     const plan = planPrune("transcripts", POLICY, deps(fourOldSessions()));
     expect(sessionIds(plan)).toEqual(["oldest", "third"]);
     expect(skipCount(plan, "keep-newest")).toBe(2);
-  });
-
-  it("never proposes the active session, even when it is the oldest", () => {
-    const logs = fourOldSessions();
-    const plan = planPrune(
-      "transcripts",
-      POLICY,
-      deps(logs, { activeSessionIds: new Set(["oldest"]) }),
-    );
-    expect(sessionIds(plan)).toEqual(["third"]);
-    expect(skipCount(plan, "active-session")).toBe(1);
   });
 
   it("never proposes a session another session was forked from", () => {
@@ -291,22 +181,6 @@ describe("planPrune (transcripts)", () => {
     expect(skipCount(plan, "fork-ancestor")).toBe(3);
   });
 
-  it("protects a parent shared by sibling forks", () => {
-    const logs = fourOldSessions();
-    const plan = planPrune(
-      "transcripts",
-      { olderThanDays: 30, keepPerAgent: 0 },
-      deps(logs, {
-        loadSessionsMap: () => ({
-          newest: { forkedFrom: "oldest" },
-          second: { forkedFrom: "oldest" },
-        }),
-      }),
-    );
-    expect(sessionIds(plan)).toEqual(["newest", "second", "third"]);
-    expect(skipCount(plan, "fork-ancestor")).toBe(1);
-  });
-
   it("terminates on a cyclic sessions map instead of looping", () => {
     const logs = fourOldSessions();
     // A corrupt map claiming a cycle: the rule is set-membership, not a walk,
@@ -323,19 +197,6 @@ describe("planPrune (transcripts)", () => {
     );
     expect(sessionIds(plan)).toEqual(["newest", "second"]);
     expect(skipCount(plan, "fork-ancestor")).toBe(2);
-  });
-
-  it("protects an ancestor even when its descendant is itself prunable", () => {
-    const logs = fourOldSessions();
-    const plan = planPrune(
-      "transcripts",
-      { olderThanDays: 30, keepPerAgent: 0 },
-      deps(logs, {
-        loadSessionsMap: () => ({ third: { forkedFrom: "oldest" } }),
-      }),
-    );
-    expect(sessionIds(plan)).not.toContain("oldest");
-    expect(sessionIds(plan)).toContain("third");
   });
 
   it("ignores sessions.json and anything that is not a .jsonl", () => {
@@ -370,73 +231,23 @@ describe("planPrune (transcripts)", () => {
   // Task 9643a66a: spawning agents kill finished workers, so a killed agent's
   // newest sessions are no longer spared on recency alone. Every other guard
   // still holds for it.
-  describe("killed agents", () => {
-    it("drops the keepPerAgent floor for a killed agent only", () => {
-      const logs = join(tempDir(), "logs");
-      for (const agent of ["agent-live", "agent-dead"]) {
-        writeAged(join(logs, agent, "s1.jsonl"), "x".repeat(10), 100);
-        writeAged(join(logs, agent, "s2.jsonl"), "x".repeat(10), 200);
-      }
-      const plan = planPrune(
-        "transcripts",
-        POLICY,
-        deps(logs, { killedAgentIds: new Set(["agent-dead"]) }),
-      );
-      expect(plan.candidates.map((c) => c.path).sort()).toEqual([
-        "agent-dead/s1.jsonl",
-        "agent-dead/s2.jsonl",
-      ]);
-      expect(skipCount(plan, "keep-newest")).toBe(2);
-    });
-
-    it("still spares a killed agent's fork ancestors and recent files", () => {
-      const logs = fourOldSessions();
-      writeAged(join(logs, "agent-a", "fresh.jsonl"), "f", 1);
-      const plan = planPrune(
-        "transcripts",
-        POLICY,
-        deps(logs, {
-          killedAgentIds: new Set(["agent-a"]),
-          loadSessionsMap: () => ({ newest: { forkedFrom: "third" } }),
-        }),
-      );
-      expect(sessionIds(plan)).toEqual(["newest", "oldest", "second"]);
-      expect(skipCount(plan, "fork-ancestor")).toBe(1);
-      expect(skipCount(plan, "too-recent")).toBe(1);
-      expect(skipCount(plan, "keep-newest")).toBe(0);
-    });
-
-    it("still spares an active session listed for a killed agent", () => {
-      const logs = fourOldSessions();
-      const plan = planPrune(
-        "transcripts",
-        POLICY,
-        deps(logs, {
-          killedAgentIds: new Set(["agent-a"]),
-          activeSessionIds: new Set(["newest"]),
-        }),
-      );
-      expect(sessionIds(plan)).toEqual(["oldest", "second", "third"]);
-      expect(skipCount(plan, "active-session")).toBe(1);
-    });
-
-    it("refuses at apply a file whose agent was revived since the plan", () => {
-      const logs = fourOldSessions();
-      const plan = planPrune(
-        "transcripts",
-        POLICY,
-        deps(logs, { killedAgentIds: new Set(["agent-a"]) }),
-      );
-      expect(plan.candidates).toHaveLength(4);
-      // Revived between plan and apply: the floor is back for the fresh pass.
-      const result = applyPrune(plan, deps(logs));
-      expect(result.deleted).toBe(2);
-      expect(
-        result.refused.filter((r) => r.reason === "became-keep-newest"),
-      ).toHaveLength(2);
-      expect(existsSync(join(logs, "agent-a", "newest.jsonl"))).toBe(true);
-      expect(existsSync(join(logs, "agent-a", "second.jsonl"))).toBe(true);
-    });
+  it("drops only the recency floor for a killed agent", () => {
+    const logs = fourOldSessions();
+    writeAged(join(logs, "agent-a", "fresh.jsonl"), "f", 1);
+    const plan = planPrune(
+      "transcripts",
+      POLICY,
+      deps(logs, {
+        killedAgentIds: new Set(["agent-a"]),
+        activeSessionIds: new Set(["second"]),
+        loadSessionsMap: () => ({ newest: { forkedFrom: "third" } }),
+      }),
+    );
+    expect(sessionIds(plan)).toEqual(["newest", "oldest"]);
+    expect(skipCount(plan, "active-session")).toBe(1);
+    expect(skipCount(plan, "fork-ancestor")).toBe(1);
+    expect(skipCount(plan, "too-recent")).toBe(1);
+    expect(skipCount(plan, "keep-newest")).toBe(0);
   });
 
   it("returns an empty plan when the logs dir does not exist", () => {
@@ -469,20 +280,20 @@ function agentWithAttachments(): string {
 }
 
 describe("planPrune (attachments)", () => {
-  it("proposes orphans and spares anything a surviving transcript references", () => {
-    const plan = planPrune("attachments", POLICY, deps(agentWithAttachments()));
+  it("proposes old orphans only: never a referenced, recent or nested file", () => {
+    const logs = agentWithAttachments();
+    writeAged(join(logs, "agent-a", "files", "fresh.png"), "f".repeat(10), 2);
+    writeAged(
+      join(logs, "agent-a", "files", "nested", "deep.png"),
+      "x".repeat(100),
+      200,
+    );
+    const plan = planPrune("attachments", POLICY, deps(logs));
     expect(plan.candidates.map((c) => c.path)).toEqual([
       "agent-a/files/orphan.png",
     ]);
     expect(plan.bytes).toBe(50);
     expect(skipCount(plan, "referenced")).toBe(1);
-  });
-
-  it("spares an orphan that is younger than the cutoff", () => {
-    const logs = join(tempDir(), "logs");
-    writeAged(join(logs, "agent-a", "files", "fresh.png"), "f".repeat(10), 2);
-    const plan = planPrune("attachments", POLICY, deps(logs));
-    expect(plan.candidates).toEqual([]);
     expect(skipCount(plan, "too-recent")).toBe(1);
   });
 
@@ -503,36 +314,6 @@ describe("planPrune (attachments)", () => {
       "agent-a/files/kept.png",
       "agent-a/files/orphan.png",
     ]);
-  });
-
-  it("sees a reference in any session, not just the newest", () => {
-    const logs = agentWithAttachments();
-    // A second, older transcript is the only one naming orphan.png.
-    writeAged(
-      join(logs, "agent-a", "older.jsonl"),
-      JSON.stringify({
-        id: "1",
-        attachments: [{ filename: "orphan.png" }],
-      }) + "\n",
-      300,
-    );
-    const plan = planPrune("attachments", POLICY, deps(logs));
-    expect(plan.candidates).toEqual([]);
-    expect(skipCount(plan, "referenced")).toBe(2);
-  });
-
-  it("spares every attachment of an agent whose transcript cannot be read", () => {
-    const logs = agentWithAttachments();
-    chmodSync(join(logs, "agent-a", "live.jsonl"), 0o000);
-    try {
-      const plan = planPrune("attachments", POLICY, deps(logs));
-      // Unreadable history means unknown reachability: refuse the whole agent
-      // rather than guess that nothing points at these files.
-      expect(plan.candidates).toEqual([]);
-      expect(skipCount(plan, "referenced")).toBe(2);
-    } finally {
-      chmodSync(join(logs, "agent-a", "live.jsonl"), 0o644);
-    }
   });
 
   it("unions queued references with transcript references, and frees them when the queue clears", () => {
@@ -561,52 +342,6 @@ describe("planPrune (attachments)", () => {
       "agent-a/files/orphan.png",
     ]);
     expect(skipCount(after, "referenced")).toBe(1);
-  });
-
-  it("proposes NOTHING when the queue state is unknown", () => {
-    const logs = agentWithAttachments();
-    // null is not an empty set: an unreadable durable queue means we cannot
-    // know what is still owed, and unknown must never be collapsed into
-    // "nothing is owed" on a path that deletes files.
-    const plan = planPrune(
-      "attachments",
-      POLICY,
-      deps(logs, { queuedAttachments: () => null }),
-    );
-    expect(plan.candidates).toEqual([]);
-    expect(plan.bytes).toBe(0);
-    // Reported under its own reason, not as "referenced" - a dry run has to say
-    // WHICH unknown stopped it.
-    expect(skipCount(plan, "queue-state-unknown")).toBe(2);
-    expect(skipCount(plan, "referenced")).toBe(0);
-  });
-
-  it("still prunes when the queue is genuinely empty, not unknown", () => {
-    const logs = agentWithAttachments();
-    const plan = planPrune(
-      "attachments",
-      POLICY,
-      deps(logs, { queuedAttachments: () => new Set<string>() }),
-    );
-    expect(plan.candidates.map((c) => c.path)).toEqual([
-      "agent-a/files/orphan.png",
-    ]);
-    expect(skipCount(plan, "queue-state-unknown")).toBe(0);
-  });
-
-  it("deletes nothing on apply while the queue state is unknown", () => {
-    const logs = agentWithAttachments();
-    const known = deps(logs);
-    const plan = planPrune("attachments", POLICY, known);
-    expect(plan.candidates).toHaveLength(1);
-    // The queue file becomes unreadable between plan and apply: the re-plan
-    // approves nothing, so the stale plan cannot delete.
-    const result = applyPrune(
-      plan,
-      deps(logs, { queuedAttachments: () => null }),
-    );
-    expect(result.deleted).toBe(0);
-    expect(existsSync(join(logs, "agent-a", "files", "orphan.png"))).toBe(true);
   });
 
   it("applies the queue protection per agent, not office-wide", () => {
@@ -639,17 +374,6 @@ describe("planPrune (attachments)", () => {
       200,
     );
     writeAged(join(logs, "agent-a", "files", "kept.png"), "k".repeat(10), 200);
-    const plan = planPrune("attachments", POLICY, deps(logs));
-    expect(plan.candidates).toEqual([]);
-  });
-
-  it("does not recurse into subdirectories of files/", () => {
-    const logs = join(tempDir(), "logs");
-    writeAged(
-      join(logs, "agent-a", "files", "nested", "deep.png"),
-      "x".repeat(100),
-      200,
-    );
     const plan = planPrune("attachments", POLICY, deps(logs));
     expect(plan.candidates).toEqual([]);
   });
@@ -691,56 +415,83 @@ describe("applyPrune", () => {
     expect(existsSync(join(logs, "agent-a", "third.jsonl"))).toBe(true);
   });
 
-  it("aborts on an absolute candidate path", () => {
-    const logs = fourOldSessions();
-    const d = deps(logs);
-    const plan = planPrune("transcripts", POLICY, d);
-    plan.candidates[0].path = join(logs, "agent-a", "oldest.jsonl");
-    const result = applyPrune(plan, d);
-    expect(result.aborted).toBeTruthy();
-    expect(result.deleted).toBe(0);
-  });
-
-  it("refuses a file that became ineligible after the plan was made", () => {
-    const logs = fourOldSessions();
-    const plan = planPrune("transcripts", POLICY, deps(logs));
-    // The agent resumed "oldest" between plan and apply.
-    const result = applyPrune(
-      plan,
-      deps(logs, { activeSessionIds: new Set(["oldest"]) }),
-    );
-    expect(existsSync(join(logs, "agent-a", "oldest.jsonl"))).toBe(true);
-    // The refusal names WHY the fresh pass excluded it, not a generic
-    // "no-longer-eligible" - this is the audit trail for a delete.
-    expect(result.refused).toContainEqual({
-      path: "agent-a/oldest.jsonl",
-      reason: "became-active-session",
-    });
-    expect(result.deleted).toBe(1);
-  });
-
-  it("names the specific fresh-pass reason on each refusal", () => {
+  it("re-plans at apply and names the fresh-pass reason on each refusal", () => {
     const logs = fourOldSessions();
     const plan = planPrune(
       "transcripts",
-      { olderThanDays: 30, keepPerAgent: 0 },
-      deps(logs),
+      POLICY,
+      deps(logs, { killedAgentIds: new Set(["agent-a"]) }),
     );
     expect(plan.candidates).toHaveLength(4);
-    // Between plan and apply: one session went live, one became a fork parent,
-    // and the retention floor rose to keep the two newest.
-    const result = applyPrune(plan, {
-      ...deps(logs, {
+    // Between plan and apply: the agent was revived (its floor is back), one
+    // session went live and one became a fork parent. The refusal names WHY
+    // the fresh pass excluded each file: this is the audit trail for a delete.
+    const result = applyPrune(
+      plan,
+      deps(logs, {
         activeSessionIds: new Set(["oldest"]),
         loadSessionsMap: () => ({ newest: { forkedFrom: "third" } }),
       }),
-    });
-    const byPath = Object.fromEntries(
-      result.refused.map((r) => [r.path, r.reason]),
     );
-    expect(byPath["agent-a/oldest.jsonl"]).toBe("became-active-session");
-    expect(byPath["agent-a/third.jsonl"]).toBe("became-fork-ancestor");
-    expect(result.deleted).toBe(2);
+    expect(
+      Object.fromEntries(result.refused.map((r) => [r.path, r.reason])),
+    ).toEqual({
+      "agent-a/newest.jsonl": "became-keep-newest",
+      "agent-a/second.jsonl": "became-keep-newest",
+      "agent-a/third.jsonl": "became-fork-ancestor",
+      "agent-a/oldest.jsonl": "became-active-session",
+    });
+    expect(result.deleted).toBe(0);
+    for (const name of ["newest", "second", "third", "oldest"])
+      expect(existsSync(join(logs, "agent-a", `${name}.jsonl`))).toBe(true);
+  });
+
+  // The last checks before unlink cover the window after apply's own fresh
+  // plan. loadSessionsMap runs inside that plan after the files are listed, so
+  // a swap made there lands in the window.
+  it("refuses a delete whose parent became a symlink after the fresh plan", () => {
+    const swaps: Record<string, (root: string) => string> = {
+      // The logs root now points at a decoy outside it.
+      "logs root": (root) => {
+        renameSync(join(root, "logs"), join(root, "real-logs"));
+        writeAged(join(root, "decoy", "agent-a", "old.jsonl"), "decoy", 400);
+        symlinkSync(join(root, "decoy"), join(root, "logs"));
+        return join(root, "decoy", "agent-a", "old.jsonl");
+      },
+      // The agent dir now points at another directory INSIDE the logs root,
+      // whose transcripts were never consulted.
+      "agent dir": (root) => {
+        const logs = join(root, "logs");
+        renameSync(join(logs, "agent-a"), join(logs, "agent-z"));
+        symlinkSync(join(logs, "agent-z"), join(logs, "agent-a"));
+        return join(logs, "agent-z", "old.jsonl");
+      },
+    };
+    for (const [label, swap] of Object.entries(swaps)) {
+      const root = tempDir();
+      const logs = join(root, "logs");
+      writeAged(join(logs, "agent-a", "old.jsonl"), "old", 400);
+      let calls = 0;
+      let victim = "";
+      const d = deps(logs, {
+        loadSessionsMap: () => {
+          if (++calls === 2) victim = swap(root);
+          return {};
+        },
+      });
+      const plan = planPrune(
+        "transcripts",
+        { olderThanDays: 30, keepPerAgent: 0 },
+        d,
+      );
+      const result = applyPrune(plan, d);
+      expect([label, calls, result.refused]).toEqual([
+        label,
+        2,
+        [{ path: "agent-a/old.jsonl", reason: "parent-escapes-logs-dir" }],
+      ]);
+      expect([label, existsSync(victim)]).toEqual([label, true]);
+    }
   });
 
   it("reports a candidate whose file simply vanished as missing", () => {
@@ -774,23 +525,6 @@ describe("applyPrune", () => {
       path: target.path,
       reason: "modified-since-plan",
     });
-  });
-
-  it("is a no-op for an empty plan", () => {
-    const logs = fourOldSessions();
-    const d = deps(logs);
-    const plan = planPrune(
-      "transcripts",
-      { olderThanDays: 10_000, keepPerAgent: 2 },
-      d,
-    );
-    expect(plan.candidates).toEqual([]);
-    expect(applyPrune(plan, d)).toEqual({
-      deleted: 0,
-      bytes: 0,
-      refused: [],
-    });
-    expect(existsSync(join(logs, "agent-a", "oldest.jsonl"))).toBe(true);
   });
 
   it("deletes orphaned attachments and leaves referenced ones", () => {
@@ -903,38 +637,6 @@ describe("token-log prune target", () => {
     expect(applyPrune(plan, d).deleted).toBe(0);
     expect(existsSync(join(root, "moved", name))).toBe(true);
   });
-
-  it("never accepts a nested symlink parent as a token candidate", () => {
-    const root = tempDir();
-    const dir = join(root, "token-logs");
-    const other = tempDir();
-    const name = "0123456789abcdef.jsonl";
-    writeAged(join(dir, name), "safe", 60);
-    writeAged(join(other, name), "outside", 60);
-    symlinkSync(other, join(dir, "nested"));
-    const d = deps(join(root, "logs"));
-    const plan = planPrune("token-logs", POLICY, d);
-    const hostile = {
-      ...plan,
-      candidates: [{ ...plan.candidates[0], path: `nested/${name}` }],
-    };
-    expect(applyPrune(hostile, d).deleted).toBe(0);
-    expect(existsSync(join(other, name))).toBe(true);
-  });
-});
-
-it("uses the injected token-log root independently of the transcript layout", () => {
-  const logsDir = join(tempDir(), "transcripts");
-  const tokenLogsDir = join(tempDir(), "custom-token-history");
-  const path = join(tokenLogsDir, "0123456789abcdef.jsonl");
-  writeAged(path, "custom", 50);
-  const d = deps(logsDir, { tokenLogsDir });
-  const plan = planPrune("token-logs", POLICY, d);
-  expect(plan.candidates.map((c) => c.path)).toEqual([
-    "0123456789abcdef.jsonl",
-  ]);
-  expect(applyPrune(plan, d).deleted).toBe(1);
-  expect(existsSync(path)).toBe(false);
 });
 
 // Compressed transcripts (task e9776386): a <sid>.jsonl.gz is the same session

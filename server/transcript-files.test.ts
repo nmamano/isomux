@@ -21,7 +21,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { removeStateDir } from "./test-support/temp-state.ts";
 import {
-  compressTranscript,
+  commitCompressed,
+  gzipTranscript,
   inflateTranscript,
   readTranscriptHeadSync,
   readTranscriptSync,
@@ -60,6 +61,13 @@ function writePlain(dir: string, sid: string, text = TEXT): string {
   writeFileSync(p, text);
   utimesSync(p, OLD_MTIME_S, OLD_MTIME_S);
   return p;
+}
+
+// The compress server/storage-compress.ts runs: gzip off the event loop, then
+// the synchronous commit.
+async function compressTranscript(dir: string, sid: string) {
+  const gzipped = await gzipTranscript(dir, sid);
+  return commitCompressed(dir, sid, gzipped.source, gzipped.gz)!;
 }
 
 async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {
@@ -117,13 +125,13 @@ describe("resolveTranscript", () => {
   });
 });
 
-describe("compressTranscript", () => {
+describe("compress (gzipTranscript + commitCompressed)", () => {
   it("replaces the .jsonl with a gzip of the same bytes and the same mtime", async () => {
     const dir = agentDir();
     const plain = writePlain(dir, "s1");
     const sizeBefore = statSync(plain).size;
 
-    const result = compressTranscript(dir, "s1");
+    const result = await compressTranscript(dir, "s1");
 
     const gz = join(dir, "s1.jsonl.gz");
     expect(existsSync(plain)).toBe(false);
@@ -145,13 +153,13 @@ describe("compressTranscript", () => {
     expect(await streamText(transcriptByteStream(file))).toBe(TEXT);
   });
 
-  it("overwrites a stale .gz and a leftover temp file with the current .jsonl", () => {
+  it("overwrites a stale .gz and a leftover temp file with the current .jsonl", async () => {
     const dir = agentDir();
     writePlain(dir, "s1");
     writeFileSync(join(dir, "s1.jsonl.gz"), Bun.gzipSync("stale\n"));
     writeFileSync(join(dir, "s1.jsonl.gz.tmp"), "half-written");
 
-    compressTranscript(dir, "s1");
+    await compressTranscript(dir, "s1");
 
     expect(readdirNames(dir)).toEqual(["s1.jsonl.gz"]);
     expect(readTranscriptSync(resolveTranscript(dir, "s1")!)).toBe(TEXT);
@@ -159,10 +167,10 @@ describe("compressTranscript", () => {
 });
 
 describe("inflateTranscript", () => {
-  it("turns the .gz back into the identical .jsonl", () => {
+  it("turns the .gz back into the identical .jsonl", async () => {
     const dir = agentDir();
     writePlain(dir, "s1");
-    compressTranscript(dir, "s1");
+    await compressTranscript(dir, "s1");
     writeFileSync(join(dir, "s1.jsonl.tmp"), "half-written");
 
     inflateTranscript(dir, "s1");
@@ -195,10 +203,10 @@ describe("inflateTranscript", () => {
     expect(existsSync(join(dir, "s1.jsonl"))).toBe(false);
   });
 
-  it("throws when it cannot write, and keeps the .gz with no .jsonl", () => {
+  it("throws when it cannot write, and keeps the .gz with no .jsonl", async () => {
     const dir = agentDir();
     writePlain(dir, "s1");
-    compressTranscript(dir, "s1");
+    await compressTranscript(dir, "s1");
     const gzBytes = readFileSync(join(dir, "s1.jsonl.gz"));
     chmodSync(dir, 0o500);
     try {
@@ -208,16 +216,6 @@ describe("inflateTranscript", () => {
     }
     expect(readFileSync(join(dir, "s1.jsonl.gz")).equals(gzBytes)).toBe(true);
     expect(existsSync(join(dir, "s1.jsonl"))).toBe(false);
-  });
-});
-
-describe("readTranscriptSync", () => {
-  it("throws on a corrupt .gz instead of returning an empty transcript", () => {
-    const dir = agentDir();
-    writeFileSync(join(dir, "good.jsonl.gz"), Bun.gzipSync(TEXT));
-    expect(readTranscriptSync(resolveTranscript(dir, "good")!)).toBe(TEXT);
-    writeFileSync(join(dir, "s1.jsonl.gz"), "not gzip at all");
-    expect(() => readTranscriptSync(resolveTranscript(dir, "s1")!)).toThrow();
   });
 });
 

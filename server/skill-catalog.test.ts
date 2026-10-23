@@ -187,19 +187,6 @@ describe("skill catalog", () => {
     ).toBe("plugin body");
   });
 
-  it("lists a file reached through a personal-home link once", () => {
-    const box = tmp("box");
-    const personal = tmp("personal");
-    skill(box, "shared");
-    mkdirSync(join(personal, "skills"), { recursive: true });
-    symlinkSync(
-      join(box, "skills", "shared"),
-      join(personal, "skills", "shared"),
-    );
-    const list = entries(context({ userRoots: [personal, box] }));
-    expect(list.filter((s) => s.name === "shared")).toHaveLength(1);
-  });
-
   // A Codex agent reads the member's personal Claude home before the box one,
   // and a Claude agent only the box one. Both must show the same path, or the
   // page lists the skill once per engine instead of once for all agents.
@@ -230,9 +217,14 @@ describe("skill catalog", () => {
         "/new",
         "/home",
       );
+      // Once per engine, under the box path.
       for (const { skills } of catalog.engines) {
-        expect(skills.find((s) => s.name === "shared")?.path).toBe(boxSkill);
-        expect(skills.find((s) => s.name === "cmd")?.path).toBe(boxCommand);
+        expect(
+          skills.filter((s) => s.name === "shared").map((s) => s.path),
+        ).toEqual([boxSkill]);
+        expect(
+          skills.filter((s) => s.name === "cmd").map((s) => s.path),
+        ).toEqual([boxCommand]);
       }
     }
   });
@@ -263,55 +255,28 @@ describe("skill catalog", () => {
   });
 });
 
-describe("built-in protection through a link", () => {
-  it("keeps a user-folder link to a built-in read-only, and its save writes nothing", async () => {
+// The skills handlers refuse a save or delete of a read-only entry
+// (routes/handlers/skills.test.ts); what makes a linked entry read-only is
+// where its file really is.
+describe("protection through a link", () => {
+  it("keeps a user-folder link to a built-in read-only", () => {
     const user = tmp("user");
     mkdirSync(join(user, "skills"), { recursive: true });
-    const target = join(BUNDLED_SKILLS_DIR, "grill-me", "SKILL.md");
     symlinkSync(
       join(BUNDLED_SKILLS_DIR, "grill-me"),
       join(user, "skills", "grill-me"),
     );
-    const linkPath = join(user, "skills", "grill-me", "SKILL.md");
-    const catalog = () =>
-      buildSkillCatalog([context({ userRoots: [user] })], {}, "/new", "/home");
-    const entry = findCatalogEntry(catalog(), linkPath);
-    expect(entry).toMatchObject({ source: "user", editable: false });
-
-    const before = readFileSync(target, "utf8");
-    const opened = readSkillFile(linkPath);
-    if (opened.kind !== "ok") throw new Error("open failed");
-    const handlers = skillsHandlers({
-      catalogFor: catalog,
-      readFile: readSkillFile,
-      saveFile: (path, content, rev) => {
-        throw new Error(`save reached the file: ${path} ${content} ${rev}`);
-      },
-      deleteFile: async () => {
-        throw new Error("unexpected delete");
-      },
-      createSkill,
-      refreshMenus: () => {},
-    });
-    const result = await handlers["skills.saveFile"]({
-      identity: {
-        scope: "user",
-        userId: "u1",
-        role: "member",
-        capabilities: USER_CAPABILITIES,
-      },
-      params: {},
-      body: { path: linkPath, content: "overwritten", expectedRev: opened.rev },
-      rawBody: "",
-      query: new URLSearchParams(),
-      req: new Request("http://localhost/"),
-    });
-    expect(result).toMatchObject({ kind: "error", status: 403 });
-    expect(readFileSync(target, "utf8")).toBe(before);
+    const catalog = buildSkillCatalog(
+      [context({ userRoots: [user] })],
+      {},
+      "/new",
+      "/home",
+    );
+    expect(
+      findCatalogEntry(catalog, join(user, "skills", "grill-me", "SKILL.md")),
+    ).toMatchObject({ source: "user", editable: false });
   });
-});
 
-describe("plugin protection through a link", () => {
   it("keeps a user-folder link into an installed plugin read-only when the plugin lists no skill", () => {
     const user = tmp("user");
     const claudeHome = tmp("claude");
@@ -351,16 +316,6 @@ describe("skill save", () => {
     const result = saveSkillFile(path, "my edit", opened.rev);
     expect(result.kind).toBe("stale");
     expect(readFileSync(path, "utf8")).toContain("other edit");
-  });
-
-  it("saves on the current revision", () => {
-    const user = tmp("user");
-    const path = skill(user, "mine", "v1");
-    const opened = readSkillFile(path);
-    if (opened.kind !== "ok") throw new Error("open failed");
-    const result = saveSkillFile(path, "new text", opened.rev);
-    expect(result.kind).toBe("ok");
-    expect(readFileSync(path, "utf8")).toBe("new text");
   });
 });
 

@@ -68,7 +68,6 @@ jobs:
           server/unix-socket-server.test.ts
           server/pty-sidecar.test.ts
           server/terminal.test.ts
-          server/terminal-finalizer.test.ts
           server/test-support/admin-socket.test.ts
 
       # Codex lists a hook and reports its trust without a real login.

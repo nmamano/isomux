@@ -38,7 +38,7 @@ export type AgentStorage = AgentStorageWire;
 export type StorageUsage = StorageUsageWire;
 export type { StorageCategoryId };
 
-export interface DirUsage {
+interface DirUsage {
   bytes: number;
   files: number;
 }
@@ -69,7 +69,7 @@ export interface StorageRoots {
 // Recursive size of a directory tree. Missing paths measure as zero rather than
 // throwing: every root here is optional on some deployment shape. Unreadable
 // entries are skipped - a usage report must never fail closed on one bad file.
-export function measureTree(path: string): DirUsage {
+function measureTree(path: string): DirUsage {
   let bytes = 0;
   let files = 0;
   const stack = [path];
@@ -311,13 +311,13 @@ export function aggregateOnly(usage: StorageUsage): StorageUsage {
 const CACHE_TTL_MS = 30_000;
 let cached: { key: string; usage: StorageUsage } | null = null;
 
-export function measureStorageCached(
-  roots: StorageRoots,
-  ttlMs = CACHE_TTL_MS,
-  now = Date.now(),
-): StorageUsage {
+export function measureStorageCached(roots: StorageRoots): StorageUsage {
   const key = `${roots.stateRoot}\0${roots.backupDir ?? ""}\0${roots.snapshotDir ?? ""}`;
-  if (cached && cached.key === key && now - cached.usage.measuredAt < ttlMs) {
+  if (
+    cached &&
+    cached.key === key &&
+    Date.now() - cached.usage.measuredAt < CACHE_TTL_MS
+  ) {
     return cached.usage;
   }
   const usage = measureStorage(roots);

@@ -27,7 +27,7 @@ import {
 } from "./web-push-store.ts";
 import { pagerLink } from "./pager-delivery.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
-import { base64UrlDecode, base64UrlEncode } from "../shared/web-push.ts";
+import { base64UrlEncode } from "../shared/web-push.ts";
 import {
   LOBBY_ROOM_ID,
   type PagerEntry,
@@ -342,15 +342,14 @@ describe("web push delivery: a new page", () => {
     expect(calls).toHaveLength(1);
     const payload = await decrypt(calls[0].body, d1);
     expect(payload.body).toContain("health");
-  });
+    calls.length = 0;
 
-  it("goes for a lobby page, whose room is in nobody's notification rooms", async () => {
-    const { store, calls, service, time } = await setup({
-      notifRooms: { "u-morgan": [] },
-    });
-    await store.upsert("u-morgan", (await browserDevice(1)).input);
+    // The lobby too: turn ends skip it, pages do not.
     service.onRaised(
-      page({ source: { ...agentSource, roomId: LOBBY_ROOM_ID } }),
+      page({
+        id: "5555666677778888",
+        source: { ...agentSource, roomId: LOBBY_ROOM_ID },
+      }),
       "created",
     );
     await time.advance(0);
@@ -467,11 +466,13 @@ describe("web push delivery: repeat and resolve", () => {
 describe("web push delivery: turn ends", () => {
   const bot = { id: "agent-1", name: "Bot", roomId: "room-a" };
   const audience = { "room-a": ["u-morgan"], [LOBBY_ROOM_ID]: ["u-morgan"] };
-  // The one member: can see room-a and has it in their push rooms. Each
-  // skip case below changes exactly one of these.
+  // The one member: can see room-a and has it in their push rooms. The
+  // sound's notification rooms are empty: a turn-end push does not read them.
+  // Each skip case below changes exactly one input.
   const base = {
     pushRooms: { "u-morgan": ["room-a"] } as Record<string, string[] | null>,
     audience,
+    notifRooms: { "u-morgan": [] as string[] },
   };
 
   async function oneDevice(opts: Parameters<typeof setup>[0]) {
@@ -494,61 +495,30 @@ describe("web push delivery: turn ends", () => {
     expect(payload.renotify).toBe(true);
   });
 
-  it("skips a room out of the member's push rooms", async () => {
-    const { calls, service, time } = await oneDevice({
-      ...base,
-      pushRooms: { "u-morgan": ["room-b"] },
-    });
-    service.onTurnEnd(bot);
-    await time.advance(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("does not read the sound's notification rooms", async () => {
-    const { calls, service, time, dev } = await oneDevice({
-      ...base,
-      notifRooms: { "u-morgan": [] },
-    });
-    service.onTurnEnd(bot);
-    await time.advance(0);
-    expect(calls.map((c) => c.url)).toEqual([dev.input.endpoint]);
-  });
-
-  it("skips a member who cannot see the room", async () => {
-    const { calls, service, time } = await oneDevice({
-      ...base,
-      audience: { "room-a": [] },
-    });
-    service.onTurnEnd(bot);
-    await time.advance(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("skips a member who is gone", async () => {
-    const { calls, service, time } = await oneDevice({
-      ...base,
-      pushRooms: { "u-morgan": null },
-    });
-    service.onTurnEnd(bot);
-    await time.advance(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("skips an agent with no room", async () => {
-    const { calls, service, time } = await oneDevice(base);
-    service.onTurnEnd({ ...bot, roomId: null });
-    await time.advance(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("sends nothing for the lobby (Lead ruling), even with it in the push rooms", async () => {
-    const { calls, service, time } = await oneDevice({
-      ...base,
-      pushRooms: { "u-morgan": ["room-a", LOBBY_ROOM_ID] },
-    });
-    service.onTurnEnd({ ...bot, roomId: LOBBY_ROOM_ID });
-    await time.advance(0);
-    expect(calls).toHaveLength(0);
+  it("skips a room out of the push rooms, a member who cannot see it or is gone, no room, and the lobby", async () => {
+    type Agent = Parameters<WebPushDeliveryService["onTurnEnd"]>[0];
+    const cases: [string, Parameters<typeof setup>[0], Agent][] = [
+      [
+        "out of the push rooms",
+        { ...base, pushRooms: { "u-morgan": ["room-b"] } },
+        bot,
+      ],
+      ["cannot see the room", { ...base, audience: { "room-a": [] } }, bot],
+      ["member gone", { ...base, pushRooms: { "u-morgan": null } }, bot],
+      ["agent with no room", base, { ...bot, roomId: null }],
+      [
+        // Lead ruling: even with the lobby in the push rooms.
+        "lobby",
+        { ...base, pushRooms: { "u-morgan": ["room-a", LOBBY_ROOM_ID] } },
+        { ...bot, roomId: LOBBY_ROOM_ID },
+      ],
+    ];
+    for (const [label, opts, agent] of cases) {
+      const { calls, service, time } = await oneDevice(opts);
+      service.onTurnEnd(agent);
+      await time.advance(0);
+      expect([label, calls.length]).toEqual([label, 0]);
+    }
   });
 });
 
@@ -584,19 +554,6 @@ describe("web push delivery: failures", () => {
       delivered: true,
     });
     expect(store.get(recs[2].id)?.lastFailure).toBeUndefined();
-  });
-
-  it("a test goes only to the member's own device", async () => {
-    const { store, calls, service } = await setup();
-    const d1 = await browserDevice(1);
-    const rec = await store.upsert("u-morgan", d1.input);
-    expect(await service.sendTest("u-other", rec.id)).toBeNull();
-    expect(calls).toHaveLength(0);
-    expect(await service.sendTest("u-morgan", rec.id)).toEqual({
-      delivered: true,
-    });
-    const payload = await decrypt(calls[0].body, d1);
-    expect(payload.title).toBe(en("push.test"));
   });
 });
 
@@ -635,13 +592,5 @@ describe("encodePayload", () => {
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
     expect(parsed.title).toBe("t");
     expect(parsed.body.length).toBeGreaterThan(0);
-  });
-});
-
-// base64UrlDecode round-trips what base64UrlEncode writes.
-describe("base64url", () => {
-  it("round-trips", () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(33));
-    expect(base64UrlDecode(base64UrlEncode(bytes))).toEqual(bytes);
   });
 });

@@ -145,7 +145,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Resolve a candidate's RELATIVE path against the logs root, or null if it
 // escapes. Lexical containment alone would not be enough if we followed
 // symlinks - we never do (see the header), and apply re-lstats before unlink.
-export function resolveCandidatePath(
+function resolveCandidatePath(
   logsDir: string,
   relative: string,
 ): string | null {
@@ -164,7 +164,7 @@ export function resolveCandidatePath(
 // The containment check the lexical one cannot do: resolve the candidate's
 // PARENT through every symlink and require the result to stay under the real
 // logs root. Called immediately before unlink.
-export function parentInsideLogsRoot(
+function parentInsideLogsRoot(
   realLogsRoot: string,
   absCandidate: string,
 ): boolean {
@@ -191,7 +191,7 @@ export function parentInsideLogsRoot(
 // could still swap a parent. Closing that needs unlinkat() against an opened
 // directory fd, which Bun does not expose. See the module header for the trust
 // statement that goes with it.
-export function noSymlinkParents(logsRoot: string, relPath: string): boolean {
+function noSymlinkParents(logsRoot: string, relPath: string): boolean {
   const parts = relPath.split(/[/\\]/).filter((p) => p !== "");
   if (parts.length === 0) return false;
   let prefix = logsRoot;

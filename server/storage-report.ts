@@ -15,7 +15,6 @@ import type {
   StorageCategoryId,
   StorageUsageWire,
 } from "../shared/contract-shapes.ts";
-// Shared with the attachment prompt so an agent-facing size reads the same.
 import { escapeMarkdownTableCellText } from "../shared/format-human.ts";
 
 // Sizes, counts and ages are values each reader words in their language

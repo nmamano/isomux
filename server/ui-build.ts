@@ -19,7 +19,7 @@ const META_RE = /<meta name="isomux-ui-build" content="([^"]*)"/;
 
 // The id in the isomux-ui-build meta of distDir's index.html. null when the
 // page is missing, or its meta is absent or holds no valid id.
-export function readUiBuild(distDir: string): string | null {
+function readUiBuild(distDir: string): string | null {
   let html: string;
   try {
     html = readFileSync(join(distDir, "index.html"), "utf8");

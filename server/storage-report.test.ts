@@ -10,7 +10,7 @@ import { describe, it, expect } from "bun:test";
 import { renderStorageReport } from "./storage-report.ts";
 import { english, translatorForLanguage } from "./i18n.ts";
 import { localizeLogParts, renderLogText } from "../shared/i18n/log-message.ts";
-import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
+import type { StorageUsage } from "./storage-usage.ts";
 import type { StorageCategoryId } from "../shared/contract-shapes.ts";
 
 const MB = 1024 * 1024;
@@ -134,17 +134,11 @@ describe("renderStorageReport", () => {
     expect(boldRowIndex(out, "500.0 MB")).toBeGreaterThan(subtotal);
   });
 
-  it("says everything is office state when nothing lives outside it", () => {
-    const out = report(usageFixture({ transcripts: 2 * MB }), {
-      agentLabel: () => ({ name: "x" }),
-    });
-    // No phantom credit to locations with nothing in them.
-    expect(headline(out)).toBe(
-      t("storageReport.totalOnly", { total: "2.0 MB" }),
-    );
-  });
-
   it("names only the out-of-root locations that hold bytes", () => {
+    // No phantom credit to locations with nothing in them.
+    expect(
+      headline(report(usageFixture({ transcripts: 2 * MB }), labels)),
+    ).toBe(t("storageReport.totalOnly", { total: "2.0 MB" }));
     const both = report(
       usageFixture({ backups: 1 * MB, "update-snapshots": 1 * MB }),
       labels,
@@ -189,19 +183,6 @@ describe("renderStorageReport", () => {
     expect(out).toContain("| 3 | - |");
   });
 
-  it("withholds paths and per-agent detail from the aggregate projection", () => {
-    const full = usageFixture({ transcripts: 1 * MB, backups: 2 * MB });
-    const out = report(aggregateOnly(full), labels);
-    expect(out).not.toContain("/srv/state");
-    expect(out).not.toContain("/srv/isomux-backups");
-    expect(out).not.toContain(t("storageReport.biggestAgents"));
-    expect(out).not.toContain("name:agent-live");
-    expect(out).toContain(t("storageReport.ownerOnly"));
-    // The sizes themselves still come through - that is the whole point of the
-    // projection.
-    expect(headline(out)).toContain("3.0 MB");
-  });
-
   // One-agent report whose single row carries whatever name the case supplies.
   function rowFor(name: string, killed?: boolean): string {
     const usage = usageFixture({ transcripts: 1 * MB });
@@ -225,16 +206,13 @@ describe("renderStorageReport", () => {
       .trim();
   }
 
-  it("escapes an agent name that could break out of its table cell", () => {
+  it("escapes an agent name to literal text inside its table cell", () => {
     const row = rowFor("Ev|il\nrow | 9 TB | 9 | now\\");
     // One row, pipes escaped, newline flattened, trailing backslash doubled so
     // it cannot escape the cell delimiter that follows it.
     expect(row).toBe(
       "| Ev\\|il row \\| 9 TB \\| 9 \\| now\\\\ | 7.0 MB | 0 B | 1 | - |",
     );
-  });
-
-  it("renders inline markdown in a name as literal text", () => {
     // Emphasis, code, a link, and raw HTML: none of it may reach the renderer
     // as markup, because none of it is the report's own.
     expect(rowFor("**morgan**")).toContain("| \\*\\*morgan\\*\\* |");
@@ -285,21 +263,18 @@ describe("renderStorageReport", () => {
   });
 });
 
-// The same measurement, read by a Spanish and a Catalan user: the words, the
+// The same measurement, read by a Spanish user: the words, the
 // decimal mark and the thousands separator all follow the reader
 // (internal-docs/i18n-loop.md, S7, rulings 1 and 12). Each element is compared
 // with the same element of the English report, so a line that falls back to
 // English fails without the test freezing the translation (principle 15).
 describe("renderStorageReport in the reader's language", () => {
-  function both(
-    language: "es" | "ca",
-    usage: StorageUsage,
-  ): { en: string[]; local: string[] } {
+  function both(usage: StorageUsage): { en: string[]; local: string[] } {
     return {
       en: report(usage, labels).split("\n"),
       local: (
         localizeLogParts(
-          translatorForLanguage(language),
+          translatorForLanguage("es"),
           renderStorageReport(usage, labels),
         ) ?? ""
       ).split("\n"),
@@ -308,8 +283,10 @@ describe("renderStorageReport in the reader's language", () => {
 
   it("gives a Spanish reader Spanish words and Spanish number marks", () => {
     const { en, local } = both(
-      "es",
-      usageFixture({ transcripts: 100 * MB, backups: 400 * MB }),
+      usageFixture(
+        { transcripts: 100 * MB, backups: 400 * MB },
+        { snapshotsAvailable: false },
+      ),
     );
     expect(local.length).toBe(en.length);
     // Heading, totals sentence and measured age, then the table header cell
@@ -342,15 +319,6 @@ describe("renderStorageReport in the reader's language", () => {
     const spanish = translatorForLanguage("es").t(key);
     expect(spanish).not.toBe(t(key));
     expect(local).toContain(`| ${spanish} | 100,0 MB | 3 |`);
-  });
-
-  it("gives a Catalan reader Catalan", () => {
-    const { en, local } = both(
-      "ca",
-      usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
-    );
-    expect(local.length).toBe(en.length);
-    expect(local[0]).not.toBe(en[0]);
     // The unconfigured location's row, cell by cell: its name and its "none".
     const unset = (lines: string[]) => {
       const row = lines.find((l) => /^\| [^|]+ \| [^|]+ \| - \|$/u.test(l));

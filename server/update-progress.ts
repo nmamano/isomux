@@ -125,7 +125,7 @@ export const readText: ReadText = (path) => {
 
 // Start ticks: field 22 of /proc/<pid>/stat. The command name in field 2 can
 // hold spaces and parentheses, so count fields after its last ')'.
-export function startTicks(stat: string): string | null {
+function startTicks(stat: string): string | null {
   const close = stat.lastIndexOf(")");
   if (close === -1) return null;
   const fields = stat
@@ -136,9 +136,9 @@ export function startTicks(stat: string): string | null {
   return ticks && /^[0-9]+$/.test(ticks) ? ticks : null;
 }
 
-export type Liveness = "alive" | "dead" | "unknown";
+type Liveness = "alive" | "dead" | "unknown";
 
-export function updaterLiveness(
+function updaterLiveness(
   rec: ProgressRecord,
   read: ReadText = readText,
 ): Liveness {
@@ -157,9 +157,9 @@ export function updaterLiveness(
   return ticks === rec.pidStart ? "alive" : "dead";
 }
 
-// What the tabs see, pure for tests. `requested` holds the attempt the file
+// What the tabs see. `requested` holds the attempt the file
 // named before the launch (null: no record then).
-export function progressWire(
+function progressWire(
   rec: ProgressRecord | null,
   liveness: Liveness,
   requested: { priorAttempt: string | null } | null,

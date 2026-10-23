@@ -55,48 +55,27 @@ afterEach(() => {
 });
 
 describe("bundled skills", () => {
-  it("discovers and resolves wrap-session", () => {
+  it("discovers and resolves a bundled skill from its file", () => {
     const emptyUserRoot = root("empty-user");
     const skill = discoverBundledSkills().find(
       (entry) => entry.name === "wrap-session",
     );
-    expect(skill?.origin).toBe("isomux");
-    expect(skill?.description).toContain("loose ends");
-    // The resolved prompt is the bundled file's body, not a pinned sentence.
-    const body = readFileSync(
+    // The description and the prompt are the bundled file's, not a pinned
+    // sentence.
+    const text = readFileSync(
       join(import.meta.dir, "..", "skills", "wrap-session", "SKILL.md"),
       "utf8",
-    )
-      .split("---")
-      .slice(2)
-      .join("---")
-      .trim();
+    );
+    const frontmatter = Bun.YAML.parse(
+      text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "",
+    ) as { description?: string };
+    expect(skill?.origin).toBe("isomux");
+    expect(skill?.description).toBe(frontmatter.description);
+    const body = text.split("---").slice(2).join("---").trim();
     expect(body.length).toBeGreaterThan(0);
     expect(
       resolveSkillPrompt("wrap-session", root("cwd"), [
         { root: emptyUserRoot, includeCommands: true },
-      ]),
-    ).toContain(body);
-  });
-
-  it("discovers and resolves figure-it-out", () => {
-    const found = discoverBundledSkills().find(
-      (entry) => entry.name === "figure-it-out",
-    );
-    expect(found?.origin).toBe("isomux");
-    expect(found?.description?.length).toBeGreaterThan(0);
-    const body = readFileSync(
-      join(import.meta.dir, "..", "skills", "figure-it-out", "SKILL.md"),
-      "utf8",
-    )
-      .split("---")
-      .slice(2)
-      .join("---")
-      .trim();
-    expect(body.length).toBeGreaterThan(0);
-    expect(
-      resolveSkillPrompt("figure-it-out", root("cwd"), [
-        { root: root("empty-user"), includeCommands: true },
       ]),
     ).toContain(body);
   });

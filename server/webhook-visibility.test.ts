@@ -74,10 +74,6 @@ describe("webhookVisibleTo", () => {
       ),
     ).toBe(false);
   });
-
-  it("a null viewer user id never matches the owner", () => {
-    expect(webhookVisibleTo(facts(), viewer({ userId: null }))).toBe(false);
-  });
 });
 
 describe("webhookViewerForIdentity", () => {

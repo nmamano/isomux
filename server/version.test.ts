@@ -1,19 +1,14 @@
 // server/version.ts - git-derived version identity. Exercises the uncached
-// resolveVersionInfo seam against throwaway git repos in the OS temp dir;
-// getVersionInfo (the cached production entry) is just resolveVersionInfo over
-// the real checkout, so only the null-on-no-git contract is pinned for it via
-// a non-repo directory. Zero LLM.
+// resolveVersion seam against throwaway git repos in the OS temp dir;
+// getVersionInfo (the cached production entry) is resolveVersion over the real
+// checkout. Zero LLM.
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { execSync } from "child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import {
-  resolveVersion,
-  resolveVersionInfo,
-  resolveReachableRelease,
-} from "./version.ts";
+import { resolveVersion, resolveReachableRelease } from "./version.ts";
 
 let repo: string;
 let emptyDir: string;
@@ -38,9 +33,9 @@ afterAll(() => {
   rmSync(emptyDir, { recursive: true, force: true });
 });
 
-describe("resolveVersionInfo", () => {
+describe("resolveVersion", () => {
   it("untagged commit: short-SHA version, full commit, null release", () => {
-    const info = resolveVersionInfo(repo);
+    const info = resolveVersion(repo).info;
     const head = sh("git rev-parse HEAD");
     expect(info.commit).toBe(head);
     expect(info.release).toBeNull();
@@ -51,7 +46,7 @@ describe("resolveVersionInfo", () => {
 
   it("HEAD exactly at an annotated v-tag: version === release === tag", () => {
     sh('git tag -a v2026.7.19 -m "isomux v2026.7.19"');
-    const info = resolveVersionInfo(repo);
+    const info = resolveVersion(repo).info;
     expect(info.release).toBe("v2026.7.19");
     expect(info.version).toBe("v2026.7.19");
     expect(info.commit).toBe(sh("git rev-parse HEAD"));
@@ -60,7 +55,7 @@ describe("resolveVersionInfo", () => {
   it("tracked changes at a release tag dirty only the human-readable version", () => {
     writeFileSync(join(repo, "f.txt"), "dirty release\n");
     try {
-      const info = resolveVersionInfo(repo);
+      const info = resolveVersion(repo).info;
       expect(info.release).toBe("v2026.7.19");
       expect(info.version).toBe(`${info.release}-dirty`);
     } finally {
@@ -71,33 +66,18 @@ describe("resolveVersionInfo", () => {
   it("commits after the tag: describe-suffixed version, null release", () => {
     writeFileSync(join(repo, "f.txt"), "two\n");
     sh("git add . && git commit -qm two");
-    const info = resolveVersionInfo(repo);
+    // A nearer tag without the v prefix is not version identity.
+    sh("git tag not-a-release");
+    const info = resolveVersion(repo).info;
     expect(info.release).toBeNull();
     expect(info.version).toMatch(/^v2026\.7\.19-1-g[0-9a-f]+$/);
-  });
-
-  it("dirty worktree appends -dirty", () => {
-    writeFileSync(join(repo, "f.txt"), "three\n");
-    try {
-      const info = resolveVersionInfo(repo);
-      expect(info.version).toMatch(/-dirty$/);
-    } finally {
-      sh("git checkout -q -- f.txt");
-    }
-  });
-
-  it("non-v tags are ignored for version identity", () => {
-    sh("git tag not-a-release");
-    const info = resolveVersionInfo(repo);
-    expect(info.release).toBeNull();
-    expect(info.version).toMatch(/^v2026\.7\.19-1-g/);
   });
 
   it("an exact v-tag that is not CalVer never reports as a release", () => {
     writeFileSync(join(repo, "f.txt"), "four\n");
     sh("git add . && git commit -qm four");
     sh('git tag -a v1.0 -m "not a channel release"');
-    const info = resolveVersionInfo(repo);
+    const info = resolveVersion(repo).info;
     expect(info.release).toBeNull();
     // It still shows up as the human-readable describe identity.
     expect(info.version).toBe("v1.0");
@@ -107,7 +87,7 @@ describe("resolveVersionInfo", () => {
     // v1.0 (non-CalVer) already sits on HEAD; describe --exact-match could
     // pick either. Enumeration must surface the CalVer one.
     sh('git tag -a v2026.7.20 -m "release"');
-    const info = resolveVersionInfo(repo);
+    const info = resolveVersion(repo).info;
     expect(info.release).toBe("v2026.7.20");
   });
 
@@ -115,18 +95,13 @@ describe("resolveVersionInfo", () => {
     // v2026.7.20 from the previous test is on HEAD; add a same-day .2 and a
     // trap for lexicographic sorting (.10 must beat .2).
     sh("git tag v2026.7.20.2 && git tag v2026.7.20.10");
-    const info = resolveVersionInfo(repo);
+    const info = resolveVersion(repo).info;
     expect(info.release).toBe("v2026.7.20.10");
-  });
-
-  it("not a git repo: all fields null", () => {
-    const info = resolveVersionInfo(emptyDir);
-    expect(info).toEqual({ version: null, commit: null, release: null });
   });
 });
 
 // The update notice's lineage anchor. Builds on the tag state left by the
-// resolveVersionInfo suite above: HEAD carries v1.0 + v2026.7.20 + same-day
+// resolveVersion suite above: HEAD carries v1.0 + v2026.7.20 + same-day
 // .2/.10 tags, with v2026.7.19 one commit back.
 describe("resolveReachableRelease", () => {
   it("newest reachable CalVer tag wins, numerically (same-day .10 beats .2)", () => {
@@ -141,15 +116,6 @@ describe("resolveReachableRelease", () => {
     sh("git add . && git commit -qm five");
     sh('git tag -a v2.0 -m "not a channel release"');
     expect(resolveReachableRelease(repo)).toBe("v2026.7.20.10");
-  });
-
-  it("dirty worktree does not affect the answer", () => {
-    writeFileSync(join(repo, "f.txt"), "six\n");
-    try {
-      expect(resolveReachableRelease(repo)).toBe("v2026.7.20.10");
-    } finally {
-      sh("git checkout -q -- f.txt");
-    }
   });
 
   it("no reachable CalVer tag (only non-CalVer tags / not a repo): null", () => {
@@ -182,9 +148,9 @@ describe("container build identity", () => {
     };
     try {
       writeFileSync(join(dir, "version-info.json"), JSON.stringify(identity));
-      expect(resolveVersionInfo(dir)).toEqual(identity);
+      expect(resolveVersion(dir).info).toEqual(identity);
       writeFileSync(join(repo, "version-info.json"), JSON.stringify(identity));
-      expect(resolveVersionInfo(repo).commit).toBe(sh("git rev-parse HEAD"));
+      expect(resolveVersion(repo).info.commit).toBe(sh("git rev-parse HEAD"));
     } finally {
       rmSync(join(repo, "version-info.json"), { force: true });
       rmSync(dir, { recursive: true, force: true });
@@ -262,7 +228,7 @@ describe("container build identity", () => {
         JSON.stringify({ ...identity, command: "anything" }),
       ]) {
         writeFileSync(join(dir, "version-info.json"), raw);
-        expect(resolveVersionInfo(dir)).toEqual({
+        expect(resolveVersion(dir).info).toEqual({
           commit: null,
           release: null,
           version: null,

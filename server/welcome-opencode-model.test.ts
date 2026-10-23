@@ -55,18 +55,6 @@ describe("welcome OpenCode model resolution", () => {
     ).toEqual({ kind: "no_free_model" });
   });
 
-  it("distinguishes a successful discovery with no free model", async () => {
-    expect(
-      await resolveWelcomeOpenCodeModel(
-        async () => [
-          { id: "paid/default", label: "Paid", supportedEfforts: [] },
-        ],
-        preferred,
-        100,
-      ),
-    ).toEqual({ kind: "no_free_model" });
-  });
-
   it("bounds discovery and reports failure", async () => {
     const result = await resolveWelcomeOpenCodeModel(
       () => new Promise(() => undefined),

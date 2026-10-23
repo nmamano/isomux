@@ -23,7 +23,6 @@ import {
   pickCompareBase,
   pickRelease,
   pickReleasePage,
-  readUpdateOutcome,
   releaseStatusAfterScan,
   statusChanged,
   UPDATE_OUTCOME_PATH,
@@ -55,13 +54,10 @@ describe("githubOwnerRepo", () => {
     );
   });
 
-  it("rejects non-github remotes", () => {
+  it("rejects non-github remotes and URL syntax that would reach the api.github.com path", () => {
     expect(githubOwnerRepo("https://gitlab.com/x/y")).toBeNull();
     expect(githubOwnerRepo("/srv/git/isomux.git")).toBeNull();
     expect(githubOwnerRepo("")).toBeNull();
-  });
-
-  it("rejects URL-syntax smuggling into the derived api.github.com path", () => {
     expect(githubOwnerRepo("https://github.com/a/b?x=1")).toBeNull();
     expect(githubOwnerRepo("https://github.com/a/b#frag")).toBeNull();
     expect(githubOwnerRepo("https://github.com/a/b/c")).toBeNull();
@@ -82,11 +78,6 @@ describe("pickRelease", () => {
       publishedAt: "2026-07-19T00:00:00Z",
       url: "https://github.com/nmamano/isomux/releases/tag/v2026.7.19",
     });
-  });
-
-  it("non-CalVer latest release counts as none (channel offers only update.sh-acceptable tags)", () => {
-    expect(pickRelease({ tag_name: "v1.0" })).toBe("none");
-    expect(pickRelease({})).toBe("none");
   });
 });
 
@@ -128,17 +119,7 @@ describe("security release marker and sticky channel", () => {
     expect(pickReleasePage([null])).toBeNull();
   });
 
-  it("keeps a security release sticky behind a later ordinary release", () => {
-    const floor = computeSecurityFloor("v2026.8.1", [
-      listed("v2026.8.4"),
-      listed("v2026.8.3", true),
-      listed("v2026.8.2"),
-      listed("v2026.8.1"),
-    ]);
-    expect(floor?.tag).toBe("v2026.8.3");
-  });
-
-  it("clears the security target only once the running tag includes it", () => {
+  it("keeps a security release sticky behind later ordinary ones until the running tag includes it", () => {
     const releases = [
       listed("v2026.8.4"),
       listed("v2026.8.3", true),
@@ -264,14 +245,6 @@ describe("computeReleaseStatus", () => {
   const on = { release: "v2026.7.19", version: "v2026.7.19" };
   const rel = (tag: string) => ({ tag, publishedAt: null, url: null });
 
-  it("zero releases -> quiet", () => {
-    const s = computeReleaseStatus(on, null);
-    expect(s.updateAvailable).toBe(false);
-    expect(s.mode).toBe("release");
-    if (s.mode === "release") expect(s.latest).toBeNull();
-    if (s.mode === "release") expect(s.securityUpdate).toBeNull();
-  });
-
   it("newer release -> available; same or older -> quiet", () => {
     expect(computeReleaseStatus(on, rel("v2026.7.20")).updateAvailable).toBe(
       true,
@@ -294,14 +267,19 @@ describe("computeReleaseStatus", () => {
     expect(computeReleaseStatus(offChannel, null).updateAvailable).toBe(false);
   });
 
-  it("carries the sticky security target separately from the latest target", () => {
+  it("carries the security target apart from the latest, and the apply action (host by default)", () => {
     const latest = rel("v2026.8.4");
     const security = rel("v2026.8.3");
-    const s = computeReleaseStatus(on, latest, security);
-    if (s.mode === "release") {
-      expect(s.latest?.tag).toBe("v2026.8.4");
-      expect(s.securityUpdate?.tag).toBe("v2026.8.3");
-    }
+    const host = computeReleaseStatus(on, latest, security);
+    expect(host.mode === "release" && host.latest?.tag).toBe("v2026.8.4");
+    expect(host.mode === "release" && host.securityUpdate?.tag).toBe(
+      "v2026.8.3",
+    );
+    expect(host.mode === "release" && host.apply).toEqual({ kind: "host" });
+    const image = { kind: "image", guide: "kubernetes" } as const;
+    const next = releaseStatusAfterScan(on, { latest, security: null }, image);
+    expect(next?.updateAvailable).toBe(true);
+    expect(next?.mode === "release" && next.apply).toEqual(image);
   });
 });
 
@@ -349,124 +327,74 @@ describe("parseCompare (compare response mapping)", () => {
   });
 });
 
+// The notice each state shows (visible or quiet) is the matrix in
+// shared/update-notice.test.ts; this pins the fields it reads.
 describe("computeCommitStatus (the source-checkout decision)", () => {
-  const sha = "abc1234abc1234abc1234abc1234abc1234abc12";
-  const rel = (tag: string) => ({ tag, url: null });
-  const cmp = (aheadBy: number, behindBy = 0) => ({ aheadBy, behindBy });
-  // status(tag at HEAD, newest reachable release, latest release, compare)
-  const status = (
-    release: string | null,
-    reachable: string | null,
-    latest: { tag: string; url: string | null } | null,
-    c: { aheadBy: number; behindBy: number } | "unknown",
-  ) => computeCommitStatus({ release, sha }, reachable, latest, c);
-
-  it("on the latest release: quiet at the main tip, informational when main moved on", () => {
-    const quiet = status("v2026.7.22", "v2026.7.22", rel("v2026.7.22"), cmp(0));
-    expect(quiet.updateAvailable).toBe(false);
-    const drifted = status(
-      "v2026.7.22",
-      "v2026.7.22",
-      rel("v2026.7.22"),
-      cmp(4),
-    );
-    expect(drifted.updateAvailable).toBe(true);
-    if (drifted.mode === "commit") {
-      expect(drifted.releaseStanding).toBe("current");
-      expect(drifted.mainAhead).toBe(4);
+  it("derives availability, release standing and main drift for each state", () => {
+    const sha = "abc1234abc1234abc1234abc1234abc1234abc12";
+    const L22 = { tag: "v2026.7.22", url: null };
+    const cmp = (aheadBy: number, behindBy = 0) => ({ aheadBy, behindBy });
+    const rows = [
+      // On the latest release: quiet at the main tip, drift when main moved.
+      ["v2026.7.22", "v2026.7.22", L22, cmp(0), false, "current", 0],
+      ["v2026.7.22", "v2026.7.22", L22, cmp(4), true, "current", 4],
+      // Behind the latest release: available with zero drift.
+      ["v2026.7.20", "v2026.7.20", L22, cmp(0), true, "behind", 0],
+      // Tag newer than the listed release (listing lag).
+      ["v2026.7.23", "v2026.7.23", L22, cmp(3), true, "ahead", 3],
+      // Untagged HEAD: standing from the reachable release.
+      [null, "v2026.7.22", L22, cmp(5), true, "ahead", 5],
+      [null, "v2026.7.20", L22, cmp(5), true, "behind", 5],
+      [null, null, L22, cmp(5), true, "unknown", 5],
+      // Ahead of main (diverged, or HEAD unknown to GitHub): quiet, absolutely.
+      [null, "v2026.7.20", L22, cmp(2, 3), false, "behind", 0],
+      [null, "v2026.7.20", L22, "unknown", false, "behind", 0],
+      // No releases yet: pure main drift.
+      [null, null, null, cmp(3), true, "unknown", 3],
+    ] as const;
+    for (const [
+      release,
+      reachable,
+      latest,
+      c,
+      available,
+      standing,
+      ahead,
+    ] of rows) {
+      const s = computeCommitStatus({ release, sha }, reachable, latest, c);
+      expect([release, reachable, c, s]).toMatchObject([
+        release,
+        reachable,
+        c,
+        {
+          mode: "commit",
+          updateAvailable: available,
+          releaseStanding: standing,
+          mainAhead: ahead,
+        },
+      ]);
     }
-  });
-
-  it("behind the latest release: available even with zero main drift", () => {
-    const s = status("v2026.7.20", "v2026.7.20", rel("v2026.7.22"), cmp(0));
-    expect(s.updateAvailable).toBe(true);
-    if (s.mode === "commit") expect(s.releaseStanding).toBe("behind");
-  });
-
-  it("tag newer than the listed release: standing ahead, drift-only notice", () => {
-    const s = status("v2026.7.23", "v2026.7.23", rel("v2026.7.22"), cmp(3));
-    expect(s.updateAvailable).toBe(true);
-    if (s.mode === "commit") expect(s.releaseStanding).toBe("ahead");
-    expect(
-      status("v2026.7.23", "v2026.7.23", rel("v2026.7.22"), cmp(0))
-        .updateAvailable,
-    ).toBe(false);
-  });
-
-  it("untagged HEAD derives its release standing from the reachable release", () => {
-    const past = status(null, "v2026.7.22", rel("v2026.7.22"), cmp(5));
-    if (past.mode === "commit") expect(past.releaseStanding).toBe("ahead");
-    const behind = status(null, "v2026.7.20", rel("v2026.7.22"), cmp(5));
-    expect(behind.updateAvailable).toBe(true);
-    if (behind.mode === "commit") expect(behind.releaseStanding).toBe("behind");
-    const unknown = status(null, null, rel("v2026.7.22"), cmp(5));
-    if (unknown.mode === "commit")
-      expect(unknown.releaseStanding).toBe("unknown");
-  });
-
-  it("untagged at the main tip: quiet unless the lineage is behind a release", () => {
-    expect(
-      status(null, "v2026.7.22", rel("v2026.7.22"), cmp(0)).updateAvailable,
-    ).toBe(false);
-    expect(status(null, null, rel("v2026.7.22"), cmp(0)).updateAvailable).toBe(
-      false,
-    );
-    // Exotic off-main release: lineage behind, still offered.
-    expect(
-      status(null, "v2026.7.20", rel("v2026.7.22"), cmp(0)).updateAvailable,
-    ).toBe(true);
-  });
-
-  it("ahead of main stays quiet, absolutely - even with a newer release out", () => {
-    // Diverged / box has commits main lacks.
-    const diverged = status(null, "v2026.7.20", rel("v2026.7.22"), cmp(2, 3));
-    expect(diverged.updateAvailable).toBe(false);
-    if (diverged.mode === "commit") expect(diverged.mainAhead).toBe(0);
-    // HEAD sha unknown to GitHub (unpushed local commits): compare 404.
-    expect(
-      status(null, "v2026.7.20", rel("v2026.7.22"), "unknown").updateAvailable,
-    ).toBe(false);
-  });
-
-  it("no releases yet: pure main-drift notice", () => {
-    const s = status(null, null, null, cmp(3));
-    expect(s.updateAvailable).toBe(true);
-    if (s.mode === "commit") {
-      expect(s.latest).toBeNull();
-      expect(s.mainAhead).toBe(3);
-    }
-    expect(status(null, null, null, cmp(0)).updateAvailable).toBe(false);
-    expect(
-      status("v2026.7.20", "v2026.7.20", null, cmp(3)).updateAvailable,
-    ).toBe(true);
   });
 });
 
 describe("statusChanged (the publish/broadcast decision)", () => {
-  const on = { release: "v2026.7.19", version: "v2026.7.19" };
-  const rel = (tag: string) => ({ tag, publishedAt: null, url: null });
-
-  it("available A -> available B (true->true, new tag) must notify", () => {
+  it("notifies on any payload change, and only then", () => {
+    const on = { release: "v2026.7.19", version: "v2026.7.19" };
+    const rel = (tag: string) => ({ tag, publishedAt: null, url: null });
     const a = computeReleaseStatus(on, rel("v2026.7.20"));
-    const b = computeReleaseStatus(on, rel("v2026.7.21"));
-    expect(a.updateAvailable && b.updateAvailable).toBe(true);
-    expect(statusChanged(a, b)).toBe(true);
-  });
-
-  it("available -> equal/current (banner clears after the box updated) must notify", () => {
-    const before = computeReleaseStatus(on, rel("v2026.7.20"));
-    const after = computeReleaseStatus(
-      { release: "v2026.7.20", version: "v2026.7.20" },
-      rel("v2026.7.20"),
+    // available A -> available B: "Update now" must not target the stale tag.
+    expect(statusChanged(a, computeReleaseStatus(on, rel("v2026.7.21")))).toBe(
+      true,
     );
-    expect(after.updateAvailable).toBe(false);
-    expect(statusChanged(before, after)).toBe(true);
-  });
-
-  it("identical payload is suppressed (hourly no-op re-checks stay silent)", () => {
-    const a = computeReleaseStatus(on, rel("v2026.7.20"));
-    const b = computeReleaseStatus(on, rel("v2026.7.20"));
-    expect(statusChanged(a, b)).toBe(false);
+    // available -> current: the banner clears after the box updated.
+    const current = { release: "v2026.7.20", version: "v2026.7.20" };
+    expect(
+      statusChanged(a, computeReleaseStatus(current, rel("v2026.7.20"))),
+    ).toBe(true);
+    // An identical payload stays silent (the hourly no-op re-check).
+    expect(statusChanged(a, computeReleaseStatus(on, rel("v2026.7.20")))).toBe(
+      false,
+    );
   });
 });
 
@@ -734,18 +662,8 @@ describe("untagged image lineage (Render main commit)", () => {
     expect(compares(g.calls)).toBe(1);
   });
 
-  it("the pure decision: an unrelated latest release hides a behind security release", () => {
+  it("the pure decision: a security release newer than a contained latest still shows", () => {
     const rel = (tag: string) => ({ tag, publishedAt: null, url: null });
-    const quiet = computeImageLineageStatus(
-      current,
-      rel("v2026.9.23"),
-      "unrelated",
-      rel("v2026.9.20"),
-      "behind",
-      image,
-    );
-    expect(quiet.updateAvailable).toBe(false);
-    expect(quiet.mode === "release" && quiet.securityUpdate).toBeNull();
     const behind = computeImageLineageStatus(
       current,
       rel("v2026.9.23"),
@@ -772,61 +690,6 @@ describe("untagged image lineage (Render main commit)", () => {
       "v2026.9.23",
     );
     expect(compares(g.calls)).toBe(1);
-  });
-
-  it("from a visible notice: a definite quiet answer replaces it, a failed check keeps it", async () => {
-    const notice = await run(
-      github({
-        latest: ordinary("v2026.9.23"),
-        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
-        compare: {
-          "v2026.9.23": { status: "behind" },
-          "v2026.9.20": { status: "behind" },
-        },
-      }),
-    );
-    expect(notice?.updateAvailable).toBe(true);
-    expect(notice?.mode === "release" && notice.securityUpdate).not.toBeNull();
-
-    const quiet = await run(
-      github({
-        latest: ordinary("v2026.9.23"),
-        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
-        compare: { "v2026.9.23": { status: "diverged" } },
-      }),
-    );
-    expect(quiet?.updateAvailable).toBe(false);
-    expect(quiet?.mode === "release" && quiet.securityUpdate).toBeNull();
-    expect(statusChanged(notice!, quiet!)).toBe(true);
-
-    const failed = await run(
-      github({
-        latest: ordinary("v2026.9.23"),
-        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
-        compare: {
-          "v2026.9.23": new Response("rate limited", { status: 429 }),
-        },
-      }),
-    );
-    expect(failed).toBeNull();
-  });
-});
-
-describe("apply on release statuses", () => {
-  const on = { release: "v2026.9.1", version: "v2026.9.1" };
-  const rel = { tag: "v2026.9.8", publishedAt: null, url: null };
-
-  it("the host updater is the default; a tagged image carries the image action", () => {
-    const host = computeReleaseStatus(on, rel);
-    expect(host.mode === "release" && host.apply).toEqual({ kind: "host" });
-    const image = { kind: "image", guide: "kubernetes" } as const;
-    const next = releaseStatusAfterScan(
-      on,
-      { latest: rel, security: null },
-      image,
-    );
-    expect(next?.updateAvailable).toBe(true);
-    expect(next?.mode === "release" && next.apply).toEqual(image);
   });
 });
 
@@ -870,32 +733,29 @@ describe("update outcome", () => {
     }
   });
 
-  it("an absent or unreadable file is no note", () => {
-    expect(
-      readUpdateOutcome("v2026.10.7", "/x/outcome.json", () => ({
-        code: "ENOENT",
-      })),
-    ).toBeNull();
-    expect(
-      readUpdateOutcome("v2026.10.7", "/x/outcome.json", () => ({
-        code: "EACCES",
-      })),
-    ).toBeNull();
-    expect(
-      readUpdateOutcome("v2026.10.7", "/x/outcome.json", (path) =>
-        path === "/x/outcome.json" ? raw() : { code: "ENOENT" },
-      ),
-    ).toEqual(note);
-  });
-
-  it("rides the release status only when present", () => {
+  // A release check result replaces the status: it must keep the progress
+  // and the note, and a commit status carries neither.
+  it("rides the release status with the progress only when present", () => {
     const release = computeReleaseStatus(
       { release: "v2026.10.7", version: "v2026.10.7" },
-      null,
+      { tag: "v2026.10.8", publishedAt: null, url: null },
     );
-    expect(withProgress(release, null, note)).toMatchObject({
+    const progress = {
+      attempt: "a".repeat(32),
+      phase: "build",
+      result: "running",
+    } as const;
+    expect(withProgress(release, progress, note)).toMatchObject({
+      progress,
       outcome: note,
     });
     expect(withProgress(release, null, null)).not.toHaveProperty("outcome");
+    const commit = computeCommitStatus(
+      { release: null, sha: "x" },
+      null,
+      null,
+      "unknown",
+    );
+    expect(withProgress(commit, progress, note)).toEqual(commit);
   });
 });

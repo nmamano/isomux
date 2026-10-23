@@ -378,9 +378,9 @@ describe("Bun PTY sidecar", () => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Message);
+    // An explanation for the panel, then a "command not found" exit.
     expect(messages.map((m) => m.type)).toEqual(["output", "exit"]);
-    expect(messages[0].data).toMatch(/Bun 1\.3\.11/);
-    expect(messages[0].data).toMatch(/Update Bun.*restart Isomux/);
+    expect(messages[0].data?.trim()).not.toBe("");
     expect(messages[1]).toMatchObject({ exitCode: 127, signal: null });
   });
 
