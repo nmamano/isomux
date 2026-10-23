@@ -261,6 +261,11 @@ export type NormalizedEvent =
       // `error` is a provider refusal line (server/backends/provider-text.ts):
       // the orchestrator shows it as it is, without auth detection.
       providerRefusal?: boolean;
+      // The member can fix this turn by picking another model: the chat line
+      // offers the model picker.
+      pickModel?: true;
+      // The model the backend's model list no longer has.
+      goneModel?: string;
     }
   | {
       kind: "provider_capacity_retry";

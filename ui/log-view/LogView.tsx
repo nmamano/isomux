@@ -129,6 +129,78 @@ function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
   );
 }
 
+// The agent's model is gone from its engine's list (AgentInfo.goneModel). An
+// SVG, not a glyph: iOS draws glyphs through the emoji font.
+function GoneModelMark({
+  model,
+  onClick,
+}: {
+  model: string;
+  onClick: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      data-gone-model
+      onClick={onClick}
+      title={t("logView.goneModelTitle", { model })}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: 0,
+        border: "none",
+        background: "none",
+        color: "var(--orange-text)",
+        cursor: "pointer",
+        lineHeight: 1,
+        flexShrink: 0,
+      }}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+    </button>
+  );
+}
+
+// Under a failed turn that another model fixes: opens the agent settings,
+// as the header name does.
+function PickModelButton({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      data-pick-model
+      onClick={onClick}
+      style={{
+        margin: "4px 0 8px",
+        padding: "4px 10px",
+        borderRadius: 6,
+        border: "1px solid var(--border-medium)",
+        background: "var(--btn-surface)",
+        color: "var(--text-secondary)",
+        fontSize: 12,
+        cursor: "pointer",
+      }}
+    >
+      {t("logView.pickModel")}
+    </button>
+  );
+}
+
 // Side panel size constraints. Mins below differ between terminal and editor
 // because the editor's tab strip + line numbers need more horizontal room
 // before content starts wrapping uselessly.
@@ -2014,6 +2086,12 @@ export function LogView({
                     agent.claudeFamilyModels,
                   )}
                 </span>
+                {agent.goneModel && (
+                  <GoneModelMark
+                    model={agent.goneModel}
+                    onClick={onEditAgent}
+                  />
+                )}
                 {/* The shared predicate keeps the engine cue consistent with
                     the listing while preserving the Codex header rule. */}
                 {showEngineCue(
@@ -2301,6 +2379,12 @@ export function LogView({
                   >
                     {agent.name}
                   </span>
+                  {agent.goneModel && (
+                    <GoneModelMark
+                      model={agent.goneModel}
+                      onClick={onEditAgent}
+                    />
+                  )}
                   {STATE_LABEL_KEYS[agent.state] && (
                     <HeaderTimer
                       state={agent.state}
@@ -2564,6 +2648,9 @@ export function LogView({
                 }}
                 afterEntry={(entry) => (
                   <>
+                    {entry.metadata?.pickModel === true && (
+                      <PickModelButton onClick={onEditAgent} />
+                    )}
                     {(entry.metadata?.providerLogin === "codex" ||
                       entry.metadata?.providerLogin === "claude") &&
                       agent.userId !== null &&

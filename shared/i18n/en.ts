@@ -2022,6 +2022,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "subscription.duration.daysHours": "{days} {hours}",
   "subscription.duration.hoursMinutes": "{hours} {minutes}",
   "logView.editAgent": "Edit agent",
+  "logView.pickModel": "Pick a model",
+  "logView.goneModelTitle":
+    "OpenCode no longer lists model {model}. Pick another model.",
   "panels.editor.noFileOpen": "No file open",
   "panels.editor.emptyHint":
     "No file open. Use <code>{command}</code> or have the agent send one.",

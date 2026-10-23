@@ -189,6 +189,7 @@ import {
   type WelcomeModelRetryTiming,
 } from "./welcome-opencode-model.ts";
 import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
+import { checkOpenCodeModels } from "./opencode-model-check.ts";
 import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
@@ -946,6 +947,7 @@ function createManagers(startOpts: StartServerOpts): void {
       webPushDelivery.onTransitioned(entry, to);
     },
   });
+  agentManager.attachPagerStore(pagerStore);
   pagerDelivery = createPagerDelivery({
     store: pagerStore,
     settings: (userId) => pagerSettings.get(userId),
@@ -2157,6 +2159,40 @@ function resolveAndValidateEnv(
   }
 }
 
+// The check of each OpenCode agent's model against the list the model picker
+// reads (task 73951c9f). Lazy agents count too: listing wakes no session.
+async function checkOpenCodeAgentModels(): Promise<void> {
+  const checked = agentManager
+    .getAllAgents()
+    .filter((agent) => agent.agentType === "opencode")
+    .map(({ id, userId, cwd, modelFamily }) => ({
+      id,
+      userId,
+      cwd,
+      modelFamily,
+    }));
+  const statuses = await checkOpenCodeModels(checked, async (userId, cwd) => {
+    const listed = await listBackendModels({
+      agentType: "opencode",
+      cwd,
+      includeHidden: true,
+      userId,
+    });
+    if (!listed.ok) throw new Error(listed.error);
+    return listed.models;
+  });
+  for (const agent of checked) {
+    const now = agentManager.getAgent(agent.id);
+    // The model changed during the check: the result is about the old one.
+    if (now?.agentType !== "opencode" || now.modelFamily !== agent.modelFamily)
+      continue;
+    const status = statuses.get(agent.id);
+    if (status === "gone")
+      agentManager.setGoneModel(agent.id, agent.modelFamily);
+    else if (status === "listed") agentManager.setGoneModel(agent.id, null);
+  }
+}
+
 // backends.listModels. Resolves the per-user env stack and
 // cwd EXACTLY like a real spawn (so office and managed personal variable overrides are reflected),
 // lists, and maps to the wire shape. On failure, flags backend-specific auth
@@ -2165,7 +2201,7 @@ async function listBackendModels(input: {
   agentType: string;
   cwd: string;
   includeHidden: boolean;
-  userId: string;
+  userId: string | null;
   signal?: AbortSignal;
 }): Promise<
   | { ok: true; models: BackendModelWire[] }
@@ -9060,6 +9096,20 @@ export async function runOfficeMain(): Promise<void> {
       .catch((err) => console.error("[queue-watchdog] sweep failed:", err));
   }, 30_000);
   queueWatchdog.unref?.();
+  // OpenCode agents' models: a while after boot, so the check does not race
+  // the restore, then once a day.
+  const modelCheck = () =>
+    void checkOpenCodeAgentModels().catch((err) =>
+      console.error("[opencode] model check failed:", err),
+    );
+  const modelCheckStart = setTimeout(() => {
+    modelCheck();
+    setInterval(modelCheck, OPENCODE_MODEL_CHECK_INTERVAL_MS).unref?.();
+  }, OPENCODE_MODEL_CHECK_BOOT_DELAY_MS);
+  modelCheckStart.unref?.();
 }
+
+const OPENCODE_MODEL_CHECK_BOOT_DELAY_MS = 2 * 60_000;
+const OPENCODE_MODEL_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
 
 if (import.meta.main) await runOfficeMain();

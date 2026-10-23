@@ -1,4 +1,5 @@
 import type { AuditActor } from "../shared/audit.ts";
+import type { PagerStore } from "./pager-store.ts";
 import { createTaskStore } from "./task-store.ts";
 import {
   claudeConfigRoot,
@@ -1303,6 +1304,8 @@ export function createAgentManager(deps: ManagerDeps) {
     // toggle - demote, wake, swap, and now every lazy spawn + /clear release -
     // fires a full persistAll for nothing.
     "dormant",
+    // Derived by the model check and failed turns (setGoneModel).
+    "goneModel",
   ]);
   officeState.onChange((event) => {
     if (event.type === "office_settings_updated") {
@@ -1482,6 +1485,41 @@ export function createAgentManager(deps: ManagerDeps) {
     const room = roomById(managed.info.roomId);
     if (!room) return null;
     return { name: managed.info.name, roomName: room.name };
+  }
+
+  // The pager store the gone-model page goes to (isomux-office.ts attaches
+  // it after both exist).
+  let pagerStore: Pick<PagerStore, "raise"> | null = null;
+  function attachPagerStore(store: Pick<PagerStore, "raise">): void {
+    pagerStore = store;
+  }
+
+  // Flag (model) or clear (null) the model this agent runs as gone from
+  // OpenCode's list. It never changes the model: a member chose it. Each new
+  // gone model on the agent that faces visitors (the lobby agent) pages its
+  // manager once; the key keeps a repeat in the same page.
+  function setGoneModel(agentId: string, model: string | null): void {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    const info = managed.info;
+    if ((info.goneModel ?? null) === model) return;
+    for (const event of officeState.updateAgent(agentId, { goneModel: model }))
+      emit(event);
+    if (model === null || info.roomId !== LOBBY_ROOM_ID || !info.userId) return;
+    pagerStore?.raise({
+      source: {
+        kind: "agent",
+        agentId,
+        name: info.name,
+        roomId: info.roomId,
+      },
+      targetUserId: info.userId,
+      fields: {
+        title: `OpenCode no longer lists model ${model}`,
+        body: `${info.name} cannot answer visitors. Pick another model in its settings.`,
+        key: `opencode-model-gone:${model}`,
+      },
+    });
   }
 
   // Best-effort system note into an agent's chat (a plain log entry: member-
@@ -5331,13 +5369,16 @@ export function createAgentManager(deps: ManagerDeps) {
             // its own (Codex after its stderr 401) adds no error line.
             const isAuthError = managed?.authNeededThisTurn === true;
             const silentAuthEnd = isAuthError && ev.error === undefined;
-            if (!silentAuthEnd)
+            if (!silentAuthEnd) {
+              const meta = backendFailureMeta(failure);
               addLogEntry(
                 agentId,
                 "error",
                 failure.text,
-                backendFailureMeta(failure),
+                ev.pickModel ? { ...meta, pickModel: true } : meta,
               );
+            }
+            if (ev.goneModel) setGoneModel(agentId, ev.goneModel);
             // Arm the caller-catch echo suppressor (see ManagedAgent.
             // lastBackendFailure): the turn rejection below wakes the owning
             // caller, whose catch would otherwise repeat this same sentence.
@@ -12150,6 +12191,8 @@ export function createAgentManager(deps: ManagerDeps) {
     enqueueMessage,
     prepareEnqueue,
     addSystemNote,
+    attachPagerStore,
+    setGoneModel,
     addApiTokenOutbound,
     addAgentOutbound,
     cancelQueued,

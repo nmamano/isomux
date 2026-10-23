@@ -124,7 +124,11 @@ export type OpenCodeServerProbe =
   | "silent";
 
 export function openCodeModelUnavailableFailure(model: string): string {
-  return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model with \`/model\`.`;
+  return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model.`;
+}
+
+export function openCodeModelGoneFailure(model: string): string {
+  return `OpenCode no longer lists model \`${model}\`. Pick another model.`;
 }
 
 export const OPENCODE_EFFORT_CATALOG_UNAVAILABLE =
@@ -1645,19 +1649,32 @@ export class OpenCodeTransport {
                     kind: "turn_completed",
                     status: "failed",
                     error: signIn.error,
+                    ...(signIn.pickModel ? { pickModel: true as const } : {}),
                   },
                   { authNeeded: signIn.authNeeded },
                 );
                 return;
               }
+              // Another model fixes this turn: the line offers the picker.
+              if (failure === "model_gone" || failure === "model_refused") {
+                settle({
+                  kind: "turn_completed",
+                  status: "failed",
+                  error:
+                    failure === "model_gone"
+                      ? openCodeModelGoneFailure(this.model)
+                      : openCodeModelUnavailableFailure(this.model),
+                  pickModel: true,
+                  ...(failure === "model_gone"
+                    ? { goneModel: this.model }
+                    : {}),
+                });
+                return;
+              }
               settle({
                 kind: "turn_completed",
                 status: "failed",
-                error:
-                  refusal ??
-                  (failure === "model_unavailable"
-                    ? openCodeModelUnavailableFailure(this.model)
-                    : openCodeErrorMessage(event.error)),
+                error: refusal ?? openCodeErrorMessage(event.error),
               });
               return;
             }
@@ -1942,7 +1959,7 @@ export class OpenCodeTransport {
   private async classifyProviderFailure(
     error: SafeOpenCodeError,
   ): Promise<OpenCodeProviderFailure> {
-    if (error.statusCode === 403) return "model_unavailable";
+    if (error.statusCode === 403) return "model_refused";
     if (error.statusCode === 401 || error.name === "ProviderAuthError")
       return "authentication";
     if (
@@ -1953,8 +1970,9 @@ export class OpenCodeTransport {
     try {
       const response = await this.request("/provider");
       const connected = allowConnectedProviders(await response.json());
+      // A connected provider without the model: OpenCode no longer has it.
       return connected.includes(splitModel(this.model)[0])
-        ? "model_unavailable"
+        ? "model_gone"
         : "provider_not_connected";
     } catch {
       return null;
@@ -1969,7 +1987,7 @@ export class OpenCodeTransport {
   private async signInFailure(
     error: SafeOpenCodeError,
     failure: "authentication" | "provider_not_connected",
-  ): Promise<{ error: LogText; authNeeded: boolean }> {
+  ): Promise<{ error: LogText; authNeeded: boolean; pickModel?: true }> {
     const provider = splitModel(this.model)[0];
     const words = providerText(error.message);
     const withWords = (line: LogText): LogText =>
@@ -1978,10 +1996,12 @@ export class OpenCodeTransport {
         : joinLogText([line, openCodeProviderLine(provider, words)], "\n");
     if (await this.needsOpenCodeKey(provider))
       return { error: withWords(OPENCODE_AUTH_FAILURE), authNeeded: true };
+    // A model of a connected provider fixes the turn.
     if (failure === "provider_not_connected")
       return {
         error: withWords(openCodeModelUnavailableFailure(this.model)),
         authNeeded: false,
+        pickModel: true,
       };
     return {
       error:
@@ -2605,7 +2625,8 @@ function allowError(value: unknown): SafeOpenCodeError {
 
 export type OpenCodeProviderFailure =
   | "authentication"
-  | "model_unavailable"
+  | "model_refused"
+  | "model_gone"
   | "provider_not_connected"
   | null;
 

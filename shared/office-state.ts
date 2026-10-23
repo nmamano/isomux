@@ -453,6 +453,7 @@ export class OfficeState {
       updated.limitResume = changes.limitResume;
     }
 
+    if (updated.modelFamily) Object.assign(updated, clearGoneModel(agent));
     if (Object.keys(updated).length === 0) return [];
     const events: OfficeEvent[] = [
       { type: "agent_updated", agentId, changes: updated },
@@ -464,7 +465,13 @@ export class OfficeState {
   updateAgent(agentId: string, changes: Partial<AgentInfo>): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
+    const modelChanged =
+      (changes.modelFamily !== undefined &&
+        changes.modelFamily !== agent.modelFamily) ||
+      (changes.agentType !== undefined &&
+        changes.agentType !== agent.agentType);
     Object.assign(agent, changes);
+    if (modelChanged) changes = { ...changes, ...clearGoneModel(agent) };
     const events: OfficeEvent[] = [{ type: "agent_updated", agentId, changes }];
     this.emitEvents(events);
     return events;
@@ -972,4 +979,13 @@ export class OfficeState {
       ...this._recentCwds.filter((c) => c !== cwd),
     ].slice(0, 20);
   }
+}
+
+// A gone model names the model the agent ran, so another model clears it. The
+// clear is a null, not an absent field: JSON drops undefined, and the browser
+// would keep the old mark.
+function clearGoneModel(agent: AgentInfo): Partial<AgentInfo> {
+  if (agent.goneModel == null) return {};
+  agent.goneModel = null;
+  return { goneModel: null };
 }

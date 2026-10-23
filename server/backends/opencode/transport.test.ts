@@ -10,6 +10,7 @@ import {
   OPENCODE_AUTH_FAILURE,
   OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
   OPENCODE_PERMISSION_ID_WARNING,
+  openCodeModelGoneFailure,
   openCodeModelUnavailableFailure,
   handleOpenCodePermission,
   parseAllowedEvent,
@@ -1251,7 +1252,9 @@ describe("OpenCode permission event integration", () => {
     expect(typeof openCodeRetryMessage(message, 1, "provider")).toBe("object");
   });
 
-  it("keeps the model line for a 403 with no provider message", async () => {
+  // Task 73951c9f: a model the provider refuses is no gone model, and the
+  // member can still fix the turn by picking another one.
+  it("keeps the model line for a 403 with no provider message, and offers the picker", async () => {
     const result = await runFrames([
       frame("session.error", {
         error: {
@@ -1264,6 +1267,7 @@ describe("OpenCode permission event integration", () => {
       kind: "turn_completed",
       status: "failed",
       error: openCodeModelUnavailableFailure("provider/model"),
+      pickModel: true,
     });
   });
 
@@ -1372,6 +1376,13 @@ describe("OpenCode permission event integration", () => {
       message?: string,
     ) => {
       const result = await fail(errorFrame, server);
+      const end = result.events.at(-1) as Extract<
+        NormalizedEvent,
+        { kind: "turn_completed" }
+      >;
+      // The key fixes this turn, not another model (task 73951c9f).
+      expect(end.pickModel, "no model picker").toBeUndefined();
+      expect(end.goneModel, "no gone model").toBeUndefined();
       expect(result.signIns, "one sign-in signal").toBe(1);
       expect(result.signalFirst, "the signal comes before the end").toBe(true);
       expect(result.error).toContain(OPENCODE_AUTH_FAILURE);
@@ -1519,9 +1530,20 @@ describe("OpenCode permission event integration", () => {
         modelNotFound(other),
       );
       expect(result.error).toContain(openCodeModelUnavailableFailure(other));
+      // A provider that is not connected is no proof the model is gone, but
+      // a connected provider's model fixes the turn (task 73951c9f).
+      const end = result.events.at(-1) as Extract<
+        NormalizedEvent,
+        { kind: "turn_completed" }
+      >;
+      expect(end.pickModel).toBe(true);
+      expect(end.goneModel).toBeUndefined();
     });
   });
 
+  // Task 73951c9f: OpenCode's "Model not found" for a model of a connected
+  // provider means OpenCode no longer has the model: the line says so, names
+  // it, offers the picker, and the event names the gone model for the flag.
   it("classifies model-not-found through connected-provider discovery", async () => {
     const frame = {
       type: "session.error",
@@ -1536,11 +1558,23 @@ describe("OpenCode permission event integration", () => {
       },
     };
     const connected = await runFrames([frame], undefined, ["provider"]);
-    expect(connected.events.at(-1)).toEqual({
+    const end = connected.events.at(-1) as Extract<
+      NormalizedEvent,
+      { kind: "turn_completed" }
+    >;
+    expect(end).toMatchObject({
       kind: "turn_completed",
       status: "failed",
-      error: openCodeModelUnavailableFailure("provider/model"),
+      pickModel: true,
+      goneModel: "provider/model",
     });
+    const gone = english(openCodeModelGoneFailure("provider/model"));
+    expect(gone).toContain("`provider/model`");
+    // A gone model, not a refusal: another line than the 403's.
+    expect(gone).not.toBe(
+      english(openCodeModelUnavailableFailure("provider/model")),
+    );
+    expect(english(end.error!)).toContain(gone);
     // A model-not-found for another model is no verdict on this one.
     const otherError = {
       name: "UnknownError",

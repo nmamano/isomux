@@ -812,6 +812,10 @@ export interface AgentInfo {
   // (sandbox + approval-policy) while Claude has one. Undefined for Claude
   // agents.
   codexSandbox?: CodexSandboxMode;
+  // OpenCode only: the model id that OpenCode's model list no longer has, as
+  // the last check or a failed turn found it. Null once cleared (a model
+  // change, or a check that lists it). Derived, never persisted.
+  goneModel?: string | null;
   // The user who spawned this agent. `userId` is the stable identity
   // reference used for per-user env lookup (drives buildEnvFor at spawn /
   // resume / cronjob-fire time) and identifies the agent's manager - the

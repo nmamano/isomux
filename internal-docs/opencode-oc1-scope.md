@@ -571,9 +571,17 @@ binding, emitted in `system_init`, and split into the prompt's `providerID` and
 `modelID`; the backend singleton has no production model constant. A stored
 model is never silently replaced during resume. A disconnected provider can
 produce the reviewed authentication recovery. A connected provider with a
-retired model id remains a generic model failure, not an authentication
-failure, and settings shows the stored id as unavailable until the user picks
-a connected model.
+retired model id is a gone model, not an authentication failure: the chat line
+says OpenCode no longer lists it and offers the model picker, and settings
+shows the stored id as unavailable until the user picks a connected model.
+
+At boot (after two minutes) and once a day, the server lists each OpenCode
+agent's models as the picker does, one manager and folder at a time, and
+flags an agent whose provider is listed without its model (`AgentInfo.goneModel`,
+in memory only; a model change clears it). A failed turn on a gone model flags
+it too. The header shows a mark that opens the agent settings. A new gone
+model on the lobby agent, which faces visitors, pages its manager. Nothing
+switches the model (task 73951c9f).
 
 `opencode/fake` remains only in the deterministic tracer. New production
 agents require an explicit discovered model. A legacy tracer record remains
@@ -829,7 +837,7 @@ JSONL.
 S2 pulls one narrow provider-discovery check forward from S5. When OC1 reports
 the observed no-credential `UnknownError` / selected-model-not-found shape, the
 transport queries the server's sanitized `connected` provider IDs on that error
-path only. A connected provider with a missing model is "model unavailable".
+path only. A connected provider with a missing model is a gone model.
 This prevents the current `opencode/fake` tracer model, deprecated models, and
 mistyped models from producing false login cards.
 
@@ -840,7 +848,8 @@ that key, and the kept catalog does not list the model as free (task
 10a09ec8). Only then does the transport send `auth_needed`. Otherwise the
 member reads OpenCode's message as the provider's words, under the "model
 unavailable" line for a provider that is not connected. A 403 is a provider
-refusal.
+refusal. The gone-model line, the not-connected line and a 403 without the
+provider's words offer the model picker; the sign-in line does not.
 
 Isomux does not keep a copy of the server's output below `STATE_ROOT`.
 OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in
