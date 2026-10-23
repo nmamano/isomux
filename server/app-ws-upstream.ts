@@ -154,11 +154,18 @@ function isSafeHeaderName(name: string): boolean {
 function isSafeHeaderValue(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
-    // No CR, LF, NUL or any other C0 control; no DEL. A leading or trailing
-    // space is legal in a field value and harmless.
-    if (code < 0x20 || code === 0x7f) return false;
+    // No CR, LF, NUL or any other C0 control except the tab, which RFC 9110
+    // allows inside a field value; no DEL. A leading or trailing space is
+    // legal in a field value and harmless.
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) return false;
   }
   return true;
+}
+
+// The Host line is held tighter than a forwarded value: it is always the
+// normalized app host, so a tab there is a defect, never a client's field.
+function isSafeHostValue(host: string): boolean {
+  return host.length > 0 && !host.includes("\t") && isSafeHeaderValue(host);
 }
 
 // The request target, which is a path the office already validated and then
@@ -205,7 +212,7 @@ const CLIENT_OWNED_HEADERS = new Set([
 
 export function buildHandshakeRequest(req: HandshakeRequest): Buffer | null {
   if (!isSafeRequestTarget(req.target)) return null;
-  if (!isSafeHeaderValue(req.host) || req.host.length === 0) return null;
+  if (!isSafeHostValue(req.host)) return null;
   if (!req.protocols.every(isSafeProtocolToken)) return null;
   const lines = [
     `GET ${req.target} HTTP/1.1`,

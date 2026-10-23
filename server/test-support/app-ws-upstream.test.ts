@@ -431,6 +431,35 @@ describe("app-ws-upstream: the upgrade request", () => {
       buildHandshakeRequest({ ...base, protocols: ["a\r\nX: 1"] }),
     ).toBeNull();
   });
+
+  // RFC 9110 field-value allows a horizontal tab between visible characters. A
+  // browser header that carries one must reach the app as sent, not turn the
+  // upgrade into a dial failure. The Host line is the office's own normalized
+  // name, so it keeps refusing a tab.
+  it("forwards a tab inside a header value, and still refuses one in the Host", () => {
+    const base = {
+      target: "/",
+      host: "hello.office.example",
+      key: "K",
+      protocols: [] as string[],
+      headers: {} as Record<string, string>,
+    };
+    const bytes = buildHandshakeRequest({
+      ...base,
+      headers: { "X-A": "a\tb" },
+    });
+    expect(bytes).not.toBeNull();
+    expect(bytes!.toString().split("\r\n")).toContain("X-A: a\tb");
+    // The controls on each side of the tab stay refused.
+    for (const control of ["\x08", "\x0b"]) {
+      expect(
+        buildHandshakeRequest({ ...base, headers: { "X-A": `a${control}b` } }),
+      ).toBeNull();
+    }
+    expect(
+      buildHandshakeRequest({ ...base, host: "hello\t.office.example" }),
+    ).toBeNull();
+  });
 });
 
 // --- the response we accept ---------------------------------------------------

@@ -548,6 +548,74 @@ describe("app hosts: the arm", () => {
     }
   });
 
+  // A label that fails the hostname rules can never name an app, but it is
+  // still below the office host, which owns that namespace. A wildcard
+  // certificate lets a browser reach it, so it must not get the office.
+  it("404s a malformed label below the domain, and leaves the office host alone", async () => {
+    const srv = await startFlatOffice();
+    for (const host of [
+      `under_score.${OFFICE_HOST}`,
+      `${"a".repeat(64)}.${OFFICE_HOST}`,
+      `-lead.${OFFICE_HOST}`,
+      `trail-.${OFFICE_HOST}`,
+      `a.under_score.${OFFICE_HOST}`,
+      // The FQDN spelling, with one trailing dot and with more.
+      `under_score.${OFFICE_HOST}.`,
+      `under_score.${OFFICE_HOST}..`,
+      `hello.${OFFICE_HOST}:abc`,
+    ]) {
+      expectPlaceholder(
+        await raw(srv.port, { host, path: "/readyz" }),
+        NOT_FOUND,
+        host,
+      );
+    }
+    // The limits themselves still route: a 63-character label is an app host.
+    const longest = "a".repeat(63);
+    expectBounce(
+      await raw(srv.port, {
+        host: `${longest}.${OFFICE_HOST}`,
+        path: "/readyz",
+      }),
+      { label: longest, path: "/readyz" },
+      "63-character label",
+    );
+    // The office host, also in a malformed spelling, and a malformed name
+    // outside the domain still reach the office.
+    for (const host of [
+      OFFICE_HOST,
+      `${OFFICE_HOST}..`,
+      `under_score.not${OFFICE_HOST}`,
+    ]) {
+      const res = await raw(srv.port, { host, path: "/readyz" });
+      expect({ host, status: res.status, body: res.body.trim() }).toEqual({
+        host,
+        status: 200,
+        body: "ok",
+      });
+    }
+  });
+
+  // Anyone can send a malformed Host, and the server parses it before any
+  // check of who is asking. The parse must be linear in the header: a
+  // backtracking pattern over a long run of dots holds the event loop for the
+  // whole office. Bun takes a Host of about 16 KB. Ten requests at that size
+  // took over 4 s with a quadratic parse (2026-10-23) and well under 100 ms
+  // with a linear one, so the bound below is far from both.
+  it("answers a malformed Host of maximum size without stalling", async () => {
+    const srv = await startFlatOffice();
+    const host = `${".".repeat(16_000)}a.${OFFICE_HOST}`;
+    const started = performance.now();
+    for (let i = 0; i < 10; i++) {
+      expectPlaceholder(
+        await raw(srv.port, { host, path: "/readyz" }),
+        NOT_FOUND,
+        "16 KB Host",
+      );
+    }
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it("keeps every office route off an app host, credentials and all", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);

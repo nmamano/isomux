@@ -16,7 +16,8 @@
 //                         property: app hostnames sit under a wildcard record,
 //                         so anyone can point any name under it at this
 //                         server, and none of those names may reach the
-//                         office's own surface.
+//                         office's own surface. A child that fails the
+//                         hostname grammar is diverted too, to the 404.
 //
 // The arm also runs the sign-in handshake (server/app-auth.ts):
 // a caller with a live app session reaches the app, everyone else is either
@@ -102,6 +103,25 @@ export function normalizeRequestHost(
   // and is rejected by isHostname.
   if (host.endsWith(".")) host = host.slice(0, -1);
   return isHostname(host) ? host : null;
+}
+
+// The loose question for a Host that normalizeRequestHost refused: is its name
+// part still a strict child of the domain? No grammar and no port syntax - a
+// malformed name below the domain is diverted, never handed to the office.
+function isBelowAppDomain(
+  raw: string | null | undefined,
+  domain: string,
+): boolean {
+  if (typeof raw !== "string") return false;
+  let name = raw.toLowerCase();
+  if (name.startsWith("[")) return false;
+  const colon = name.indexOf(":");
+  if (colon !== -1) name = name.slice(0, colon);
+  // One backward walk and one slice: a regex strip of the trailing dots is
+  // quadratic on a long run of dots, and this runs before any auth.
+  let end = name.length;
+  while (end > 0 && name.charCodeAt(end - 1) === 0x2e) end--;
+  return name.slice(0, end).endsWith(`.${domain}`);
 }
 
 export type AppHostMatch =
@@ -236,8 +256,13 @@ function dispatchAppHostRequest(
   const domain = appHostDomain();
   if (domain === null) return null;
 
-  const host = normalizeRequestHost(req.headers.get("host"));
-  if (host === null) return null;
+  const rawHost = req.headers.get("host");
+  const host = normalizeRequestHost(rawHost);
+  if (host === null) {
+    // A name below the domain that fails the grammar can never be an app, but
+    // it is still inside the wildcard, so it gets the 404 and not the office.
+    return isBelowAppDomain(rawHost, domain) ? neutralNotFound() : null;
+  }
 
   const match = matchAppHost(host, domain);
   if (match === null) return null;
