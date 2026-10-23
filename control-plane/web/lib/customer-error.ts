@@ -91,12 +91,15 @@ export function customerFailure(
 /**
  * Make an explicitly safe refusal a complete, capitalized sentence.
  *
- * THE REFUSAL ITSELF IS NOT TRANSLATED, and cannot be: it arrived from the
- * control plane as English prose with no id to key on (a rejected office name, a
- * coupon the provider would not verify). The wrapper's own punctuation is what
- * this adds, and it is the same in every language. `language` is here for the
- * one branch that produces copy of our own: an empty refusal, which becomes an
- * opaque failure sentence.
+ * THE REFUSAL ITSELF IS NOT TRANSLATED HERE. A refusal from the control plane's
+ * tables (cancel.ts, reinstatement.ts) goes out with its code beside it, and the
+ * office page words the code in the reader's language (refusalText in
+ * components/office-view.tsx), so this sentence is only its fallback. A refusal
+ * with no code (a rejected office name, a coupon the provider would not verify)
+ * is English prose with no id to key on, and reads as this. The wrapper's own
+ * punctuation is what this adds, and it is the same in every language.
+ * `language` is here for the one branch that produces copy of our own: an empty
+ * refusal, which becomes an opaque failure sentence.
  */
 export function safeCustomerReason(
   language: SupportedLanguageCode,

@@ -212,7 +212,7 @@ function stripePriceConfiguration(): StripePriceConfiguration {
 
 export type SignupResult =
   | { ok: true; checkoutUrl: string; instanceId: string }
-  | { ok: false; reason: string };
+  | { ok: false; code?: string; reason: string };
 
 export type SignupPageState =
   | { kind: "new" }
@@ -520,6 +520,34 @@ export async function continueSignup(
   return openReservedCheckout({ language, ...owned });
 }
 
+/**
+ * What the customer reads when reinstatement cannot be prepared.
+ *
+ * The code is the line: a refusal with one is the customer's to read, and goes
+ * to the page with its code so the page can word it in the reader's language.
+ * One without is ours, and becomes an opaque failure with a reference.
+ */
+function reinstatementRefusal(
+  language: SupportedLanguageCode,
+  prepared: { ok: false; code?: string; reason: string },
+): SignupResult {
+  return prepared.code === undefined
+    ? {
+        ok: false,
+        reason: customerFailure(
+          language,
+          "configuration",
+          "reinstatement",
+          prepared.reason,
+        ),
+      }
+    : {
+        ok: false,
+        code: prepared.code,
+        reason: safeCustomerReason(language, prepared.reason),
+      };
+}
+
 export async function reinstateOffice(
   language: SupportedLanguageCode,
   accountId: string,
@@ -532,7 +560,6 @@ export async function reinstateOffice(
       recordFetchedExpiredReinstatementSession,
       recordReinstatementCheckoutFailure,
       reinstatementSessionKey,
-      REINSTATEMENT_REFUSAL_WORDS,
     },
     { StripeClient },
     { LiveStripeReader },
@@ -605,25 +632,7 @@ export async function reinstateOffice(
   let prepared = await withStore((store) =>
     prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
   );
-  if (!prepared.ok) {
-    const safeReasons = new Set([
-      "we could not find that office",
-      "we could not find that subscription",
-      "this office is already reinstated",
-      ...Object.values(REINSTATEMENT_REFUSAL_WORDS),
-    ]);
-    return {
-      ok: false,
-      reason: safeReasons.has(prepared.reason)
-        ? safeCustomerReason(language, prepared.reason)
-        : customerFailure(
-            language,
-            "configuration",
-            "reinstatement",
-            prepared.reason,
-          ),
-    };
-  }
+  if (!prepared.ok) return reinstatementRefusal(language, prepared);
   if (prepared.existingSessionId) {
     let fetched: Awaited<
       ReturnType<InstanceType<typeof LiveStripeReader>["getCheckoutSession"]>
@@ -658,10 +667,7 @@ export async function reinstateOffice(
     if (fetched.object.status === "complete")
       return {
         ok: false,
-        reason: safeCustomerReason(
-          language,
-          "the prior payment is still being reconciled",
-        ),
+        reason: translatorFor(language).t("errors.reinstatementReconciling"),
       };
     if (fetched.object.status === "expired") {
       await withStore((store) =>
@@ -674,7 +680,7 @@ export async function reinstateOffice(
       prepared = await withStore((store) =>
         prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
       );
-      if (!prepared.ok) return prepared;
+      if (!prepared.ok) return reinstatementRefusal(language, prepared);
     }
   }
   // NO `locale` HERE, deliberately. The session's idempotency key is derived
@@ -934,7 +940,7 @@ export async function officeRouteForAccount(
 
 export type RequestResult =
   | { ok: true; operationId: string }
-  | { ok: false; reason: string };
+  | { ok: false; code: string; reason: string };
 
 async function customerRequest(
   verb: "requestInvite" | "confirmHandoff" | "requestRestart",
@@ -945,7 +951,8 @@ async function customerRequest(
   const outcome = await withStore((store) =>
     requests[verb](store, { accountId, instanceId }),
   );
-  if (!outcome.ok) return { ok: false, reason: outcome.reason };
+  if (!outcome.ok)
+    return { ok: false, code: outcome.code, reason: outcome.reason };
   return { ok: true, operationId: outcome.operationId };
 }
 
@@ -982,7 +989,9 @@ export async function requestRestart(
 // webhooks remain the only writer, so the page says "we asked, waiting for
 // Stripe" until the projection catches up.
 
-export type CancelResult = { ok: true } | { ok: false; reason: string };
+export type CancelResult =
+  | { ok: true }
+  | { ok: false; code?: string; reason: string };
 
 async function billingVerb(
   language: SupportedLanguageCode,
@@ -1033,7 +1042,11 @@ async function billingVerb(
           outcome.reason,
         ),
       };
-    return { ok: false, reason: safeCustomerReason(language, outcome.reason) };
+    return {
+      ok: false,
+      code: outcome.code,
+      reason: safeCustomerReason(language, outcome.reason),
+    };
   });
 }
 

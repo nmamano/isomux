@@ -46,7 +46,9 @@ export type CancelRefusal =
   | "stripe_ambiguous";
 
 /**
- * What the customer reads. Functional copy.
+ * What the customer reads. Functional copy. The office page words each code
+ * from its catalogs (`refusals.cancel<Code>` in web/lib/i18n), and reads this
+ * English only for a code they lack.
  *
  * `subscription_ended` deliberately does not offer to bring the office back: the
  * design says a resubscriber gets a new box unless the adapter proves otherwise,

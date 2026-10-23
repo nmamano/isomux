@@ -13,7 +13,13 @@ import {
   prepareReinstatementCheckout,
   recordReinstatementCheckoutFailure,
   recordReinstatementSession,
+  REINSTATEMENT_REFUSAL_WORDS,
 } from "./reinstatement.ts";
+import { reinstateOffice } from "./web/lib/services.server.ts";
+import { translatorFor } from "./web/lib/i18n/translate.ts";
+import { es as spanishCatalog } from "./web/lib/i18n/es.ts";
+import { en as englishCatalog } from "./web/lib/i18n/en.ts";
+import { SUPPORT_EMAIL } from "./web/lib/support-email.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { applyEvent } from "./stripe/reconcile.ts";
 import {
@@ -146,7 +152,69 @@ describe("retained-office reinstatement", () => {
         second.reservation.instance_id,
         f.c.now(),
       ),
-    ).toEqual({ ok: false, reason: "we could not find that subscription" });
+    ).toEqual({
+      ok: false,
+      code: "subscription_not_found",
+      reason: REINSTATEMENT_REFUSAL_WORDS.subscription_not_found,
+    });
+  });
+
+  test("a refusal the customer may read carries its code; an internal one carries none", async () => {
+    // The facade shows the customer a coded refusal and sends the page its
+    // code, and turns a refusal with no code into an opaque failure with a
+    // reference. So the code IS the line between the two.
+    const prepare = (
+      f: Awaited<ReturnType<typeof fixture>>,
+      accountId?: string,
+    ) =>
+      prepareReinstatementCheckout(
+        f.store,
+        accountId ?? f.reservation.reservation.account_id,
+        f.instanceId,
+        f.c.now(),
+      );
+
+    const stranger = await fixture();
+    const other = await accountForDevSignIn(
+      stranger.store,
+      "other@example.test",
+    );
+    expect(await prepare(stranger, other.id)).toEqual({
+      ok: false,
+      code: "office_not_found",
+      reason: REINSTATEMENT_REFUSAL_WORDS.office_not_found,
+    });
+
+    const late = await fixture();
+    late.c.set(ENDED + RETENTION_MS);
+    expect(await prepare(late)).toEqual({
+      ok: false,
+      code: "too_late",
+      reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
+    });
+
+    const done = await fixture();
+    const first = await prepare(done);
+    if (!first.ok) throw new Error(first.reason);
+    await done.store.sqlRun(
+      "update reinstatement_attempts set state='accepted' where id=$1",
+      [first.attemptId],
+    );
+    expect(await prepare(done)).toEqual({
+      ok: false,
+      code: "already_reinstated",
+      reason: REINSTATEMENT_REFUSAL_WORDS.already_reinstated,
+    });
+
+    const internal = await fixture();
+    await internal.store.sqlRun(
+      "update accounts set stripe_customer_id=null where id=$1",
+      [internal.reservation.reservation.account_id],
+    );
+    expect(await prepare(internal)).toEqual({
+      ok: false,
+      reason: "we could not prove the original Stripe customer",
+    });
   });
 
   test("the customer boundary and Stripe technical expiry are distinct", () => {
@@ -791,5 +859,209 @@ describe("retained-office reinstatement", () => {
           op.id === lifecycleOperationId("power_off", "sub-second", secondEnd),
       ),
     ).toBe(true);
+  });
+});
+
+// ------------------------------------------------- the office page's request
+//
+// reinstateOffice is what /api/reinstate calls. A refusal the customer may read
+// goes out with its code, so the page can word it; any other refusal becomes
+// an opaque failure with a reference. That holds for BOTH prepare calls: the
+// first, and the one after Stripe says the earlier session expired.
+
+describe("the office page's reinstate request", () => {
+  const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    delete (globalThis as { [STORE_SLOT]?: unknown })[STORE_SLOT];
+    globalThis.fetch = realFetch;
+    delete process.env.AUTH_URL;
+    delete process.env.CONTROL_PLANE_ENTRY_PRICE_ID;
+    delete process.env.CONTROL_PLANE_STRIPE_MODE;
+    delete process.env.STRIPE_TEST_SECRET_KEY;
+  });
+
+  /** The facade over this fixture's store, with Stripe answering every read of
+   * the earlier session as `status`, after running `meanwhile` - a change that
+   * lands while the facade waits on Stripe. */
+  async function facadeOver(
+    f: Awaited<ReturnType<typeof fixture>>,
+    stripe?: { status: string; meanwhile?: () => Promise<void> },
+  ): Promise<string[]> {
+    (globalThis as { [STORE_SLOT]?: { opening?: Promise<Store> } })[
+      STORE_SLOT
+    ] = { opening: Promise.resolve(f.store) };
+    process.env.AUTH_URL = "https://cloud.example.test";
+    process.env.CONTROL_PLANE_ENTRY_PRICE_ID = "price_entry";
+    process.env.CONTROL_PLANE_STRIPE_MODE = "test";
+    process.env.STRIPE_TEST_SECRET_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+    const calls: string[] = [];
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const requestUrl =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      calls.push(`${init?.method ?? "GET"} ${new URL(requestUrl).pathname}`);
+      if (!stripe) return new Response("unexpected", { status: 400 });
+      await stripe.meanwhile?.();
+      return new Response(
+        JSON.stringify({
+          id: "cs_earlier",
+          status: stripe.status,
+          url: null,
+          expires_at: Math.floor((f.c.now() + 60_000) / 1000),
+          livemode: false,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    return calls;
+  }
+
+  /** An attempt whose Checkout session is already open at Stripe. */
+  async function withEarlierSession(f: Awaited<ReturnType<typeof fixture>>) {
+    const prepared = await prepareReinstatementCheckout(
+      f.store,
+      f.reservation.reservation.account_id,
+      f.instanceId,
+      f.c.now(),
+    );
+    if (!prepared.ok) throw new Error(prepared.reason);
+    await recordReinstatementSession(f.store, prepared, "cs_earlier");
+  }
+
+  const tooLate = async (f: Awaited<ReturnType<typeof fixture>>) => {
+    f.c.set(ENDED + RETENTION_MS);
+  };
+  const noStripeCustomer = async (f: Awaited<ReturnType<typeof fixture>>) => {
+    await f.store.sqlRun(
+      "update accounts set stripe_customer_id=null where id=$1",
+      [f.reservation.reservation.account_id],
+    );
+  };
+
+  test.each([
+    ["the first prepare", false],
+    ["the prepare after the earlier session expired", true],
+  ] as const)(
+    "a coded refusal from %s goes to the page with its code",
+    async (_name, afterExpiry) => {
+      const f = await fixture();
+      if (afterExpiry) {
+        await withEarlierSession(f);
+        const calls = await facadeOver(f, {
+          status: "expired",
+          meanwhile: () => tooLate(f),
+        });
+        const result = await reinstateOffice(
+          "es",
+          f.reservation.reservation.account_id,
+          f.instanceId,
+        );
+        // Stripe was asked about the earlier session, so this is the second
+        // prepare's refusal.
+        expect(calls).toEqual(["GET /v1/checkout/sessions/cs_earlier"]);
+        expect(result).toEqual({
+          ok: false,
+          code: "too_late",
+          reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
+        });
+      } else {
+        await tooLate(f);
+        const calls = await facadeOver(f);
+        const result = await reinstateOffice(
+          "es",
+          f.reservation.reservation.account_id,
+          f.instanceId,
+        );
+        expect(calls).toEqual([]);
+        expect(result).toEqual({
+          ok: false,
+          code: "too_late",
+          reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
+        });
+      }
+    },
+  );
+
+  test.each([
+    ["the first prepare", false],
+    ["the prepare after the earlier session expired", true],
+  ] as const)(
+    "an internal refusal from %s reaches the customer as a translated failure with a reference, and no code",
+    async (_name, afterExpiry) => {
+      const f = await fixture();
+      let calls: string[];
+      if (afterExpiry) {
+        await withEarlierSession(f);
+        calls = await facadeOver(f, {
+          status: "expired",
+          meanwhile: () => noStripeCustomer(f),
+        });
+      } else {
+        await noStripeCustomer(f);
+        calls = await facadeOver(f);
+      }
+      const logged: string[] = [];
+      const realError = console.error;
+      console.error = (...parts: unknown[]) => {
+        logged.push(parts.map(String).join(" "));
+      };
+      let result: Awaited<ReturnType<typeof reinstateOffice>>;
+      try {
+        result = await reinstateOffice(
+          "es",
+          f.reservation.reservation.account_id,
+          f.instanceId,
+        );
+      } finally {
+        console.error = realError;
+      }
+      expect(calls).toEqual(
+        afterExpiry ? ["GET /v1/checkout/sessions/cs_earlier"] : [],
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect("code" in result).toBe(false);
+      expect(result.reason).toStartWith(
+        `${translatorFor("es").t("errors.paymentsConfiguration", { support: SUPPORT_EMAIL })} `,
+      );
+      const reference = /PAY-[0-9A-F]{10}/.exec(result.reason)?.[0];
+      expect(reference).toBeDefined();
+      // Support finds the internal reason by the reference the customer pastes.
+      expect(
+        logged.some(
+          (line) =>
+            line.includes(reference!) &&
+            line.includes("we could not prove the original Stripe customer"),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  test("a payment Stripe already completed is still being reconciled, in the reader's language", async () => {
+    const f = await fixture();
+    await withEarlierSession(f);
+    const calls = await facadeOver(f, { status: "complete" });
+    const result = await reinstateOffice(
+      "es",
+      f.reservation.reservation.account_id,
+      f.instanceId,
+    );
+    expect(calls).toEqual(["GET /v1/checkout/sessions/cs_earlier"]);
+    // Read from the Spanish catalog itself, so a translator that fell back to
+    // English could not pass.
+    const spanish = (spanishCatalog as Record<string, string>)[
+      "errors.reinstatementReconciling"
+    ];
+    expect(result).toMatchObject({ ok: false, reason: spanish });
+    expect(typeof spanish).toBe("string");
+    expect(spanish).not.toBe(
+      (englishCatalog as Record<string, string>)[
+        "errors.reinstatementReconciling"
+      ],
+    );
   });
 });

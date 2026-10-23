@@ -262,6 +262,46 @@ export const zh: Catalog = {
   "errors.providerTransient": "暂时无法连接付款提供方。请稍后重试。",
   "errors.checkoutSessionUnavailable": "暂时无法检查付款页面，请稍后重试。",
   "errors.checkoutSessionUnsaved": "暂时无法保存付款页面，请稍后重试。",
+  "errors.reinstatementReconciling": "我们仍在处理你之前的付款。请稍后再查看。",
+
+  "refusals.requestNotYours": "找不到该办公室。",
+  "refusals.requestNoBox": "你的服务器尚未订购。",
+  "refusals.requestWindowNotStarted":
+    "Hosted Isomux Provisioning 尚未持有服务器密钥，因此无法创建邀请。",
+  "refusals.requestWindowGone":
+    "Hosted Isomux Provisioning 已不再持有服务器密钥，因此无法创建新邀请。如果无法进入，请联系支持人员。",
+  "refusals.requestWindowUnknown":
+    "Hosted Isomux Provisioning 无法确认是否仍持有服务器密钥，因此不会创建邀请。已有工作人员在处理此办公室。",
+  "refusals.requestNotLive": "你的办公室尚未开始服务。",
+  "refusals.requestMintInProgress": "邀请正在准备中。请稍后重试。",
+  "refusals.requestRevocationInProgress": "我们正在移除访问权限。",
+  "refusals.requestAlreadyRevoked":
+    "Hosted Isomux Provisioning 已移除其访问权限。",
+  "refusals.requestRestartInProgress": "重启已在进行中。",
+  "refusals.requestCancellationSuspended":
+    "无法重启此办公室。办公室控制台会显示当前可用的选项。",
+  "refusals.cancelNotYours": "找不到该办公室。",
+  "refusals.cancelNoSubscription": "此办公室还没有订阅。",
+  "refusals.cancelAlreadyCancelled": "你的订阅已安排结束。",
+  "refusals.cancelNotCancelled": "你的订阅未安排结束。",
+  "refusals.cancelSubscriptionEnded":
+    "此订阅已结束，无法在此更改。如需帮助，请联系支持人员。",
+  "refusals.reinstatementNotCancelled": "此办公室不处于取消后保留状态。",
+  "refusals.reinstatementTooLate": "保留期已结束，因此无法发起恢复付款。",
+  "refusals.reinstatementPowerOffNotProven":
+    "办公室尚未安全完成关机。付款前请联系支持人员。",
+  "refusals.reinstatementNotSuspended":
+    "保留的办公室尚未安全暂停。付款前请联系支持人员。",
+  "refusals.reinstatementDeletionStarted":
+    "永久删除已经开始，因此无法恢复此办公室。",
+  "refusals.reinstatementAssetNotRetainable": "保留的服务器已无法用于恢复。",
+  "refusals.reinstatementOwnershipMismatch":
+    "无法证明此办公室的所有订阅都属于你的账户。",
+  "refusals.reinstatementNoCustomerAccess":
+    "无法证明办公室启动后你可以进入。付款前请联系支持人员。",
+  "refusals.reinstatementOfficeNotFound": "找不到该办公室。",
+  "refusals.reinstatementSubscriptionNotFound": "找不到该订阅。",
+  "refusals.reinstatementAlreadyReinstated": "此办公室已恢复。",
   "errors.rateLimited": "来自你所在网络的尝试次数过多。请几分钟后重试。",
   "unsubscribe.heading": "退订使用提示",
   "unsubscribe.lead":

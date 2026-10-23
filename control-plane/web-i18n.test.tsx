@@ -16,7 +16,11 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Steps } from "./web/components/office-view";
+import {
+  refusalText,
+  Steps,
+  type RefusalTable,
+} from "./web/components/office-view";
 import { webTranslatorFor } from "./web/lib/i18n/rich";
 import { hidesLanguageSwitch } from "./web/lib/i18n/language-switch";
 import {
@@ -25,6 +29,10 @@ import {
 } from "./web/lib/i18n/languages";
 import { checkoutParams } from "./stripe/checkout";
 import type { ProgressView } from "./web/lib/services.server";
+import { SUPPORTED_LANGUAGES } from "./web/lib/i18n/languages";
+import { REFUSAL_WORDS } from "./requests";
+import { CANCEL_REFUSAL_WORDS } from "./cancel";
+import { REINSTATEMENT_REFUSAL_WORDS } from "./reinstatement";
 
 const WEB = path.join(import.meta.dir, "web");
 const read = (relative: string): string =>
@@ -279,6 +287,111 @@ describe("the step ladder", () => {
           elapsedMs,
           spoken("en", elapsedMs),
         ]);
+  });
+});
+
+describe("refusals", () => {
+  /** What the server sent beside the code. Not a real sentence, so a fallback
+   * is visible. */
+  const DELIVERED = "The sentence the server sent";
+
+  /** Every code each table can put on the wire, read from the tables
+   * themselves, so a code added without a catalog sentence fails here. The two
+   * Stripe codes never travel: the facade turns them into its own translated
+   * failure with a reference, and sends no code. */
+  const TABLES: [RefusalTable, string[]][] = [
+    ["request", Object.keys(REFUSAL_WORDS)],
+    [
+      "cancel",
+      Object.keys(CANCEL_REFUSAL_WORDS).filter(
+        (code) => code !== "stripe_unavailable" && code !== "stripe_ambiguous",
+      ),
+    ],
+    ["reinstatement", Object.keys(REINSTATEMENT_REFUSAL_WORDS)],
+  ];
+
+  test("every refusal code the control plane can send reads in the reader's language", () => {
+    for (const [table, codes] of TABLES) {
+      expect([table, codes.length > 0]).toEqual([table, true]);
+      for (const code of codes) {
+        const english = refusalText(
+          webTranslatorFor("en"),
+          table,
+          code,
+          DELIVERED,
+        );
+        // A catalog sentence, not the fallback.
+        expect([table, code, english === DELIVERED]).toEqual([
+          table,
+          code,
+          false,
+        ]);
+        expect([table, code, english.trim().length > 0]).toEqual([
+          table,
+          code,
+          true,
+        ]);
+        for (const { code: language } of SUPPORTED_LANGUAGES) {
+          if (language === "en") continue;
+          const translated = refusalText(
+            webTranslatorFor(language),
+            table,
+            code,
+            DELIVERED,
+          );
+          expect([table, code, language, translated === DELIVERED]).toEqual([
+            table,
+            code,
+            language,
+            false,
+          ]);
+          expect([table, code, language, translated === english]).toEqual([
+            table,
+            code,
+            language,
+            false,
+          ]);
+        }
+      }
+    }
+  });
+
+  test("a code the page has no sentence for falls back to what the server sent", () => {
+    const spanish = webTranslatorFor("es");
+    const unknown: [RefusalTable, unknown][] = [
+      ["request", "a_code_from_the_future"],
+      ["request", undefined],
+      ["request", null],
+      ["request", 42],
+      ["request", ""],
+      // An own property of every object, not of the catalog.
+      ["request", "constructor"],
+      // A code of ANOTHER table: codes repeat across tables with different
+      // words, so a code only reads in the table that sent it.
+      ["cancel", "not_live"],
+      ["request", "too_late"],
+      ["reinstatement", "already_cancelled"],
+    ];
+    for (const [table, code] of unknown) {
+      expect([
+        table,
+        code,
+        refusalText(spanish, table, code, DELIVERED),
+      ]).toEqual([table, code, DELIVERED]);
+    }
+    // The same codes DO read in their own tables, so the cases above are
+    // refused for being foreign, not for being unknown everywhere.
+    for (const [table, code] of [
+      ["request", "not_live"],
+      ["reinstatement", "too_late"],
+      ["cancel", "already_cancelled"],
+    ] as const) {
+      expect([
+        table,
+        code,
+        refusalText(spanish, table, code, DELIVERED),
+      ]).not.toEqual([table, code, DELIVERED]);
+    }
   });
 });
 

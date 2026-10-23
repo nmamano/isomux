@@ -236,6 +236,82 @@ for (const { code: language } of SUPPORTED_LANGUAGES) {
   );
 }
 
+// A REFUSAL THE SERVER EXPLAINS carries a code beside its English sentence.
+// The page words the code in the reader's language, and shows the server's
+// sentence only for a code it has no words for.
+
+/** The path each control asks, a code its table can send, and the catalog key
+ * that code reads as. The key is spelled here rather than derived, so the
+ * expectation does not come from the derivation under test. */
+const REFUSALS: Record<string, { path: string; code: string; key: string }> = {
+  "owner invite": {
+    path: "/api/invite",
+    code: "not_live",
+    key: "refusals.requestNotLive",
+  },
+  "remove our access": {
+    path: "/api/handoff",
+    code: "revocation_in_progress",
+    key: "refusals.requestRevocationInProgress",
+  },
+  restart: {
+    path: "/api/restart",
+    code: "restart_in_progress",
+    key: "refusals.requestRestartInProgress",
+  },
+  cancel: {
+    path: "/api/cancel",
+    code: "already_cancelled",
+    key: "refusals.cancelAlreadyCancelled",
+  },
+  reinstate: {
+    path: "/api/reinstate",
+    code: "too_late",
+    key: "refusals.reinstatementTooLate",
+  },
+};
+
+const DELIVERED = "The English sentence the server sent.";
+
+test.each(CONTROLS.map((control) => [control.name, control] as const))(
+  "es: a refused %s reads the refusal in Spanish, or the server's sentence for an unknown code",
+  async (name, control) => {
+    const refusal = REFUSALS[name];
+    const spanish = (
+      webTranslatorFor("es").t as unknown as (key: string) => string
+    )(refusal.key);
+    // The catalog holds the key (an unknown key echoes itself), and its
+    // sentence is not the one the server sent.
+    expect([name, spanish === refusal.key, spanish === DELIVERED]).toEqual([
+      name,
+      false,
+      false,
+    ]);
+
+    answers = {
+      [refusal.path]: () =>
+        Response.json(
+          { ok: false, code: refusal.code, reason: DELIVERED },
+          { status: 409 },
+        ),
+    };
+    const known = await failedClick("es", control);
+    expect(clicked).toContain(refusal.path);
+    expect([name, known]).toEqual([name, spanish]);
+
+    answers = {
+      [refusal.path]: () =>
+        Response.json(
+          { ok: false, code: "a_code_from_the_future", reason: DELIVERED },
+          { status: 409 },
+        ),
+    };
+    const unknown = await failedClick("es", control);
+    expect(clicked).toContain(refusal.path);
+    expect([name, unknown]).toEqual([name, DELIVERED]);
+  },
+);
+
 // THE INVITE IS COLLECTED BY A POLL after the ask succeeds. Its answer carries
 // a status, the protocol value, and a reason, which is the seam's English prose
 // for logs. The page words the status in the reader's language.

@@ -88,8 +88,14 @@ export type ReinstatementRefusal =
   | "deletion_started"
   | "asset_not_retainable"
   | "ownership_mismatch"
-  | "no_customer_access";
+  | "no_customer_access"
+  | "office_not_found"
+  | "subscription_not_found"
+  | "already_reinstated";
 
+/** What the customer reads. The office page words each code from its catalogs
+ * (`refusals.reinstatement<Code>` in web/lib/i18n), and reads this English only
+ * for a code they lack. */
 export const REINSTATEMENT_REFUSAL_WORDS: Record<ReinstatementRefusal, string> =
   {
     not_cancelled: "This office is not in retained cancellation.",
@@ -107,13 +113,23 @@ export const REINSTATEMENT_REFUSAL_WORDS: Record<ReinstatementRefusal, string> =
       "We could not prove that every subscription for this office belongs to your account.",
     no_customer_access:
       "We cannot prove that you can enter this office after it starts. Contact support before paying.",
+    office_not_found: "We could not find that office.",
+    subscription_not_found: "We could not find that subscription.",
+    already_reinstated: "This office is already reinstated.",
   };
+
+/** A refusal the customer may read: its code, and the table's English. */
+export type ReinstatementRefused = {
+  ok: false;
+  code: ReinstatementRefusal;
+  reason: string;
+};
 
 export type Eligibility =
   | { ok: true; operations: OperationRow[] }
-  | { ok: false; code: ReinstatementRefusal; reason: string };
+  | ReinstatementRefused;
 
-function refusal(code: ReinstatementRefusal): Eligibility {
+function refusal(code: ReinstatementRefusal): ReinstatementRefused {
   return { ok: false, code, reason: REINSTATEMENT_REFUSAL_WORDS[code] };
 }
 
@@ -204,7 +220,10 @@ export type PreparedReinstatement =
       stripeExpiresAt: number;
       existingSessionId: string | null;
     }
-  | { ok: false; reason: string };
+  | ReinstatementRefused
+  /** Ours, not the customer's to read: no code, so the facade answers with an
+   * opaque failure and logs this reason under its reference. */
+  | { ok: false; code?: undefined; reason: string };
 
 export async function prepareReinstatementCheckout(
   store: Store,
@@ -214,8 +233,7 @@ export async function prepareReinstatementCheckout(
 ): Promise<PreparedReinstatement> {
   return store.tx(async () => {
     const reservation = await instanceOwnedBy(store, accountId, instanceId);
-    if (!reservation)
-      return { ok: false, reason: "we could not find that office" };
+    if (!reservation) return refusal("office_not_found");
     if (!planById(reservation.plan))
       return {
         ok: false,
@@ -223,8 +241,7 @@ export async function prepareReinstatementCheckout(
       };
     const account = await getAccount(store, accountId);
     const closed = await currentSubscriptionForInstance(store, instanceId);
-    if (!account || !closed)
-      return { ok: false, reason: "we could not find that subscription" };
+    if (!account || !closed) return refusal("subscription_not_found");
     if (!account.stripe_customer_id)
       return {
         ok: false,
@@ -236,11 +253,10 @@ export async function prepareReinstatementCheckout(
       closed,
       now,
     });
-    if (!eligible.ok) return { ok: false, reason: eligible.reason };
+    if (!eligible.ok) return eligible;
     const id = reinstatementAttemptId(closed.id);
     const existing = await attemptById(store, id);
-    if (existing?.state === "accepted")
-      return { ok: false, reason: "this office is already reinstated" };
+    if (existing?.state === "accepted") return refusal("already_reinstated");
     const generation = existing
       ? existing.checkout_generation + (existing.state === "expired" ? 1 : 0)
       : 1;

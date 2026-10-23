@@ -281,7 +281,11 @@ test("office without a payment action omits the policy notice", () => {
     graceEnd: 0,
     retentionEnd: Date.UTC(2027, 1, 14),
     poweredOff: true,
-    reinstate: { allowed: false, reason: "Reinstatement is unavailable." },
+    reinstate: {
+      allowed: false,
+      code: "too_late",
+      reason: "Reinstatement is unavailable.",
+    },
   });
   const healthy = renderToStaticMarkup(
     <OfficeView
@@ -292,6 +296,55 @@ test("office without a payment action omits the policy notice", () => {
   );
   expect(refused).not.toContain("Before you pay");
   expect(healthy).not.toContain("Before you pay");
+});
+
+test("a refused reinstatement reads in the reader's language, or the projection's sentence for an unknown code", () => {
+  const delivered = "The sentence the projection sent.";
+  // Spelled, not derived, so the expectation is not the derivation under test.
+  const spanish = (
+    webTranslatorFor("es").t as unknown as (key: string) => string
+  )("refusals.reinstatementTooLate");
+  expect(spanish).not.toBe("refusals.reinstatementTooLate");
+  expect(spanish).not.toBe(delivered);
+  const refusedText = (
+    phase: "suspended" | "reinstatement_pending",
+    code: string,
+  ): string | undefined => {
+    const html = renderToStaticMarkup(
+      <OfficeView
+        language="es"
+        initial={{
+          ...baseView,
+          lifecycle: {
+            phase,
+            graceEnd: 0,
+            retentionEnd: Date.UTC(2027, 1, 14),
+            poweredOff: true,
+            reinstate: {
+              allowed: false,
+              code: code as "too_late",
+              reason: delivered,
+            },
+          },
+        }}
+        instanceId={baseView.instanceId}
+      />,
+    );
+    // As a reader sees it: React escapes an apostrophe and a quote.
+    return /data-testid="reinstate-refused">([^<]*)</
+      .exec(html)?.[1]
+      .replaceAll("&#x27;", "'")
+      .replaceAll("&quot;", '"')
+      .replaceAll("&amp;", "&");
+  };
+  // Both places the page shows the refusal.
+  for (const phase of ["suspended", "reinstatement_pending"] as const) {
+    expect([phase, refusedText(phase, "too_late")]).toEqual([phase, spanish]);
+    expect([phase, refusedText(phase, "a_code_from_the_future")]).toEqual([
+      phase,
+      delivered,
+    ]);
+  }
 });
 
 test("an unpaid reservation owns its payment continuation and guidance", () => {
@@ -430,7 +483,11 @@ test("a deleted office reads as ended, with nothing to open, reach or restart", 
     graceEnd: null,
     retentionEnd: null,
     poweredOff: false,
-    reinstate: { allowed: false, reason: "the office is gone" },
+    reinstate: {
+      allowed: false,
+      code: "deletion_started",
+      reason: "the office is gone",
+    },
   };
   const notReady = render({ ...baseView, serviceState: "live", lifecycle });
   const ended = render({

@@ -888,7 +888,6 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
     plans: ["PLANS", "planById", "planByProviderProduct", "resolveStripePrice"],
     progress: ["projectionFor"],
     reinstatement: [
-      "REINSTATEMENT_REFUSAL_WORDS",
       "prepareReinstatementCheckout",
       "recordFetchedExpiredReinstatementSession",
       "recordReinstatementCheckoutFailure",
@@ -953,7 +952,6 @@ export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
   "plans:planById": "a lookup in the plan catalog",
   "plans:planByProviderProduct": "a lookup in the plan catalog",
   "plans:resolveStripePrice": "maps a plan to its configured Stripe price",
-  "reinstatement:REINSTATEMENT_REFUSAL_WORDS": "customer sentences, a constant",
   "reinstatement:reinstatementSessionKey":
     "derives an idempotency key from its arguments",
   "report:credentialValues":

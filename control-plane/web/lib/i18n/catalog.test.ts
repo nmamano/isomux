@@ -147,7 +147,13 @@ test("an unknown key falls back to English, then to the key itself", () => {
  * at the call site rather than here. This states the rule where it is readable.
  */
 test("a key an id can reach takes no placeholder", () => {
-  const reachable = ["steps.", "liveness.", "attention.", "stepState."];
+  const reachable = [
+    "steps.",
+    "liveness.",
+    "attention.",
+    "stepState.",
+    "refusals.",
+  ];
   for (const key of KEYS) {
     if (!reachable.some((prefix) => key.startsWith(prefix))) continue;
     for (const language of SUPPORTED_LANGUAGES) {
@@ -174,7 +180,8 @@ test("a key an id can reach takes no placeholder", () => {
  * rather than by name:
  *   - the id-derived namespaces, because `keyForId` builds the key from an
  *     operation kind, a liveness rung or an attention class, and no file under
- *     web/ may spell an operation kind at all (web-boundary.test.ts);
+ *     web/ may spell an operation kind at all (web-boundary.test.ts); and
+ *     `refusalText` builds a refusal key from the code the server sent;
  *   - the leaves of a plural pair, because `tn()` is called with the base.
  */
 test("every key has a caller in the app's source", () => {
@@ -199,7 +206,7 @@ test("every key has a caller in the app's source", () => {
   const app = sources.join("\n");
   expect(sources.length).toBeGreaterThan(10);
 
-  const DERIVED = ["steps.", "liveness.", "attention."];
+  const DERIVED = ["steps.", "liveness.", "attention.", "refusals."];
   const orphans = KEYS.filter((key) => {
     if (DERIVED.some((prefix) => key.startsWith(prefix))) return false;
     const base = key.replace(/\.(one|other)$/, "");

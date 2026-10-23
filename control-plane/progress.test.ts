@@ -904,6 +904,7 @@ describe("reinstatement eligibility", () => {
     expect(view.lifecycle?.phase).toBe("suspended");
     expect(view.lifecycle?.reinstate).toEqual({
       allowed: false,
+      code: "no_customer_access",
       reason:
         "We cannot prove that you can enter this office after it starts. Contact support before paying.",
     });

@@ -343,6 +343,59 @@ export const en = {
     "We could not check your payment page just now - try again in a moment.",
   "errors.checkoutSessionUnsaved":
     "We could not save your payment page just now - try again in a moment.",
+  "errors.reinstatementReconciling":
+    "We are still processing your earlier payment. Check back in a moment.",
+
+  // ------------------------------------------------------------- refusals
+  // The control plane's refusal tables (requests.ts, cancel.ts,
+  // reinstatement.ts), keyed by table and code: the office page derives the key
+  // from the code the server sends beside its English.
+  "refusals.requestNotYours": "We could not find that office.",
+  "refusals.requestNoBox": "Your server has not been ordered yet.",
+  "refusals.requestWindowNotStarted":
+    "Hosted Isomux Provisioning does not have a key to your server yet, so it cannot create an invite.",
+  "refusals.requestWindowGone":
+    "Hosted Isomux Provisioning no longer has a key to your server, so it cannot create a new invite. Contact support if you cannot get in.",
+  "refusals.requestWindowUnknown":
+    "Hosted Isomux Provisioning cannot confirm whether it still has a key to your server, so it will not create an invite. This office is already with a person.",
+  "refusals.requestNotLive": "Your office is not serving yet.",
+  "refusals.requestMintInProgress":
+    "An invite is already being prepared. Try again in a moment.",
+  "refusals.requestRevocationInProgress": "We are already removing our access.",
+  "refusals.requestAlreadyRevoked":
+    "Hosted Isomux Provisioning has already removed its access.",
+  "refusals.requestRestartInProgress": "A restart is already running.",
+  "refusals.requestCancellationSuspended":
+    "This office cannot be restarted. Your office dashboard shows the options available now.",
+  "refusals.cancelNotYours": "We could not find that office.",
+  "refusals.cancelNoSubscription":
+    "We have no subscription for this office yet.",
+  "refusals.cancelAlreadyCancelled":
+    "Your subscription is already scheduled to end.",
+  "refusals.cancelNotCancelled": "Your subscription is not scheduled to end.",
+  "refusals.cancelSubscriptionEnded":
+    "This subscription has ended, so it cannot be changed here. Contact support if you need help.",
+  "refusals.reinstatementNotCancelled":
+    "This office is not in retained cancellation.",
+  "refusals.reinstatementTooLate":
+    "The retention period has ended, so we cannot open a reinstatement payment.",
+  "refusals.reinstatementPowerOffNotProven":
+    "The office has not finished powering off safely. Contact support before paying.",
+  "refusals.reinstatementNotSuspended":
+    "The retained office is not safely suspended. Contact support before paying.",
+  "refusals.reinstatementDeletionStarted":
+    "Permanent deletion has already started, so this office cannot be reinstated.",
+  "refusals.reinstatementAssetNotRetainable":
+    "The retained server is no longer available for reinstatement.",
+  "refusals.reinstatementOwnershipMismatch":
+    "We could not prove that every subscription for this office belongs to your account.",
+  "refusals.reinstatementNoCustomerAccess":
+    "We cannot prove that you can enter this office after it starts. Contact support before paying.",
+  "refusals.reinstatementOfficeNotFound": "We could not find that office.",
+  "refusals.reinstatementSubscriptionNotFound":
+    "We could not find that subscription.",
+  "refusals.reinstatementAlreadyReinstated":
+    "This office is already reinstated.",
 
   // The refusal of lib/rate-limit.server.ts, past a per-address quota.
   "errors.rateLimited":

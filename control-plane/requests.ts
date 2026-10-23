@@ -51,7 +51,9 @@ export type RefusalCode =
 
 /**
  * What the customer reads. Functional copy; the provisioning actor is "Hosted
- * Isomux Provisioning" wherever an actor is named.
+ * Isomux Provisioning" wherever an actor is named. The office page words each
+ * code from its catalogs (`refusals.request<Code>` in web/lib/i18n), and reads
+ * this English only for a code they lack.
  *
  * `window_gone` says what it says because it is the end of the road: minting
  * needs a key on the box, and after the window closes there is not one. Telling

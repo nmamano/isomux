@@ -338,6 +338,56 @@ export const ca: Catalog = {
     "No hem pogut comprovar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
   "errors.checkoutSessionUnsaved":
     "No hem pogut desar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
+  "errors.reinstatementReconciling":
+    "Encara estem processant el teu pagament anterior. Torna-ho a consultar d'aquí a un moment.",
+
+  "refusals.requestNotYours": "No hem trobat aquesta oficina.",
+  "refusals.requestNoBox": "El teu servidor encara no s'ha demanat.",
+  "refusals.requestWindowNotStarted":
+    "Hosted Isomux Provisioning encara no té una clau del teu servidor, així que no pot crear una invitació.",
+  "refusals.requestWindowGone":
+    "Hosted Isomux Provisioning ja no té una clau del teu servidor, així que no pot crear una invitació nova. Si no pots entrar, contacta amb el suport.",
+  "refusals.requestWindowUnknown":
+    "Hosted Isomux Provisioning no pot confirmar si encara té una clau del teu servidor, així que no crearà cap invitació. Una persona ja està revisant aquesta oficina.",
+  "refusals.requestNotLive": "La teva oficina encara no està en servei.",
+  "refusals.requestMintInProgress":
+    "Ja s'està preparant una invitació. Torna-ho a provar d'aquí a un moment.",
+  "refusals.requestRevocationInProgress": "Ja estem retirant el nostre accés.",
+  "refusals.requestAlreadyRevoked":
+    "Hosted Isomux Provisioning ja ha retirat el seu accés.",
+  "refusals.requestRestartInProgress": "Ja hi ha un reinici en curs.",
+  "refusals.requestCancellationSuspended":
+    "Aquesta oficina no es pot reiniciar. El tauler de la teva oficina mostra les opcions disponibles ara.",
+  "refusals.cancelNotYours": "No hem trobat aquesta oficina.",
+  "refusals.cancelNoSubscription":
+    "Encara no tenim cap subscripció per a aquesta oficina.",
+  "refusals.cancelAlreadyCancelled":
+    "La teva subscripció ja està programada per acabar.",
+  "refusals.cancelNotCancelled":
+    "La teva subscripció no està programada per acabar.",
+  "refusals.cancelSubscriptionEnded":
+    "Aquesta subscripció ha acabat, així que no es pot canviar aquí. Contacta amb el suport si necessites ajuda.",
+  "refusals.reinstatementNotCancelled":
+    "Aquesta oficina no està cancel·lada i conservada.",
+  "refusals.reinstatementTooLate":
+    "El període de retenció ha acabat, així que no podem obrir un pagament de reactivació.",
+  "refusals.reinstatementPowerOffNotProven":
+    "L'oficina encara no ha acabat d'apagar-se de manera segura. Contacta amb el suport abans de pagar.",
+  "refusals.reinstatementNotSuspended":
+    "L'oficina conservada no està suspesa de manera segura. Contacta amb el suport abans de pagar.",
+  "refusals.reinstatementDeletionStarted":
+    "L'eliminació definitiva ja ha començat, així que aquesta oficina no es pot reactivar.",
+  "refusals.reinstatementAssetNotRetainable":
+    "El servidor conservat ja no està disponible per reactivar-lo.",
+  "refusals.reinstatementOwnershipMismatch":
+    "No hem pogut comprovar que totes les subscripcions d'aquesta oficina pertanyen al teu compte.",
+  "refusals.reinstatementNoCustomerAccess":
+    "No podem comprovar que puguis entrar a aquesta oficina quan s'iniciï. Contacta amb el suport abans de pagar.",
+  "refusals.reinstatementOfficeNotFound": "No hem trobat aquesta oficina.",
+  "refusals.reinstatementSubscriptionNotFound":
+    "No hem trobat aquesta subscripció.",
+  "refusals.reinstatementAlreadyReinstated":
+    "Aquesta oficina ja està reactivada.",
   "errors.rateLimited":
     "Massa intents des de la teva xarxa. Torna-ho a provar d'aquí a uns minuts.",
   "unsubscribe.heading": "Donar-se de baixa dels consells",

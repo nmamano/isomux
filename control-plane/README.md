@@ -2324,7 +2324,10 @@ The step ladder, the liveness rungs and the attention classes are translated fro
 the ids the projection already carries, with the sentence `progress.ts` worded as
 the fallback for an id we have no key for. The key is DERIVED from the id rather
 than looked up in a table, because `web-boundary.test.ts` forbids any file under
-`web/` from containing an operation kind.
+`web/` from containing an operation kind. A refusal from the request, cancel
+and reinstatement tables (`requests.ts`, `cancel.ts`, `reinstatement.ts`) travels
+the same way: the server sends its code beside the English, and the page derives
+`refusals.<table><Code>` from it, with the English as the fallback.
 
 **The switch does not reach Stripe's own page, and that is deliberate.** No
 `locale` is sent with a Checkout session. The session's idempotency key is

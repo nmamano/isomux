@@ -83,10 +83,15 @@ function keyForId(
   namespace: "steps" | "liveness" | "attention",
   id: string,
 ): PlainMessageKey | undefined {
+  return derivedKey(`${namespace}.label`, id);
+}
+
+/** `prefix` plus `id` as one PascalCase segment, if English holds that key. */
+function derivedKey(prefix: string, id: string): PlainMessageKey | undefined {
   const pascal = id
     .replace(/[-_](\w)/g, (_, c: string) => c.toUpperCase())
     .replace(/^\w/, (c) => c.toUpperCase());
-  const key = `${namespace}.label${pascal}`;
+  const key = `${prefix}${pascal}`;
   return Object.hasOwn(en, key) ? (key as PlainMessageKey) : undefined;
 }
 
@@ -105,6 +110,31 @@ function fromId(
   delivered: string,
 ): string {
   const key = keyForId(namespace, id);
+  return key ? i18n.t(key) : delivered;
+}
+
+/** The control-plane table a refusal code comes from. Codes repeat across
+ * tables with different words, so the table is part of the key. */
+export type RefusalTable = "request" | "cancel" | "reinstatement";
+
+/**
+ * The catalog text for a refusal `code`, or the English the server sent.
+ *
+ * The server sends a code beside every refusal its tables word (control-plane/
+ * requests.ts, cancel.ts, reinstatement.ts), and the key is derived from it the
+ * way `keyForId` derives a step's: `refusals.<table><Code>`. A code we have no
+ * key for reads as the server's English, never as a key.
+ */
+export function refusalText(
+  i18n: WebTranslator,
+  table: RefusalTable,
+  code: unknown,
+  delivered: string,
+): string {
+  const key =
+    typeof code === "string" && code
+      ? derivedKey(`refusals.${table}`, code)
+      : undefined;
   return key ? i18n.t(key) : delivered;
 }
 
@@ -380,6 +410,16 @@ function reasonOf(data: Record<string, unknown>, fallback: string): string {
     : fallback;
 }
 
+/** A refusal's words: from its code when we hold them, else as `reasonOf`. */
+function refusalOf(
+  i18n: WebTranslator,
+  table: RefusalTable,
+  data: Record<string, unknown>,
+  fallback: string,
+): string {
+  return refusalText(i18n, table, data.code, reasonOf(data, fallback));
+}
+
 export function OfficeView({
   language,
   initial,
@@ -579,7 +619,12 @@ export function OfficeView({
     if (status !== 200 || data.ok !== true) {
       setInvite({
         phase: "problem",
-        message: reasonOf(data, i18n.t("office.invite.askFailed")),
+        message: refusalOf(
+          i18n,
+          "request",
+          data,
+          i18n.t("office.invite.askFailed"),
+        ),
       });
       return;
     }
@@ -604,7 +649,9 @@ export function OfficeView({
       const { data, status } = await postJson(path, { instanceId });
       if (status === 200 && data.ok === true) return;
       setBilling(null);
-      setBillingProblem(reasonOf(data, i18n.t("office.cancel.planFailed")));
+      setBillingProblem(
+        refusalOf(i18n, "cancel", data, i18n.t("office.cancel.planFailed")),
+      );
     } catch {
       setBilling(null);
       setBillingProblem(i18n.t("office.cancel.planFailed"));
@@ -620,7 +667,12 @@ export function OfficeView({
         return;
       }
       setBillingProblem(
-        reasonOf(data, i18n.t("errors.reinstatementTransient")),
+        refusalOf(
+          i18n,
+          "reinstatement",
+          data,
+          i18n.t("errors.reinstatementTransient"),
+        ),
       );
     } catch {
       setBillingProblem(i18n.t("errors.reinstatementTransient"));
@@ -632,7 +684,14 @@ export function OfficeView({
     try {
       const { data, status } = await postJson(path, { instanceId });
       if (status === 200 && data.ok === true) return true;
-      setAction(reasonOf(data, i18n.t("office.action.failed", { action })));
+      setAction(
+        refusalOf(
+          i18n,
+          "request",
+          data,
+          i18n.t("office.action.failed", { action }),
+        ),
+      );
       return false;
     } catch {
       setAction(i18n.t("office.action.failed", { action }));
@@ -649,7 +708,9 @@ export function OfficeView({
       // revocation row. A failure must stay beside the control that caused it.
       if (status === 200 && data.ok === true) return;
       setHandoffPending(false);
-      setHandoffProblem(reasonOf(data, i18n.t("office.handoff.failed")));
+      setHandoffProblem(
+        refusalOf(i18n, "request", data, i18n.t("office.handoff.failed")),
+      );
     } catch {
       setHandoffPending(false);
       setHandoffProblem(i18n.t("office.handoff.failed"));
@@ -1138,7 +1199,12 @@ function CancelPanel({
           </p>
           {!life.reinstate.allowed && (
             <p className="note" data-testid="reinstate-refused">
-              {life.reinstate.reason}
+              {refusalText(
+                i18n,
+                "reinstatement",
+                life.reinstate.code,
+                life.reinstate.reason,
+              )}
             </p>
           )}
         </>
@@ -1164,7 +1230,12 @@ function CancelPanel({
           </p>
           {!life.reinstate.allowed && (
             <p className="note" data-testid="reinstate-refused">
-              {life.reinstate.reason}
+              {refusalText(
+                i18n,
+                "reinstatement",
+                life.reinstate.code,
+                life.reinstate.reason,
+              )}
             </p>
           )}
         </>

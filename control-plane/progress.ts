@@ -30,6 +30,7 @@ import {
   attemptForClosedSubscription,
   checkReinstatementEligibility,
   checkoutExpiryOperationId,
+  type ReinstatementRefusal,
 } from "./reinstatement.ts";
 import { LIVENESS_STRIKES } from "./liveness.ts";
 import {
@@ -118,7 +119,7 @@ export interface LifecycleView {
   poweredOff: boolean;
   reinstate:
     | { allowed: true; reason: null }
-    | { allowed: false; reason: string };
+    | { allowed: false; code: ReinstatementRefusal; reason: string };
 }
 
 /**
@@ -489,7 +490,7 @@ async function lifecycleViewOf(
       timeline.phase === "deprovision_due",
     reinstate: eligibility.ok
       ? { allowed: true, reason: null }
-      : { allowed: false, reason: eligibility.reason },
+      : { allowed: false, code: eligibility.code, reason: eligibility.reason },
   };
 }
 

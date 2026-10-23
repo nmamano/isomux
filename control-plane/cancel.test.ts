@@ -5,7 +5,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { requestCancel, requestUncancel } from "./cancel.ts";
+import {
+  CANCEL_REFUSAL_WORDS,
+  requestCancel,
+  requestUncancel,
+} from "./cancel.ts";
+import * as facade from "./web/lib/services.server.ts";
+import { safeCustomerReason } from "./web/lib/customer-error.ts";
+import { translatorFor } from "./web/lib/i18n/translate.ts";
 import { Store } from "./store.ts";
 import {
   openTestStore,
@@ -369,5 +376,82 @@ describe("refusals", () => {
     );
     expect(outcome).toMatchObject({ ok: false, code: "no_subscription" });
     await b.store.close();
+  });
+});
+
+// ---------------------------------------------- the office page's request
+//
+// The facade's cancel is what /api/cancel calls. A refusal the customer may
+// read goes to the page with its code, so the page can word it. A Stripe
+// failure is the facade's own translated sentence with a reference, and carries
+// no code, so the page cannot replace it.
+
+describe("the office page's cancel request", () => {
+  const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    delete (globalThis as { [STORE_SLOT]?: unknown })[STORE_SLOT];
+    globalThis.fetch = realFetch;
+    delete process.env.CONTROL_PLANE_STRIPE_MODE;
+    delete process.env.STRIPE_TEST_SECRET_KEY;
+  });
+
+  async function facadeOver(
+    over: Partial<SubscriptionRow>,
+    stripeStatus: number,
+  ) {
+    const b = await bed(over);
+    (globalThis as { [STORE_SLOT]?: { opening?: Promise<Store> } })[
+      STORE_SLOT
+    ] = { opening: Promise.resolve(b.store) };
+    process.env.CONTROL_PLANE_STRIPE_MODE = "test";
+    process.env.STRIPE_TEST_SECRET_KEY = TEST_KEY;
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url,
+      );
+      return new Response(
+        JSON.stringify({ error: { message: "refused by the test" } }),
+        {
+          status: stripeStatus,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+    return { ...b, calls };
+  }
+
+  test("a refusal the customer may read carries its code, beside the English sentence", async () => {
+    const b = await facadeOver({ cancel_at_period_end: 1 }, 400);
+    const result = await facade.requestCancel("es", b.accountId, b.instanceId);
+    expect(b.calls).toEqual([]);
+    expect(result).toEqual({
+      ok: false,
+      code: "already_cancelled",
+      reason: safeCustomerReason("es", CANCEL_REFUSAL_WORDS.already_cancelled),
+    });
+  });
+
+  test("a Stripe failure is the facade's translated sentence with a reference, and no code", async () => {
+    const b = await facadeOver({}, 400);
+    const realError = console.error;
+    console.error = () => {};
+    let result: Awaited<ReturnType<typeof facade.requestCancel>>;
+    try {
+      result = await facade.requestCancel("es", b.accountId, b.instanceId);
+    } finally {
+      console.error = realError;
+    }
+    // Stripe was called and refused, so this is the Stripe branch.
+    expect(b.calls).toHaveLength(1);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect("code" in result).toBe(false);
+    expect(result.reason).toStartWith(
+      `${translatorFor("es").t("errors.providerTransient")} `,
+    );
+    expect(result.reason).toMatch(/PAY-[0-9A-F]{10}/);
   });
 });

@@ -338,6 +338,56 @@ export const es: Catalog = {
     "No hemos podido comprobar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
   "errors.checkoutSessionUnsaved":
     "No hemos podido guardar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
+  "errors.reinstatementReconciling":
+    "Todavía estamos procesando tu pago anterior. Vuelve a consultarlo en un momento.",
+
+  "refusals.requestNotYours": "No hemos encontrado esa oficina.",
+  "refusals.requestNoBox": "Tu servidor todavía no se ha pedido.",
+  "refusals.requestWindowNotStarted":
+    "Hosted Isomux Provisioning todavía no tiene una clave de tu servidor, así que no puede crear una invitación.",
+  "refusals.requestWindowGone":
+    "Hosted Isomux Provisioning ya no tiene una clave de tu servidor, así que no puede crear una invitación nueva. Si no puedes entrar, contacta con soporte.",
+  "refusals.requestWindowUnknown":
+    "Hosted Isomux Provisioning no puede confirmar si todavía tiene una clave de tu servidor, así que no creará una invitación. Una persona ya está revisando esta oficina.",
+  "refusals.requestNotLive": "Tu oficina todavía no está en servicio.",
+  "refusals.requestMintInProgress":
+    "Ya se está preparando una invitación. Vuelve a intentarlo en un momento.",
+  "refusals.requestRevocationInProgress":
+    "Ya estamos retirando nuestro acceso.",
+  "refusals.requestAlreadyRevoked":
+    "Hosted Isomux Provisioning ya ha retirado su acceso.",
+  "refusals.requestRestartInProgress": "Ya hay un reinicio en curso.",
+  "refusals.requestCancellationSuspended":
+    "Esta oficina no se puede reiniciar. El panel de tu oficina muestra las opciones disponibles ahora.",
+  "refusals.cancelNotYours": "No hemos encontrado esa oficina.",
+  "refusals.cancelNoSubscription":
+    "Todavía no tenemos ninguna suscripción para esta oficina.",
+  "refusals.cancelAlreadyCancelled":
+    "Tu suscripción ya está programada para terminar.",
+  "refusals.cancelNotCancelled":
+    "Tu suscripción no está programada para terminar.",
+  "refusals.cancelSubscriptionEnded":
+    "Esta suscripción ha terminado, así que no se puede cambiar aquí. Contacta con soporte si necesitas ayuda.",
+  "refusals.reinstatementNotCancelled":
+    "Esta oficina no está cancelada y conservada.",
+  "refusals.reinstatementTooLate":
+    "El periodo de retención ha terminado, así que no podemos abrir un pago de reactivación.",
+  "refusals.reinstatementPowerOffNotProven":
+    "La oficina todavía no ha terminado de apagarse de forma segura. Contacta con soporte antes de pagar.",
+  "refusals.reinstatementNotSuspended":
+    "La oficina conservada no está suspendida de forma segura. Contacta con soporte antes de pagar.",
+  "refusals.reinstatementDeletionStarted":
+    "La eliminación definitiva ya ha empezado, así que esta oficina no se puede reactivar.",
+  "refusals.reinstatementAssetNotRetainable":
+    "El servidor conservado ya no está disponible para reactivarlo.",
+  "refusals.reinstatementOwnershipMismatch":
+    "No hemos podido comprobar que todas las suscripciones de esta oficina pertenecen a tu cuenta.",
+  "refusals.reinstatementNoCustomerAccess":
+    "No podemos comprobar que puedas entrar en esta oficina cuando se inicie. Contacta con soporte antes de pagar.",
+  "refusals.reinstatementOfficeNotFound": "No hemos encontrado esa oficina.",
+  "refusals.reinstatementSubscriptionNotFound":
+    "No hemos encontrado esa suscripción.",
+  "refusals.reinstatementAlreadyReinstated": "Esta oficina ya está reactivada.",
   "errors.rateLimited":
     "Demasiados intentos desde tu red. Vuelve a intentarlo en unos minutos.",
   "unsubscribe.heading": "Darse de baja de los consejos",
