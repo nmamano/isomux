@@ -21,16 +21,21 @@ export function DownloadButton({
   src,
   name,
   isMobile,
+  overlay,
   style,
 }: {
   src: string;
   name: string;
   isMobile?: boolean;
+  // A small button in the corner of an image card, so it does not cover
+  // the image.
+  overlay?: boolean;
   style?: CSSProperties;
 }) {
   const { t } = useI18n();
   const label = t("cards.fileView.download", { file: name });
-  const size = isMobile ? 32 : 26;
+  const size = overlay ? (isMobile ? 24 : 20) : isMobile ? 32 : 26;
+  const iconSize = overlay ? (isMobile ? 14 : 12) : isMobile ? 18 : 15;
   return (
     <a
       href={downloadHref(src, name)}
@@ -46,16 +51,17 @@ export function DownloadButton({
         flexShrink: 0,
         width: size,
         height: size,
-        borderRadius: 6,
-        background: "rgba(0,0,0,0.6)",
+        borderRadius: overlay ? 4 : 6,
+        background: overlay ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.6)",
         color: "#fff",
         cursor: "pointer",
+        ...(overlay && { position: "absolute", right: 4, bottom: 4 }),
         ...style,
       }}
     >
       <svg
-        width={isMobile ? 18 : 15}
-        height={isMobile ? 18 : 15}
+        width={iconSize}
+        height={iconSize}
         viewBox="0 0 16 16"
         fill="none"
         stroke="currentColor"

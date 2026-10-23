@@ -352,7 +352,7 @@ function AttachmentDisplay({
                   src={src}
                   name={att.originalName}
                   isMobile={isMobile}
-                  style={{ position: "absolute", right: 6, bottom: 6 }}
+                  overlay
                 />
               </div>
             );
