@@ -29,11 +29,9 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 
 ### Several agents on one project
 
-- **One room per project** - the room's instructions reach every agent in it, so put the project's conventions there. Keep the agent you talk to at a front desk and its workers in the back room, which you turn on in the room settings.
-- **A lead that spawns its workers** - make your lead agent [privileged](#agent-coordination), and it can spawn, instruct and drive the workers, so you talk mostly to the lead. The flag gives more than spawning: give it only to a lead you would trust with your own access. Each agent has its own engine and model, for example a Claude lead that plans and reviews, and OpenCode coders on a cheaper model.
-- **Hand-offs go by message** - the lead sends the coder its spec and tells it to report back when it is done. The task board tracks the work, but it does not notify anyone. `/peer-review`, `/pair-programming` and `/soft-handoff` cover the usual hand-offs.
-- **Working folders** - each agent keeps its own conversation and context, whatever its folder. The folder is where the agent's commands start, and it decides which project instruction files the agent loads at start: a Claude agent loads `CLAUDE.md`, and an OpenCode agent loads `AGENTS.md` (or `CLAUDE.md` when there is no `AGENTS.md`), from that folder. At start, a lead in a parent folder does not load the repo's files, so put it in the repo folder too, or put the conventions in the room instructions. Agents in one folder see each other's uncommitted edits. For coders that work in parallel, tell the lead to give each its own git worktree; Isomux does not create worktrees.
-- **No isolation between agents** - all agents run as the same OS user, and a folder is not a boundary. Claude and OpenCode agents have no sandbox. A Codex agent's sandbox setting limits only that agent's own commands. See the [security audit](security-audit.md).
+- **One room per project** - the room's instructions reach every agent in it; the lead sits at a front desk and its workers in the back room.
+- **A lead that drives its workers** - a [privileged](#agent-coordination) lead spawns and instructs its workers, each on its own engine and model, so you talk mostly to the lead.
+- **Hand-offs go by message** - the lead sends a worker its spec and the worker reports back when it is done.
 
 ### Prompts, skills, and commands
 
