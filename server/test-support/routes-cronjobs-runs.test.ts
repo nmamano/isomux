@@ -201,6 +201,29 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     );
   });
 
+  it("RUN-bearer read-file on a credential store path answers 403 credential_path and adds no entry", async () => {
+    const live = await startLiveRun();
+    const sock = await live.srv.connectWs(live.ownerSession);
+
+    const r = await httpJson(
+      live.srv,
+      `/api/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`,
+      {
+        method: "POST",
+        bearer: live.token,
+        body: { path: "secrets/office.json" },
+      },
+    );
+    expect(r.status).toBe(403);
+    expect((r.body as { error: { code: string } }).error.code).toBe(
+      "credential_path",
+    );
+    sock.send({ type: "ping" });
+    await sock.waitFor("pong");
+    expect(countLog(sock, live.streamId, "file-view")).toBe(0);
+    expect(countLog(sock, live.streamId, "system")).toBe(0);
+  });
+
   it("PINNED: RUN-bearer diff (non-repo cwd) reaches the cronrun stream as a system log_entry", async () => {
     const live = await startLiveRun();
     const sock = await live.srv.connectWs(live.ownerSession);

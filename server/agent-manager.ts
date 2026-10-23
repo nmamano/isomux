@@ -3125,7 +3125,9 @@ export function createAgentManager(deps: ManagerDeps) {
   function emitAgentReadFile(
     agentId: string,
     rawPath: string,
-  ): { ok: true } | { ok: false; status: number; error: string } {
+  ):
+    | { ok: true }
+    | { ok: false; status: number; code?: string; error: string } {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
     const probe = probeReadFile(rawPath, managed.info.cwd);
@@ -3133,7 +3135,12 @@ export function createAgentManager(deps: ManagerDeps) {
       if (probe.kind === "bad_path")
         return { ok: false, status: 400, error: "missing or empty path" };
       if (probe.kind === "credential")
-        return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
+        return {
+          ok: false,
+          status: 403,
+          code: "credential_path",
+          error: CREDENTIAL_PATH_MESSAGE,
+        };
       addLogEntry(agentId, "system", pathRefusalText(probe, "read"));
       return { ok: true };
     }

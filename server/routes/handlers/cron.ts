@@ -136,7 +136,7 @@ export interface CronDeps {
     jobId: string,
     runId: string,
     path: string,
-  ): { ok: true } | { ok: false; status: number; error: string };
+  ): { ok: true } | { ok: false; status: number; code?: string; error: string };
   emitCronjobRunDiff(
     jobId: string,
     runId: string,
@@ -518,7 +518,11 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       );
       return r.ok
         ? ok({ ok: true })
-        : fail(r.status as HandlerErrorStatus, "run_read_file_failed", r.error);
+        : fail(
+            r.status as HandlerErrorStatus,
+            r.code ?? "run_read_file_failed",
+            r.error,
+          );
     },
 
     "cron.runDiff": async (ctx) => {

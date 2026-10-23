@@ -44,11 +44,13 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 
 // The manager's affordance result: ok, or a failure carrying an HTTP-mappable
-// status (only ever 400 bad-input / 404 unknown agent - the latter is unreachable
-// via the new route, where the guard binds `:id` to the token's own agent).
+// status (400 bad input, 403 credential path, 404 unknown agent - the last is
+// unreachable via the route, where the guard binds `:id` to the token's own
+// agent). The manager may own the `code`, as for PreviewAffordanceResult;
+// without one the handler's fixed per-route code applies.
 type AffordanceResult =
   | { ok: true }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; code?: string; error: string };
 
 // preview-url's richer result: async (headless-browser capture), and the
 // manager owns the per-failure `code` (invalid_request / capture_busy /
@@ -100,14 +102,15 @@ export interface AgentAffordanceDeps {
 }
 
 // Map a manager AffordanceResult to a HandlerResult. Status is narrowed at the
-// boundary (the manager only returns 400/404 for these ops).
+// boundary (the manager only returns 400/403/404 for these ops); the manager's
+// code wins over the route's fallback `code`.
 function mapResult(
   r: AffordanceResult,
   code: string,
 ): ReturnType<RouteHandler> {
   return r.ok
     ? ok({ ok: true })
-    : fail(r.status as HandlerErrorStatus, code, r.error);
+    : fail(r.status as HandlerErrorStatus, r.code ?? code, r.error);
 }
 
 export function agentAffordanceHandlers(

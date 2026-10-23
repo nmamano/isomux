@@ -1581,7 +1581,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     jobId: string,
     runId: string,
     rawPath: string,
-  ): { ok: true } | { ok: false; status: number; error: string } {
+  ):
+    | { ok: true }
+    | { ok: false; status: number; code?: string; error: string } {
     const active = activeRuns.get(runId);
     if (!active || active.jobId !== jobId) {
       return { ok: false, status: 404, error: "active run not found" };
@@ -1594,7 +1596,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     const absPath = resolved.path;
     if (isCredentialStorePath(absPath)) {
-      return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
+      return {
+        ok: false,
+        status: 403,
+        code: "credential_path",
+        error: CREDENTIAL_PATH_MESSAGE,
+      };
     }
     if (!existsSync(absPath)) {
       writeLog(

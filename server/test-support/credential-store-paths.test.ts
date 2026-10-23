@@ -297,7 +297,7 @@ describe("routes that take a path", () => {
       });
       expect(res.status).toBe(403);
       expect((res.body as { error: { code: string } }).error.code).toBe(
-        "read_file_failed",
+        "credential_path",
       );
       expect(res.text).not.toContain(FAKE);
     }
@@ -386,6 +386,7 @@ describe("a scheduled run's read-file", () => {
         expect(mgr.emitCronjobRunReadFile(job.id, run.id, path)).toEqual({
           ok: false,
           status: 403,
+          code: "credential_path",
           error: expect.any(String),
         });
       // The run itself is live: an ordinary file reads.
