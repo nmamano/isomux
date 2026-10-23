@@ -463,6 +463,9 @@ pure function of state alone:
   provisioner also scans linked active or trialing subscriptions and calls the
   same gate, so ignored and out-of-order local events converge. This scan cannot
   recover a subscription when no Stripe event ever created its local row.
+- A subscription in `incomplete` or `incomplete_expired` is cached but not
+  linked to its instance, so the dashboard keeps offering payment. The first
+  fetched status past those links it.
 - `wait_for_address` follows a successful create and owns provider-address
   polling. The database asset address is authoritative; the prepared run file
   is its recoverable SSH mirror.

@@ -529,6 +529,9 @@ async function policyForFirstRow(
   return anchor !== null && anchor < instant ? "legacy" : "launch";
 }
 
+/** Stripe statuses of a subscription whose first invoice was never paid. */
+const NEVER_PAID = new Set(["incomplete", "incomplete_expired"]);
+
 async function linkageFrom(
   store: Store,
   input: Pick<ReconcileInput, "subscription" | "session">,
@@ -614,6 +617,12 @@ async function linkageFrom(
       reinstatementAttemptId: null,
     };
   }
+  // A subscription whose first payment never succeeded stays unlinked: the
+  // office page reads a linked row as paid and would stop offering payment.
+  // Stripe never moves a subscription back into these statuses, so the first
+  // fetched paid status links it here.
+  if (NEVER_PAID.has(input.subscription.status))
+    return { patch: {}, blockedInstanceId: null, reinstatementAttemptId: null };
   // Subscription history is independent of the asset row. An INNER JOIN here
   // would fail open when the retained instance had no provider_assets row.
   const priorCancellation = await store.sqlGet<{ id: string }>(

@@ -30,6 +30,7 @@ import {
   listAccounts,
   listEvents,
   listSubscriptions,
+  subscriptionForInstance,
 } from "./billing-store.ts";
 import {
   assertStripeMode,
@@ -632,6 +633,130 @@ describe("applying an event", () => {
     expect((await store.getInstance("inst-1"))?.subscription_state).toBe(
       "past_due",
     );
+  });
+});
+
+// Every instance-scoped consumer (office page, signup continuation, cancel)
+// reads "is there a subscription" as "has this office been paid for". A
+// subscription whose first payment never succeeded must therefore stay unlinked.
+describe("a never-paid subscription is not linked to its office", () => {
+  const linkedMeta = {
+    isomux_account: "acct-1",
+    isomux_email: "buyer@example.com",
+    isomux_instance: "inst-1",
+  };
+
+  async function linkOf(store: Store) {
+    return {
+      instance_id: (await getSubscription(store, "sub_1"))?.instance_id,
+      current: (await subscriptionForInstance(store, "inst-1"))?.id ?? null,
+    };
+  }
+
+  test.each(["incomplete", "incomplete_expired"])(
+    "%s is cached but the office still has no subscription",
+    async (status) => {
+      const store = await tempStore();
+      await seedInstance(store);
+      const reader = new FakeReader("test");
+      reader.subscriptions.set(
+        "sub_1",
+        subscription({ status, metadata: linkedMeta }),
+      );
+      const outcome = await deliver(
+        processorFor(store, reader),
+        body({
+          id: "evt_1",
+          type: "customer.subscription.created",
+          object: { id: "sub_1" },
+        }),
+      );
+      expect(outcome).toMatchObject({ status: 200, kind: "applied" });
+      expect((await getSubscription(store, "sub_1"))?.status).toBe(status);
+      expect(await linkOf(store)).toEqual({
+        instance_id: null,
+        current: null,
+      });
+    },
+  );
+
+  test("the update that reports it paid links it", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    const reader = new FakeReader("test");
+    const processor = processorFor(store, reader);
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({ status: "incomplete", metadata: linkedMeta }),
+    );
+    await deliver(
+      processor,
+      body({
+        id: "evt_1",
+        type: "customer.subscription.created",
+        object: { id: "sub_1" },
+      }),
+    );
+    expect(await linkOf(store)).toEqual({ instance_id: null, current: null });
+
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({ status: "active", metadata: linkedMeta }),
+    );
+    const outcome = await deliver(
+      processor,
+      body({
+        id: "evt_2",
+        type: "customer.subscription.updated",
+        object: { id: "sub_1" },
+      }),
+    );
+    expect(outcome).toMatchObject({ status: 200, kind: "applied" });
+    expect(await linkOf(store)).toEqual({
+      instance_id: "inst-1",
+      current: "sub_1",
+    });
+    expect((await store.getInstance("inst-1"))?.subscription_state).toBe(
+      "active",
+    );
+  });
+
+  test("naming an office that holds prior-customer data raises no incident until it is paid", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    const asset = (await store.assetForInstance("inst-1"))!;
+    await store.casAsset(asset.id, asset.version, { asset_state: "cancelled" });
+    const reader = new FakeReader("test");
+    const processor = processorFor(store, reader);
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({ status: "incomplete", metadata: linkedMeta }),
+    );
+    await deliver(
+      processor,
+      body({
+        id: "evt_1",
+        type: "customer.subscription.created",
+        object: { id: "sub_1" },
+      }),
+    );
+    expect(await store.openReasons("inst-1")).toHaveLength(0);
+
+    // The guard itself is unchanged: once paid, the refusal and its incident come.
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({ status: "active", metadata: linkedMeta }),
+    );
+    await deliver(
+      processor,
+      body({
+        id: "evt_2",
+        type: "customer.subscription.updated",
+        object: { id: "sub_1" },
+      }),
+    );
+    expect(await linkOf(store)).toEqual({ instance_id: null, current: null });
+    expect(await store.openReasons("inst-1")).toHaveLength(1);
   });
 });
 
