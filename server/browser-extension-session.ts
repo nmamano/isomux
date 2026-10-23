@@ -4,13 +4,7 @@ import {
   readBrowserUpload,
   type UploadedFile,
 } from "./browser-upload";
-import {
-  chromium,
-  errors,
-  type Browser,
-  type Dialog,
-  type Page,
-} from "playwright-core";
+import type { Browser, Dialog, Page } from "playwright-core";
 import { readBrowserFrames, resolveBrowserFrame } from "./browser-frames";
 import {
   CHECK_REASON,
@@ -98,6 +92,14 @@ export const NOT_SENT_ERROR =
 const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
 const offline = () =>
   failure("browser_offline", "No paired Chrome browser is online");
+// playwright-core takes most of a second to load, so the office loads it at
+// the first browser session, not at boot.
+let playwright: Promise<typeof import("playwright-core")> | undefined;
+const loadPlaywright = () =>
+  (playwright ??= import("playwright-core").catch((error: unknown) => {
+    playwright = undefined;
+    throw error;
+  }));
 const SETTLEMENT_GRACE_MS = 1000;
 // Time an input's checks leave for the response, and the time a settle leaves
 // for reading the title.
@@ -366,6 +368,9 @@ export class ExtensionBrowserSessions {
     if (session) watchEnd(session.signal);
     const task = async (): Promise<BrowserResult> => {
       if (!session) {
+        // Load before the transport exists: it is assigned at once and must
+        // not wait on the import before Playwright attaches its handlers.
+        const { chromium } = await loadPlaywright();
         transport = browserExtensionTransport(connection, agent, true, target);
         watchEnd(transport.signal);
         const browser = await chromium.connectOverCDP(transport, {
@@ -710,7 +715,9 @@ export class ExtensionBrowserSessions {
       for (;;) {
         if (!valid()) return ended();
         if (metadataRetry && performance.now() >= deadline)
-          throw new errors.TimeoutError("Browser metadata deadline reached");
+          throw new (await loadPlaywright()).errors.TimeoutError(
+            "Browser metadata deadline reached",
+          );
         current = session.page;
         if (current.isClosed()) throw new Error("Selected browser page closed");
         try {
