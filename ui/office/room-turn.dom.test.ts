@@ -45,7 +45,6 @@ beforeEach(() => {
   cancelRoomTurn();
   frames = new Map();
   reduce = false;
-  localStorage.clear();
   document.body.innerHTML = "";
   parent = document.createElement("div");
   content = document.createElement("div");
@@ -60,28 +59,22 @@ const clones = () =>
   );
 
 describe("a wall-door turn", () => {
-  // The Room switch animation setting is gone (task 8f71e886): a value an
-  // older build stored under its key changes nothing.
-  it.each([[null], ["off"], ["turn-350"]] as const)(
-    "with %p stored, runs for 600 ms and then leaves only the live scene",
-    (stored) => {
-      if (stored !== null) localStorage.setItem("isomux-room-turn", stored);
-      beginRoomTurn(content, "right", "next");
-      finishRoomTurn("next");
-      flush(); // the frame after the commit inserts both snapshots
-      expect(clones()).toHaveLength(2);
-      for (const clone of clones()) {
-        expect(clone.getAttribute("aria-hidden")).toBe("true");
-        expect(clone.hasAttribute("inert")).toBe(true);
-      }
-      expect(content.style.opacity).toBe("0");
-      flush(550);
-      expect(clones()).toHaveLength(2);
-      flush(650);
-      expect(clones()).toHaveLength(0);
-      expect(content.style.opacity).toBe("");
-    },
-  );
+  it("runs for 600 ms and then leaves only the live scene", () => {
+    beginRoomTurn(content, "right", "next");
+    finishRoomTurn("next");
+    flush(); // the frame after the commit inserts both snapshots
+    expect(clones()).toHaveLength(2);
+    for (const clone of clones()) {
+      expect(clone.getAttribute("aria-hidden")).toBe("true");
+      expect(clone.hasAttribute("inert")).toBe(true);
+    }
+    expect(content.style.opacity).toBe("0");
+    flush(550);
+    expect(clones()).toHaveLength(2);
+    flush(650);
+    expect(clones()).toHaveLength(0);
+    expect(content.style.opacity).toBe("");
+  });
 
   it("moves a desk on every frame, with none of its own transition easing it", () => {
     content.innerHTML =

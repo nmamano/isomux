@@ -14,18 +14,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // can overtake pushes still in flight on the socket; those older states then
 // show until the confirming push arrives behind them. The bar always ends on
 // the server's latest state.
-export interface PendingView<S, V> {
+interface PendingView<S, V> {
   seq: number;
   value: V;
   // The server state seen when the write succeeded; null while in flight.
   settledAgainst: { server: S } | null;
 }
 
-export function startPending<S, V>(seq: number, value: V): PendingView<S, V> {
+function startPending<S, V>(seq: number, value: V): PendingView<S, V> {
   return { seq, value, settledAgainst: null };
 }
 
-export function settlePending<S, V>(
+function settlePending<S, V>(
   pending: PendingView<S, V> | null,
   seq: number,
   ok: boolean,
@@ -38,7 +38,7 @@ export function settlePending<S, V>(
 
 // The value to show over the server state, or null for "show the server
 // state".
-export function visiblePending<S, V>(
+function visiblePending<S, V>(
   pending: PendingView<S, V> | null,
   server: S,
   matches: (server: S, value: V) => boolean,

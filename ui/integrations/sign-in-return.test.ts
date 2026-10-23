@@ -1,12 +1,19 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 
-// sessionStorage, as a browser tab has it.
+// sessionStorage, as a browser tab has it. Put back when the file ends: a
+// DOM file later in the same process registers its own window over it.
 const store = new Map<string, string>();
-(globalThis as { sessionStorage?: unknown }).sessionStorage = {
+const host = globalThis as { sessionStorage?: unknown };
+const had = Object.getOwnPropertyDescriptor(host, "sessionStorage");
+host.sessionStorage = {
   getItem: (key: string) => store.get(key) ?? null,
   setItem: (key: string, value: string) => void store.set(key, value),
   removeItem: (key: string) => void store.delete(key),
 };
+afterAll(() => {
+  if (had) Object.defineProperty(host, "sessionStorage", had);
+  else delete host.sessionStorage;
+});
 const { rememberSignIn, takeSignIn } = await import("./sign-in-return.ts");
 
 describe("the MCP sign-in note", () => {

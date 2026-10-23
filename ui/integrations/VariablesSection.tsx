@@ -49,7 +49,7 @@ type Variable = { name: string; value: string | null; note: string };
 
 // Model sign-in keys go here, not in Secrets, so the "looks like a key" hint
 // leaves them alone. The caller passes the trimmed name.
-export function looksLikeKey(name: string): boolean {
+function looksLikeKey(name: string): boolean {
   return /KEY|TOKEN|SECRET|PASSWORD/i.test(name) && !isModelKeySecretName(name);
 }
 

@@ -153,7 +153,7 @@ function problemText(
 }
 
 // A sign-in failure: a fixed code from the server, never its own text.
-export function signInErrorText(
+function signInErrorText(
   t: Translator["t"],
   reason: unknown,
   name: string | null,
@@ -251,7 +251,7 @@ export function SignInNotice({
 }
 
 // The secret a pasted token is saved as: LINEAR_TOKEN for "linear".
-export function tokenSecretName(server: string): string {
+function tokenSecretName(server: string): string {
   const base = server.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   if (!base.replace(/_/g, "")) return "";
   return /^[A-Z]/.test(base) ? `${base}_TOKEN` : `MCP_${base}_TOKEN`;
@@ -259,7 +259,7 @@ export function tokenSecretName(server: string): string {
 
 // An MCP server route's refusal, a fixed sentence per code. `host` is the
 // server's host, for the secret that does not list it.
-export function useMcpErrorText(host: string) {
+function useMcpErrorText(host: string) {
   const { t } = useI18n();
   const secretError = useSecretErrorText();
   return (caught: unknown): string => {

@@ -24,7 +24,7 @@ function presence(
 }
 
 describe("selectMiniGhosts", () => {
-  it("filters self and non-log viewers before applying the cap", () => {
+  it("drops self and what the caller's filter rejects, then applies the cap", () => {
     const entries = [
       presence("self", "log", "agent-1"),
       presence("office", "office", "agent-1"),

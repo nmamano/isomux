@@ -8,6 +8,7 @@ setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { LEFT_DOOR_COORD } = await import("./useGhostTransitions.ts");
 const { mount, room, act, fireEvent, shimEmit } = fixture;
 fixture.setupRoomDoorTests({ decorations: false });
 
@@ -148,6 +149,8 @@ it("skips a tucked room: the doors are the active tab's neighbours, and lead the
   expect(tabs(container)).toEqual(["a", "c", "d"]);
   expect(doors(container)).toEqual([name("a"), name("d")]);
   expect(doors(container)).toEqual(tabNeighbours(container));
+  // A room on the right takes a dropped desk ...
+  expect(container.querySelector('[data-door-drop="right"]')).not.toBeNull();
   const left = container.querySelector(
     `svg[data-turn="doors"] g[aria-label="${name("a")}"]`,
   )!;
@@ -162,6 +165,8 @@ it("gives an open tucked room the doors of its pinned tab", () => {
   expect(activeTab(container)).toBe("b");
   expect(doors(container)).toEqual([name("c"), t("office.newRoom.door")]);
   expect(doors(container)).toEqual(tabNeighbours(container));
+  // ... but the last tab has none: the zone would cover the New room door.
+  expect(container.querySelector('[data-door-drop="right"]')).toBeNull();
 });
 
 it("moves the doors with a tuck before the server answers, and back on failure", async () => {
@@ -236,8 +241,8 @@ it("walks a ghost out only through the door to its room", () => {
   expect(ghost(container)).toBeNull();
   // The control: the same ghost bound for a walks to the left door.
   peerIn("c");
-  const natural = ghost(container)!.style.left;
-  expect(natural).not.toBe("25px");
+  const atDoor = `${LEFT_DOOR_COORD.left}px`;
+  expect(ghost(container)!.style.left).not.toBe(atDoor);
   peerIn("a");
-  expect(ghost(container)!.style.left).toBe("25px");
+  expect(ghost(container)!.style.left).toBe(atDoor);
 });

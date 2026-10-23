@@ -72,7 +72,7 @@ export function hospitalSceneVars(mode: ThemeMode): Record<string, string> {
 }
 
 /** What the skin's OWN drawings are painted in: the wainscot on the walls, the
- *  cross sign, the beds, the IV stand and the curtain. */
+ *  first-aid cabinet, the beds, the IV stand and the curtain. */
 export interface HospitalColors {
   wainscot: string;
   wainscotShade: string;

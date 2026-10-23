@@ -6,7 +6,7 @@ import { isWorkingState, useAppState } from "../store.tsx";
 
 /** True once the agent has worked for SWEAT_AFTER_MS without a break. One
  *  timer per stretch, set for the moment the threshold passes. */
-export function useSweating(agent: AgentInfo): boolean {
+function useSweating(agent: AgentInfo): boolean {
   const { workingSince } = useAppState();
   const since = isWorkingState(agent.state)
     ? workingSince.get(agent.id)

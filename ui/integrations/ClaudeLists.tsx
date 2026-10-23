@@ -48,7 +48,7 @@ const STATUS: Record<
 // A status Claude reported, or Pending for a name with none read yet. Pending
 // carries a (?) that says why (Nil, 2026-10-13).
 // The tool count shows with Connected only (Lead, 2026-10-13).
-export function ClaudeStatus({
+function ClaudeStatus({
   status,
   tools,
 }: {

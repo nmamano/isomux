@@ -42,11 +42,11 @@ it("keeps ghost nodes mounted while authoritative seats change", () => {
   expect(body.style.transition).toContain("left 220ms");
 });
 
-for (const [lang, label] of [
-  ["es", "Moverse aquí"],
-  ["ca", "Mou-te aquí"],
-] as const) {
-  it(`labels free spots in ${lang}`, () => {
+// Every free spot is a labelled button, and the label follows the reader's
+// language: the same buttons in Spanish and Catalan read differently from
+// English (principle 15: no catalog text here).
+it("labels every free spot in the reader's language", () => {
+  const labels = (lang: "en" | "es" | "ca") => {
     const view = render(
       onLanguage(
         lang,
@@ -59,9 +59,31 @@ for (const [lang, label] of [
         }),
       ),
     );
-    expect(view.getAllByRole("button", { name: label })).toHaveLength(10);
-  });
-}
+    const spots = [
+      ...view.container.querySelectorAll<HTMLButtonElement>(
+        "button[data-lobby-spot]",
+      ),
+    ];
+    const names = spots.map((b) => b.getAttribute("aria-label") ?? "");
+    view.unmount();
+    return names;
+  };
+  const en = labels("en");
+  expect(en).toHaveLength(LOBBY_SPOT_IDS.length);
+  expect(new Set(en).size).toBe(1);
+  expect(en[0].trim()).not.toBe("");
+  for (const lang of ["es", "ca"] as const) {
+    const other = labels(lang);
+    expect([lang, other.length]).toEqual([lang, LOBBY_SPOT_IDS.length]);
+    for (const name of other) {
+      expect([lang, name.trim() !== "", name !== en[0]]).toEqual([
+        lang,
+        true,
+        true,
+      ]);
+    }
+  }
+});
 
 it("keeps overflow body identification while suppressing its name chip", () => {
   const p = { ...ghost("overflow", "Waiting viewer", ""), lobbySpotId: null };

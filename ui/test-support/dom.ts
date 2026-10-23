@@ -85,7 +85,7 @@ let compactMatchersRegistered = false;
  * a basic identity or absence assertion fails. These replace built-ins, so
  * their pass conditions must remain exactly the same as Bun's.
  */
-export function registerCompactDomMatchers(): void {
+function registerCompactDomMatchers(): void {
   if (compactMatchersRegistered) return;
   expect.extend({
     toBe(actual: unknown, wanted: unknown) {

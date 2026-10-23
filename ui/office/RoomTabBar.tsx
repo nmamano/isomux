@@ -38,8 +38,6 @@ const MINI_GHOST_OVERLAP = -6;
 // below it are not clipped by its overflow.
 const GHOST_STICK_OUT = 14;
 
-export { roomActivityDotColor };
-
 // Edge affordance for an overflowing tab bar: a gradient fade signals
 // "more rooms this way" on both platforms; on desktop a chevron button
 // sits at the very edge so mouse users can click to scroll (touch users

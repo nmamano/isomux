@@ -14,7 +14,7 @@ const { IntegrationsFake, EMPTY_CONNECTIONS } =
 const { notifyConnectionsChanged, notifyManagedEnvSaved } =
   await import("../connections-events.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { MEMBER, OWNER, card, click, open, tab } =
+const { OWNER, card, click, open, tab } =
   await import("../test-support/integrations-page-fixture.ts");
 const { act } = await import("@testing-library/react");
 afterAll(() => setApiShim(null));
@@ -83,6 +83,7 @@ describe("the caller's connections list", () => {
   });
 });
 
+// A member's reads are in IntegrationsView.access.
 describe("which variables route each card reads", () => {
   it("an owner: the office's values, and their own", async () => {
     const view = await open(OWNER);
@@ -90,15 +91,6 @@ describe("which variables route each card reads", () => {
     expect(fake.requests("GET", "/api/office/env")).toHaveLength(1);
     expect(fake.requests("GET", "/api/users/Ricky/env")).toHaveLength(1);
     expect(fake.requests("GET", "/api/office/env/names")).toHaveLength(0);
-  });
-
-  it("a member: the office's names, and their own values", async () => {
-    fake.viewer = { username: "Stephen", owner: false };
-    const view = await open(MEMBER);
-    await tab(view, "variables");
-    expect(fake.requests("GET", "/api/office/env/names")).toHaveLength(1);
-    expect(fake.requests("GET", "/api/office/env")).toHaveLength(0);
-    expect(fake.requests("GET", "/api/users/Stephen/env")).toHaveLength(1);
   });
 });
 

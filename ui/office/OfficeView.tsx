@@ -113,7 +113,7 @@ const DRAG_DESK_HINTS = [
   "office.hints.dragDeskTrapDoor",
 ] as const;
 
-export const LOBBY_CHAT_WIDTH = DEFAULT_MEMBERS_CHAT_WIDTH;
+const LOBBY_CHAT_WIDTH = DEFAULT_MEMBERS_CHAT_WIDTH;
 
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({

@@ -11,7 +11,14 @@
 import { expect, test } from "bun:test";
 import { DESK_SLOTS } from "../../../../shared/desks.ts";
 import { FLOOR_COL_DX, FLOOR_COL_DY, isoXY } from "../../grid.ts";
-import { BED_SPOTS, BED_U, BED_V, PLACEMENT, bedBox } from "./props.tsx";
+import {
+  BED_H,
+  BED_U,
+  BED_V,
+  FURNITURE,
+  HEAD_RAIL,
+  PLACEMENT,
+} from "./props.tsx";
 import { PET_SPOT } from "../../RoomProps.tsx";
 import { TRAP_DOOR_CENTER, TRAP_DOOR_U, TRAP_DOOR_V } from "../../TrapDoor.tsx";
 
@@ -42,6 +49,25 @@ interface Box {
   maxY: number;
 }
 
+// Every place the layer draws a bed, read off the drawing itself, so a second
+// bed is measured with no edit here.
+const BED_SPOTS = (
+  Object.keys(PLACEMENT) as Array<keyof typeof PLACEMENT>
+).filter((k) => FURNITURE[k] === FURNITURE.bed);
+
+/** The box a bed paints, in scene coordinates: the floor rectangle widened to
+ *  the frame corners and raised to the top of the head rail. */
+function bedBox(at: { x: number; y: number }): Box {
+  const halfX = -BED_U.x + BED_V.x;
+  const halfY = BED_U.y + BED_V.y;
+  return {
+    minX: at.x - halfX,
+    maxX: at.x + halfX,
+    minY: at.y - halfY - BED_H - HEAD_RAIL,
+    maxY: at.y + halfY,
+  };
+}
+
 function overlaps(a: Box, b: Box): boolean {
   return (
     a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY
@@ -49,6 +75,8 @@ function overlaps(a: Box, b: Box): boolean {
 }
 
 test("no bed stands where an occupied desk would paint over it", () => {
+  // Fail closed: with no bed found, every per-bed loop here passes empty.
+  expect(BED_SPOTS.length).toBeGreaterThan(0);
   for (const spot of BED_SPOTS) {
     const bed = bedBox(PLACEMENT[spot]);
     for (const [i, slot] of DESK_SLOTS.entries()) {

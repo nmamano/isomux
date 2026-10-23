@@ -1,17 +1,16 @@
 // Where the office's Install as app shows (tasks 5d536d33, 55310a37): the
 // notice and the phone menu's item, in a phone or tablet browser that can
-// install the office. Nothing shows in an installed window, after an install
-// from outside the office, or on a computer, whatever the window width.
-// ui/app-install.test.ts tells each device kind apart; this file checks that
-// the office view asks it. The flows: office-install.dom.test.tsx.
+// install the office. Nothing shows in an installed window or on a computer,
+// whatever the window width. ui/app-install.test.ts tells each device kind
+// apart and drops the held event on an install from outside the office; this
+// file checks that the office view asks it. The flows:
+// office-install.dom.test.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act } = await import("@testing-library/react");
 const { heldInstallPrompt } = await import("../app-install.ts");
-const { IPHONE_HOME_SCREEN } =
-  await import("../test-support/ios-home-screen.ts");
 const {
   ANDROID_APP,
   asChrome,
@@ -23,33 +22,18 @@ const {
 } = await import("../test-support/office-install-fixture.tsx");
 setUpOfficeInstallFile();
 
-for (const [label, device] of [
-  ["the iPhone Home Screen", IPHONE_HOME_SCREEN],
-  ["an installed Chrome window", ANDROID_APP],
-] as const) {
-  it(`shows no notice and no menu item in ${label}`, async () => {
-    if (device === ANDROID_APP) asChrome(device);
-    else onDevice(device);
-    const page = mount();
-    // Chrome does not offer an installed app, but nothing may rely on that.
-    await act(async () => {
-      window.dispatchEvent(installEvent().event);
-    });
-    expect(page.notice()).toBeNull();
-    expect(page.menuItem()).toBeNull();
-  });
-}
-
-it("drops the notice and the menu item when the office is installed another way", async () => {
-  asChrome();
+// The office reads the installed window (navigator.standalone) even with an
+// event held. The iPhone Home Screen reads the same property; which device
+// kind shows what is ui/app-install.test.ts's table.
+it("shows no notice and no menu item in an installed Chrome window", async () => {
+  asChrome(ANDROID_APP);
   const page = mount();
+  // Chrome does not offer an installed app, but nothing may rely on that.
   await act(async () => {
     window.dispatchEvent(installEvent().event);
   });
-  expect(page.notice()).not.toBeNull();
-  await act(async () => {
-    window.dispatchEvent(new Event("appinstalled"));
-  });
+  // The condition: the event is held, so only standalone hides the notice.
+  expect(heldInstallPrompt()).not.toBeNull();
   expect(page.notice()).toBeNull();
   expect(page.menuItem()).toBeNull();
 });

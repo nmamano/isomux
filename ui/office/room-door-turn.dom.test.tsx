@@ -101,8 +101,7 @@ it("leaving the office mid-turn removes the turn", async () => {
   );
   expect(live.length).toBeGreaterThan(0);
   view.unmount();
-  expect(document.querySelectorAll('[inert][aria-hidden="true"]').length).toBe(
-    0,
-  );
+  // The snapshots leave with the unmounted tree either way; the live scene's
+  // opacity comes back only when the unmount cancels the turn.
   for (const el of live) expect(el.style.opacity).toBe("");
 });

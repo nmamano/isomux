@@ -10,7 +10,7 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { setApiShim } = await import("../api.ts");
-const { SECRET_TEST_HELP, TestButton, TestResult, useConnectionTest } =
+const { TestButton, TestResult, useConnectionTest } =
   await import("./ConnectionTest.tsx");
 const { IDENTITY_CHECKS } = await import("../../server/connection-tests.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
@@ -146,24 +146,35 @@ it("runs one test at a time and reports each answer", async () => {
 });
 
 it("explains Works for every secret the server can test, by its host", async () => {
-  expect(Object.keys(SECRET_TEST_HELP).sort()).toEqual(
-    Object.values(IDENTITY_CHECKS)
-      .map((check) => check.host)
-      .sort(),
-  );
+  // What the result says for one host: whether it has a (?), and its text.
+  const helpFor = async (host: string) => {
+    setApiShim(async () => ({
+      result: { ok: true, kind: "secret", host, account: null },
+    }));
+    const view = render(
+      createElement(Harness, { path: "/api/office/secrets/X" }),
+    );
+    await act(async () =>
+      fireEvent.click(view.container.querySelector("[data-connection-test]")!),
+    );
+    const result = view.container.querySelector<HTMLElement>(
+      "[data-connection-test-result]",
+    );
+    expect(result?.dataset.connectionTestResult, host).toBe("ok");
+    const text = await helpText(result);
+    view.unmount();
+    return text;
+  };
+  const hosts = Object.values(IDENTITY_CHECKS).map((check) => check.host);
+  expect(hosts.length).toBeGreaterThan(0);
+  const helps = new Set<string>();
+  for (const host of hosts) {
+    const text = await helpFor(host);
+    expect(text, host).not.toBeNull();
+    helps.add(text!);
+  }
+  // Each check explains its own call.
+  expect(helps.size).toBe(hosts.length);
   // A host with no test of its own: no (?), rather than a wrong one.
-  setApiShim(async () => ({
-    result: { ok: true, kind: "secret", host: "api.other.com", account: null },
-  }));
-  const view = render(
-    createElement(Harness, { path: "/api/office/secrets/X" }),
-  );
-  await act(async () =>
-    fireEvent.click(view.container.querySelector("[data-connection-test]")!),
-  );
-  const result = view.container.querySelector<HTMLElement>(
-    "[data-connection-test-result]",
-  );
-  expect(result?.dataset.connectionTestResult).toBe("ok");
-  expect(await helpText(result)).toBeNull();
+  expect(await helpFor("api.other.com")).toBeNull();
 });

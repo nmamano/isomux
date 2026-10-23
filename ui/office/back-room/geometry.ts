@@ -11,8 +11,8 @@ export const TILE_B = 23.75;
 export const WALL_H = 175;
 export const SLAB_H = 12;
 // Stool step along a table, and table step across tables, in tiles.
-export const SEAT_STEP = 1.0;
-export const TABLE_STEP = 1.45;
+const SEAT_STEP = 1.0;
+const TABLE_STEP = 1.45;
 // Free floor around the tables, in tiles.
 const MARGIN_C = 0.9;
 const MARGIN_R = 1.2;

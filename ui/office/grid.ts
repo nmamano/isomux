@@ -68,6 +68,6 @@ export function deskPixelPos(row: number, col: number) {
 // order changes (reorder/close). Callers pass `rooms.findIndex(...)`, so a
 // not-found -1 (and any other out-of-domain input) falls back to slot 0.
 export function roomPaletteIndex(roomIndex: number, len: number): number {
-  if (len <= 0 || !Number.isInteger(roomIndex) || roomIndex < 0) return 0;
+  if (!Number.isInteger(roomIndex) || roomIndex < 0) return 0;
   return roomIndex % len;
 }

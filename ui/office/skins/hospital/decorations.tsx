@@ -156,61 +156,6 @@ export function MedicalChart() {
   );
 }
 
-export function CallButtonPanel() {
-  const { mode } = useTheme();
-  const c = hospitalColors(mode);
-  return (
-    <g
-      aria-hidden="true"
-      data-hospital-decoration="call"
-      transform="translate(370, -5) skewY(27)"
-    >
-      <rect
-        x="-26"
-        y="-14"
-        width="52"
-        height="28"
-        rx="3"
-        fill={c.crossPlate}
-        stroke={c.crossPlateEdge}
-        strokeWidth="1.2"
-      />
-      <path
-        d="M-19 -7 H-9 M-19 -3 H-9 M-19 1 H-9"
-        stroke={c.metalShade}
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-      <circle cx="9" cy="0" r="7" fill={c.cross} />
-      <path
-        d="M6 1 V-2 Q9 -6 12 -2 V1 L13 3 H5 Z M8 5 H10"
-        fill="none"
-        stroke={c.linen}
-        strokeWidth="1"
-        strokeLinejoin="round"
-      />
-      <circle cx="19" cy="-8" r="1.7" fill={c.blanket} />
-      <path
-        d="M-2 14 V23 Q-2 33 8 33 Q17 33 17 23 V20"
-        fill="none"
-        stroke={c.metalShade}
-        strokeWidth="1.5"
-      />
-      <rect
-        x="13"
-        y="15"
-        width="8"
-        height="15"
-        rx="3"
-        fill={c.metal}
-        stroke={c.metalShade}
-        strokeWidth="0.7"
-      />
-      <circle cx="17" cy="20" r="2" fill={c.cross} />
-    </g>
-  );
-}
-
 /** Two tied-back panels, projected onto the window's 2:1 wall plane. */
 export function WindowCurtains() {
   const { mode } = useTheme();

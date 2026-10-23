@@ -43,32 +43,6 @@ export function Wainscot({
   );
 }
 
-// The cross sign on the right wall, clear of the clock (240,-85), the neon sign
-// (370,-5) and the vent (500,60). Skewed into the wall plane like every other
-// prop hung there.
-export function CrossSign({ c }: { c: HospitalColors }) {
-  const arm = 7.5;
-  const reach = 19;
-  return (
-    <g transform="translate(190, -10) skewY(27)">
-      <rect
-        x={-reach - 5}
-        y={-reach - 5}
-        width={(reach + 5) * 2}
-        height={(reach + 5) * 2}
-        rx="3"
-        fill={c.crossPlate}
-        stroke={c.crossPlateEdge}
-        strokeWidth="1.2"
-      />
-      <path
-        d={`M${-arm} ${-reach} H${arm} V${-arm} H${reach} V${arm} H${arm} V${reach} H${-arm} V${arm} H${-reach} V${-arm} H${-arm} Z`}
-        fill={c.cross}
-      />
-    </g>
-  );
-}
-
 /** The first-aid cabinet below the notice board, right of the window. */
 export function FirstAidCabinet({ c }: { c: HospitalColors }) {
   const w = 20;
@@ -127,23 +101,6 @@ export const PLACEMENT = {
   bed: { x: 288, y: 406 },
   ivStand: { x: 234, y: 438 },
 } as const;
-
-/** Which of these places holds a bed. The layout test measures these against
- *  the desks; everything else here is thin enough to share a tile with one. */
-export const BED_SPOTS = ["bed"] as const;
-
-/** The box a bed paints, in scene coordinates: the floor rectangle widened to
- *  the frame corners and raised to the top of the head rail. */
-export function bedBox(at: { x: number; y: number }) {
-  const halfX = -BED_U.x + BED_V.x;
-  const halfY = BED_U.y + BED_V.y;
-  return {
-    minX: at.x - halfX,
-    maxX: at.x + halfX,
-    minY: at.y - halfY - BED_H - HEAD_RAIL,
-    maxY: at.y + halfY,
-  };
-}
 
 function point(c: { x: number; y: number }, u: number, v: number) {
   return {

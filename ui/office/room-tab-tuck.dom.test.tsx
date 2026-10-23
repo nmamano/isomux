@@ -5,8 +5,7 @@ setUpDomTestFile();
 
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { RoomTabBar } = await import("./RoomTabBar.tsx");
-const { tuckedChipSummary, presentMemberNames } =
-  await import("./TuckedRoomsChip.tsx");
+const { tuckedChipSummary } = await import("./TuckedRoomsChip.tsx");
 const { StoreProvider, FeaturesProvider } = await import("../store.tsx");
 const { LanguageProvider } = await import("../i18n.tsx");
 const { setApiShim } = await import("../api.ts");
@@ -150,7 +149,7 @@ const listIds = (c: HTMLElement) =>
   );
 
 describe("tucked rooms in the tab bar", () => {
-  it("moves tucked rooms off the bar into the chip, which lists them on click", () => {
+  it("moves tucked rooms off the bar into the chip, which lists them on click with no untuck control", () => {
     const { container } = mount(["a", "b", "c"], ["b", "c"]);
     expect(barIds(container)).toEqual(["a"]);
     expect(chipButton(container).textContent).toContain("2");
@@ -159,12 +158,11 @@ describe("tucked rooms in the tab bar", () => {
       fireEvent.click(chipButton(container));
     });
     expect(listIds(container)).toEqual(["b", "c"]);
-  });
-
-  it("shows no chip when nothing is tucked", () => {
-    const { container } = mount(["a", "b"], []);
-    expect(chip(container)).toBeNull();
-    expect(barIds(container)).toEqual(["a", "b"]);
+    // Untucking is in Settings only: each row's one button opens its room.
+    for (const id of ["b", "c"])
+      expect(
+        container.querySelectorAll(`[data-tucked-room="${id}"] button`),
+      ).toHaveLength(1);
   });
 
   it("ignores a tucked id whose room is not in the member's rooms (hidden wins)", () => {
@@ -173,8 +171,8 @@ describe("tucked rooms in the tab bar", () => {
     expect(barIds(container)).toEqual(["a", "b"]);
   });
 
-  it("names the members present in each tucked room", () => {
-    const { container } = mount(["a", "b"], ["b"]);
+  it("names the members present in each tucked room, once each, never this device", () => {
+    const { container } = mount(["a", "b", "c"], ["b", "c"]);
     act(() => {
       shimEmit({
         type: "presence_list",
@@ -182,16 +180,26 @@ describe("tucked rooms in the tab bar", () => {
           presence("c1", "u1", "b"),
           presence("c2", "u1", "b"),
           presence("c3", "u2", "b"),
+          // This device is left out, as its ghost is; the same member on
+          // another device still shows.
+          presence("c-self", SELF, "b"),
+          presence("c-other", SELF, "c"),
         ],
-        totalOnlineUsers: 2,
-        onlineUserIds: ["u1", "u2"],
+        totalOnlineUsers: 3,
+        onlineUserIds: ["u1", "u2", SELF],
       });
     });
     act(() => {
       fireEvent.click(chipButton(container));
     });
-    const row = container.querySelector('[data-tucked-room="b"]')!;
-    expect(row.textContent).toContain("Name u1, Name u2");
+    // The names line: the last span of the row's button.
+    const names = (id: string) =>
+      container.querySelector(
+        `[data-tucked-room="${id}"] button > span:last-child`,
+      )?.textContent;
+    // One name per member (u1 is on two devices in b), in presence order.
+    expect(names("b")).toBe("Name u1, Name u2");
+    expect(names("c")).toBe(`Name ${SELF}`);
   });
 
   it("tucks a tab dropped on the chip at once, and untucks on failure", async () => {
@@ -213,8 +221,11 @@ describe("tucked rooms in the tab bar", () => {
     expect(barIds(container)).toEqual(["a", "b"]);
   });
 
-  it("shows the chip as a drop target during a drag even with nothing tucked", () => {
+  it("shows no chip with nothing tucked, until a drag makes it a drop target", () => {
     const { container } = mount(["a", "b"], []);
+    // No chip until a drag starts.
+    expect(chip(container)).toBeNull();
+    expect(barIds(container)).toEqual(["a", "b"]);
     const dataTransfer = { setData: noop, effectAllowed: "", dropEffect: "" };
     act(() => {
       fireEvent.dragStart(container.querySelectorAll("[draggable]")[0], {
@@ -226,15 +237,6 @@ describe("tucked rooms in the tab bar", () => {
       fireEvent.drop(chip(container)!, { dataTransfer });
     });
     expect(writes.map((w) => w.tucked)).toEqual([["a"]]);
-  });
-
-  it("offers no untuck control in the list", () => {
-    const { container } = mount(["a", "b", "c"], ["b", "c"]);
-    act(() => {
-      fireEvent.click(chipButton(container));
-    });
-    const row = container.querySelector('[data-tucked-room="b"]')!;
-    expect(row.querySelectorAll("button").length).toBe(1);
   });
 
   it("drags the last untucked tab onto the chip", () => {
@@ -339,34 +341,5 @@ describe("tuckedChipSummary", () => {
     );
     expect(summary.presences.map((p) => p.connectionId)).toEqual(["c1"]);
     expect(summary.dotColor).toBeNull();
-  });
-
-  it("lists each present member once", () => {
-    expect(
-      presentMemberNames(
-        [
-          presence("c1", "u1", "b"),
-          presence("c2", "u1", "b"),
-          presence("c3", "u2", "b"),
-        ],
-        null,
-      ),
-    ).toEqual(["Name u1", "Name u2"]);
-  });
-
-  it("leaves out this device's own connection, as its ghost is", () => {
-    expect(
-      presentMemberNames(
-        [presence("c1", "u1", "b"), presence("c3", "u2", "b")],
-        "c1",
-      ),
-    ).toEqual(["Name u2"]);
-    // The same member on another device in the room still shows.
-    expect(
-      presentMemberNames(
-        [presence("c1", "u1", "b"), presence("c2", "u1", "b")],
-        "c1",
-      ),
-    ).toEqual(["Name u1"]);
   });
 });

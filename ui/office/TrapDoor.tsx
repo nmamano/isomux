@@ -19,7 +19,7 @@ export const TRAP_DOOR_U = { x: 25.2, y: 12.6 };
 export const TRAP_DOOR_V = { x: -20.4, y: 10.2 };
 // The hit box: wider than the drawing so a phone tap (the scene is drawn at
 // about half size there) still gets about 60 x 44 px.
-export const TRAP_DOOR_HIT = { w: 120, h: 86 };
+const TRAP_DOOR_HIT = { w: 120, h: 86 };
 
 export interface BackRoomAttention {
   agents: number;

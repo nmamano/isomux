@@ -42,20 +42,23 @@ describe("ReceptionistFigure", () => {
     expect(markup).toContain("pointer-events:all");
     expect(markup).toContain("data-no-pan");
     expect(markup).toContain('fill="transparent"');
-    expect(markup).not.toContain("unread");
     expect(markup).not.toContain("NaN");
   });
 
-  it("shows the unread badge when the agent needs attention", () => {
-    const markup = renderToStaticMarkup(
-      <svg>
-        <ReceptionistFigure
-          agent={{ ...AGENT, state: "waiting_for_response" }}
-          needsAttention
-        />
-      </svg>,
-    );
-    expect(markup).toContain(">unread</span>");
-    expect(markup).toContain("var(--purple-text)");
+  // The badge is the pill's purple chip after the name; the waiting state
+  // is the same in both renders, so only needsAttention differs.
+  it("shows the unread badge only when the agent needs attention", () => {
+    const draw = (needsAttention: boolean) =>
+      renderToStaticMarkup(
+        <svg>
+          <ReceptionistFigure
+            agent={{ ...AGENT, state: "waiting_for_response" }}
+            needsAttention={needsAttention}
+          />
+        </svg>,
+      );
+    const badge = /background:var\(--purple-text\)[^>]*>[^<]+<\/span>/;
+    expect(draw(true)).toMatch(badge);
+    expect(draw(false)).not.toMatch(badge);
   });
 });

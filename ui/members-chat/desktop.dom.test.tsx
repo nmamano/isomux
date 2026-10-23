@@ -9,19 +9,21 @@ const { LanguageProvider } = await import("../i18n.tsx");
 const { connect, setShim } = await import("../ws.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { OfficeView } = await import("../office/OfficeView.tsx");
+const { SceneDecorationContext } =
+  await import("../office/scene-decoration.tsx");
 const noop = () => {};
+// No floor, seasonal art or lobby props: nothing here asserts on them.
+const undecorated = (child: ReturnType<typeof createElement>) =>
+  createElement(SceneDecorationContext.Provider, { value: false }, child);
 const { setApiShim } = await import("../api.ts");
 const key = "isomux-members-chat-hidden";
-const reads: string[] = [];
 let pages = 0;
-setApiShim(async (method, path, body) => {
-  if (method === "POST" && path === "/api/members-chat/read")
-    reads.push((body as { lastReadId: string }).lastReadId);
+setApiShim(async (method, path) => {
   if (method === "GET" && path.startsWith("/api/members-chat")) {
     pages++;
     return { messages: [], hasMore: false, readPointer: null, unread: 0 };
   }
-  return { readPointer: reads.at(-1), unread: 0 };
+  return { readPointer: null, unread: 0 };
 });
 setShim(
   () => {},
@@ -40,7 +42,6 @@ afterAll(() => {
 });
 beforeEach(() => {
   localStorage.clear();
-  reads.length = 0;
   pages = 0;
   window.history.replaceState(null, "", "/");
 });
@@ -55,17 +56,19 @@ function lobby(
   const latestId = "latestId" in summary ? summary.latestId : id;
   return onLanguage(
     language,
-    createElement(OfficeView, {
-      onSpawn: noop,
-      onContextMenu: noop,
-      onOpenSettings: noop,
-      onEditOfficePrompt: noop,
-      onOpenThemePicker: noop,
-      onOpenTasks: noop,
-      onOpenCronjobs: noop,
-      onOpenApps: noop,
-      onOpenUpdate: noop,
-    }),
+    undecorated(
+      createElement(OfficeView, {
+        onSpawn: noop,
+        onContextMenu: noop,
+        onOpenSettings: noop,
+        onEditOfficePrompt: noop,
+        onOpenThemePicker: noop,
+        onOpenTasks: noop,
+        onOpenCronjobs: noop,
+        onOpenApps: noop,
+        onOpenUpdate: noop,
+      }),
+    ),
     {
       lobbyOpen: true,
       isMobile: mobile,
@@ -99,71 +102,64 @@ it("loads the saved choice and persists both showing and hiding the desktop chat
   const view = render(lobby());
   const zoom = () =>
     view.getByRole("button", { name: "Zoom in" }).parentElement!;
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
   expect(zoom().style.right).toBe("12px");
   fireEvent.click(view.getByRole("button", { name: "Members chat" }));
-  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") !== null,
+  ).toBe(true);
   expect(localStorage.getItem(key)).toBe("false");
   expect(zoom().style.right).toBe("532px");
   fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
   expect(localStorage.getItem(key)).toBe("true");
   expect(zoom().style.right).toBe("12px");
 });
 it("with no saved choice, starts minimized for an empty chat and stays so when a message arrives", () => {
   const view = render(lobby());
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
   view.rerender(lobby("01"));
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
   expect(localStorage.getItem(key)).toBe(null);
 });
 it("with no saved choice, stays minimized until the full_state summary arrives, then opens for a chat with messages", () => {
   const view = render(lobby("01", false, "en", { latestId: undefined }));
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
   // The summary decides, not the page: no page has loaded yet.
   view.rerender(lobby("01", false, "en", { loaded: false, latestId: "01" }));
-  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") !== null,
+  ).toBe(true);
   expect(localStorage.getItem(key)).toBe(null);
 });
 it("with no saved choice, a summary of an empty chat starts minimized even when the page holds messages", () => {
   const view = render(lobby("01", false, "en", { latestId: null }));
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
+  expect(
+    view.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
 });
 it("a saved choice wins over the summary", () => {
   localStorage.setItem(key, "false");
   const shown = render(lobby(null, false, "en", { latestId: null }));
-  expect(shown.queryByPlaceholderText("Message the members…") !== null).toBe(
-    true,
-  );
+  expect(
+    shown.container.querySelector("[data-members-chat-list]") !== null,
+  ).toBe(true);
   shown.unmount();
   localStorage.setItem(key, "true");
   const hidden = render(lobby("01"));
-  expect(hidden.queryByPlaceholderText("Message the members…") === null).toBe(
-    true,
-  );
-});
-it("with no saved choice, starts open when the chat has messages", () => {
-  const view = render(lobby("01"));
-  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
-    true,
-  );
-  expect(localStorage.getItem(key)).toBe(null);
+  expect(
+    hidden.container.querySelector("[data-members-chat-list]") === null,
+  ).toBe(true);
 });
 // The real store under the desktop lobby, driven by full_state frames.
 let dispatch: ReturnType<typeof useDispatch>;
@@ -179,17 +175,19 @@ function Live() {
     createElement(
       LanguageProvider,
       null,
-      createElement(OfficeView, {
-        onSpawn: noop,
-        onContextMenu: noop,
-        onOpenSettings: noop,
-        onEditOfficePrompt: noop,
-        onOpenThemePicker: noop,
-        onOpenTasks: noop,
-        onOpenCronjobs: noop,
-        onOpenApps: noop,
-        onOpenUpdate: noop,
-      }),
+      undecorated(
+        createElement(OfficeView, {
+          onSpawn: noop,
+          onContextMenu: noop,
+          onOpenSettings: noop,
+          onEditOfficePrompt: noop,
+          onOpenThemePicker: noop,
+          onOpenTasks: noop,
+          onOpenCronjobs: noop,
+          onOpenApps: noop,
+          onOpenUpdate: noop,
+        }),
+      ),
     ),
   );
 }

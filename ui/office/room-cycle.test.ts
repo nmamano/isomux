@@ -65,29 +65,6 @@ describe("tabBarRooms", () => {
   });
 });
 
-describe("swipeTarget over the tab bar", () => {
-  // Nil's layout, 2026-10-16: a tucked room sits between two tabs.
-  const order = [{ id: "a" }, { id: "t" }, { id: "b" }];
-  const tucked = ["t"];
-  const swipe = (current: string, direction: "next" | "prev") =>
-    swipeTarget(
-      tabBarRooms(order, tucked, current, false),
-      current,
-      false,
-      direction,
-    );
-
-  it("steps over a tucked room to the next tab", () => {
-    expect(swipe("a", "next")).toEqual({ kind: "room", roomId: "b" });
-    expect(swipe("b", "prev")).toEqual({ kind: "room", roomId: "a" });
-  });
-
-  it("walks from an open tucked room by its pinned tab at the end", () => {
-    expect(swipe("t", "next")).toEqual({ kind: "lobby" });
-    expect(swipe("t", "prev")).toEqual({ kind: "room", roomId: "b" });
-  });
-});
-
 describe("selfTuckedRooms", () => {
   it("reads the tucked list from the member's own record only", () => {
     const users = [

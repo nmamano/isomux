@@ -39,8 +39,7 @@ it("places self and peers at named seats regardless of focus, with unique overfl
     "d",
   ]);
   expect(new Set(rows.map((p) => `${p.left}:${p.top}`)).size).toBe(4);
-  expect(rows[0].left).toBeCloseTo(276.4);
-  expect(rows[1].left).toBeCloseTo(347.65);
+  // The overflow column starts at 600, whatever the named seats' coordinates.
   expect(rows[2].left).toBe(600);
   expect(rows[3].left).toBe(652);
   const moved = lobbyGhostPlacements(

@@ -22,14 +22,14 @@ import { noTranslate } from "../no-translate.ts";
 //                               BELOW the desk nametag chips that DeskUnit
 //                               renders at z = z_desk + 10000.
 //   tag   (this layer) :        above everything, including those nametags.
-export const GHOST_BODY_Z = 200;
-export const GHOST_TAG_Z = 20000;
+const GHOST_BODY_Z = 200;
+const GHOST_TAG_Z = 20000;
 
 // SVG viewBox is "-15 -30 130 170". The visible head top (viewBox y=0)
 // sits at vertical offset size * 30/130 inside the rendered SVG box,
 // and the rendered height comes out as size * 170/130.
 export const SVG_HEIGHT_RATIO = 170 / 130;
-export const SVG_HEAD_TOP_RATIO = 30 / 130;
+const SVG_HEAD_TOP_RATIO = 30 / 130;
 export function ghostBodyBottomOffset(size: number): number {
   return Math.round(size * (SVG_HEIGHT_RATIO - SVG_HEAD_TOP_RATIO - 100 / 130));
 }

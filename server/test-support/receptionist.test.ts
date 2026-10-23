@@ -428,6 +428,16 @@ describe("receptionist profile and lobby", () => {
     expect(state.rooms.map((r) => r.canCloseWhenEmpty)).toEqual([false, false]);
     expect(state.closeRoom("ordinary")).toEqual([]);
     expect(state.closeRoom("lobby")).toEqual([]);
+    // A room created when the lobby is the only room is the first ordinary
+    // room, and is protected; the next one is not.
+    const lobbyOnly = new OfficeState({ rooms: [LOBBY_ROOM] });
+    lobbyOnly.createRoom();
+    lobbyOnly.createRoom();
+    expect(lobbyOnly.rooms.map((r) => r.canCloseWhenEmpty)).toEqual([
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("allows name/cwd edits, move out and in, kill and revive; persists empty lobby", async () => {

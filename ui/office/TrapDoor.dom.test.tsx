@@ -41,28 +41,31 @@ function show(
 }
 
 describe("TrapDoor", () => {
-  it("shows with an empty back room, closed and quiet", () => {
-    const { view, hatch } = show();
-    expect(hatch()).not.toBeNull();
-    // No plank light and no text.
-    expect(view.container.querySelector("[filter]")).toBeNull();
-    expect(view.container.textContent).toBe("");
-  });
+  // The plank glow; the lamp's glow is a circle, so it is not counted here.
+  const plankGlow = (view: ReturnType<typeof show>["view"]) =>
+    view.container.querySelectorAll("path[filter]").length;
 
-  it("lights the planks while a back agent works", () => {
-    const { view } = show({ attention: { ...NONE, agents: 1, working: 1 } });
-    expect(view.container.querySelector("[filter]")).not.toBeNull();
+  it("lights the planks only while a back agent works", () => {
+    const quiet = show();
+    expect(quiet.hatch()).not.toBeNull();
+    // Quiet: no glow at all, neither the planks nor the lamp.
+    expect(quiet.view.container.querySelector("[filter]")).toBeNull();
+    cleanup();
+    const busy = show({ attention: { ...NONE, agents: 1, working: 1 } });
+    expect(plankGlow(busy.view)).toBeGreaterThan(0);
   });
 
   // The lamp: red while any back agent is in error, else yellow while one
   // waits on a permission prompt, else green while one works, else off; no
   // count (Nil, task 7e325e1b).
-  it("lights its lamp red, then yellow, then green, else off", () => {
+  it("lights its lamp red, then yellow, then green, else off, with no count", () => {
     const lamp = (attention: typeof NONE) => {
       const { view } = show({ attention });
       const state = view.container
         .querySelector("[data-trap-door-lamp]")
         ?.getAttribute("data-trap-door-lamp");
+      // No count chip, whatever the lamp shows (Nil, task 7e325e1b).
+      expect(view.container.textContent).toBe("");
       cleanup();
       return state;
     };
@@ -88,13 +91,6 @@ describe("TrapDoor", () => {
     act(() => {
       setDraggedDesk(null);
       document.dispatchEvent(new Event("dragend"));
-    });
-    expect(view.container.textContent).toBe("");
-  });
-
-  it("shows no count chip for working, asking or failed back agents", () => {
-    const { view } = show({
-      attention: { agents: 5, working: 2, asking: 1, error: 1 },
     });
     expect(view.container.textContent).toBe("");
   });

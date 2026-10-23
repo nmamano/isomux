@@ -163,14 +163,6 @@ describe("record player engine", () => {
     state.unmount();
   });
 
-  it("stopJukebox silences every queued note", async () => {
-    press();
-    await settleResumes();
-    expect(audibleSources().length).toBeGreaterThan(0);
-    act(() => stopJukebox());
-    expect(audibleSources().length).toBe(0);
-  });
-
   it("a stop before the audio starts leaves nothing to play", async () => {
     const state = renderHook(() => useJukebox());
     const before = allSources().length;

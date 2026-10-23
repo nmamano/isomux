@@ -14,7 +14,7 @@ import { Btn, Data, HelpTip } from "./kit.tsx";
 // What a secret's test called, by the host of its identity check
 // (IDENTITY_CHECKS in server/connection-tests.ts; ConnectionTest.dom.test.tsx
 // holds the two to the same hosts).
-export const SECRET_TEST_HELP = {
+const SECRET_TEST_HELP = {
   "api.github.com": "settings.connections.test.help.github",
   "api.stripe.com": "settings.connections.test.help.stripe",
   "api.fly.io": "settings.connections.test.help.fly",

@@ -8,45 +8,16 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent, render, within } =
-  await import("@testing-library/react");
-const { createElement } = await import("react");
-const { StateCtx, initialState } = await import("../store.tsx");
+const { act, fireEvent } = await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
-const { IntegrationsView } = await import("./IntegrationsView.tsx");
 const { IntegrationsFake, secret, server } =
   await import("../test-support/integrations-fake.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { card, open, pick, tab } =
+  await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
 const { t } = translatorFor("en");
-
-const USERS = new Map(
-  [
-    ["ricky", { id: "u1", name: "Ricky", role: "owner" }],
-    ["stephen", { id: "u2", name: "Stephen", role: "member" }],
-    ["lena", { id: "u3", name: "Lena", role: "member" }],
-  ].map(([key, user]) => [
-    key,
-    {
-      createdAt: 0,
-      avatarColor: "#888",
-      avatarVariant: 0,
-      ...(user as object),
-    },
-  ]),
-);
-
-function stateFor(username: string, userId: string, role: string) {
-  return {
-    ...initialState,
-    hasReceivedInitialState: true,
-    sessionContext: { username, userId, role },
-    users: USERS,
-  } as unknown as typeof initialState;
-}
-
-const OWNER = stateFor("Ricky", "u1", "owner");
 
 let fake: InstanceType<typeof IntegrationsFake>;
 beforeEach(() => {
@@ -57,43 +28,8 @@ beforeEach(() => {
   ]).install();
 });
 
-async function open(
-  state = OWNER,
-  props: Record<string, unknown> = {},
-): Promise<ReturnType<typeof render>> {
-  const view = render(
-    createElement(
-      StateCtx.Provider,
-      { value: state },
-      createElement(IntegrationsView, { onClose: () => {}, ...props }),
-    ),
-  );
-  await act(async () => {});
-  return view;
-}
-
-async function tab(view: ReturnType<typeof render>, id: string) {
-  await act(async () => {
-    fireEvent.click(
-      view.container.querySelector(`[data-integrations-tab="${id}"]`)!,
-    );
-  });
-}
-
-function personal(view: ReturnType<typeof render>) {
-  return view.container.querySelector<HTMLElement>(
-    '[data-integrations-card="personal"]',
-  )!;
-}
-
-async function pick(view: ReturnType<typeof render>, member: string) {
-  await act(async () => {
-    fireEvent.change(
-      view.container.querySelector("[data-integrations-picker]")!,
-      { target: { value: member } },
-    );
-  });
-}
+const personal = (view: Awaited<ReturnType<typeof open>>) =>
+  card(view, "personal");
 
 describe("the member picker", () => {
   it("starts on You, and another member's card names them, turns orange and offers the way back", async () => {
@@ -137,10 +73,14 @@ describe("the member picker", () => {
   it("keeps the member across tabs, and a new page starts on You", async () => {
     const view = await open();
     await pick(view, "Stephen");
-    await tab(view, "secrets");
-    expect(personal(view).getAttribute("data-integrations-member")).toBe(
-      "Stephen",
-    );
+    for (const id of ["mcp", "secrets", "variables", "providers"]) {
+      await tab(view, id);
+      const theirs = personal(view);
+      expect(theirs.getAttribute("data-integrations-member"), id).toBe(
+        "Stephen",
+      );
+      expect(theirs.querySelector("[data-back-to-yours]"), id).not.toBeNull();
+    }
     view.unmount();
     const again = await open();
     expect(personal(again).getAttribute("data-integrations-member")).toBeNull();
@@ -301,11 +241,9 @@ describe("every form on another member's card names them", () => {
     expect(mine.querySelector("[data-panel-heading]")!.textContent).toBe(
       t("integrations.dialog.remove.self", { name: "GH_TOKEN" }),
     );
-    const office = view.container.querySelector<HTMLElement>(
-      '[data-integrations-card="office"]',
-    )!;
+    const office = card(view, "office");
     await act(async () => {
-      fireEvent.click(within(office).getByText(t("integrations.remove")));
+      fireEvent.click(office.querySelector("[data-secret-remove]")!);
     });
     expect(office.querySelector("[data-panel-heading]")!.textContent).toBe(
       t("integrations.dialog.remove.office", { name: "FLY_API_TOKEN" }),

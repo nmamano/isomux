@@ -1,7 +1,7 @@
-import { afterAll, beforeEach, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
-const { render, fireEvent } = await import("@testing-library/react");
+const { act, render, fireEvent } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { SceneDecorationContext } =
   await import("../office/scene-decoration.tsx");
@@ -22,10 +22,11 @@ beforeEach(() => {
   reads.length = 0;
   window.history.replaceState(null, "", "/");
 });
+afterEach(() => jest.useRealTimers());
 function lobby(
   id: string | null = null,
   mobile = false,
-  language: "en" | "es" | "ca" = "en",
+  language: "en" | "es" = "en",
 ) {
   return onLanguage(
     language,
@@ -71,25 +72,76 @@ function lobby(
     },
   );
 }
-it("ignores the hidden desktop preference on phones", () => {
-  localStorage.setItem(key, "true");
-  const view = render(lobby(null, true));
-  fireEvent.click(view.getByRole("button", { name: "Members chat" }));
-  expect(view.getByRole("dialog", { name: "Members chat" })).not.toBeNull();
-  expect(view.queryByRole("button", { name: "Hide chat" })).toBeNull();
-  fireEvent.click(view.getByRole("button", { name: "Back" }));
-  expect(view.queryByRole("dialog")).toBeNull();
-  expect(localStorage.getItem(key)).toBe("true");
+// Well past the mark-read debounce, on a fake clock.
+const settleRead = () =>
+  act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+
+it("ignores the desktop chat preference on phones, shown or hidden", () => {
+  // Anchor: on a desktop, a saved "shown" choice mounts the side panel.
+  localStorage.setItem(key, "false");
+  const desktop = render(lobby());
+  expect(desktop.queryByRole("separator") !== null).toBe(true);
+  desktop.unmount();
+  for (const saved of ["false", "true"]) {
+    localStorage.setItem(key, saved);
+    const view = render(lobby(null, true));
+    expect(view.queryByRole("separator") === null).toBe(true);
+    fireEvent.click(view.getByRole("button", { name: "Members chat" }));
+    expect(view.getByRole("dialog", { name: "Members chat" })).not.toBeNull();
+    expect(view.queryByRole("button", { name: "Hide chat" })).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Back" }));
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(localStorage.getItem(key)).toBe(saved);
+    view.unmount();
+  }
 });
-for (const [language, hide, show] of [
-  ["es", "Ocultar chat", "Chat de miembros"],
-  ["ca", "Amaga el xat", "Xat de membres"],
-] as const) {
-  it(`translates the desktop controls in ${language}`, () => {
+
+it("translates the desktop hide and show controls", () => {
+  // The panel header's last button hides the chat; the floating button
+  // shows it again. Each must render through the catalog.
+  function controls(language: "en" | "es") {
     localStorage.setItem(key, "false");
     const view = render(lobby(null, false, language));
-    fireEvent.click(view.getByRole("button", { name: hide }));
-    fireEvent.click(view.getByRole("button", { name: show }));
-    expect(view.getByRole("button", { name: hide })).not.toBeNull();
-  });
-}
+    const header = view.container.querySelector(
+      "[data-members-chat-list]",
+    )!.previousElementSibling!;
+    const hide = [...header.querySelectorAll("button")].at(-1)!;
+    const hideText = hide.textContent ?? "";
+    fireEvent.click(hide);
+    expect(view.container.querySelector("[data-members-chat-list]")).toBeNull();
+    const show = view.container.querySelector("[data-lobby-chat-fab]")!;
+    const showName = show.getAttribute("aria-label") ?? "";
+    fireEvent.click(show);
+    expect(
+      view.container.querySelector("[data-members-chat-list]") !== null,
+    ).toBe(true);
+    view.unmount();
+    return { hideText, showName };
+  }
+  const en = controls("en");
+  expect(en.hideText.length > 0 && en.showName.length > 0).toBe(true);
+  const es = controls("es");
+  expect(es.hideText.length > 0 && es.hideText !== en.hideText).toBe(true);
+  expect(es.showName.length > 0 && es.showName !== en.showName).toBe(true);
+});
+
+it("keeps incoming unread visible while hidden and marks the same message read only after show", async () => {
+  jest.useFakeTimers();
+  localStorage.setItem(key, "false");
+  const view = render(lobby());
+  fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
+  view.rerender(lobby("02"));
+  // One dot on the Lobby tab, one on the floating chat button.
+  expect(view.container.querySelectorAll("[data-lobby-unread]").length).toBe(2);
+  const button = view.container.querySelector<HTMLButtonElement>(
+    "[data-lobby-chat-fab]",
+  )!;
+  expect(button.querySelectorAll("[data-lobby-unread]").length).toBe(1);
+  await settleRead();
+  expect(reads).toEqual([]);
+  fireEvent.click(button);
+  await settleRead();
+  expect(reads).toEqual(["02"]);
+});

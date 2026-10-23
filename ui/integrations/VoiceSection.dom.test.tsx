@@ -12,8 +12,7 @@ const { onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
-const { DEFAULT_VOICE_NAME, VOICE_NAMES } =
-  await import("../../shared/voice.ts");
+const { DEFAULT_VOICE_NAME } = await import("../../shared/voice.ts");
 
 type UserRecord = import("../../shared/types.ts").UserRecord;
 
@@ -45,12 +44,9 @@ function page(over: Partial<UserRecord> = {}) {
   });
 }
 
+// The status read and a save answer from the shim's microtasks.
 async function settle() {
-  for (let i = 0; i < 3; i++) {
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-  }
+  await act(async () => {});
 }
 
 const radio = (c: HTMLElement, name: string, value: string) => {
@@ -61,40 +57,20 @@ const radio = (c: HTMLElement, name: string, value: string) => {
   return el;
 };
 
-it("names where the key comes from, for every source, with a Variables link", async () => {
-  for (const source of [
-    "member_variable",
-    "office_variable",
-    "server",
-    "member_secret",
-    "office_secret",
-    null,
-  ]) {
-    keySource = source;
-    keyName = source ? "OPENAI_VOICE_API_KEY" : null;
-    const view = render(page());
-    await settle();
-    const line = view.container.querySelector("[data-key-source]");
-    expect({ source, shown: line?.getAttribute("data-key-source") }).toEqual({
-      source,
-      shown: source ?? "none",
-    });
-    expect(
-      view.container.querySelector('a[href="/integrations/variables"]'),
-    ).not.toBeNull();
-    view.unmount();
-  }
-});
-
 // The member's three states read differently: set, saved as a secret (the
-// mic cannot use it), not set.
-it("words a usable key, a secret and no key differently", async () => {
+// mic cannot use it), not set. Each says where to set the key.
+it("words a usable key, a secret and no key differently, each with a Variables link", async () => {
   const textFor = async (source: string | null) => {
     keySource = source;
     keyName = source ? "OPENAI_VOICE_API_KEY" : null;
     const view = render(page());
     await settle();
-    const text = view.container.querySelector("[data-key-source]")!.textContent;
+    const line = view.container.querySelector("[data-key-source]")!;
+    expect(
+      line.querySelector('a[href="/integrations/variables"]'),
+      String(source),
+    ).not.toBeNull();
+    const text = line.textContent;
     view.unmount();
     return text;
   };
@@ -142,9 +118,6 @@ it("shows the saved choices, Browser when none is saved", async () => {
   const select = picked.container.querySelector('select[name="voiceName"]');
   expect(select instanceof HTMLSelectElement).toBe(true);
   expect((select as HTMLSelectElement).value).toBe(DEFAULT_VOICE_NAME);
-  expect(
-    [...(select as HTMLSelectElement).options].map((o) => o.value),
-  ).toEqual([...VOICE_NAMES]);
   picked.unmount();
 });
 

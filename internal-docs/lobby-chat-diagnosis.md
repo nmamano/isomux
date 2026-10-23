@@ -78,8 +78,8 @@ Measured on 2026-09-09 in Chrome at 1440×900: an eight-step drag from 520 to
 style mutations and unchanged rectangles/transforms at all eight steps.
 Reload restored 680 px. No deferred inset update is needed.
 
-Regression tests: `read-order.dom.test.tsx`, `hydration-order.dom.test.tsx`,
-`collapse.dom.test.tsx`, `width.dom.test.tsx`, `width-i18n.dom.test.tsx`, and
+Regression tests (file names as of 2026-10-23): `read.dom.test.tsx`,
+`hydration.dom.test.tsx`, `panel.dom.test.tsx`, `width.dom.test.tsx`, and
 `ui/store.test.ts`. The desktop persistence test now uses one OfficeView mount
 instead of five; the default/invalid visibility check lives in the cheaper
 device-settings test. Browser reload also checks width persistence.

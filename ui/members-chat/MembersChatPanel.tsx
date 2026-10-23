@@ -63,7 +63,7 @@ const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
 // "Nil (Phone)"; an API token and an agent read as machine-sent, the way the
 // agent chat styles them, so nobody scrolling back takes a script's line for a
 // member's.
-export function describeMembersChatAuthor(
+function describeMembersChatAuthor(
   m: Pick<MembersChatMessage, "kind" | "userName" | "device">,
   t: Translator["t"],
 ): {
@@ -93,13 +93,9 @@ export function describeMembersChatAuthor(
 }
 
 // "14:02" today, "Sep 5, 14:02" this year, "Sep 5 2025" before that.
-export function formatWhen(
-  language: SupportedLanguageCode,
-  ts: number,
-  now = Date.now(),
-): string {
+function formatWhen(language: SupportedLanguageCode, ts: number): string {
   const d = new Date(ts);
-  const n = new Date(now);
+  const n = new Date();
   const sameDay =
     d.getFullYear() === n.getFullYear() &&
     d.getMonth() === n.getMonth() &&
@@ -190,7 +186,7 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
   );
 }
 
-export function continuesMembersChatAuthor(
+function continuesMembersChatAuthor(
   previous: MembersChatMessage | undefined,
   message: MembersChatMessage,
 ): boolean {

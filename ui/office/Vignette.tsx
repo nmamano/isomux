@@ -3,7 +3,6 @@
 export function Vignette({ strong = false }: { strong?: boolean }) {
   return (
     <div
-      data-vignette={strong ? "strong" : "normal"}
       style={{
         position: "absolute",
         inset: 0,

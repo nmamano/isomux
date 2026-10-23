@@ -12,8 +12,7 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { setApiShim } = await import("../api.ts");
-const { VariablesSection, looksLikeKey } =
-  await import("./VariablesSection.tsx");
+const { VariablesSection } = await import("./VariablesSection.tsx");
 const { onManagedEnvSaved } = await import("../connections-events.ts");
 const { IntegrationsFake } =
   await import("../test-support/integrations-fake.ts");
@@ -145,20 +144,20 @@ it("saves the office's whole map with every other value and note kept", async ()
 });
 
 it("flags a key-like name, except the model API keys that belong here", async () => {
-  expect(looksLikeKey("GH_TOKEN")).toBe(true);
-  expect(looksLikeKey("my_password")).toBe(true);
-  expect(looksLikeKey("TZ")).toBe(false);
+  const view = await mount({ kind: "self", username: "ann" });
+  await click(view.container.querySelector("[data-integrations-add]"));
+  const flagged = async (name: string) => {
+    await type(view.container.querySelector("[data-env-name]"), name);
+    return view.container.querySelector("[data-env-key-hint]") !== null;
+  };
+  expect(await flagged("GH_TOKEN")).toBe(true);
+  expect(await flagged("my_password")).toBe(true);
+  expect(await flagged("TZ")).toBe(false);
   // The names the Secrets tab refuses on a secret with an address
   // (task f51e4ab9): one list for both tabs.
   expect(MODEL_KEY_SECRET_NAMES).toContain("GROQ_API_KEY");
   for (const name of MODEL_KEY_SECRET_NAMES)
-    expect([name, looksLikeKey(name)]).toEqual([name, false]);
-  const view = await mount({ kind: "self", username: "ann" });
-  await click(view.container.querySelector("[data-integrations-add]"));
-  await type(view.container.querySelector("[data-env-name]"), "GH_TOKEN");
-  expect(view.container.querySelector("[data-env-key-hint]")).not.toBeNull();
-  await type(view.container.querySelector("[data-env-name]"), "OPENAI_API_KEY");
-  expect(view.container.querySelector("[data-env-key-hint]")).toBeNull();
+    expect([name, await flagged(name)]).toEqual([name, false]);
 });
 
 it("shows the load failure, not a crash, when a server answers with another shape", async () => {

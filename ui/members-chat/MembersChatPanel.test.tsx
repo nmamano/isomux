@@ -1,19 +1,29 @@
 // Static-markup tests for the members chat panel: the author labels for the
-// three author kinds, the attachment route, the avatar trial, and the controls
-// a reader gets on their own message versus someone else's. No React DOM
-// harness in the UI suite, so effects (fetch, markRead) never run here.
+// three author kinds, the attachment route, the avatar trial, the dates, and
+// the controls a reader gets on their own message versus someone else's.
+// Server rendering runs no effects, so nothing here fetches or marks read.
 
 import { translatorFor } from "../../shared/i18n/translate.ts";
-import { describe, it, expect } from "bun:test";
+import { afterEach, describe, it, expect, setSystemTime } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StateCtx, initialState, type AppState } from "../store.tsx";
-import {
-  MembersChatPanel,
-  describeMembersChatAuthor,
-  formatWhen,
-} from "./MembersChatPanel.tsx";
+import { MembersChatPanel } from "./MembersChatPanel.tsx";
 import type { MembersChatMessage } from "../../shared/types.ts";
+
+const en = translatorFor("en");
+const unescape = (html: string) =>
+  html
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#x27;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+// Each card's title: its author label and time.
+const cardTitles = (html: string) =>
+  [...html.matchAll(/title="([^"]*)" data-members-chat-message=""/g)].map(
+    (match) => unescape(match[1]),
+  );
 
 const t0 = Date.UTC(2026, 8, 5, 12, 0, 0);
 
@@ -110,53 +120,112 @@ function render(overrides: Partial<AppState>, meId = "u-nil", role = "member") {
   );
 }
 
-describe("describeMembersChatAuthor", () => {
-  it("names a person with their device, and marks a token or an agent as machine-sent", () => {
-    expect(describeMembersChatAuthor(fromNil, translatorFor("en").t)).toEqual({
-      label: "Nil (Phone)",
-      nonHuman: false,
-    });
-    expect(describeMembersChatAuthor(fromToken, translatorFor("en").t)).toEqual(
-      {
-        label: 'Nil · API token "Laptop"',
-        nonHuman: true,
-      },
-    );
-    expect(describeMembersChatAuthor(fromAgent, translatorFor("en").t)).toEqual(
-      {
-        label: "Isomux PM · agent",
-        nonHuman: true,
-      },
-    );
-  });
-});
-
-describe("formatWhen", () => {
-  it("shows the clock today, the date this year, the year before that", () => {
-    const now = new Date(2026, 8, 5, 15, 0).getTime();
-    expect(formatWhen("en", new Date(2026, 8, 5, 9, 7).getTime(), now)).toBe(
-      "09:07",
-    );
-    expect(formatWhen("en", new Date(2026, 1, 3, 9, 7).getTime(), now)).toBe(
-      "Feb 3, 09:07",
-    );
-    expect(formatWhen("en", new Date(2025, 1, 3, 9, 7).getTime(), now)).toBe(
-      "Feb 3, 2025",
-    );
-  });
-});
+afterEach(() => setSystemTime());
 
 describe("MembersChatPanel markup", () => {
   it("renders every author label, the members-chat file route, and the online count", () => {
     const html = render({});
-    expect(html).toContain("Nil (Phone)");
-    expect(html).toContain("Nil · API token &quot;Laptop&quot;");
-    expect(html).toContain("Isomux PM · agent");
-    expect(html).toContain("· edited");
+    const titles = cardTitles(html);
+    expect(titles.length).toBe(3);
+    // A person by name and device; a token and an agent marked as machine-sent.
+    expect(titles[0].startsWith("Nil (Phone) · ")).toBe(true);
+    expect(
+      titles[1].startsWith(
+        `${en.t("membersChat.authorApiDevice", { name: "Nil", device: "Laptop" })} · `,
+      ),
+    ).toBe(true);
+    expect(
+      titles[2].startsWith(
+        `${en.t("common.sender.agent", { name: "Isomux PM" })} · `,
+      ),
+    ).toBe(true);
+    // Only the edited message carries the edited marker.
+    expect(
+      titles.map((title) => title.endsWith(en.t("membersChat.edited"))),
+    ).toEqual([false, false, true]);
+    // Machine-sent author lines are italic; a person's is not.
+    expect(
+      [...html.matchAll(/data-members-chat-author="" style="([^"]*)"/g)].map(
+        (match) => match[1].includes("font-style:italic"),
+      ),
+    ).toEqual([false, true, true]);
     expect(html).toContain('href="/api/members-chat/files/report.pdf"');
     expect(html).not.toContain("/api/files/");
-    expect(html).toContain("2 online");
-    expect(html).toContain("Load older");
+    const online = html.match(/data-online-count="[^"]*"[^>]*>([^<]*)</);
+    expect(online?.[1]).toBe(en.t("membersChat.online", { count: "2" }));
+    // hasMore offers the older page.
+    expect(html).toContain(en.t("membersChat.loadOlder"));
+  });
+
+  it("names reactors as the cards name their authors, machine-sent included", () => {
+    const html = render({
+      membersChat: {
+        messages: [
+          {
+            ...fromNil,
+            thumbsUp: [
+              {
+                kind: "api",
+                userId: "u-nil",
+                userName: "Nil",
+                device: "Laptop",
+              },
+              { kind: "agent", userId: "u-pau", userName: "Isomux PM" },
+            ],
+          },
+          fromToken,
+          fromAgent,
+        ],
+        hasMore: false,
+        loaded: true,
+        readPointer: null,
+        unread: 0,
+      },
+    });
+    const reactors = html.match(
+      new RegExp(
+        `title="([^"]*)" aria-label="${en.t("membersChat.reactors", { count: 2 })}"`,
+      ),
+    );
+    expect(reactors !== null).toBe(true);
+    const names = unescape(reactors![1]).split(", ");
+    const titles = cardTitles(html);
+    // The token's and the agent's own cards are the independent oracle.
+    expect(names.length).toBe(2);
+    // Not the bare name: a script's or an agent's reaction never reads as a person's.
+    expect(names[0] !== fromToken.userName).toBe(true);
+    expect(names[1] !== fromAgent.userName).toBe(true);
+    expect(titles[1].startsWith(`${names[0]} · `)).toBe(true);
+    expect(titles[2].startsWith(`${names[1]} · `)).toBe(true);
+  });
+
+  it("dates a message by the clock today, the date this year, the year before that", () => {
+    setSystemTime(new Date(2026, 8, 5, 15, 0));
+    const at = (id: string, timestamp: number) => ({
+      ...fromNil,
+      id,
+      timestamp,
+    });
+    const titles = cardTitles(
+      render({
+        membersChat: {
+          messages: [
+            at("202509-00000001", new Date(2025, 1, 3, 9, 7).getTime()),
+            at("202602-00000001", new Date(2026, 1, 3, 9, 7).getTime()),
+            at("202609-00000001", new Date(2026, 8, 5, 9, 7).getTime()),
+          ],
+          hasMore: false,
+          loaded: true,
+          readPointer: null,
+          unread: 0,
+        },
+      }),
+    );
+    expect(titles).toEqual([
+      "Nil (Phone) · Feb 3, 2025",
+      "Nil (Phone) · Feb 3, 09:07",
+      "Nil (Phone) · 09:07",
+    ]);
   });
 
   it("draws the author ghost only for a person's message, in their own colour", () => {
@@ -193,7 +262,7 @@ describe("MembersChatPanel markup", () => {
         unread: 0,
       },
     });
-    expect(empty).toContain("Only people see this chat");
+    expect(empty).toContain(en.t("membersChat.empty"));
     const pending = render({
       membersChat: {
         messages: [],
@@ -203,6 +272,6 @@ describe("MembersChatPanel markup", () => {
         unread: 0,
       },
     });
-    expect(pending).not.toContain("Only people see this chat");
+    expect(pending).not.toContain(en.t("membersChat.empty"));
   });
 });

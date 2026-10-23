@@ -35,6 +35,10 @@ it("holds the sign-in buttons and the OpenCode key line until the reads answer",
     fake.hold("/api/office/settings"),
   ];
   const view = await open();
+  // Codex and Claude, on the office card and on yours, say they are checking.
+  expect(
+    view.container.querySelectorAll('[data-provider-account-state="checking"]'),
+  ).toHaveLength(4);
   const yours = card(view, "personal");
   // Codex and Claude sign-ins, and the OpenCode key line.
   expect(held(yours)).toHaveLength(3);

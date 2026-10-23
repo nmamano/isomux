@@ -247,12 +247,14 @@ writes pre-hydration defaults before restoration.
 full scene. DOM fixtures that do not assert on decoration can explicitly set
 it to false to omit the room floor, ground shadows, seasonal art, lobby floor,
 and decorative lobby placements. An interactive receptionist remains when supplied. Controls, doors, ghost placement and animation, and chat
-still mount. Decoration tests keep the default. The door swing and self-crossing
-files each use one scenario that clears projected presence between sides;
-they keep every side's assertions within that scenario, without sharing DOM
-between tests. The room-door scenario mounts ordinary mode first, then
-reuses the tree for embed absence checks; `newRoomDoor` is a pure render-time
-condition on `embed`, so the same condition removes it in either path.
+still mount. Decoration tests keep the default. The two tests in
+`ui/office/lobby-door-swing.dom.test.tsx` (door swing and self-crossing) each
+use one scenario that clears projected presence between sides; they keep every
+side's assertions within that scenario, without sharing DOM between tests. The
+embed case in `ui/office/room-door-create.dom.test.tsx` first sees the New room
+door in ordinary mode, then sets embed on the same tree and checks it is gone;
+`newRoomDoor` is a pure render-time condition on `embed`, so the same condition
+removes it in either path.
 
 
 The `ui/App.*.dom.test.tsx` files also document a useful seam: `App` mounts
@@ -444,7 +446,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 | Hierarchical system prompts | T0 | prompt assembly office/room/agent layering | - |
 | Custom commands | T1 | slash_commands surfaced to client | - |
 | Collaborate in conversations (multi-user) | T1 | multi-socket mixed human/agent queue | - |
-| Live presence (ghosts) | T1 | presence harness: connectionId map, recipient indices; `ui/office/lobby-door-{swing,self}.dom.test.tsx`: seen lobby/first-room crossings and own-connection exclusion | - |
+| Live presence (ghosts) | T1 | presence harness: connectionId map, recipient indices; `ui/office/lobby-door-swing.dom.test.tsx`: seen lobby/first-room crossings and own-connection exclusion | - |
 | Invite-link access | T1 | `auth-invites.test.ts` (outstanding-link replacement, non-consuming peek, accept refusals, concurrent accept, bootstrap sweep) + `routes-invites-rest.test.ts` and `admin-socket.test.ts` (invite lifetimes) + `invite-onboarding.test.ts` (the two-step flow over HTTP) | - |
 | Session lifetime + revocation | T1 | `auth-sessions.test.ts` (refresh clamp, orphan sweep, logout/evict socket close, lockout arithmetic, prefix-collision refusal, lockout-check ordering) + `auth-wall.test.ts` (an expired cookie at the HTTP gate, a bad cookie at the WS gate) + `routes-sessions-rest.test.ts` (notify-then-close on revoke) | - |
 | sessions.json userId migration | T1 | `auth-session-migration.test.ts` over a real cold reload: case-insensitive resolve, orphan eviction, fail-closed undated rows, write-back | - |
@@ -485,32 +487,32 @@ deferral, fetched expiry, paid linkage and provisioning, no synthetic event
 evidence, no poll-created dunning episode, complete-but-unpaid gating, and
 per-candidate failure isolation.
 
-Members chat mobile navigation, the unread count from `full_state` and the
-page fetch only while the chat is open are covered by
-`ui/members-chat/navigation.dom.test.tsx`; `read.dom.test.tsx` in the same
-folder covers the visible-tab and at-bottom read rule on both widths.
-`mobile.i18n.dom.test.tsx` checks the entry, unread label and Back in English,
-Spanish and Catalan. The hydration hook runs from OfficeView (desktop panel)
-and LobbyChat (mobile), so its scoped checks include the App render tests as
-well as the office and chat tests.
+Members chat mobile navigation, the unread count from `full_state`, the
+page fetch only while the chat is open and the catalog labels are covered by
+`ui/members-chat/mobile.dom.test.tsx`; `read.dom.test.tsx` in the same
+folder covers the visible-tab and at-bottom read rule on both widths, and a
+visible later message with a lower random ID clearing the Lobby badge. The
+read tests drive the mark-read delay with bun's fake clock, not a real sleep.
+The hydration hook runs from OfficeView (desktop panel) and LobbyChat
+(mobile), so its scoped checks include the App render tests as well as the
+office and chat tests.
 
 `ui/members-chat/desktop.dom.test.tsx` covers hide/show, browser persistence,
 the zoom-control inset, the unsaved minimize choice from the `full_state`
-summary and the page fetch only while the desktop chat is shown. `desktop-read.dom.test.tsx` checks incoming unread
-while hidden and proves that showing the same message sends a read request.
-`desktop-controls.dom.test.tsx` checks translated controls and mobile behavior
-with the desktop preference set to hidden.
+summary and the page fetch only while the desktop chat is shown.
+`desktop-controls.dom.test.tsx` checks incoming unread while hidden and proves
+that showing the same message sends a read request; it also checks translated
+controls and that a phone ignores the desktop preference, shown or hidden.
 
-Members-chat random-ID ordering is covered by
-`ui/members-chat/read-order.dom.test.tsx` (a visible later message with a lower
-ID clears the Lobby badge), `hydration-order.dom.test.tsx` (request-time
-snapshot and superseded responses), and the fresh-page case in `ui/store.test.ts`.
-`collapse.dom.test.tsx` checks adjacent author/device/kind grouping and per-message
-time; `width.dom.test.tsx` checks desktop sizing and persistence,
-`width-i18n.dom.test.tsx` checks translations, and `width-mobile.dom.test.tsx`
-checks mobile exclusion. `ui/device-settings.test.ts` checks stored width bounds.
-`reactions.dom.test.tsx` checks desired-state toggles and reactor names on
-hover, focus and tap. `server/test-support/routes-members-chat-rest.test.ts`
+`hydration.dom.test.tsx` covers the request-time snapshot, superseded
+responses and the pin refresh; the fresh-page case is in `ui/store.test.ts`.
+`panel.dom.test.tsx` checks message actions, adjacent author/device/kind
+grouping with per-message time, and desired-state reaction toggles with
+reactor names on hover, focus and tap. `replies-pins.dom.test.tsx` checks
+quotes, the reply-missing error and the pin strip. `width.dom.test.tsx`
+checks desktop sizing and persistence, the separator name, and mobile
+exclusion. `ui/device-settings.test.ts` checks stored width bounds.
+`server/test-support/routes-members-chat-rest.test.ts`
 checks the route guard, identity, idempotence, update events and unchanged unread.
 `server/members-chat.test.ts` checks reaction replay across a month boundary;
 `ui/store.test.ts` checks held updates, ignored unheld updates and new arrivals.

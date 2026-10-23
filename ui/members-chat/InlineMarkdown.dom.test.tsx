@@ -41,18 +41,13 @@ it("keeps unsupported syntax and hostile markup as text", () => {
 
 const link = (href: string, text: string) =>
   `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+// What the two tests above leave out: mail links, and newlines kept as text
+// (no <br> or <p>) with a link after one.
 for (const [content, html] of [
-  ["**bold** and *italic*", "<strong>bold</strong> and <em>italic</em>"],
-  ["# heading", "# heading"],
-  ["<b>x</b>", "&lt;b&gt;x&lt;/b&gt;"],
-  ["`x`", "`x`"],
-  ["[x](javascript:alert(1))", "[x](javascript:alert(1))"],
-  ["[x](data:text/html,hello)", "[x](data:text/html,hello)"],
   [
     "[mail](mailto:hello@example.com)",
     link("mailto:hello@example.com", "mail"),
   ],
-  ["first\nsecond", "first\nsecond"],
   [
     "first\nhttps://example.com",
     "first\n" + link("https://example.com", "https://example.com"),

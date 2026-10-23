@@ -15,11 +15,28 @@ it("counts a front agent's unread and ignores a back agent's", () => {
   expect(roomHasUnread([front, back], new Set(["back"]))).toBe(false);
 });
 
-it("still shows a working back agent as the room's activity", () => {
-  const back = agent(
-    "back",
-    deskOfBackSeat({ table: 0, stool: 0 }),
-    "thinking",
-  );
-  expect(roomActivityDotColor([back], false, false)).toBe("var(--green)");
+// The dot: green while any agent works (a back agent included), else purple
+// for unread attention, else none; never on the active room's own tab.
+it("colours the dot by work, then attention, and hides it on the active room", () => {
+  const back = deskOfBackSeat({ table: 0, stool: 0 });
+  const rows: [
+    AgentInfo[],
+    boolean,
+    boolean,
+    ReturnType<typeof roomActivityDotColor>,
+  ][] = [
+    [[agent("b", back, "thinking")], false, false, "var(--green)"],
+    [[agent("i", 0), agent("t", 1, "thinking")], false, false, "var(--green)"],
+    [
+      [agent("x", 0, "tool_executing"), agent("s", 1, "stopped")],
+      true,
+      false,
+      "var(--green)",
+    ],
+    [[agent("i", 0)], true, false, "var(--purple)"],
+    [[agent("i", 0)], false, false, null],
+    [[agent("t", 0, "thinking")], true, true, null],
+  ];
+  for (const [agents, attention, active, color] of rows)
+    expect(roomActivityDotColor(agents, attention, active)).toBe(color);
 });

@@ -38,7 +38,7 @@ export function tuckedChipSummary(
 // Display names of the members present in a room, one per member. This
 // device's own connection is left out, as its ghost is, so a member looking
 // from inside a tucked room does not see their own name there.
-export function presentMemberNames(
+function presentMemberNames(
   presences: readonly PresenceInfo[],
   selfConnectionId: string | null,
 ) {

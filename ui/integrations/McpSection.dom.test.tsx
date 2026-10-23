@@ -220,7 +220,7 @@ it("signs in from the row of a server that needs it", async () => {
   assign.mockRestore();
 });
 
-it("explains a refused office address by its code", async () => {
+it("explains a refused sign-in redirect by its code", async () => {
   setApiShim(async (method, path) => {
     if (path === "/api/me/connections") return EMPTY_CONNECTIONS;
     if (path.endsWith("/secrets")) return { secrets: [] };
@@ -263,15 +263,13 @@ it("shows why a server is left out, and a Test only when it can run", async () =
     t("settings.connections.list.mcpSecretHost", { host: "wrong.example.com" }),
   );
   expect(row("lost").querySelector("[data-connection-test]")).toBeNull();
+  // The row's Test runs on the row's own route; ConnectionTest.dom.test.tsx
+  // owns the result's words.
   await click(row("ok").querySelector("[data-connection-test]"));
-  // The words of the result, without its (?).
-  const result = row("ok")
-    .querySelector('[data-connection-test-result="ok"]')!
-    .cloneNode(true) as HTMLElement;
-  result.querySelector("[data-help-tip]")?.remove();
-  expect(result.textContent).toBe(
-    `${t("settings.connections.test.works")} · ${translatorFor("en").tn("settings.connections.test.tools", 3)}`,
-  );
+  expect(fake.requests("POST", `${PATH}/ok/test`)).toHaveLength(1);
+  expect(
+    row("ok").querySelector('[data-connection-test-result="ok"]'),
+  ).not.toBeNull();
 });
 
 it("says an office server is replaced by your own one with the same name", async () => {
@@ -296,10 +294,28 @@ it("says an office server is replaced by your own one with the same name", async
   ).toBe(t("settings.connections.list.mcpOverridden"));
 });
 
-it("shows the load failure, not a crash, when a server answers with another shape", async () => {
-  setApiShim(async () => ({}));
-  const view = await mount();
-  expect(view.getByRole("alert").textContent).toBe(
-    t("settings.mcpServers.loadFailed"),
-  );
-});
+for (const [label, answer] of [
+  ["answers with another shape", () => ({})],
+  [
+    "answers 404",
+    () => {
+      throw new ApiError(404, "not_found", "Not found");
+    },
+  ],
+] as const)
+  it(`shows the load failure, not a crash, when a server ${label}`, async () => {
+    // Only the server list fails: the saved secrets load.
+    const other: string[] = [];
+    setApiShim(async (_method, path) => {
+      if (path === "/api/me/connections") return EMPTY_CONNECTIONS;
+      if (path === SECRETS) return { secrets: [] };
+      if (path === PATH) return answer();
+      other.push(path);
+      return {};
+    });
+    const view = await mount();
+    expect(view.getByRole("alert").textContent).toBe(
+      t("settings.mcpServers.loadFailed"),
+    );
+    expect(other).toEqual([]);
+  });

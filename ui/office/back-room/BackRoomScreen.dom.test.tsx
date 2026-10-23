@@ -12,8 +12,7 @@ const { BackRoomScreen } = await import("./BackRoomScreen.tsx");
 const { onLanguage } = await import("../../test-support/language-fixture.tsx");
 const { firstFreeBackSeat, deskOfBackSeat, backRoomSide } =
   await import("../../../shared/desks.ts");
-const { backRoomLayout, MIN_SCALE } = await import("./geometry.ts");
-const { computeRestView } = await import("../useViewport.ts");
+const { backRoomLayout } = await import("./geometry.ts");
 const { getDraggedDesk, setDraggedDesk } = await import("../drag-state.ts");
 
 afterEach(() => {
@@ -200,15 +199,6 @@ describe("BackRoomScreen", () => {
     expect(getDraggedDesk()).toBe(3);
   });
 
-  it("darkens its edges more than the front", () => {
-    const { view } = show(backAgents(1));
-    expect(
-      view.container
-        .querySelector("[data-vignette]")
-        ?.getAttribute("data-vignette"),
-    ).toBe("strong");
-  });
-
   it("stands the ladder at the right wall's end and keeps the board clear of it", () => {
     // From 3x3 to 10x10: the ladder's right edge stays inside the wall, past
     // its middle; the board stays between the back corner and the ladder.
@@ -371,36 +361,34 @@ describe("BackRoomScreen", () => {
     expect(at("nextTable").y).toBeGreaterThan(at("nextStool").y);
   });
 
+  // The bubbles are glyphs, not copy: "•••" for unread, "?" for an open
+  // permission prompt, which wins when the agent is both. Each case renders
+  // one agent, and the bubble is the svg text it adds to a quiet agent's.
   it("marks an unread agent and an asking agent with different bubbles", () => {
-    const agents = backAgents(2);
-    agents[1] = { ...agents[1], pendingPrompt: "permission" };
-    const { view } = show(agents, new Set(["w0"]));
-    const text = view.container.textContent ?? "";
-    expect(text).toContain("•••");
-    expect(text).toContain("?");
-  });
-});
-
-describe("back room fit", () => {
-  // The back room's rest view, as BackRoomScreen asks the viewport for it: the
-  // room box, centred in the screen, width and height both count.
-  const rest = (side: number, cw: number, ch: number) => {
-    const { width, height } = backRoomLayout(side);
-    const box = {
-      left: (cw - width) / 2,
-      right: (cw + width) / 2,
-      top: (ch - height) / 2,
-      bottom: (ch + height) / 2,
+    const [agent] = backAgents(1);
+    const texts = (pendingPrompt: string | null, unread: boolean) => {
+      const { view } = show(
+        [{ ...agent, pendingPrompt } as unknown as AgentInfo],
+        new Set(unread ? [agent.id] : []),
+      );
+      const out = [...view.container.querySelectorAll("svg text")].map(
+        (t) => t.textContent ?? "",
+      );
+      cleanup();
+      return out;
     };
-    return computeRestView(cw, ch, box, true, MIN_SCALE).scale;
-  };
-
-  it("fits the room in the screen but never below the smallest readable scale", () => {
-    expect(rest(10, 5000, 5000)).toBe(1);
-    expect(rest(10, 390, 700)).toBe(MIN_SCALE);
-    const { width } = backRoomLayout(10);
-    const mid = rest(10, width * 0.95, 5000);
-    expect(mid).toBeGreaterThan(MIN_SCALE);
-    expect(mid).toBeLessThan(1);
+    const quiet = texts(null, false);
+    const bubble = (pendingPrompt: string | null, unread: boolean) => {
+      const added = texts(pendingPrompt, unread);
+      for (const t of quiet) {
+        const i = added.indexOf(t);
+        expect([t, i >= 0]).toEqual([t, true]);
+        added.splice(i, 1);
+      }
+      return added;
+    };
+    expect(bubble(null, true)).toEqual(["•••"]);
+    expect(bubble("permission", false)).toEqual(["?"]);
+    expect(bubble("permission", true)).toEqual(["?"]);
   });
 });

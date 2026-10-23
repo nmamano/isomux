@@ -1,6 +1,6 @@
 // Nil's feedback on the live page (2026-10-13): the last tab is remembered,
 // the Secrets tab says where model keys go, each sign-in has a Test, OpenCode
-// shows on Model providers, and data looks unlike the words around it.
+// shows on Model providers.
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -51,10 +51,18 @@ describe("the last tab", () => {
     expect(view.container.querySelector("[data-provider-card]")).not.toBeNull();
   });
 
-  it("opens on MCP servers when a sign-in comes back", async () => {
-    window.localStorage.setItem(TAB_KEY, "variables");
-    const view = await open(OWNER, { request: { signIn: "ok" } });
-    expect(selected(view)).toBe("mcp");
+  // App clears its request only when the page reports it handled; a request
+  // left set opens its tab again the next time the page mounts.
+  it("opens on a requested tab over the remembered one, and reports it handled once", async () => {
+    window.localStorage.setItem(TAB_KEY, "secrets");
+    let handled = 0;
+    const view = await open(OWNER, {
+      request: { tab: "browser" },
+      onRequestHandled: () => handled++,
+    });
+    expect(selected(view)).toBe("browser");
+    expect(handled).toBe(1);
+    expect(window.localStorage.getItem(TAB_KEY)).toBe("browser");
   });
 });
 
@@ -164,15 +172,6 @@ describe("a Test on each sign-in", () => {
       office.querySelector('[data-sign-in-test-result="works"]')!.textContent,
     ).toContain("morgan@example.com");
   });
-
-  it("is not offered on another member's card", async () => {
-    fake.accounts = [claude(true)];
-    const view = await signedIn();
-    await pick(view, "Stephen");
-    expect(
-      card(view, "personal").querySelector("[data-sign-in-test]"),
-    ).toBeNull();
-  });
 });
 
 describe("OpenCode on Model providers", () => {
@@ -227,18 +226,4 @@ describe("OpenCode on Model providers", () => {
         .textContent,
     ).toBe(t("dialogs.agent.engineNeedsLinux"));
   });
-});
-
-it("shows a member's name as data, and a scope icon on both cards", async () => {
-  const view = await open();
-  expect(card(view, "office").querySelector("[data-card-icon]")).not.toBeNull();
-  expect(
-    card(view, "personal").querySelector("[data-card-icon]"),
-  ).not.toBeNull();
-  await pick(view, "Stephen");
-  expect(
-    card(view, "personal").querySelector(
-      "[data-card-title] [data-integrations-data]",
-    )!.textContent,
-  ).toBe("Stephen");
 });

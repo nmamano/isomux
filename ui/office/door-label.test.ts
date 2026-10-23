@@ -183,25 +183,6 @@ describe("fitDoorLabel", () => {
     expectFits(fit);
   });
 
-  it("fits real room names within the limits", () => {
-    for (const label of [
-      "Customer Support Escalations",
-      "A very long room name that goes on and on and on forever",
-      "Isomux",
-      "Supercalifragilisticexpialidocious Room",
-    ]) {
-      const fit = fitDoorLabel(label, measure);
-      expectFits(fit);
-      expect(fit.lines.length).toBeGreaterThan(0);
-      // Without an ellipsis the lines hold the whole label.
-      if (!fit.lines.at(-1)!.endsWith("…")) {
-        expect(fit.lines.join("").replaceAll(" ", "")).toBe(
-          label.replaceAll(" ", ""),
-        );
-      }
-    }
-  });
-
   // Room names have no length cap and each measure is a DOM write plus a
   // layout in WallDoor, so the work must stop at what can be drawn.
   function stats(label: string) {

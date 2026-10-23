@@ -158,7 +158,7 @@ describe("room tab bar scrolling (task 17537680)", () => {
     expect(ios.flatMap((r) => declared(r.cssRules))).toEqual(["auto"]);
   });
 
-  it("puts every sticker inside its own tab, in the scrolled content", () => {
+  it("puts every sticker inside its own tab, in the scrolled content, and selects its room on a click", () => {
     const { container } = mount();
     const scroller = scrollerOf(container);
     const tabs = [...container.querySelectorAll("[draggable]")];
@@ -177,6 +177,16 @@ describe("room tab bar scrolling (task 17537680)", () => {
           .getAttribute("data-room-tab-button"),
       ).toBe("b");
     }
+    // A click on a sticker selects its room.
+    const activeTab = () =>
+      container
+        .querySelector('[data-active-room-tab="true"] [data-room-tab-button]')
+        ?.getAttribute("data-room-tab-button");
+    expect(activeTab()).not.toBe("b");
+    act(() => {
+      stickers[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(activeTab()).toBe("b");
   });
 
   // The stickers stick out below the bar; the scroller clips its content, so
@@ -187,20 +197,6 @@ describe("room tab bar scrolling (task 17537680)", () => {
     const strip = scroller.style.paddingBottom;
     expect(parseFloat(strip)).toBeGreaterThan(0);
     expect(scroller.style.height).toBe(`calc(100% + ${strip})`);
-  });
-
-  it("selects the room on a click on its sticker", () => {
-    const { container } = mount();
-    const activeTab = () =>
-      container
-        .querySelector('[data-active-room-tab="true"] [data-room-tab-button]')
-        ?.getAttribute("data-room-tab-button");
-    expect(activeTab()).not.toBe("b");
-    const sticker = container.querySelector('[data-room-tab-button="b"] svg')!;
-    act(() => {
-      sticker.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(activeTab()).toBe("b");
   });
 
   it("scrolls on a mouse wheel that lands on a tab", () => {

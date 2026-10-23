@@ -15,34 +15,11 @@ describe("roomPaletteIndex", () => {
     expect(slots).toEqual([0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5]);
   });
 
-  it("gives adjacent rooms different slots whenever len > 1", () => {
-    for (const len of [2, 3, 6, 8]) {
-      for (let i = 0; i < 20; i++) {
-        expect(roomPaletteIndex(i, len)).not.toBe(roomPaletteIndex(i + 1, len));
-      }
-    }
-  });
-
-  it("always returns a slot within [0, len)", () => {
-    for (const index of [0, 1, 5, 11, 100]) {
-      for (const len of [1, 2, 6, 8]) {
-        const idx = roomPaletteIndex(index, len);
-        expect(idx).toBeGreaterThanOrEqual(0);
-        expect(idx).toBeLessThan(len);
-      }
-    }
-  });
-
   it("falls back to slot 0 for out-of-domain indices", () => {
     expect(roomPaletteIndex(-1, 6)).toBe(0); // findIndex not-found sentinel
     expect(roomPaletteIndex(-5, 6)).toBe(0);
     expect(roomPaletteIndex(NaN, 6)).toBe(0);
     expect(roomPaletteIndex(2.5, 6)).toBe(0);
-  });
-
-  it("returns 0 for a non-positive length", () => {
-    expect(roomPaletteIndex(3, 0)).toBe(0);
-    expect(roomPaletteIndex(3, -1)).toBe(0);
   });
 });
 

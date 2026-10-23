@@ -1,7 +1,6 @@
-// Another member's card, beyond the picker itself: it stays on every tab,
-// a member who leaves takes the card back to You with a notice, a Test on
-// their secret goes through their route, and their provider status says only
-// what the server knows.
+// Another member's card, beyond the picker itself: a member who leaves takes
+// the card back to You with a notice, a Test on their secret goes through
+// their route, and their provider status says only what the server knows.
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -12,7 +11,7 @@ const { setApiShim } = await import("../api.ts");
 const { IntegrationsFake, secret } =
   await import("../test-support/integrations-fake.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { OWNER, USERS, card, click, open, pick, stateFor, tab } =
+const { USERS, card, click, open, pick, stateFor, tab } =
   await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
@@ -25,22 +24,6 @@ beforeEach(() => {
     "Stephen",
     "Lena",
   ]).install();
-});
-
-it("keeps the member's title, accent and way back on every tab", async () => {
-  const view = await open();
-  await pick(view, "Stephen");
-  for (const id of ["mcp", "secrets", "variables", "providers"]) {
-    await tab(view, id);
-    const theirs = card(view, "personal");
-    expect(theirs.getAttribute("data-integrations-member"), id).toBe("Stephen");
-    expect(
-      theirs.querySelector("[data-card-title]")!.textContent,
-      id,
-    ).toContain(t("integrations.memberTitle", { member: "Stephen" }));
-    expect(theirs.getAttribute("style"), id).toContain("var(--orange-border)");
-    expect(theirs.querySelector("[data-back-to-yours]"), id).not.toBeNull();
-  }
 });
 
 it("goes back to You with a notice when the member's route says they are gone", async () => {
@@ -115,14 +98,4 @@ it("says a member has no personal sign-in, or that the check failed, never more"
     theirs.querySelector('[data-member-provider="codex"]')!.textContent,
   ).toContain(t("integrations.providers.noPersonal"));
   expect(theirs.textContent).not.toContain(t("settings.signIn.notConnected"));
-});
-
-it("never asks for a member's names on your own card", async () => {
-  await open(OWNER);
-  await open(stateFor("Stephen", "u2", "member"));
-  expect(
-    fake
-      .requests("GET", /\/env\/names$/)
-      .filter((c) => c.path.startsWith("/api/users/")),
-  ).toHaveLength(0);
 });

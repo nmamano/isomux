@@ -222,9 +222,6 @@ function archStemLeaves(
   back: boolean,
   leafSize: number,
   tipSize: number,
-  // A desk plant's leaf is about three units across. Marbling it just makes
-  // the whole sprig paler, so the caller turns it off.
-  marbled = true,
 ) {
   const count = stem[3];
   const phase = stem[4];
@@ -245,7 +242,7 @@ function archStemLeaves(
         size={size}
         tone={tones[(si * 3 + i) % tones.length]}
         varTone={
-          marbled && !back && marble < 3
+          !back && marble < 3
             ? MARBLE_TONES[(si + i) % MARBLE_TONES.length]
             : undefined
         }
@@ -712,69 +709,6 @@ export function BlossomJar() {
         strokeWidth="0.85"
         opacity="0.6"
       />
-    </g>
-  );
-}
-
-// --- Desk plants -----------------------------------------------------------
-// The little pot on a desk, drawn at the origin with the pot's rim at (0,0).
-// Five silhouettes, kept from the shapes DeskSprite.tsx used to draw as three
-// bare quadratic strokes, so which desk gets which does not change.
-//
-// These are small: the pot is eight units across and a leaf about three, so
-// there is no back layer and no marbling. Both read as noise at this size and
-// only make the sprig paler.
-const DESK_PLANT_VARIANTS: ArchStem[][] = [
-  // Upright bushy
-  [
-    [-0.5, -3, 13, 3, 0.4],
-    [0.5, 4.5, 11, 3, 2.6],
-    [0, -1, 15, 3, 4.4],
-  ],
-  // Droopy fern
-  [
-    [-0.6, -7, 9, 3, 1.2],
-    [0.6, 7, 8, 3, 3.8],
-    [0, -1.5, 12, 3, 5.6],
-  ],
-  // Spiky succulent
-  [
-    [-0.5, -1.5, 14, 3, 0.9],
-    [0.5, 2.5, 13, 3, 3.1],
-    [-0.8, -3.5, 10, 2, 5.1],
-  ],
-  // Wide spreading
-  [
-    [-0.6, -8, 8, 3, 2.2],
-    [0.8, 8, 7, 3, 4.7],
-    [0, -0.5, 12, 3, 0.7],
-  ],
-  // Tall single stem with side shoots
-  [
-    [0, -0.5, 16, 4, 1.7],
-    [-0.4, -5, 10, 2, 3.3],
-    [0.6, 4.5, 9, 2, 5.9],
-  ],
-];
-
-export const DESK_PLANT_COUNT = DESK_PLANT_VARIANTS.length;
-
-export function DeskPlant({ variant }: { variant: number }) {
-  const stems = DESK_PLANT_VARIANTS[variant % DESK_PLANT_COUNT];
-  return (
-    <g aria-hidden="true">
-      <Pot x={0} y={0} rimRx={4} height={7} taper={0.76} />
-      {stems.map((stem, i) => (
-        <path
-          key={`ds${i}`}
-          d={archStemPath(stem)}
-          fill="none"
-          stroke={i % 2 === 0 ? "#3f8446" : "#356f3b"}
-          strokeWidth="0.9"
-          strokeLinecap="round"
-        />
-      ))}
-      {stems.map((stem, i) => archStemLeaves(stem, i, false, 3.2, 2.8, false))}
     </g>
   );
 }

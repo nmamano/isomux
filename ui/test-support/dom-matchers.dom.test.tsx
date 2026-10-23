@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { registerCompactDomMatchers, setUpDomTestFile } from "./dom.ts";
+import { setUpDomTestFile } from "./dom.ts";
 
 setUpDomTestFile();
 
@@ -73,11 +73,5 @@ describe("compact DOM matcher replacements", () => {
     const message = failure(() => expect(button).toBeNull());
     expect(message.length).toBeLessThan(200);
     expect(message.includes("<button#save.primary.action>")).toBe(true);
-  });
-
-  it("registers twice without changing matcher behavior", () => {
-    registerCompactDomMatchers();
-    expect(NaN).toBe(NaN);
-    expect(null).toBeNull();
   });
 });

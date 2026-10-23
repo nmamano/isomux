@@ -58,20 +58,11 @@ describe("one open form per card", () => {
       await click(cancel ?? null);
       // Cancel brings them back.
       expect(mine.querySelector("[data-integrations-add]")).not.toBeNull();
+      expect(mine.querySelectorAll(rowAction)).toHaveLength(2);
+      // The Add form hides the row actions too.
+      await click(mine.querySelector("[data-integrations-add]"));
+      expect(mine.querySelectorAll(rowAction)).toHaveLength(0);
     });
-
-  it("keeps a typed value while the form is open", async () => {
-    const view = await open();
-    await tab(view, "secrets");
-    const mine = card(view, "personal");
-    await click(mine.querySelector("[data-integrations-add]"));
-    await type(mine.querySelector("[data-secret-value-input]"), "typed-value");
-    // No other action is there to take the form away.
-    expect(mine.querySelector("[data-secret-edit]")).toBeNull();
-    expect(
-      mine.querySelector<HTMLInputElement>("[data-secret-value-input]")!.value,
-    ).toBe("typed-value");
-  });
 });
 
 describe("a refused removal reads in its route's words", () => {

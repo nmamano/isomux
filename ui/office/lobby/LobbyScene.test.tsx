@@ -43,10 +43,14 @@ describe("LobbyScene", () => {
     const markup = renderToStaticMarkup(
       <LobbyScene rooms={ROOMS} officeName="x" mode="dark" />,
     );
-    // The lobby never borrows the office's theme variables: it is warm wood in
-    // every theme, and only dark/light changes (Nil, 2026-09-05).
-    expect(markup).not.toContain("var(--wall-left)");
-    expect(markup).not.toContain("var(--floor-light)");
+    // The lobby paints its walls itself, from its own gradients ...
+    expect(markup).toContain('fill="url(#lobby-wall-left)"');
+    expect(markup).toContain('fill="url(#lobby-wall-right)"');
+    // ... and never borrows the office's wall or floor theme colours: it is
+    // warm wood in every theme, and only dark/light changes (Nil, 2026-09-05).
+    expect(markup).not.toMatch(
+      /var\(--(wall-left|wall-right|floor-light|floor-dark)\)/,
+    );
   });
 
   it("draws the door to the first room only when one is given", () => {
@@ -108,6 +112,7 @@ describe("lobby prop registry", () => {
 
 import { LOBBY_LAYOUTS, LOBBY_LAYOUT_IDS, type Placement } from "./layouts.ts";
 import { findVariant, LOBBY_PROPS, variantFacings } from "./props.tsx";
+import { floorXY } from "./geometry.ts";
 
 const NILO_MIN_COORDINATE = -2;
 const NILO_MAX_COORDINATE = 11;
@@ -177,11 +182,31 @@ describe("lobby layouts", () => {
       />,
     );
     expect(without).not.toContain("data-receptionist-node");
-    expect(withOne).toContain('data-receptionist-node="1"');
-    // Behind the counter: the figure's group precedes the counter's in the markup.
-    const figureAt = withOne.indexOf("data-receptionist-node");
-    const counterAt = withOne.indexOf("lobby-counter", 0);
-    if (counterAt !== -1) expect(figureAt).toBeLessThan(counterAt);
+    // The node stands in a group at the slot's floor point, after the
+    // ground shadow it casts there.
+    const slot = LOBBY_LAYOUTS.lounge.receptionist;
+    const at = floorXY(slot.b, slot.a);
+    const node = withOne.indexOf("data-receptionist-node");
+    const g = withOne.lastIndexOf('<g transform="translate(', node);
+    expect(g).toBeGreaterThan(-1);
+    const xy = withOne
+      .slice(g)
+      .match(/^<g transform="translate\(([-\d.e]+) ([-\d.e]+)\)/);
+    expect(Number(xy![1])).toBeCloseTo(at.x, 6);
+    expect(Number(xy![2])).toBeCloseTo(at.y, 6);
+    expect(withOne.slice(g, node)).toContain("<ellipse");
+    // Behind the counter: the counter's group, found at its own floor point,
+    // comes later in the markup, so it paints over the figure's legs.
+    const counter = LOBBY_LAYOUTS.lounge.placements.find(
+      (p) => p.family === "counter",
+    )!;
+    expect(counter).toBeDefined();
+    const c = floorXY(counter.b, counter.a);
+    const counterAt = withOne.indexOf(
+      `<g transform="translate(${c.x} ${c.y}) scale(`,
+    );
+    expect(counterAt).toBeGreaterThan(-1);
+    expect(node).toBeLessThan(counterAt);
   });
 
   it("honours a variant override", () => {
@@ -199,17 +224,6 @@ describe("lobby layouts", () => {
     );
     expect(a).not.toBe(b);
     expect(b).toContain("#5c6f8a"); // the loveseat's pillow
-  });
-});
-
-describe("lobby lighting", () => {
-  it("fireside carries a dark-only fire glow and a lamp pool", () => {
-    const markup = renderToStaticMarkup(
-      <LobbyScene rooms={[]} officeName="x" mode="dark" layout="fireside" />,
-    );
-    expect(markup).toContain('class="lobby-dark-only"');
-    expect(markup).toContain('class="lamp-glow"');
-    expect(markup).toContain("<animate");
   });
 });
 

@@ -364,6 +364,8 @@ it("clears the preset's name and addresses when the member picks Other", async (
   expect(saveWhy(view)).toBe(false);
 });
 
+// Which form and hosts have a test is secret-test.test.ts's; this holds the
+// row to its own form and hosts, and the Test to the row's route.
 it("has a Test only for a secret whose hosts have an identity check", async () => {
   const base = {
     form: { kind: "authorization" as const },
@@ -376,6 +378,7 @@ it("has a Test only for a secret whose hosts have an identity check", async () =
   };
   fake.scope("alice").secrets.push(
     { ...base, name: "GH_TOKEN", hosts: ["api.github.com"] },
+    // The right form, but no identity check for its host.
     { ...base, name: "OTHER", hosts: ["api.example.com"] },
     {
       ...base,
@@ -389,14 +392,23 @@ it("has a Test only for a secret whose hosts have an identity check", async () =
     view.container.querySelector(
       `[data-secret-name="${name}"] [data-connection-test]`,
     );
-  expect(test("GH_TOKEN")).not.toBeNull();
-  expect(test("OTHER")).toBeNull();
+  expect(
+    view.container.querySelector('[data-secret-name="HEADERED"]'),
+  ).not.toBeNull();
   expect(test("HEADERED")).toBeNull();
+  expect(
+    view.container.querySelector('[data-secret-name="OTHER"]'),
+  ).not.toBeNull();
+  expect(test("OTHER")).toBeNull();
   await click(test("GH_TOKEN"));
   expect(
-    view.container.querySelector('[data-connection-test-result="ok"]')!
-      .textContent,
-  ).toBe(`${t("settings.connections.test.works")} · octocat`);
+    fake.requests("POST", "/api/users/alice/secrets/GH_TOKEN/test"),
+  ).toHaveLength(1);
+  expect(
+    view.container.querySelector(
+      '[data-secret-name="GH_TOKEN"] [data-connection-test-result="ok"]',
+    ),
+  ).not.toBeNull();
 });
 
 it("shows the load failure, not a crash, when a server answers with another shape", async () => {

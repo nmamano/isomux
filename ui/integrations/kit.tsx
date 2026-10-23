@@ -14,7 +14,7 @@ export const mono: CSSProperties = {
 // Data inside the page's prose (an email, a member's name, a path, a host,
 // a server or variable name) looks unlike the words around it (Nil,
 // 2026-10-13): one style for all of it, the Data component below.
-export const dataStyle: CSSProperties = {
+const dataStyle: CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
   fontSize: "0.92em",
   fontWeight: 500,

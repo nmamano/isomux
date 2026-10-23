@@ -9,44 +9,16 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent, render } = await import("@testing-library/react");
-const { createElement } = await import("react");
-const { StateCtx, initialState } = await import("../store.tsx");
+const { act, fireEvent } = await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
-const { IntegrationsView } = await import("./IntegrationsView.tsx");
 const { IntegrationsFake, EMPTY_CONNECTIONS, secret, server } =
   await import("../test-support/integrations-fake.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { MEMBER, OWNER, card, open, pick, tab } =
+  await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
 const { t } = translatorFor("en");
-
-const USERS = new Map(
-  [
-    ["ricky", { id: "u1", name: "Ricky", role: "owner" }],
-    ["stephen", { id: "u2", name: "Stephen", role: "member" }],
-  ].map(([key, user]) => [
-    key,
-    {
-      createdAt: 0,
-      avatarColor: "#888",
-      avatarVariant: 0,
-      ...(user as object),
-    },
-  ]),
-);
-
-function stateFor(username: string, userId: string, role: string) {
-  return {
-    ...initialState,
-    hasReceivedInitialState: true,
-    sessionContext: { username, userId, role },
-    users: USERS,
-  } as unknown as typeof initialState;
-}
-
-const OWNER = stateFor("Ricky", "u1", "owner");
-const MEMBER = stateFor("Stephen", "u2", "member");
 
 let fake: InstanceType<typeof IntegrationsFake>;
 function serve(viewer: { username: string; owner: boolean }) {
@@ -67,41 +39,6 @@ function serve(viewer: { username: string; owner: boolean }) {
     .secrets.push(secret("STEPHEN_KEY", { value: "stephen-value" }));
   fake.scope("Stephen").values = { STEPHEN_VAR: "stephen-var-value" };
   fake.scope("Stephen").notes = { STEPHEN_VAR: "for builds" };
-}
-
-async function open(state: typeof initialState) {
-  const view = render(
-    createElement(
-      StateCtx.Provider,
-      { value: state },
-      createElement(IntegrationsView, { onClose: () => {} }),
-    ),
-  );
-  await act(async () => {});
-  return view;
-}
-
-async function tab(view: ReturnType<typeof render>, id: string) {
-  await act(async () => {
-    fireEvent.click(
-      view.container.querySelector(`[data-integrations-tab="${id}"]`)!,
-    );
-  });
-}
-
-function card(view: ReturnType<typeof render>, which: "office" | "personal") {
-  return view.container.querySelector<HTMLElement>(
-    `[data-integrations-card="${which}"]`,
-  )!;
-}
-
-async function pick(view: ReturnType<typeof render>, member: string) {
-  await act(async () => {
-    fireEvent.change(
-      view.container.querySelector("[data-integrations-picker]")!,
-      { target: { value: member } },
-    );
-  });
 }
 
 describe("Show", () => {
@@ -182,8 +119,6 @@ describe("a member's view of the office", () => {
       expect(office.querySelector("[data-connection-note]")).not.toBeNull();
       expect(office.querySelectorAll("button")).toHaveLength(0);
       expect(office.querySelector("[data-integrations-add]")).toBeNull();
-      expect(office.textContent).not.toContain("office-value");
-      expect(office.textContent).not.toContain("UTC");
       expect(office.textContent).toContain(t("integrations.officeWhoMember"));
     });
 
@@ -191,6 +126,14 @@ describe("a member's view of the office", () => {
     const view = await open(MEMBER);
     for (const id of ["mcp", "secrets", "variables", "providers"])
       await tab(view, id);
+    // The tabs mounted and read what a member may: the office's variable
+    // names, and their own values and secrets.
+    expect(fake.requests("GET", "/api/office/env/names")).toHaveLength(1);
+    expect(fake.requests("GET", "/api/users/Stephen/env")).toHaveLength(1);
+    // The MCP servers tab reads the secrets too, for a server's credential.
+    expect(
+      fake.requests("GET", "/api/users/Stephen/secrets").length,
+    ).toBeGreaterThan(0);
     expect(fake.requests("GET", "/api/office/env")).toHaveLength(0);
     expect(fake.requests("GET", /\/value$/)).toHaveLength(0);
     expect(fake.requests("GET", /^\/api\/users\/Ricky\//)).toHaveLength(0);

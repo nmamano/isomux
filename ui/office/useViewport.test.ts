@@ -68,13 +68,7 @@ test("2560x800 scales down until the whole painted scene fits", () => {
   expect(v.scale * art.bottom + v.y).toBeCloseTo(ch - FIT_MARGIN, 3);
   expect(v.scale * art.left + v.x).toBeGreaterThan(0);
   expect(v.scale * art.right + v.x).toBeLessThan(cw);
-});
-
-test("the scene stays horizontally centred when it is scaled down", () => {
-  const cw = 2560;
-  const ch = 661;
-  const art = artBounds(layoutBox(cw, ch));
-  const v = computeRestView(cw, ch, art, false);
+  // It stays horizontally centred.
   const mid = (v.scale * art.left + v.x + (v.scale * art.right + v.x)) / 2;
   expect(mid).toBeCloseTo(cw / 2, 3);
 });
@@ -126,6 +120,32 @@ test("the fit scale bottoms out at MIN_SCALE and crops evenly", () => {
   const bottom = v.scale * art.bottom + v.y;
   expect(top).toBeLessThan(0);
   expect(-top).toBeCloseTo(bottom - ch, 3);
+});
+
+test("a caller's own minimum scale floors the fit, under the same 1.0 cap", () => {
+  // The back room passes its readable minimum (back-room/geometry.ts
+  // MIN_SCALE), with width and height both fitted and the whole box as art.
+  const MIN = 0.83;
+  const box = (cw: number, ch: number, w: number, h: number): Bounds => ({
+    left: (cw - w) / 2,
+    right: (cw + w) / 2,
+    top: (ch - h) / 2,
+    bottom: (ch + h) / 2,
+  });
+  // A phone: the fit would go far below the floor, which holds.
+  expect(
+    computeRestView(390, 700, box(390, 700, 1000, 800), true, MIN).scale,
+  ).toBe(MIN);
+  // A big screen: the cap, not the fit, sets the scale.
+  expect(
+    computeRestView(5000, 5000, box(5000, 5000, 1000, 800), true, MIN).scale,
+  ).toBe(1);
+  // Between the two, the fit itself.
+  const cw = 1000 * 0.95;
+  const v = computeRestView(cw, 5000, box(cw, 5000, 1000, 800), true, MIN);
+  expect(v.scale).toBeCloseTo((cw - 2 * FIT_MARGIN) / 1000, 6);
+  expect(v.scale).toBeGreaterThan(MIN);
+  expect(v.scale).toBeLessThan(1);
 });
 
 test("a container with no size falls back to the authored view", () => {

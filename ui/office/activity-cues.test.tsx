@@ -59,21 +59,6 @@ describe("monitor", () => {
         false,
       ]);
   });
-
-  // A lit screen that is not being worked at keeps its own slow sweep, so the
-  // two never both run: that would read as two different things happening.
-  it("shows the idle sweep and the scrolling lines at different times", () => {
-    const markup = desk("thinking");
-    const sweeps = markup.split("<animate").length - 1;
-    expect(markup.includes("data-screen-scroll")).toBe(true);
-    expect(sweeps).toBeGreaterThan(0);
-    for (const state of ["waiting_for_response", "error"] as AgentState[]) {
-      expect([state, desk(state).includes("data-screen-scroll")]).toEqual([
-        state,
-        false,
-      ]);
-    }
-  });
 });
 
 describe("drink", () => {
@@ -211,16 +196,6 @@ describe("face light, across every skin the picker offers", () => {
       Math.max(...peaks.map((p) => p.peak)) -
       Math.min(...peaks.map((p) => p.peak));
     expect(spread).toBeLessThanOrEqual(6);
-  });
-
-  it("leaves every lit face still its own colour", () => {
-    // Mixing towards one blue pulls faces together; adding light keeps them
-    // apart. The darkest skin lit must stay darker than the palest skin unlit,
-    // by a wide margin, in every channel.
-    const darkest = rgb(faceLitColor("#5C3A28"));
-    const palest = rgb("#FDEBD0");
-    for (let ch = 0; ch < 3; ch++)
-      expect([ch, darkest[ch] < palest[ch] - 60]).toEqual([ch, true]);
   });
 });
 

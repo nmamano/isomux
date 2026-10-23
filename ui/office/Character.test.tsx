@@ -13,19 +13,6 @@ const OUTFIT = {
   hat: "beanie" as const,
 };
 
-describe("Character portrait", () => {
-  it("renders a correctly sized non-status portrait without glyphs or animation", () => {
-    const markup = renderToStaticMarkup(
-      <Character state="idle" outfit={OUTFIT} portrait height={44} />,
-    );
-
-    expect(markup).toContain('height="44"');
-    expect(markup).toContain('width="34"');
-    expect(markup).not.toContain("<animate");
-    expect(markup).not.toContain("<text");
-  });
-});
-
 describe("Character costumes", () => {
   const states: AgentState[] = [
     "idle",
@@ -46,7 +33,7 @@ describe("Character costumes", () => {
       ).toBe(draw(OUTFIT));
     }
   });
-  it("keeps the uniform visible in all poses and in the 40px plaque portrait", () => {
+  it("keeps the uniform visible in all poses and in the 40px plaque portrait, which has no status", () => {
     const costumes = [
       "doctor",
       "police",
@@ -74,7 +61,12 @@ describe("Character costumes", () => {
         />,
       );
       expect(portrait).toContain(`data-costume-body="${costume}"`);
+      // The plaque's size, from the character's own aspect ratio, and no
+      // status: no animation and no glyph (the idle pose's zzz).
+      expect(portrait).toContain('height="40"');
+      expect(portrait).toContain('width="31"');
       expect(portrait).not.toContain("<animate");
+      expect(portrait).not.toContain("<text");
       if (costume === "doctor")
         expect(portrait).not.toContain("data-costume-head");
       else expect(portrait).toContain(`data-costume-head="${costume}"`);

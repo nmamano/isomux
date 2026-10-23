@@ -16,7 +16,7 @@ export const SVG_STYLE: React.CSSProperties = {
 export const FLOOR_BACK = { x: 120, y: 40 };
 export const FLOOR_LEFT = { x: -355, y: 277.5 };
 export const FLOOR_RIGHT = { x: 595, y: 277.5 };
-export const FLOOR_FRONT = { x: 120, y: 515 };
+const FLOOR_FRONT = { x: 120, y: 515 };
 export const FLOOR_CLIP = `M${FLOOR_BACK.x} ${FLOOR_BACK.y} L${FLOOR_LEFT.x} ${FLOOR_LEFT.y} L${FLOOR_FRONT.x} ${FLOOR_FRONT.y} L${FLOOR_RIGHT.x} ${FLOOR_RIGHT.y} Z`;
 
 // One tile step along each iso axis (10 x 10 tiles cover the diamond).

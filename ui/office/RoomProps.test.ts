@@ -3,7 +3,7 @@
 // coat index on disk can outlive the coat list it was written against.
 
 import { expect, test } from "bun:test";
-import { PETS, coatFor, drawnPet } from "./RoomProps.tsx";
+import { coatFor, drawnPet } from "./RoomProps.tsx";
 import {
   DEFAULT_ROOM_PET,
   PET_PALETTES,
@@ -11,20 +11,6 @@ import {
   parseRoomPet,
   type RoomPet,
 } from "../../shared/pets.ts";
-
-test("every species is drawn and has at least one coat", () => {
-  for (const species of PET_SPECIES) {
-    expect(PETS[species]).toBeDefined();
-    expect(PET_PALETTES[species].length).toBeGreaterThan(0);
-  }
-});
-
-test("the default pet is a coat the cat actually has", () => {
-  expect(PET_SPECIES).toContain(DEFAULT_ROOM_PET.species);
-  expect(
-    PET_PALETTES[DEFAULT_ROOM_PET.species][DEFAULT_ROOM_PET.coat],
-  ).toBeDefined();
-});
 
 test("a stored coat index picks that coat", () => {
   for (const species of PET_SPECIES) {
@@ -38,22 +24,12 @@ test("a stored coat index picks that coat", () => {
 // The server validates a coat index when it is written and cannot validate one
 // already on disk. Two coat lists have already got shorter in this file's life,
 // so a room persisted against a longer list is a real state, not a hypothetical.
-// A species this build does not know reaches the drawing the same way a stale
-// coat does: nothing parses the pet when a room is loaded from disk, so a
-// hand-edited agents.json or a rollback past a version that added a species
-// puts it straight into RoomWire. "duck" was a species in this file until a
-// few days ago.
-test("an unknown species falls back to the default, and does not throw", () => {
-  const pet = { species: "duck", coat: 0 } as unknown as RoomPet;
-  expect(() => coatFor(pet)).not.toThrow();
-  expect(coatFor(pet)).toBe(PET_PALETTES[DEFAULT_ROOM_PET.species][0]);
-  const both = { species: "duck", coat: 42 } as unknown as RoomPet;
-  expect(coatFor(both)).toBe(PET_PALETTES[DEFAULT_ROOM_PET.species][0]);
-});
-
 test("a coat index past the end of its list falls back, never undefined", () => {
   for (const species of PET_SPECIES) {
     const palettes = PET_PALETTES[species];
+    // The fallback coat exists, or every comparison below is undefined to
+    // undefined.
+    expect([species, palettes[0] !== undefined]).toEqual([species, true]);
     for (const coat of [palettes.length, palettes.length + 7, 99]) {
       expect(coatFor({ species, coat })).toBe(palettes[0]);
     }
@@ -88,7 +64,14 @@ test("parseRoomPet rejects an unknown species and an out-of-range coat", () => {
 
 // The species and coat the scene and the settings section both show: the same
 // fallbacks as coatFor, so the two can never disagree about an animal.
-test("drawnPet falls back the way coatFor does", () => {
+//
+// A species this build does not know reaches the drawing the same way a stale
+// coat does: nothing parses the pet when a room is loaded from disk, so a
+// hand-edited agents.json or a rollback past a version that added a species
+// puts it straight into RoomWire. "duck" was a species until recently.
+test("drawnPet falls back the way coatFor does, and an unknown species does not throw", () => {
+  // Also proves the default pet is a coat its species has: a missing coat
+  // falls back to coat 0, so the default would not come back unchanged.
   expect(drawnPet(null)).toEqual(DEFAULT_ROOM_PET);
   for (const species of ["duck", "constructor", "__proto__"]) {
     const pet = { species, coat: 1 } as unknown as RoomPet;
@@ -96,8 +79,12 @@ test("drawnPet falls back the way coatFor does", () => {
       species: DEFAULT_ROOM_PET.species,
       coat: 1,
     });
+    expect(() => coatFor(pet)).not.toThrow();
     expect(coatFor(pet)).toBe(PET_PALETTES[DEFAULT_ROOM_PET.species][1]);
   }
+  // Unknown species and a coat past the end: both fall back.
+  const both = { species: "duck", coat: 42 } as unknown as RoomPet;
+  expect(coatFor(both)).toBe(PET_PALETTES[DEFAULT_ROOM_PET.species][0]);
   expect(drawnPet({ species: "dog", coat: 42 })).toEqual({
     species: "dog",
     coat: 0,

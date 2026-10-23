@@ -43,7 +43,9 @@ const shows = (view: ReturnType<typeof render>, text: string) =>
   ).toBeGreaterThan(0);
 
 describe("the Integrations page", () => {
-  it("resolves each anchor in every shipped language", () => {
+  it("reads Catalan on ca, then Spanish, then English", async () => {
+    // Each anchor resolves to a different text in every shipped language,
+    // so finding one proves the language and not a fallback.
     for (const [name, anchor] of Object.entries(ANCHOR)) {
       expect(Object.keys(anchor).sort(), name).toEqual(
         [...SHIPPED_LANGUAGE_CODES].sort(),
@@ -52,9 +54,6 @@ describe("the Integrations page", () => {
         SHIPPED_LANGUAGE_CODES.length,
       );
     }
-  });
-
-  it("reads Catalan on ca, then Spanish, then English", async () => {
     const view = render(page("ca"));
     await act(async () => {});
     for (const anchor of [
