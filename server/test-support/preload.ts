@@ -12,11 +12,23 @@
 // we set ISOMUX_HOME would freeze STATE_ROOT to the real home. temp-state.ts
 // pulls in only os/fs/path, so it is safe to import.
 import { afterAll } from "bun:test";
+import { AsyncLocalStorage } from "async_hooks";
 import { mkdtempSync, realpathSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, sep } from "path";
 import { canonicalize, removeStateDir } from "./temp-state.ts";
 import { inheritedGitRepoEnv } from "./git-env.ts";
+
+// Next builds its request store once, at load, from globalThis.AsyncLocalStorage,
+// and falls back to a fake whose exit() throws. A Next server sets the global
+// before anything else; a test process does not, so a file that loads
+// next/navigation before another file loads Next's server environment (which
+// wraps every console method in that store's exit()) made each later console
+// call throw. Set the global here, as Next's node-environment-baseline does.
+const globals = globalThis as { AsyncLocalStorage?: unknown };
+if (typeof globals.AsyncLocalStorage !== "function") {
+  globals.AsyncLocalStorage = AsyncLocalStorage;
+}
 
 // A git hook or `git rebase --exec` exports GIT_DIR to this process, and every
 // git command a test runs in its temp repo would act on that repository
