@@ -3,9 +3,7 @@ import {
   StripeModeRefused,
   resolveStripeMode,
   stripeKeyFromEnv,
-  stripeKeyName,
   stripeWebhookSecretFromEnv,
-  stripeWebhookSecretName,
 } from "./mode.ts";
 
 describe("Stripe mode configuration", () => {
@@ -43,10 +41,6 @@ describe("mode-selected secret names", () => {
       STRIPE_WEBHOOK_SECRET: "test-signing-shape",
       STRIPE_LIVE_WEBHOOK_SECRET: "live-signing-shape",
     };
-    expect(stripeKeyName("test")).toBe("STRIPE_TEST_SECRET_KEY");
-    expect(stripeKeyName("live")).toBe("STRIPE_LIVE_SECRET_KEY");
-    expect(stripeWebhookSecretName("test")).toBe("STRIPE_WEBHOOK_SECRET");
-    expect(stripeWebhookSecretName("live")).toBe("STRIPE_LIVE_WEBHOOK_SECRET");
     expect(stripeKeyFromEnv("test", env)).toBe("test-key-shape");
     expect(stripeKeyFromEnv("live", env)).toBe("live-key-shape");
     expect(stripeWebhookSecretFromEnv("test", env)).toBe("test-signing-shape");

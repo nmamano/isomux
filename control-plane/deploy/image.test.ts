@@ -57,18 +57,11 @@ function sourceFiles(dir: string): string[] {
 const included = shipsToImage;
 
 describe("the deploy manifest", () => {
-  test("names exactly one dependency", () => {
-    const deploy = dependencies(path.join(import.meta.dir, "package.json"));
-    expect(Object.keys(deploy)).toEqual(["pg"]);
-  });
-
-  test("pins pg to the same spec as the repository", () => {
+  test("names only pg, at the repository's spec, with its lockfile beside it", () => {
     const deploy = dependencies(path.join(import.meta.dir, "package.json"));
     const repo = dependencies(path.join(REPO, "package.json"));
+    expect(Object.keys(deploy)).toEqual(["pg"]);
     expect(deploy.pg).toBe(repo.pg);
-  });
-
-  test("the lockfile is committed beside it", () => {
     expect(fs.existsSync(path.join(import.meta.dir, "bun.lock"))).toBe(true);
   });
 });

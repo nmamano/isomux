@@ -127,7 +127,7 @@ describe("POST /api/signup redirects to the configured origin", () => {
     expect(target.searchParams.get("error")).toBe("continue-refused");
   });
 
-  test("a refused signup: back to the form with its reason and the name", async () => {
+  test("a new-office post with a key reaches the new-office service; its refusal goes back to the form with its reason and the name", async () => {
     signedUp = { ok: false, reason: "signup-refused" };
     const target = location(
       await POST(
@@ -143,6 +143,8 @@ describe("POST /api/signup redirects to the configured origin", () => {
     expect(target.pathname).toBe("/signup");
     expect(target.searchParams.get("error")).toBe("signup-refused");
     expect(target.searchParams.get("name")).toBe("acme");
+    expect(calls).toContain("signUpOffice");
+    expect(calls).not.toContain("continueSignup");
   });
 });
 
@@ -156,29 +158,19 @@ describe("POST /api/signup selects its path only by signupIntent", () => {
     customerSshKey: "ssh-ed25519 AAAA",
   };
 
-  test("a new-office post without an intent is refused before any service", async () => {
-    const response = await POST(signupPost(newOffice));
-    expect(response.status).toBe(400);
-    expect(calls).toEqual([]);
-  });
-
-  test("an unknown intent is refused before any service", async () => {
-    for (const signupIntent of ["Continue", "renew", "new-office"]) {
+  test("a missing or unknown intent is refused before any service", async () => {
+    for (const signupIntent of [undefined, "Continue", "renew", "new-office"]) {
       calls = [];
-      const response = await POST(signupPost({ ...newOffice, signupIntent }));
+      const response = await POST(
+        signupPost(
+          signupIntent === undefined
+            ? newOffice
+            : { ...newOffice, signupIntent },
+        ),
+      );
       expect([signupIntent, response.status]).toEqual([signupIntent, 400]);
       expect([signupIntent, calls]).toEqual([signupIntent, []]);
     }
-  });
-
-  test("intent new with a key reaches the new-office service", async () => {
-    signedUp = { ok: false, reason: "signup-refused" };
-    const response = await POST(
-      signupPost({ ...newOffice, signupIntent: "new" }),
-    );
-    expect(location(response).searchParams.get("error")).toBe("signup-refused");
-    expect(calls).toContain("signUpOffice");
-    expect(calls).not.toContain("continueSignup");
   });
 
   test("intent new without a key is refused before the new-office service", async () => {

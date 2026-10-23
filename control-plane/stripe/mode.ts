@@ -44,11 +44,11 @@ export function resolveStripeMode(env: Environment): StripeMode {
   return "live";
 }
 
-export function stripeKeyName(mode: StripeMode): string {
+function stripeKeyName(mode: StripeMode): string {
   return mode === "live" ? STRIPE_LIVE_SECRET_NAME : STRIPE_TEST_SECRET_NAME;
 }
 
-export function stripeWebhookSecretName(mode: StripeMode): string {
+function stripeWebhookSecretName(mode: StripeMode): string {
   return mode === "live"
     ? STRIPE_LIVE_WEBHOOK_SECRET_NAME
     : STRIPE_TEST_WEBHOOK_SECRET_NAME;

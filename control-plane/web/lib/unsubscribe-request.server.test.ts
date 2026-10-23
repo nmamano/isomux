@@ -39,28 +39,25 @@ function oneClick(url: string, headers: Record<string, string> = {}): Request {
 }
 
 describe("POST /api/unsubscribe", () => {
-  test("a mail client's one-click request, with no Origin and no session, unsubscribes the token", async () => {
-    const { tokens, deps } = recorder();
-    const response = await handleUnsubscribePost(
-      oneClick(`${ORIGIN}/api/unsubscribe?t=${TOKEN}`),
-      deps,
-    );
-    expect(response.status).toBe(200);
-    expect(tokens).toEqual([TOKEN]);
-  });
-
-  test("an Origin that is not ours does not refuse it", async () => {
+  test("a mail client's one-click request unsubscribes the token, with no session and with or without an Origin of its own", async () => {
     // A web mail client may send its own Origin. The token is the whole
     // credential, and all it can do is stop the welcome mails.
-    const { tokens, deps } = recorder();
-    const response = await handleUnsubscribePost(
-      oneClick(`${ORIGIN}/api/unsubscribe?t=${TOKEN}`, {
-        origin: "https://mail.example.net",
-      }),
-      deps,
-    );
-    expect(response.status).toBe(200);
-    expect(tokens).toEqual([TOKEN]);
+    const origins: Record<string, string>[] = [
+      {},
+      { origin: "https://mail.example.net" },
+    ];
+    for (const headers of origins) {
+      const { tokens, deps } = recorder();
+      const response = await handleUnsubscribePost(
+        oneClick(`${ORIGIN}/api/unsubscribe?t=${TOKEN}`, headers),
+        deps,
+      );
+      expect([headers, response.status, tokens]).toEqual([
+        headers,
+        200,
+        [TOKEN],
+      ]);
+    }
   });
 
   test("a request with no token is refused before the store is asked", async () => {

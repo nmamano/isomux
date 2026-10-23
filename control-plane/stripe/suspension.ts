@@ -4,12 +4,10 @@
 // stop a service from inside a handed-off office, so "suspend" is a provider
 // power action or it does not happen.
 //
-// The provider call is INJECTED, and slice 3 never wires a real one: billing-cli
-// deliberately leaves this handler unregistered, exactly as cli.ts leaves
-// `create_instance` unregistered, so no runnable command in this slice can touch a
-// real box. An enqueued suspension therefore surfaces as slice 2's
-// no-handler-registered condition - a failed operation with attention raised -
-// which is the honest state of the world while the boundary is only half built.
+// The provider call is INJECTED: run-roster.ts registers this handler only when a
+// provider is configured. Without one, an enqueued suspension surfaces as the
+// ticker's no-handler-registered condition - a failed operation with attention
+// raised.
 
 import { deadlinesFor } from "../operations.ts";
 import type { Store } from "../store.ts";

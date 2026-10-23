@@ -8,7 +8,6 @@ import {
   STRIPE_API_VERSION,
   StripeClient,
   StripeKeyRefused,
-  assertStripeKey,
   formEncode,
   type FetchLike,
 } from "./client.ts";
@@ -51,56 +50,55 @@ function recorder(
 const noSleep = async () => {};
 
 describe("the live-key refusal", () => {
-  test("a live secret key is refused by name, before any request", async () => {
-    const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
-    expect(
-      () => new StripeClient({ key: LIVE_SHAPE, mode: "test", fetchImpl }),
-    ).toThrow(StripeKeyRefused);
-    expect(calls).toHaveLength(0);
-  });
-
-  test("a live restricted key is refused too", async () => {
-    expect(() => assertStripeKey("rk_live_ANOTHER_SHAPE", "test")).toThrow(
-      StripeKeyRefused,
-    );
-  });
-
-  test("an unrecognisable key is refused rather than guessed at", async () => {
-    for (const key of ["", "sk_", "pk_test_something", "hunter2"]) {
-      expect(() => assertStripeKey(key, "test")).toThrow(StripeKeyRefused);
+  test("a key that does not match the configured mode is refused before any request", async () => {
+    const refused: [string, "test" | "live"][] = [
+      [LIVE_SHAPE, "test"],
+      ["rk_live_ANOTHER_SHAPE", "test"],
+      ["", "test"],
+      ["sk_", "test"],
+      ["pk_test_something", "test"],
+      ["hunter2", "test"],
+      [TEST_KEY, "live"],
+      // Live mode takes a restricted key only.
+      [LIVE_ACCOUNT_SHAPE, "live"],
+    ];
+    for (const [key, mode] of refused) {
+      const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
+      expect(() => new StripeClient({ key, mode, fetchImpl })).toThrow(
+        StripeKeyRefused,
+      );
+      expect(calls).toHaveLength(0);
     }
   });
 
-  test("test keys are accepted", async () => {
-    expect(() => assertStripeKey(TEST_KEY, "test")).not.toThrow();
-    expect(() => assertStripeKey("rk_test_A_SHAPE", "test")).not.toThrow();
-    expect(() => assertStripeKey(LIVE_SHAPE, "live")).not.toThrow();
-    expect(() => assertStripeKey(TEST_KEY, "live")).toThrow(StripeKeyRefused);
-  });
-
-  test("live mode refuses an unrestricted account key", () => {
-    expect(() => assertStripeKey(LIVE_ACCOUNT_SHAPE, "live")).toThrow(
-      "require a restricted rk_live_ key",
-    );
-  });
-
-  test("live mode accepts a synthetic restricted key with an injected fetch", async () => {
-    const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
-    const client = new StripeClient({
-      key: LIVE_SHAPE,
-      mode: "live",
-      fetchImpl,
-    });
-    expect((await client.get("/v1/customers/cus_shape")).kind).toBe("ok");
-    expect(calls).toHaveLength(1);
+  test("each mode accepts its own keys", async () => {
+    const accepted: [string, "test" | "live"][] = [
+      [TEST_KEY, "test"],
+      ["rk_test_A_SHAPE", "test"],
+      [LIVE_SHAPE, "live"],
+    ];
+    for (const [key, mode] of accepted) {
+      const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
+      const client = new StripeClient({ key, mode, fetchImpl });
+      expect((await client.get("/v1/customers/cus_shape")).kind).toBe("ok");
+      expect(calls).toHaveLength(1);
+    }
   });
 
   test("the refusal message does not echo the key", async () => {
-    try {
-      assertStripeKey(LIVE_SHAPE, "test");
-      throw new Error("expected a refusal");
-    } catch (err) {
-      expect((err as Error).message).not.toContain("NOT_A_REAL_KEY");
+    for (const [key, mode] of [
+      [LIVE_SHAPE, "test"],
+      [LIVE_ACCOUNT_SHAPE, "live"],
+    ] as const) {
+      const { fetchImpl } = recorder([{ status: 200, body: {} }]);
+      let message = "";
+      try {
+        new StripeClient({ key, mode, fetchImpl });
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).not.toBe("");
+      expect(message).not.toContain("NOT_A_REAL_KEY");
     }
   });
 });

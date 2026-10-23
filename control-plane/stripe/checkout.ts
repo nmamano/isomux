@@ -32,7 +32,7 @@ import {
  * constant rather than configuration: a name that shadows our own hostnames is
  * wrong on every deployment, not just this one.
  */
-export const RESERVED_OFFICE_NAMES = new Set([
+const RESERVED_OFFICE_NAMES = new Set([
   "admin",
   "api",
   "apps",
@@ -294,14 +294,12 @@ export function checkoutParams(args: CheckoutArgs): Record<string, FormValue> {
   };
 }
 
-export async function createCheckoutSession(
+/** Called by `openCheckout`, which has already validated the office name. */
+async function createCheckoutSession(
   client: StripeClient,
   args: CheckoutArgs,
   idempotencyKey: string,
 ): Promise<CheckoutSessionCreated> {
-  const verdict = validateOfficeName(args.officeName);
-  if (!verdict.ok) throw new Error(verdict.reason);
-
   const res = await client.post(
     "/v1/checkout/sessions",
     checkoutParams(args),

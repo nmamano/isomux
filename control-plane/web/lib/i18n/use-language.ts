@@ -50,7 +50,7 @@ export function useLanguage(): SupportedLanguageCode {
  * language resolution with it. A value we do not serve is null here, the same
  * answer the server resolver gives.
  */
-export function languageCookieValue(
+function languageCookieValue(
   cookieString: string,
 ): SupportedLanguageCode | null {
   for (const part of cookieString.split(";")) {

@@ -154,6 +154,15 @@ describe("resolveInBrowser", () => {
     expect(resolveInBrowser()).toBe("ca");
   });
 
+  test("the cookie is found only by its own name, with spaces around it", () => {
+    browser(" isomux_lang = ca ", ["es"]);
+    expect(resolveInBrowser()).toBe("ca");
+    browser("other=1; isomux_lang=zh", ["es"]);
+    expect(resolveInBrowser()).toBe("zh");
+    browser("other_isomux_lang=ca", ["es"]);
+    expect(resolveInBrowser()).toBe("es");
+  });
+
   test("a malformed cookie value falls back instead of throwing", () => {
     // `decodeURIComponent("%")` throws a URIError, and this runs inside the
     // hydration effect: a throw here would take the page's whole language

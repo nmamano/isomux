@@ -154,58 +154,64 @@ describe("the email change mails", () => {
     expect([notice.body.to].flat()).toEqual(["customer.name@gmail.com"]);
     expect(String(notice.body.text)).toContain("work@example.com");
   });
-
-  test("a failed send of either is a value, not a rejection", async () => {
-    captureConsole();
-    const { fetch } = recorder(() => {
-      throw new TypeError("fetch failed");
-    });
-    const change = await sendEmailChangeMail(
-      { to: "work@example.com", link: CHANGE_LINK, language: "en" },
-      { apiKey: KEY, fetch },
-    );
-    const notice = await sendEmailChangedNotice(
-      { to: "old@example.com", newEmail: "work@example.com", language: "en" },
-      { apiKey: KEY, fetch },
-    );
-    expect([change.ok, notice.ok]).toEqual([false, false]);
-    expect(logged.join("\n")).not.toContain(KEY);
-  });
 });
 
 describe("a send that fails", () => {
-  test("a refusal from Resend is a value, and neither it nor the log carries the key", async () => {
-    captureConsole();
-    const { fetch } = recorder(
-      () =>
-        new Response(
-          JSON.stringify({
-            name: "rate_limit_exceeded",
-            message: "daily quota",
-          }),
-          { status: 429 },
+  test("a refusal or a network failure is a value, and neither it nor the log carries the key", async () => {
+    // All three mails share one sender; each is driven through it.
+    const senders = [
+      (fetch: typeof globalThis.fetch) =>
+        sendSignInMail(
+          { to: "a@example.com", link: LINK, language: "en" },
+          { apiKey: KEY, fetch },
         ),
-    );
-    const result = await sendSignInMail(
-      { to: "a@example.com", link: LINK, language: "en" },
-      { apiKey: KEY, fetch },
-    );
-    expect(result.ok).toBe(false);
-    expect(JSON.stringify(result)).not.toContain(KEY);
-    expect(logged.join("\n")).not.toContain(KEY);
-  });
-
-  test("a network failure is a value too, not a rejection", async () => {
+      (fetch: typeof globalThis.fetch) =>
+        sendEmailChangeMail(
+          {
+            to: "work@example.com",
+            link: "https://hosted.example.com/account/email#token=abc.def",
+            language: "en",
+          },
+          { apiKey: KEY, fetch },
+        ),
+      (fetch: typeof globalThis.fetch) =>
+        sendEmailChangedNotice(
+          {
+            to: "old@example.com",
+            newEmail: "work@example.com",
+            language: "en",
+          },
+          { apiKey: KEY, fetch },
+        ),
+    ];
+    const failures: [string, () => Response][] = [
+      [
+        "refused",
+        () =>
+          new Response(
+            JSON.stringify({
+              name: "rate_limit_exceeded",
+              message: "daily quota",
+            }),
+            { status: 429 },
+          ),
+      ],
+      [
+        "unreachable",
+        () => {
+          throw new TypeError("fetch failed");
+        },
+      ],
+    ];
     captureConsole();
-    const { fetch } = recorder(() => {
-      throw new TypeError("fetch failed");
-    });
-    const result = await sendSignInMail(
-      { to: "a@example.com", link: LINK, language: "en" },
-      { apiKey: KEY, fetch },
-    );
-    expect(result.ok).toBe(false);
-    expect(JSON.stringify(result)).not.toContain(KEY);
+    for (const [index, send] of senders.entries()) {
+      for (const [failure, answer] of failures) {
+        const { fetch } = recorder(answer);
+        const result = await send(fetch);
+        expect([index, failure, result.ok]).toEqual([index, failure, false]);
+        expect(JSON.stringify(result)).not.toContain(KEY);
+      }
+    }
     expect(logged.join("\n")).not.toContain(KEY);
   });
 });

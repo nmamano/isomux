@@ -148,7 +148,8 @@ beforeAll(() => {
   fs.chmodSync(path.join(work, "control-plane/deploy/vps/deploy.sh"), 0o755);
   git(work, "add", "-A");
   git(work, "commit", "-q", "-m", "deployed");
-  git(work, "remote", "add", "origin", origin);
+  // Relative, so a copy of the template points at its own origin.
+  git(work, "remote", "add", "origin", "../origin.git");
   git(work, "push", "-q", "origin", "HEAD:main");
   git(
     template,
@@ -158,6 +159,13 @@ beforeAll(() => {
     "main",
     origin,
     path.join(template, "src"),
+  );
+  git(
+    path.join(template, "src"),
+    "remote",
+    "set-url",
+    "origin",
+    "../origin.git",
   );
   deployed = git(work, "rev-parse", "HEAD");
 });
@@ -180,9 +188,6 @@ beforeEach(() => {
   execFileSync("cp", ["-a", `${template}/.`, dir]);
   work = path.join(dir, "work");
   src = path.join(dir, "src");
-  for (const clone of [work, src]) {
-    git(clone, "remote", "set-url", "origin", path.join(dir, "origin.git"));
-  }
   root = path.join(dir, "root");
   envDir = path.join(dir, "env");
   stub = path.join(dir, "stub");
@@ -305,19 +310,23 @@ describe("which commits deploy", () => {
     expect(deployCalls()).toEqual([]);
   });
 
-  for (const [what, files] of [
-    ["a web file", { "control-plane/web/app/page.tsx": "x\n" }],
-    ["a test file", { "control-plane/store.test.ts": "x\n" }],
-    ["the installer", { "deploy/install.sh": "x\n" }],
-    ["the root .dockerignore", { ".dockerignore": "*\n" }],
-    ["a deleted file", { "control-plane/store.ts": null }],
-  ] as const) {
-    test(`${what} is a Hosted input`, async () => {
+  test("web, test, installer, root .dockerignore and deleted files are Hosted inputs", async () => {
+    // One commit each, on top of the last one deployed.
+    for (const [what, files] of [
+      ["a web file", { "control-plane/web/app/page.tsx": "x\n" }],
+      ["a test file", { "control-plane/store.test.ts": "x\n" }],
+      ["the installer", { "deploy/install.sh": "x\n" }],
+      ["the root .dockerignore", { ".dockerignore": "*\n" }],
+      ["a deleted file", { "control-plane/store.ts": null }],
+    ] as const) {
       const t = commit(files);
       api.runs = [green(t)];
-      expect(await tick()).toMatchObject({ result: "deployed", deployed: t });
-    });
-  }
+      expect([what, await tick()]).toMatchObject([
+        what,
+        { result: "deployed", deployed: t },
+      ]);
+    }
+  });
 
   test("a rename into control-plane and one out of it are both inputs", async () => {
     commit({ "docs/moved.md": "x\n" });
@@ -451,26 +460,31 @@ describe("which commits deploy", () => {
 });
 
 describe("fail closed", () => {
-  for (const [what, answer] of [
-    ["a 500", { status: 500, body: "{}" }],
-    ["a rate limit", { status: 403, body: '{"message":"rate limit"}' }],
-    ["an answer that is not JSON", { status: 200, body: "not json" }],
-    [
-      "a run without its fields",
-      { status: 200, body: '{"workflow_runs":[{"head_sha":"zz"}]}' },
-    ],
-    ["an answer without runs", { status: 200, body: '{"runs":[]}' }],
-  ] as const) {
-    test(`${what} is a tick error that marks no commit`, async () => {
-      change();
+  test("an API answer it cannot use is a tick error that marks no commit", async () => {
+    change();
+    // A refused status carries a usable body, so only the status refuses it.
+    const runs = '{"workflow_runs":[]}';
+    for (const [what, answer] of [
+      ["a 500", { status: 500, body: runs }],
+      ["a rate limit", { status: 403, body: runs }],
+      ["an answer that is not JSON", { status: 200, body: "not json" }],
+      [
+        "a run without its fields",
+        { status: 200, body: '{"workflow_runs":[{"head_sha":"zz"}]}' },
+      ],
+      ["an answer without runs", { status: 200, body: '{"runs":[]}' }],
+    ] as const) {
       api.answer = answer;
       const status = await tick();
-      expect(status).toMatchObject({ result: "tick_error", phase: "api" });
-      expect(status.tick_error_since).not.toBeNull();
-      expect(deployCalls()).toEqual([]);
-      expect(failedList()).toEqual([]);
-    });
-  }
+      expect([what, status]).toMatchObject([
+        what,
+        { result: "tick_error", phase: "api" },
+      ]);
+      expect([what, status.tick_error_since]).not.toEqual([what, null]);
+    }
+    expect(deployCalls()).toEqual([]);
+    expect(failedList()).toEqual([]);
+  });
 
   test("a tick error keeps its start, and clears on the next run that reads the API", async () => {
     const t = change();
@@ -511,17 +525,6 @@ describe("fail closed", () => {
     expect(await tick()).toMatchObject({
       result: "refused",
       phase: "install",
-    });
-    expect(deployCalls()).toEqual([]);
-  });
-
-  test("a hold deploys nothing", async () => {
-    api.runs = [green(change())];
-    fs.writeFileSync(path.join(envDir, "auto-deploy.hold"), "");
-    expect(await tick()).toMatchObject({
-      result: "held",
-      held: true,
-      deployed,
     });
     expect(deployCalls()).toEqual([]);
   });
@@ -681,11 +684,6 @@ describe("a failed deploy", () => {
 });
 
 describe("the installed units", () => {
-  test("units that were never installed are left alone", async () => {
-    expect((await tick()).units).toBe("absent");
-    expect(fs.readdirSync(units)).toEqual([]);
-  });
-
   test("installed units follow the release's copies", async () => {
     for (const name of UNITS) fs.writeFileSync(path.join(units, name), "old\n");
     expect((await tick()).units).toBe("ok");
@@ -737,8 +735,10 @@ describe("the installed units", () => {
   });
 });
 
-test("the status file holds exactly the documented fields", async () => {
+test("the status file holds exactly the documented fields, and uninstalled units are left alone", async () => {
   const status = await tick();
+  expect(status.units).toBe("absent");
+  expect(fs.readdirSync(units)).toEqual([]);
   expect(Object.keys(status).sort()).toEqual(
     [
       "deployed",
@@ -758,13 +758,18 @@ test("the status file holds exactly the documented fields", async () => {
   expect(Date.parse(status.tick_at)).not.toBeNaN();
 });
 
-test("waiting_since is shown only while waiting", async () => {
-  change();
+test("a hold deploys nothing, and waiting_since is shown only while waiting", async () => {
+  const t = change();
   expect((await tick()).waiting_since).not.toBeNull();
+  // Now deployable, but held.
+  api.runs = [green(t)];
   fs.writeFileSync(path.join(envDir, "auto-deploy.hold"), "");
   expect(await tick()).toMatchObject({
     result: "held",
+    held: true,
+    deployed,
     waiting: false,
     waiting_since: null,
   });
+  expect(deployCalls()).toEqual([]);
 });

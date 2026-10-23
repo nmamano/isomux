@@ -105,39 +105,15 @@ describe("customer payment failures", () => {
     }
   });
 
-  test("a transient failure keeps its own sentence, and the reservation fact", () => {
-    const configuration = customerFailure(
-      "en",
-      "configuration",
-      "checkout_reserved",
-      "bad key",
-      CONTEXT,
-      { newReference: () => "PAY-AAAAAAAAAA", log: () => {} },
-    );
-    const transient = customerFailure(
-      "en",
-      "transient",
-      "checkout_reserved",
-      "timeout",
-      CONTEXT,
-      { newReference: () => "PAY-BBBBBBBBBB", log: () => {} },
-    );
-
-    expect(configuration).not.toBe(
-      transient.replace("PAY-BBBBBBBBBB", "PAY-AAAAAAAAAA"),
-    );
-    expect(transient).toBe(
-      "We could not open a payment page just now. Your name is reserved, so try again in a moment. Reference: PAY-BBBBBBBBBB.",
-    );
-  });
-
   test("capitalizes only explicitly safe refusals", () => {
     expect(
       safeCustomerReason("en", "we do not recognise this account", CONTEXT),
     ).toBe("We do not recognise this account.");
-    expect(safeCustomerReason("en", '"acme" is taken', CONTEXT)).toBe(
-      'Request refused: "acme" is taken.',
-    );
+    // A refusal that starts with neither letter case gets a lead-in, not a
+    // changed first character.
+    const quoted = safeCustomerReason("en", '"acme" is taken', CONTEXT);
+    expect(quoted).toMatch(/^\p{Lu}/u);
+    expect(quoted.endsWith('"acme" is taken.')).toBe(true);
   });
 
   test("makes an empty safe refusal opaque and traceable, and logs who it happened to", () => {
@@ -187,51 +163,36 @@ describe("customer payment failures", () => {
     expect(shown).toContain("PAY-3F0A9C21B7");
   });
 
-  test("a payment failure is worded in the request's language", () => {
+  test("a failure is worded by its kind and surface in the request's language, then the reference", () => {
     const reference = { newReference: () => "PAY-0123456789", log: () => {} };
-    expect(
-      customerFailure(
-        "es",
+    const cases = [
+      ["es", "transient", "payments", "errors.providerTransient"],
+      [
+        "en",
         "transient",
-        "payments",
-        "timeout",
-        CONTEXT,
-        reference,
-      ),
-    ).toBe(
-      "No hemos podido contactar con nuestro proveedor de pagos ahora mismo. " +
-        "Vuelve a intentarlo en un momento. Referencia: PAY-0123456789.",
-    );
-    const { t } = translatorFor("ca");
-    expect(
-      customerFailure(
+        "checkout_reserved",
+        "errors.checkoutReservedTransient",
+      ],
+      [
         "ca",
         "configuration",
         "checkout_reserved",
-        "x",
-        CONTEXT,
-        reference,
-      ),
-    ).toBe(
-      `${t("errors.checkoutReservedConfiguration", { support: SUPPORT_EMAIL })}` +
-        referenceSentence("ca", "PAY-0123456789"),
-    );
-  });
-
-  test("the reference code is byte-identical in every language", () => {
-    const reference = { newReference: () => "PAY-0123456789", log: () => {} };
-    for (const language of ["en", "es", "ca"] as const) {
-      const shown = customerFailure(
+        "errors.checkoutReservedConfiguration",
+      ],
+    ] as const;
+    for (const [language, kind, surface, key] of cases) {
+      const { t } = translatorFor(language);
+      const sentence = (t as (k: string, v: object) => string)(key, {
+        support: SUPPORT_EMAIL,
+      });
+      expect([
         language,
-        "transient",
-        "payments",
-        "timeout",
-        CONTEXT,
-        reference,
-      );
-      expect([language, shown.includes("PAY-0123456789")]).toEqual([
+        surface,
+        customerFailure(language, kind, surface, "x", CONTEXT, reference),
+      ]).toEqual([
         language,
-        true,
+        surface,
+        sentence + referenceSentence(language, "PAY-0123456789"),
       ]);
     }
   });

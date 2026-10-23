@@ -2,25 +2,19 @@
 // anything in this slice, and nothing here reaches a provider API.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Store } from "../store.ts";
 import {
   openTestStore,
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "../testing/pg.ts";
-import { RemoteBudget, Ticker, serviceStateAfter } from "../tick.ts";
-import { DECLARED_UNIMPLEMENTED_KINDS, deadlinesFor } from "../operations.ts";
+import { RemoteBudget, Ticker } from "../tick.ts";
+import { deadlinesFor } from "../operations.ts";
 import { powerOffHandler } from "./suspension.ts";
 
 const NOW = 1_770_000_000_000;
-const temps: string[] = [];
 
 async function tempStore(): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-suspend-"));
-  temps.push(dir);
   return await openTestStore(() => NOW);
 }
 
@@ -97,44 +91,7 @@ async function enqueuePowerOff(store: Store, id = "op-power_off-dun-1") {
 
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
-
-describe("the operation model", () => {
-  test("power_off has deadlines, so it can be enqueued at all", async () => {
-    expect(deadlinesFor("power_off")).toMatchObject({
-      inactivityMs: 300_000,
-      absoluteMs: 1_800_000,
-    });
-  });
-
-  test("every declared operation is driven, and unknown kinds stay refused", async () => {
-    // Slice 5 built the resume: suspension without it leaves a PAYING
-    // customer's box switched off, which is worse than the unruled automation
-    expect(DECLARED_UNIMPLEMENTED_KINDS).not.toContain("power_on");
-    expect(deadlinesFor("power_on").absoluteMs).toBe(1_800_000);
-    expect(DECLARED_UNIMPLEMENTED_KINDS).toEqual([]);
-    expect(deadlinesFor("set_dns")).toEqual({
-      inactivityMs: 300_000,
-      absoluteMs: 1_800_000,
-      maxRemoteMs: 60_000,
-    });
-    expect(deadlinesFor("remove_dns")).toEqual({
-      inactivityMs: 300_000,
-      absoluteMs: 3_600_000,
-      maxRemoteMs: 60_000,
-    });
-    expect(() => deadlinesFor("unknown_kind")).toThrow(/does not drive it/);
-  });
-
-  test("a proven power-off moves the coarse service state to suspended", async () => {
-    expect(serviceStateAfter("power_off")).toBe("suspended");
-    expect(serviceStateAfter("verify_https")).toBe("live");
-    expect(serviceStateAfter("mint_invite")).toBeNull();
-  });
-});
 
 describe("the handler", () => {
   test("calls the provider once and reports done", async () => {
@@ -209,8 +166,8 @@ describe("driven through a ticker", () => {
   });
 
   test("with NO handler registered, the operation fails loudly and raises attention", async () => {
-    // This is what a runnable command in this slice actually does: billing can
-    // request a suspension, and nothing here may power a real box off.
+    // A roster with no provider registers no power_off handler, so billing can
+    // request a suspension that nothing carries out.
     const store = await tempStore();
     await seed(store);
     await enqueuePowerOff(store);

@@ -70,7 +70,7 @@ export type StripeResult =
  * Cross-check a credential against configured mode. Live accepts restricted
  * keys only, so a public-web compromise cannot inherit account-wide authority.
  */
-export function assertStripeKey(key: string, mode: StripeMode): void {
+function assertStripeKey(key: string, mode: StripeMode): void {
   if (mode === "live" && /^sk_live_/.test(key)) {
     throw new StripeKeyRefused(
       "the public web tier and provisioner require a restricted rk_live_ key; refusing an sk_live_ account key",

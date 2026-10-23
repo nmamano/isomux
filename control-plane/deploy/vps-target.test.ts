@@ -100,22 +100,17 @@ describe("the compose project", () => {
     for (const port of published) expect(port).toStartWith("127.0.0.1:");
   });
 
-  test("each service has its ceiling and no swap beyond it", () => {
-    const ceilings = Object.fromEntries(
-      ["db", "provisioner", "web"].map((name) => [
+  test("each service has a ceiling and no swap beyond it", () => {
+    // The figures are sizing policy (control-plane/README.md); what must hold
+    // is that every service has them.
+    for (const [name, service] of Object.entries(services)) {
+      expect({
         name,
-        [
-          services[name].cpus,
-          services[name].mem_limit,
-          services[name].memswap_limit,
-        ],
-      ]),
-    );
-    expect(ceilings).toEqual({
-      db: [1, "2g", "2g"],
-      provisioner: [0.5, "512m", "512m"],
-      web: [0.5, "768m", "768m"],
-    });
+        cpus: typeof service.cpus === "number" && service.cpus > 0,
+        memory: /^\d+[mg]$/.test(service.mem_limit ?? ""),
+        swap: service.memswap_limit === service.mem_limit,
+      }).toEqual({ name, cpus: true, memory: true, swap: true });
+    }
   });
 
   test("the provisioner state root is a named volume at the image's home", () => {

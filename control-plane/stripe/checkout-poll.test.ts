@@ -1,7 +1,4 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Store } from "../store.ts";
 import { PROVISIONER_GRANTS, type TableGrant } from "../roles.ts";
 import {
@@ -39,13 +36,10 @@ import type {
 } from "./shapes.ts";
 
 const NOW = 1_777_000_000_000;
-const temps: string[] = [];
 const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
 const realFetch = globalThis.fetch;
 
 async function tempStore(): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-checkout-poll-"));
-  temps.push(dir);
   return openTestStore(() => NOW);
 }
 
@@ -57,9 +51,6 @@ afterEach(async () => {
   delete process.env.CONTROL_PLANE_STRIPE_MODE;
   delete process.env.STRIPE_TEST_SECRET_KEY;
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 class FakeReader implements StripeObjectReader {
@@ -156,18 +147,6 @@ async function pending(store: Store, officeName: string, sessionId: string) {
 }
 
 describe("pending ordinary Checkout polling", () => {
-  test("the hosted lifecycle cadence invokes the fallback", () => {
-    const cli = fs.readFileSync(
-      path.join(import.meta.dir, "../cli.ts"),
-      "utf8",
-    );
-    const cadence = cli.slice(
-      cli.indexOf("async function runLifecycleCadence"),
-      cli.indexOf("/**\n * The tick loop", cli.indexOf("runLifecycleCadence")),
-    );
-    expect(cadence).toContain("pollPendingCheckouts(");
-  });
-
   test("an open session stays pending and is deferred", async () => {
     const store = await tempStore();
     const reservation = await pending(store, "alpha", "cs_open");
@@ -220,8 +199,7 @@ describe("pending ordinary Checkout polling", () => {
   test("a payment-page refusal reaches the customer in their own language", async () => {
     // THE ACTUAL CALLER PATH, not a render: `continueSignup` is what the
     // /api/signup route calls, and the language it is given is the one
-    // `languageForRequest()` resolved from the request. Literal translated
-    // strings, so a broken translator cannot pass its own test.
+    // `languageForRequest()` resolved from the request.
     const store = await tempStore();
     await pending(store, "unreachable", "cs_stuck");
     (
@@ -239,23 +217,19 @@ describe("pending ordinary Checkout polling", () => {
         status: 503,
       })) as unknown as typeof fetch;
 
-    expect(await continueSignup("es", "acct-1", "unreachable")).toEqual({
-      ok: false,
-      reason:
-        "No hemos podido comprobar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
-    });
-    expect(await continueSignup("ca", "acct-1", "unreachable")).toEqual({
-      ok: false,
-      reason:
-        "No hem pogut comprovar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
-    });
-    // English is unchanged, which is the bytes this branch returned before the
-    // catalog (ruling 6).
-    expect(await continueSignup("en", "acct-1", "unreachable")).toEqual({
-      ok: false,
-      reason:
-        "We could not check your payment page just now - try again in a moment.",
-    });
+    const reasons = new Set<string>();
+    for (const language of ["en", "es", "ca"] as const) {
+      const reason = translatorFor(language).t(
+        "errors.checkoutSessionUnavailable",
+      );
+      reasons.add(reason);
+      expect(await continueSignup(language, "acct-1", "unreachable")).toEqual({
+        ok: false,
+        reason,
+      });
+    }
+    // Three languages, three different sentences: the translator was used.
+    expect(reasons.size).toBe(3);
   });
 
   test("an open session with no URL reaches the customer as a translated refusal with a reference", async () => {

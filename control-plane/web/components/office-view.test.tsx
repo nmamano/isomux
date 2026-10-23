@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProgressView } from "../lib/services.server";
 import { webTranslatorFor } from "../lib/i18n/rich";
+import { SUPPORT_EMAIL } from "../lib/support-email";
 import {
   anchoredNow,
   formatDuration,
@@ -15,8 +16,7 @@ import {
   Steps,
 } from "./office-view";
 
-/** Every existing assertion in this file is English, and stays English: the
- * pages default to it and the catalog move must not have changed a byte. */
+/** The page's default language; expectations read its catalog, not copies. */
 const english = webTranslatorFor("en");
 
 const baseView: ProgressView = {
@@ -75,11 +75,23 @@ function renderedWithLifecycle(
   );
 }
 
-function expectPolicyBefore(html: string, paymentLabel: string) {
-  for (const label of ["Terms of Service", "Privacy Policy", "Refund Policy"]) {
-    expect(html.indexOf(label)).toBeLessThan(html.indexOf(paymentLabel));
+const POLICY_HREFS = [
+  "https://isomux.com/hosted-terms",
+  "https://isomux.com/hosted-privacy",
+  "https://isomux.com/hosted-refund",
+];
+
+/** Every hosted policy link comes before the payment action `marker`. */
+function expectPolicyBefore(html: string, marker: string) {
+  const at = html.indexOf(marker);
+  expect([marker, at]).not.toEqual([marker, -1]);
+  for (const href of POLICY_HREFS) {
+    const link = html.indexOf(`href="${href}"`);
+    expect([href, link >= 0 && link < at]).toEqual([href, true]);
   }
 }
+
+const PAYMENT_SUBMIT = '<button class="btn-primary" type="submit"';
 
 test("durations use one compact format at every scale", () => {
   expect(formatDuration(12_999)).toBe("12s");
@@ -108,7 +120,11 @@ test("a running step is a silent timer anchored to control-plane time", () => {
     />,
   );
   expect(html).toContain('role="timer"');
-  expect(html).toContain('aria-label="running for 3 seconds"');
+  expect(html).toContain(
+    `aria-label="${english.t("office.runningFor", {
+      spoken: english.tn("office.duration.seconds", 3),
+    })}"`,
+  );
   expect(html).not.toContain("aria-live");
 });
 
@@ -261,7 +277,7 @@ test("suspended office shows policies before reinstatement payment", () => {
     poweredOff: true,
     reinstate: { allowed: true, reason: null },
   });
-  expectPolicyBefore(html, "Reinstate this office");
+  expectPolicyBefore(html, 'data-testid="reinstate-button"');
 });
 
 test("pending reinstatement shows policies before returning to payment", () => {
@@ -272,7 +288,7 @@ test("pending reinstatement shows policies before returning to payment", () => {
     poweredOff: true,
     reinstate: { allowed: true, reason: null },
   });
-  expectPolicyBefore(html, "Return to payment");
+  expectPolicyBefore(html, 'data-testid="reinstate-button"');
 });
 
 test("office without a payment action omits the policy notice", () => {
@@ -294,8 +310,8 @@ test("office without a payment action omits the policy notice", () => {
       instanceId={baseView.instanceId}
     />,
   );
-  expect(refused).not.toContain("Before you pay");
-  expect(healthy).not.toContain("Before you pay");
+  expect(refused).not.toContain(POLICY_HREFS[0]);
+  expect(healthy).not.toContain(POLICY_HREFS[0]);
 });
 
 test("a refused reinstatement reads in the reader's language, or the projection's sentence for an unknown code", () => {
@@ -361,8 +377,10 @@ test("an unpaid reservation owns its payment continuation and guidance", () => {
   );
   expect(html).toContain('name="signupIntent" value="continue"');
   expect(html).toContain('name="officeName" value="test-office"');
-  expectPolicyBefore(html, "Continue to payment");
-  expect(html).toContain('data-state="active">in progress</span>');
+  expectPolicyBefore(html, PAYMENT_SUBMIT);
+  expect(html).toContain(
+    `data-state="active">${english.t("stepState.active")}</span>`,
+  );
   expect(html).toContain('data-testid="restart-button" disabled=""');
 });
 
@@ -375,7 +393,9 @@ test("payment completes its ladder step and restart waits for provisioning", () 
     />,
   );
   expect(building).not.toContain('data-testid="payment-guidance"');
-  expect(building).toContain('data-state="done">done</span>');
+  expect(building).toContain(
+    `data-state="done">${english.t("stepState.done")}</span>`,
+  );
   expect(building).toContain('data-testid="restart-button" disabled=""');
 
   const ready = renderToStaticMarkup(
@@ -435,8 +455,7 @@ test("the top office link waits for a minted-or-adopted invite path", () => {
 });
 
 test("refund terms stay visible before and after cancellation is scheduled", () => {
-  const refund =
-    "You can request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we don't retain the server data for 14 days in case you want to restore it later.";
+  const refund = english.t("office.refundNotice", { address: SUPPORT_EMAIL });
   const active = {
     ...baseView,
     subscription: {

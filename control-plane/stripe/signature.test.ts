@@ -60,40 +60,21 @@ describe("a genuine delivery", () => {
 });
 
 describe("what must be refused", () => {
-  test("a payload signed over the body alone, without the timestamp", async () => {
-    // The mutation this guards: dropping `${t}.` from the signed material. A
-    // verifier that signed the body alone would accept this header.
-    const v1 = createHmac("sha256", SECRET)
+  test("a signature over other material, or with another secret", async () => {
+    // The first case guards dropping `${t}.` from the signed material: a
+    // verifier that signed the body alone would accept that header.
+    const bodyAlone = createHmac("sha256", SECRET)
       .update(PAYLOAD, "utf8")
       .digest("hex");
-    const verdict = verifySignature({
-      payload: PAYLOAD,
-      header: `t=${NOW_SEC},v1=${v1}`,
-      secret: SECRET,
-      now: NOW_MS,
-    });
-    expect(verdict).toMatchObject({ ok: false, failure: "no_match" });
-  });
-
-  test("a tampered payload", async () => {
-    const header = sign(PAYLOAD, NOW_SEC);
-    const verdict = verifySignature({
-      payload: PAYLOAD.replace("evt_1", "evt_2"),
-      header,
-      secret: SECRET,
-      now: NOW_MS,
-    });
-    expect(verdict).toMatchObject({ ok: false, failure: "no_match" });
-  });
-
-  test("the wrong secret", async () => {
-    const verdict = verifySignature({
-      payload: PAYLOAD,
-      header: sign(PAYLOAD, NOW_SEC, "whsec_SOMEONE_ELSES_SHAPE"),
-      secret: SECRET,
-      now: NOW_MS,
-    });
-    expect(verdict).toMatchObject({ ok: false, failure: "no_match" });
+    for (const [payload, header] of [
+      [PAYLOAD, `t=${NOW_SEC},v1=${bodyAlone}`],
+      [PAYLOAD.replace("evt_1", "evt_2"), sign(PAYLOAD, NOW_SEC)],
+      [PAYLOAD, sign(PAYLOAD, NOW_SEC, "whsec_SOMEONE_ELSES_SHAPE")],
+    ]) {
+      expect(
+        verifySignature({ payload, header, secret: SECRET, now: NOW_MS }),
+      ).toMatchObject({ ok: false, failure: "no_match" });
+    }
   });
 
   test("a timestamp older than the window", async () => {
@@ -136,21 +117,11 @@ describe("what must be refused", () => {
     }
   });
 
-  test("a missing header", async () => {
-    for (const header of [null, undefined, ""]) {
-      expect(
-        verifySignature({
-          payload: PAYLOAD,
-          header,
-          secret: SECRET,
-          now: NOW_MS,
-        }),
-      ).toMatchObject({ ok: false, failure: "malformed" });
-    }
-  });
-
-  test("a header with no v1, or no t, or a non-numeric t", async () => {
+  test("a missing header, or one with no v1, no t or a non-numeric t", async () => {
     for (const header of [
+      null,
+      undefined,
+      "",
       `t=${NOW_SEC}`,
       "v1=abc",
       `t=not-a-number,v1=abc`,

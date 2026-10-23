@@ -19,37 +19,32 @@ const TEST_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
 
 describe("ownership of a metadata-bearing object", () => {
   // Coupons, customers, prices, products. The tag is the ONLY proof.
-  test("our exact tag is proof", async () => {
-    expect(
-      ownsTaggedObject({ id: "co_1", metadata: { isomux_test: "slice3" } }),
-    ).toBe(true);
-  });
-
-  test("a cp3 NAME is not proof, and someone else's tag beats it", async () => {
-    // The fail-open path this replaces: one predicate accepted `tag OR name` for
-    // every type, so a coupon carrying slice5's tag was deleted because we happened
-    // to have named something similarly.
-    expect(
-      ownsTaggedObject({
-        id: "co_2",
-        name: "cp3 comped one month",
-        metadata: { isomux_test: "slice5" },
-      }),
-    ).toBe(false);
-    expect(ownsTaggedObject({ id: "co_3", name: "cp3 anything" })).toBe(false);
-  });
-
-  test("a missing, wrong-shaped or near-miss tag is not ours", async () => {
-    expect(ownsTaggedObject({ id: "co_4" })).toBe(false);
-    expect(
-      ownsTaggedObject({ id: "co_5", metadata: "isomux_test=slice3" }),
-    ).toBe(false);
-    expect(
-      ownsTaggedObject({ id: "co_6", metadata: { isomux_test: "slice3 " } }),
-    ).toBe(false);
-    expect(
-      ownsTaggedObject({ id: "co_7", metadata: { isomux_test: "SLICE3" } }),
-    ).toBe(false);
+  test("only our exact tag is proof", async () => {
+    // A name is not a fallback: one predicate once accepted `tag OR name` for
+    // every type, so a coupon carrying slice5's tag was deleted because we
+    // happened to have named something similarly.
+    const cases: [Record<string, unknown>, boolean][] = [
+      [{ id: "co_1", metadata: { isomux_test: "slice3" } }, true],
+      [
+        {
+          id: "co_2",
+          name: "cp3 comped one month",
+          metadata: { isomux_test: "slice5" },
+        },
+        false,
+      ],
+      [{ id: "co_3", name: "cp3 anything" }, false],
+      [{ id: "co_4" }, false],
+      [{ id: "co_5", metadata: "isomux_test=slice3" }, false],
+      [{ id: "co_6", metadata: { isomux_test: "slice3 " } }, false],
+      [{ id: "co_7", metadata: { isomux_test: "SLICE3" } }, false],
+    ];
+    for (const [object, owned] of cases) {
+      expect({ id: object.id, owned: ownsTaggedObject(object) }).toEqual({
+        id: object.id,
+        owned,
+      });
+    }
   });
 
   test("a customer we create carries the tag, so cleanup can find it", async () => {
@@ -65,21 +60,20 @@ describe("ownership of a metadata-bearing object", () => {
 describe("ownership of a test clock", () => {
   // A clock has no metadata field at all, so its name is the only signal - and this
   // is the ONLY type where a name counts.
-  test("a cp3 name is proof", async () => {
-    expect(ownsClock({ name: "cp3-comped" })).toBe(true);
-  });
-
-  test("someone else's clock, and an unnamed one, are kept", async () => {
-    expect(ownsClock({ name: "someone-elses-clock" })).toBe(false);
-    expect(ownsClock({ name: null })).toBe(false);
-  });
-
   test("the match is the NAMESPACE we mint into, not the bare prefix", async () => {
     // We only ever create `cp3-<label>`. Anything else that merely begins with the
     // three characters belongs to somebody else, and on a shared account that
     // difference is whose clock gets deleted.
     expect(ownsClock({ name: "cp3-dunning" })).toBe(true);
-    for (const name of ["cp3", "cp30", "cp3other", "cp3rd-party", "CP3-x"]) {
+    for (const name of [
+      "someone-elses-clock",
+      null,
+      "cp3",
+      "cp30",
+      "cp3other",
+      "cp3rd-party",
+      "CP3-x",
+    ]) {
       expect({ name, owned: ownsClock({ name }) }).toEqual({
         name,
         owned: false,
@@ -95,6 +89,7 @@ describe("selecting what to delete", () => {
       { id: "clock_theirs", name: "someone-elses" },
       { id: "clock_anonymous" },
       { id: "co_tagged", metadata: { isomux_test: "slice3" } },
+      { id: "co_theirs", metadata: { isomux_test: "slice5" } },
     ];
     const picked = selectOwned(objects, (o) =>
       "metadata" in o
@@ -108,20 +103,8 @@ describe("selecting what to delete", () => {
         id: "clock_anonymous",
         why: "no name and no metadata, so ownership cannot be established",
       },
+      { id: "co_theirs", why: "carries someone else's ownership tag" },
     ]);
-  });
-
-  test("an empty account selects nothing rather than everything", async () => {
-    expect(selectOwned([], ownsTaggedObject).owned).toEqual([]);
-  });
-
-  test("a foreign tag is skipped with a reason that says so", async () => {
-    const picked = selectOwned(
-      [{ id: "co_theirs", metadata: { isomux_test: "slice5" } }],
-      ownsTaggedObject,
-    );
-    expect(picked.owned).toEqual([]);
-    expect(picked.skipped[0].why).toContain("someone else's ownership tag");
   });
 });
 

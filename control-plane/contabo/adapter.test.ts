@@ -65,38 +65,23 @@ function row(id: number, displayName: string) {
 }
 
 describe("get preserves the transport's outcome class", () => {
-  test("a transport failure is indeterminate, not a refusal", async () => {
-    const { adapter } = adapterOver([{ status: 0, throws: "socket hang up" }]);
-    let thrown: unknown;
-    try {
-      await adapter.get("203474835");
-    } catch (err) {
-      thrown = err;
-    }
+  test("a transport failure, a 5xx or a 2xx with no readable row is indeterminate, not a refusal", async () => {
     // "failed" downstream would claim we learned the instance was gone.
-    expect(thrown).toBeInstanceOf(IndeterminateProviderError);
-  });
-
-  test("a 5xx is indeterminate too", async () => {
-    const { adapter } = adapterOver([{ status: 503 }]);
-    let thrown: unknown;
-    try {
-      await adapter.get("203474835");
-    } catch (err) {
-      thrown = err;
+    for (const reply of [
+      { status: 0, throws: "socket hang up" },
+      { status: 503 },
+      { status: 200, body: { data: [] } },
+    ]) {
+      const { adapter } = adapterOver([reply]);
+      const thrown = await adapter.get("203474835").then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect([reply, thrown instanceof IndeterminateProviderError]).toEqual([
+        reply,
+        true,
+      ]);
     }
-    expect(thrown).toBeInstanceOf(IndeterminateProviderError);
-  });
-
-  test("a 2xx with no readable row is indeterminate", async () => {
-    const { adapter } = adapterOver([{ status: 200, body: { data: [] } }]);
-    let thrown: unknown;
-    try {
-      await adapter.get("203474835");
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(IndeterminateProviderError);
   });
 
   test("a 404 is a real answer: the instance is absent", async () => {
@@ -191,48 +176,24 @@ describe("find", () => {
 });
 
 describe("create outcome classes", () => {
-  test("a 5xx is ambiguous, never rejected", async () => {
-    const { adapter } = adapterOver([{ status: 503 }]);
-    const out = await adapter.create({
-      intentId: INTENT,
-      plan: "V153",
-      region: "EU",
-      publicKeys: [1],
-    });
-    expect(out.outcome).toBe("ambiguous");
-  });
-
-  test("a dropped connection is ambiguous", async () => {
-    const { adapter } = adapterOver([{ status: 0, throws: "socket hang up" }]);
-    const out = await adapter.create({
-      intentId: INTENT,
-      plan: "V153",
-      region: "EU",
-      publicKeys: [1],
-    });
-    expect(out.outcome).toBe("ambiguous");
-  });
-
-  test("a 4xx is a rejection: nothing was spent", async () => {
-    const { adapter } = adapterOver([{ status: 400 }]);
-    const out = await adapter.create({
-      intentId: INTENT,
-      plan: "V153",
-      region: "EU",
-      publicKeys: [1],
-    });
-    expect(out.outcome).toBe("rejected");
-  });
-
-  test("an accepted order with no readable instanceId is ambiguous, not created", async () => {
-    const { adapter } = adapterOver([{ status: 201, body: { data: [{}] } }]);
-    const out = await adapter.create({
-      intentId: INTENT,
-      plan: "V153",
-      region: "EU",
-      publicKeys: [1],
-    });
-    expect(out.outcome).toBe("ambiguous");
+  test("a 4xx is a rejection; a 5xx, a dropped connection or an order with no readable instanceId is ambiguous", async () => {
+    // Rejected means nothing was spent; anything that cannot say so is
+    // ambiguous, never rejected and never created.
+    for (const [reply, outcome] of [
+      [{ status: 400 }, "rejected"],
+      [{ status: 503 }, "ambiguous"],
+      [{ status: 0, throws: "socket hang up" }, "ambiguous"],
+      [{ status: 201, body: { data: [{}] } }, "ambiguous"],
+    ] as const) {
+      const { adapter } = adapterOver([reply]);
+      const out = await adapter.create({
+        intentId: INTENT,
+        plan: "V153",
+        region: "EU",
+        publicKeys: [1],
+      });
+      expect([reply, out.outcome]).toEqual([reply, outcome]);
+    }
   });
 
   test("stamps the intent into displayName and sends defaultUser explicitly", async () => {

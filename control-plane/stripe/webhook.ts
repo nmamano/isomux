@@ -36,7 +36,7 @@ import type {
 import { verifySignature } from "./signature.ts";
 
 /** An event disagreed with configured mode. Nothing is read or written. */
-export class StripeModeEventRefused extends Error {}
+class StripeModeEventRefused extends Error {}
 
 /** The events the design names as the writers of subscription state. */
 export const HANDLED_EVENT_TYPES = [
@@ -410,9 +410,8 @@ export class WebhookProcessor {
  *
  * A missing or non-boolean `livemode` is refused just as hard as `true`: treating
  * absence as "probably test mode" is precisely how live data would get through.
- * Exported so a test can hold the rule on its own, without a signature or a store.
  */
-export function assertStripeModeEvent(
+function assertStripeModeEvent(
   event: Record<string, unknown>,
   mode: StripeMode,
 ): void {

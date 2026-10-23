@@ -120,14 +120,22 @@ test("a plural pair has both forms in every language", () => {
 });
 
 test("tn picks the form and fills {count}", () => {
-  const en_ = translatorFor("en");
-  expect(en_.tn("office.duration.hours", 1)).toBe("1 hour");
-  expect(en_.tn("office.duration.hours", 2)).toBe("2 hours");
-  expect(en_.tn("office.duration.seconds", 0)).toBe("0 seconds");
-  expect(translatorFor("ca").tn("office.duration.minutes", 1)).toBe("1 minut");
-  expect(translatorFor("es").tn("office.duration.minutes", 3)).toBe(
-    "3 minutos",
-  );
+  const cases = [
+    ["en", "office.duration.hours", 1, "one"],
+    ["en", "office.duration.hours", 2, "other"],
+    ["en", "office.duration.seconds", 0, "other"],
+    ["ca", "office.duration.minutes", 1, "one"],
+    ["es", "office.duration.minutes", 3, "other"],
+  ] as const;
+  for (const [code, base, count, form] of cases) {
+    const catalog = CATALOGS[code] as Record<string, string>;
+    expect([code, base, count, translatorFor(code).tn(base, count)]).toEqual([
+      code,
+      base,
+      count,
+      catalog[`${base}.${form}`].replace("{count}", String(count)),
+    ]);
+  }
 });
 
 test("an unknown key falls back to English, then to the key itself", () => {
@@ -157,9 +165,6 @@ test("a key an id can reach takes no placeholder", () => {
   for (const key of KEYS) {
     if (!reachable.some((prefix) => key.startsWith(prefix))) continue;
     for (const language of SUPPORTED_LANGUAGES) {
-      expect([language.code, key, CATALOGS[language.code][key]]).not.toContain(
-        "{",
-      );
       expect([
         language.code,
         key,

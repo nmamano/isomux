@@ -8,7 +8,6 @@ import {
   languageFromCookie,
   languageFromNavigator,
 } from "./languages";
-import { languageCookieValue } from "./use-language";
 
 test("Accept-Language picks the highest-quality supported language", () => {
   expect(languageFromAcceptLanguage("es-ES")).toBe("es");
@@ -38,14 +37,10 @@ test("Accept-Language falls back to English on anything it cannot use", () => {
   expect(languageFromAcceptLanguage("es_ES")).toBe("en");
 });
 
-test("the browser's list is read in preference order, not first entry only", () => {
-  // THE CASE THE SINGLE VALUE HIDES: an unsupported first preference must not
-  // shadow a supported second one.
-  expect(languageFromNavigator(["fr-FR", "ca", "en"], "fr-FR")).toBe("ca");
+test("a region subtag reads as its language; with no list the single value decides", () => {
+  // The list order itself is held through its caller, resolveInBrowser
+  // (use-language.test.ts).
   expect(languageFromNavigator(["ca-ES", "es"], "ca-ES")).toBe("ca");
-  expect(languageFromNavigator(["es-419"], "es-419")).toBe("es");
-  expect(languageFromNavigator(["de", "fr"], "de")).toBe("en");
-  // No list: the single value is the fallback.
   expect(languageFromNavigator(undefined, "es-MX")).toBe("es");
   expect(languageFromNavigator([], "ca")).toBe("ca");
   expect(languageFromNavigator(null, null)).toBe("en");
@@ -60,18 +55,8 @@ test("the cookie is read only when it names a language we serve", () => {
   expect(languageFromCookie(undefined)).toBeNull();
 });
 
-test("the cookie is found among other cookies, and only by its own name", () => {
-  expect(languageCookieValue("isomux_lang=ca")).toBe("ca");
-  expect(languageCookieValue("a=1; isomux_lang=es; b=2")).toBe("es");
-  expect(languageCookieValue(" isomux_lang = ca ")).toBe("ca");
-  expect(languageCookieValue("other_isomux_lang=ca")).toBeNull();
-  expect(languageCookieValue("isomux_lang=fr")).toBeNull();
-  expect(languageCookieValue("")).toBeNull();
-});
-
-test("Chinese is supported in headers, browser lists and saved cookies", () => {
+test("Chinese is supported in headers, browser lists and the cookie value", () => {
   expect(languageFromAcceptLanguage("zh-CN, en;q=0.8")).toBe("zh");
   expect(languageFromNavigator(["fr", "zh-Hans-CN"], "fr")).toBe("zh");
   expect(languageFromCookie("zh")).toBe("zh");
-  expect(languageCookieValue("other=1; isomux_lang=zh")).toBe("zh");
 });

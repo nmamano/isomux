@@ -1,31 +1,20 @@
-// What may live in `fixtures/`, and the live-mode fixture that proves the refusal.
+// What may live in `fixtures/`, and what the recorded deliveries prove.
 //
 // A recorded Stripe body carries customer details, so the rule is not only "no
 // secrets": emails, names, addresses, card data and session URLs are scrubbed
 // before a recording lands here, and synthetic fixtures are preferred for unit
 // tests. This file is what makes those rules checkable rather than remembered.
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { createHmac } from "node:crypto";
+import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import {
-  openTestStore,
-  PG_TEST_HOOK_TIMEOUT_MS,
-  releaseTestStores,
-} from "../testing/pg.ts";
-import { listEvents, listSubscriptions } from "./billing-store.ts";
-import type { StripeObjectReader } from "./reader.ts";
 import {
   normalizeInvoice,
   normalizeSession,
   normalizeSubscription,
 } from "./shapes.ts";
-import { WebhookProcessor } from "./webhook.ts";
 
 const FIXTURES = path.join(import.meta.dir, "fixtures");
-const SECRET = "whsec_NOT_A_REAL_SECRET_ONLY_A_SHAPE";
-const temps: string[] = [];
 
 /**
  * A CREDENTIAL, as opposed to a placeholder that merely starts the same way.
@@ -80,15 +69,8 @@ function fixtureFiles(): string[] {
     .map((f) => path.join(FIXTURES, f));
 }
 
-afterEach(async () => {
-  await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}, PG_TEST_HOOK_TIMEOUT_MS);
-
 describe("the fixtures directory", () => {
-  test("holds at least the live-mode refusal fixture", async () => {
+  test("is not empty", async () => {
     // Otherwise the scans below would pass by having nothing to scan.
     expect(fixtureFiles().length).toBeGreaterThan(0);
   });
@@ -128,52 +110,6 @@ describe("the fixtures directory", () => {
       };
       expect(typeof parsed.livemode).toBe("boolean");
     }
-  });
-});
-
-describe("the synthetic live-mode delivery", () => {
-  test("is refused with a valid signature, and nothing is fetched or written", async () => {
-    const store = await openTestStore(() => 1_770_000_000_000);
-    const calls: string[] = [];
-    const reader: StripeObjectReader = {
-      getSubscription: async (id) => {
-        calls.push(id);
-        return { kind: "absent" };
-      },
-      getInvoice: async (id) => {
-        calls.push(id);
-        return { kind: "absent" };
-      },
-      getCheckoutSession: async (id) => {
-        calls.push(id);
-        return { kind: "absent" };
-      },
-    };
-    const processor = new WebhookProcessor({
-      store,
-      reader,
-      secret: SECRET,
-      mode: "test",
-      now: () => 1_770_000_000_000,
-    });
-
-    const raw = fs.readFileSync(
-      path.join(FIXTURES, "livemode-subscription-updated.json"),
-      "utf8",
-    );
-    const t = 1_770_000_000;
-    const v1 = createHmac("sha256", SECRET)
-      .update(`${t}.${raw}`, "utf8")
-      .digest("hex");
-
-    const outcome = await processor.handle(raw, `t=${t},v1=${v1}`);
-    expect(outcome).toMatchObject({ status: 400, kind: "refused" });
-    // The signature was GOOD. The refusal is about the mode, and it happens before
-    // anything is read or written.
-    expect(calls).toEqual([]);
-    expect(await listEvents(store)).toEqual([]);
-    expect(await listSubscriptions(store)).toEqual([]);
-    await store.close();
   });
 });
 

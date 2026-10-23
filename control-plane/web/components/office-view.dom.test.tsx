@@ -344,29 +344,30 @@ async function askForInvite(language: SupportedLanguageCode): Promise<void> {
   });
 }
 
-for (const { code: language } of SUPPORTED_LANGUAGES) {
-  test.each(REVEAL_STATUSES)(
-    `${language}: an invite the poll answers %s is worded by its status, never by the seam's reason`,
-    async (status, httpStatus, key) => {
-      answers = {
-        "/api/invite": () => Response.json({ ok: true, operationId: "op-1" }),
-        "/api/invite/reveal": () =>
-          Response.json(
-            { status, reason: "the seam's own words" },
-            { status: httpStatus },
-          ),
-      };
-      await askForInvite(language);
-      // The poll asked, so the callout is its answer.
-      expect(clicked).toContain("/api/invite/reveal");
-      const callout = box!.querySelector('[data-testid="invite-problem"]');
-      expect([status, callout?.textContent]).toEqual([
-        status,
-        webTranslatorFor(language).t(key),
-      ]);
-    },
-  );
-}
+// The status picks the key whatever the language; Spanish shows the page's
+// language reaches the words.
+test.each(REVEAL_STATUSES)(
+  "es: an invite the poll answers %s is worded by its status, never by the seam's reason",
+  async (status, httpStatus, key) => {
+    const language = "es";
+    answers = {
+      "/api/invite": () => Response.json({ ok: true, operationId: "op-1" }),
+      "/api/invite/reveal": () =>
+        Response.json(
+          { status, reason: "the seam's own words" },
+          { status: httpStatus },
+        ),
+    };
+    await askForInvite(language);
+    // The poll asked, so the callout is its answer.
+    expect(clicked).toContain("/api/invite/reveal");
+    const callout = box!.querySelector('[data-testid="invite-problem"]');
+    expect([status, callout?.textContent]).toEqual([
+      status,
+      webTranslatorFor(language).t(key),
+    ]);
+  },
+);
 
 test("a reveal poll the network drops is one missed poll: the next answer still shows the link", async () => {
   // The poll waits two seconds between asks; this test does not.

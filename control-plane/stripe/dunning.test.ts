@@ -233,10 +233,11 @@ describe("the ordinary ladder", () => {
 });
 
 describe("the couponed diversion", () => {
-  test("a lapsed 100%-off account holds instead of entering the ladder", async () => {
+  test("a lapsed 100%-off account holds on its FIRST failure instead of entering the ladder", async () => {
     const d = failure({
       row: row({ ever_full_discount: 1 }),
       subscription: snapshot({ status: "past_due", discount: null }),
+      // Stripe is still retrying: nothing about exhaustion has been observed.
       invoice: invoice(),
     });
     expect(d.episode).toMatchObject({
@@ -245,16 +246,6 @@ describe("the couponed diversion", () => {
     });
     expect(d.suspension).toBeNull();
     expect(d.attention).toMatchObject({ kind: "raise", severity: "warning" });
-  });
-
-  test("the divert happens on the FIRST failure, not at exhaustion", async () => {
-    const d = failure({
-      row: row({ ever_full_discount: 1 }),
-      subscription: snapshot({ status: "past_due" }),
-      // Stripe is still retrying: nothing about exhaustion has been observed.
-      invoice: invoice(),
-    });
-    expect(d.episode.episode_state).toBe("coupon_hold");
   });
 
   test("a still-comped subscription is not a lapse", async () => {

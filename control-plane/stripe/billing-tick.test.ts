@@ -3,9 +3,6 @@
 // "Stripe gave up".
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Store, type SqlArgs } from "../store.ts";
 import {
   openTestStore,
@@ -22,11 +19,8 @@ import { billingTick } from "./billing-tick.ts";
 import { suspensionOperationId } from "./dunning.ts";
 
 const NOW = 1_770_000_000_000;
-const temps: string[] = [];
 
 async function tempStore(): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-billing-tick-"));
-  temps.push(dir);
   return await openTestStore(() => NOW);
 }
 
@@ -82,9 +76,6 @@ async function seedHold(
 
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("an expired hold with exhaustion already observed", () => {
@@ -100,6 +91,9 @@ describe("an expired hold with exhaustion already observed", () => {
     );
     const opId = suspensionOperationId("dun-evt_1");
     expect(await store.getOperation(opId)).not.toBeNull();
+    const actions = (await store.auditEvents()).map((e) => e.action);
+    expect(actions).toContain("suspension_requested");
+    expect(actions).toContain("coupon_hold_expired");
 
     // The row has left the hold state, so the second pass does not even see it.
     const second = await billingTick(store, NOW);
@@ -109,16 +103,6 @@ describe("an expired hold with exhaustion already observed", () => {
         (o) => o.kind === "power_off",
       ),
     ).toHaveLength(1);
-  });
-
-  test("the audit trail says what happened", async () => {
-    const store = await tempStore();
-    await seedInstance(store);
-    await seedHold(store, { exhaustion_observed_at: NOW - 10 });
-    await billingTick(store, NOW);
-    const actions = (await store.auditEvents()).map((e) => e.action);
-    expect(actions).toContain("suspension_requested");
-    expect(actions).toContain("coupon_hold_expired");
   });
 });
 
@@ -178,48 +162,6 @@ describe("holds that should not be acted on", () => {
       coupon_grace_until: null,
     });
   });
-
-  test("one a webhook moved out of the hold between select and transaction", async () => {
-    // The row is selected outside the transaction, so the state is re-read inside
-    // it; a webhook that closed the episode in the gap must win.
-    const store = await tempStore();
-    await seedInstance(store);
-    const sub = await seedHold(store, { exhaustion_observed_at: NOW - 10 });
-    const lines: string[] = [];
-    // Simulate the race by moving the row AFTER the scan has read it. The seam
-    // is the public SQL primitive now that the engine handle is private; the
-    // ordering it produces is the same one the wrapped statement produced -
-    // rows read, row moved, rows returned.
-    const realHolds = store.sqlAll.bind(store);
-    let moved = false;
-    store.sqlAll = (async (sql: string, args?: unknown[]) => {
-      const rows = await realHolds(sql, args as never);
-      if (!moved && sql.includes("episode_state = 'coupon_hold'")) {
-        moved = true;
-        await store.tx(() =>
-          store.sqlRun(
-            "update subscriptions set episode_state = 'none', version = version + 1 where id = $1",
-            [sub.id],
-          ),
-        );
-      }
-      return rows;
-    }) as unknown as typeof store.sqlAll;
-
-    let summary;
-    try {
-      summary = await billingTick(store, NOW, (l) => lines.push(l));
-    } finally {
-      store.sqlAll = realHolds;
-    }
-    expect(summary.suspensionsRequested).toBe(0);
-    expect(lines.join("\n")).toContain("left its coupon-lapse hold");
-    expect(
-      (await store.operationsFor("inst-1")).filter(
-        (o) => o.kind === "power_off",
-      ),
-    ).toEqual([]);
-  });
 });
 
 describe("the row can change between the scan and the transaction", () => {
@@ -247,6 +189,28 @@ describe("the row can change between the scan and the transaction", () => {
       store.sqlAll = realAll;
     };
   }
+
+  test("a webhook that closed the episode in the gap wins", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 10 });
+    const restore = mutateAfterScan(
+      store,
+      "update subscriptions set episode_state = 'none', version = version + 1 where id = $1",
+      ["sub_1"],
+    );
+    const lines: string[] = [];
+    const summary = await billingTick(store, NOW, (l) => lines.push(l));
+    restore();
+
+    expect(summary.suspensionsRequested).toBe(0);
+    expect(lines.join("\n")).toContain("left its coupon-lapse hold");
+    expect(
+      (await store.operationsFor("inst-1")).filter(
+        (o) => o.kind === "power_off",
+      ),
+    ).toEqual([]);
+  });
 
   test("exhaustion arriving in the gap turns a resume into a SUSPENSION", async () => {
     // The dangerous direction: the scanned row said "no evidence, resume the

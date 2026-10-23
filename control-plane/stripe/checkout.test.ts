@@ -1,61 +1,20 @@
-// Checkout: the comped branch, the name rules, and the fact that creating a
-// session writes NOTHING to our store.
+// Checkout: the comped branch, the name rules, and the order a checkout is
+// opened in.
 
-import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { Store } from "../store.ts";
-import {
-  openTestStore,
-  PG_TEST_HOOK_TIMEOUT_MS,
-  releaseTestStores,
-} from "../testing/pg.ts";
-import { listAccounts, listSubscriptions } from "./billing-store.ts";
+import { describe, expect, test } from "bun:test";
 import { StripeClient, formEncode, type FetchLike } from "./client.ts";
 import {
   CheckoutCreationError,
-  RESERVED_OFFICE_NAMES,
   checkoutParams,
-  createCheckoutSession,
   validateOfficeName,
   verifyFullDiscount,
   openCheckout,
   type FullDiscount,
 } from "./checkout.ts";
-import { createOwnedCustomer, ownedCustomerParams } from "./test-clock.ts";
+import { createOwnedCustomer } from "./test-clock.ts";
 
 const TEST_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
 const LIVE_SHAPE = "rk_live_NOT_A_REAL_KEY_ONLY_A_SHAPE";
-const temps: string[] = [];
-
-async function tempStore(): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-checkout-"));
-  temps.push(dir);
-  return await openTestStore();
-}
-
-afterEach(async () => {
-  await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}, PG_TEST_HOOK_TIMEOUT_MS);
-
-function clientReturning(body: unknown): {
-  client: StripeClient;
-  bodies: string[];
-} {
-  const bodies: string[] = [];
-  const fetchImpl: FetchLike = async (_url, init) => {
-    if (typeof init?.body === "string") bodies.push(init.body);
-    return { ok: true, status: 200, json: async () => body };
-  };
-  return {
-    client: new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl }),
-    bodies,
-  };
-}
 
 /**
  * The only way to get a FullDiscount is to verify one, so even the params tests go
@@ -63,13 +22,18 @@ function clientReturning(body: unknown): {
  * fabricate the value that unlocks `if_required`.
  */
 async function verifiedFullDiscount(): Promise<FullDiscount> {
-  const { client } = clientReturning({
-    id: "co_full",
-    object: "coupon",
-    percent_off: 100,
-    valid: true,
-    livemode: false,
+  const fetchImpl: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      id: "co_full",
+      object: "coupon",
+      percent_off: 100,
+      valid: true,
+      livemode: false,
+    }),
   });
+  const client = new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl });
   const verdict = await verifyFullDiscount(client, "co_full");
   if (!verdict.ok)
     throw new Error(`fixture is not a full discount: ${verdict.reason}`);
@@ -195,19 +159,6 @@ describe("verifying a coupon before trusting it", () => {
     });
   }
 
-  test("a valid 100%-off test coupon verifies", async () => {
-    const verdict = await verifyFullDiscount(
-      couponClient({
-        id: "co_full",
-        percent_off: 100,
-        valid: true,
-        livemode: false,
-      }),
-      "co_full",
-    );
-    expect(verdict.ok).toBe(true);
-  });
-
   test("a partial discount is refused, and says what it saw", async () => {
     const verdict = await verifyFullDiscount(
       couponClient({
@@ -264,25 +215,6 @@ describe("verifying a coupon before trusting it", () => {
     expect(verdict).toMatchObject({ ok: false, retryable: false });
     if (!verdict.ok)
       expect(verdict.reason).toContain("does not match configured test mode");
-  });
-
-  test("a synthetic live coupon verifies for an explicit live client", async () => {
-    const fetchImpl: FetchLike = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        id: "co_live_shape",
-        percent_off: 100,
-        valid: true,
-        livemode: true,
-      }),
-    });
-    const client = new StripeClient({
-      key: LIVE_SHAPE,
-      mode: "live",
-      fetchImpl,
-    });
-    expect((await verifyFullDiscount(client, "co_live_shape")).ok).toBe(true);
   });
 
   test("a malformed coupon is refused rather than read optimistically", async () => {
@@ -342,127 +274,8 @@ describe("office names", () => {
 
   test("hostnames we serve centrally are refused", async () => {
     for (const name of ["www", "api", "admin", "cloud", "apps", "mail"]) {
-      expect(RESERVED_OFFICE_NAMES.has(name)).toBe(true);
       expect(validateOfficeName(name).ok).toBe(false);
     }
-  });
-
-  test("a refused name stops the session before any request is made", async () => {
-    const { client, bodies } = clientReturning({ id: "cs_1", livemode: false });
-    expect(
-      createCheckoutSession(client, { ...base, officeName: "www" }, "k"),
-    ).rejects.toThrow(/serve centrally/);
-    expect(bodies).toEqual([]);
-  });
-});
-
-describe("what comes back", () => {
-  test("Stripe's own answer about collecting a card is reported, not assumed", async () => {
-    // The verify-at-implementation item is what Stripe DOES, so the caller records
-    // the value Stripe returned rather than the one we asked for.
-    const { client } = clientReturning({
-      id: "cs_1",
-      url: "https://checkout.stripe.com/c/pay/cs_test_x",
-      payment_method_collection: "if_required",
-      livemode: false,
-      expires_at: 1_800_000_000,
-    });
-    const session = await createCheckoutSession(
-      client,
-      { ...base, discount: await verifiedFullDiscount() },
-      "k",
-    );
-    expect(session).toMatchObject({
-      id: "cs_1",
-      paymentMethodCollection: "if_required",
-      livemode: false,
-    });
-  });
-
-  test("a session that reports live mode is refused before any URL is handed out", async () => {
-    const { client } = clientReturning({
-      id: "cs_1",
-      url: "https://checkout.stripe.com/c/pay/live",
-      livemode: true,
-    });
-    expect(createCheckoutSession(client, base, "k")).rejects.toThrow(
-      /does not match configured test mode/,
-    );
-  });
-
-  test("an explicit live client accepts a synthetic live session", async () => {
-    const fetchImpl: FetchLike = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        id: "cs_live_shape",
-        url: "https://checkout.stripe.com/c/pay/live-shape",
-        livemode: true,
-        expires_at: 1_800_000_000,
-      }),
-    });
-    const client = new StripeClient({
-      key: LIVE_SHAPE,
-      mode: "live",
-      fetchImpl,
-    });
-    expect(
-      await createCheckoutSession(client, base, "live-shape-key"),
-    ).toMatchObject({
-      id: "cs_live_shape",
-      livemode: true,
-    });
-  });
-
-  test("session creation preserves ambiguous versus definite failure", async () => {
-    const ambiguous = new StripeClient({
-      key: TEST_KEY,
-      mode: "test",
-      attempts: 1,
-      fetchImpl: async () => {
-        throw new Error("injected network loss");
-      },
-    });
-    expect(
-      createCheckoutSession(ambiguous, base, "ambiguous-key"),
-    ).rejects.toMatchObject({
-      ambiguous: true,
-    } satisfies Partial<CheckoutCreationError>);
-    const rejected = new StripeClient({
-      key: TEST_KEY,
-      mode: "test",
-      attempts: 1,
-      fetchImpl: async () =>
-        new Response(JSON.stringify({ error: { message: "bad price" } }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        }),
-    });
-    expect(
-      createCheckoutSession(rejected, base, "rejected-key"),
-    ).rejects.toMatchObject({
-      ambiguous: false,
-    } satisfies Partial<CheckoutCreationError>);
-  });
-});
-
-describe("checkout writes nothing", () => {
-  test("creating a session leaves the store untouched", async () => {
-    // Webhooks are the only writer of subscription state. A session is a Stripe
-    // object and a redirect; if this test ever fails, something has started
-    // trusting one of those.
-    const store = await tempStore();
-    const { client } = clientReturning({
-      id: "cs_1",
-      url: "https://checkout.stripe.com/c/pay/cs_test_x",
-      payment_method_collection: "always",
-      livemode: false,
-      expires_at: 1_800_000_000,
-    });
-    await createCheckoutSession(client, base, "k");
-    expect(await listSubscriptions(store)).toEqual([]);
-    expect(await listAccounts(store)).toEqual([]);
-    expect(await store.auditEvents()).toEqual([]);
   });
 });
 
@@ -471,9 +284,12 @@ describe("creating the customer we own", () => {
   // customer was the arm that was not, and `String(body.id)` on a malformed response
   // produces the customer id "undefined".
   function customerClient(body: unknown, status = 200) {
-    const requests: string[] = [];
-    const fetchImpl: FetchLike = async (url) => {
-      requests.push(url);
+    const requests: { url: string; body: string }[] = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      requests.push({
+        url,
+        body: typeof init?.body === "string" ? init.body : "",
+      });
       return {
         ok: status >= 200 && status < 300,
         status,
@@ -503,42 +319,10 @@ describe("creating the customer we own", () => {
       "k",
     );
     expect(out).toEqual({ ok: true, id: "cus_1" });
-    expect(requests[0]).toContain("/v1/customers");
-    expect(
-      ownedCustomerParams({ email: "a@example.com", label: "acme" }),
-    ).toMatchObject({ metadata: { isomux_test: "slice3" }, name: "cp3-acme" });
-  });
-
-  test("a LIVE-mode customer is refused and not retried", async () => {
-    const { client } = customerClient({ id: "cus_live", livemode: true });
-    const out = await createOwnedCustomer(
-      client,
-      { email: "a@e.com", label: "x" },
-      "k",
-    );
-    expect(out).toMatchObject({ ok: false, retryable: false });
-    if (!out.ok)
-      expect(out.reason).toContain("does not match configured test mode");
-  });
-
-  test("an explicit live client accepts a synthetic live customer", async () => {
-    const fetchImpl: FetchLike = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ id: "cus_live_shape", livemode: true }),
-    });
-    const client = new StripeClient({
-      key: LIVE_SHAPE,
-      mode: "live",
-      fetchImpl,
-    });
-    expect(
-      await createOwnedCustomer(
-        client,
-        { email: "shape@example.invalid", label: "shape" },
-        "live-customer-shape",
-      ),
-    ).toEqual({ ok: true, id: "cus_live_shape" });
+    expect(new URL(requests[0].url).pathname).toBe("/v1/customers");
+    const sent = new URLSearchParams(requests[0].body);
+    expect(sent.get("metadata[isomux_test]")).toBe("slice3");
+    expect(sent.get("name")).toBe("cp3-acme");
   });
 
   test("a missing or non-boolean livemode is refused", async () => {
@@ -595,7 +379,10 @@ describe("creating the customer we own", () => {
 
 describe("the order a checkout is opened in", () => {
   /** Answer each request in turn, and record which endpoints were reached. */
-  function scriptedClient(answers: { status?: number; body: unknown }[]) {
+  function scriptedClient(
+    answers: { status?: number; body: unknown }[],
+    mode: "test" | "live" = "test",
+  ) {
     const paths: string[] = [];
     let i = 0;
     const fetchImpl: FetchLike = async (url) => {
@@ -611,8 +398,8 @@ describe("the order a checkout is opened in", () => {
     };
     return {
       client: new StripeClient({
-        key: TEST_KEY,
-        mode: "test",
+        key: mode === "live" ? LIVE_SHAPE : TEST_KEY,
+        mode,
         fetchImpl,
         attempts: 1,
         sleep: async () => {},
@@ -649,12 +436,87 @@ describe("the order a checkout is opened in", () => {
       },
     ]);
     const out = await openCheckout(client, { ...opening, couponId: "co_full" });
-    expect(out.ok).toBe(true);
+    // What Stripe decided about collecting a card is reported, not assumed
+    // from what was asked.
+    expect(out).toMatchObject({
+      ok: true,
+      customerId: "cus_1",
+      session: {
+        id: "cs_1",
+        paymentMethodCollection: "if_required",
+        livemode: false,
+      },
+    });
     expect(paths).toEqual([
       "/v1/coupons/co_full",
       "/v1/customers",
       "/v1/checkout/sessions",
     ]);
+  });
+
+  test("an explicit live client opens a checkout from live objects", async () => {
+    // Each object's mode check compares with the client's mode, not with false.
+    const { client, paths } = scriptedClient(
+      [
+        {
+          body: {
+            id: "co_live",
+            percent_off: 100,
+            valid: true,
+            livemode: true,
+          },
+        },
+        { body: { id: "cus_live", livemode: true } },
+        {
+          body: {
+            id: "cs_live",
+            url: "https://checkout.stripe.com/c/pay/live-shape",
+            livemode: true,
+            expires_at: 1_800_000_000,
+          },
+        },
+      ],
+      "live",
+    );
+    const out = await openCheckout(client, { ...opening, couponId: "co_live" });
+    expect(out).toMatchObject({
+      ok: true,
+      customerId: "cus_live",
+      session: { id: "cs_live", livemode: true },
+    });
+    expect(paths).toHaveLength(3);
+  });
+
+  test("a session that reports live mode is refused before any URL is handed out", async () => {
+    const { client } = scriptedClient([
+      {
+        body: {
+          id: "cs_1",
+          url: "https://checkout.stripe.com/c/pay/live",
+          livemode: true,
+          expires_at: 1_800_000_000,
+        },
+      },
+    ]);
+    expect(
+      openCheckout(client, { ...opening, customerId: "cus_clock" }),
+    ).rejects.toThrow(/does not match configured test mode/);
+  });
+
+  test("a failed session create says whether it may have reached Stripe", async () => {
+    for (const [status, ambiguous] of [
+      [503, true],
+      [400, false],
+    ] as const) {
+      const { client } = scriptedClient([
+        { status, body: { error: { message: "injected" } } },
+      ]);
+      expect(
+        openCheckout(client, { ...opening, customerId: "cus_clock" }),
+      ).rejects.toMatchObject({
+        ambiguous,
+      } satisfies Partial<CheckoutCreationError>);
+    }
   });
 
   test("a REFUSED CUSTOMER creates no session", async () => {

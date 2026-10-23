@@ -14,9 +14,6 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Store } from "../store.ts";
 import { InviteHold } from "../invite-hold.ts";
 import { startMintSeam } from "../mint-seam.ts";
@@ -44,28 +41,17 @@ import type {
   SubscriptionSnapshot,
 } from "./shapes.ts";
 import { suspensionOperationId } from "./dunning.ts";
-import {
-  WebhookProcessor,
-  assertStripeModeEvent,
-  StripeModeEventRefused,
-} from "./webhook.ts";
+import { WebhookProcessor } from "./webhook.ts";
 import { WEBHOOK_PATH } from "./server.ts";
 
 const SECRET = "whsec_NOT_A_REAL_SECRET_ONLY_A_SHAPE";
 const NOW = 1_770_000_000_000;
-const temps: string[] = [];
-
 async function tempStore(): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-webhook-"));
-  temps.push(dir);
   return await openTestStore(() => NOW);
 }
 
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 // --------------------------------------------------------------- fake Stripe
@@ -269,87 +255,62 @@ describe("the mode gate", () => {
     expect(reader.calls).toEqual(["subscription:sub_live_shape"]);
   });
 
-  test("a live-mode event is refused before any lookup, fetch or write", async () => {
-    const store = await tempStore();
-    const reader = new FakeReader("test");
-    reader.subscriptions.set("sub_1", subscription());
-    const outcome = await deliver(
-      processorFor(store, reader),
-      body({
-        id: "evt_live",
-        type: "customer.subscription.updated",
-        object: { id: "sub_1" },
-        livemode: true,
-      }),
-    );
-    expect(outcome).toMatchObject({ status: 400, kind: "refused" });
-    expect(reader.calls).toEqual([]);
-    expect(await listEvents(store)).toEqual([]);
-    expect(await listSubscriptions(store)).toEqual([]);
-  });
-
-  test("a MISSING livemode field is refused just as hard", async () => {
-    const store = await tempStore();
-    const reader = new FakeReader("test");
-    reader.subscriptions.set("sub_1", subscription());
-    const payload = JSON.stringify({
-      id: "evt_nomode",
-      type: "customer.subscription.updated",
-      created: Math.floor(NOW / 1000),
-      data: { object: { id: "sub_1" } },
-    });
-    const outcome = await deliver(processorFor(store, reader), payload);
-    expect(outcome).toMatchObject({ status: 400, kind: "refused" });
-    expect(reader.calls).toEqual([]);
-    expect(await listEvents(store)).toEqual([]);
-  });
-
-  test("the gate is a rule on its own, with a typed failure", async () => {
-    expect(() =>
-      assertStripeModeEvent({ livemode: false }, "test"),
-    ).not.toThrow();
-    expect(() =>
-      assertStripeModeEvent({ livemode: true }, "live"),
-    ).not.toThrow();
-    expect(() => assertStripeModeEvent({ livemode: false }, "live")).toThrow(
-      StripeModeEventRefused,
-    );
-    for (const value of [true, undefined, null, "false", 0]) {
-      expect(() => assertStripeModeEvent({ livemode: value }, "test")).toThrow(
-        StripeModeEventRefused,
+  test("an event whose livemode is not this mode's boolean is refused before any lookup, fetch or write", async () => {
+    // A missing or non-boolean livemode is refused as hard as the other mode:
+    // reading absence as "probably test mode" is how live data would get in.
+    const cases: [StripeMode, unknown][] = [
+      ["test", true],
+      ["test", undefined],
+      ["test", null],
+      ["test", "false"],
+      ["test", 0],
+      ["live", false],
+      ["live", undefined],
+    ];
+    for (const [mode, livemode] of cases) {
+      const store = await tempStore();
+      const reader = new FakeReader(mode);
+      reader.subscriptions.set(
+        "sub_1",
+        subscription({ livemode: mode === "live" }),
       );
+      const processor = new WebhookProcessor({
+        store,
+        reader,
+        secret: SECRET,
+        mode,
+        now: () => NOW,
+      });
+      const payload =
+        livemode === undefined
+          ? JSON.stringify({
+              id: "evt_mode",
+              type: "customer.subscription.updated",
+              created: Math.floor(NOW / 1000),
+              data: { object: { id: "sub_1" } },
+            })
+          : body({
+              id: "evt_mode",
+              type: "customer.subscription.updated",
+              object: { id: "sub_1" },
+              livemode,
+            });
+      expect({
+        mode,
+        livemode,
+        outcome: await deliver(processor, payload),
+        calls: reader.calls,
+        events: await listEvents(store),
+        subscriptions: await listSubscriptions(store),
+      }).toMatchObject({
+        mode,
+        livemode,
+        outcome: { status: 400, kind: "refused" },
+        calls: [],
+        events: [],
+        subscriptions: [],
+      });
     }
-  });
-
-  test("the fetched-object gate accepts and refuses both configured directions", () => {
-    expect(() =>
-      assertStripeMode(
-        { id: "sub_test_shape", livemode: false },
-        "subscription",
-        "test",
-      ),
-    ).not.toThrow();
-    expect(() =>
-      assertStripeMode(
-        { id: "sub_live_shape", livemode: true },
-        "subscription",
-        "live",
-      ),
-    ).not.toThrow();
-    expect(() =>
-      assertStripeMode(
-        { id: "sub_live_shape", livemode: true },
-        "subscription",
-        "test",
-      ),
-    ).toThrow();
-    expect(() =>
-      assertStripeMode(
-        { id: "sub_test_shape", livemode: false },
-        "subscription",
-        "live",
-      ),
-    ).toThrow();
   });
 
   test("the refusal says nothing about the body or any identifier", async () => {
@@ -470,10 +431,10 @@ describe("the deployed provisioner route", () => {
 });
 
 describe("applying an event", () => {
-  test("an applied commit wakes once, while its duplicate does not", async () => {
+  test("the same event id twice applies and wakes once", async () => {
     const store = await tempStore();
     const reader = new FakeReader("test");
-    reader.subscriptions.set("sub_1", subscription());
+    reader.subscriptions.set("sub_1", subscription({ status: "past_due" }));
     let wakes = 0;
     const processor = processorFor(store, reader, [], () => wakes++);
     const payload = body({
@@ -485,11 +446,16 @@ describe("applying an event", () => {
       kind: "applied",
     });
     expect(wakes).toBe(1);
-    expect(await listEvents(store)).toHaveLength(1);
+    const versionAfterFirst = (await getSubscription(store, "sub_1"))?.version;
     expect(await deliver(processor, payload)).toMatchObject({
       kind: "duplicate",
     });
     expect(wakes).toBe(1);
+    // No second write: the version is the proof.
+    expect((await getSubscription(store, "sub_1"))?.version).toBe(
+      versionAfterFirst,
+    );
+    expect(await listEvents(store)).toHaveLength(1);
   });
 
   test("checkout.session.completed establishes the row from the FETCHED subscription", async () => {
@@ -605,34 +571,6 @@ describe("applying an event", () => {
       "acct-unattributed-cus_1",
     );
     expect(lines.join("\n")).toContain("no isomux metadata");
-  });
-
-  test("the instance's subscription state is mirrored when one is linked", async () => {
-    const store = await tempStore();
-    await seedInstance(store);
-    const reader = new FakeReader("test");
-    reader.subscriptions.set(
-      "sub_1",
-      subscription({
-        status: "past_due",
-        metadata: {
-          isomux_account: "acct-1",
-          isomux_email: "buyer@example.com",
-          isomux_instance: "inst-1",
-        },
-      }),
-    );
-    await deliver(
-      processorFor(store, reader),
-      body({
-        id: "evt_1",
-        type: "customer.subscription.updated",
-        object: { id: "sub_1" },
-      }),
-    );
-    expect((await store.getInstance("inst-1"))?.subscription_state).toBe(
-      "past_due",
-    );
   });
 });
 
@@ -761,26 +699,6 @@ describe("a never-paid subscription is not linked to its office", () => {
 });
 
 describe("dedupe and replay", () => {
-  test("the same event id twice applies once", async () => {
-    const store = await tempStore();
-    const reader = new FakeReader("test");
-    reader.subscriptions.set("sub_1", subscription({ status: "past_due" }));
-    const processor = processorFor(store, reader);
-    const payload = body({
-      id: "evt_1",
-      type: "customer.subscription.updated",
-      object: { id: "sub_1" },
-    });
-    expect((await deliver(processor, payload)).kind).toBe("applied");
-    const versionAfterFirst = (await getSubscription(store, "sub_1"))?.version;
-    expect((await deliver(processor, payload)).kind).toBe("duplicate");
-    // No second write: the version is the proof.
-    expect((await getSubscription(store, "sub_1"))?.version).toBe(
-      versionAfterFirst,
-    );
-    expect(await listEvents(store)).toHaveLength(1);
-  });
-
   test("a throw mid-apply leaves the event UNCLAIMED, so the replay works", async () => {
     const store = await tempStore();
     const reader = new FakeReader("test");

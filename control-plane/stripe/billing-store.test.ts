@@ -2,9 +2,6 @@
 // requirement, and the refusal to open a database written before this slice.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Store } from "../store.ts";
 import {
   freshDsn,
@@ -28,11 +25,7 @@ import {
   type SubscriptionRow,
 } from "./billing-store.ts";
 
-const temps: string[] = [];
-
 async function tempStore(now?: () => number): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-billing-"));
-  temps.push(dir);
   return await openTestStore(now);
 }
 
@@ -74,9 +67,6 @@ async function seedSubscription(
 
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("the transaction requirement", () => {
