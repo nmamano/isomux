@@ -91,10 +91,18 @@ if (RUNTIME !== "node" && RUNTIME !== "bun") {
 if (MODE !== "start" && MODE !== "dev")
   throw new Error("--mode is start or dev");
 
+/** The node `argvFor` spawns: a bare "node", found on PATH. */
+const NODE_ON_PATH = Bun.which("node");
+const NODE = process.env.E2E_NODE ?? NODE_ON_PATH;
+if (RUNTIME === "node" && !NODE) {
+  throw new Error("--runtime node needs node on PATH, or E2E_NODE");
+}
+
 /** The binary each runtime MUST turn out to be. Checked against the process
- * that owns the listening socket, not against what we asked for. */
+ * that owns the listening socket, not against what we asked for. Resolved,
+ * because `/proc/<pid>/exe` always is. */
 const EXPECTED_BINARY: Record<string, string> = {
-  node: process.env.E2E_NODE ?? "/usr/bin/node",
+  node: NODE ? fs.realpathSync(NODE) : "",
   bun: process.execPath,
 };
 
@@ -166,9 +174,11 @@ async function versions(): Promise<void> {
   const pkg = JSON.parse(
     fs.readFileSync(path.join(WEB_DIR, "package.json"), "utf8"),
   );
-  const node = new TextDecoder()
-    .decode(Bun.spawnSync(["node", "--version"]).stdout)
-    .trim();
+  const node = NODE_ON_PATH
+    ? new TextDecoder()
+        .decode(Bun.spawnSync([NODE_ON_PATH, "--version"]).stdout)
+        .trim()
+    : "not on PATH";
   say(
     `cell: --runtime ${RUNTIME} --mode ${MODE}` +
       (SKIP_BUILD ? " (over the existing build)" : ""),
