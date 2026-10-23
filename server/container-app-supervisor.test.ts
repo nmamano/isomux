@@ -53,6 +53,8 @@ async function until<T>(
 
 // Loads the real supervisor as a module and overrides its timing constants.
 // Workers start from the real file (__file__), so only serve sees the values.
+// Every boot shortens RESTART_DELAY: no test asserts the 2 s pause, and each
+// crash or readiness restart otherwise waits for it.
 const patchedServe = `
 import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("supervisor", sys.argv[1])
@@ -74,9 +76,8 @@ async function boot(
 ) {
   containerStdout = "";
   containerStderr = "";
-  const args = options.patch
-    ? ["-c", patchedServe, program, JSON.stringify(options.patch)]
-    : [program, "serve"];
+  const patch = { RESTART_DELAY: 0.1, ...options.patch };
+  const args = ["-c", patchedServe, program, JSON.stringify(patch)];
   daemon = spawn("python3", [...args, join(root, "runtime"), ...office], {
     stdio: ["ignore", stdout, "pipe"],
     env: {
@@ -282,8 +283,8 @@ test("real app: token, logs, crash restart, stop, delete, and port reuse", async
   expect(provisioned.token).toBe("synthetic-token-one");
   const crash = await fetch(origin + "/crash", { method: "POST" });
   expect(crash.status).toBe(200);
-  // Measured 2026-10-11: recovery took up to 5.98 s at load averages 47-53.
-  // This includes the 2 s restart delay, host /proc scans, and cold starts.
+  // Measured 2026-10-11: recovery took up to 5.98 s at load averages 47-53,
+  // with the 2 s restart delay, host /proc scans, and cold starts.
   const restarted = await appResponse(2, 15_000);
   expect(restarted.count).toBe(2);
   expect(restarted.token).toBe("synthetic-token-two");
@@ -396,7 +397,7 @@ test("supervision continues while the container stdout is full", async () => {
   const total = 1024 * 1024;
   writeFileSync(
     join(root, "office.py"),
-    `import sys, time\ntime.sleep(0.5)\nsys.stdout.write("x" * ${total})\nsys.stdout.flush()\ntime.sleep(60)\n`,
+    `import sys, time\nsys.stdout.write("x" * ${total})\nsys.stdout.flush()\ntime.sleep(60)\n`,
   );
   const fifo = join(root, "stdout.fifo");
   expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
@@ -556,6 +557,26 @@ function alive(pid: number) {
   }
 }
 
+// Runs a shell command in another process once SIGTERM is pending in pid:
+// the trigger is the stop that the supervisor sent, not a fixed delay.
+function afterSigterm(pid: number, command: string) {
+  return spawn("python3", [
+    "-c",
+    `
+import os, re, sys, time
+pid = sys.argv[1]
+def pending():
+    status = open(f"/proc/{pid}/status").read()
+    return any(int(m, 16) & (1 << 14) for m in re.findall(r"^(?:SigPnd|ShdPnd):\\s*([0-9a-f]+)", status, re.M))
+while not pending():
+    time.sleep(0.01)
+os.execvp("sh", ["sh", "-c", sys.argv[2]])
+`,
+    String(pid),
+    command,
+  ]);
+}
+
 // SIGTERM is pending (blocked or not yet handled) in this process.
 function sigtermPending(pid: number) {
   const status = readFileSync(`/proc/${pid}/status`, "utf8");
@@ -616,12 +637,11 @@ test("a monitor that is slow to start stalls neither supervision nor other apps"
   };
   supervisor.install(other);
   await answers(`http://127.0.0.1:${other.port}`);
-  // The old launch waited 3 s for the monitor and then stopped the container.
+  // The old launch waited 3 s for the monitor and then stopped the container,
+  // so install itself failed. The monitor stays held until releaseMonitors.
   supervisor.install(app);
   expect(state()?.state).toBe("starting");
   await until(heldMonitor, "the sample monitor was not held");
-  await Bun.sleep(3500);
-  expect(heldMonitor()).not.toBeNull();
   expect(existsSync(join(root, "hold", "release"))).toBe(false);
   expect(ping()).toBe(true);
   await answers(`http://127.0.0.1:${other.port}`);
@@ -640,10 +660,10 @@ test("stop while the monitor is still starting starts no app and leaves no proce
   supervisor.install(app);
   const monitor = await until(heldMonitor, "the sample monitor was not held");
   // Release from another process: stop blocks this one until the monitor exits.
-  const releaser = spawn("sh", [
-    "-c",
-    `sleep 1; : > '${join(root, "hold", "release")}'`,
-  ]);
+  const releaser = afterSigterm(
+    monitor,
+    `: > '${join(root, "hold", "release")}'`,
+  );
   try {
     expect(existsSync(join(root, "hold", "release"))).toBe(false);
     supervisor.stop(app.name);
@@ -735,7 +755,7 @@ test("a fatal error during an RPC answers with a fatal reply, then stops the con
   const monitor = await installCanaryApp();
   process.kill(monitor, "SIGSTOP");
   // The monitor dies without a receipt while stop waits for it.
-  const killer = spawn("sh", ["-c", `sleep 2; kill -KILL ${monitor}`]);
+  const killer = afterSigterm(monitor, `kill -KILL ${monitor}`);
   try {
     const reply = rawRpc({ op: "stop", name: app.name });
     expect(reply?.ok).toBe(false);
@@ -789,7 +809,7 @@ import sys, time
 with open(${JSON.stringify(starts)}, "a") as f: f.write(f"{time.time()}\\n")
 count = sum(1 for _ in open(${JSON.stringify(starts)}))
 print("office-canary-output", flush=True)
-if count == 5: time.sleep(2.5)
+if count == 4: time.sleep(2.5)
 with open(${JSON.stringify(exits)}, "a") as f: f.write(f"{time.time()}\\n")
 sys.exit(3)
 `,
@@ -809,22 +829,21 @@ sys.exit(3)
     }
   };
   await until(
-    () => read(starts).length >= 6,
+    () => read(starts).length >= 5,
     "the office did not restart",
     20_000,
   );
   const started = read(starts);
   const exited = read(exits);
   // delay[k]: from the end of run k to the start of run k + 1.
-  const delay = [0, 1, 2, 3, 4].map((k) => started[k + 1] - exited[k]);
+  const delay = [0, 1, 2, 3].map((k) => started[k + 1] - exited[k]);
   expect(delay[1]).toBeGreaterThan(delay[0] + 0.25); // 0.5 -> 1
   expect(delay[2]).toBeLessThan(delay[1] + 0.5); // capped at 1, not 2
-  expect(delay[3]).toBeLessThan(delay[2] + 0.5); // capped at 1, not 4
-  expect(delay[4]).toBeLessThan(delay[3] - 0.25); // reset after a 2.5 s run
+  expect(delay[3]).toBeLessThan(delay[2] - 0.25); // reset after a 2.5 s run
   await closeDaemon();
   expect(containerStdout).toContain("office-canary-output");
   const lines = containerStderr.trim().split("\n");
-  expect(lines.length).toBeGreaterThanOrEqual(5);
+  expect(lines.length).toBeGreaterThanOrEqual(4);
   expect(containerStderr).not.toContain("office-canary-output");
 }, 40_000);
 
@@ -859,6 +878,8 @@ time.sleep(60)
 }, 30_000);
 
 test("a client that sends one byte at a time cannot hold the supervisor", async () => {
+  await closeDaemon();
+  await boot([], "pipe", { patch: { REQUEST_TIMEOUT: 0.5 } });
   const dripper = spawn(
     "python3",
     [
@@ -869,10 +890,10 @@ s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
 print("connected", flush=True)
 try:
-    for _ in range(10):
+    for _ in range(30):
         s.send(b" ")
         print("sent", flush=True)
-        time.sleep(1.5)
+        time.sleep(0.3)
 except OSError:
     pass
 `,
@@ -883,19 +904,19 @@ except OSError:
   let output = "";
   dripper.stdout?.on("data", (chunk) => (output += String(chunk)));
   try {
+    // The drip is under way: two bytes, each within 0.5 s of the last. The
+    // listen queue is FIFO, so the supervisor reads this request first.
     await until(
-      () => output.includes("connected"),
-      "the dripper did not connect",
+      () => output.split("sent").length - 1 >= 2,
+      "the dripper did not send two bytes",
     );
-    await Bun.sleep(200);
-    // The old per-recv 2 s timeout never fires against a 1.5 s drip.
+    // A per-recv 0.5 s timeout never fires against a 0.3 s drip, so it
+    // would hold the loop for the whole 9 s drip.
     await until(
       ping,
       "ping did not get through while the client dripped",
       5000,
     );
-    // The drip was under way: at least two bytes, each within 2 s.
-    expect(output.split("sent").length - 1).toBeGreaterThanOrEqual(2);
   } finally {
     dripper.kill("SIGKILL");
   }

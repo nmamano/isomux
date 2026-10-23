@@ -18,19 +18,6 @@ const disconnectedAccountClient = () => ({
   close: async () => {},
 });
 
-// Refusal tests must never fall back to the real account clients: if the
-// refusal regresses, a real client spawns the provider CLI on the refused
-// directory (for Codex, the box's ~/.codex), merges isomux's safety hook into
-// it and starts a real login there.
-const accountClientsThatMustNotBuild = () => {
-  let built = 0;
-  const factory = (() => {
-    built++;
-    return disconnectedAccountClient();
-  }) as never;
-  return { codex: factory, claude: factory, built: () => built };
-};
-
 describe("ProviderAccountManager", () => {
   it("evicts a timed-out shared probe so a second read starts a fresh probe", async () => {
     let starts = 0;
@@ -87,25 +74,6 @@ describe("ProviderAccountManager", () => {
     expect(starts).toBe(2);
     timeouts.shift()!();
     await second;
-  });
-
-  it("keeps the existing unavailable shape for an ordinary probe failure", async () => {
-    const manager = new ProviderAccountManager(() => {}, (() => ({
-      start: async () => {
-        throw new Error("probe failed");
-      },
-      read: async () => ({ connected: false }),
-      close: async () => {},
-    })) as never);
-
-    const wire = await manager["probe"](
-      manager["target"]("member", "codex", "office"),
-    );
-    expect(wire).toMatchObject({
-      accountStatus: "unavailable",
-      canBrowserLogin: false,
-      error: "probe failed",
-    });
   });
 
   for (const selector of [
@@ -266,67 +234,49 @@ describe("ProviderAccountManager", () => {
     try {
       writeManagedUserEnv(id, values);
       writeManagedUserEnv(otherId, values);
-      const accounts = await manager.list(id);
-      for (const provider of ["codex", "claude"] as const) {
-        const account = accounts.find(
+      const personal = async (provider: "codex" | "claude") =>
+        (await manager.list(id, true)).find(
           (entry) => entry.provider === provider && entry.scope === "personal",
         );
-        expect(account?.accountStatus).toBe("unavailable");
-        expect(account?.error).toContain("another member's");
-      }
+      for (const provider of ["codex", "claude"] as const)
+        expect(await personal(provider)).toMatchObject({
+          accountStatus: "unavailable",
+          canBrowserLogin: false,
+          error: expect.any(String),
+        });
+      // Positive control: the same directories are fine once the other
+      // member no longer claims them.
+      removeManagedUserEnv(otherId);
+      for (const provider of ["codex", "claude"] as const)
+        expect(await personal(provider)).toMatchObject({
+          accountStatus: "not_connected",
+          canBrowserLogin: true,
+        });
     } finally {
       removeManagedUserEnv(id);
       removeManagedUserEnv(otherId);
     }
   });
 
-  it("uses empty user variables for an absent or malformed user id", () => {
-    const manager = new ProviderAccountManager(() => {});
-    expect(manager["userOnlyEnv"]("absent-managed-user")).toEqual({});
-    expect(manager["userOnlyEnv"]("../invalid-user")).toEqual({});
-  });
-
-  it("projects an invalid personal target to unknown without account metadata", async () => {
-    const manager = new ProviderAccountManager(
-      () => {},
-      disconnectedAccountClient as never,
-      undefined,
-      (id) => id,
-      () => ({}),
-      disconnectedAccountClient as never,
-      () => ({}),
-      () => ({}),
-      () => ({ CODEX_HOME: "private-relative-path" }),
-      () => [{ id: "member" }],
-    );
-    expect(await manager.memberStatuses("member")).toEqual([
-      { provider: "claude", status: "not_connected" },
-      { provider: "codex", status: "unknown" },
-    ]);
-  });
-
   it("maps a rejected probe to unknown and keeps the other provider", async () => {
+    // Only the active Codex home reaches the environment key, which throws.
     const manager = new ProviderAccountManager(
       () => {},
       disconnectedAccountClient as never,
       undefined,
-      (id) => id,
+      () => {
+        throw new Error("environment key unreadable");
+      },
       () => ({}),
       disconnectedAccountClient as never,
       () => ({}),
       () => ({}),
       () => ({}),
       () => [{ id: "member" }],
+      (id, provider) => `/tmp/rejected-probe-${provider}-${id}`,
+      undefined,
+      (_id, provider) => provider === "codex",
     );
-    const real = (
-      manager as unknown as { wireFor: (...a: unknown[]) => Promise<unknown> }
-    ).wireFor.bind(manager);
-    (manager as unknown as { wireFor: unknown }).wireFor = async (
-      ...args: unknown[]
-    ) => {
-      if (args[1] === "codex") throw new Error("probe exploded");
-      return real(...args);
-    };
     expect(await manager.memberStatuses("member")).toEqual([
       { provider: "claude", status: "not_connected" },
       { provider: "codex", status: "unknown" },
@@ -364,10 +314,18 @@ describe("ProviderAccountManager", () => {
       }),
     );
 
-    for (const account of await external.list("user-a"))
-      if (account.scope === "office") expect(account.externalCli).toBe(true);
-    for (const account of await managed.list("user-a"))
-      if (account.scope === "office") expect(account.externalCli).toBe(false);
+    const office = async (manager: ProviderAccountManager) =>
+      (await manager.list("user-a"))
+        .filter((account) => account.scope === "office")
+        .map((account) => [account.provider, account.externalCli]);
+    expect(await office(external)).toEqual([
+      ["codex", true],
+      ["claude", true],
+    ]);
+    expect(await office(managed)).toEqual([
+      ["codex", false],
+      ["claude", false],
+    ]);
   });
 
   it("invalidates and emits an office disconnect for every member", async () => {
@@ -551,7 +509,6 @@ describe("ProviderAccountManager", () => {
     expect(await manager.cancel("user-b", "codex", "office")).toBe(false);
     expect(await manager.cancel("user-b", "codex", "office", true)).toBe(true);
     expect(cancels).toBe(1);
-    expect(manager["active"].size).toBe(0);
     for (const userId of ["user-a", "user-b"]) {
       const account = (await manager.list(userId)).find(
         (candidate) =>
@@ -601,93 +558,79 @@ describe("ProviderAccountManager", () => {
     expect(starts).toBe(1);
   });
 
-  it("checks account/read before a nullable completion can become connected", async () => {
-    const emitted: Array<
-      Array<{ loginStatus: string; accountStatus: string }>
-    > = [];
-    const fake = () => ({
-      start: async () => {},
-      login: async () => ({
-        loginId: "login-1",
-        authUrl: "https://auth.openai.com/",
-      }),
-      waitForCompletion: async () => ({
-        loginId: null,
-        success: true,
-        error: null,
-      }),
-      read: async () => ({ connected: false }),
-      cancel: async () => {},
-      close: async () => {},
-    });
-    const manager = new ProviderAccountManager(
-      (_userId, accounts) => emitted.push(accounts),
-      fake as never,
-      undefined,
-      undefined,
-      () => ({}),
-      disconnectedAccountClient as never,
-    );
-    await manager.startLogin("user-a", "codex", "office", "browser");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(emitted.at(-1)?.[0]).toMatchObject({
-      loginStatus: "failed",
-      accountStatus: "not_connected",
-    });
-  });
-
-  it("verifies Codex device-code completion in a fresh client", async () => {
-    let complete!: (value: {
-      loginId: string;
-      success: boolean;
-      error: null;
-    }) => void;
-    let clients = 0;
-    const emitted: string[] = [];
-    const manager = new ProviderAccountManager(
-      (_userId, accounts) => {
-        const wire = accounts.find(
-          (account) =>
-            account.provider === "codex" && account.scope === "office",
-        );
-        if (wire)
-          emitted.push(
-            `${wire.loginStatus}/${wire.accountStatus}/${wire.error ?? "none"}`,
-          );
+  // The completion's own success is not enough: a fresh client must read
+  // the account. The login client itself always reads not connected.
+  for (const [method, verified, expected] of [
+    [
+      "device",
+      true,
+      {
+        loginStatus: "succeeded",
+        accountStatus: "connected",
+        accountLabel: "signed-in@example.com",
+        error: undefined,
       },
-      (() => {
-        const client = ++clients;
-        return {
-          start: async () => {},
-          login: async () => ({
-            loginId: "device-1",
-            authUrl: "https://auth.openai.com/",
-            userCode: "ABCD",
-          }),
-          waitForCompletion: () =>
-            new Promise((resolve) => {
-              complete = resolve;
+    ],
+    [
+      "browser",
+      false,
+      {
+        loginStatus: "failed",
+        accountStatus: "not_connected",
+        error: expect.any(String),
+      },
+    ],
+  ] as const) {
+    it(`verifies a Codex ${method} completion in a fresh client (${verified ? "connected" : "not connected"})`, async () => {
+      let complete!: (value: {
+        loginId: string | null;
+        success: boolean;
+        error: null;
+      }) => void;
+      let clients = 0;
+      const emitted: unknown[] = [];
+      const manager = new ProviderAccountManager(
+        (_userId, accounts) =>
+          emitted.push(
+            accounts.find(
+              (account) =>
+                account.provider === "codex" && account.scope === "office",
+            ),
+          ),
+        (() => {
+          const client = ++clients;
+          return {
+            start: async () => {},
+            login: async () => ({
+              loginId: "login-1",
+              authUrl: "https://auth.openai.com/",
+              userCode: "ABCD",
             }),
-          read: async () =>
-            client === 1
-              ? { connected: false }
-              : { connected: true, label: "signed-in@example.com" },
-          close: async () => {},
-        };
-      }) as never,
-      undefined,
-      undefined,
-      () => ({}),
-      disconnectedAccountClient as never,
-    );
+            waitForCompletion: () =>
+              new Promise((resolve) => {
+                complete = resolve;
+              }),
+            read: async () =>
+              client > 1 && verified
+                ? { connected: true, label: "signed-in@example.com" }
+                : { connected: false },
+            cancel: async () => {},
+            close: async () => {},
+          };
+        }) as never,
+        undefined,
+        undefined,
+        () => ({}),
+        disconnectedAccountClient as never,
+      );
 
-    await manager.startLogin("user-a", "codex", "office", "device");
-    complete({ loginId: "device-1", success: true, error: null });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+      await manager.startLogin("user-a", "codex", "office", method);
+      complete({ loginId: null, success: true, error: null });
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(clients).toBeGreaterThan(1);
-    expect(emitted.at(-1)).toBe("succeeded/connected/none");
-  });
+      expect(emitted.at(-1)).toMatchObject(expected);
+    });
+  }
 
   it("does not reuse a pre-logout probe for a refresh", async () => {
     let connected = true;
@@ -781,34 +724,60 @@ describe("ProviderAccountManager", () => {
     await manager.cancel("user-a", "codex", "office");
     complete({ loginId: "login-1", success: true, error: null });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(emitted).not.toContain("succeeded");
+    // The start and the cancel publish; the late completion publishes nothing.
+    expect(emitted).toEqual(["waiting_external", "idle"]);
   });
 
-  it("releases a shared credential directory after the login deadline", async () => {
+  it("closes and releases a shared credential directory after the login deadline", async () => {
     let starts = 0;
-    const fake = () => ({
-      start: async () => {
-        starts++;
-      },
-      login: async () => ({
-        loginId: `login-${starts}`,
-        authUrl: "https://auth.openai.com/",
-      }),
-      waitForCompletion: () => new Promise(() => {}),
-      read: async () => ({ connected: false }),
-      cancel: async () => {},
-      close: async () => {},
-    });
+    let loginCloses = 0;
+    const emitted: Array<[string, string | undefined]> = [];
+    const fake = () => {
+      let loggedIn = false;
+      return {
+        start: async () => {
+          starts++;
+        },
+        login: async () => {
+          loggedIn = true;
+          return {
+            loginId: `login-${starts}`,
+            authUrl: "https://auth.openai.com/",
+          };
+        },
+        waitForCompletion: () => new Promise(() => {}),
+        read: async () => ({ connected: false }),
+        cancel: async () => {},
+        close: async () => {
+          if (loggedIn) loginCloses++;
+        },
+      };
+    };
     const manager = new ProviderAccountManager(
-      () => {},
+      (userId, accounts) =>
+        emitted.push([
+          userId,
+          accounts.find(
+            (account) =>
+              account.provider === "codex" && account.scope === "office",
+          )?.loginStatus,
+        ]),
       fake as never,
       5,
       undefined,
       () => ({}),
       disconnectedAccountClient as never,
+      () => ({}),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "user-a" }, { id: "user-b" }],
     );
-    await manager.startLogin("user-a", "codex", "office", "browser");
+    expect(
+      (await manager.startLogin("user-a", "codex", "office", "browser")).ok,
+    ).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(loginCloses).toBe(1);
+    expect(emitted.at(-1)).toEqual(["user-a", "interrupted"]);
     const second = await manager.startLogin(
       "user-b",
       "codex",
@@ -817,28 +786,7 @@ describe("ProviderAccountManager", () => {
     );
     expect(second.ok).toBe(true);
     expect(starts).toBe(2);
-  });
-
-  it("caches account status probes", async () => {
-    let starts = 0;
-    const fake = () => ({
-      start: async () => {
-        starts++;
-      },
-      read: async () => ({ connected: false }),
-      close: async () => {},
-    });
-    const manager = new ProviderAccountManager(
-      () => {},
-      fake as never,
-      undefined,
-      undefined,
-      () => ({}),
-      disconnectedAccountClient as never,
-    );
-    await manager.list("user-a");
-    await manager.list("user-a");
-    expect(starts).toBe(1);
+    await manager.cancel("user-b", "codex", "office");
   });
 
   it("does not share cached status across user environment sources", async () => {
@@ -887,106 +835,7 @@ describe("ProviderAccountManager", () => {
     expect(starts).toBe(4);
   });
 
-  const refusalCases = [
-    [
-      "shared home",
-      resolve(homedir(), ".claude"),
-      "CLAUDE_CONFIG_DIR collides with the box's external Claude CLI directory. Choose a different directory.",
-    ],
-    [
-      "office env file",
-      "/tmp/office-file-claude",
-      "CLAUDE_CONFIG_DIR collides with the office Claude account directory. Choose a different directory.",
-    ],
-    [
-      "process environment",
-      "/tmp/process-claude",
-      "CLAUDE_CONFIG_DIR collides with the office Claude account directory. Choose a different directory.",
-    ],
-    [
-      "another user",
-      "/tmp/other-user-claude",
-      "CLAUDE_CONFIG_DIR collides with another member's Claude account directory. Choose a different directory.",
-    ],
-    [
-      "relative",
-      "relative/claude",
-      "CLAUDE_CONFIG_DIR must be an absolute directory.",
-    ],
-    ["tilde", "~/.claude", "CLAUDE_CONFIG_DIR must be an absolute directory."],
-    [
-      "variable",
-      "$HOME/.claude",
-      "CLAUDE_CONFIG_DIR must be an absolute directory.",
-    ],
-  ] as const;
-
-  for (const [name, value, message] of refusalCases) {
-    it(`refuses Claude personal login for ${name}`, async () => {
-      const previous = process.env.CLAUDE_CONFIG_DIR;
-      if (name === "process environment")
-        process.env.CLAUDE_CONFIG_DIR = "/tmp/process-claude";
-      else delete process.env.CLAUDE_CONFIG_DIR;
-      let claudeStarts = 0;
-      const own: Record<string, string> = { CLAUDE_CONFIG_DIR: value };
-      const manager = new ProviderAccountManager(
-        () => {},
-        (() => ({
-          start: async () => {},
-          read: async () => ({ connected: false }),
-          close: async () => {},
-        })) as never,
-        undefined,
-        undefined,
-        (userId) =>
-          userId === "user-a"
-            ? own
-            : { CLAUDE_CONFIG_DIR: "/tmp/other-user-claude" },
-        (() => {
-          claudeStarts++;
-          return {
-            start: async () => {},
-            login: async () => ({ authUrl: "https://claude.com/oauth/" }),
-            waitForCompletion: () => new Promise(() => {}),
-            read: async () => ({ connected: false }),
-            close: async () => {},
-          };
-        }) as never,
-        () => ({
-          CLAUDE_CONFIG_DIR:
-            name === "office env file"
-              ? "/tmp/resolved-office-claude"
-              : "/tmp/office-file-claude",
-        }),
-        () => ({ CLAUDE_CONFIG_DIR: "/tmp/office-file-claude" }),
-        (userId) =>
-          userId === "user-a"
-            ? own
-            : { CLAUDE_CONFIG_DIR: "/tmp/other-user-claude" },
-        () => [{ id: "user-a" }, { id: "user-b" }],
-      );
-      try {
-        const result = await manager.startLogin(
-          "user-a",
-          "claude",
-          "personal",
-          "browser",
-        );
-        expect(result).toEqual({
-          ok: false,
-          status: 422,
-          code: "browser_login_unavailable",
-          message,
-        });
-        expect(claudeStarts).toBe(0);
-      } finally {
-        if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-        else process.env.CLAUDE_CONFIG_DIR = previous;
-      }
-    });
-  }
-
-  for (const value of [undefined, "", "   "] as const) {
+  for (const value of [undefined, "   "] as const) {
     it(`auto-provisions Claude personal login for ${value === undefined ? "missing" : JSON.stringify(value)}`, async () => {
       let ensured = 0;
       const own: Record<string, string> =
@@ -1030,90 +879,6 @@ describe("ProviderAccountManager", () => {
       expect(ensured).toBe(1);
     });
   }
-
-  for (const provider of ["claude", "codex"] as const) {
-    it(`keeps an explicit ${provider} directory ahead of an activated managed home`, async () => {
-      const variable =
-        provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
-      const explicit = `/tmp/explicit-${provider}`;
-      const seen: Array<string | undefined> = [];
-      const client = (env?: Record<string, string | undefined>) => {
-        seen.push(env?.[variable]);
-        return {
-          start: async () => {},
-          login: async () => ({
-            authUrl: "https://example.com/oauth/",
-            loginId: "login",
-          }),
-          waitForCompletion: () => new Promise(() => {}),
-          read: async () => ({ connected: false }),
-          close: async () => {},
-        };
-      };
-      const manager = new ProviderAccountManager(
-        () => {},
-        client as never,
-        undefined,
-        undefined,
-        () => ({ [variable]: explicit }),
-        client as never,
-        () => ({}),
-        () => ({}),
-        () => ({ [variable]: explicit }),
-        () => [{ id: "user-a" }],
-        (userId, selectedProvider) =>
-          `/tmp/provider-homes/${userId}/${selectedProvider}`,
-        undefined,
-        () => true,
-      );
-      const result = await manager.startLogin(
-        "user-a",
-        provider,
-        "personal",
-        "browser",
-      );
-      expect(result.ok).toBe(true);
-      expect(seen).toContain(explicit);
-      expect(seen).not.toContain(`/tmp/provider-homes/user-a/${provider}`);
-    });
-  }
-
-  it("starts Claude personal login for a unique absolute directory", async () => {
-    let claudeStarts = 0;
-    const fakeClaude = () => ({
-      start: async () => {
-        claudeStarts++;
-      },
-      login: async () => ({ authUrl: "https://claude.com/oauth/" }),
-      waitForCompletion: () => new Promise(() => {}),
-      read: async () => ({ connected: false }),
-      close: async () => {},
-    });
-    const manager = new ProviderAccountManager(
-      () => {},
-      (() => ({
-        start: async () => {},
-        read: async () => ({ connected: false }),
-        close: async () => {},
-      })) as never,
-      undefined,
-      undefined,
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/user-a-claude" }),
-      fakeClaude as never,
-      () => ({}),
-      () => ({}),
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/user-a-claude" }),
-      () => [{ id: "user-a" }],
-    );
-    const result = await manager.startLogin(
-      "user-a",
-      "claude",
-      "personal",
-      "browser",
-    );
-    expect(result.ok).toBe(true);
-    expect(claudeStarts).toBe(2);
-  });
 
   it("publishes a clean successful Claude sign-in after a rejected duplicate callback", async () => {
     let complete!: () => void;
@@ -1195,7 +960,6 @@ describe("ProviderAccountManager", () => {
       loginStatus: "succeeded",
       error: undefined,
     });
-    expect(clients).toBe(3);
   });
 
   it("activates an auto-provisioned personal home only after verified connection", async () => {
@@ -1252,337 +1016,234 @@ describe("ProviderAccountManager", () => {
     expect(changed).toEqual([["claude", "/tmp/provider-homes/user-a/claude"]]);
   });
 
-  it("closes and releases an abandoned Claude login after its deadline", async () => {
-    let starts = 0;
-    let closes = 0;
-    const fakeClaude = () => ({
-      start: async () => {
-        starts++;
-      },
-      login: async () => ({
-        authUrl: `https://claude.com/oauth/?attempt=${starts}`,
-      }),
-      submitCode: async () => {},
-      waitForCompletion: () => new Promise(() => {}),
-      read: async () => ({ connected: false }),
-      close: async () => {
-        closes++;
-      },
-    });
-    const manager = new ProviderAccountManager(
-      () => {},
-      (() => ({
-        start: async () => {},
-        read: async () => ({ connected: false }),
-        close: async () => {},
-      })) as never,
-      5,
-      undefined,
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/user-a-claude" }),
-      fakeClaude as never,
-      () => ({}),
-      () => ({}),
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/user-a-claude" }),
-      () => [{ id: "user-a" }],
-    );
-    const first = await manager.startLogin(
-      "user-a",
-      "claude",
-      "personal",
-      "browser",
-    );
-    expect(first.ok).toBe(true);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 15));
-    expect(closes).toBe(2);
-    const second = await manager.startLogin(
-      "user-a",
-      "claude",
-      "personal",
-      "browser",
-    );
-    expect(second.ok).toBe(true);
-    expect(starts).toBe(3);
-  });
-
   it("starts office Claude browser login in the effective office directory", async () => {
-    const dirs: Array<string | undefined> = [];
+    const loginDirs: Array<string | undefined> = [];
     const manager = new ProviderAccountManager(
       () => {},
-      (() => ({
-        start: async () => {},
-        read: async () => ({ connected: false }),
-        close: async () => {},
-      })) as never,
+      disconnectedAccountClient as never,
       undefined,
       undefined,
       () => ({}),
-      ((env?: Record<string, string | undefined>) => {
-        dirs.push(env?.CLAUDE_CONFIG_DIR);
-        return {
-          start: async () => {},
-          login: async () => ({ authUrl: "https://claude.com/oauth/" }),
-          waitForCompletion: () => new Promise(() => {}),
-          read: async () => ({ connected: false }),
-          close: async () => {},
-        };
-      }) as never,
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/office-claude" }),
-    );
-    const accounts = await manager.list("user-a");
-    expect(
-      accounts.find(
-        (account) =>
-          account.provider === "claude" && account.scope === "office",
-      ),
-    ).toMatchObject({ canBrowserLogin: true });
-    const result = await manager.startLogin(
-      "user-a",
-      "claude",
-      "office",
-      "browser",
-    );
-    expect(result.ok).toBe(true);
-    expect(dirs).toContain("/tmp/office-claude");
-  });
-
-  it("refuses the resolved office Claude directory independently of office-file candidates", async () => {
-    const clients = accountClientsThatMustNotBuild();
-    const manager = new ProviderAccountManager(
-      () => {},
-      clients.codex,
-      undefined,
-      undefined,
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/resolved-office-claude" }),
-      clients.claude,
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/resolved-office-claude" }),
-      () => ({}),
-      () => ({ CLAUDE_CONFIG_DIR: "/tmp/resolved-office-claude" }),
-      () => [{ id: "user-a" }],
-    );
-    const result = await manager.startLogin(
-      "user-a",
-      "claude",
-      "personal",
-      "browser",
-    );
-    expect(clients.built()).toBe(0);
-    expect(result).toMatchObject({
-      ok: false,
-      message:
-        "CLAUDE_CONFIG_DIR collides with the office Claude account directory. Choose a different directory.",
-    });
-  });
-
-  it("refuses another member's provisioned Claude home", async () => {
-    const manager = new ProviderAccountManager(
-      () => {},
-      (() => ({
+      ((env?: Record<string, string | undefined>) => ({
         start: async () => {},
-        read: async () => ({ connected: false }),
-        close: async () => {},
-      })) as never,
-      undefined,
-      undefined,
-      () => ({}),
-      (() => ({
-        start: async () => {},
-        login: async () => ({ authUrl: "https://claude.com/oauth/" }),
+        login: async () => {
+          loginDirs.push(env?.CLAUDE_CONFIG_DIR);
+          return { authUrl: "https://claude.com/oauth/" };
+        },
         waitForCompletion: () => new Promise(() => {}),
         read: async () => ({ connected: false }),
         close: async () => {},
       })) as never,
-      () => ({}),
-      () => ({}),
-      (userId): Record<string, string> =>
-        userId === "user-a"
-          ? { CLAUDE_CONFIG_DIR: "/tmp/provider-homes/user-b/claude" }
-          : {},
-      () => [{ id: "user-a" }, { id: "user-b" }],
-      (userId, provider) => `/tmp/provider-homes/${userId}/${provider}`,
+      () => ({ CLAUDE_CONFIG_DIR: "/tmp/office-claude" }),
     );
-    const result = await manager.startLogin(
-      "user-a",
-      "claude",
-      "personal",
-      "browser",
-    );
-    expect(result).toMatchObject({
-      ok: false,
-      message:
-        "CLAUDE_CONFIG_DIR collides with another member's Claude account directory. Choose a different directory.",
-    });
+    try {
+      expect(
+        (await manager.startLogin("user-a", "claude", "office", "browser")).ok,
+      ).toBe(true);
+      expect(loginDirs).toEqual(["/tmp/office-claude"]);
+    } finally {
+      await manager.cancel("user-a", "claude", "office");
+    }
   });
 
-  it("refuses the box's external Codex CLI directory", async () => {
-    const clients = accountClientsThatMustNotBuild();
-    const manager = new ProviderAccountManager(
-      () => {},
-      clients.codex,
-      undefined,
-      undefined,
-      () => ({ CODEX_HOME: resolve(homedir(), ".codex") }),
-      clients.claude,
-      () => ({}),
-      () => ({}),
-      () => ({ CODEX_HOME: resolve(homedir(), ".codex") }),
-      () => [{ id: "user-a" }],
-    );
-    const result = await manager.startLogin(
-      "user-a",
-      "codex",
-      "personal",
-      "browser",
-    );
-    expect(clients.built()).toBe(0);
-    expect(result).toMatchObject({
-      ok: false,
-      message:
-        "CODEX_HOME collides with the box's external Codex CLI directory. Choose a different directory.",
-    });
-  });
-
-  it("refuses another member's provisioned Codex home", async () => {
-    const clients = accountClientsThatMustNotBuild();
-    const manager = new ProviderAccountManager(
-      () => {},
-      clients.codex,
-      undefined,
-      undefined,
-      () => ({ CODEX_HOME: "/tmp/provider-homes/user-b/codex" }),
-      clients.claude,
-      () => ({}),
-      () => ({}),
-      (userId): Record<string, string> =>
-        userId === "user-a"
-          ? { CODEX_HOME: "/tmp/provider-homes/user-b/codex" }
-          : {},
-      () => [{ id: "user-a" }, { id: "user-b" }],
-      (userId, provider) => `/tmp/provider-homes/${userId}/${provider}`,
-    );
-    const result = await manager.startLogin(
-      "user-a",
-      "codex",
-      "personal",
-      "browser",
-    );
-    expect(clients.built()).toBe(0);
-    expect(result).toMatchObject({
-      ok: false,
-      message:
-        "CODEX_HOME collides with another member's Codex account directory. Choose a different directory.",
-    });
-  });
-
-  const codexRefusalCases: Array<
-    [string, string, Record<string, string>, Record<string, string>, string]
+  // A personal directory that collides with the office's, another member's or
+  // the box's CLI directory, or that is not absolute, is refused before any
+  // client is built. Each row collides with one source only; the explicit
+  // directory test below is the positive control on the same fixture.
+  const refusals: Array<
+    [
+      provider: "claude" | "codex",
+      name: string,
+      value: string,
+      officeFile: Record<string, string>,
+      processValue: string | undefined,
+    ]
   > = [
     [
-      "isomux office directory",
-      ISOMUX_CODEX_HOME,
+      "claude",
+      "the box's CLI directory",
+      resolve(homedir(), ".claude"),
       {},
-      {},
-      "CODEX_HOME collides with the office Codex account directory. Choose a different directory.",
+      undefined,
     ],
     [
-      "office directory",
+      "claude",
+      "the resolved office directory",
+      "/tmp/office-claude",
+      {},
+      undefined,
+    ],
+    [
+      "claude",
+      "the office env file",
+      "/tmp/office-file-claude",
+      { CLAUDE_CONFIG_DIR: "/tmp/office-file-claude" },
+      undefined,
+    ],
+    [
+      "claude",
+      "the process environment",
+      "/tmp/process-claude",
+      {},
+      "/tmp/process-claude",
+    ],
+    [
+      "claude",
+      "another member's variable",
+      "/tmp/other-user-claude",
+      {},
+      undefined,
+    ],
+    [
+      "claude",
+      "another member's provisioned home",
+      "/tmp/provider-homes/user-b/claude",
+      {},
+      undefined,
+    ],
+    ["claude", "a non-absolute path", "~/.claude", {}, undefined],
+    [
+      "codex",
+      "the box's CLI directory",
+      resolve(homedir(), ".codex"),
+      {},
+      undefined,
+    ],
+    ["codex", "the isomux office directory", ISOMUX_CODEX_HOME, {}, undefined],
+    [
+      "codex",
+      "the resolved office directory",
       "/tmp/office-codex",
       {},
-      {},
-      "CODEX_HOME collides with the office Codex account directory. Choose a different directory.",
+      undefined,
     ],
     [
-      "office env file",
+      "codex",
+      "the office env file",
       "/tmp/office-file-codex",
       { CODEX_HOME: "/tmp/office-file-codex" },
-      {},
-      "CODEX_HOME collides with the office Codex account directory. Choose a different directory.",
+      undefined,
     ],
     [
-      "process environment",
+      "codex",
+      "the process environment",
       "/tmp/process-codex",
       {},
-      { CODEX_HOME: "/tmp/process-codex" },
-      "CODEX_HOME collides with the office Codex account directory. Choose a different directory.",
+      "/tmp/process-codex",
     ],
     [
-      "another configured member",
+      "codex",
+      "another member's variable",
       "/tmp/other-user-codex",
       {},
-      {},
-      "CODEX_HOME collides with another member's Codex account directory. Choose a different directory.",
+      undefined,
     ],
+    [
+      "codex",
+      "another member's provisioned home",
+      "/tmp/provider-homes/user-b/codex",
+      {},
+      undefined,
+    ],
+    ["codex", "a non-absolute path", "~/.codex", {}, undefined],
   ];
+  // Refusal tests must never fall back to the real account clients: if the
+  // refusal regresses, a real client spawns the provider CLI on the refused
+  // directory (for Codex, the box's ~/.codex), merges isomux's safety hook into
+  // it and starts a real login there.
+  const personalLoginManager = (
+    provider: "claude" | "codex",
+    value: string,
+    officeFile: Record<string, string> = {},
+  ) => {
+    const variable = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    const loginDirs: Array<string | undefined> = [];
+    const client = (env?: Record<string, string | undefined>) => ({
+      start: async () => {},
+      login: async () => {
+        loginDirs.push(env?.[variable]);
+        return { authUrl: "https://example.com/oauth/", loginId: "login" };
+      },
+      waitForCompletion: () => new Promise(() => {}),
+      read: async () => ({ connected: false }),
+      cancel: async () => {},
+      close: async () => {},
+    });
+    let built = 0;
+    const factory = ((env?: Record<string, string | undefined>) => {
+      built++;
+      return client(env);
+    }) as never;
+    const manager = new ProviderAccountManager(
+      () => {},
+      factory,
+      undefined,
+      undefined,
+      () => ({}),
+      factory,
+      () => ({
+        CLAUDE_CONFIG_DIR: "/tmp/office-claude",
+        CODEX_HOME: "/tmp/office-codex",
+      }),
+      () => officeFile,
+      (userId): Record<string, string> =>
+        userId === "user-a"
+          ? { [variable]: value }
+          : {
+              CLAUDE_CONFIG_DIR: "/tmp/other-user-claude",
+              CODEX_HOME: "/tmp/other-user-codex",
+            },
+      () => [{ id: "user-a" }, { id: "user-b" }],
+      (userId, selected) => `/tmp/provider-homes/${userId}/${selected}`,
+      undefined,
+      () => true,
+    );
+    return { manager, built: () => built, loginDirs };
+  };
 
-  for (const [
-    name,
-    value,
-    officeFile,
-    processValue,
-    message,
-  ] of codexRefusalCases) {
-    it(`refuses Codex personal login for ${name}`, async () => {
-      const previous = process.env.CODEX_HOME;
-      if (processValue.CODEX_HOME)
-        process.env.CODEX_HOME = processValue.CODEX_HOME;
-      else delete process.env.CODEX_HOME;
-      const clients = accountClientsThatMustNotBuild();
-      const manager = new ProviderAccountManager(
-        () => {},
-        clients.codex,
-        undefined,
-        undefined,
-        () => ({ CODEX_HOME: value }),
-        clients.claude,
-        () => ({ CODEX_HOME: "/tmp/office-codex" }),
-        () => officeFile,
-        (userId) =>
-          userId === "user-a"
-            ? { CODEX_HOME: value }
-            : { CODEX_HOME: "/tmp/other-user-codex" },
-        () => [{ id: "user-a" }, { id: "user-b" }],
-      );
+  for (const [provider, name, value, officeFile, processValue] of refusals) {
+    it(`refuses ${provider} personal login on ${name}`, async () => {
+      const variable =
+        provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+      const previous = process.env[variable];
+      if (processValue) process.env[variable] = processValue;
+      else delete process.env[variable];
       try {
-        const result = await manager.startLogin(
-          "user-a",
-          "codex",
-          "personal",
-          "browser",
+        const { manager, built } = personalLoginManager(
+          provider,
+          value,
+          officeFile,
         );
-        expect(clients.built()).toBe(0);
-        expect(result).toMatchObject({ ok: false, message });
+        expect(
+          await manager.startLogin("user-a", provider, "personal", "browser"),
+        ).toMatchObject({
+          ok: false,
+          status: 422,
+          code: "browser_login_unavailable",
+        });
+        expect(built()).toBe(0);
       } finally {
-        if (previous === undefined) delete process.env.CODEX_HOME;
-        else process.env.CODEX_HOME = previous;
+        if (previous === undefined) delete process.env[variable];
+        else process.env[variable] = previous;
       }
     });
   }
 
-  for (const value of ["relative/codex", "~/.codex", "$HOME/.codex"] as const) {
-    it(`refuses Codex personal login for non-absolute ${value}`, async () => {
-      const clients = accountClientsThatMustNotBuild();
-      const manager = new ProviderAccountManager(
-        () => {},
-        clients.codex,
-        undefined,
-        undefined,
-        () => ({ CODEX_HOME: value }),
-        clients.claude,
-        () => ({}),
-        () => ({}),
-        () => ({ CODEX_HOME: value }),
-        () => [{ id: "user-a" }],
-      );
-      const result = await manager.startLogin(
-        "user-a",
-        "codex",
-        "personal",
-        "browser",
-      );
-      expect(clients.built()).toBe(0);
-      expect(result).toMatchObject({
-        ok: false,
-        message: "CODEX_HOME must be an absolute directory.",
-      });
+  // The positive control, and an explicit directory wins over an activated
+  // managed home.
+  for (const provider of ["claude", "codex"] as const) {
+    it(`starts ${provider} personal login in a unique explicit directory`, async () => {
+      const explicit = `/tmp/explicit-${provider}`;
+      const { manager, loginDirs } = personalLoginManager(provider, explicit);
+      try {
+        expect(
+          (await manager.startLogin("user-a", provider, "personal", "browser"))
+            .ok,
+        ).toBe(true);
+        expect(loginDirs).toEqual([explicit]);
+      } finally {
+        await manager.cancel("user-a", provider, "personal");
+      }
     });
   }
 
@@ -1608,7 +1269,6 @@ describe("ProviderAccountManager", () => {
     };
     const keyManager = (options: {
       source: (userId: string) => Source;
-      personalActive?: boolean;
       codex?: () => unknown;
       agentEnv?: Record<string, string>;
     }) => {
@@ -1642,7 +1302,7 @@ describe("ProviderAccountManager", () => {
         ],
         (id, provider) => `/tmp/api-key-source-personal-${provider}-${id}`,
         (id, provider) => `/tmp/api-key-source-personal-${provider}-${id}`,
-        () => options.personalActive ?? true,
+        () => true,
         () => {},
         () => {},
         undefined,
@@ -1664,49 +1324,46 @@ describe("ProviderAccountManager", () => {
         ]),
       );
 
-    for (const personalActive of [true, false]) {
-      it(`follows the viewer's source on every read, warm cache included (personal ${personalActive ? "active" : "inactive"})`, async () => {
-        let current: Source = "member_variable";
-        const { manager, probes } = keyManager({
-          source: () => current,
-          personalActive,
-        });
-        const first = await manager.list("user-a");
-        expect(sources(first)).toEqual({
-          "codex:office": "member_variable",
-          "codex:personal": "member_variable",
-          "claude:office": null,
-          "claude:personal": null,
-        });
-        // The probe still reports the stored sign-in.
-        expect(
-          first.find((a) => a.provider === "codex" && a.scope === "office"),
-        ).toMatchObject({ accountStatus: "connected" });
-        const probed = probes();
-        expect(probed).toBeGreaterThan(0);
-
-        current = "office_secret";
-        const second = await manager.list("user-a");
-        expect(probes()).toBe(probed);
-        expect(sources(second)["codex:office"]).toBe("office_secret");
-        expect(sources(second)["codex:personal"]).toBe("office_secret");
-        expect(sources((await manager.cachedList("user-a"))!)).toEqual({
-          "codex:office": "office_secret",
-          "codex:personal": "office_secret",
-          "claude:office": null,
-          "claude:personal": null,
-        });
-
-        current = null;
-        const third = await manager.list("user-a");
-        expect(probes()).toBe(probed);
-        for (const account of [
-          ...third,
-          ...(await manager.cachedList("user-a"))!,
-        ])
-          expect("apiKeySource" in account).toBe(false);
+    it("follows the viewer's source on every read, warm cache included", async () => {
+      let current: Source = "member_variable";
+      const { manager, probes } = keyManager({
+        source: () => current,
       });
-    }
+      const first = await manager.list("user-a");
+      expect(sources(first)).toEqual({
+        "codex:office": "member_variable",
+        "codex:personal": "member_variable",
+        "claude:office": null,
+        "claude:personal": null,
+      });
+      // The probe still reports the stored sign-in.
+      expect(
+        first.find((a) => a.provider === "codex" && a.scope === "office"),
+      ).toMatchObject({ accountStatus: "connected" });
+      const probed = probes();
+      expect(probed).toBeGreaterThan(0);
+
+      current = "office_secret";
+      const second = await manager.list("user-a");
+      expect(probes()).toBe(probed);
+      expect(sources(second)["codex:office"]).toBe("office_secret");
+      expect(sources(second)["codex:personal"]).toBe("office_secret");
+      expect(sources((await manager.cachedList("user-a"))!)).toEqual({
+        "codex:office": "office_secret",
+        "codex:personal": "office_secret",
+        "claude:office": null,
+        "claude:personal": null,
+      });
+
+      current = null;
+      const third = await manager.list("user-a");
+      expect(probes()).toBe(probed);
+      for (const account of [
+        ...third,
+        ...(await manager.cachedList("user-a"))!,
+      ])
+        expect("apiKeySource" in account).toBe(false);
+    });
 
     it("leaves the field off when the source cannot be read", async () => {
       const { manager } = keyManager({

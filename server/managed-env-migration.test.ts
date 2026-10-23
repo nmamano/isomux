@@ -32,88 +32,94 @@ function clearManagedEnv(): void {
 beforeEach(clearManagedEnv);
 afterEach(clearManagedEnv);
 
+// The office subject over the real parser and the real managed store, with
+// counters on the reads and writes.
+function officeSubject(legacyText: string) {
+  const fixtures = join(STATE_ROOT, "migration-fixtures");
+  mkdirSync(fixtures, { recursive: true });
+  const officePath = join(fixtures, "office.env");
+  writeFileSync(officePath, legacyText);
+  const state = {
+    legacy: officePath as string | null,
+    writes: 0,
+    reads: 0,
+    logs: [] as string[],
+  };
+  const deps = {
+    office: {
+      label: "office variables",
+      get path() {
+        return state.legacy;
+      },
+      legacyExists: existsSync,
+      managedExists: managedOfficeEnvExists,
+      readManaged: readManagedOfficeEnv,
+      readLegacy: (path: string) => {
+        state.reads++;
+        return readEnvFile(path);
+      },
+      writeManaged: (values: Record<string, string>) => {
+        state.writes++;
+        writeManagedOfficeEnv(values);
+      },
+      clearLegacyPath: () => {
+        state.legacy = null;
+      },
+    },
+    log: (message: string) => state.logs.push(message),
+  };
+  return { state, deps, officePath };
+}
+
 describe("managed env boot migration", () => {
   it("imports office values once through the real parser and reader", () => {
-    const fixtures = join(STATE_ROOT, "migration-fixtures");
-    mkdirSync(fixtures, { recursive: true });
-    const officePath = join(fixtures, "office.env");
-    writeFileSync(officePath, "GH_TOKEN=office\nTRAILING='office value '\n");
-    let officeLegacy: string | null = officePath;
-    let officeWrites = 0;
-    let reads = 0;
-    const deps = {
-      office: {
-        label: "office variables",
-        get path() {
-          return officeLegacy;
-        },
-        legacyExists: existsSync,
-        managedExists: managedOfficeEnvExists,
-        readManaged: readManagedOfficeEnv,
-        readLegacy: (path: string) => {
-          reads++;
-          return readEnvFile(path);
-        },
-        writeManaged: (values: Record<string, string>) => {
-          officeWrites++;
-          writeManagedOfficeEnv(values);
-        },
-        clearLegacyPath: () => {
-          officeLegacy = null;
-        },
-      },
-      log: () => {},
-    };
+    const { state, deps } = officeSubject(
+      "GH_TOKEN=office\nTRAILING='office value '\n",
+    );
 
     migrateManagedEnvAtBoot(deps);
     expect(readManagedOfficeEnv()).toEqual({
       GH_TOKEN: "office",
       TRAILING: "office value ",
     });
-    expect({ officeWrites, reads }).toEqual({
-      officeWrites: 1,
+    expect({ writes: state.writes, reads: state.reads }).toEqual({
+      writes: 1,
       reads: 1,
     });
 
     migrateManagedEnvAtBoot(deps);
-    expect({ officeWrites, reads }).toEqual({
-      officeWrites: 1,
+    expect({ writes: state.writes, reads: state.reads }).toEqual({
+      writes: 1,
       reads: 1,
     });
   });
 
-  it("continues after an office import failure without logging values", () => {
-    const fixtures = join(STATE_ROOT, "migration-fixtures");
-    mkdirSync(fixtures, { recursive: true });
-    const officePath = join(fixtures, "office.env");
-    writeFileSync(officePath, 'KEY="secret\\nvalue"\n');
-    let officeLegacy: string | null = officePath;
-    const logs: string[] = [];
+  // A boot that stopped after the managed write: the same values finish the
+  // import by clearing the marker.
+  it("clears the marker when the managed values already match", () => {
+    writeManagedOfficeEnv({ A: "one", B: "two" });
+    const { state, deps } = officeSubject("A=one\nB=two\n");
 
-    expect(() =>
-      migrateManagedEnvAtBoot({
-        office: {
-          label: "office variables",
-          get path() {
-            return officeLegacy;
-          },
-          legacyExists: existsSync,
-          managedExists: managedOfficeEnvExists,
-          readManaged: readManagedOfficeEnv,
-          readLegacy: readEnvFile,
-          writeManaged: writeManagedOfficeEnv,
-          clearLegacyPath: () => {
-            officeLegacy = null;
-          },
-        },
-        log: (message) => logs.push(message),
-      }),
-    ).not.toThrow();
+    migrateManagedEnvAtBoot(deps);
+    expect(state.legacy).toBeNull();
+    expect(state.writes).toBe(0);
+    expect(state.logs).toEqual([]);
+    expect(readManagedOfficeEnv()).toEqual({ A: "one", B: "two" });
+  });
 
-    expect(officeLegacy).toBe(officePath);
-    expect(logs).toEqual([
-      "[managed env migration] could not import office variables; retrying on next boot",
-    ]);
-    expect(logs.join("\n")).not.toContain("secret");
+  // Values a member saved in the managed editor are never overwritten, and
+  // the marker stays so an operator can resolve the collision.
+  it("keeps the managed values and the marker when they differ, and logs no value", () => {
+    writeManagedOfficeEnv({ A: "saved-in-editor" });
+    const { state, deps, officePath } = officeSubject("A=from-legacy-file\n");
+
+    migrateManagedEnvAtBoot(deps);
+    expect(state.legacy).toBe(officePath);
+    expect(state.writes).toBe(0);
+    expect(readManagedOfficeEnv()).toEqual({ A: "saved-in-editor" });
+    expect(state.logs).toHaveLength(1);
+    expect(state.logs[0]).toContain("office variables");
+    for (const secret of ["saved-in-editor", "from-legacy-file", officePath])
+      expect(state.logs[0]).not.toContain(secret);
   });
 });

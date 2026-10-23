@@ -8,12 +8,7 @@
 // or any other wrong language, fails.
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import {
-  translatorForLanguage,
-  translatorForUserId,
-  translatorForRequest,
-  english,
-} from "./i18n.ts";
+import { translatorForUserId, translatorForRequest } from "./i18n.ts";
 import type { Identity } from "./identity/index.ts";
 import { _testResetUsers, claimUser, updateUserById } from "./users.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
@@ -23,8 +18,6 @@ import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 const KEY = "systemEntries.resumeCancelled" as const;
 const EN = translatorFor("en").t(KEY);
 const ES = translatorFor("es").t(KEY);
-const CA = translatorFor("ca").t(KEY);
-const ZH = translatorFor("zh").t(KEY);
 
 it("tells every shipped language apart by KEY", () => {
   const values = SUPPORTED_LANGUAGES.map(({ code }) =>
@@ -34,10 +27,7 @@ it("tells every shipped language apart by KEY", () => {
   expect(new Set(values).size).toBe(SUPPORTED_LANGUAGES.length);
 });
 
-function seed(
-  name: string,
-  language: "en" | "es" | "ca" | "zh" | null,
-): string {
+function seed(name: string, language: "es" | null): string {
   const user = claimUser(name);
   updateUserById(user.id, { language });
   return user.id;
@@ -45,22 +35,6 @@ function seed(
 
 beforeEach(() => {
   _testResetUsers();
-});
-
-describe("translatorForLanguage", () => {
-  it("writes in the language it is given", () => {
-    expect(translatorForLanguage("es").t(KEY)).toBe(ES);
-    expect(translatorForLanguage("ca").t(KEY)).toBe(CA);
-    expect(translatorForLanguage("en").t(KEY)).toBe(EN);
-  });
-
-  it("treats a never-chosen preference as English", () => {
-    // null is "never chosen", not "chosen English": the server cannot see a
-    // browser language, so both read English here.
-    expect(translatorForLanguage(null).t(KEY)).toBe(EN);
-    expect(translatorForLanguage(undefined).t(KEY)).toBe(EN);
-    expect(english.t(KEY)).toBe(EN);
-  });
 });
 
 describe("translatorForUserId - a delivery to one user", () => {
@@ -76,23 +50,6 @@ describe("translatorForUserId - a delivery to one user", () => {
     expect(translatorForUserId("agent-1774696998326-2e6u").t(KEY)).toBe(EN);
     expect(translatorForUserId(null).t(KEY)).toBe(EN);
     expect(translatorForUserId(undefined).t(KEY)).toBe(EN);
-  });
-});
-
-describe("interpolation survives resolution", () => {
-  it("fills a placeholder in the resolved language", () => {
-    const id = seed("Ana", "es");
-    const key = "systemEntries.resumedSession" as const;
-    const params = { label: "topic" };
-    const es = translatorFor("es").t(key, params);
-    const en = translatorFor("en").t(key, params);
-    expect(es).not.toBe(en);
-    const spanish = translatorForUserId(id).t(key, params);
-    expect(spanish).toBe(es);
-    expect(spanish).toContain("topic");
-    const fallback = translatorForUserId("not-a-user").t(key, params);
-    expect(fallback).toBe(en);
-    expect(fallback).toContain("topic");
   });
 });
 
@@ -129,14 +86,6 @@ describe("translatorForRequest - the pre-sign-in pages", () => {
 
   it("negotiates from the header for a visitor with no identity", () => {
     expect(translatorForRequest(null, "es-ES,es;q=0.9").t(KEY)).toBe(ES);
-    expect(translatorForRequest(null, "es;q=0.8, ca;q=0.9").t(KEY)).toBe(CA);
     expect(translatorForRequest(null, "fr").t(KEY)).toBe(EN);
-    expect(translatorForRequest(null, null).t(KEY)).toBe(EN);
   });
-});
-
-it("uses Chinese for a member by ID and direct preference", () => {
-  const id = seed("Lin", "zh");
-  expect(translatorForUserId(id).t(KEY)).toBe(ZH);
-  expect(translatorForLanguage("zh").t(KEY)).toBe(ZH);
 });

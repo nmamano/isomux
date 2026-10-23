@@ -7,6 +7,7 @@ import {
   redactSecretText,
   createRedactingTextStream,
 } from "./log-redaction.ts";
+import { SCRUB_MARKER } from "./secret-proxy/scrub.ts";
 
 function entry(
   content: string,
@@ -126,35 +127,6 @@ describe("log secret redaction", () => {
     for (const value of unchanged)
       expect(redactLogEntry(entry(value)).content).toBe(value);
   });
-  it("shows the exact generic false-positive surface", () => {
-    const unchanged = [
-      'curl -H "Authorization: Bearer $API_TOKEN" https://example.com',
-      "OPENAI_API_KEY ANTHROPIC_API_KEY api_key token password",
-      "https://example.com/docs/how-to-create-a-token",
-      "the api_key is stored in the vault",
-      "export ANTHROPIC_API_KEY  # no value",
-    ];
-    for (const value of unchanged)
-      expect(redactLogEntry(entry(value)).content).toBe(value);
-    expect(
-      redactLogEntry(
-        entry("https://example.com/?token=abcdefghijklmnop&next=docs"),
-      ).content,
-    ).toBe("https://example.com/?token=abcdefgh...REDACTED&next=docs");
-    expect(
-      redactLogEntry(
-        entry('curl https://example.com -d "api_key=YOUR_API_KEY_HERE"'),
-      ).content,
-    ).toBe('curl https://example.com -d "api_key=YOUR_API...REDACTED"');
-    for (const name of ["DATABASE_PASSWORD", "database_password"]) {
-      expect(
-        redactLogEntry(entry(name + "=hunter2hunter2hunter2")).content,
-      ).toBe(name + "=hunter2h...REDACTED");
-    }
-    expect(
-      redactLogEntry(entry("password=correct-horse-battery-staple")).content,
-    ).toBe("password=correct-...REDACTED");
-  });
   it("copies shared and cyclic metadata without an infinite walk", () => {
     const metadata: Record<string, unknown> = { value: secrets[0] };
     metadata.self = metadata;
@@ -179,7 +151,7 @@ it("handles 20000 nested objects without call-stack overflow and preserves undef
   expect(result.ephemeral).toBe(true);
 });
 
-it("pins the PM ruling and stays stable on a second pass for every case", () => {
+it("pins the PM ruling and the generic false-positive surface, stable on a second pass", () => {
   const cases = [
     [
       "Environment=OPENAI_API_KEY=sk-proj-" + "A".repeat(24),
@@ -208,8 +180,17 @@ it("pins the PM ruling and stays stable on a second pass for every case", () => 
     ],
     ["api_key=YOUR_API_KEY_HERE_PLACEHOLDER", "api_key=YOUR_API...REDACTED"],
     [
+      'curl https://example.com -d "api_key=YOUR_API_KEY_HERE"',
+      'curl https://example.com -d "api_key=YOUR_API...REDACTED"',
+    ],
+    ["password=correct-horse-battery-staple", "password=correct-...REDACTED"],
+    [
       "https://example.com/v1/things?token=abcdefghijklmnopqrstuvwx",
       "https://example.com/v1/things?token=abcdefgh...REDACTED",
+    ],
+    [
+      "https://example.com/?token=abcdefghijklmnop&next=docs",
+      "https://example.com/?token=abcdefgh...REDACTED&next=docs",
     ],
     ["AKIAIOSFODNN7EXAMPLE", "AKIAIOSF...REDACTED"],
     ["ghp_" + "a".repeat(36), "ghp_aaaa...REDACTED"],
@@ -224,6 +205,14 @@ it("pins the PM ruling and stays stable on a second pass for every case", () => 
     [
       "export ANTHROPIC_API_KEY  # no value here",
       "export ANTHROPIC_API_KEY  # no value here",
+    ],
+    [
+      "OPENAI_API_KEY ANTHROPIC_API_KEY api_key token password",
+      "OPENAI_API_KEY ANTHROPIC_API_KEY api_key token password",
+    ],
+    [
+      "https://example.com/docs/how-to-create-a-token",
+      "https://example.com/docs/how-to-create-a-token",
     ],
     ["SK-PROJ-" + "A".repeat(24), "SK-PROJ-" + "A".repeat(24)],
     ["GHP_" + "a".repeat(36), "GHP_" + "a".repeat(36)],
@@ -245,6 +234,11 @@ describe("secret values", () => {
     const basic = Buffer.from(`user:${value}`).toString("base64");
     const out = redactLogEntry(
       entry(`a ${value} b ${encodeURIComponent(value)} c Basic ${basic}`),
+    );
+    // All three forms are masked, and the text around them stays.
+    expect(out.content.split(SCRUB_MARKER)).toHaveLength(4);
+    expect(out.content).toStartWith(
+      `a ${SCRUB_MARKER} b ${SCRUB_MARKER} c Basic `,
     );
     const text = JSON.stringify(out);
     expect(text).not.toContain(value);

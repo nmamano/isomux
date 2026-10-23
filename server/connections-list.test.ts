@@ -22,6 +22,16 @@ function account(
   };
 }
 
+const engineServer = {
+  engine: "claude" as const,
+  name: "linear",
+  source: "user" as const,
+  folder: null,
+  signIn: "office" as const,
+  status: "connected" as const,
+  tools: 7,
+};
+
 function sources(
   overrides: Partial<ConnectionsListSources> = {},
 ): ConnectionsListSources {
@@ -41,16 +51,18 @@ function sources(
     claudeConnectorsFor: (dir) =>
       dir === "/claude/office" ? { names: ["Gmail"], seenAt: 10 } : null,
     claudeConnectorStatusesFor: (dir) =>
-      dir === "/claude/office" ? [{ name: "Gmail", status: "connected" }] : [],
+      dir === "/claude/office"
+        ? [{ name: "Gmail", status: "connected", tools: 12 }]
+        : [],
     mcpServers: () => [],
-    engineMcpServers: () => [],
+    engineMcpServers: () => [engineServer],
     secrets: () => [],
     ...overrides,
   };
 }
 
 describe("buildConnectionsList", () => {
-  it("lists variable names, connected sign-ins and each Claude sign-in's connectors", async () => {
+  it("lists variable names, connected sign-ins, each Claude sign-in's connectors and tool counts", async () => {
     expect(await buildConnectionsList(sources())).toEqual({
       variables: [
         { scope: "office", name: "OFFICE_A", note: null },
@@ -67,56 +79,15 @@ describe("buildConnectionsList", () => {
           scope: "office",
           seenAt: 10,
           names: ["Gmail"],
-          statuses: [{ name: "Gmail", status: "connected" }],
+          statuses: [{ name: "Gmail", status: "connected", tools: 12 }],
         },
         // Connected, but no Claude turn seen since the server started.
         { scope: "personal", seenAt: null, names: [], statuses: [] },
       ],
       mcpServers: [],
-      engineMcpServers: [],
+      engineMcpServers: [engineServer],
       secrets: [],
     });
-  });
-
-  it("passes on tool counts and the sign-in of a server set in Claude", async () => {
-    const list = await buildConnectionsList(
-      sources({
-        claudeConnectorStatusesFor: () => [
-          { name: "Gmail", status: "connected", tools: 12 },
-        ],
-        engineMcpServers: () => [
-          {
-            engine: "claude",
-            name: "linear",
-            source: "user",
-            folder: null,
-            signIn: "office",
-            status: "connected",
-            tools: 7,
-          },
-        ],
-      }),
-    );
-    expect(list.claudeConnectors[0]?.statuses).toEqual([
-      { name: "Gmail", status: "connected", tools: 12 },
-    ]);
-    expect(list.engineMcpServers).toEqual([
-      expect.objectContaining({ signIn: "office", tools: 7 }),
-    ]);
-  });
-
-  // Nil, ruling 2 (2026-10-13): members see the office items' names.
-  it("gives a member the office variable names", async () => {
-    const list = await buildConnectionsList(
-      sources({ officeOwner: false, officeVariableNames: () => ["OFFICE_A"] }),
-    );
-    expect(list.variables).toEqual([
-      { scope: "office", name: "OFFICE_A", note: null },
-      { scope: "personal", name: "MINE", note: null },
-    ]);
-    // The office sign-in and its connectors are already visible to members.
-    expect(list.signIns.some((signIn) => signIn.scope === "office")).toBe(true);
-    expect(list.claudeConnectors[0]).toMatchObject({ scope: "office" });
   });
 
   it("lists no connectors for a Claude sign-in that is not connected or has no claude.ai login", async () => {
@@ -268,9 +239,10 @@ describe("buildConnectionsList", () => {
     ]);
   });
 
-  // A member's office rows carry test null: only an owner may run a test
-  // on an office secret. Their own secrets keep their test.
-  it("gives a member the office secrets, with no test", async () => {
+  // Nil, ruling 2 (2026-10-13): members see the office items. A member's
+  // office secret rows carry test null: only an owner may run a test on an
+  // office secret. Their own secrets keep their test.
+  it("gives a member the office items, and office secrets with no test", async () => {
     const github: SecretWire = {
       name: "GH_TOKEN",
       hosts: ["api.github.com"],
@@ -283,7 +255,11 @@ describe("buildConnectionsList", () => {
     };
     const build = (officeOwner: boolean) =>
       buildConnectionsList(sources({ officeOwner, secrets: () => [github] }));
-    expect((await build(false)).secrets).toEqual([
+    const member = await build(false);
+    // The office sign-in and its connectors are already visible to members.
+    expect(member.signIns.map((signIn) => signIn.scope)).toContain("office");
+    expect(member.claudeConnectors[0]).toMatchObject({ scope: "office" });
+    expect(member.secrets).toEqual([
       {
         scope: "office",
         name: "GH_TOKEN",

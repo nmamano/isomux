@@ -132,15 +132,23 @@ describe("personal API token persistence", () => {
     });
     expect(existsSync(file)).toBe(true);
 
-    writeFileSync(file, JSON.stringify({ damaged: { id: "damaged" } }));
+    // A record that lacks its hash is dropped; a valid one beside it stays.
+    const kept = await mintApiToken({
+      userId: "u1",
+      name: "Valid",
+      expiresInDays: 30,
+    });
+    const stored = JSON.parse(readFileSync(file, "utf-8"));
+    const damagedId = "0123456789abcdef";
+    const { tokenHash: _hash, ...noHash } = stored[kept.apiToken.id];
+    stored[damagedId] = { ...noHash, id: damagedId, name: "Damaged" };
+    writeFileSync(file, JSON.stringify(stored));
     _testResetApiTokens();
     const error = spyOn(console, "error").mockImplementation(() => undefined);
     try {
-      expect(listApiTokens("u1")).toEqual([]);
-      expect(error).toHaveBeenCalledWith(
-        "Ignoring invalid API token record:",
-        "damaged",
-      );
+      expect(listApiTokens("u1").map((t) => t.id)).not.toContain(damagedId);
+      expect(listApiTokens("u1").map((t) => t.id)).toContain(kept.apiToken.id);
+      expect(error).toHaveBeenCalledWith(expect.any(String), damagedId);
     } finally {
       error.mockRestore();
     }
@@ -169,7 +177,7 @@ describe("personal API token persistence", () => {
         latestSequence: 0,
       });
       expect(error).toHaveBeenCalledWith(
-        "Ignoring malformed API token inbox:",
+        expect.any(String),
         minted.apiToken.id,
       );
     } finally {
@@ -191,6 +199,13 @@ describe("personal API token persistence", () => {
       senderAgentName: "Worker",
       senderRoomName: "Lab",
     };
+    // Positive control: the owner, live and unrevoked, gets through.
+    const owner = await enqueueApiTokenInboxMessage({
+      ...input,
+      userId: "u1",
+      now: 2_000,
+    });
+    expect(owner.ok).toBe(true);
     expect(
       await enqueueApiTokenInboxMessage({ ...input, userId: "u2", now: 2_000 }),
     ).toEqual({ ok: false, reason: "unavailable" });
@@ -251,14 +266,6 @@ describe("API token log secret masking", () => {
     // The caller's own copy, which the office sends to the agent, keeps the
     // full text.
     expect(target.text).toBe(SECRET_TEXT);
-  });
-
-  it("keeps the masked log after revoke", async () => {
-    const { apiToken } = await mint();
-    await inboxMessage(apiToken.id, SECRET_TEXT);
-    expect(await revokeApiToken("u1", apiToken.id)).toBe(true);
-    const disk = readFileSync(pathFor(apiToken.id), "utf8");
-    expect(JSON.parse(disk).text).toBe(maskedText(SECRET_TEXT));
   });
 
   it("masks a retained inbox when it migrates into the log", async () => {

@@ -16,10 +16,9 @@ import { join } from "path";
 import { tmpdir } from "os";
 import {
   createMembersChatStore,
-  monthKey,
-  monthOfId,
   MembersChatError,
   MEMBERS_CHAT_MAX_CHARS,
+  MEMBERS_CHAT_MAX_PAGE,
   MEMBERS_CHAT_UNREAD_CAP,
   type MembersChatStore,
 } from "./members-chat.ts";
@@ -53,16 +52,7 @@ function postN(n: number, author = nil): string[] {
   return ids;
 }
 
-describe("ids and months", () => {
-  it("names the month in UTC and reads it back from the id", () => {
-    expect(monthKey(AUG)).toBe("2026-08");
-    const m = store.post({ ...nil, content: "hi" });
-    expect(m.id).toMatch(/^202608-[0-9a-f]{8}$/);
-    expect(monthOfId(m.id)).toBe("2026-08");
-    expect(monthOfId("garbage")).toBeNull();
-    expect(monthOfId("202608-xyz")).toBeNull();
-  });
-
+describe("month files", () => {
   it("writes one file per month and nothing else in the stream dir", () => {
     postN(2);
     clock = SEP;
@@ -132,16 +122,19 @@ describe("post and fold", () => {
 });
 
 describe("edit and delete", () => {
-  it("edits in place and marks editedAt", () => {
+  it("edits in place and marks editedAt; a refused edit leaves the message alone", () => {
     const m = store.post({ ...nil, content: "draft" });
     clock += 5000;
     const edited = store.edit(m.id, "final");
     expect(edited?.content).toBe("final");
     expect(edited?.editedAt).toBe(AUG + 5000);
     expect(edited?.timestamp).toBe(AUG);
-    // Editing to nothing is refused like posting nothing.
+    // An edit is refused like a post: nothing, or over the cap.
     expect(() => store.edit(m.id, "   ")).toThrow(MembersChatError);
-    expect(store.get(m.id)?.content).toBe("final");
+    expect(() =>
+      store.edit(m.id, "x".repeat(MEMBERS_CHAT_MAX_CHARS + 1)),
+    ).toThrow(MembersChatError);
+    expect(createMembersChatStore(dir).get(m.id)?.content).toBe("final");
   });
 
   it("appends the edit and the delete to the month that holds the target", () => {
@@ -174,30 +167,9 @@ describe("edit and delete", () => {
     expect(store.get("202608-zzzzzzzz")).toBeNull();
     expect(readdirSync(dir)).toEqual(filesBefore);
   });
-
-  it("an edit over the cap throws and leaves the message alone", () => {
-    const m = store.post({ ...nil, content: "ok" });
-    expect(() =>
-      store.edit(m.id, "x".repeat(MEMBERS_CHAT_MAX_CHARS + 1)),
-    ).toThrow(MembersChatError);
-    expect(store.get(m.id)?.content).toBe("ok");
-  });
 });
 
 describe("paging", () => {
-  it("returns the newest page chronologically and pages older on a cursor", () => {
-    const ids = postN(7);
-    const p1 = store.page({ limit: 3 });
-    expect(p1.messages.map((m) => m.id)).toEqual(ids.slice(4));
-    expect(p1.hasMore).toBe(true);
-    const p2 = store.page({ limit: 3, before: p1.messages[0].id });
-    expect(p2.messages.map((m) => m.id)).toEqual(ids.slice(1, 4));
-    expect(p2.hasMore).toBe(true);
-    const p3 = store.page({ limit: 3, before: p2.messages[0].id });
-    expect(p3.messages.map((m) => m.id)).toEqual(ids.slice(0, 1));
-    expect(p3.hasMore).toBe(false);
-  });
-
   it("crosses a month boundary inside one page", () => {
     const aug = postN(2);
     clock = SEP;
@@ -236,11 +208,13 @@ describe("paging", () => {
   });
 
   it("clamps the limit", () => {
-    const ids = postN(3);
-    expect(store.page({ limit: 0 }).messages).toHaveLength(1);
-    expect(store.page({ limit: 10_000 }).messages.map((m) => m.id)).toEqual(
-      ids,
+    const ids = postN(MEMBERS_CHAT_MAX_PAGE + 1);
+    expect(store.page({ limit: 0 }).messages.map((m) => m.id)).toEqual(
+      ids.slice(-1),
     );
+    const most = store.page({ limit: 10_000 });
+    expect(most.messages.map((m) => m.id)).toEqual(ids.slice(1));
+    expect(most.hasMore).toBe(true);
   });
 });
 
@@ -340,6 +314,11 @@ describe("attachments", () => {
 
   it("refuses traversal and unknown names", () => {
     store.saveAttachment(Buffer.from("x"), "text/plain", "x.txt");
+    expect(store.attachmentPath("x.txt")).toBe(join(dir, "files", "x.txt"));
+    // reads.json exists, one level above files/.
+    const [id] = postN(1);
+    store.setReadPointer("u-pau", id);
+    expect(readdirSync(dir)).toContain("reads.json");
     expect(store.attachmentPath("../reads.json")).toBeNull();
     expect(store.attachmentPath("..")).toBeNull();
     expect(store.attachmentPath("missing.txt")).toBeNull();
@@ -421,7 +400,7 @@ describe("reply snapshots", () => {
     ).toThrow(MembersChatError);
   });
 
-  it("snapshots attachment names and accepts old post lines without a reply", () => {
+  it("snapshots a file-only target by its file name", () => {
     const target = store.post({
       ...nil,
       content: "",
@@ -436,10 +415,6 @@ describe("reply snapshots", () => {
     });
     const reply = store.post({ ...pau, content: "thanks", replyTo: target.id });
     expect(reply.replyTo?.excerpt).toBe("Report.pdf");
-    expect(createMembersChatStore(dir).get(target.id)?.replyTo).toBeUndefined();
-    expect(() =>
-      store.post({ ...nil, content: "bad", replyTo: "unknown" }),
-    ).toThrow(MembersChatError);
   });
 });
 

@@ -38,9 +38,9 @@ import { memberUsageCap } from "./member-usage-cap.ts";
 import { clearClaudeConnectors } from "./claude-connectors.ts";
 import { getAgentHost } from "./agent-host.ts";
 
-export const CLAUDE_CONFIG_INVALID =
+const CLAUDE_CONFIG_INVALID =
   "CLAUDE_CONFIG_DIR must be an absolute directory.";
-export const CODEX_HOME_INVALID = "CODEX_HOME must be an absolute directory.";
+const CODEX_HOME_INVALID = "CODEX_HOME must be an absolute directory.";
 const ACCOUNT_STATUS_TTL_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 // Five isolated probes per provider on 2026-09-16 took 648-2,609 ms for Codex
@@ -195,10 +195,6 @@ export class ProviderAccountManager {
       envSourceForUserId(userId, "OPENAI_API_KEY"),
   ) {}
 
-  private userOnlyEnv(userId: string): Record<string, string> {
-    return this.userEnv(userId);
-  }
-
   effectiveTarget(
     userId: string,
     provider: ProviderAccountProvider,
@@ -206,7 +202,7 @@ export class ProviderAccountManager {
     const office = this.target(userId, provider, "office");
     const env = this.envForUser(userId) ?? getAgentHost().baseEnv();
     if (provider === "claude" && isClaudeCloudSelected(env)) {
-      const target = isClaudeCloudSelected(this.userOnlyEnv(userId))
+      const target = isClaudeCloudSelected(this.userEnv(userId))
         ? this.target(userId, provider, "personal")
         : office;
       return { provider, scope: target.scope, dir: target.dir };
@@ -285,7 +281,7 @@ export class ProviderAccountManager {
     provider: ProviderAccountProvider,
     scope: ProviderAccountScope,
   ): Target {
-    const own = this.userOnlyEnv(userId);
+    const own = this.userEnv(userId);
     const officeEnv = this.officeEnv();
     if (provider === "codex") {
       const officeDir = resolve(
@@ -325,7 +321,7 @@ export class ProviderAccountManager {
         throw this.collision("codex", "office");
       for (const other of this.users()) {
         if (other.id === userId) continue;
-        const otherValue = this.userOnlyEnv(other.id).CODEX_HOME?.trim();
+        const otherValue = this.userEnv(other.id).CODEX_HOME?.trim();
         if (otherValue && isAbsolute(otherValue) && resolve(otherValue) === dir)
           throw this.collision("codex", "member");
         if (resolve(this.personalHome(other.id, "codex")) === dir)
@@ -381,7 +377,7 @@ export class ProviderAccountManager {
       throw this.collision("claude", "office");
     for (const other of this.users()) {
       if (other.id === userId) continue;
-      const otherValue = this.userOnlyEnv(other.id).CLAUDE_CONFIG_DIR?.trim();
+      const otherValue = this.userEnv(other.id).CLAUDE_CONFIG_DIR?.trim();
       if (explicit && otherValue && resolve(otherValue) === dir)
         throw this.collision("claude", "member");
       if (explicit && resolve(this.personalHome(other.id, "claude")) === dir)

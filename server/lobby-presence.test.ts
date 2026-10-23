@@ -115,29 +115,3 @@ it("assigns a random free entry seat without moving existing or overflow rows", 
   );
   expect(before).toEqual([row("seated", "one"), row("waiting", null)]);
 });
-
-it("setPresence accepts entry randomness and returns true for a spot-only change", () => {
-  const p = {
-    connectionId: "a",
-    userId: "u",
-    username: "Morgan",
-    device: null,
-    avatarColor: "#123456",
-    avatarVariant: "classic" as const,
-    currentRoomId: LOBBY_ROOM_ID,
-    focusedAgentId: null,
-    viewMode: "office" as const,
-    lastSeenAt: 0,
-  };
-  setPresence(p, () => 0);
-  expect(getPresence("a")!.lobbySpotId).toBe(LOBBY_SPOT_IDS[0]);
-  expect(
-    setPresence({ ...getPresence("a")!, lobbySpotId: LOBBY_SPOT_IDS[1] }),
-  ).toBe(true);
-  expect(setPresence({ ...getPresence("a")! })).toBe(false);
-  setPresence({ ...getPresence("a")!, currentRoomId: null });
-  expect(getPresence("a")!.lobbySpotId).toBeUndefined();
-  setPresence(p, () => 0.99);
-  expect(getPresence("a")!.lobbySpotId).toBe(LOBBY_SPOT_IDS.at(-1));
-  expect(getPresence("a")!.lobbySpotId).not.toBe(LOBBY_SPOT_IDS[0]);
-});

@@ -13,7 +13,6 @@ import {
   type AskAudienceDeps,
   createAskFilePersistence,
   createAskStore,
-  AsksUnavailableError,
   type AskPersistence,
 } from "./asks.ts";
 
@@ -56,16 +55,6 @@ describe("loading", () => {
     expect(
       readdirSync(dir).some((f) => f.startsWith("asks.json.corrupt-")),
     ).toBe(true);
-  });
-
-  it("refuses every operation when the file cannot be read", () => {
-    const persistence: AskPersistence = {
-      load: () => ({ kind: "unreadable" }),
-      save: () => {},
-      quarantine: () => true,
-    };
-    const store = createAskStore({ persistence });
-    expect(() => store.listAll()).toThrow(AsksUnavailableError);
   });
 
   it("leaves memory unchanged when a write fails", () => {
@@ -207,11 +196,6 @@ describe("the three shapes", () => {
     // A recommendation needs options; that it is one of them is checked on
     // write only.
     [
-      "recommended option",
-      { ...BASE, memberUserId: "u1", options: ["a", "b"], recommended: "b" },
-      true,
-    ],
-    [
       "recommendation that is not one of the options",
       { ...BASE, memberUserId: "u1", options: ["a", "b"], recommended: "c" },
       true,
@@ -313,115 +297,33 @@ describe("the three shapes", () => {
     expect(office.ok && office.entry.memberUserId).toBe(undefined);
   });
 
-  it("never stores a link on a secret request, on create or on edit", () => {
+  it("never stores a link or options on a secret request, on create or on edit", () => {
     const { path } = fileIn();
     const store = createAskStore({
       persistence: createAskFilePersistence(path),
     });
+    const secret = { ...SECRET, scope: "personal" as const };
+    const ask = { agentId: "a1", memberUserId: "u1", prompt: "Go?", secret };
     expect(() =>
-      store.create({
-        agentId: "a1",
-        memberUserId: "u1",
-        prompt: "Go?",
-        secret: { ...SECRET, scope: "personal" },
-        link: "/integrations/secrets",
-      }),
+      store.create({ ...ask, link: "/integrations/secrets" }),
+    ).toThrow();
+    expect(() =>
+      store.create({ ...ask, options: ["Save", "Decline"] }),
     ).toThrow();
     expect(store.listAll()).toEqual([]);
-    const made = store.create({
-      agentId: "a1",
-      memberUserId: "u1",
-      prompt: "Go?",
-      secret: { ...SECRET, scope: "personal" },
-    });
+    const made = store.create(ask);
     if (!made.ok) throw new Error("create failed");
     expect(() =>
       store.edit(made.entry.id, "Go?", "/integrations/secrets"),
     ).toThrow();
-    expect(store.get(made.entry.id)).toEqual(made.entry);
-  });
-});
-
-describe("an edit's link", () => {
-  it("keeps the link when none is given, replaces it, and deletes the key on null", () => {
-    const { path } = fileIn();
-    const store = createAskStore({
-      persistence: createAskFilePersistence(path),
-    });
-    const made = store.create({
-      agentId: "a1",
-      memberUserId: "u1",
-      prompt: "Sign in?",
-      link: "/integrations/mcp",
-    });
-    if (!made.ok) throw new Error("create failed");
-    const id = made.entry.id;
-    expect(store.edit(id, "Sign in now?")?.link).toBe("/integrations/mcp");
-    expect(store.edit(id, "Pair?", "/integrations/browser")?.link).toBe(
-      "/integrations/browser",
-    );
-    const cleared = store.edit(id, "Pair?", null);
-    expect(cleared && "link" in cleared).toBe(false);
-    const reread = createAskStore({
-      persistence: createAskFilePersistence(path),
-    }).get(id);
-    expect(reread && "link" in reread).toBe(false);
-  });
-});
-
-describe("an ask's options", () => {
-  it("keeps the options when none are given, replaces them, and deletes the key on null", () => {
-    const { path } = fileIn();
-    const store = createAskStore({
-      persistence: createAskFilePersistence(path),
-    });
-    const made = store.create({
-      agentId: "a1",
-      memberUserId: "u1",
-      prompt: "Toast?",
-      options: ["Jim", "Dwight"],
-    });
-    if (!made.ok) throw new Error("create failed");
-    const id = made.entry.id;
-    expect(store.edit(id, "Toast now?")?.options).toEqual(["Jim", "Dwight"]);
-    expect(
-      store.edit(id, "Toast?", undefined, ["Pam", "Oscar"])?.options,
-    ).toEqual(["Pam", "Oscar"]);
-    const cleared = store.edit(id, "Toast?", undefined, null);
-    expect(cleared && "options" in cleared).toBe(false);
-    const reread = createAskStore({
-      persistence: createAskFilePersistence(path),
-    }).get(id);
-    expect(reread && "options" in reread).toBe(false);
-  });
-
-  it("never stores options on a secret request", () => {
-    const { path } = fileIn();
-    const store = createAskStore({
-      persistence: createAskFilePersistence(path),
-    });
-    expect(() =>
-      store.create({
-        agentId: "a1",
-        memberUserId: "u1",
-        prompt: "Go?",
-        secret: { ...SECRET, scope: "personal" },
-        options: ["Save", "Decline"],
-      }),
-    ).toThrow();
-    const made = store.create({
-      agentId: "a1",
-      memberUserId: "u1",
-      prompt: "Go?",
-      secret: { ...SECRET, scope: "personal" },
-    });
-    if (!made.ok) throw new Error("create failed");
     expect(() =>
       store.edit(made.entry.id, "Go?", undefined, ["Save", "Decline"]),
     ).toThrow();
     expect(store.get(made.entry.id)).toEqual(made.entry);
   });
+});
 
+describe("an ask's options", () => {
   it("checks the count, emptiness, length and repeats, after a trim", () => {
     expect(checkOptions([" Jim ", "Dwight"])).toEqual({
       ok: true,

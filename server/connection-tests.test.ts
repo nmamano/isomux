@@ -8,11 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SECRET_PRESETS } from "../shared/secret-hosts.ts";
-import type { ConnectionTestResult } from "../shared/contract-shapes.ts";
 import {
-  IDENTITY_CHECKS,
-  cleanName,
+  SECRET_TEST_KINDS,
+  type ConnectionTestResult,
+} from "../shared/contract-shapes.ts";
+import {
   createConnectionTester,
+  secretTestKind,
   type ConnectionTestFetch,
 } from "./connection-tests.ts";
 import { createMcpServerSources, mcpServerRows } from "./mcp-servers.ts";
@@ -114,12 +116,11 @@ function expectClean(result: unknown) {
 }
 
 describe("the identity checks", () => {
-  it("call a host on their preset's own list", () => {
-    for (const [id, check] of Object.entries(IDENTITY_CHECKS)) {
-      const preset = SECRET_PRESETS.find((entry) => entry.id === id);
-      expect(preset?.hosts).toContain(check.host);
-      expect(new URL(check.url).hostname).toBe(check.host);
-      expect(preset?.form).toEqual({ kind: "authorization" });
+  // Each check's URL is pinned by its service's test below.
+  it("give a secret made from each preset that preset's test", () => {
+    for (const kind of SECRET_TEST_KINDS) {
+      const preset = SECRET_PRESETS.find((entry) => entry.id === kind);
+      expect(preset && secretTestKind(preset)).toBe(kind);
     }
   });
 });
@@ -368,7 +369,7 @@ describe("secret tests", () => {
 function mcpServer(
   options: {
     sse?: boolean;
-    name?: string;
+    name?: unknown;
     status?: number;
     challenge?: string;
     error?: boolean;
@@ -551,13 +552,30 @@ describe("MCP server tests", () => {
     });
   });
 
-  it("does not show a server name that repeats the credential or the URL path", async () => {
-    for (const name of [`echo ${VALUE}`, `srv-${PATH_TOKEN}`]) {
+  it("shows only a plain short server name that repeats nothing it sent", async () => {
+    const cases: [unknown, string | null][] = [
+      ["  Linear  ", "Linear"],
+      // Short path parts ("mcp") are common words, not secrets.
+      ["mcp server", "mcp server"],
+      [42, null],
+      ["", null],
+      ["x".repeat(101), null],
+      ["bad\nname", null],
+      [`echo ${VALUE}`, null],
+      [`srv-${PATH_TOKEN}`, null],
+    ];
+    for (const [name, server] of cases) {
       const { fetch } = fakeFetch(mcpServer({ name }));
       const { sources, tester } = setup(fetch);
       addMcpServer(sources, ALICE, "LINEAR_TOKEN");
       const result = await tester.mcpServer(ALICE, "linear");
-      expect(result).toMatchObject({ ok: true, server: null, tools: 3 });
+      expect(result).toEqual({
+        ok: true,
+        kind: "mcp",
+        host: "mcp.example.com",
+        server,
+        tools: 3,
+      });
       expectClean(result);
       rmSync(root, { recursive: true, force: true });
     }
@@ -597,20 +615,5 @@ describe("MCP server tests", () => {
     });
     expect(sent).toHaveLength(calls);
     expect(tester.mcpServer(ALICE, "nope")).toBeNull();
-  });
-});
-
-describe("cleanName", () => {
-  it("keeps plain short text and refuses what could carry the request", () => {
-    const sent = { value: VALUE, url: MCP_URL };
-    expect(cleanName("  Linear  ", sent)).toBe("Linear");
-    expect(cleanName(42, sent)).toBeNull();
-    expect(cleanName("", sent)).toBeNull();
-    expect(cleanName("x".repeat(101), sent)).toBeNull();
-    expect(cleanName("bad\nname", sent)).toBeNull();
-    expect(cleanName(`a ${VALUE} b`, sent)).toBeNull();
-    expect(cleanName(`a ${PATH_TOKEN} b`, sent)).toBeNull();
-    // Short path parts ("mcp") are common words, not secrets.
-    expect(cleanName("mcp server", sent)).toBe("mcp server");
   });
 });

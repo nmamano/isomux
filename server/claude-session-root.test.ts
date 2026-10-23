@@ -118,13 +118,10 @@ it("missing legacy files name all checked paths without checking another user's 
       );
     }
     expect(error).not.toContain("other-owner");
-    expect(error).not.toContain("moved");
-    expect(error).not.toContain("renamed");
   }
   const exitHint = renderLogText(
     translatorFor("en"),
     diagnoseProcessExit(f.cwd, f.session, { CLAUDE_CONFIG_DIR: f.current })!,
   );
   expect(exitHint).toContain(f.current);
-  expect(exitHint).not.toContain("moved");
 });

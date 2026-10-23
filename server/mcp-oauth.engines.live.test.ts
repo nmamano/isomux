@@ -1,8 +1,8 @@
 // A2b acceptance, live tier (ISOMUX_TEST_LIVE=1): a member's OAuth MCP
 // server, signed in once against the stub authorization server, reaches a
-// real Claude, Codex and OpenCode process with the access token; a refresh
-// gives the next start the new token without a new sign-in; a refused
-// refresh leaves the server out.
+// real Claude, Codex and OpenCode process with the access token. The refresh
+// and a refused refresh change only what mcpServersForUserId gives, which
+// server/mcp-oauth.test.ts proves without an engine.
 //
 // The stub MCP host is a TLS stub that records each request's headers; the
 // engines reach it through a CONNECT proxy that routes only the stub hosts,
@@ -42,7 +42,7 @@ let root: string;
 let stub: Awaited<ReturnType<typeof startHttpsStub>>;
 let deny: Awaited<ReturnType<typeof startCompanyProxy>>;
 let bundle: string;
-let clock = Date.now();
+const clock = Date.now();
 const rig = stubRig();
 let sources: ReturnType<typeof createMcpServerSources>;
 let oauth: ReturnType<typeof createMcpOAuth>;
@@ -265,27 +265,5 @@ describe.skipIf(!LIVE)(
       expect(mcpAuthorizations()).toContain(token);
       for (const out of outputs) expect(out).not.toContain(LEAK);
     }, 150000);
-
-    test("a refresh gives the next start the new token, without a sign-in", async () => {
-      const old = `Bearer ${rig.access()}`;
-      clock += 3600_000 - 60_000;
-      await oauth.refreshDue();
-      const fresh = `Bearer ${rig.access()}`;
-      expect(fresh).not.toBe(old);
-      mcpAuthorizations();
-      await claude();
-      const seen = mcpAuthorizations();
-      expect(seen).toContain(fresh);
-      expect(seen).not.toContain(old);
-    }, 60000);
-
-    // No engine run here: an engine with no server sends nothing to the
-    // host, whatever its speed, so a run would prove nothing more.
-    test("a refused refresh leaves the server out", async () => {
-      rig.refuseRefresh = true;
-      clock += 3600_000;
-      await oauth.refreshDue();
-      expect(mcpServersForUserId(sources, MEMBER)).toEqual([]);
-    });
   },
 );

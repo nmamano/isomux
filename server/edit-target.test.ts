@@ -28,6 +28,10 @@ describe("locateEditTarget", () => {
       kind: "found",
       index: 0,
     });
+    // A repeated last text whose earlier copy alone is recorded: not sent.
+    expect(locateEditTarget(backend("go"), log("go", "go"), "e1")).toEqual({
+      kind: "not_sent",
+    });
   });
 
   it("classifies the latest message as not sent when the backend ends at its predecessor", () => {
@@ -53,13 +57,6 @@ describe("locateEditTarget", () => {
     });
   });
 
-  it("treats a repeated last text as not sent when only the earlier copy is recorded", () => {
-    const users = log("go", "go");
-    expect(locateEditTarget(backend("go"), users, "e1")).toEqual({
-      kind: "not_sent",
-    });
-  });
-
   it("refuses when user text follows the predecessor", () => {
     // The target may be in the backend under a text the normalization missed.
     expect(
@@ -68,13 +65,15 @@ describe("locateEditTarget", () => {
   });
 
   it("refuses a target that is not the latest message", () => {
-    expect(
-      locateEditTarget(backend("a", "c"), log("a", "b", "c"), "e1"),
-    ).toEqual({ kind: "missing" });
+    // The backend ends at the predecessor, as for a message not sent.
+    expect(locateEditTarget(backend("a"), log("a", "b", "c"), "e1")).toEqual({
+      kind: "missing",
+    });
   });
 
   it("refuses when the predecessor itself is not in the backend", () => {
-    expect(locateEditTarget(backend("x"), log("a", "b"), "e1")).toEqual({
+    // No user text in the backend: only the missing predecessor refuses.
+    expect(locateEditTarget(backend(""), log("a", "b"), "e1")).toEqual({
       kind: "missing",
     });
   });
@@ -122,16 +121,13 @@ describe("a native Claude Code command in the history", () => {
   ].map((e) => ({ id: e.id, text: editLogUserText(e) }));
   const history = backend("[Nil] before", recorded, "", "[Nil] after");
 
-  it("does not locate the command itself, even as the latest message", () => {
+  it("does not locate the command, even as the latest message, but locates the messages around it", () => {
     expect(locateEditTarget(history, users, "e1")).toEqual({
       kind: "missing",
     });
     expect(
       locateEditTarget(history.slice(0, 3), users.slice(0, 2), "e1"),
     ).toEqual({ kind: "missing" });
-  });
-
-  it("still locates the messages before and after it", () => {
     expect(locateEditTarget(history, users, "e0")).toEqual({
       kind: "found",
       index: 0,

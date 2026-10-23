@@ -41,24 +41,20 @@ describe("evaluateLine", () => {
     expect(evaluateLine(0, resetsAt, resetsAt - 1, 70).linePercent).toBe(70);
   });
 
-  it("scales the line by the share", () => {
-    expect(evaluateLine(0, resetsAt, NOW, 80).linePercent).toBeCloseTo(80 / 7);
-    expect(evaluateLine(0, resetsAt, dayStart(7), 100).linePercent).toBe(100);
-  });
-
-  it("retries at the first later day whose line is strictly above the use", () => {
+  it("retries at the first later day whose line is strictly above the use, else at the reset", () => {
     // Day 1 at 20% used: day 2's line is 20, not above; day 3's is 30.
-    expect(evaluateLine(20, resetsAt, NOW, 70).retryAtMs).toBe(dayStart(3));
-    expect(evaluateLine(10, resetsAt, NOW, 70).retryAtMs).toBe(dayStart(2));
-  });
-
-  it("waits for the reset when no later day's line is above the use", () => {
-    expect(evaluateLine(70, resetsAt, dayStart(2), 70).retryAtMs).toBe(
-      resetsAt,
-    );
-    expect(evaluateLine(65, resetsAt, dayStart(7), 70).retryAtMs).toBe(
-      resetsAt,
-    );
+    for (const { used, day, retry } of [
+      { used: 20, day: 1, retry: dayStart(3) },
+      { used: 10, day: 1, retry: dayStart(2) },
+      { used: 70, day: 2, retry: resetsAt },
+      { used: 65, day: 7, retry: resetsAt },
+    ]) {
+      expect({
+        used,
+        day,
+        retry: evaluateLine(used, resetsAt, dayStart(day), 70).retryAtMs,
+      }).toEqual({ used, day, retry });
+    }
   });
 });
 

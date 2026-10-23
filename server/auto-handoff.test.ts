@@ -1,109 +1,84 @@
-// The pure parts of the automatic handoff: the trigger and each engine's
-// compaction point. The state machine is covered in
-// test-support/auto-handoff.test.ts.
+// The pure parts of the automatic handoff: the trigger and OpenCode's
+// compaction point. The state machine, the brief capture and the limit the
+// member's lines name are covered in test-support/auto-handoff.test.ts.
 
 import { describe, it, expect } from "bun:test";
-import {
-  autoHandoffMeasureParams,
-  autoHandoffTrigger,
-  joinBriefChunks,
-} from "./auto-handoff.ts";
+import { autoHandoffTrigger } from "./auto-handoff.ts";
 import { openCodeAutoCompactTokens } from "./backends/opencode/adapter.ts";
 
 describe("autoHandoffTrigger", () => {
-  it("is 85% of a window under 588k", () => {
-    expect(autoHandoffTrigger({ maxTokens: 200_000 })).toEqual({
-      tokens: 170_000,
-      measure: "percent",
-      maxTokens: 200_000,
+  const M = 1_000_000;
+  const K200 = 200_000;
+  // [case, window and compaction point, the agent's own token value, trigger]
+  it.each([
+    [
+      "is 85% of a window under 588k",
+      { maxTokens: K200 },
+      undefined,
+      { tokens: 170_000, measure: "percent" },
+    ],
+    [
+      "is 500k tokens on a larger window",
+      { maxTokens: M },
+      undefined,
+      { tokens: 500_000, measure: "tokens" },
+    ],
+    // 167k less 5 points (10k) of the window.
+    [
+      "moves 5 points of the window ahead of an earlier compaction point",
+      { maxTokens: K200, compactAtTokens: 167_000 },
+      undefined,
+      { tokens: 157_000, measure: "compaction" },
+    ],
+    // Strict comparisons: on a tie the earlier limit is reported, in the
+    // order tokens, then percent, then compaction.
+    [
+      "reports tokens when the compaction guard ties 500k",
+      { maxTokens: M, compactAtTokens: 550_000 },
+      undefined,
+      { tokens: 500_000, measure: "tokens" },
+    ],
+    [
+      "reports percent when the compaction guard ties 85%",
+      { maxTokens: K200, compactAtTokens: 180_000 },
+      undefined,
+      { tokens: 170_000, measure: "percent" },
+    ],
+    [
+      "reports tokens when the agent's own value ties 85%",
+      { maxTokens: K200 },
+      170_000,
+      { tokens: 170_000, measure: "tokens" },
+    ],
+    [
+      "takes the agent's own value in place of 500k",
+      { maxTokens: M },
+      300_000,
+      { tokens: 300_000, measure: "tokens" },
+    ],
+    [
+      "takes the agent's own value above 500k, still under 85%",
+      { maxTokens: M },
+      700_000,
+      { tokens: 700_000, measure: "tokens" },
+    ],
+    [
+      "keeps 85% when the agent's own value is past it",
+      { maxTokens: K200 },
+      300_000,
+      { tokens: 170_000, measure: "percent" },
+    ],
+    [
+      "keeps the compaction guard when the agent's own value is past it",
+      { maxTokens: M, compactAtTokens: 400_000 },
+      450_000,
+      { tokens: 350_000, measure: "compaction" },
+    ],
+  ] as const)("%s", (_case, snap, own, expected) => {
+    expect(autoHandoffTrigger(snap, own)).toEqual({
+      ...expected,
+      maxTokens: snap.maxTokens,
     });
-  });
-
-  it("is 500k tokens on a larger window", () => {
-    expect(autoHandoffTrigger({ maxTokens: 1_000_000 })).toEqual({
-      tokens: 500_000,
-      measure: "tokens",
-      maxTokens: 1_000_000,
-    });
-  });
-
-  it("moves 5 points of the window ahead of an earlier compaction point", () => {
-    expect(
-      autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 167_000 }),
-    ).toMatchObject({ tokens: 157_000, measure: "compaction" });
-  });
-
-  it("ignores a compaction point past the other limits", () => {
-    expect(
-      autoHandoffTrigger({ maxTokens: 1_000_000, compactAtTokens: 967_000 }),
-    ).toMatchObject({ tokens: 500_000, measure: "tokens" });
-    expect(
-      autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 199_000 }),
-    ).toMatchObject({ tokens: 170_000, measure: "percent" });
-  });
-
-  it("reports the earlier limit on a tie: tokens, then percent, then compaction", () => {
-    // The guard ties the 500k limit on a 1M window.
-    expect(
-      autoHandoffTrigger({ maxTokens: 1_000_000, compactAtTokens: 550_000 }),
-    ).toMatchObject({ tokens: 500_000, measure: "tokens" });
-    // The guard ties the 85% limit on a 200k window.
-    expect(
-      autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 180_000 }),
-    ).toMatchObject({ tokens: 170_000, measure: "percent" });
-  });
-
-  it("names the limit that fired, not the measured value", () => {
-    expect(
-      autoHandoffMeasureParams(autoHandoffTrigger({ maxTokens: 1_000_000 })),
-    ).toEqual({ thousands: 500, percent: 50 });
-    expect(
-      autoHandoffMeasureParams(
-        autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 160_000 }),
-      ),
-    ).toEqual({ thousands: 150, percent: 75 });
-  });
-});
-
-describe("autoHandoffTrigger with the agent's own token value", () => {
-  it("replaces 500k as the tokens limit", () => {
-    expect(autoHandoffTrigger({ maxTokens: 1_000_000 }, 300_000)).toEqual({
-      tokens: 300_000,
-      measure: "tokens",
-      maxTokens: 1_000_000,
-    });
-    // Raised past 500k, still under 85% of the window.
-    expect(autoHandoffTrigger({ maxTokens: 1_000_000 }, 700_000)).toEqual({
-      tokens: 700_000,
-      measure: "tokens",
-      maxTokens: 1_000_000,
-    });
-  });
-
-  it("does not move the 85% limit or the compaction guard", () => {
-    expect(autoHandoffTrigger({ maxTokens: 200_000 }, 300_000)).toMatchObject({
-      tokens: 170_000,
-      measure: "percent",
-    });
-    expect(
-      autoHandoffTrigger(
-        { maxTokens: 1_000_000, compactAtTokens: 400_000 },
-        450_000,
-      ),
-    ).toMatchObject({ tokens: 350_000, measure: "compaction" });
-  });
-
-  it("keeps the tie order: tokens, then percent, then compaction", () => {
-    expect(autoHandoffTrigger({ maxTokens: 200_000 }, 170_000)).toMatchObject({
-      tokens: 170_000,
-      measure: "tokens",
-    });
-    expect(
-      autoHandoffTrigger(
-        { maxTokens: 1_000_000, compactAtTokens: 350_000 },
-        300_000,
-      ),
-    ).toMatchObject({ tokens: 300_000, measure: "tokens" });
   });
 });
 
@@ -134,16 +109,5 @@ describe("OpenCode compaction point", () => {
         output: 8_000,
       }),
     ).toBe(264_000);
-  });
-});
-
-describe("joinBriefChunks", () => {
-  it("joins OpenCode deltas with nothing and whole blocks with a blank line", () => {
-    expect(joinBriefChunks("opencode", ["Fin", "ish step 4."])).toBe(
-      "Finish step 4.",
-    );
-    expect(joinBriefChunks("claude", ["Goal.", "Next."])).toBe(
-      "Goal.\n\nNext.",
-    );
   });
 });

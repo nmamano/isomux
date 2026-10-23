@@ -107,7 +107,7 @@ export function secretTestKind(secret: {
 
 // A name the service wrote, or null when it is not plain text or could carry
 // what the request sent: the credential, or a part of the URL path or query.
-export function cleanName(
+function cleanName(
   text: unknown,
   sent: { value: string | null; url: string },
 ): string | null {

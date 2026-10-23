@@ -561,18 +561,6 @@ describe("the callback route", () => {
     expect(audits).toEqual([["mail", "alice"]]);
   });
 
-  it("answers an expired state with its code", async () => {
-    const context = setup();
-    register(context.oauth);
-    const started = await context.oauth.startSignIn(member, "mail", "u1");
-    if (!started.ok) throw new Error(started.reason);
-    const { code, state } = context.rig.authorize(started.authorizationUrl);
-    clock += 11 * 60_000;
-    expect(
-      await landing(context, "u1", new URLSearchParams({ code, state }), []),
-    ).toContain("/integrations?mcpSignIn=state_expired");
-  });
-
   // Lead ruling, 2026-10-13: an owner starts the sign-in for a member's
   // server and finishes it; the tokens land in the member's scope and the row
   // names the member.

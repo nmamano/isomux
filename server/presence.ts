@@ -59,10 +59,7 @@ export function _testClearPresence(): void {
 // (so callers can avoid a no-op broadcast on a repeated identical
 // update - e.g. focus-change handlers that fire from multiple effect
 // dependencies on the same dispatch).
-export function setPresence(
-  state: PresenceState,
-  random = Math.random,
-): boolean {
+export function setPresence(state: PresenceState): boolean {
   const existing = presences.get(state.connectionId);
   if (state.currentRoomId === LOBBY_ROOM_ID) {
     if (
@@ -78,7 +75,7 @@ export function setPresence(
         lobbyAssignments(),
         LOBBY_SPOT_IDS,
         state.connectionId,
-        random,
+        Math.random,
       );
       state = { ...state, ...next };
     }

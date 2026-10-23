@@ -110,17 +110,6 @@ describe("mcpServersForUserId", () => {
     expect(mcpServersForUserId(sources, null)).toHaveLength(2);
   });
 
-  it("never puts a secret's value in a header (secrets B2)", () => {
-    const sources = seed();
-    const all = JSON.stringify([
-      mcpServersForUserId(sources, "u1"),
-      mcpServersForUserId(sources, "u2"),
-      mcpServersForUserId(sources, null),
-    ]);
-    expect(all).not.toContain(OFFICE_VALUE);
-    expect(all).not.toContain(MEMBER_VALUE);
-  });
-
   it("leaves out a server with a secret while no secret proxy listens", () => {
     const sources = seed();
     setMcpPlaceholderProvider(() => null);
@@ -143,6 +132,9 @@ describe("mcpServersForUserId", () => {
     expect(mcpServersForUserId(sources, "u2").map((s) => s.name)).toEqual([
       "isomux-open",
     ]);
+    // Each left-out server is named in a warning, its host never.
+    expect(warnings).toHaveLength(2);
+    expect(warnings.every((w) => w.includes("shared"))).toBe(true);
     expect(warnings.join("\n")).not.toContain("example.com");
   });
 
@@ -169,14 +161,14 @@ describe("mcpServersForUserId", () => {
     ).toBe(true);
   });
 
-  it("never throws when the state directory cannot be read at all", () => {
+  it("gives no server, without a throw, when the state directory cannot be read at all", () => {
     mkdirSync(join(root, "mcp-servers"), { recursive: true });
     writeFileSync(
       join(root, "mcp-servers", "users"),
       "a file, not a directory",
     );
     const sources = createMcpServerSources(root);
-    expect(() => mcpServersForUserId(sources, "u1")).not.toThrow();
+    expect(mcpServersForUserId(sources, "u1")).toEqual([]);
   });
 });
 

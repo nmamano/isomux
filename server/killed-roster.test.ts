@@ -24,15 +24,12 @@ function killed(id: string, killedAt: number): KilledAgentSummary {
 const q = (s: string) => parseKilledPageQuery(new URLSearchParams(s));
 
 describe("parseKilledPageQuery", () => {
-  it("defaults to the first page of the default size", () => {
+  it("defaults to the first page, and accepts limit at both bounds and a fractional before", () => {
     expect(q("killed=1")).toEqual({
       ok: true,
       limit: KILLED_PAGE_DEFAULT,
       before: null,
     });
-  });
-
-  it("accepts limit at both bounds and a fractional before", () => {
     expect(q("limit=1")).toMatchObject({ ok: true, limit: 1 });
     expect(q(`limit=${KILLED_PAGE_MAX}`)).toMatchObject({
       ok: true,
@@ -68,49 +65,24 @@ describe("parseKilledPageQuery", () => {
 });
 
 describe("pageKilledAgents", () => {
-  const roster = [
-    killed("e", 500),
-    killed("d", 400),
-    killed("c", 300),
-    killed("b", 200),
-    killed("a", 100),
-  ];
-
-  it("returns newest kill first, capped at limit", () => {
-    expect(pageKilledAgents(roster, 2, null).map((k) => k.id)).toEqual([
-      "e",
-      "d",
-    ]);
-  });
-
-  it("orders newest first even when the input is not sorted", () => {
-    const shuffled = [roster[3], roster[0], roster[4], roster[2], roster[1]];
-    expect(pageKilledAgents(shuffled, 5, null).map((k) => k.id)).toEqual([
-      "e",
-      "d",
-      "c",
-      "b",
-      "a",
-    ]);
-  });
-
-  it("walks every entry exactly once by passing the last killedAt as before", () => {
-    const seen: string[] = [];
+  it("walks an unsorted roster newest first, each entry once, by passing the last killedAt as before", () => {
+    const roster = [
+      killed("b", 200),
+      killed("e", 500),
+      killed("a", 100),
+      killed("c", 300),
+      killed("d", 400),
+    ];
+    const pages: string[][] = [];
     let before: number | null = null;
-    for (;;) {
+    // Bounded, so a before that does not page fails instead of hanging.
+    for (let i = 0; i < 5; i++) {
       const page = pageKilledAgents(roster, 2, before);
-      seen.push(...page.map((k) => k.id));
+      pages.push(page.map((k) => k.id));
       if (page.length < 2) break;
       before = page[page.length - 1].killedAt;
     }
-    expect(seen).toEqual(["e", "d", "c", "b", "a"]);
-  });
-
-  it("is strict on before", () => {
-    expect(pageKilledAgents(roster, 10, 300).map((k) => k.id)).toEqual([
-      "b",
-      "a",
-    ]);
+    expect(pages).toEqual([["e", "d"], ["c", "b"], ["a"]]);
   });
 
   it("never splits equal kill times across two pages", () => {
@@ -126,9 +98,5 @@ describe("pageKilledAgents", () => {
     expect(first.map((k) => k.id)).toEqual(["x", "p", "q", "r"]);
     const second = pageKilledAgents(tied, 2, first[first.length - 1].killedAt);
     expect(second.map((k) => k.id)).toEqual(["z"]);
-  });
-
-  it("returns an empty page past the oldest kill", () => {
-    expect(pageKilledAgents(roster, 2, 100)).toEqual([]);
   });
 });

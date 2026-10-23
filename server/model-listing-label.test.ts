@@ -1,35 +1,30 @@
-import { describe, expect, it } from "bun:test";
+import { expect, it } from "bun:test";
 import { familyDisplayLabel } from "../shared/types.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
-describe("modelListingLabel", () => {
-  it("identifies OpenCode when its connected model looks like another engine", () => {
-    expect(modelListingLabel("opencode", "anthropic/claude-sonnet-4-6")).toBe(
-      "Claude Sonnet 4 6 · opencode",
-    );
-  });
-
-  it("does not repeat an engine already identified by the model label", () => {
-    expect(modelListingLabel("codex", "gpt-5.6-sol")).toBe("GPT-5.6 Sol");
-    expect(modelListingLabel("claude", "sonnet")).toBe("Sonnet 5.5");
-  });
-
-  it("leaves a Claude composite model without an engine cue", () => {
-    const model = "anthropic/claude-sonnet-4-6";
-    expect(modelListingLabel("claude", model)).toBe(familyDisplayLabel(model));
-  });
-
-  it("keeps the OpenCode cue for an engine-like provider id", () => {
-    for (const model of ["gpt-provider/model", "claude-provider/model"]) {
-      expect(modelListingLabel("opencode", model)).toBe(
-        `${familyDisplayLabel(model)} · opencode`,
-      );
+// shared/model-label.test.ts owns which engine gets a cue on which surface.
+// This owns the listing's use of it: the "listing" surface (a custom Codex
+// model gets a cue in the header, none here) and the cue after the label.
+it("adds the OpenCode cue after the label, and no cue for Claude or Codex in a listing", () => {
+  const rows = [
+    // OpenCode, even when its model looks like another engine.
+    { agentType: "opencode", model: "anthropic/claude-sonnet-4-6", cue: true },
+    { agentType: "codex", model: "gpt-5.6-sol", cue: false },
+    { agentType: "codex", model: "custom/model", cue: false },
+    { agentType: "claude", model: "sonnet", cue: false },
+    { agentType: "claude", model: "anthropic/claude-sonnet-4-6", cue: false },
+  ] as const;
+  for (const { agentType, model, cue } of rows) {
+    const base = familyDisplayLabel(model);
+    const label = modelListingLabel(agentType, model);
+    expect({ agentType, model, cued: label !== base }).toEqual({
+      agentType,
+      model,
+      cued: cue,
+    });
+    if (cue) {
+      expect(label.startsWith(base)).toBe(true);
+      expect(label.endsWith("opencode")).toBe(true);
     }
-  });
-
-  it("preserves the listing without a cue for a custom Codex model", () => {
-    expect(modelListingLabel("codex", "custom/model")).toBe(
-      familyDisplayLabel("custom/model"),
-    );
-  });
+  }
 });

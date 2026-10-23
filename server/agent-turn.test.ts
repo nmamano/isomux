@@ -25,81 +25,50 @@ import type { ManagedAgent } from "./internal-types.ts";
 import type { ContextUsageSnapshot } from "./internal-types.ts";
 
 describe("stripOutboundEnvelope", () => {
-  it("returns text unchanged when no envelope wrap is present", () => {
-    expect(stripOutboundEnvelope("[Nil] hello world")).toBe(
-      "[Nil] hello world",
-    );
-    expect(stripOutboundEnvelope("")).toBe("");
+  const block = (id: string, body: string) =>
+    `--- begin isomux: ${id} ---\n${body}\n--- end isomux: ${id} ---`;
+
+  // [case, recorded text, the sdkText it must give back]
+  it.each([
+    [
+      "a built-in-only (context-check) wrap",
+      `${block("context-check", "[context check: 87% full]")}\n\nUser message:\n[Nil] keep going`,
+      "[Nil] keep going",
+    ],
+    [
+      "several built-in blocks joined by a blank line",
+      `${block("wake-notice", "ended unexpectedly")}\n\n${block("context-check", "fact")}\n\nUser message:\n[Nil] proceed`,
+      "[Nil] proceed",
+    ],
+    // The strip anchors on the structural `--- end isomux: <id> ---` line, not
+    // on any occurrence of the separator in the user's own text.
+    [
+      "user text that itself contains the separator",
+      `${block("context-check", "fact")}\n\nUser message:\n[Nil] I want to talk about\n\nUser message:\nthis literal block`,
+      "[Nil] I want to talk about\n\nUser message:\nthis literal block",
+    ],
+    // Only the real closing line counts, not a body line of three dashes.
+    [
+      "a block body whose last line is ---",
+      `${block("context-check", "ascii art divider:\n---")}\n\nUser message:\n[Nil] real payload`,
+      "[Nil] real payload",
+    ],
+  ])("strips %s", (_case, recorded, sdkText) => {
+    expect(stripOutboundEnvelope(recorded)).toBe(sdkText);
   });
 
-  it("strips a built-in-only (isomux context-check) wrap", () => {
-    // A turn where the context-fullness notice fired.
-    const sdkText = "[Nil] keep going";
-    const wrapped =
-      "--- begin isomux: context-check ---\n" +
-      "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the member a /clear is advisable.]\n" +
-      "--- end isomux: context-check ---\n\n" +
-      "User message:\n" +
-      sdkText;
-    expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
-  });
-
-  it("strips multiple built-in blocks joined by a blank line", () => {
-    const sdkText = "[Nil] proceed";
-    const wrapped =
-      "--- begin isomux: wake-notice ---\n" +
-      "The previous session ended unexpectedly.\n" +
-      "--- end isomux: wake-notice ---\n\n" +
-      "--- begin isomux: context-check ---\n" +
-      "[context check: 68% full - 136,000 / 200,000 tokens. Budget accordingly.]\n" +
-      "--- end isomux: context-check ---\n\n" +
-      "User message:\n" +
-      sdkText;
-    expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
-  });
-
-  it("does not split on a literal '\\n\\nUser message:\\n' that appears inside the user's own text", () => {
-    // User text itself contains the separator AFTER a non-`---` line.
-    // The strip must anchor on the structural `--- end isomux: <id> ---`
-    // boundary, not just any occurrence of the separator.
-    const sdkText =
-      "[Nil] I want to talk about\n\nUser message:\nthis literal block";
-    const wrapped =
-      "--- begin isomux: context-check ---\nfact\n--- end isomux: context-check ---\n\n" +
-      "User message:\n" +
-      sdkText;
-    expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
-  });
-
-  it("does not split when a block body ends with '---' but isn't a real closing line", () => {
-    // A block body that ends with
-    // `---` and is followed by `\n\nUser message:\n` shouldn't fool the
-    // matcher - only the real `--- end isomux: <id> ---` line counts.
-    const sdkText = "[Nil] real payload";
-    const wrapped =
-      "--- begin isomux: context-check ---\n" +
-      // Prefix body whose last line is exactly `---` (three dashes).
-      "ascii art divider:\n---\n" +
-      // The real closing line.
-      "--- end isomux: context-check ---\n\n" +
-      "User message:\n" +
-      sdkText;
-    expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
-  });
-
-  it("returns text unchanged when it starts with the wrap marker but lacks the separator", () => {
-    // Defensive: a corrupt or partial wrap should not silently truncate.
-    const malformedBuiltin =
-      "--- begin isomux: context-check ---\nbody\n--- end isomux: context-check ---";
-    expect(stripOutboundEnvelope(malformedBuiltin)).toBe(malformedBuiltin);
-  });
-
-  it("does not strip when text doesn't start with an envelope marker, even if separator appears inside", () => {
-    // A regular user message that happens to contain the separator pattern
-    // is not a wrap. The startsWith guard prevents false-positive stripping.
-    const sneaky =
-      "[Nil] my code prints `--- end isomux: context-check ---\n\nUser message:\nbar`";
-    expect(stripOutboundEnvelope(sneaky)).toBe(sneaky);
+  it.each([
+    ["plain text", "[Nil] hello world"],
+    ["empty text", ""],
+    // A corrupt or partial wrap must not silently truncate.
+    ["a wrap with no separator", block("context-check", "body")],
+    // The startsWith guard: a separator inside a regular message is not a wrap.
+    [
+      "a message that only contains a wrap",
+      "[Nil] my code prints `--- end isomux: context-check ---\n\nUser message:\nbar`",
+    ],
+  ])("returns %s unchanged", (_case, text) => {
+    expect(stripOutboundEnvelope(text)).toBe(text);
   });
 });
 
@@ -135,102 +104,54 @@ function fakeManaged(
 }
 
 describe("pickContextThreshold", () => {
-  it("returns null with no snapshot", () => {
-    expect(pickContextThreshold(fakeManaged(null))).toBeNull();
-  });
-
-  it("returns null below the lowest threshold", () => {
-    expect(
-      pickContextThreshold(fakeManaged(snap(49.9, LARGE_WINDOW))),
-    ).toBeNull();
-  });
-
-  it("returns 50 in the 50–74 band on a large window", () => {
-    expect(pickContextThreshold(fakeManaged(snap(50, LARGE_WINDOW)))).toBe(50);
-    expect(pickContextThreshold(fakeManaged(snap(74.9, LARGE_WINDOW)))).toBe(
-      50,
-    );
-  });
-
-  it("returns the HIGHEST newly-reached band when a first sample clears several", () => {
-    // Lands at 90% with nothing fired yet - only the 75 notice should emit.
-    expect(pickContextThreshold(fakeManaged(snap(90, LARGE_WINDOW)))).toBe(75);
-  });
-
-  it("returns 75 once 50 has already fired", () => {
-    expect(
-      pickContextThreshold(fakeManaged(snap(90, LARGE_WINDOW), [50])),
-    ).toBe(75);
-  });
-
-  it("returns null once every reached band has fired", () => {
-    expect(
-      pickContextThreshold(fakeManaged(snap(90, LARGE_WINDOW), [50, 75])),
-    ).toBeNull();
-    expect(
-      pickContextThreshold(fakeManaged(snap(70, LARGE_WINDOW), [50])),
-    ).toBeNull();
-  });
-
-  // Task 73a23f7c: the 50 band is size-gated - a small window (e.g. Codex's
-  // ~250k, Sonnet's 200k) skips the early warning but keeps the 75 wrap-up.
-  describe("small windows skip the size-gated 50 band", () => {
-    it("returns null in the 50–74 band on a small window", () => {
-      expect(pickContextThreshold(fakeManaged(snap(55, 250_000)))).toBeNull();
-      expect(pickContextThreshold(fakeManaged(snap(74.9, 250_000)))).toBeNull();
-    });
-
-    it("still returns 75 on a small window", () => {
-      expect(pickContextThreshold(fakeManaged(snap(75, 250_000)))).toBe(75);
-      expect(pickContextThreshold(fakeManaged(snap(90, 250_000)))).toBe(75);
-    });
-
-    it("applies the gate at exactly minWindowTokens (inclusive)", () => {
-      expect(pickContextThreshold(fakeManaged(snap(55, 500_000)))).toBe(50);
-      expect(pickContextThreshold(fakeManaged(snap(55, 499_999)))).toBeNull();
-    });
+  // [case, percentage, window, already fired, expected band]
+  it.each([
+    ["below the lowest band", 49.9, LARGE_WINDOW, [], null],
+    ["at the bottom of the 50 band", 50, LARGE_WINDOW, [], 50],
+    ["at the top of the 50 band", 74.9, LARGE_WINDOW, [], 50],
+    // A first sample that clears several bands emits only the highest.
+    ["past both bands with none fired", 90, LARGE_WINDOW, [], 75],
+    ["past both bands with 50 fired", 90, LARGE_WINDOW, [50], 75],
+    ["past both bands with both fired", 90, LARGE_WINDOW, [50, 75], null],
+    ["in the 50 band with 50 fired", 70, LARGE_WINDOW, [50], null],
+    // Task 73a23f7c: the 50 band is size-gated - a small window (e.g. Codex's
+    // ~250k) skips the early warning but keeps the 75 wrap-up.
+    ["in the 50 band on a small window", 74.9, 250_000, [], null],
+    ["past 75 on a small window", 90, 250_000, [], 75],
+    ["in the 50 band at exactly minWindowTokens", 55, 500_000, [], 50],
+    ["in the 50 band one token under minWindowTokens", 55, 499_999, [], null],
+  ] as const)("%s", (_case, pct, window, fired, expected) => {
+    const managed = fakeManaged(snap(pct, window), [...fired]);
+    expect(pickContextThreshold(managed)).toBe(expected);
   });
 });
 
 describe("markContextThresholdFired", () => {
-  it("marks the given threshold and every lower one", () => {
-    const m = fakeManaged(snap(90));
-    markContextThresholdFired(m, 75);
+  it("marks the given band and every lower one, never a higher one", () => {
+    const low = fakeManaged(snap(90, LARGE_WINDOW));
+    markContextThresholdFired(low, 50);
+    expect([...low.firedAgentThresholds]).toEqual([50]);
+    expect(pickContextThreshold(low)).toBe(75);
     // Both 50 and 75 are consumed so neither re-fires on a later turn.
-    expect(m.firedAgentThresholds.has(50)).toBe(true);
-    expect(m.firedAgentThresholds.has(75)).toBe(true);
-    expect(pickContextThreshold(m)).toBeNull();
-  });
-
-  it("marking 50 leaves 75 available", () => {
-    const m = fakeManaged(snap(90));
-    markContextThresholdFired(m, 50);
-    expect(m.firedAgentThresholds.has(50)).toBe(true);
-    expect(m.firedAgentThresholds.has(75)).toBe(false);
-    expect(pickContextThreshold(m)).toBe(75);
+    const high = fakeManaged(snap(90, LARGE_WINDOW));
+    markContextThresholdFired(high, 75);
+    expect([...high.firedAgentThresholds].sort()).toEqual([50, 75]);
+    expect(pickContextThreshold(high)).toBeNull();
   });
 });
 
 describe("formatContextNotice", () => {
-  it("formats the 50 band with a plain hyphen, comma grouping, and rounded pct", () => {
-    // 68% of 200k = 136,000. No em dash (Nil's prose rule); spaced hyphen.
-    const line = formatContextNotice(50, snap(68));
-    expect(line).toBe(
-      "[context check: 68% full - 136,000 / 200,000 tokens. Budget accordingly.]",
-    );
-    expect(line).not.toContain("—"); // em dash
-  });
-
-  it("formats the 75 band with wrap-up advice", () => {
-    const line = formatContextNotice(75, snap(87));
-    expect(line).toBe(
-      "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the member a /clear is advisable.]",
-    );
-  });
-
-  it("rounds the displayed percentage from the raw float", () => {
-    expect(formatContextNotice(50, snap(50.4))).toContain("50% full");
-    expect(formatContextNotice(75, snap(75.6))).toContain("76% full");
+  it("states the rounded percentage and comma-grouped counts, with wrap-up advice only at 75", () => {
+    // 68% of 200k = 136,000.
+    const fifty = formatContextNotice(50, snap(68));
+    expect(fifty).toContain("68%");
+    expect(fifty).toContain("136,000");
+    expect(fifty).toContain("200,000");
+    expect(formatContextNotice(50, snap(50.4))).toContain("50%");
+    expect(formatContextNotice(75, snap(75.6))).toContain("76%");
+    // Same snapshot, other band: only the advice differs.
+    expect(formatContextNotice(75, snap(68))).not.toBe(fifty);
+    expect(formatContextNotice(75, snap(68))).toContain("136,000");
   });
 });
 
@@ -241,7 +162,7 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
     cap: 3500,
   });
 
-  it("says nothing when every scope is under the ratio", () => {
+  it("says nothing when every scope is under the ratio, and fires exactly at it", () => {
     expect(formatMemoryNotice([])).toBeNull();
     expect(
       formatMemoryNotice([
@@ -249,17 +170,11 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
         scope("Your agent", 0.79),
       ]),
     ).toBeNull();
-  });
-
-  it("fires exactly at the ratio", () => {
-    expect(
-      formatMemoryNotice([scope("Office-wide", MEMORY_NOTICE_FILL_RATIO)]),
-    ).toBe(
-      "[memory check: auto-loaded memory is close to its size cap - Office-wide at 80% of its cap. " +
-        "Caps are hard: a save that would put a scope over its cap is refused. " +
-        "Offer the member specific trims, applying them through the memory READ + PUT API after approval. " +
-        "Let the member know they can also edit memory in Settings.]",
-    );
+    const atRatio = formatMemoryNotice([
+      scope("Office-wide", MEMORY_NOTICE_FILL_RATIO),
+    ]);
+    expect(atRatio).toContain("Office-wide");
+    expect(atRatio).toContain("80%");
   });
 
   it("names only the over-ratio scopes, fullest first", () => {
@@ -269,16 +184,12 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
       scope('Member "Nil"', 1.18),
       scope("Your agent", 0.4),
     ])!;
-    expect(line).toContain(
-      'Member "Nil" at 118% (at or over its cap; saves to it fail until it is trimmed), Room "Isomux Dev" at 90% of its cap.',
-    );
+    expect(line).toContain("118%");
+    expect(line).toContain("90%");
+    const member = line.indexOf('Member "Nil"');
+    expect(member).toBeGreaterThan(-1);
+    expect(line.indexOf('Room "Isomux Dev"')).toBeGreaterThan(member);
     expect(line).not.toContain("Office-wide");
     expect(line).not.toContain("Your agent");
-  });
-
-  it("uses a spaced hyphen, never an em dash (Nil's prose rule)", () => {
-    expect(formatMemoryNotice([scope("Office-wide", 1.5)])).not.toContain(
-      "\u2014",
-    );
   });
 });

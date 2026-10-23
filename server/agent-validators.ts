@@ -208,7 +208,7 @@ export const NEVER_PROMPTING_MODE = {
 } as const satisfies Record<AgentBackendType, AgentPermissionMode>;
 
 // Spawner engine -> child engine -> the spawner modes that carry over.
-export const SPAWN_MODE_CARRY_OVER: Record<
+const SPAWN_MODE_CARRY_OVER: Record<
   AgentBackendType,
   Record<AgentBackendType, readonly AgentPermissionMode[]>
 > = {

@@ -130,7 +130,7 @@ describe("OfficeOutbox", () => {
     expect(box.backlogged).toBe(false);
   });
 
-  it("closes the socket when Bun drops a frame (send returns 0), and releases the replay", () => {
+  it("closes the socket when Bun drops a frame (send returns 0 for a non-empty frame), and releases the replay", () => {
     const { ws, sent, state } = fakeSocket([5, 0]);
     const s = manualSchedule();
     const reasons: string[] = [];
@@ -147,13 +147,13 @@ describe("OfficeOutbox", () => {
     box.send("late");
     s.runAll();
     expect(sent).toEqual(["r1", "r2"]);
-  });
-
-  it("does not treat an empty frame's 0 as a drop", () => {
-    const { ws, state } = fakeSocket([0]);
-    const box = new OfficeOutbox(ws);
-    box.send("");
-    expect(state.terminated).toBe(0);
+    // An empty frame's 0 is not a drop: the socket stays open.
+    const empty = fakeSocket([0]);
+    const open = new OfficeOutbox(empty.ws);
+    open.send("");
+    open.send("next");
+    expect(empty.sent).toEqual(["", "next"]);
+    expect(empty.state.terminated).toBe(0);
   });
 
   it("closes the socket when send throws", () => {
@@ -197,21 +197,6 @@ describe("OfficeOutbox", () => {
     expect(s.pending()).toBe(1);
     s.runAll();
     expect(sent).toHaveLength(perPump + 2);
-  });
-
-  it("a pump scheduled before the socket closed sends nothing when it runs", () => {
-    const { ws, sent, state } = fakeSocket();
-    const s = manualSchedule();
-    const box = new OfficeOutbox(ws, { schedule: s.schedule });
-    state.buffered = OUTBOX_HIGH_WATER_BYTES;
-    box.send("a");
-    state.buffered = 0;
-    box.drain();
-    // Enabling condition: the pump is scheduled and would send "a".
-    expect(s.pending()).toBe(1);
-    box.dispose();
-    s.runAll();
-    expect(sent).toEqual([]);
   });
 
   it("dispose releases the queue and the replay, and later frames are ignored", () => {

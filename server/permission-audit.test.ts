@@ -14,12 +14,27 @@ describe("permission audit input summaries", () => {
       command:
         "API_TOKEN=[REDACTED] curl -H 'Authorization: Bearer [REDACTED]' 'https://example.com/?api_key=[REDACTED]'",
     });
+    // The flag form, with a space and with "=".
+    expect(
+      permissionInputSummary("bash", {
+        command: "deploy --token flag-secret --api-key=key-secret",
+      }),
+    ).toEqual({
+      command: "deploy --token [REDACTED] --api-key [REDACTED]",
+    });
     expect(
       permissionInputSummary("Write", {
         file_path: "/tmp/out.txt",
         content: "secret file body",
       }),
     ).toEqual({ file_path: "/tmp/out.txt" });
+    // The camelCase spelling of the path field.
+    expect(
+      permissionInputSummary("edit", {
+        filePath: "/tmp/edit.txt",
+        newString: "secret file body",
+      }),
+    ).toEqual({ file_path: "/tmp/edit.txt" });
     expect(
       permissionInputSummary("future_tool", { token: "do-not-store" }),
     ).toEqual({});

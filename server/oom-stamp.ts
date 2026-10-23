@@ -263,7 +263,6 @@ export interface OomStamperOptions {
   target?: number;
   log?: (message: string) => void;
   warn?: (message: string) => void;
-  writeAdj?: (path: string, value: number) => void;
 }
 
 /**
@@ -299,7 +298,6 @@ export function createAgentOomStamper(opts: OomStamperOptions = {}): {
           expected,
           isOurs,
           target,
-          writeAdj: opts.writeAdj,
         });
         if (outcome === "stamped") result.stamped.push(pid);
         else if (outcome === "already") result.already += 1;

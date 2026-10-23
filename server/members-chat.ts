@@ -151,7 +151,7 @@ export interface MembersChatStore {
   attachmentPath(filename: string): string | null;
 }
 
-export function monthKey(timestamp: number): string {
+function monthKey(timestamp: number): string {
   const d = new Date(timestamp);
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -159,7 +159,7 @@ export function monthKey(timestamp: number): string {
 }
 
 // "YYYY-MM" for a well-formed id, else null.
-export function monthOfId(id: string): string | null {
+function monthOfId(id: string): string | null {
   const m = ID_SHAPE.exec(id);
   return m ? `${m[1]}-${m[2]}` : null;
 }

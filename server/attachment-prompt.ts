@@ -117,7 +117,7 @@ export function stripAttachmentNotices(text: string): string {
 // invariant or fake extra structure. JSON.stringify escapes `"`, `\`, and
 // C0 controls but leaves U+2028/U+2029 (Unicode line separators) raw - escape
 // those too so the result is one line under every line-break convention.
-export function quoteOneLine(s: string): string {
+function quoteOneLine(s: string): string {
   return JSON.stringify(s).replace(/[\u2028\u2029]/g, (c) => {
     return "\\u" + c.charCodeAt(0).toString(16);
   });

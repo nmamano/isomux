@@ -108,12 +108,6 @@ describe("cronjob visibility: SEE", () => {
 });
 
 describe("cronjob visibility: MANAGE", () => {
-  it("room access never grants manage authority", () => {
-    expect(
-      cronjobManageFor(facts(), viewer({ hasRoomAccess: inRoom(ROOM) })),
-    ).toBe(false);
-  });
-
   it("the maker and office owners may manage", () => {
     expect(cronjobManageFor(facts(), viewer({ userId: "u-maker" }))).toBe(true);
     expect(cronjobManageFor(facts(), viewer({ isOfficeOwner: true }))).toBe(
@@ -132,6 +126,7 @@ describe("cronjob visibility: MANAGE", () => {
 });
 
 describe("cronjob visibility: projection", () => {
+  // Room access never grants manage authority.
   it("a room member gets the whole record without manage authority", () => {
     const member = viewer({ hasRoomAccess: inRoom(ROOM) });
     expect(projectCronjob(JOB, facts(), member)).toEqual({

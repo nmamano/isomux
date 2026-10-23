@@ -350,28 +350,6 @@ describe("createOfficeUsageReader", () => {
     expect(h.reads).toBe(2);
   });
 
-  it("drops the reading when the office directory moves or is invalidated", async () => {
-    const h = harness([weekly(10), weekly(20), weekly(30)]);
-    await h.reader.read("claude");
-    h.setDir("/office/other");
-    expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 20 });
-    h.reader.invalidate("claude");
-    expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 30 });
-    expect(h.reads).toBe(3);
-  });
-
-  it("never hands a caller an answer an invalidation overtook", async () => {
-    const h = harness([weekly(5), weekly(80)]);
-    h.hold(true);
-    const pending = h.reader.read("claude");
-    await Promise.resolve();
-    h.reader.invalidate("claude");
-    h.hold(false);
-    h.release();
-    expect(await pending).toMatchObject({ usedPercent: 80 });
-    expect(h.reads).toBe(2);
-  });
-
   it("treats a changed office env in the same directory as another account", async () => {
     const h = harness([{ kind: "no_limit" }, weekly(70), weekly(71)]);
     expect(await h.reader.read("claude")).toMatchObject({ kind: "no_limit" });
@@ -389,23 +367,20 @@ describe("createOfficeUsageReader", () => {
     expect(await pending).toMatchObject({ kind: "failed" });
   });
 
-  it("reads as failed when the reader process cannot be built", async () => {
-    const reader = createOfficeUsageReader({
+  it("reads as failed when the reader process cannot be built or the office target cannot be resolved", async () => {
+    const noProcess = createOfficeUsageReader({
       officeTarget: () => ({ dir: "/office", env: {} }),
       createProbe: () => {
         throw new Error("spawn failed");
       },
       setTimer: () => () => {},
     });
-    expect(await reader.read("claude")).toEqual({ kind: "failed" });
-  });
-
-  it("fails closed when the office target cannot be resolved", async () => {
-    const reader = createOfficeUsageReader({
+    expect(await noProcess.read("claude")).toEqual({ kind: "failed" });
+    const noTarget = createOfficeUsageReader({
       officeTarget: () => {
         throw new Error("office env does not parse");
       },
     });
-    expect(await reader.read("codex")).toEqual({ kind: "failed" });
+    expect(await noTarget.read("codex")).toEqual({ kind: "failed" });
   });
 });

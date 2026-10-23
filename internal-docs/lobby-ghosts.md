@@ -76,8 +76,9 @@ its failure oracle; the reviewer runs them on the review commit.
   The same socket test's `hasBoth` waiter fails; ordinary-room tests still pass.
 - C3 movement notification: delete `|| existing.lobbySpotId !== state.lobbySpotId`
   from `setPresence`'s return expression (including its preceding OR).
-  The spot-only change assertion in `setPresence accepts entry randomness and
-  returns true for a spot-only change` fails.
+  `expect(moveLobbyPresence("a", free)).toBe(true)` fails in `presence
+  retains lobby seats on repeats and grant changes, and reports a move as
+  visible`.
 - C4 access clamp: delete `next.currentRoomId !== LOBBY_ROOM_ID &&`.
   `expect(getPresence("a")!.currentRoomId).toBe(LOBBY_ROOM_ID)` fails after
   the grant refresh (the preceding changed=false assertion also fails).

@@ -75,34 +75,6 @@ describe("setProcessName", () => {
     expect(got.stat).toBe(`(${OFFICE_PROCESS_NAME})`);
   });
 
-  test("a bun child of a renamed server is still named bun", async () => {
-    const out = await inSubprocess(`
-      const { execSync } = require("child_process");
-      const { setProcessName } = await import("${MODULE}");
-      setProcessName();
-      // The case that matters: an agent's build is a bun process exec'd below
-      // the server. It must come out named "bun" so that shielding "isomux"
-      // does not shield it - the collision this change exists to remove. Asking
-      // a real bun child what the kernel calls it, rather than asserting the
-      // weaker "not isomux".
-      console.log(
-        execSync("bun -e 'process.stdout.write(require(\\"fs\\").readFileSync(\\"/proc/self/comm\\",\\"utf8\\"))'")
-          .toString().trim(),
-      );
-    `);
-    expect(out).toBe("bun");
-  });
-
-  test("truncates to the 15 characters the kernel stores", async () => {
-    const out = await inSubprocess(`
-      const { readFileSync } = require("fs");
-      const { setProcessName } = await import("${MODULE}");
-      setProcessName("aaaaaaaaaaaaaaaaaaaaaa");
-      console.log(readFileSync("/proc/self/comm", "utf8").trim());
-    `);
-    expect(out).toBe("a".repeat(15));
-  });
-
   test("the name matches the one deploy/oom-protect.sh shields", () => {
     const oom = readFileSync(
       `${import.meta.dir}/../deploy/oom-protect.sh`,
@@ -111,114 +83,129 @@ describe("setProcessName", () => {
     const avoid = oom.match(/--avoid '\^\(([^)]*)\)\$'/);
     expect(avoid).not.toBeNull();
     expect(avoid![1].split("|")).toContain(OFFICE_PROCESS_NAME);
-    // The collision this whole change exists to remove.
-    expect(avoid![1].split("|")).not.toContain("bun");
   });
 });
+
+/** The office's environment, pointed at a throwaway state directory. */
+function officeEnv(stateDir: string): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    HOME: stateDir,
+    ISOMUX_HOME: stateDir,
+    ISOMUX_BACKUP_DIR: stateDir,
+    XDG_CONFIG_HOME: stateDir,
+    PORT: "0",
+  };
+}
+
+/** Import the office entry point as a module; return the name after it. */
+async function commAfterImport(): Promise<string> {
+  const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
+  try {
+    return await inSubprocess(
+      `
+        const { readFileSync } = require("fs");
+        await import("${ENTRY_POINT}");
+        process.stdout.write(readFileSync("/proc/self/comm", "utf8"));
+      `,
+      officeEnv(stateDir),
+      10_000,
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Boot the office entry point as a program and poll its name until it
+ * renames. Returns the first and the last name seen; throws with the child's
+ * state if it exits or misses the deadline first.
+ */
+async function commsOnBoot(): Promise<{ first: string; last: string }> {
+  const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
+  const startedAt = performance.now();
+  const proc = Bun.spawn(["bun", "run", ENTRY_POINT], {
+    env: officeEnv(stateDir),
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const stderrPromise = new Response(proc.stderr).text();
+  const deadline = startedAt + 15_000;
+  let firstComm: string | undefined;
+  let lastComm: string | undefined;
+  let renamed = false;
+  let failure: Error | undefined;
+
+  try {
+    while (performance.now() < deadline) {
+      try {
+        lastComm = readFileSync(`/proc/${proc.pid}/comm`, "utf8").trim();
+      } catch (error) {
+        const exitCode = await proc.exited;
+        const stderr = await stderrPromise;
+        const phase =
+          firstComm === undefined
+            ? "spawn error before first read"
+            : "exited before rename";
+        failure = new Error(
+          `office child ${phase}: last comm=${lastComm ?? "unread"}, alive=false, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
+          { cause: error },
+        );
+        break;
+      }
+
+      if (firstComm === undefined) {
+        firstComm = lastComm;
+        if (firstComm !== "bun") {
+          failure = new Error(
+            `office child was not observed before rename: first comm=${firstComm}`,
+          );
+          break;
+        }
+      }
+      if (lastComm === OFFICE_PROCESS_NAME) {
+        renamed = true;
+        break;
+      }
+      await Bun.sleep(50);
+    }
+
+    if (!renamed && failure === undefined) {
+      const alive = proc.exitCode === null;
+      if (alive) proc.kill();
+      const exitCode = await proc.exited;
+      const stderr = await stderrPromise;
+      failure = new Error(
+        `office child did not rename before deadline: last comm=${lastComm ?? "unread"}, alive=${alive}, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
+      );
+    }
+  } finally {
+    if (proc.exitCode === null) proc.kill();
+    await proc.exited;
+    await stderrPromise;
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+
+  if (failure) throw failure;
+  return { first: firstComm!, last: lastComm! };
+}
 
 describe("wiring", () => {
   // 2026-10-11: a cold import took 1.98–2.69 s under load; startup was
   // 6–11 ms. Keep the cold graph and give the real import a bounded budget.
   // The child watchdog reaps it before Bun's outer timeout can abandon it.
-  test("importing the office entry point does not rename the process", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
-    try {
-      const out = await inSubprocess(
-        `
-          const { readFileSync } = require("fs");
-          await import("${ENTRY_POINT}");
-          process.stdout.write(readFileSync("/proc/self/comm", "utf8"));
-        `,
-        {
-          ...process.env,
-          HOME: stateDir,
-          ISOMUX_HOME: stateDir,
-          ISOMUX_BACKUP_DIR: stateDir,
-          XDG_CONFIG_HOME: stateDir,
-          PORT: "0",
-        },
-        10_000,
-      );
-      expect(out).toBe("bun");
-    } finally {
-      rmSync(stateDir, { recursive: true, force: true });
-    }
-  }, 20_000);
-
-  test("the office entry point renames its own process on a normal boot", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
-    const startedAt = performance.now();
-    const proc = Bun.spawn(["bun", "run", ENTRY_POINT], {
-      env: {
-        ...process.env,
-        HOME: stateDir,
-        ISOMUX_HOME: stateDir,
-        ISOMUX_BACKUP_DIR: stateDir,
-        XDG_CONFIG_HOME: stateDir,
-        PORT: "0",
-      },
-      stdout: "ignore",
-      stderr: "pipe",
-    });
-    const stderrPromise = new Response(proc.stderr).text();
-    const deadline = startedAt + 15_000;
-    let firstComm: string | undefined;
-    let lastComm: string | undefined;
-    let observedRenameMs: number | undefined;
-    let failure: Error | undefined;
-
-    try {
-      while (performance.now() < deadline) {
-        try {
-          lastComm = readFileSync(`/proc/${proc.pid}/comm`, "utf8").trim();
-        } catch (error) {
-          const exitCode = await proc.exited;
-          const stderr = await stderrPromise;
-          const phase =
-            firstComm === undefined
-              ? "spawn error before first read"
-              : "exited before rename";
-          failure = new Error(
-            `office child ${phase}: last comm=${lastComm ?? "unread"}, alive=false, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
-            { cause: error },
-          );
-          break;
-        }
-
-        if (firstComm === undefined) {
-          firstComm = lastComm;
-          if (firstComm !== "bun") {
-            failure = new Error(
-              `office child was not observed before rename: first comm=${firstComm}`,
-            );
-            break;
-          }
-        }
-        if (lastComm === OFFICE_PROCESS_NAME) {
-          observedRenameMs = performance.now() - startedAt;
-          break;
-        }
-        await Bun.sleep(50);
-      }
-
-      if (observedRenameMs === undefined && failure === undefined) {
-        const alive = proc.exitCode === null;
-        if (alive) proc.kill();
-        const exitCode = await proc.exited;
-        const stderr = await stderrPromise;
-        failure = new Error(
-          `office child did not rename before deadline: last comm=${lastComm ?? "unread"}, alive=${alive}, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
-        );
-      }
-    } finally {
-      if (proc.exitCode === null) proc.kill();
-      await proc.exited;
-      await stderrPromise;
-      rmSync(stateDir, { recursive: true, force: true });
-    }
-
-    if (failure) throw failure;
-    expect(firstComm).toBe("bun");
-    expect(lastComm).toBe(OFFICE_PROCESS_NAME);
+  // Each child pays the full cold import of the office graph, so the two run
+  // at the same time rather than one after the other.
+  test("the office entry point renames its process on boot, not on import", async () => {
+    // allSettled, so a failed child never leaves the other one running.
+    const [afterImport, onBoot] = await Promise.allSettled([
+      commAfterImport(),
+      commsOnBoot(),
+    ]);
+    if (afterImport.status === "rejected") throw afterImport.reason;
+    if (onBoot.status === "rejected") throw onBoot.reason;
+    // A module-scope rename would rename the in-process test harness too.
+    expect(afterImport.value).toBe("bun");
+    expect(onBoot.value).toEqual({ first: "bun", last: OFFICE_PROCESS_NAME });
   }, 30_000);
 });

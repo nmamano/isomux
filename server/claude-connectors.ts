@@ -73,7 +73,7 @@ export function claudeConnectorGeneration(dir: string): number {
 // can carry any name, including one that starts with "claude.ai ". The status
 // at init is usually "pending" (connectors are still connecting), so it is not
 // kept; a connector turned off in claude.ai is not offered to agents.
-export function claudeAiConnectorNames(servers: InitMcpServer[]): string[] {
+function claudeAiConnectorNames(servers: InitMcpServer[]): string[] {
   const names = servers
     .filter(
       (server) => server.source === "claudeai" && server.status !== "disabled",
@@ -83,7 +83,7 @@ export function claudeAiConnectorNames(servers: InitMcpServer[]): string[] {
   return [...new Set(names)].sort((a, b) => a.localeCompare(b));
 }
 
-export function recordClaudeConnectors(
+function recordClaudeConnectors(
   dir: string,
   servers: InitMcpServer[],
   now = Date.now(),
@@ -149,7 +149,7 @@ export function recordClaudeConnectorsFromSession(
   return true;
 }
 
-export function recordClaudeConnectorStatuses(
+function recordClaudeConnectorStatuses(
   dir: string,
   servers: InitMcpServer[],
 ): void {

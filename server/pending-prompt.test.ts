@@ -25,45 +25,46 @@ function agentWith(flags: Partial<ManagedAgent>): ManagedAgent {
   } as ManagedAgent;
 }
 
-describe("pendingPromptOf", () => {
-  it("is null when the agent is not parked", () => {
-    expect(pendingPromptOf(agentWith({}))).toBe(null);
-  });
+const permission: ManagedAgent["pendingPermission"] = {
+  approvalId: "a1",
+  toolName: "Bash",
+  inputSummary: {},
+  allowPersistent: false,
+};
 
-  it("names each prompt", () => {
-    expect(
-      pendingPromptOf(
-        agentWith({
-          pendingPermission: {
-            approvalId: "a1",
-            toolName: "Bash",
-            inputSummary: {},
-            allowPersistent: false,
+describe("pendingPromptOf", () => {
+  it("names each prompt, null when not parked, and agrees with inMultiStepFlow", () => {
+    // The two derive from the same parked states and are read by different
+    // callers (the queue gates use the boolean, the wire uses the enum). They
+    // must never disagree about whether an agent is parked.
+    const cases: [Partial<ManagedAgent>, ReturnType<typeof pendingPromptOf>][] =
+      [
+        [{}, null],
+        [{ pendingPermission: permission }, "permission"],
+        [{ pendingResume: true }, "resume"],
+        [{ pendingModelPick: true }, "model"],
+        [{ pendingEffortPick: true }, "effort"],
+        [
+          {
+            pendingInteraction: {
+              id: "interaction-1",
+              agentId: "agent-1",
+              kind: "cronjob",
+              title: "Choose a schedule",
+              instruction: "Choose",
+              choices: [],
+            },
           },
-        }),
-      ),
-    ).toBe("permission");
-    expect(pendingPromptOf(agentWith({ pendingResume: true }))).toBe("resume");
-    expect(pendingPromptOf(agentWith({ pendingModelPick: true }))).toBe(
-      "model",
-    );
-    expect(pendingPromptOf(agentWith({ pendingEffortPick: true }))).toBe(
-      "effort",
-    );
-    expect(
-      pendingPromptOf(
-        agentWith({
-          pendingInteraction: {
-            id: "interaction-1",
-            agentId: "agent-1",
-            kind: "cronjob",
-            title: "Choose a schedule",
-            instruction: "Choose",
-            choices: [],
-          },
-        }),
-      ),
-    ).toBe("cronjob");
+          "cronjob",
+        ],
+      ];
+    for (const [flags, kind] of cases) {
+      const managed = agentWith(flags);
+      expect({
+        prompt: pendingPromptOf(managed),
+        parked: inMultiStepFlow(managed),
+      }).toEqual({ prompt: kind, parked: kind !== null });
+    }
   });
 
   it("reports permission first when flags overlap", () => {
@@ -73,51 +74,12 @@ describe("pendingPromptOf", () => {
     expect(
       pendingPromptOf(
         agentWith({
-          pendingPermission: {
-            approvalId: "a1",
-            toolName: "Bash",
-            inputSummary: {},
-            allowPersistent: false,
-          },
+          pendingPermission: permission,
           pendingResume: true,
           pendingModelPick: true,
           pendingEffortPick: true,
         }),
       ),
     ).toBe("permission");
-  });
-
-  it("agrees with inMultiStepFlow on every flag", () => {
-    // The two derive from the same parked states and are read by different
-    // callers (the queue gates use the boolean, the wire uses the enum). They
-    // must never disagree about whether an agent is parked.
-    const cases: Partial<ManagedAgent>[] = [
-      {},
-      {
-        pendingPermission: {
-          approvalId: "a1",
-          toolName: "Bash",
-          inputSummary: {},
-          allowPersistent: false,
-        },
-      },
-      { pendingResume: true },
-      { pendingModelPick: true },
-      { pendingEffortPick: true },
-      {
-        pendingInteraction: {
-          id: "interaction-1",
-          agentId: "agent-1",
-          kind: "cronjob",
-          title: "Choose a schedule",
-          instruction: "Choose",
-          choices: [],
-        },
-      },
-    ];
-    for (const flags of cases) {
-      const managed = agentWith(flags);
-      expect(pendingPromptOf(managed) !== null).toBe(inMultiStepFlow(managed));
-    }
   });
 });

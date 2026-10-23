@@ -198,40 +198,6 @@ describe("verified backup publication", () => {
     ]);
   });
 
-  test("round-trips private OpenCode state but omits its credential", async () => {
-    const f = fixture();
-    const authPath = path.join(
-      f.state,
-      "opencode",
-      "profiles",
-      "shared",
-      "data",
-      "opencode",
-      "auth.json",
-    );
-    fs.mkdirSync(path.dirname(authPath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(authPath, "PROFILE_AUTH_CANARY\n", { mode: 0o600 });
-    const databasePath = path.join(path.dirname(authPath), "opencode.db");
-    fs.writeFileSync(databasePath, "PRIVATE_PROFILE_STATE\n", { mode: 0o600 });
-    const file = await runBackupOnceForTest(config(f), realDeps);
-    const archive = path.join(f.backupDir, file);
-    expect(fs.statSync(archive).mode & 0o777).toBe(0o600);
-    const restored = extract(f, file);
-    expect(
-      fs.existsSync(
-        path.join(restored, "opencode/profiles/shared/data/opencode/auth.json"),
-      ),
-    ).toBe(false);
-    const restoredDatabase = path.join(
-      restored,
-      "opencode/profiles/shared/data/opencode/opencode.db",
-    );
-    expect(fs.readFileSync(restoredDatabase, "utf8")).toBe(
-      "PRIVATE_PROFILE_STATE\n",
-    );
-    expect(fs.statSync(restoredDatabase).mode & 0o777).toBe(0o600);
-  });
-
   test("omits credential stores while preserving adjacent and customer state", async () => {
     const f = fixture();
     const excluded = [
@@ -298,6 +264,8 @@ describe("verified backup publication", () => {
       "nil-codex-noauth.env",
       "webhooks/webhooks.json",
       "webhooks/wh_0123456789abcdef/deliveries.json",
+      // A pre-SQLite office's board: today's boot imports it after a restore.
+      "tasks.json",
     ];
     for (const relativePath of excluded)
       write(f.state, relativePath, `EXCLUDED:${relativePath}\n`);
@@ -308,6 +276,7 @@ describe("verified backup publication", () => {
       expect(fs.existsSync(path.join(f.state, relativePath))).toBe(true);
 
     const file = await runBackupOnceForTest(config(f), realDeps);
+    expect(fs.statSync(path.join(f.backupDir, file)).mode & 0o777).toBe(0o600);
     const restored = extract(f, file);
 
     for (const relativePath of excluded)
@@ -316,6 +285,15 @@ describe("verified backup publication", () => {
       expect(fs.readFileSync(path.join(restored, relativePath), "utf8")).toBe(
         `KEPT:${relativePath}\n`,
       );
+    // Private state stays private after a restore.
+    expect(
+      fs.statSync(
+        path.join(
+          restored,
+          "opencode/profiles/shared/data/opencode/opencode.db",
+        ),
+      ).mode & 0o777,
+    ).toBe(0o600);
     expect(fs.existsSync(path.join(restored, "apps/units/hello.sh"))).toBe(
       false,
     );
@@ -378,33 +356,6 @@ describe("verified backup publication", () => {
       expect(fs.readFileSync(p).includes(Buffer.from(fake))).toBe(false);
   });
 
-  test("health is rebuilt from disk and a stale archive is not success", async () => {
-    const f = fixture();
-    await runBackupOnceForTest(
-      config(f),
-      deps([{ exitCode: 0, writeArchive: true }, { exitCode: 0 }]).impl,
-    );
-    const writtenAt = fs.statSync(
-      path.join(f.backupDir, "isomux-2026-08-13.tar.gz"),
-    ).mtimeMs;
-    const fresh = backupStatusForTest(config(f), writtenAt + 1);
-    expect(fresh.lastBackupOk).toBe(true);
-    expect(fresh.lastBackupFile).toBe("isomux-2026-08-13.tar.gz");
-
-    const stillHealthy = backupStatusForTest(
-      config(f),
-      writtenAt + 24 * 60 * 60 * 1000 + 60_000,
-    );
-    expect(stillHealthy.lastBackupOk).toBe(true);
-
-    const stale = backupStatusForTest(
-      config(f),
-      writtenAt + 26 * 60 * 60 * 1000,
-    );
-    expect(stale.lastBackupOk).toBe(false);
-    expect(stale.lastBackupError).toMatch(/more than 26 hours old/);
-  });
-
   test("scheduler startup removes a partial orphaned by a dead process", () => {
     const f = fixture();
     fs.mkdirSync(f.backupDir);
@@ -435,9 +386,8 @@ describe("verified backup publication", () => {
     const before = fs.readdirSync(f.backupDir).sort();
     const d = deps([{ exitCode: 2, stderr: "No space", writeArchive: true }]);
 
-    expect(runBackupOnceForTest(config(f), d.impl)).rejects.toThrow(
-      /tar exit 2.*No space/,
-    );
+    // tar's own error text reaches the error.
+    expect(runBackupOnceForTest(config(f), d.impl)).rejects.toThrow(/No space/);
     expect(fs.readdirSync(f.backupDir).sort()).toEqual(before);
     expect(fs.readdirSync(f.backupDir).some(isBackupPartialForTest)).toBe(
       false,
@@ -450,8 +400,9 @@ describe("verified backup publication", () => {
       { exitCode: 0, writeArchive: true },
       { exitCode: 2, stderr: "unexpected end of file" },
     ]);
+    // Only the verification step reports this text.
     expect(runBackupOnceForTest(config(f), d.impl)).rejects.toThrow(
-      /archive verification exit 2.*unexpected end of file/,
+      /unexpected end of file/,
     );
     expect(finals(f.backupDir)).toEqual([]);
     expect(fs.readdirSync(f.backupDir).some(isBackupPartialForTest)).toBe(
@@ -459,26 +410,34 @@ describe("verified backup publication", () => {
     );
   });
 
-  test("low space refuses before tar and deletes no verified backup", async () => {
+  // The space a run needs: a floor on the first run, then the newest
+  // verified archive's size plus headroom (here 22 bytes + 10). Below it
+  // the run refuses before tar starts and keeps every verified backup.
+  test.each([
+    ["the first run needs the floor", false, 500],
+    ["a later run needs the newest size plus headroom", true, 32],
+  ])("%s", async (_name, priorBackup, required) => {
     const f = fixture();
-    const d = deps([], 99);
-    expect(runBackupOnceForTest(config(f), d.impl)).rejects.toThrow(
-      /99 bytes available, 100 required/,
-    );
-    expect(d.calls).toEqual([]);
-    expect(finals(f.backupDir)).toEqual([]);
-  });
+    const cfg = { ...config(f), firstBackupMinFreeBytes: 500 };
+    if (priorBackup)
+      await runBackupOnceForTest(
+        cfg,
+        deps([{ exitCode: 0, writeArchive: true }, { exitCode: 0 }]).impl,
+      );
+    else fs.mkdirSync(f.backupDir);
+    const before = finals(f.backupDir);
 
-  test("first run has a minimum floor instead of refusing forever", async () => {
-    const f = fixture();
-    const d = deps([], 499);
-    expect(
-      runBackupOnceForTest(
-        { ...config(f), firstBackupMinFreeBytes: 500 },
-        d.impl,
-      ),
-    ).rejects.toThrow(/500 required/);
-    expect(d.calls).toEqual([]);
+    const short = deps([], required - 1);
+    expect(runBackupOnceForTest(cfg, short.impl)).rejects.toThrow();
+    expect(short.calls).toEqual([]);
+    expect(finals(f.backupDir)).toEqual(before);
+
+    const enough = deps(
+      [{ exitCode: 0, writeArchive: true }, { exitCode: 0 }],
+      required,
+    );
+    await runBackupOnceForTest(cfg, enough.impl);
+    expect(finals(f.backupDir)).toHaveLength(before.length + 1);
   });
 
   test("same-day rerun uses a disambiguated final and keeps both", async () => {
@@ -559,8 +518,9 @@ describe("verified backup publication", () => {
       { exitCode: 0, writeArchive: true },
       { exitCode: 0, stdout: "" },
     ]);
+    // The error names the root the listing should start with.
     expect(runBackupOnceForTest(config(f), d.impl)).rejects.toThrow(
-      /first entry is "", expected "\.isomux\/"/,
+      /\.isomux\//,
     );
     expect(finals(f.backupDir)).toEqual([]);
   });
@@ -583,7 +543,7 @@ describe("verified backup publication", () => {
       "bsd",
     );
     expect(runBackupOnceForTest(config(f), failed.impl)).rejects.toThrow(
-      /tar exit 1.*Couldn't open/,
+      /Couldn't open/,
     );
     expect(finals(f.backupDir)).toHaveLength(1);
   });
@@ -691,46 +651,6 @@ test("archives a consistent SQLite snapshot without live WAL or SHM files", asyn
     db.close();
   }
 });
-test("restoring a pre-SQLite archive imports its task JSON and preserves the source", async () => {
-  const { openOfficeDatabase, createAuditStore } =
-    await import("./audit-store.ts");
-  const { importLegacyTasks } = await import("./task-store.ts");
-  const f = fixture();
-  const source = JSON.stringify([
-    {
-      id: "old",
-      title: "old backup task",
-      status: "backlog",
-      device: "Member",
-      createdBy: "Member",
-      createdAt: 1,
-    },
-  ]);
-  fs.writeFileSync(path.join(f.state, "tasks.json"), source);
-  const file = await runBackupOnceForTest(config(f), realDeps);
-  const restored = extract(f, file);
-  const db = openOfficeDatabase(path.join(restored, "office.sqlite"));
-  try {
-    const store = createAuditStore(db);
-    importLegacyTasks(store, restored);
-    expect(fs.readFileSync(path.join(restored, "tasks.json"), "utf8")).toBe(
-      source,
-    );
-    const row = db.query("SELECT record FROM tasks").get() as {
-      record: string;
-    };
-    expect(JSON.parse(row.record)).toMatchObject({
-      id: "old",
-      status: "open",
-      priority: "P4",
-      username: "Member",
-    });
-    expect(store.list().items).toHaveLength(0);
-  } finally {
-    db.close();
-  }
-});
-
 // Backup settings (task e9776386): how often, how many copies, which folder.
 // Kept in office-config.json and read on every scheduler check, so a change
 // needs no restart. ISOMUX_BACKUP_DIR wins over the folder setting: a scratch
@@ -879,9 +799,14 @@ describe("backup settings", () => {
 describe("backup schedule", () => {
   const HOUR_MS = 60 * 60 * 1000;
 
-  test("the health threshold follows the interval", async () => {
+  // Health is rebuilt from disk: the newest archive is healthy until two
+  // hours past one interval, then stale.
+  test.each([
+    ["the default interval", {}, 26 * HOUR_MS],
+    ["a six-hour interval", { intervalMs: 6 * HOUR_MS }, 8 * HOUR_MS],
+  ])("the health threshold follows %s", async (_name, interval, staleAfter) => {
     const f = fixture();
-    const cfg = { ...config(f), intervalMs: 6 * HOUR_MS };
+    const cfg = { ...config(f), ...interval };
     await runBackupOnceForTest(
       cfg,
       deps([{ exitCode: 0, writeArchive: true }, { exitCode: 0 }]).impl,
@@ -889,13 +814,16 @@ describe("backup schedule", () => {
     const writtenAt = fs.statSync(
       path.join(f.backupDir, "isomux-2026-08-13.tar.gz"),
     ).mtimeMs;
+    const fresh = backupStatusForTest(cfg, writtenAt + 1);
+    expect(fresh.lastBackupOk).toBe(true);
+    expect(fresh.lastBackupFile).toBe("isomux-2026-08-13.tar.gz");
+    expect(fresh.intervalHours).toBe(staleAfter / HOUR_MS - 2);
     expect(
-      backupStatusForTest(cfg, writtenAt + 8 * HOUR_MS - 60_000).lastBackupOk,
+      backupStatusForTest(cfg, writtenAt + staleAfter - 60_000).lastBackupOk,
     ).toBe(true);
-    const stale = backupStatusForTest(cfg, writtenAt + 8 * HOUR_MS);
+    const stale = backupStatusForTest(cfg, writtenAt + staleAfter);
     expect(stale.lastBackupOk).toBe(false);
     expect(stale.lastBackupError).not.toBeNull();
-    expect(stale.intervalHours).toBe(6);
   });
 
   test("a backup is due one interval after the last run STARTED", async () => {

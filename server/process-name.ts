@@ -15,9 +15,6 @@
 
 import { writeFileSync } from "fs";
 
-/** Linux stores a process name in 16 bytes: 15 characters plus a terminator. */
-const NAME_MAX_CHARS = 15;
-
 /** What the office server calls itself; deploy/oom-protect.sh shields this. */
 export const OFFICE_PROCESS_NAME = "isomux";
 
@@ -29,14 +26,14 @@ export const OFFICE_PROCESS_NAME = "isomux";
  * runs exactly as well - it just falls back to being named `bun` and loses the
  * distinction that out-of-memory protection relies on.
  */
-export function setProcessName(name: string = OFFICE_PROCESS_NAME): boolean {
+export function setProcessName(): boolean {
   if (process.platform !== "linux") return false;
   try {
-    writeFileSync("/proc/self/comm", name.slice(0, NAME_MAX_CHARS));
+    writeFileSync("/proc/self/comm", OFFICE_PROCESS_NAME);
     return true;
   } catch (err) {
     console.warn(
-      `[oom] could not name this process "${name}" (${String(err)}); under memory pressure the office may not be told apart from the builds it runs.`,
+      `[oom] could not name this process "${OFFICE_PROCESS_NAME}" (${String(err)}); under memory pressure the office may not be told apart from the builds it runs.`,
     );
     return false;
   }

@@ -1,61 +1,35 @@
 import { describe, it, expect } from "bun:test";
-import { commands, unsupportedMessage } from "./commands.ts";
+import { unsupportedMessage } from "./commands.ts";
 import { english } from "./i18n.ts";
-import { COMMAND_MESSAGE_KEYS } from "../shared/i18n/command-keys.ts";
+import { COMMAND_DESCRIPTION_KEYS } from "../shared/i18n/command-keys.ts";
 import { renderLogText } from "../shared/i18n/log-message.ts";
 
-// The copy assertions below are the signed-off ENGLISH, so they read the
-// English render of the message (task c37a7365); the catalog test covers the
-// other languages.
-const unsupportedText = (name: string) =>
-  renderLogText(english, unsupportedMessage(name));
-
+// Which refusal each kind of unsupported command gets. The words are the
+// catalog's (catalog.test.ts holds every language); this pins the selection.
+// A command name is whatever the user typed after the slash, so names that
+// Object.prototype carries must take the generic refusal: a plain table lookup
+// would answer them with an inherited function, which t() cannot render.
 describe("unsupportedMessage", () => {
-  it("returns the Nil-dictated copy for /loop", () => {
-    // Exact copy decided in task c4717359, reworded for the Schedules rename
-    // by Nil's ruling of 2026-09-05 and for the Automations rename (task
-    // fe0c21fd) - /loop is deliberately not supported
-    // natively; the message redirects to isomux's own recurring-work
-    // primitives. Do not reword without Nil's sign-off.
-    expect(unsupportedText("loop")).toBe(
-      "not supported natively; see if the Automations page or scheduled messages satisfy your use case",
-    );
-  });
-
-  it("keeps the generic bundled-skill message for other unsupported bundled skills", () => {
-    // /loop's custom message is loop-specific; a sibling bundled skill
-    // without a `message` override still gets the type-aware default.
-    // The custom-message SELECTION is registry metadata and now lives in the
-    // key table; only the prose moved to the catalog.
-    expect("lorem-ipsum" in COMMAND_MESSAGE_KEYS).toBe(false);
-    expect("loop" in COMMAND_MESSAGE_KEYS).toBe(true);
-    expect(unsupportedText("lorem-ipsum")).toBe(
-      "`/lorem-ipsum` (generate placeholder text) is a Claude Code bundled skill, but it's not supported in Isomux. You can override it by creating your own skill file.",
-    );
-  });
-
-  it("still reports /loop as an overridable bundled skill", () => {
-    // Pins the registry fields that resolution step 2 relies on (see
-    // command-handlers.ts handleSlashCommand): while overridable stays true,
-    // a user skill named `loop` can still shadow this entry. Registry-level
-    // guard only - does not exercise the resolution flow end to end.
-    expect(commands.loop.type).toBe("bundled-skill");
-    expect(commands.loop.supported).toBe(false);
-    expect(commands.loop.overridable).toBe(true);
-  });
-});
-
-// A command name is whatever the user typed after the slash, so it reaches the
-// key tables as an arbitrary string. Before S7 the registry lookup fell through
-// to the generic refusal for these; the catalog tables must do the same rather
-// than answer with something inherited from Object.prototype, which t() would
-// try to interpolate as if it were a message.
-describe("a command name that names an inherited property", () => {
-  for (const name of ["constructor", "__proto__", "toString", "valueOf"]) {
-    it(`refuses /${name} instead of throwing`, () => {
-      expect(unsupportedText(name)).toBe(
-        `\`/${name}\` is not available in Isomux.`,
+  it.each([
+    // /loop has its own refusal, which points at isomux's own recurring work.
+    ["loop", "commands.loop.message", false],
+    ["lorem-ipsum", "commands.unsupported.bundledSkill", true],
+    ["branch", "commands.unsupported.hardcoded", true],
+    ["constructor", "commands.unsupported.notAvailable", false],
+    ["__proto__", "commands.unsupported.notAvailable", false],
+    ["toString", "commands.unsupported.notAvailable", false],
+    ["valueOf", "commands.unsupported.notAvailable", false],
+  ] as const)("refuses /%s with %s", (name, key, describesCommand) => {
+    const message = unsupportedMessage(name);
+    expect(message.key).toBe(key);
+    const text = renderLogText(english, message);
+    expect(text).not.toContain(key);
+    if (key !== "commands.loop.message") expect(text).toContain(`/${name}`);
+    if (describesCommand) {
+      const description = english.t(
+        COMMAND_DESCRIPTION_KEYS[name as keyof typeof COMMAND_DESCRIPTION_KEYS],
       );
-    });
-  }
+      expect(text).toContain(description.toLowerCase());
+    }
+  });
 });

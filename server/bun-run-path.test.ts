@@ -11,54 +11,46 @@ import { normalizeBunRunPath } from "./bun-run-path.ts";
 const SYSTEM = "/usr/local/bin:/usr/bin:/bin";
 
 describe("normalizeBunRunPath", () => {
-  it("keeps the cwd's node_modules/.bin once and drops the walk above it", () => {
-    const bunPath = [
-      "/opt/isomux/node_modules/.bin",
-      "/opt/isomux/node_modules/.bin",
-      "/opt/node_modules/.bin",
-      "/node_modules/.bin",
-      SYSTEM,
-    ].join(":");
-    expect(normalizeBunRunPath(bunPath, "/opt/isomux")).toBe(
-      `/opt/isomux/node_modules/.bin:${SYSTEM}`,
-    );
-  });
-
-  it("drops repeated entries anywhere and keeps the first", () => {
-    expect(
-      normalizeBunRunPath("/a:/usr/bin:/a:/b:/usr/bin", "/opt/isomux"),
-    ).toBe("/a:/usr/bin:/b");
-  });
-
-  it("keeps an ancestor's node_modules/.bin that the operator put later in PATH", () => {
-    const path = `/opt/isomux/node_modules/.bin:/opt/node_modules/.bin:/usr/bin:/opt/node_modules/.bin`;
-    expect(normalizeBunRunPath(path, "/opt/isomux")).toBe(
-      "/opt/isomux/node_modules/.bin:/usr/bin:/opt/node_modules/.bin",
-    );
-  });
-
-  it("leaves a configured ancestor entry alone when PATH has no bun prefix", () => {
-    const configured = `/opt/node_modules/.bin:${SYSTEM}`;
-    expect(normalizeBunRunPath(configured, "/opt/isomux")).toBe(configured);
-  });
-
-  it("keeps every empty entry in place", () => {
-    expect(
-      normalizeBunRunPath(
-        `/opt/isomux/node_modules/.bin:/opt/isomux/node_modules/.bin:/opt/node_modules/.bin::/usr/bin::/bin`,
-        "/opt/isomux",
-      ),
-    ).toBe("/opt/isomux/node_modules/.bin::/usr/bin::/bin");
-  });
-
-  it("keeps the root's own entry when the cwd is the root", () => {
-    expect(normalizeBunRunPath(`/node_modules/.bin:${SYSTEM}`, "/")).toBe(
+  const OWN = "/opt/isomux/node_modules/.bin";
+  it.each([
+    [
+      "keeps the cwd's node_modules/.bin once and drops the walk above it",
+      [OWN, OWN, "/opt/node_modules/.bin", "/node_modules/.bin", SYSTEM],
+      "/opt/isomux",
+      `${OWN}:${SYSTEM}`,
+    ],
+    [
+      "drops repeated entries anywhere and keeps the first",
+      ["/a", "/usr/bin", "/a", "/b", "/usr/bin"],
+      "/opt/isomux",
+      "/a:/usr/bin:/b",
+    ],
+    [
+      "keeps an ancestor's node_modules/.bin that the operator put later in PATH",
+      [OWN, "/opt/node_modules/.bin", "/usr/bin", "/opt/node_modules/.bin"],
+      "/opt/isomux",
+      `${OWN}:/usr/bin:/opt/node_modules/.bin`,
+    ],
+    [
+      "leaves a configured ancestor entry alone when PATH has no bun prefix",
+      ["/opt/node_modules/.bin", SYSTEM],
+      "/opt/isomux",
+      `/opt/node_modules/.bin:${SYSTEM}`,
+    ],
+    [
+      "keeps every empty entry in place",
+      [OWN, OWN, "/opt/node_modules/.bin", "", "/usr/bin", "", "/bin"],
+      "/opt/isomux",
+      `${OWN}::/usr/bin::/bin`,
+    ],
+    [
+      "keeps the root's own entry when the cwd is the root",
+      ["/node_modules/.bin", SYSTEM],
+      "/",
       `/node_modules/.bin:${SYSTEM}`,
-    );
-  });
-
-  it("leaves a PATH without bun's entries as it is", () => {
-    expect(normalizeBunRunPath(SYSTEM, "/opt/isomux")).toBe(SYSTEM);
+    ],
+  ])("%s", (_name, entries, cwd, expected) => {
+    expect(normalizeBunRunPath(entries.join(":"), cwd)).toBe(expected);
   });
 
   it("cleans the PATH the running bun really produces for `bun run <file>`", () => {

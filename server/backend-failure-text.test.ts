@@ -16,76 +16,67 @@ import { msg } from "../shared/i18n/log-message.ts";
 const BACKEND_STOPPED_DURING_TURN = backendStoppedDuringTurn();
 
 describe("humanizeBackendFailure", () => {
-  it("explains SIGTERM, the earlyoom signature", () => {
-    const r = humanizeBackendFailure(
+  const EDE =
+    "Agent stopped: error_during_execution. [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use";
+  const CAPACITY =
+    "Selected model is at capacity. Please try a different model.";
+  // [case, raw failure, id, message]. The raw string always survives
+  // byte-identical for the log entry's metadata. The id is what the
+  // orchestrator de-duplicates on, so it carries the code: two signals are
+  // two different deaths.
+  it.each([
+    [
+      "explains SIGTERM, the earlyoom signature",
       "Claude Code process exited with code 143",
-    );
-    expect(r.id).toBe("sigterm:143");
-    expect(r.text).toEqual(
+      "sigterm:143",
       msg("systemEntries.backendFailure.sigterm", { code: 143 }),
-    );
-    // The raw string survives for the log entry's metadata.
-    expect(r.raw).toBe("Claude Code process exited with code 143");
-  });
-
-  it("explains SIGKILL", () => {
-    const r = humanizeBackendFailure(
+    ],
+    [
+      "explains SIGKILL",
       "Claude Code process exited with code 137",
-    );
-    expect(r.id).toBe("sigkill:137");
-    expect(r.text).toEqual(
+      "sigkill:137",
       msg("systemEntries.backendFailure.sigkill", { code: 137 }),
-    );
-  });
-
-  it("names other signals without guessing at a cause", () => {
+    ],
     // 130 = SIGINT. No OOM sentence: we have no reason to believe that is why.
-    const r = humanizeBackendFailure("process exited with code 130");
-    expect(r.id).toBe("signal:130");
-    expect(r.text).toEqual(
-      msg("systemEntries.backendFailure.signal", {
-        signal: 2,
-        code: 130,
-      }),
-    );
-  });
-
-  it("replaces the harness-internal ede_diagnostic blob", () => {
-    const raw =
-      "Agent stopped: error_during_execution. [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use";
-    const r = humanizeBackendFailure(raw);
-    expect(r.text).toEqual(BACKEND_STOPPED_DURING_TURN);
-    expect(r.id).toBe("stopped-during-turn");
+    // The phrase, not the product name, classifies it.
+    [
+      "names other signals without guessing at a cause",
+      "process exited with code 130",
+      "signal:130",
+      msg("systemEntries.backendFailure.signal", { signal: 2, code: 130 }),
+    ],
+    [
+      "names another signal as another death",
+      "process exited with code 131",
+      "signal:131",
+      msg("systemEntries.backendFailure.signal", { signal: 3, code: 131 }),
+    ],
     // The diagnostic is kept, just not shown in chat.
-    expect(r.raw).toBe(raw);
-  });
-
-  it("names a provider capacity refusal as the provider's, not the subscription's", () => {
+    [
+      "replaces the harness-internal ede_diagnostic blob",
+      EDE,
+      "stopped-during-turn",
+      BACKEND_STOPPED_DURING_TURN,
+    ],
     // The Codex app-server's wording, observed 2026-09-10. The account's rate
     // limits read 68% weekly with no 5-hour limit while this fired, so the
     // sentence must point away from the subscription.
-    const r = humanizeBackendFailure(
-      "Selected model is at capacity. Please try a different model.",
-    );
-    expect(r.text).toEqual(
+    [
+      "names a provider capacity refusal as the provider's, not the subscription's",
+      CAPACITY,
+      "provider-capacity",
       msg("systemEntries.backendFailure.providerCapacity"),
-    );
-    expect(r.raw).toBe(
-      "Selected model is at capacity. Please try a different model.",
-    );
-    expect(r.id).toBe("provider-capacity");
+    ],
+  ] as const)("%s", (_case, raw, id, text) => {
+    expect(humanizeBackendFailure(raw)).toEqual({ text, raw, id });
   });
 
-  it("passes an ordinary exit code through untouched", () => {
-    // diagnoseProcessExit already says something specific about these; a vague
-    // sentence here would only push its hint further down the chat.
-    const r = humanizeBackendFailure("Claude Code process exited with code 1");
-    expect(r.text).toBe("Claude Code process exited with code 1");
-    expect(r.raw).toBeUndefined();
-  });
-
-  it("passes an unrecognized failure through untouched", () => {
+  it("passes an ordinary exit code or an unrecognized failure through untouched", () => {
+    // diagnoseProcessExit already says something specific about ordinary
+    // exit codes; a vague sentence here would only push its hint further
+    // down the chat.
     for (const raw of [
+      "Claude Code process exited with code 1",
       "ECONNRESET",
       "Invalid API key",
       "",
@@ -100,7 +91,7 @@ describe("humanizeBackendFailure", () => {
 });
 
 describe("backendFailureMeta", () => {
-  it("carries the raw diagnostic when the text was rewritten", () => {
+  it("carries the raw diagnostic only when the text was rewritten", () => {
     expect(
       backendFailureMeta(
         humanizeBackendFailure("Claude Code process exited with code 143"),
@@ -108,40 +99,9 @@ describe("backendFailureMeta", () => {
     ).toEqual({
       backendFailureRaw: "Claude Code process exited with code 143",
     });
-  });
-
-  it("is undefined when nothing was rewritten", () => {
     // An unchanged entry must not carry a redundant copy of its own content.
     expect(backendFailureMeta(humanizeBackendFailure("ECONNRESET"))).toBe(
       undefined,
-    );
-  });
-});
-
-// The identity the orchestrator de-duplicates on. It replaced a comparison of
-// the rendered sentences, so it has to draw the SAME boundary those sentences
-// drew: two failures that used to read differently are still two.
-describe("failure identity", () => {
-  it("differs for two signals, which are two different explanations", () => {
-    const a = humanizeBackendFailure("process exited with code 130");
-    const b = humanizeBackendFailure("process exited with code 131");
-    expect(a.id).toBe("signal:130");
-    expect(b.id).toBe("signal:131");
-    expect(a.id).not.toBe(b.id);
-    // The boundary this preserves: the old code compared these sentences, and
-    // they are not the same sentence.
-    expect(a.text).not.toEqual(b.text);
-  });
-
-  it("separates the named signals from the generic ones", () => {
-    expect(humanizeBackendFailure("exited with code 143").id).toBe(
-      "sigterm:143",
-    );
-    expect(humanizeBackendFailure("exited with code 137").id).toBe(
-      "sigkill:137",
-    );
-    expect(humanizeBackendFailure("result was error_during_execution").id).toBe(
-      "stopped-during-turn",
     );
   });
 });

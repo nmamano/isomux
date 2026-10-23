@@ -269,22 +269,27 @@ describe("native Claude Code commands", () => {
     );
   });
 
-  it("lose to a user skill of the same name", async () => {
-    const srv = (server = await startTestServer({
-      fakeBackend: completingBackend(),
-    }));
-    const owner = await srv.seedOwner("Morgan");
-    const skillDir = join(STATE_ROOT, "skills", "simplify");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, "SKILL.md"), "user skill body marker");
-    const agent = await spawnAgent(srv);
+  // /loop is a bundled skill Isomux refuses, but a member's own skill of
+  // that name still runs.
+  it.each(["simplify", "loop"])(
+    "lose to a user skill of the same name: /%s",
+    async (name) => {
+      const srv = (server = await startTestServer({
+        fakeBackend: completingBackend(),
+      }));
+      const owner = await srv.seedOwner("Morgan");
+      const skillDir = join(STATE_ROOT, "skills", name);
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), "user skill body marker");
+      const agent = await spawnAgent(srv);
 
-    await srv.agentManager.sendMessage(agent.id, "/simplify", owner.username);
-    await waitUntil(() => sentTexts(srv, agent.id).length >= 1, "a send");
+      await srv.agentManager.sendMessage(agent.id, `/${name}`, owner.username);
+      await waitUntil(() => sentTexts(srv, agent.id).length >= 1, "a send");
 
-    expect(sentTexts(srv, agent.id)).toHaveLength(1);
-    expect(sentTexts(srv, agent.id)[0]).toContain("user skill body marker");
-  });
+      expect(sentTexts(srv, agent.id)).toHaveLength(1);
+      expect(sentTexts(srv, agent.id)[0]).toContain("user skill body marker");
+    },
+  );
 
   it("show in /help only on an engine that runs them", async () => {
     const srv = (server = await startTestServer({

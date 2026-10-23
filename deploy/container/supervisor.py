@@ -29,6 +29,8 @@ START_LIMIT = 5
 START_WINDOW = 60
 # Seconds an app monitor has to start its app before it gets one SIGTERM.
 READY_TIMEOUT = 30
+# Seconds a client has to send its whole control request.
+REQUEST_TIMEOUT = 2
 # Office restart delay: doubles per exit up to the maximum, and returns to the
 # start value after a run of at least OFFICE_STABLE_RUN seconds.
 OFFICE_BACKOFF_START = 2
@@ -436,10 +438,10 @@ class Supervisor:
         raise ValueError("Unknown operation")
 
 
-def receive(connection, timeout=2):
+def receive(connection):
     # One deadline for the whole request: a client that sends slowly cannot
     # hold the supervisor loop longer than this.
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + REQUEST_TIMEOUT
     data = bytearray()
     while True:
         remaining = deadline - time.monotonic()

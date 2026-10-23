@@ -184,7 +184,9 @@ describe("fresh scoped Claude account checks", () => {
         throw new Error("Codex must not start");
       },
     );
-    await manager.list("owner", true, selection());
+    expect(await manager.list("owner", true, selection())).toMatchObject([
+      { provider: "claude", scope: "office", accountStatus: "not_connected" },
+    ]);
     expect(await manager.cachedList("owner")).toBeNull();
     expect(codexProbes).toBe(0);
   });
@@ -248,6 +250,8 @@ describe("fresh scoped Claude account checks", () => {
     expect(closed).toBe(1);
   });
 
+  // An ordinary failure, unlike a timeout, offers no sign-in and carries the
+  // provider's own reason.
   it("maps a throwing probe to unavailable and closes it", async () => {
     let closed = 0;
     const manager = fixture(() => ({
@@ -259,9 +263,11 @@ describe("fresh scoped Claude account checks", () => {
         closed++;
       },
     }));
-    expect(
-      (await manager.list("owner", true, selection()))[0].accountStatus,
-    ).toBe("unavailable");
+    expect((await manager.list("owner", true, selection()))[0]).toMatchObject({
+      accountStatus: "unavailable",
+      canBrowserLogin: false,
+      error: "probe failed",
+    });
     expect(closed).toBe(1);
   });
 });
@@ -416,8 +422,7 @@ describe("a sign-in that starts during an account read", () => {
     expect(await manager.cancel("owner", "claude", "office")).toBe(true);
     releaseRead();
     await read;
-    const result = await login;
-    expect(result.ok && result.value.authUrl).toBeFalsy();
+    expect(await login).toMatchObject({ ok: false, code: "login_cancelled" });
     // The start gives up before it launches a login client at all.
     expect(clients.slice(1).some((c) => c.started)).toBe(false);
     expect(clients.some((c) => c.loggedIn)).toBe(false);

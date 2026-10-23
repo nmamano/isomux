@@ -69,16 +69,20 @@ describe("cwdProblem", () => {
     return root;
   };
 
-  it("finds nothing wrong with a directory", () => {
+  it("passes a directory and names a missing path or a file", () => {
     const dir = scratch();
     expect(cwdProblem(dir)).toBeNull();
     expect(validateCwd(dir)).toBe(dir);
-  });
-
-  it("names a path that does not exist", () => {
-    const missing = join(scratch(), "gone");
-    expect(cwdProblem(missing)).toEqual({ kind: "missing", path: missing });
-    expect(() => validateCwd(missing)).toThrow(missing);
+    const missing = join(dir, "gone");
+    const file = join(dir, "a-file");
+    writeFileSync(file, "x");
+    for (const [path, kind] of [
+      [missing, "missing"],
+      [file, "not_directory"],
+    ] as const) {
+      expect(cwdProblem(path)).toEqual({ kind, path });
+      expect(() => validateCwd(path)).toThrow(path);
+    }
   });
 
   it("resolves ~ before it reports the path", () => {
@@ -87,13 +91,6 @@ describe("cwdProblem", () => {
       kind: "missing",
       path: join(homedir(), name),
     });
-  });
-
-  it("names a path that is a file", () => {
-    const file = join(scratch(), "a-file");
-    writeFileSync(file, "x");
-    expect(cwdProblem(file)).toEqual({ kind: "not_directory", path: file });
-    expect(() => validateCwd(file)).toThrow(file);
   });
 
   it("names a path it cannot reach, with the OS error", () => {

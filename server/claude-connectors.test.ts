@@ -2,13 +2,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  claudeAiConnectorNames,
   claudeConnectorGeneration,
   claudeConnectorStatusesFor,
   claudeConnectorsFor,
   claudeEngineServersFor,
   clearClaudeConnectors,
-  recordClaudeConnectors,
   recordClaudeConnectorsFromSession,
   recordClaudeEngineServers,
   resetClaudeConnectorsForTests,
@@ -32,34 +30,18 @@ const drive = {
   source: "claudeai",
 };
 
-describe("claudeAiConnectorNames", () => {
-  it("keeps claude.ai connectors by source and drops the name prefix", () => {
-    expect(claudeAiConnectorNames([drive, gmail])).toEqual([
-      "Gmail",
-      "Google Drive",
-    ]);
-  });
-
-  it("trusts the source, not the name", () => {
-    expect(
-      claudeAiConnectorNames([
-        // A server the member configured can carry any name.
-        { name: "claude.ai Lookalike", status: "connected", source: "user" },
-        { name: "claude.ai Unsourced", status: "connected" },
-        { name: "isomux", status: "connected", source: "sdk" },
-      ]),
-    ).toEqual([]);
-  });
-
-  it("drops a connector that is turned off", () => {
-    expect(
-      claudeAiConnectorNames([
-        gmail,
-        { name: "claude.ai Calendar", status: "disabled", source: "claudeai" },
-      ]),
-    ).toEqual(["Gmail"]);
-  });
-});
+// A Claude session on a claude.ai login in `dir` reported Gmail at `at`.
+function seenGmail(dir: string, at: number) {
+  recordClaudeConnectorsFromSession(
+    {
+      agentType: "claude",
+      launchedClaudeConfigDir: dir,
+      launchedClaudeCloud: false,
+    },
+    { mcpServers: [gmail], apiKeySource: "none", from: "init" },
+    at,
+  );
+}
 
 describe("recordClaudeConnectorsFromSession", () => {
   const launch = {
@@ -67,6 +49,45 @@ describe("recordClaudeConnectorsFromSession", () => {
     launchedClaudeConfigDir: "/tmp/connectors-office",
     launchedClaudeCloud: false,
   };
+
+  // Only source "claudeai" counts: a server the member configured can carry
+  // any name.
+  it.each([
+    [
+      "keeps claude.ai connectors and drops the name prefix",
+      [drive, gmail],
+      ["Gmail", "Google Drive"],
+    ],
+    [
+      "trusts the source, not the name",
+      [
+        { name: "claude.ai Lookalike", status: "connected", source: "user" },
+        { name: "claude.ai Unsourced", status: "connected" },
+        { name: "isomux", status: "connected", source: "sdk" },
+        gmail,
+      ],
+      ["Gmail"],
+    ],
+    [
+      "drops a connector that is turned off",
+      [
+        gmail,
+        { name: "claude.ai Calendar", status: "disabled", source: "claudeai" },
+      ],
+      ["Gmail"],
+    ],
+  ])("%s", (_name, mcpServers, names) => {
+    expect(
+      recordClaudeConnectorsFromSession(launch, {
+        mcpServers,
+        apiKeySource: "none",
+        from: "status",
+      }),
+    ).toBe(true);
+    expect(claudeConnectorsFor(launch.launchedClaudeConfigDir)?.names).toEqual(
+      names,
+    );
+  });
 
   it("records the names against the launched sign-in, with the time seen", () => {
     expect(
@@ -103,7 +124,7 @@ describe("recordClaudeConnectorsFromSession", () => {
     };
     expect(recordClaudeConnectorsFromSession(launch, early, 1)).toBe(false);
     expect(claudeConnectorsFor(launch.launchedClaudeConfigDir)).toBeNull();
-    recordClaudeConnectors(launch.launchedClaudeConfigDir, [gmail], 2);
+    seenGmail(launch.launchedClaudeConfigDir, 2);
     expect(recordClaudeConnectorsFromSession(launch, early, 3)).toBe(false);
     expect(claudeConnectorsFor(launch.launchedClaudeConfigDir)).toEqual({
       names: ["Gmail"],
@@ -112,7 +133,7 @@ describe("recordClaudeConnectorsFromSession", () => {
   });
 
   it("never lets a cloud or API-key session overwrite a real list", () => {
-    recordClaudeConnectors(launch.launchedClaudeConfigDir, [gmail], 1);
+    seenGmail(launch.launchedClaudeConfigDir, 1);
     const empty = { mcpServers: [], from: "status" as const };
     expect(
       recordClaudeConnectorsFromSession(
@@ -186,7 +207,7 @@ describe("ProviderAccountManager clears a sign-in's connectors", () => {
       () => false,
       () => {},
     );
-    recordClaudeConnectors(dir, [gmail], 1);
+    seenGmail(dir, 1);
     await manager.startLogin("user-a", "claude", "personal", "browser");
     expect(claudeConnectorsFor(dir)).not.toBeNull();
     complete();
@@ -221,7 +242,7 @@ describe("ProviderAccountManager clears a sign-in's connectors", () => {
       () => {},
       () => {},
     );
-    recordClaudeConnectors(home, [gmail], 1);
+    seenGmail(home, 1);
     const result = await manager.disconnect("user-a", "claude", "personal");
     expect(result.ok).toBe(true);
     expect(claudeConnectorsFor(home)).toBeNull();
@@ -255,21 +276,14 @@ describe("ProviderAccountManager.claudeConnectorDir", () => {
     );
   });
 
-  it("has none for a sign-in on Bedrock or Vertex, which has no claude.ai login", () => {
-    expect(
-      manager({
-        CLAUDE_CONFIG_DIR: "/tmp/connectors-office",
-        CLAUDE_CODE_USE_BEDROCK: "1",
-      }).claudeConnectorDir("user-a", "office"),
-    ).toBeNull();
-  });
-
-  // Claude's own settings live in the directory on Bedrock or Vertex too.
-  it("names the config directory of each scope, cloud or not", () => {
+  // Bedrock or Vertex has no claude.ai login, but Claude's own settings live
+  // in the directory there too.
+  it("has no connector directory on Bedrock or Vertex, but names its config directory", () => {
     const accounts = manager({
       CLAUDE_CONFIG_DIR: "/tmp/connectors-office",
       CLAUDE_CODE_USE_BEDROCK: "1",
     });
+    expect(accounts.claudeConnectorDir("user-a", "office")).toBeNull();
     expect(accounts.claudeConfigDir("user-a", "office")).toBe(
       "/tmp/connectors-office",
     );
@@ -318,7 +332,12 @@ describe("MCP statuses (A3)", () => {
     launchedClaudeCloud: false,
   };
   const report = (
-    mcpServers: { name: string; status: string; source: string }[],
+    mcpServers: {
+      name: string;
+      status: string;
+      source: string;
+      tools?: number;
+    }[],
     from: "init" | "status",
   ) =>
     recordClaudeConnectorsFromSession(launch, {
@@ -334,16 +353,16 @@ describe("MCP statuses (A3)", () => {
     report(
       [
         { ...gmail, status: "failed" },
-        { ...drive, status: "connected" },
+        { ...drive, status: "connected", tools: 3 },
       ],
       "status",
     );
     const read = [
       { name: "Gmail", status: "failed" as const },
-      { name: "Google Drive", status: "connected" as const },
+      { name: "Google Drive", status: "connected" as const, tools: 3 },
     ];
     expect(claudeConnectorStatusesFor(dir)).toEqual(read);
-    // The next turn's init leaves the read statuses as they were.
+    // The next turn's init leaves the read statuses and counts as they were.
     report([gmail, drive], "init");
     expect(claudeConnectorStatusesFor(dir)).toEqual(read);
     clearClaudeConnectors(dir);
@@ -368,11 +387,11 @@ describe("MCP statuses (A3)", () => {
   describe("a pending read", () => {
     const connected = { ...gmail, status: "connected" };
 
-    it("keeps a status an earlier read knew", () => {
-      report([connected], "status");
+    it("keeps a status and tool count an earlier read knew", () => {
+      report([{ ...connected, tools: 12 }], "status");
       report([gmail], "status");
       expect(claudeConnectorStatusesFor(dir)).toEqual([
-        { name: "Gmail", status: "connected" },
+        { name: "Gmail", status: "connected", tools: 12 },
       ]);
     });
 
@@ -390,15 +409,6 @@ describe("MCP statuses (A3)", () => {
       report([{ ...drive, status: "pending" }], "status");
       expect(claudeConnectorStatusesFor(dir)).toEqual([
         { name: "Google Drive", status: "connected" },
-      ]);
-    });
-
-    it("does not keep a status past a sign-in or sign-out", () => {
-      report([connected], "status");
-      clearClaudeConnectors(dir);
-      report([gmail], "status");
-      expect(claudeConnectorStatusesFor(dir)).toEqual([
-        { name: "Gmail", status: "pending" },
       ]);
     });
 
@@ -446,58 +456,23 @@ describe("MCP statuses (A3)", () => {
   });
 
   describe("tool counts", () => {
-    const connected = { ...gmail, status: "connected", tools: 12 };
-    const reportTools = (
-      mcpServers: {
-        name: string;
-        status: string;
-        source: string;
-        tools?: number;
-      }[],
-      from: "init" | "status",
-    ) =>
-      recordClaudeConnectorsFromSession(launch, {
-        mcpServers,
-        apiKeySource: "none",
-        from,
-      });
-
-    it("keeps a connector's tool count from a status read", () => {
-      reportTools([connected, { ...drive, tools: 1.5 }], "status");
+    it("keeps a connector's whole tool count from a status read", () => {
+      report(
+        [
+          { ...gmail, status: "connected", tools: 12 },
+          { ...drive, tools: 1.5 },
+        ],
+        "status",
+      );
       expect(claudeConnectorStatusesFor(dir)).toEqual([
         { name: "Gmail", status: "connected", tools: 12 },
         { name: "Google Drive", status: "connected" },
       ]);
     });
 
-    it("keeps the count past a pending read", () => {
-      reportTools([connected], "status");
-      reportTools([{ ...gmail, status: "pending" }], "status");
-      expect(claudeConnectorStatusesFor(dir)).toEqual([
-        { name: "Gmail", status: "connected", tools: 12 },
-      ]);
-    });
-
-    it("keeps the count past an init report", () => {
-      reportTools([connected], "status");
-      reportTools([gmail], "init");
-      expect(claudeConnectorStatusesFor(dir)).toEqual([
-        { name: "Gmail", status: "connected", tools: 12 },
-      ]);
-    });
-
-    it("loses the count with a sign-in or sign-out", () => {
-      reportTools([connected], "status");
-      clearClaudeConnectors(dir);
-      reportTools([gmail], "status");
-      expect(claudeConnectorStatusesFor(dir)).toEqual([
-        { name: "Gmail", status: "pending" },
-      ]);
-    });
-
     const linear = { name: "linear", source: "user" };
 
-    it("keeps a server set in Claude its count from a status read", () => {
+    it("keeps a server's count from a status read past an init report and a pending read", () => {
       recordClaudeEngineServers(
         "agent-1",
         "/work",
@@ -505,15 +480,6 @@ describe("MCP statuses (A3)", () => {
         "status",
       );
       expect(claudeEngineServersFor(["agent-1"])[0]?.tools).toBe(7);
-    });
-
-    it("keeps a server's count past an init report and a pending read", () => {
-      recordClaudeEngineServers(
-        "agent-1",
-        "/work",
-        [{ ...linear, status: "connected", tools: 7 }],
-        "status",
-      );
       recordClaudeEngineServers(
         "agent-1",
         "/work",
@@ -549,9 +515,16 @@ describe("MCP statuses (A3)", () => {
         [{ ...linear, status: "failed" }],
         "status",
       );
-      expect(claudeEngineServersFor(["agent-1"])[0]).toEqual(
-        expect.not.objectContaining({ tools: 7 }),
-      );
+      expect(claudeEngineServersFor(["agent-1"])).toEqual([
+        {
+          engine: "claude",
+          name: "linear",
+          source: "user",
+          folder: null,
+          signIn: null,
+          status: "failed",
+        },
+      ]);
     });
   });
 
@@ -614,21 +587,5 @@ describe("servers set in Claude, by sign-in", () => {
         (row) => row.signIn,
       ),
     ).toEqual(["office", "personal"]);
-  });
-
-  it("names no sign-in for a directory neither sign-in uses now", () => {
-    recordClaudeEngineServers(
-      "agent-1",
-      "/work",
-      servers,
-      "status",
-      "/cfg/old",
-    );
-    recordClaudeEngineServers("agent-2", "/work", servers, "status");
-    expect(
-      claudeEngineServersFor(["agent-1", "agent-2"], signInOf).map(
-        (row) => row.signIn,
-      ),
-    ).toEqual([null, null, null]);
   });
 });

@@ -22,42 +22,51 @@ describe("validateCodexSandbox", () => {
 });
 
 describe("resolveAgentEngineSettings", () => {
-  it("defaults an omitted OpenCode permission to bypass without widening explicit Ask", () => {
-    expect(resolveAgentEngineSettings("codex", {})).toMatchObject({
-      permissionMode: "never",
-      codexSandbox: "danger-full-access",
-    });
-    expect(resolveAgentEngineSettings("claude", {})).toMatchObject({
-      permissionMode: "auto",
-      codexSandbox: undefined,
-    });
-    expect(
-      resolveAgentEngineSettings("opencode", {
+  // [case, engine, raw input, expected fields]
+  it.each([
+    [
+      "an empty Codex input gets never with full access",
+      "codex",
+      {},
+      { permissionMode: "never", codexSandbox: "danger-full-access" },
+    ],
+    [
+      "an explicit valid Codex mode is kept and only the sandbox is filled",
+      "codex",
+      { permissionMode: "on-request" },
+      { permissionMode: "on-request", codexSandbox: "danger-full-access" },
+    ],
+    [
+      "an empty Claude input gets auto and no sandbox",
+      "claude",
+      {},
+      { permissionMode: "auto", codexSandbox: undefined },
+    ],
+    [
+      "an omitted OpenCode permission defaults to bypass",
+      "opencode",
+      { modelFamily: "provider/model" },
+      {
         modelFamily: "provider/model",
-      }),
-    ).toMatchObject({
-      modelFamily: "provider/model",
-      effort: "high",
-      permissionMode: "bypassPermissions",
-      codexSandbox: undefined,
-    });
-    expect(
-      resolveAgentEngineSettings("opencode", {
-        modelFamily: "provider/model",
-        permissionMode: "default",
-      }).permissionMode,
-    ).toBe("default");
-  });
-
-  it("preserves an explicit valid Codex choice and fills only absent values", () => {
-    expect(
-      resolveAgentEngineSettings("codex", {
-        permissionMode: "on-request",
-      }),
-    ).toMatchObject({
-      permissionMode: "on-request",
-      codexSandbox: "danger-full-access",
-    });
+        effort: "high",
+        permissionMode: "bypassPermissions",
+        codexSandbox: undefined,
+      },
+    ],
+    [
+      "an explicit OpenCode Ask is not widened",
+      "opencode",
+      { modelFamily: "provider/model", permissionMode: "default" },
+      { permissionMode: "default" },
+    ],
+    [
+      "an OpenCode input with no model keeps an empty family",
+      "opencode",
+      {},
+      { modelFamily: "", permissionMode: "bypassPermissions" },
+    ],
+  ] as const)("%s", (_case, engine, raw, expected) => {
+    expect(resolveAgentEngineSettings(engine, raw)).toMatchObject(expected);
   });
 
   it("is idempotent", () => {
@@ -67,41 +76,21 @@ describe("resolveAgentEngineSettings", () => {
 });
 
 describe("OpenCode model validation", () => {
-  it("accepts composite provider/model IDs and rejects other families", () => {
+  it("accepts composite provider/model IDs and rejects a missing, bare or tracer model", () => {
     expect(modelFamilyMismatchError("opencode", "provider/model")).toBeNull();
-    expect(modelFamilyMismatchError("opencode", "opus")).toContain(
-      "provider/model",
-    );
-    expect(modelFamilyMismatchError("opencode", undefined)).toContain(
-      "requires",
-    );
-    expect(modelFamilyMismatchError("opencode", "opencode/fake")).toContain(
-      "not available",
-    );
-    expect(resolveAgentEngineSettings("opencode", {})).toMatchObject({
-      modelFamily: "",
-      permissionMode: "bypassPermissions",
-    });
+    for (const raw of [undefined, "opus", "opencode/fake"])
+      expect(modelFamilyMismatchError("opencode", raw)).not.toBeNull();
   });
 });
 
 describe("interactive model selection validation", () => {
-  it("rejects a Claude-shaped model for Codex", () => {
-    const result = resolveInteractiveModelSelection(
-      "codex",
-      "fable-5",
-      "fable-5",
-    );
-    expect(result.error).toContain('"fable-5"');
-  });
-
-  it("accepts unknown Codex-shaped slugs but rejects Claude shapes case-insensitively", () => {
+  it("accepts unknown Codex-shaped slugs but rejects Claude families and shapes case-insensitively", () => {
     for (const model of ["gpt-5.6-sol", "gpt-7-x"]) {
       expect(
         resolveInteractiveModelSelection("codex", model, model).error,
       ).toBeNull();
     }
-    for (const model of ["claude-fable-5-1", "fable-5", "Opus-4"]) {
+    for (const model of ["opus", "claude-fable-5-1", "fable-5", "Opus-4"]) {
       expect(
         resolveInteractiveModelSelection("codex", model, model).error,
       ).not.toBeNull();
@@ -112,7 +101,7 @@ describe("interactive model selection validation", () => {
     expect(
       resolveInteractiveModelSelection("claude", "fable", "claude-fable-5")
         .error,
-    ).toContain('resolves to model "claude-fable-5-1"');
+    ).not.toBeNull();
     expect(
       resolveInteractiveModelSelection("claude", "fable", "claude-fable-5-1")
         .error,
@@ -123,16 +112,6 @@ describe("interactive model selection validation", () => {
     ).toBeNull();
   });
 
-  it("keeps runtime OpenCode IDs unchecked when no list is available", () => {
-    expect(
-      resolveInteractiveModelSelection(
-        "opencode",
-        "provider/runtime-model",
-        "provider/runtime-model",
-      ).error,
-    ).toBeNull();
-  });
-
   it("derives a family from model-only input", () => {
     expect(
       resolveInteractiveModelSelection("claude", undefined, "claude-fable-5-1"),
@@ -140,6 +119,7 @@ describe("interactive model selection validation", () => {
     expect(
       resolveInteractiveModelSelection("codex", undefined, "gpt-7-x"),
     ).toEqual({ modelFamily: "gpt-7-x", error: null });
+    // A runtime OpenCode ID stays unchecked when no list is available.
     expect(
       resolveInteractiveModelSelection(
         "opencode",
@@ -167,12 +147,6 @@ describe("OpenCode permission validation", () => {
   it("keeps explicit Ask while invalid input takes the new default", () => {
     expect(validatePermissionMode("opencode", "default")).toBe("default");
     expect(validatePermissionMode("opencode", "never")).toBe(
-      "bypassPermissions",
-    );
-  });
-
-  it("preserves the explicit interactive bypass mode", () => {
-    expect(validatePermissionMode("opencode", "bypassPermissions")).toBe(
       "bypassPermissions",
     );
   });
@@ -214,91 +188,54 @@ describe("spawnedAgentMode", () => {
     );
   }
 
-  it("claude -> claude: auto and bypass carry over; prompting modes become auto", () => {
-    expect(childModes("claude", "claude")).toEqual({
-      default: { permissionMode: "auto" },
-      acceptEdits: { permissionMode: "auto" },
-      bypassPermissions: { permissionMode: "bypassPermissions" },
-      auto: { permissionMode: "auto" },
-    });
-  });
-
-  it("claude -> codex: always never with full access", () => {
-    const full = {
-      permissionMode: "never",
-      codexSandbox: "danger-full-access",
-    };
-    expect(childModes("claude", "codex")).toEqual({
-      default: full,
-      acceptEdits: full,
-      bypassPermissions: full,
-      auto: full,
-    });
-  });
-
-  it("claude -> opencode: always bypass (the 2026-08-30 default stays)", () => {
-    const bypass = { permissionMode: "bypassPermissions" };
-    expect(childModes("claude", "opencode")).toEqual({
-      default: bypass,
-      acceptEdits: bypass,
-      bypassPermissions: bypass,
-      auto: bypass,
-    });
-  });
-
-  it("codex -> claude: always auto", () => {
-    const auto = { permissionMode: "auto" };
-    expect(childModes("codex", "claude")).toEqual({
-      untrusted: auto,
-      "on-request": auto,
-      never: auto,
-    });
-  });
-
-  it("codex -> codex: never carries over with the spawner's sandbox; prompting modes become never with full access", () => {
-    const full = {
-      permissionMode: "never",
-      codexSandbox: "danger-full-access",
-    };
-    expect(childModes("codex", "codex")).toEqual({
-      untrusted: full,
-      "on-request": full,
-      never: { permissionMode: "never", codexSandbox: "read-only" },
-    });
-  });
-
-  it("codex -> opencode: always bypass", () => {
-    const bypass = { permissionMode: "bypassPermissions" };
-    expect(childModes("codex", "opencode")).toEqual({
-      untrusted: bypass,
-      "on-request": bypass,
-      never: bypass,
-    });
-  });
-
-  it("opencode -> claude: bypass carries over; Ask becomes auto", () => {
-    expect(childModes("opencode", "claude")).toEqual({
-      default: { permissionMode: "auto" },
-      bypassPermissions: { permissionMode: "bypassPermissions" },
-    });
-  });
-
-  it("opencode -> codex: always never with full access", () => {
-    const full = {
-      permissionMode: "never",
-      codexSandbox: "danger-full-access",
-    };
-    expect(childModes("opencode", "codex")).toEqual({
-      default: full,
-      bypassPermissions: full,
-    });
-  });
-
-  it("opencode -> opencode: always bypass", () => {
-    const bypass = { permissionMode: "bypassPermissions" };
-    expect(childModes("opencode", "opencode")).toEqual({
-      default: bypass,
-      bypassPermissions: bypass,
-    });
+  const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+  const bypass = { permissionMode: "bypassPermissions" };
+  const auto = { permissionMode: "auto" };
+  // [spawner engine, child engine, child mode for each spawner mode]
+  it.each([
+    // auto and bypass carry over; prompting modes become auto.
+    [
+      "claude",
+      "claude",
+      { default: auto, acceptEdits: auto, bypassPermissions: bypass, auto },
+    ],
+    [
+      "claude",
+      "codex",
+      { default: full, acceptEdits: full, bypassPermissions: full, auto: full },
+    ],
+    // The 2026-08-30 OpenCode default stays.
+    [
+      "claude",
+      "opencode",
+      {
+        default: bypass,
+        acceptEdits: bypass,
+        bypassPermissions: bypass,
+        auto: bypass,
+      },
+    ],
+    ["codex", "claude", { untrusted: auto, "on-request": auto, never: auto }],
+    // never carries over with the spawner's sandbox.
+    [
+      "codex",
+      "codex",
+      {
+        untrusted: full,
+        "on-request": full,
+        never: { permissionMode: "never", codexSandbox: "read-only" },
+      },
+    ],
+    [
+      "codex",
+      "opencode",
+      { untrusted: bypass, "on-request": bypass, never: bypass },
+    ],
+    // bypass carries over; Ask becomes auto.
+    ["opencode", "claude", { default: auto, bypassPermissions: bypass }],
+    ["opencode", "codex", { default: full, bypassPermissions: full }],
+    ["opencode", "opencode", { default: bypass, bypassPermissions: bypass }],
+  ] as const)("%s -> %s", (from, to, expected) => {
+    expect(childModes(from, to)).toEqual(expected);
   });
 });

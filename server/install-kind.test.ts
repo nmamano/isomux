@@ -12,18 +12,15 @@ afterEach(() => {
 });
 
 function marker(value: string): string {
-  dir = mkdtempSync(join(tmpdir(), "isomux-install-kind-"));
+  dir ??= mkdtempSync(join(tmpdir(), "isomux-install-kind-"));
   const path = join(dir, "install-kind");
   writeFileSync(path, value);
   return path;
 }
 
 describe("install kind marker", () => {
-  it("recognizes only the exact hosted line", () => {
+  it("reads hosted from the exact hosted line only, and self-hosted from anything else", () => {
     expect(readInstallKind(marker("hosted\n"))).toBe("hosted");
-  });
-
-  it("treats absent, unreadable-shaped, or unrecognized content as self-hosted", () => {
     expect(readInstallKind("/no/such/isomux-install-kind")).toBe("self-hosted");
     expect(readInstallKind(marker("Hosted\n"))).toBe("self-hosted");
     expect(readInstallKind(marker("hosted\n\n"))).toBe("self-hosted");
