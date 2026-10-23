@@ -6,7 +6,7 @@ Isomux is one server process. It runs on a machine you control, and everyone use
 
 ## Agents are real CLI sessions
 
-Each agent is a Claude Code, Codex, or OpenCode session that runs on the server, with the server's shell and files. Isomux drives each engine through its own interface: the Claude Agent SDK, the Codex app-server, and a shared OpenCode server. The office owner can set up office-wide connections for each LLM provider; invited members can override them with their own. An agent's working folder is where its commands start, and its engine loads the project instruction files from that folder, such as `CLAUDE.md` or `AGENTS.md`.
+Each agent is a Claude Code, Codex, or OpenCode session that runs on the server, with the server's shell and files. Isomux drives each engine through its own interface: the Claude Agent SDK, the Codex app-server, and a shared OpenCode server. The office owner can set up office-wide connections for each LLM provider; invited members can override them with their own.
 
 ## Everyone sees the same office
 
