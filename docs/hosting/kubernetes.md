@@ -112,9 +112,8 @@ cap: when the office crosses it, Kubernetes kills the whole office container
 and restarts it, which stops every agent. For many agents at once or large
 builds, raise it (see
 [how much memory an office needs](hosting-reference.md#how-much-memory-an-office-needs))
-and keep the request equal to the limit. Nodes with 8 GiB fit the default; a
-request larger than the free memory of every labeled node leaves the pod
-`Pending`. To raise it, add this entry to the `patches` list:
+and keep the request equal to the limit. Nodes with 8 GiB fit the default. To
+raise it, add this entry to the `patches` list:
 
 ```yaml
 - patch: |-
