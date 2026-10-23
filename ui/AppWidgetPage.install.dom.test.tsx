@@ -177,7 +177,7 @@ for (const ending of ["accepted", "dismissed", "appinstalled"] as const) {
     await page.toggleChat();
     const button = page.install();
     expect(button).not.toBeNull();
-    // Beside "Open app directly", in the panel's header.
+    // Beside "Open without chat", in the panel's header.
     const header = page.header()!;
     expect(directLinkIn(header)).not.toBeNull();
     expect(header.contains(button)).toBe(true);

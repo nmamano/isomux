@@ -3375,7 +3375,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.genericHint":
     "To share a screenshot: take one, then paste or attach it here.",
   "appWidget.attach": "Attach image",
-  "appWidget.direct": "Open app directly",
+  "appWidget.direct": "Open without chat",
   "appWidget.unavailable": "Chat is unavailable.",
   "appWidget.install": "Install as app",
   "appWidget.installSteps": "Tap Share, then Add to Home Screen.",

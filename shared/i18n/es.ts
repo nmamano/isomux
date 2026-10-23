@@ -3413,7 +3413,7 @@ Cosas que puedes hacer por él:
   "appWidget.genericHint":
     "Para compartir una captura de pantalla: haz una y luego pégala o adjúntala aquí.",
   "appWidget.attach": "Adjuntar imagen",
-  "appWidget.direct": "Abrir la app directamente",
+  "appWidget.direct": "Abrir sin el chat",
   "appWidget.unavailable": "El chat no está disponible.",
   "appWidget.install": "Instalar como app",
   "appWidget.installSteps":

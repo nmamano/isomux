@@ -3421,7 +3421,7 @@ Coses que pots fer per ell:
   "appWidget.genericHint":
     "Per compartir una captura de pantalla: fes-ne una i després enganxa-la o adjunta-la aquí.",
   "appWidget.attach": "Adjunta una imatge",
-  "appWidget.direct": "Obre l'app directament",
+  "appWidget.direct": "Obre sense el xat",
   "appWidget.unavailable": "El xat no està disponible.",
   "appWidget.install": "Instal·la com a app",
   "appWidget.installSteps":

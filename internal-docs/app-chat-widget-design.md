@@ -31,7 +31,7 @@ Proposed new copy, for review (placeholders in braces):
 - macOS hint: “To share a screenshot: press Shift+Command+4, then drag it here.”
 - Other desktop/mobile hint: “To share a screenshot: take one, then paste or attach it here.”
 - File button: “Attach image”
-- Direct link: “Open app directly”
+- Direct link: “Open without chat”
 - Unavailable state: “Chat is unavailable.”
 
 ## Message in, reply out, attachments
