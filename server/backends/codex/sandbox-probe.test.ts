@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -140,14 +141,22 @@ describe("effectiveCodexSandbox", () => {
 });
 
 describe("runCodexSandboxProbe", () => {
-  function script(body: string): string {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const dir of made.splice(0))
+      rmSync(dir, { recursive: true, force: true });
+  });
+  const scratch = () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-sandbox-probe-"));
-    const path = join(dir, "probe.sh");
+    made.push(dir);
+    return dir;
+  };
+  function script(body: string): string {
+    const path = join(scratch(), "probe.sh");
     writeFileSync(path, `#!/bin/sh\n${body}\n`);
     chmodSync(path, 0o755);
     return path;
   }
-  const scratch = () => mkdtempSync(join(tmpdir(), "isomux-sandbox-probe-"));
 
   it("runs each probe in a new CODEX_HOME holding only an empty config", async () => {
     // A config left in the probe area by an earlier version or boot.
