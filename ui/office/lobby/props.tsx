@@ -55,6 +55,8 @@ export interface PropContext {
   // "near" means the piece is seen from behind: its backrest stands between
   // the viewer and its seat. Only the upholstered pieces use it.
   back: "far" | "near";
+  // The live lobby: the record player plays music on a click.
+  jukebox?: boolean;
 }
 
 export interface PropVariant {
@@ -193,7 +195,7 @@ export const LOBBY_PROPS: PropFamily[] = [
       {
         id: "credenza",
         label: "Credenza",
-        Component: noCtx(Credenza),
+        Component: ({ jukebox }) => <Credenza jukebox={jukebox} />,
         shadow: { rx: 42, ry: 20 },
         height: 50,
       },

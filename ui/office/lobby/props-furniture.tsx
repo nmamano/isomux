@@ -1,4 +1,12 @@
 import { IsoBox, IsoCylinder, iso, poly, shade } from "./iso.tsx";
+import { useEffect } from "react";
+import { useI18n } from "../../i18n.tsx";
+import {
+  stopJukebox,
+  toggleJukebox,
+  useJukebox,
+  type StyleId,
+} from "./jukebox.ts";
 import { Leg } from "./props-seating.tsx";
 
 // Tables, fireplaces, shelves, tanks and lamps.
@@ -462,7 +470,9 @@ export function BookshelfTall() {
   );
 }
 
-export function Credenza() {
+// `jukebox` makes the record player play music on a click. Only the live lobby
+// sets it; the editor, the preview and the contact sheet draw it still.
+export function Credenza({ jukebox = false }: { jukebox?: boolean }) {
   const wood = "#b0885a";
   const w = 60,
     d = 16,
@@ -495,22 +505,72 @@ export function Credenza() {
         r="1"
         fill="#e8d3a2"
       />
-      {/* Record player on top */}
+      {jukebox ? <RecordPlayer h={h} /> : <StillRecordPlayer h={h} />}
+    </g>
+  );
+}
+
+function StillRecordPlayer({ h }: { h: number }) {
+  const [rx, ry] = iso(-14, 0, h + 3);
+  return (
+    <g>
       <IsoBox w={16} d={12} h={3} a={-14} b={0} z={h} color="#3d3a37" />
-      <ellipse
-        cx={iso(-14, 0, h + 3)[0]}
-        cy={iso(-14, 0, h + 3)[1]}
-        rx="5"
-        ry="2.5"
-        fill="#111"
-      />
-      <ellipse
-        cx={iso(-14, 0, h + 3)[0]}
-        cy={iso(-14, 0, h + 3)[1]}
-        rx="1.6"
-        ry="0.8"
-        fill="#c0392b"
-      />
+      <ellipse cx={rx} cy={ry} rx="5" ry="2.5" fill="#111" />
+      <ellipse cx={rx} cy={ry} rx="1.6" ry="0.8" fill="#c0392b" />
+    </g>
+  );
+}
+
+const STYLE_KEYS = {
+  classical: "lobby.jukebox.classical",
+  jazz: "lobby.jukebox.jazz",
+  lofi: "lobby.jukebox.lofi",
+  house: "lobby.jukebox.house",
+  chip: "lobby.jukebox.chip",
+  bossa: "lobby.jukebox.bossa",
+} as const satisfies Record<StyleId, string>;
+
+// A click plays a new take, the next click stops it. Mouse only, like the
+// receptionist: the props layer is hidden from screen readers.
+function RecordPlayer({ h }: { h: number }) {
+  const { t } = useI18n();
+  const { playing, style } = useJukebox();
+  // Leaving the lobby stops the music.
+  useEffect(() => () => stopJukebox(), []);
+  const [rx, ry] = iso(-14, 0, h + 3);
+  return (
+    <g
+      data-no-pan
+      onClick={() => toggleJukebox()}
+      onMouseDown={(event) => event.preventDefault()}
+      style={{ cursor: "pointer", pointerEvents: "auto" }}
+    >
+      <title>{style ? t(STYLE_KEYS[style]) : t("lobby.jukebox.play")}</title>
+      <IsoBox w={16} d={12} h={3} a={-14} b={0} z={h} color="#3d3a37" />
+      {/* The disc is drawn as a circle and squashed into the floor plane, so
+          it turns in that plane and the box stays still. */}
+      <g transform={`translate(${rx} ${ry}) scale(1 0.5)`}>
+        <g>
+          <circle r="5" fill="#111" />
+          <path
+            d="M-3.6 -1.2 A3.8 3.8 0 0 1 -1.2 -3.6"
+            stroke="#8a8a8a"
+            strokeWidth="0.7"
+            fill="none"
+          />
+          <circle r="1.6" fill="#c0392b" />
+          {playing && (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0"
+              to="360"
+              dur="1.8s"
+              repeatCount="indefinite"
+            />
+          )}
+        </g>
+      </g>
     </g>
   );
 }

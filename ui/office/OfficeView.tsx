@@ -822,6 +822,7 @@ export function OfficeView({
                     star={lobbyStar}
                     mode={mode}
                     layout="nilo"
+                    jukebox
                     receptionist={
                       /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
                       receptionist ? (

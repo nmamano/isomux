@@ -85,6 +85,9 @@ export interface LobbySceneProps {
   onToggleTheme?: () => void;
   onOpenApps?: () => void;
   onOpenCronjobs?: () => void;
+  // The record player plays music on a click. Only the live office lobby sets
+  // it, not the editor or the preview.
+  jukebox?: boolean;
 }
 
 // One shared empty list: a fresh `[]` default per render reads as a presence
@@ -109,6 +112,7 @@ export function LobbyScene({
   onToggleTheme,
   onOpenApps,
   onOpenCronjobs,
+  jukebox = false,
 }: LobbySceneProps) {
   const { t } = useI18n();
   const c = lobbyColors(mode);
@@ -155,6 +159,7 @@ export function LobbyScene({
           officeName={officeName?.trim() || t("lobby.officeFallback")}
           mode={mode}
           star={star}
+          jukebox={jukebox}
           receptionist={
             receptionist
               ? { ...spec.receptionist, node: receptionist }
@@ -633,6 +638,7 @@ export function LobbyProps({
   officeName,
   mode,
   star,
+  jukebox = false,
   receptionist,
 }: {
   placements: Placement[];
@@ -641,6 +647,7 @@ export function LobbyProps({
   officeName: string;
   mode: ThemeMode;
   star: PropStar | null;
+  jukebox?: boolean;
   receptionist?: { a: number; b: number; node: ReactNode };
 }) {
   const resolved = placements
@@ -694,6 +701,7 @@ export function LobbyProps({
               wall={wall}
               star={star}
               back="far"
+              jukebox={jukebox}
             />
           </g>
         );
@@ -737,6 +745,7 @@ export function LobbyProps({
               wall="left"
               star={star}
               back="far"
+              jukebox={jukebox}
             />
           </g>
         );
@@ -792,6 +801,7 @@ export function LobbyProps({
                   wall="left"
                   star={star}
                   back={back}
+                  jukebox={jukebox}
                 />
               </g>
             ),
