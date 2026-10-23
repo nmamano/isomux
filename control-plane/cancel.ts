@@ -34,6 +34,7 @@ import { instanceOwnedBy } from "./signup.ts";
 import type { StripeClient } from "./stripe/client.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import { currentSubscriptionForInstance } from "./reinstatement.ts";
+import type { Refusal, RefusalKind } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
 export type CancelRefusal =
@@ -73,10 +74,27 @@ export type CancelOutcome =
    * succeeded and our own outcome row did not - the caller must still treat it
    * as sent, or it would tell a customer nothing happened when something did. */
   | { ok: true; requestKey: string; recorded: boolean }
-  | { ok: false; code: CancelRefusal; reason: string };
+  | (Refusal & { code: CancelRefusal });
+
+/** Who may read each refusal's words. A provider failure reaches the customer
+ * only as an opaque sentence and a reference. */
+const CANCEL_REFUSAL_KINDS: Record<CancelRefusal, RefusalKind> = {
+  not_yours: "customer",
+  no_subscription: "customer",
+  already_cancelled: "customer",
+  not_cancelled: "customer",
+  subscription_ended: "customer",
+  stripe_unavailable: "transient",
+  stripe_ambiguous: "transient",
+};
 
 function refuse(code: CancelRefusal): CancelOutcome {
-  return { ok: false, code, reason: CANCEL_REFUSAL_WORDS[code] };
+  return {
+    ok: false,
+    kind: CANCEL_REFUSAL_KINDS[code],
+    code,
+    reason: CANCEL_REFUSAL_WORDS[code],
+  };
 }
 
 export interface CancelRequest {

@@ -40,7 +40,12 @@ import type { OpsFloor, OpsInstanceView } from "../../ops";
 import type { ReservationRow } from "../../signup";
 import type { AccountRow } from "../../stripe/billing-store";
 import type { CustomerPrice, StripePriceConfiguration } from "../../plans";
-import { customerFailure, safeCustomerReason } from "./customer-error";
+import {
+  customerFailure,
+  refusedResult,
+  safeCustomerReason,
+  type CustomerFailureContext,
+} from "./customer-error";
 import type { SupportedLanguageCode } from "./i18n/languages";
 import { translatorFor } from "./i18n/translate";
 
@@ -249,6 +254,11 @@ async function openReservedCheckout(args: {
   account: AccountRow;
 }): Promise<SignupResult> {
   const language = args.language;
+  const context: CustomerFailureContext = {
+    accountId: args.account.id,
+    instanceId: args.reservation.instance_id,
+    officeName: args.reservation.name,
+  };
   const [
     {
       advanceExpiredOrdinaryCheckout,
@@ -279,6 +289,7 @@ async function openReservedCheckout(args: {
         "configuration",
         "checkout_reserved",
         `The stored plan ${args.reservation.plan} is not offered`,
+        context,
       ),
     };
   const resolved = resolveStripePrice(plan, stripePriceConfiguration());
@@ -290,6 +301,7 @@ async function openReservedCheckout(args: {
         "configuration",
         "checkout_reserved",
         resolved.reason,
+        context,
       ),
     };
   const origin = deploymentOrigin();
@@ -301,6 +313,7 @@ async function openReservedCheckout(args: {
         "configuration",
         "checkout_reserved",
         "This deployment has no origin configured",
+        context,
       ),
     };
 
@@ -315,6 +328,7 @@ async function openReservedCheckout(args: {
         "configuration",
         "checkout_reserved",
         err,
+        context,
       ),
     };
   }
@@ -396,6 +410,7 @@ async function openReservedCheckout(args: {
           "configuration",
           "checkout_reserved",
           "Stripe returned a session with no URL",
+          context,
         ),
       };
     }
@@ -428,13 +443,17 @@ async function openReservedCheckout(args: {
           : "configuration",
         "checkout_reserved",
         err,
+        context,
       ),
     };
   }
   if (!opened.ok) {
     const couponReason = customerReason(opened.reason);
     if (couponReason)
-      return { ok: false, reason: safeCustomerReason(language, couponReason) };
+      return {
+        ok: false,
+        reason: safeCustomerReason(language, couponReason, context),
+      };
     return {
       ok: false,
       reason: customerFailure(
@@ -442,6 +461,7 @@ async function openReservedCheckout(args: {
         opened.retryable ? "transient" : "configuration",
         "checkout_reserved",
         opened.reason,
+        context,
       ),
     };
   }
@@ -453,6 +473,7 @@ async function openReservedCheckout(args: {
         "configuration",
         "checkout_reserved",
         "Stripe returned a session with no URL",
+        context,
       ),
     };
   // GUARDED: this is the only database call after Stripe has already created
@@ -496,6 +517,7 @@ export async function continueSignup(
   accountId: string,
   officeName: string,
 ): Promise<SignupResult | { ok: false; officeName: string }> {
+  const context: CustomerFailureContext = { accountId, officeName };
   const { reservationByName } = await import("../../signup");
   const { getAccount, subscriptionForInstance } =
     await import("../../stripe/billing-store");
@@ -514,38 +536,14 @@ export async function continueSignup(
   if (!owned)
     return {
       ok: false,
-      reason: safeCustomerReason(language, "we do not recognise this account"),
+      reason: safeCustomerReason(
+        language,
+        "we do not recognise this account",
+        context,
+      ),
     };
   if (owned.paid) return { ok: false, officeName: owned.reservation.name };
   return openReservedCheckout({ language, ...owned });
-}
-
-/**
- * What the customer reads when reinstatement cannot be prepared.
- *
- * The code is the line: a refusal with one is the customer's to read, and goes
- * to the page with its code so the page can word it in the reader's language.
- * One without is ours, and becomes an opaque failure with a reference.
- */
-function reinstatementRefusal(
-  language: SupportedLanguageCode,
-  prepared: { ok: false; code?: string; reason: string },
-): SignupResult {
-  return prepared.code === undefined
-    ? {
-        ok: false,
-        reason: customerFailure(
-          language,
-          "configuration",
-          "reinstatement",
-          prepared.reason,
-        ),
-      }
-    : {
-        ok: false,
-        code: prepared.code,
-        reason: safeCustomerReason(language, prepared.reason),
-      };
 }
 
 export async function reinstateOffice(
@@ -553,6 +551,7 @@ export async function reinstateOffice(
   accountId: string,
   instanceId: string,
 ): Promise<SignupResult> {
+  const context: CustomerFailureContext = { accountId, instanceId };
   const [
     {
       prepareReinstatementCheckout,
@@ -581,6 +580,7 @@ export async function reinstateOffice(
         "configuration",
         "reinstatement",
         "Reinstatement payment has no deployment origin configured",
+        context,
       ),
     };
 
@@ -593,7 +593,13 @@ export async function reinstateOffice(
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure(language, "configuration", "reinstatement", err),
+      reason: customerFailure(
+        language,
+        "configuration",
+        "reinstatement",
+        err,
+        context,
+      ),
     };
   }
 
@@ -614,6 +620,7 @@ export async function reinstateOffice(
         "configuration",
         "reinstatement",
         "Reinstatement has no offered plan",
+        context,
       ),
     };
   const { resolveStripePrice } = await import("../../plans");
@@ -626,13 +633,15 @@ export async function reinstateOffice(
         "configuration",
         "reinstatement",
         resolved.reason,
+        context,
       ),
     };
 
   let prepared = await withStore((store) =>
     prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
   );
-  if (!prepared.ok) return reinstatementRefusal(language, prepared);
+  if (!prepared.ok)
+    return refusedResult(language, "reinstatement", prepared, context);
   if (prepared.existingSessionId) {
     let fetched: Awaited<
       ReturnType<InstanceType<typeof LiveStripeReader>["getCheckoutSession"]>
@@ -649,6 +658,7 @@ export async function reinstateOffice(
           "configuration",
           "reinstatement",
           err,
+          context,
         ),
       };
     }
@@ -662,6 +672,7 @@ export async function reinstateOffice(
           fetched.kind === "unavailable"
             ? fetched.reason
             : "The prior payment session does not exist",
+          context,
         ),
       };
     if (fetched.object.status === "complete")
@@ -680,7 +691,8 @@ export async function reinstateOffice(
       prepared = await withStore((store) =>
         prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
       );
-      if (!prepared.ok) return reinstatementRefusal(language, prepared);
+      if (!prepared.ok)
+        return refusedResult(language, "reinstatement", prepared, context);
     }
   }
   // NO `locale` HERE, deliberately. The session's idempotency key is derived
@@ -737,6 +749,7 @@ export async function reinstateOffice(
           : "configuration",
         "reinstatement",
         err,
+        context,
       ),
     };
   }
@@ -746,7 +759,10 @@ export async function reinstateOffice(
     );
     const couponReason = customerReason(opened.reason);
     return couponReason
-      ? { ok: false, reason: safeCustomerReason(language, couponReason) }
+      ? {
+          ok: false,
+          reason: safeCustomerReason(language, couponReason, context),
+        }
       : {
           ok: false,
           reason: customerFailure(
@@ -754,6 +770,7 @@ export async function reinstateOffice(
             opened.retryable ? "transient" : "configuration",
             "reinstatement",
             opened.reason,
+            context,
           ),
         };
   }
@@ -768,6 +785,7 @@ export async function reinstateOffice(
         "configuration",
         "reinstatement",
         "Stripe returned no payment URL",
+        context,
       ),
     };
   }
@@ -796,6 +814,10 @@ export async function signUpOffice(args: {
 }): Promise<SignupResult> {
   if (!args.customerSshKey) return { ok: false, reason: "" };
   const language = args.language;
+  const context: CustomerFailureContext = {
+    accountId: args.accountId,
+    officeName: args.officeName,
+  };
   const { reserveOffice, validateSignup } = await import("../../signup");
   const { resolveStripePrice } = await import("../../plans");
 
@@ -808,8 +830,7 @@ export async function signUpOffice(args: {
     plan: args.plan,
     customerSshKey: args.customerSshKey,
   });
-  if (!valid.ok)
-    return { ok: false, reason: safeCustomerReason(language, valid.reason) };
+  if (!valid.ok) return refusedResult(language, "payments", valid, context);
 
   const resolved = resolveStripePrice(valid.plan, stripePriceConfiguration());
   if (!resolved.ok)
@@ -820,6 +841,7 @@ export async function signUpOffice(args: {
         "configuration",
         "payments",
         resolved.reason,
+        context,
       ),
     };
   try {
@@ -827,7 +849,13 @@ export async function signUpOffice(args: {
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure(language, "configuration", "payments", err),
+      reason: customerFailure(
+        language,
+        "configuration",
+        "payments",
+        err,
+        context,
+      ),
     };
   }
   // Redirect targets come from the deployment's own origin, never from the
@@ -841,6 +869,7 @@ export async function signUpOffice(args: {
         "configuration",
         "payments",
         "This deployment has no origin configured",
+        context,
       ),
     };
   }
@@ -855,19 +884,7 @@ export async function signUpOffice(args: {
     }),
   );
   if (!reserved.ok)
-    return {
-      ok: false,
-      reason:
-        reserved.reason ===
-        "this deployment needs its multi-office database migration"
-          ? customerFailure(
-              language,
-              "configuration",
-              "payments",
-              reserved.reason,
-            )
-          : safeCustomerReason(language, reserved.reason),
-    };
+    return refusedResult(language, "payments", reserved, context);
   return openReservedCheckout({ language, ...reserved });
 }
 
@@ -999,6 +1016,7 @@ async function billingVerb(
   accountId: string,
   instanceId: string,
 ): Promise<CancelResult> {
+  const context: CustomerFailureContext = { accountId, instanceId };
   const [cancel, { StripeClient }] = await Promise.all([
     import("../../cancel"),
     import("../../stripe/client"),
@@ -1013,7 +1031,13 @@ async function billingVerb(
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure(language, "configuration", "billing_change", err),
+      reason: customerFailure(
+        language,
+        "configuration",
+        "billing_change",
+        err,
+        context,
+      ),
     };
   }
   return withStore(async (store) => {
@@ -1022,31 +1046,14 @@ async function billingVerb(
       instanceId,
     });
     if (outcome.ok) return { ok: true };
-    if (outcome.code === "stripe_unavailable")
-      return {
-        ok: false,
-        reason: customerFailure(
-          language,
-          "transient",
-          "billing_change",
-          outcome.reason,
-        ),
-      };
-    if (outcome.code === "stripe_ambiguous")
-      return {
-        ok: false,
-        reason: customerFailure(
-          language,
-          "transient",
-          "billing_change_ambiguous",
-          outcome.reason,
-        ),
-      };
-    return {
-      ok: false,
-      code: outcome.code,
-      reason: safeCustomerReason(language, outcome.reason),
-    };
+    return refusedResult(
+      language,
+      outcome.code === "stripe_ambiguous"
+        ? "billing_change_ambiguous"
+        : "billing_change",
+      outcome,
+      context,
+    );
   });
 }
 

@@ -221,7 +221,11 @@ describe("honest outcomes", () => {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
-    expect(outcome).toMatchObject({ ok: false, code: "stripe_ambiguous" });
+    expect(outcome).toMatchObject({
+      ok: false,
+      kind: "transient",
+      code: "stripe_ambiguous",
+    });
     expect(
       (await b.store.auditEvents()).some(
         (e) => e.action === "request_cancel" && e.outcome === "ambiguous",
@@ -243,7 +247,11 @@ describe("honest outcomes", () => {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
-    expect(outcome).toMatchObject({ ok: false, code: "stripe_unavailable" });
+    expect(outcome).toMatchObject({
+      ok: false,
+      kind: "transient",
+      code: "stripe_unavailable",
+    });
     expect(
       (await b.store.auditEvents()).some(
         (e) => e.action === "request_cancel" && e.outcome === "failed",
@@ -340,7 +348,7 @@ describe("refusals", () => {
         verb === "cancel"
           ? await requestCancel(b.store, client, req)
           : await requestUncancel(b.store, client, req);
-      expect(outcome).toMatchObject({ ok: false, code });
+      expect(outcome).toMatchObject({ ok: false, kind: "customer", code });
       expect(calls).toHaveLength(0);
       await b.store.close();
     });
@@ -357,7 +365,11 @@ describe("refusals", () => {
         instanceId: b.instanceId,
       },
     );
-    expect(outcome).toMatchObject({ ok: false, code: "not_yours" });
+    expect(outcome).toMatchObject({
+      ok: false,
+      kind: "customer",
+      code: "not_yours",
+    });
     expect(calls).toHaveLength(0);
     await b.store.close();
   });
@@ -374,7 +386,11 @@ describe("refusals", () => {
         instanceId: b.instanceId,
       },
     );
-    expect(outcome).toMatchObject({ ok: false, code: "no_subscription" });
+    expect(outcome).toMatchObject({
+      ok: false,
+      kind: "customer",
+      code: "no_subscription",
+    });
     await b.store.close();
   });
 });
@@ -383,25 +399,32 @@ describe("refusals", () => {
 //
 // The facade's cancel is what /api/cancel calls. A refusal the customer may
 // read goes to the page with its code, so the page can word it. A Stripe
-// failure is the facade's own translated sentence with a reference, and carries
-// no code, so the page cannot replace it.
+// failure is the facade's own translated sentence with a reference, carries no
+// code, so the page cannot replace it, and is logged with who it happened to.
 
 describe("the office page's cancel request", () => {
   const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
   const realFetch = globalThis.fetch;
+  const realError = console.error;
+  const realSetTimeout = globalThis.setTimeout;
+  const opened: Store[] = [];
 
-  afterEach(() => {
+  afterEach(async () => {
     delete (globalThis as { [STORE_SLOT]?: unknown })[STORE_SLOT];
     globalThis.fetch = realFetch;
+    console.error = realError;
+    globalThis.setTimeout = realSetTimeout;
     delete process.env.CONTROL_PLANE_STRIPE_MODE;
     delete process.env.STRIPE_TEST_SECRET_KEY;
+    for (const store of opened.splice(0)) await store.close();
   });
 
-  async function facadeOver(
+  async function viaFacade(
     over: Partial<SubscriptionRow>,
     stripeStatus: number,
   ) {
     const b = await bed(over);
+    opened.push(b.store);
     (globalThis as { [STORE_SLOT]?: { opening?: Promise<Store> } })[
       STORE_SLOT
     ] = { opening: Promise.resolve(b.store) };
@@ -413,45 +436,77 @@ describe("the office page's cancel request", () => {
         typeof url === "string" ? url : url instanceof URL ? url.href : url.url,
       );
       return new Response(
-        JSON.stringify({ error: { message: "refused by the test" } }),
+        JSON.stringify({
+          error: { type: "invalid_request_error", message: "refused" },
+        }),
         {
           status: stripeStatus,
           headers: { "content-type": "application/json" },
         },
       );
     }) as typeof fetch;
-    return { ...b, calls };
-  }
-
-  test("a refusal the customer may read carries its code, beside the English sentence", async () => {
-    const b = await facadeOver({ cancel_at_period_end: 1 }, 400);
-    const result = await facade.requestCancel("es", b.accountId, b.instanceId);
-    expect(b.calls).toEqual([]);
-    expect(result).toEqual({
-      ok: false,
-      code: "already_cancelled",
-      reason: safeCustomerReason("es", CANCEL_REFUSAL_WORDS.already_cancelled),
-    });
-  });
-
-  test("a Stripe failure is the facade's translated sentence with a reference, and no code", async () => {
-    const b = await facadeOver({}, 400);
-    const realError = console.error;
-    console.error = () => {};
-    let result: Awaited<ReturnType<typeof facade.requestCancel>>;
+    // The facade's Stripe client backs off 0.5 s, then 1 s, between retries of
+    // an ambiguous answer; run those at once so the test stays fast.
+    globalThis.setTimeout = ((
+      fn: (...args: unknown[]) => void,
+      ms?: number,
+      ...args: unknown[]
+    ) =>
+      realSetTimeout(
+        fn,
+        ms !== undefined && ms >= 500 ? 0 : ms,
+        ...args,
+      )) as typeof setTimeout;
+    const logged: string[] = [];
+    console.error = (...parts: unknown[]) => {
+      logged.push(parts.map(String).join(" "));
+    };
     try {
-      result = await facade.requestCancel("es", b.accountId, b.instanceId);
+      const result = await facade.requestCancel(
+        "es",
+        b.accountId,
+        b.instanceId,
+      );
+      return { ...b, result, calls, logged };
     } finally {
       console.error = realError;
+      globalThis.setTimeout = realSetTimeout;
     }
-    // Stripe was called and refused, so this is the Stripe branch.
-    expect(b.calls).toHaveLength(1);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect("code" in result).toBe(false);
-    expect(result.reason).toStartWith(
-      `${translatorFor("es").t("errors.providerTransient")} `,
-    );
-    expect(result.reason).toMatch(/PAY-[0-9A-F]{10}/);
+  }
+
+  test("a refusal the customer may read carries its code beside its sentence, and logs nothing", async () => {
+    const b = await viaFacade({ cancel_at_period_end: 1 }, 400);
+    expect(b.calls).toEqual([]);
+    expect(b.result).toEqual({
+      ok: false,
+      code: "already_cancelled",
+      reason: safeCustomerReason("es", CANCEL_REFUSAL_WORDS.already_cancelled, {
+        accountId: b.accountId,
+      }),
+    });
+    expect(b.logged.filter((l) => l.includes("customer-error"))).toEqual([]);
   });
+
+  // Each Stripe failure picks its own sentence: an ambiguous one tells the
+  // customer to check before retrying, because the change may have applied.
+  for (const [label, stripeStatus, calls, key] of [
+    ["a refusal Stripe is sure about", 400, 1, "errors.providerTransient"],
+    ["an ambiguous Stripe answer", 500, 3, "errors.billingChangeAmbiguous"],
+  ] as const) {
+    test(`${label} is the facade's translated sentence with a reference, no code, and a log line with the account and instance`, async () => {
+      const b = await viaFacade({}, stripeStatus);
+      // Stripe was called, so this is the Stripe branch.
+      expect(b.calls).toHaveLength(calls);
+      expect(b.result.ok).toBe(false);
+      if (b.result.ok) return;
+      expect(Object.keys(b.result).sort()).toEqual(["ok", "reason"]);
+      expect(b.result.reason).toStartWith(`${translatorFor("es").t(key)} `);
+      const reference = /PAY-[0-9A-F]{10}/.exec(b.result.reason)?.[0];
+      expect(reference).toBeDefined();
+      const line = b.logged.find((l) => l.includes(reference!));
+      expect(line).toBeDefined();
+      expect(line).toContain(`account=${b.accountId}`);
+      expect(line).toContain(`instance=${b.instanceId}`);
+    });
+  }
 });

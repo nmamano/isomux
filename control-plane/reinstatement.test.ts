@@ -14,6 +14,7 @@ import {
   recordReinstatementCheckoutFailure,
   recordReinstatementSession,
   REINSTATEMENT_REFUSAL_WORDS,
+  type PreparedReinstatement,
 } from "./reinstatement.ts";
 import { reinstateOffice } from "./web/lib/services.server.ts";
 import { translatorFor } from "./web/lib/i18n/translate.ts";
@@ -154,66 +155,9 @@ describe("retained-office reinstatement", () => {
       ),
     ).toEqual({
       ok: false,
+      kind: "customer",
       code: "subscription_not_found",
       reason: REINSTATEMENT_REFUSAL_WORDS.subscription_not_found,
-    });
-  });
-
-  test("a refusal the customer may read carries its code; an internal one carries none", async () => {
-    // The facade shows the customer a coded refusal and sends the page its
-    // code, and turns a refusal with no code into an opaque failure with a
-    // reference. So the code IS the line between the two.
-    const prepare = (
-      f: Awaited<ReturnType<typeof fixture>>,
-      accountId?: string,
-    ) =>
-      prepareReinstatementCheckout(
-        f.store,
-        accountId ?? f.reservation.reservation.account_id,
-        f.instanceId,
-        f.c.now(),
-      );
-
-    const stranger = await fixture();
-    const other = await accountForDevSignIn(
-      stranger.store,
-      "other@example.test",
-    );
-    expect(await prepare(stranger, other.id)).toEqual({
-      ok: false,
-      code: "office_not_found",
-      reason: REINSTATEMENT_REFUSAL_WORDS.office_not_found,
-    });
-
-    const late = await fixture();
-    late.c.set(ENDED + RETENTION_MS);
-    expect(await prepare(late)).toEqual({
-      ok: false,
-      code: "too_late",
-      reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
-    });
-
-    const done = await fixture();
-    const first = await prepare(done);
-    if (!first.ok) throw new Error(first.reason);
-    await done.store.sqlRun(
-      "update reinstatement_attempts set state='accepted' where id=$1",
-      [first.attemptId],
-    );
-    expect(await prepare(done)).toEqual({
-      ok: false,
-      code: "already_reinstated",
-      reason: REINSTATEMENT_REFUSAL_WORDS.already_reinstated,
-    });
-
-    const internal = await fixture();
-    await internal.store.sqlRun(
-      "update accounts set stripe_customer_id=null where id=$1",
-      [internal.reservation.reservation.account_id],
-    );
-    expect(await prepare(internal)).toEqual({
-      ok: false,
-      reason: "we could not prove the original Stripe customer",
     });
   });
 
@@ -942,47 +886,56 @@ describe("the office page's reinstate request", () => {
     );
   };
 
+  /** reinstateOffice for the fixture's office, in Spanish, with the server
+   * log captured. */
+  async function reinstate(f: Awaited<ReturnType<typeof fixture>>) {
+    const logged: string[] = [];
+    const realError = console.error;
+    console.error = (...parts: unknown[]) => {
+      logged.push(parts.map(String).join(" "));
+    };
+    try {
+      const result = await reinstateOffice(
+        "es",
+        f.reservation.reservation.account_id,
+        f.instanceId,
+      );
+      return { result, logged };
+    } finally {
+      console.error = realError;
+    }
+  }
+
   test.each([
     ["the first prepare", false],
     ["the prepare after the earlier session expired", true],
   ] as const)(
-    "a coded refusal from %s goes to the page with its code",
+    "a customer refusal from %s goes to the page with its code, and logs nothing",
     async (_name, afterExpiry) => {
       const f = await fixture();
+      let calls: string[];
       if (afterExpiry) {
         await withEarlierSession(f);
-        const calls = await facadeOver(f, {
+        calls = await facadeOver(f, {
           status: "expired",
           meanwhile: () => tooLate(f),
         });
-        const result = await reinstateOffice(
-          "es",
-          f.reservation.reservation.account_id,
-          f.instanceId,
-        );
-        // Stripe was asked about the earlier session, so this is the second
-        // prepare's refusal.
-        expect(calls).toEqual(["GET /v1/checkout/sessions/cs_earlier"]);
-        expect(result).toEqual({
-          ok: false,
-          code: "too_late",
-          reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
-        });
       } else {
         await tooLate(f);
-        const calls = await facadeOver(f);
-        const result = await reinstateOffice(
-          "es",
-          f.reservation.reservation.account_id,
-          f.instanceId,
-        );
-        expect(calls).toEqual([]);
-        expect(result).toEqual({
-          ok: false,
-          code: "too_late",
-          reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
-        });
+        calls = await facadeOver(f);
       }
+      const { result, logged } = await reinstate(f);
+      // With an earlier session, Stripe was asked about it, so this is the
+      // second prepare's refusal.
+      expect(calls).toEqual(
+        afterExpiry ? ["GET /v1/checkout/sessions/cs_earlier"] : [],
+      );
+      expect(result).toEqual({
+        ok: false,
+        code: "too_late",
+        reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
+      });
+      expect(logged.filter((l) => l.includes("customer-error"))).toEqual([]);
     },
   );
 
@@ -990,7 +943,7 @@ describe("the office page's reinstate request", () => {
     ["the first prepare", false],
     ["the prepare after the earlier session expired", true],
   ] as const)(
-    "an internal refusal from %s reaches the customer as a translated failure with a reference, and no code",
+    "a configuration refusal from %s reaches the customer as a translated failure with a reference, and no code",
     async (_name, afterExpiry) => {
       const f = await fixture();
       let calls: string[];
@@ -1004,40 +957,25 @@ describe("the office page's reinstate request", () => {
         await noStripeCustomer(f);
         calls = await facadeOver(f);
       }
-      const logged: string[] = [];
-      const realError = console.error;
-      console.error = (...parts: unknown[]) => {
-        logged.push(parts.map(String).join(" "));
-      };
-      let result: Awaited<ReturnType<typeof reinstateOffice>>;
-      try {
-        result = await reinstateOffice(
-          "es",
-          f.reservation.reservation.account_id,
-          f.instanceId,
-        );
-      } finally {
-        console.error = realError;
-      }
+      const { result, logged } = await reinstate(f);
       expect(calls).toEqual(
         afterExpiry ? ["GET /v1/checkout/sessions/cs_earlier"] : [],
       );
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect("code" in result).toBe(false);
+      expect(Object.keys(result).sort()).toEqual(["ok", "reason"]);
       expect(result.reason).toStartWith(
         `${translatorFor("es").t("errors.paymentsConfiguration", { support: SUPPORT_EMAIL })} `,
       );
       const reference = /PAY-[0-9A-F]{10}/.exec(result.reason)?.[0];
       expect(reference).toBeDefined();
-      // Support finds the internal reason by the reference the customer pastes.
-      expect(
-        logged.some(
-          (line) =>
-            line.includes(reference!) &&
-            line.includes("we could not prove the original Stripe customer"),
-        ),
-      ).toBe(true);
+      // Support finds the internal reason, and who it happened to, by the
+      // reference the customer pastes.
+      const line = logged.find((l) => l.includes(reference!));
+      expect(line).toBeDefined();
+      expect(line).toContain("we could not prove the original Stripe customer");
+      expect(line).toContain(`account=${f.reservation.reservation.account_id}`);
+      expect(line).toContain(`instance=${f.instanceId}`);
     },
   );
 
@@ -1064,4 +1002,110 @@ describe("the office page's reinstate request", () => {
       ],
     );
   });
+});
+
+// WHO MAY READ A REFUSAL is decided where the refusal is written. A refusal
+// about this deployment ("configuration") must never reach the customer as
+// words, and carries no code; one about their request ("customer") does, with
+// the code the office page words it by.
+describe("each prepare refusal says who may read it", () => {
+  type Fixture = Awaited<ReturnType<typeof fixture>>;
+  const cases: [
+    string,
+    /** Arranges the refusal; returns the account that asks, if not the owner. */
+    (f: Fixture) => Promise<string | void>,
+    Extract<PreparedReinstatement, { ok: false }>,
+  ][] = [
+    [
+      "another account's office",
+      async (f) =>
+        (await accountForDevSignIn(f.store, "other@example.test")).id,
+      {
+        ok: false,
+        kind: "customer",
+        code: "office_not_found",
+        reason: REINSTATEMENT_REFUSAL_WORDS.office_not_found,
+      },
+    ],
+    [
+      "a retention period that has ended",
+      async (f) => {
+        f.c.set(ENDED + RETENTION_MS);
+      },
+      {
+        ok: false,
+        kind: "customer",
+        code: "too_late",
+        reason: REINSTATEMENT_REFUSAL_WORDS.too_late,
+      },
+    ],
+    [
+      "an office already reinstated",
+      async (f) => {
+        const first = await prepareReinstatementCheckout(
+          f.store,
+          f.reservation.account.id,
+          f.instanceId,
+          f.c.now(),
+        );
+        if (!first.ok) throw new Error(first.reason);
+        await f.store.sqlRun(
+          "update reinstatement_attempts set state='accepted' where id=$1",
+          [first.attemptId],
+        );
+      },
+      {
+        ok: false,
+        kind: "customer",
+        code: "already_reinstated",
+        reason: REINSTATEMENT_REFUSAL_WORDS.already_reinstated,
+      },
+    ],
+    [
+      "an account with no Stripe customer",
+      async (f) => {
+        await f.store.sqlRun(
+          "update accounts set stripe_customer_id=null where id=$1",
+          [f.reservation.account.id],
+        );
+      },
+      {
+        ok: false,
+        kind: "configuration",
+        reason: "we could not prove the original Stripe customer",
+      },
+    ],
+    [
+      "a retained plan that is no longer offered",
+      async (f) => {
+        await f.store.sqlRun(
+          "update name_reservations set plan='retired-plan' where instance_id=$1",
+          [f.instanceId],
+        );
+      },
+      {
+        ok: false,
+        kind: "configuration",
+        reason: "this retained plan is no longer configured",
+      },
+    ],
+  ];
+  for (const [label, arrange, expected] of cases) {
+    test(`${label} is a ${expected.kind} refusal${"code" in expected ? ` with code ${expected.code}` : ", with no code"}`, async () => {
+      const f = await fixture();
+      const asker = (await arrange(f)) ?? f.reservation.account.id;
+      const prepared = await prepareReinstatementCheckout(
+        f.store,
+        asker,
+        f.instanceId,
+        f.c.now(),
+      );
+      expect(prepared).toEqual(expected);
+      // toEqual skips an undefined property; a configuration refusal must not
+      // carry the key at all.
+      expect(Object.keys(prepared).sort()).toEqual(
+        Object.keys(expected).sort(),
+      );
+    });
+  }
 });

@@ -32,6 +32,7 @@ import { validateOfficeName } from "./stripe/checkout.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
 import { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
 import { planById, type Plan } from "./plans.ts";
+import type { Refusal } from "./refusal.ts";
 export { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
 export {
   ENTRY_PLAN,
@@ -82,7 +83,7 @@ const NEW_OFFICE_LIMIT = new Error("new office admission limit");
 
 function admissionOutcome(err: unknown): SignupOutcome {
   if (err === NEW_OFFICE_LIMIT) {
-    return { ok: false, reason: NEW_OFFICE_LIMIT_REASON };
+    return { ok: false, kind: "customer", reason: NEW_OFFICE_LIMIT_REASON };
   }
   throw err;
 }
@@ -495,9 +496,7 @@ export interface SignupDeps {
   newId?: () => string;
 }
 
-export type SignupValidation =
-  | { ok: true; plan: Plan }
-  | { ok: false; reason: string };
+export type SignupValidation = { ok: true; plan: Plan } | Refusal;
 
 /**
  * Everything that can be decided about a signup without touching anything.
@@ -514,12 +513,17 @@ export function validateSignup(req: {
 }): SignupValidation {
   const plan = planById(req.plan);
   if (!plan)
-    return { ok: false, reason: `"${req.plan}" is not a plan we offer` };
+    return {
+      ok: false,
+      kind: "customer",
+      reason: `"${req.plan}" is not a plan we offer`,
+    };
   const verdict = validateOfficeName(req.officeName);
-  if (!verdict.ok) return { ok: false, reason: verdict.reason };
+  if (!verdict.ok)
+    return { ok: false, kind: "customer", reason: verdict.reason };
   if (req.customerSshKey) {
     const key = validateCustomerSshKey(req.customerSshKey);
-    if (!key.ok) return key;
+    if (!key.ok) return { ok: false, kind: "customer", reason: key.reason };
   }
   return { ok: true, plan };
 }
@@ -534,7 +538,7 @@ export type SignupOutcome =
        * inputs; nothing was written. */
       reused: boolean;
     }
-  | { ok: false; reason: string };
+  | Refusal;
 
 /**
  * Reserve an office name for an account, creating everything the name needs to
@@ -553,14 +557,15 @@ export async function reserveOffice(
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
   const valid = validateSignup(req);
-  if (!valid.ok) return { ok: false, reason: valid.reason };
+  if (!valid.ok) return valid;
   const plan = valid.plan;
 
   const coupon = req.couponId ? req.couponId : null;
   const key = req.customerSshKey
     ? validateCustomerSshKey(req.customerSshKey)
     : null;
-  if (key && !key.ok) return key;
+  if (key && !key.ok)
+    return { ok: false, kind: "customer", reason: key.reason };
   const customerSshKey = key?.normalized ?? null;
   const uuid = newId();
   const ts = now();
@@ -568,7 +573,11 @@ export async function reserveOffice(
   const reserve = async (): Promise<SignupOutcome> => {
     const account = await getAccount(store, req.accountId);
     if (!account) {
-      return { ok: false, reason: "we do not recognise this account" };
+      return {
+        ok: false,
+        kind: "customer",
+        reason: "we do not recognise this account",
+      };
     }
     const instanceId = `inst-${uuid}`;
     try {
@@ -612,6 +621,7 @@ export async function reserveOffice(
         if (mine.length > 0) {
           return {
             ok: false,
+            kind: "configuration",
             reason: "this deployment needs its multi-office database migration",
           };
         }
@@ -620,6 +630,7 @@ export async function reserveOffice(
       if (held.account_id !== account.id) {
         return {
           ok: false,
+          kind: "customer",
           reason: `"${req.officeName}" is taken`,
         };
       }
@@ -629,6 +640,7 @@ export async function reserveOffice(
       if (held.plan !== plan.id) {
         return {
           ok: false,
+          kind: "customer",
           reason:
             `"${req.officeName}" is already reserved on the ` +
             `${held.plan} plan; finish or abandon that checkout before ` +
@@ -638,6 +650,7 @@ export async function reserveOffice(
       if ((held.coupon_id ?? null) !== coupon) {
         return {
           ok: false,
+          kind: "customer",
           reason:
             `"${req.officeName}" is already reserved ` +
             (held.coupon_id
@@ -655,6 +668,7 @@ export async function reserveOffice(
       ) {
         return {
           ok: false,
+          kind: "customer",
           reason:
             `"${req.officeName}" was reserved before the seven-day ` +
             `setup-access policy; recycle it from a new signup`,
@@ -663,6 +677,7 @@ export async function reserveOffice(
       if ((heldInstance.customer_ssh_key ?? null) !== customerSshKey) {
         return {
           ok: false,
+          kind: "customer",
           reason: heldInstance.customer_ssh_key
             ? `"${req.officeName}" is already reserved with an SSH key; finish or abandon that checkout before changing it`
             : `"${req.officeName}" is already reserved without an SSH key; finish or abandon that checkout before adding one`,

@@ -29,6 +29,8 @@ import {
 } from "./signup.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
 import { accountByEmail } from "./stripe/billing-store.ts";
+import { signUpOffice } from "./web/lib/services.server.ts";
+import { safeCustomerReason } from "./web/lib/customer-error.ts";
 import type { Store } from "./store.ts";
 import {
   openTestStore,
@@ -197,6 +199,7 @@ describe("the reservation", () => {
     });
     expect(refused).toEqual({
       ok: false,
+      kind: "customer",
       reason: "we cannot accept another office signup yet; try again later",
     });
     expect(await reservationByName(store, "next")).toBeNull();
@@ -207,15 +210,6 @@ describe("the reservation", () => {
       ),
     ).toEqual({ n: 1 });
     expect(await store.auditEvents()).toHaveLength(1);
-
-    const caller = fs.readFileSync(
-      new URL("web/lib/services.server.ts", import.meta.url),
-      "utf8",
-    );
-    expect(caller).toContain("safeCustomerReason(language, reserved.reason)");
-    expect(caller).toContain(
-      "return openReservedCheckout({ language, ...reserved });",
-    );
   });
 
   test("an admission older than seven days frees one place", async () => {
@@ -264,6 +258,7 @@ describe("the reservation", () => {
     const loser = first.ok ? second : first;
     expect(loser).toEqual({
       ok: false,
+      kind: "customer",
       reason: "we cannot accept another office signup yet; try again later",
     });
     expect(
@@ -685,10 +680,10 @@ describe("what is judged before anything is touched", () => {
       true,
     );
     const badPlan = validateSignup({ officeName: "acme", plan: "gold" });
-    expect(badPlan.ok).toBe(false);
+    expect(badPlan).toMatchObject({ ok: false, kind: "customer" });
     if (!badPlan.ok) expect(badPlan.reason).toContain("not a plan we offer");
     const badName = validateSignup({ officeName: "admin", plan: "office" });
-    expect(badName.ok).toBe(false);
+    expect(badName).toMatchObject({ ok: false, kind: "customer" });
     if (!badName.ok) expect(badName.reason).toContain("centrally");
   });
 });
@@ -758,6 +753,7 @@ describe("several offices per account", () => {
     try {
       expect(await signup(store, { officeName: "acme-two" })).toEqual({
         ok: false,
+        kind: "configuration",
         reason: "this deployment needs its multi-office database migration",
       });
     } finally {
@@ -794,6 +790,118 @@ describe("several offices per account", () => {
     ).toEqual(["alpha", "beta"]);
     await a.close();
     await b.close();
+  });
+});
+
+// signUpOffice shows a reserveOffice refusal by the kind reserveOffice gave it.
+// It used to show every refusal except one string compared by hand, so a new
+// refusal about the deployment reached the customer as words.
+describe("the web facade shows a reservation refusal by its kind", () => {
+  const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
+  const realError = console.error;
+
+  afterEach(() => {
+    delete (globalThis as { [STORE_SLOT]?: unknown })[STORE_SLOT];
+    console.error = realError;
+    delete process.env.AUTH_URL;
+    delete process.env.CONTROL_PLANE_ENTRY_PRICE_ID;
+    delete process.env.CONTROL_PLANE_STRIPE_MODE;
+    delete process.env.STRIPE_TEST_SECRET_KEY;
+  });
+
+  /** signUpOffice against `store`, with everything before reserveOffice
+   * configured, and what it logged. */
+  async function viaFacade(
+    store: Store,
+    accountId: string,
+    officeName: string,
+  ) {
+    (globalThis as { [STORE_SLOT]?: { opening?: Promise<Store> } })[
+      STORE_SLOT
+    ] = { opening: Promise.resolve(store) };
+    process.env.AUTH_URL = "https://cloud.example.test";
+    process.env.CONTROL_PLANE_ENTRY_PRICE_ID = "price_entry";
+    process.env.CONTROL_PLANE_STRIPE_MODE = "test";
+    process.env.STRIPE_TEST_SECRET_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+    const logged: string[] = [];
+    console.error = (...parts: unknown[]) => {
+      logged.push(parts.map(String).join(" "));
+    };
+    try {
+      const result = await signUpOffice({
+        language: "en",
+        accountId,
+        officeName,
+        plan: "office",
+        customerSshKey: VALID_KEY,
+      });
+      return { result, logged };
+    } finally {
+      console.error = realError;
+    }
+  }
+
+  test("a configuration refusal is opaque, and its reason is logged with the account and office", async () => {
+    const store = await tempStore();
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    await store.sqlRun(
+      "alter table name_reservations add constraint legacy_one_office unique (account_id)",
+    );
+    try {
+      // The enabling condition: reserveOffice itself gives the migration
+      // refusal for this request.
+      const direct = await reserveOffice(store, {
+        accountId: first.account.id,
+        officeName: "acme-two",
+        plan: "office",
+        customerSshKey: VALID_KEY,
+      });
+      expect(direct).toMatchObject({ ok: false, kind: "configuration" });
+      if (direct.ok) return;
+
+      const { result, logged } = await viaFacade(
+        store,
+        first.account.id,
+        "acme-two",
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).not.toContain("migration");
+      const reference = /PAY-[0-9A-F]{10}/.exec(result.reason)?.[0];
+      expect(reference).toBeDefined();
+      const line = logged.find((l) => l.includes(reference!));
+      expect(line).toBeDefined();
+      expect(line).toContain(direct.reason);
+      expect(line).toContain(`account=${first.account.id}`);
+      expect(line).toContain(`office=${JSON.stringify("acme-two")}`);
+    } finally {
+      await store.sqlRun(
+        "alter table name_reservations drop constraint legacy_one_office",
+      );
+    }
+  });
+
+  test("a customer refusal shows its own sentence, with nothing logged", async () => {
+    const store = await tempStore();
+    const held = await signup(store);
+    if (!held.ok) throw new Error("signup failed");
+    const other = await accountFor(store, "other@example.com");
+    const direct = await reserveOffice(store, {
+      accountId: other.id,
+      officeName: "acme",
+      plan: "office",
+      customerSshKey: VALID_KEY,
+    });
+    expect(direct).toMatchObject({ ok: false, kind: "customer" });
+    if (direct.ok) return;
+
+    const { result, logged } = await viaFacade(store, other.id, "acme");
+    expect(result).toEqual({
+      ok: false,
+      reason: safeCustomerReason("en", direct.reason, { accountId: other.id }),
+    });
+    expect(logged.filter((l) => l.includes("customer-error"))).toEqual([]);
   });
 });
 

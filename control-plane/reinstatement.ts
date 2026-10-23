@@ -13,6 +13,7 @@ import type { OperationRow, Store } from "./store.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import { getAccount, type AccountRow } from "./stripe/billing-store.ts";
 import { instanceOwnedBy, planById } from "./signup.ts";
+import type { Refusal } from "./refusal.ts";
 
 export const REINSTATEMENT_CHECKOUT_MS = 30 * 60_000;
 export const REINSTATEMENT_REASON = "reinstatement";
@@ -119,10 +120,9 @@ export const REINSTATEMENT_REFUSAL_WORDS: Record<ReinstatementRefusal, string> =
   };
 
 /** A refusal the customer may read: its code, and the table's English. */
-export type ReinstatementRefused = {
-  ok: false;
+export type ReinstatementRefused = Refusal & {
+  kind: "customer";
   code: ReinstatementRefusal;
-  reason: string;
 };
 
 export type Eligibility =
@@ -130,7 +130,12 @@ export type Eligibility =
   | ReinstatementRefused;
 
 function refusal(code: ReinstatementRefusal): ReinstatementRefused {
-  return { ok: false, code, reason: REINSTATEMENT_REFUSAL_WORDS[code] };
+  return {
+    ok: false,
+    kind: "customer",
+    code,
+    reason: REINSTATEMENT_REFUSAL_WORDS[code],
+  };
 }
 
 /** Every predicate is read by the transaction that writes the attempt/link. */
@@ -221,9 +226,9 @@ export type PreparedReinstatement =
       existingSessionId: string | null;
     }
   | ReinstatementRefused
-  /** Ours, not the customer's to read: no code, so the facade answers with an
-   * opaque failure and logs this reason under its reference. */
-  | { ok: false; code?: undefined; reason: string };
+  /** Ours, not the customer's to read: the facade answers with an opaque
+   * failure and logs this reason under its reference. */
+  | (Refusal & { kind: "configuration" });
 
 export async function prepareReinstatementCheckout(
   store: Store,
@@ -237,6 +242,7 @@ export async function prepareReinstatementCheckout(
     if (!planById(reservation.plan))
       return {
         ok: false,
+        kind: "configuration",
         reason: "this retained plan is no longer configured",
       };
     const account = await getAccount(store, accountId);
@@ -245,6 +251,7 @@ export async function prepareReinstatementCheckout(
     if (!account.stripe_customer_id)
       return {
         ok: false,
+        kind: "configuration",
         reason: "we could not prove the original Stripe customer",
       };
     const now = store.now();

@@ -3,8 +3,16 @@ import { translatorFor, type PlainMessageKey } from "./i18n/translate";
 import { inspect } from "node:util";
 import { redactLogText } from "../../report";
 import { SUPPORT_EMAIL } from "./support-email";
+import type { Refusal, RefusalKind } from "../../refusal";
 
-export type CustomerFailureKind = "configuration" | "transient";
+export type CustomerFailureKind = Exclude<RefusalKind, "customer">;
+
+/** Who the failure happened to, for the server log line. Never an email. */
+export interface CustomerFailureContext {
+  accountId: string;
+  instanceId?: string | null;
+  officeName?: string | null;
+}
 
 export type CustomerFailureSurface =
   | "checkout_reserved"
@@ -65,6 +73,16 @@ function transientKey(surface: CustomerFailureSurface): PlainMessageKey {
   }
 }
 
+/** The context as log fields. The office name is customer input, so it is
+ * quoted: a typed name cannot pass for another field. */
+function contextFields(context: CustomerFailureContext): string {
+  let fields = ` account=${context.accountId}`;
+  if (context.instanceId) fields += ` instance=${context.instanceId}`;
+  if (context.officeName)
+    fields += ` office=${JSON.stringify(context.officeName)}`;
+  return fields;
+}
+
 /**
  * The default customer boundary is opaque. Callers may return a domain refusal
  * directly only at the explicit branches where our own code produced it.
@@ -74,12 +92,13 @@ export function customerFailure(
   kind: CustomerFailureKind,
   surface: CustomerFailureSurface,
   detail: unknown,
+  context: CustomerFailureContext,
   deps: CustomerFailureDependencies = {},
 ): string {
   const reference = deps.newReference?.() ?? referenceCode();
   const log = deps.log ?? console.error;
   log(
-    `[customer-error ${reference}]`,
+    `[customer-error ${reference}${contextFields(context)}]`,
     redactLogText(
       typeof detail === "string" ? detail : inspect(detail, { depth: 4 }),
     ),
@@ -104,6 +123,7 @@ export function customerFailure(
 export function safeCustomerReason(
   language: SupportedLanguageCode,
   reason: string,
+  context: CustomerFailureContext,
   deps: CustomerFailureDependencies = {},
 ): string {
   const trimmed = reason.trim();
@@ -113,6 +133,7 @@ export function safeCustomerReason(
       "configuration",
       "payments",
       "An explicitly safe customer refusal was empty",
+      context,
       deps,
     );
   const capitalized = /^[a-z]/.test(trimmed)
@@ -121,4 +142,35 @@ export function safeCustomerReason(
       ? trimmed
       : `Request refused: ${trimmed}`;
   return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+}
+
+/**
+ * What the customer reads for a refusal. Its source's `kind` decides: a
+ * "customer" refusal shows its own sentence and goes out with its code, so the
+ * office page can word it in the reader's language; any other is the opaque
+ * failure sentence with a reference, and carries no code.
+ */
+export function refusedResult(
+  language: SupportedLanguageCode,
+  surface: CustomerFailureSurface,
+  refusal: Refusal & { code?: string },
+  context: CustomerFailureContext,
+  deps: CustomerFailureDependencies = {},
+): { ok: false; code?: string; reason: string } {
+  if (refusal.kind !== "customer")
+    return {
+      ok: false,
+      reason: customerFailure(
+        language,
+        refusal.kind,
+        surface,
+        refusal.reason,
+        context,
+        deps,
+      ),
+    };
+  const reason = safeCustomerReason(language, refusal.reason, context, deps);
+  return refusal.code === undefined
+    ? { ok: false, reason }
+    : { ok: false, code: refusal.code, reason };
 }
