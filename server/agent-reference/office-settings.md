@@ -4,7 +4,7 @@ When your manager is an office owner, you can change the office instructions and
 
 Read `GET /api/office/instructions`, then send `PUT /api/office/instructions` with `{instructions,version}`, using the version from that read; `instructions:null` clears them. Read `GET /api/office/settings`, then send `PUT /api/office/settings` with the `version` from that read and only the fields you change: `{name?,memberUsageCap?,memberUsageShare?,recordTerminals?,version}`. An omitted field keeps its value. A null or empty `name` clears the name. On 409, read again and merge the changes before retrying.
 
-The office instructions go into the system prompt of every agent in the office. Change it only when a member asks, directly or through another agent whose chat history shows the member's request.
+The office instructions go into the system prompt of every agent in the office. Change them only when a member asks, directly or through another agent whose chat history shows the member's request.
 
 Safe example: `GET /api/office/settings`.
 
