@@ -13,13 +13,23 @@ let socketGen = 0;
 let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-let visibilityBound = false;
+let connectTimer: ReturnType<typeof setTimeout> | null = null;
+// The document the visibilitychange and online listeners were added for. Each
+// DOM test file registers a new document and a new listener store on window
+// while this module stays loaded, so a once-only flag left the listeners on the
+// previous file's window.
+let listenersDocument: Document | null = null;
 
 // Bad-wifi case: TCP thinks the socket is alive but no data is flowing.
 // onclose can take 30s+ to fire. A periodic ping with a short pong grace
 // detects that faster and triggers a reconnect.
 const HEARTBEAT_INTERVAL_MS = 25_000;
 const PONG_GRACE_MS = 5_000;
+
+// A socket opened while the network is down can stay in CONNECTING long after
+// the network returns (iOS retries the TCP handshake for over a minute). Past
+// this, replace it with a fresh socket.
+const CONNECT_TIMEOUT_MS = 8_000;
 
 // Shim: when set, bypasses real WebSocket entirely
 let shimHandler: ((cmd: ClientCommand) => void) | null = null;
@@ -52,6 +62,13 @@ function clearReconnectTimer() {
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
+  }
+}
+
+function clearConnectTimer() {
+  if (connectTimer !== null) {
+    clearTimeout(connectTimer);
+    connectTimer = null;
   }
 }
 
@@ -92,6 +109,17 @@ function forceReconnect() {
 
 function onVisible() {
   if (document.visibilityState !== "visible") return;
+  checkLink();
+}
+
+// The 'online' event only triggers a check; the banner stays driven by the
+// socket alone. An open socket gets a ping instead of a teardown, because a new
+// socket replays the whole office state.
+function onOnline() {
+  checkLink();
+}
+
+function checkLink() {
   if (!handler) return;
   // Socket already gone → reconnect without waiting for the 2s backoff.
   if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -123,13 +151,18 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     return;
   }
 
-  if (typeof document !== "undefined" && !visibilityBound) {
+  if (typeof document !== "undefined" && listenersDocument !== document) {
+    listenersDocument?.removeEventListener("visibilitychange", onVisible);
     document.addEventListener("visibilitychange", onVisible);
-    visibilityBound = true;
+    window.addEventListener("online", onOnline);
+    listenersDocument = document;
   }
 
   clearReconnectTimer();
   clearHeartbeat();
+  clearConnectTimer();
+  // A pong grace left from the old socket would replace the new one.
+  clearPongTimer();
   const myGen = ++socketGen;
   if (socket) {
     try {
@@ -141,8 +174,14 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
   ws.binaryType = "arraybuffer";
   socket = ws;
+  connectTimer = setTimeout(() => {
+    connectTimer = null;
+    if (myGen !== socketGen || ws.readyState !== WebSocket.CONNECTING) return;
+    connect(onMessage, connHandler ?? undefined);
+  }, CONNECT_TIMEOUT_MS);
   ws.onopen = () => {
     if (myGen !== socketGen) return;
+    clearConnectTimer();
     startHeartbeat();
     // We don't flip connected=true here - the store gates that on full_state
     // arrival, so we don't briefly claim "online" before any data hydrates.
@@ -180,6 +219,7 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     clearPongTimer();
     clearReconnectTimer();
     clearHeartbeat();
+    clearConnectTimer();
     connHandler?.(false);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
