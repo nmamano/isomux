@@ -3,119 +3,102 @@ import { translatorFor } from "../../shared/i18n/translate.ts";
 import { renderMarkdown } from "./Markdown.tsx";
 
 const EN = translatorFor("en");
+const render = (source: string) => renderMarkdown(EN, source);
 
 describe("renderMarkdown math", () => {
-  it("renders dollar-delimited display math", () => {
-    const html = renderMarkdown(EN, "$$x^2$$");
+  it.each([
+    ["$$x^2$$", "true"],
+    [String.raw`\[x^2\]`, "true"],
+    ["Value: $x^2$.", "false"],
+    [String.raw`Value: \(x^2\).`, "false"],
+  ])("renders %s as math, display=%s", (source, display) => {
+    const html = render(source);
     expect(html).toContain('data-katex-source="x^2"');
-    expect(html).toContain('data-katex-display="true"');
+    expect(html).toContain(`data-katex-display="${display}"`);
   });
 
-  it("renders bracket-delimited display math", () => {
-    const html = renderMarkdown(EN, String.raw`\[x^2\]`);
-    expect(html).toContain('data-katex-source="x^2"');
-    expect(html).toContain('data-katex-display="true"');
-  });
-
-  it("renders dollar-delimited inline math", () => {
-    const html = renderMarkdown(EN, "Value: $x^2$.");
-    expect(html).toContain('data-katex-source="x^2"');
-    expect(html).toContain('data-katex-display="false"');
-  });
-
-  it("renders parenthesis-delimited inline math", () => {
-    const html = renderMarkdown(EN, String.raw`Value: \(x^2\).`);
-    expect(html).toContain('data-katex-source="x^2"');
-    expect(html).toContain('data-katex-display="false"');
-  });
-
-  it("keeps dollar amounts and unmatched dollars literal", () => {
-    const html = renderMarkdown(EN, "It costs $20.00 and this $ stays.");
+  // Each row: the source, and the text it must show as is. None renders math,
+  // and none splits the paragraph with a <br>.
+  it.each([
+    [
+      "dollar amounts and an unmatched dollar",
+      "It costs $20.00 and this $ stays.",
+      "It costs $20.00 and this $ stays.",
+    ],
+    [
+      "backslash-escaped dollars",
+      String.raw`Set \$A,\$B now.`,
+      "Set $A,$B now.",
+    ],
+    ["a closing dollar followed by a digit", "Keep $x$2 literal.", "$x$2"],
+    [
+      "an opening dollar followed by whitespace",
+      "Pay $ 5$ now.",
+      "Pay $ 5$ now.",
+    ],
+    [
+      "an unmatched $$",
+      "Use $$ to open display math.",
+      "Use $$ to open display math.",
+    ],
+    [
+      "the shell's $$",
+      "Run echo $$ to print the pid.",
+      "Run echo $$ to print the pid.",
+    ],
+    [
+      "paired shell $$",
+      "compare echo $$ in the parent with echo $$ in the child",
+      "compare echo $$ in the parent with echo $$ in the child",
+    ],
+    [
+      "Makefile $$",
+      "In a Makefile write $$HOME, not $HOME, to reach $$PATH.",
+      "In a Makefile write $$HOME, not $HOME, to reach $$PATH.",
+    ],
+    [
+      "an escaped index",
+      String.raw`An index like a\[0\] is fine.`,
+      "An index like a[0] is fine.",
+    ],
+    [
+      "an unmatched \\[",
+      String.raw`Write \[ to open display math.`,
+      "Write [ to open display math.",
+    ],
+    [
+      "paired \\[ \\] in prose",
+      String.raw`So \[x^2\] holds.`,
+      "So [x^2] holds.",
+    ],
+  ])("keeps %s literal", (_name, source, shown) => {
+    const html = render(source);
     expect(html).not.toContain('class="katex-math"');
-    expect(html).toContain("$20.00");
-    expect(html).toContain("this $ stays");
+    expect(html).not.toContain("<br>");
+    expect(html).toContain(shown);
   });
 
-  it("keeps backslash-escaped dollars literal", () => {
-    expect(renderMarkdown(EN, "Set $A,$B now.")).toContain(
-      'class="katex-math"',
-    );
-    const html = renderMarkdown(EN, String.raw`Set \$A,\$B now.`);
-    expect(html).not.toContain('class="katex-math"');
-    expect(html).toContain("Set $A,$B now.");
-  });
-
-  it("rejects a closing dollar followed by a digit", () => {
-    const html = renderMarkdown(EN, "Keep $x$2 literal.");
-    expect(html).not.toContain('class="katex-math"');
-    expect(html).toContain("$x$2");
-  });
-
-  it("rejects an opening dollar followed by whitespace", () => {
-    const html = renderMarkdown(EN, "Pay $ 5$ now.");
-    expect(html).not.toContain('class="katex-math"');
-    expect(html).toContain("Pay $ 5$ now.");
+  it("renders the same dollars as math without the escape", () => {
+    // The control for the escaped row above.
+    expect(render("Set $A,$B now.")).toContain('class="katex-math"');
   });
 
   it("does not render math delimiters inside code", () => {
-    const html = renderMarkdown(EN, "`$x$`\n\n```text\n$$x^2$$\n```");
+    const html = render("`$x$`\n\n```text\n$$x^2$$\n```");
     expect(html).not.toContain('class="katex-math"');
     expect(html).toContain("$x$");
     expect(html).toContain("$$x^2$$");
+    expect(render("`$$y$$`")).toContain("<code>$$y$$</code>");
   });
 
-  it("does not split prose around unmatched display delimiters", () => {
-    const cases = [
-      ["Use $$ to open display math.", "Use $$ to open display math."],
-      ["Run echo $$ to print the pid.", "Run echo $$ to print the pid."],
-      [
-        String.raw`An index like a\[0\] is fine.`,
-        "An index like a[0] is fine.",
-      ],
-      [
-        String.raw`Write \[ to open display math.`,
-        "Write [ to open display math.",
-      ],
-    ];
-    for (const [source, rendered] of cases) {
-      const html = renderMarkdown(EN, source);
-      expect(html).not.toContain("<br>");
-      expect(html).toContain(rendered);
-    }
-  });
-
-  it("does not split bracket display delimiters in prose", () => {
-    const html = renderMarkdown(EN, String.raw`So \[x^2\] holds.`);
-    expect(html).not.toContain("<br>");
-    expect(html).toContain("So [x^2] holds.");
-  });
-
-  it("keeps paired literal double dollars in prose", () => {
-    for (const source of [
-      "compare echo $$ in the parent with echo $$ in the child",
-      "In a Makefile write $$HOME, not $HOME, to reach $$PATH.",
-    ]) {
-      const html = renderMarkdown(EN, source);
-      expect(html).not.toContain('class="katex-math"');
-      expect(html).toContain(source);
-    }
-  });
-
-  it("keeps an adjacent display delimiter in one paragraph", () => {
-    const html = renderMarkdown(EN, "a$$x$$");
-    expect(html).toContain("<p>a");
-    expect(html).toContain('data-katex-source="x"');
-    expect(html).toContain("</span></p>");
-  });
-
-  it("renders paired dollar display delimiters in prose without splitting it", () => {
-    const html = renderMarkdown(EN, "So $$x^2$$ holds.");
-    expect(html).not.toContain("<br>");
-    expect(html).toContain('data-katex-source="x^2"');
-    expect(html).toContain(" holds.");
-  });
-
-  it("keeps display delimiters byte-for-byte inside a code span", () => {
-    expect(renderMarkdown(EN, "`$$y$$`")).toContain("<code>$$y$$</code>");
+  it("keeps display math in its paragraph", () => {
+    const adjacent = render("a$$x$$");
+    expect(adjacent).toContain("<p>a");
+    expect(adjacent).toContain('data-katex-source="x"');
+    expect(adjacent).toContain("</span></p>");
+    const prose = render("So $$x^2$$ holds.");
+    expect(prose).not.toContain("<br>");
+    expect(prose).toContain('data-katex-source="x^2"');
+    expect(prose).toContain(" holds.");
   });
 });

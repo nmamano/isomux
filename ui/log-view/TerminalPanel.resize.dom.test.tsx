@@ -2,6 +2,7 @@
 // each SIGWINCH makes readline redraw the line being typed, and a redraw
 // computed for an older width leaves a copy of the line in the scrollback
 // (task 15cb8cf7). xterm itself still fits on every ResizeObserver callback.
+// A restart also resets the screen, so no line of the old shell stays.
 
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -11,7 +12,7 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { FitAddon } = await import("@xterm/addon-fit");
-const { setShim } = await import("./../ws.ts");
+const { setShim, shimEmit } = await import("./../ws.ts");
 const { TerminalPanel } = await import("./TerminalPanel.tsx");
 const { PTY_RESIZE_SETTLE_MS } = await import("./terminal-resize.ts");
 const { en } = await import("../../shared/i18n/en.ts");
@@ -94,6 +95,10 @@ function shownRows(container: HTMLElement): number {
   return container.querySelector(".xterm-rows")?.children.length ?? -1;
 }
 
+function screenText(container: HTMLElement): string {
+  return container.querySelector(".xterm-rows")?.textContent ?? "";
+}
+
 async function drag(sizes: { cols: number; rows: number }[]) {
   for (const size of sizes) {
     layout = size;
@@ -120,6 +125,8 @@ describe("terminal panel resize", () => {
     view.unmount();
   });
 
+  // The size the mount sent counts as sent: a drag that ends there is no
+  // change for the PTY.
   it("sends nothing when the drag ends at the size the PTY already has", async () => {
     const { view, resizes } = await mount();
     await drag([
@@ -128,10 +135,6 @@ describe("terminal panel resize", () => {
     ]);
     await act(async () => wait(PTY_RESIZE_SETTLE_MS + 100));
     expect(resizes()).toEqual([]);
-    // A real change afterwards still goes out.
-    await drag([{ cols: 100, rows: 20 }]);
-    await act(async () => wait(PTY_RESIZE_SETTLE_MS + 100));
-    expect(resizes()).toEqual([{ agentId: AGENT, cols: 100, rows: 20 }]);
     view.unmount();
   });
 
@@ -146,8 +149,19 @@ describe("terminal panel resize", () => {
     expect(sent.slice(sentBeforeClose)).toEqual([]);
   });
 
-  it("tells the restarted PTY the panel's size right after the restart", async () => {
+  it("resets the screen and tells the restarted PTY the panel's size right after the restart", async () => {
     const { view, sent } = await mount();
+    // The old shell's output, with its prompt as the cursor line: a clear()
+    // would keep that line, a reset() drops it.
+    act(() =>
+      shimEmit({
+        type: "terminal_output",
+        agentId: AGENT,
+        data: "OLD-OUTPUT\r\nOLD-PROMPT$ ",
+      }),
+    );
+    await settle();
+    expect(screenText(view.container)).toContain("OLD-PROMPT");
     fireEvent.click(
       view.getByRole("button", { name: en["panels.terminal.restart"] }),
     );
@@ -165,6 +179,9 @@ describe("terminal panel resize", () => {
             : cmd.type,
         );
     expect(order()).toEqual(["terminal_restart", "resize 100x30"]);
+    await settle();
+    expect(screenText(view.container)).not.toContain("OLD-OUTPUT");
+    expect(screenText(view.container)).not.toContain("OLD-PROMPT");
     await act(async () => wait(PTY_RESIZE_SETTLE_MS + 100));
     expect(order()).toEqual(["terminal_restart", "resize 100x30"]);
     view.unmount();

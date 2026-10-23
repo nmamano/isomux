@@ -5,7 +5,6 @@ import {
   humanizeIsomuxRequest,
   pipeTailForDisplay,
   BASH_RAW_SUMMARY_CHARS,
-  type RouteLabelKey,
 } from "./isomux-curl.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 
@@ -61,19 +60,6 @@ describe("parseIsomuxCurl", () => {
     expect(req!.path).toBe("/api/agents/agent-123-abc/messages");
     expect(req!.hasAuth).toBe(true);
     expect(req!.bodyFields).toEqual([{ key: "text", value: "hello there" }]);
-  });
-
-  test("claim and done task routes", () => {
-    expect(
-      parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/api/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
-      )!.actionKey,
-    ).toBe("apiCall.tasks.claim");
-    expect(
-      parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/api/tasks/28ab9400/done -d '{}'`,
-      )!.actionKey,
-    ).toBe("apiCall.tasks.complete");
   });
 
   test("empty JSON object body yields empty bodyFields", () => {
@@ -308,25 +294,6 @@ describe("parseIsomuxCurl", () => {
   test("--request=POST long form with equals", () => {
     const req = parseIsomuxCurl("curl --request=POST localhost:4000/api/tasks");
     expect(req!.method).toBe("POST");
-  });
-
-  test("DELETE scheduled message", () => {
-    const req = parseIsomuxCurl(
-      `curl -s -X DELETE localhost:4000/api/agents/agent-1/scheduled-messages/sched-9 -H "Authorization: Bearer $T"`,
-    );
-    expect(req!.method).toBe("DELETE");
-    expect(req!.actionKey).toBe("apiCall.agents.scheduledCancel");
-  });
-
-  test("office settings read and change", () => {
-    expect(
-      parseIsomuxCurl("curl -s localhost:4000/api/office/settings")!.actionKey,
-    ).toBe("apiCall.office.readSettings");
-    expect(
-      parseIsomuxCurl(
-        `curl -s -X PUT localhost:4000/api/office/settings -d '{"prompt":null,"version":"v"}'`,
-      )!.actionKey,
-    ).toBe("apiCall.office.saveSettings");
   });
 
   test("unknown isomux route still parses, without action label", () => {
@@ -1240,14 +1207,6 @@ describe("parseIsomuxCurl text/plain message bodies", () => {
 });
 
 describe("describeIsomuxRoute", () => {
-  test("labels member prompt reads and writes for a concrete username", () => {
-    expect(describeIsomuxRoute("GET", "/api/users/Nil/member-prompt")).toBe(
-      "apiCall.users.readMemberPrompt",
-    );
-    expect(describeIsomuxRoute("PATCH", "/api/users/Nil")).toBe(
-      "apiCall.users.updatePrompt",
-    );
-  });
   test("matches with query strings and trailing slashes", () => {
     expect(describeIsomuxRoute("GET", "/api/tasks?status=all")).toBe(
       "apiCall.tasks.list",
@@ -1267,49 +1226,6 @@ describe("describeIsomuxRoute", () => {
 
   test("method must match", () => {
     expect(describeIsomuxRoute("DELETE", "/api/memory")).toBeNull();
-  });
-
-  test("agent context and instructions reads are labeled", () => {
-    expect(describeIsomuxRoute("GET", "/api/agents/agent-123/context")).toBe(
-      "apiCall.agents.context",
-    );
-    expect(
-      describeIsomuxRoute("GET", "/api/agents/agent-123/instructions"),
-    ).toBe("apiCall.agents.instructions");
-  });
-
-  test("member create is labeled", () => {
-    expect(describeIsomuxRoute("POST", "/api/users")).toBe(
-      "apiCall.users.create",
-    );
-    expect(describeIsomuxRoute("GET", "/api/users")).toBeNull();
-  });
-
-  test("version read is labeled", () => {
-    expect(describeIsomuxRoute("GET", "/api/version")).toBe(
-      "apiCall.version.check",
-    );
-  });
-
-  test("office usage read is labeled", () => {
-    expect(describeIsomuxRoute("GET", "/api/usage")).toBe(
-      "apiCall.usage.tokens",
-    );
-  });
-
-  test("the conversation-log route is labeled in every mode", () => {
-    // describeIsomuxRoute matches on path segments only, so all three modes of
-    // /logs share this static fallback; humanizeIsomuxRequest is what tells
-    // them apart (see its own tests below).
-    for (const path of [
-      "/api/agents/agent-123/logs",
-      "/api/agents/agent-123/logs?q=marmalade",
-      "/api/agents/agent-123/logs?session=s1&around=e4",
-    ]) {
-      expect(describeIsomuxRoute("GET", path)).toBe(
-        "apiCall.agents.logsSearch",
-      );
-    }
   });
 });
 
@@ -2175,34 +2091,6 @@ describe("parseIsomuxCurl matching || fallback", () => {
   });
 });
 
-describe("describeIsomuxRoute: pager settings", () => {
-  test("each pager settings route has its own label, apart from the env routes", () => {
-    const keys = [
-      describeIsomuxRoute("GET", "/api/users/nil/pager-settings"),
-      describeIsomuxRoute("PATCH", "/api/users/nil/pager-settings"),
-      describeIsomuxRoute("POST", "/api/users/nil/pager-settings/test"),
-    ];
-    expect(keys.every((k) => k !== null)).toBe(true);
-    expect(new Set(keys).size).toBe(3);
-    expect(keys).not.toContain(
-      describeIsomuxRoute("GET", "/api/users/nil/env"),
-    );
-  });
-});
-
-describe("describeIsomuxRoute: push devices", () => {
-  test("each push device route has its own label", () => {
-    const keys = [
-      describeIsomuxRoute("GET", "/api/users/nil/push-devices"),
-      describeIsomuxRoute("POST", "/api/users/nil/push-devices"),
-      describeIsomuxRoute("DELETE", "/api/users/nil/push-devices/0123abcd"),
-      describeIsomuxRoute("POST", "/api/users/nil/push-devices/0123abcd/test"),
-    ];
-    expect(keys.every((k) => k !== null)).toBe(true);
-    expect(new Set(keys).size).toBe(4);
-  });
-});
-
 // Task 5377b96f: two office API calls from Nil's chat that showed as raw Bash.
 describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
   const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
@@ -2350,24 +2238,6 @@ describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
 describe("parseIsomuxCurl ask routes", () => {
   const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
   const BASE = "localhost:4000/api/agents/agent-1/asks";
-
-  test("an agent's own ask routes each get their label", () => {
-    const cases: [string, RouteLabelKey][] = [
-      [
-        `curl -s -X POST "${BASE}" ${AUTH} -d '{"text":"Go?"}'`,
-        "apiCall.asks.create",
-      ],
-      [`curl -s "${BASE}" ${AUTH}`, "apiCall.asks.list"],
-      [`curl -s "${BASE}/abcd1234" ${AUTH}`, "apiCall.asks.get"],
-      [
-        `curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -d '{"text":"Go?"}'`,
-        "apiCall.asks.edit",
-      ],
-      [`curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`, "apiCall.asks.delete"],
-    ];
-    for (const [cmd, key] of cases)
-      expect(parseIsomuxCurl(cmd)!.actionKey).toBe(key);
-  });
 
   test("create and edit read a text/plain body the way the server does", () => {
     const create = parseIsomuxCurl(

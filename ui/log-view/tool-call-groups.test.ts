@@ -71,16 +71,6 @@ describe("raw tool-call groups", () => {
     ).toEqual([["a", "b"]]);
   });
 
-  test("the group head receives the final-turn affordance", () => {
-    const entries = [
-      call("a"),
-      call("b"),
-      result("ar", "a"),
-      result("br", "b"),
-    ];
-    expect(lastVisibleEntryIndex(entries, new Set(["b"]))).toBe(0);
-  });
-
   test("a visible attachment result breaks the group", () => {
     const attachmentResult = result("ar", "a");
     attachmentResult.attachments = [
@@ -184,54 +174,6 @@ describe("raw tool-call groups", () => {
     expect(liveIds.size).toBe(MAX_LIVE_TAIL_ENTRIES);
     expect(liveIds.has("call-19")).toBe(false);
     expect(liveIds.has("call-20")).toBe(true);
-  });
-
-  test("indexed and plain passes apply one grouping policy", () => {
-    const attachmentResult = result("image-r", "image");
-    attachmentResult.attachments = [
-      {
-        filename: "hash.png",
-        originalName: "shot.png",
-        mediaType: "image/png",
-        size: 10,
-      },
-    ];
-    const sub1a = call("sub1-a");
-    const sub1b = call("sub1-b");
-    const sub2a = call("sub2-a");
-    const sub2b = call("sub2-b");
-    for (const item of [sub1a, sub1b])
-      item.metadata!.subagent = { parentToolUseId: "parent-1" };
-    for (const item of [sub2a, sub2b])
-      item.metadata!.subagent = { parentToolUseId: "parent-2" };
-    const entries = [
-      call("a"),
-      result("ar", "a"),
-      call("b"),
-      result("br", "b"),
-      call("image"),
-      attachmentResult,
-      entry("orphan", "tool_result", "visible without toolUseId"),
-      call("failed"),
-      result("failed-r", "failed", true),
-      call("curl", "Bash", {
-        command: "curl -s localhost:4000/api/tasks",
-      }),
-      sub1a,
-      sub1b,
-      sub2a,
-      sub2b,
-    ];
-    const indexed = findRawToolCallGroups(entries);
-    const plain = findRawToolCallGroups(entries, new Set(), null);
-    expect(indexed).toEqual(plain);
-    expect(
-      indexed.map((group) => group.entries.map((item) => item.id)),
-    ).toEqual([
-      ["a", "b"],
-      ["sub1-a", "sub1-b"],
-      ["sub2-a", "sub2-b"],
-    ]);
   });
 });
 

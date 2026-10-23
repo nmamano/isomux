@@ -15,6 +15,7 @@ const { DeskUnit } = await import("../office/DeskUnit.tsx");
 const { LogView } = await import("./LogView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
@@ -79,6 +80,11 @@ function logs(withCard: boolean): LogEntry[] {
   ];
 }
 
+// The viewer reads Catalan; the agent reads the stored English.
+const ca = translatorFor("ca");
+const DISMISSED = ca.t("asks.dismissed");
+const WITH_REASON = ca.t("asks.dismissedReason", { reason: "wrong room" });
+
 function Transcript({ entries }: { entries: LogEntry[] }) {
   const view = useChatTranscript(entries, false);
   return <ChatTranscript logs={entries} view={view} isMobile={false} />;
@@ -126,7 +132,8 @@ it("shows a dismiss in the viewer's language, not the English word the agent rea
   const dismiss = view.container.querySelector<HTMLElement>(
     '[data-log-entry-id="dismiss"]',
   )!;
-  expect(dismiss.textContent).toContain("Descartada");
+  expect(DISMISSED).not.toBe("Dismissed");
+  expect(dismiss.textContent).toContain(DISMISSED);
   expect(dismiss.textContent).not.toContain("Dismissed");
   // A reply keeps the member's own words.
   expect(
@@ -136,8 +143,7 @@ it("shows a dismiss in the viewer's language, not the English word the agent rea
   const reason = view.container.querySelector<HTMLElement>(
     '[data-log-entry-id="dismiss-reason"]',
   )!.textContent;
-  expect(reason).toContain("Descartada");
-  expect(reason).toContain("wrong room");
+  expect(reason).toContain(WITH_REASON);
   view.unmount();
 });
 
@@ -193,8 +199,7 @@ it("shows a queued answer as an answer to its ask, as the sent message will be",
     const text = view.container.textContent ?? "";
     expect(text).toContain("Approve copy, hold the push");
     // Only the dismiss with a reason can say dismissed here.
-    expect(text).toContain("Descartada");
-    expect(text).toContain("wrong room");
+    expect(text).toContain(WITH_REASON);
     view.unmount();
   } finally {
     setApiShim(null);

@@ -33,6 +33,12 @@ it("chips only visible lowercase task ids in Markdown text", () => {
     name: "ce5e7fe0 P0: Task hashes open the…",
   });
   expect(chip.getAttribute("title")).toBe(task.title);
+  // The text node holds the id alone, so find and copy see the id; the
+  // priority and title are a visual suffix in an attribute.
+  expect(chip.textContent).toBe(task.id);
+  expect(chip.getAttribute("data-task-label")).toBe(
+    " P0: Task hashes open the…",
+  );
   expect(view.container.querySelectorAll(".task-id-chip").length).toBe(1);
   expect(view.container.querySelector("code")?.textContent).toBe(task.id);
   expect(view.getByRole("link").textContent).toBe(task.id);
@@ -62,21 +68,6 @@ it("updates a chip from the live task map without rebuilding the message", () =>
   );
   expect(view.getByRole("button").getAttribute("aria-label")).toBe(
     "ce5e7fe0 P1: Renamed task",
-  );
-});
-
-it("keeps the task id in the text node and the visual suffix in an attribute", () => {
-  const view = render(
-    <Markdown
-      content={`before ${task.id} after`}
-      tasks={new Map([[task.id, task]])}
-      onOpenTask={() => {}}
-    />,
-  );
-  const chip = view.getByRole("button");
-  expect(chip.textContent).toBe(task.id);
-  expect(chip.getAttribute("data-task-label")).toBe(
-    " P0: Task hashes open the…",
   );
 });
 

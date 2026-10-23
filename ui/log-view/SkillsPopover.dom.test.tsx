@@ -6,6 +6,7 @@ setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { SkillsPopover } = await import("./SkillsPopover.tsx");
 const { setApiShim } = await import("../api.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 
 function installVisualViewport({
   height,
@@ -64,8 +65,12 @@ it("keeps composer focus and picks from the draft-controlled full menu", () => {
   );
   expect(view.container.querySelector("input") === null).toBe(true);
   expect(document.activeElement?.tagName).toBe("TEXTAREA");
-  expect(view.getByText("Commands") !== null).toBe(true);
-  expect(view.getByText("Project") !== null).toBe(true);
+  expect(view.getByText(en["logView.skills.group.commands"]) !== null).toBe(
+    true,
+  );
+  expect(view.getByText(en["logView.skills.group.project"]) !== null).toBe(
+    true,
+  );
 
   fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
   fireEvent.keyDown(document.activeElement!, { key: "Enter" });

@@ -10,6 +10,7 @@ const { StateCtx, initialState, StoreProvider, useAppState } =
   await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 setShim(() => {});
 afterAll(() => {
   connect(
@@ -74,7 +75,7 @@ it("opens the grouped skills menu from a leading slash draft and preserves it on
   const view = render(page("/ver"));
   const textarea = view.container.querySelector("textarea")!;
   expect(textarea.value).toBe("/ver");
-  expect(view.getByText("Member") !== null).toBe(true);
+  expect(view.getByText(en["common.user"]) !== null).toBe(true);
   expect(view.getByText("/verify") !== null).toBe(true);
   expect(view.container.querySelector("input[placeholder]") === null).toBe(
     true,

@@ -43,18 +43,23 @@ const hasForm = (view: ReturnType<typeof render>) =>
 const outcome = (view: ReturnType<typeof render>) =>
   view.container.querySelector("[data-outcome]")?.getAttribute("data-outcome");
 
-it("shows the request and its outcome from the transcript, with no form", () => {
-  for (const settled of ["saved", "declined"] as const) {
-    const view = card(new Map([["req-1", settled]]));
+it("shows the request and its outcome from the transcript, else closed, with no form", () => {
+  for (const [settled, shown] of [
+    ["saved", "saved"],
+    ["declined", "declined"],
+    [null, "closed"],
+  ] as const) {
+    const view = card(
+      new Map<string, "saved" | "declined">(
+        settled ? [["req-1", settled]] : [],
+      ),
+    );
     expect(view.container.textContent).toContain(PAYLOAD.reason);
-    expect(outcome(view)).toBe(settled);
+    expect({ settled, outcome: outcome(view) }).toEqual({
+      settled,
+      outcome: shown,
+    });
     expect(hasForm(view)).toBe(false);
     view.unmount();
   }
-});
-
-it("an unsettled request shows closed, with no form", () => {
-  const view = card();
-  expect(outcome(view)).toBe("closed");
-  expect(hasForm(view)).toBe(false);
 });

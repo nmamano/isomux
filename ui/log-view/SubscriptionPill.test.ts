@@ -1,7 +1,6 @@
 // The subscription pill's popover tells you when the allowance comes back, and
 // "in 2 days 5 hours" is the part people actually read. Rounding rules are
-// frozen here; the DOM/popover lifecycle isn't covered because the UI has no
-// React render harness (same limitation noted in ContextBattery.test.ts).
+// frozen here.
 import { describe, it, expect } from "bun:test";
 import {
   formatTimeUntil,
@@ -15,7 +14,6 @@ import { translatorFor } from "../../shared/i18n/translate.ts";
 const EN = translatorFor("en");
 const ES = translatorFor("es");
 const CA = translatorFor("ca");
-import { bandColor } from "./ContextBattery.tsx";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -88,19 +86,6 @@ describe("windowLine", () => {
     expect(windowLine(ES, { ...window, resetsAtMs: null }, null)).toBe(
       "Weekly (Opus): usado un 34%",
     );
-  });
-});
-
-// The pill shares the battery's color bands, so it must also share the battery's
-// rule about WHICH number they key off: the raw float, with rounding applied to
-// the label only. Rounding first would move the 50 boundary to 49.5.
-describe("pill color band boundary", () => {
-  it("bands 49.6% as dim even though its label rounds to 50%", () => {
-    expect(bandColor(49.6)).toBe("var(--text-muted)");
-    expect(Math.round(49.6)).toBe(50);
-    expect(bandColor(50)).toBe("var(--orange-text)");
-    expect(bandColor(74.6)).toBe("var(--orange-text)");
-    expect(bandColor(75)).toBe("var(--red-text)");
   });
 });
 

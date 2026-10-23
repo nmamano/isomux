@@ -9,6 +9,9 @@ const { StoreProvider } = await import("../store.tsx");
 const { LogView } = await import("./LogView.tsx");
 const { setShim, shimEmit, connect } = await import("../ws.ts");
 const { setApiShim } = await import("../api.ts");
+const { t } = (await import("../../shared/i18n/translate.ts")).translatorFor(
+  "en",
+);
 setShim(() => {});
 setApiShim(async () => ({}));
 afterAll(() => {
@@ -59,6 +62,8 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       }),
     }),
   );
+  const signIn = () =>
+    view.getAllByRole("button", { name: t("settings.signIn.signIn") });
   await act(async () => {
     shimEmit({
       type: "session_context",
@@ -84,7 +89,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       ],
     });
   });
-  expect(view.getAllByRole("button", { name: /^Sign in$/ })).toHaveLength(2);
+  expect(signIn()).toHaveLength(2);
   await act(async () => {
     shimEmit({
       type: "provider_accounts_updated",
@@ -106,7 +111,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       ],
     });
   });
-  expect(view.getByText(/Waiting for provider…/)).toBeDefined();
+  expect(view.getByText(t("settings.signIn.waiting"))).toBeDefined();
   await act(async () => {
     shimEmit({
       type: "provider_accounts_updated",
@@ -129,8 +134,12 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       ],
     });
   });
-  expect(view.getByText(/Connected as probe@example.test/)).toBeDefined();
-  expect(view.getAllByRole("button", { name: /^Sign in$/ })).toHaveLength(1);
+  expect(
+    view.getByText(
+      t("settings.signIn.connectedAs", { account: "probe@example.test" }),
+    ),
+  ).toBeDefined();
+  expect(signIn()).toHaveLength(1);
   // A refreshed connected account has idle login status. The auth-error card
   // must still expose the existing clear action.
   await act(async () => {
@@ -155,7 +164,9 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
   });
   await act(async () => {
     fireEvent.click(
-      view.getByRole("button", { name: "Start a new conversation" }),
+      view.getByRole("button", {
+        name: t("settings.signIn.startConversation"),
+      }),
     );
   });
   expect(cleared).toBe(true);

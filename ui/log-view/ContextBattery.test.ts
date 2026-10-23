@@ -1,8 +1,7 @@
 // The context battery's color band is computed from the RAW float percentage
 // and MUST match the server-injected [context check] notice thresholds
 // (50 / 75, per Nil 2026-07-18) - the icon and the notices have to agree.
-// This freezes the boundary behavior; the popover/DOM lifecycle isn't covered
-// because the UI has no React render harness (no jsdom/testing-library).
+// The subscription pill uses the same bands.
 import { describe, it, expect } from "bun:test";
 import { bandColor } from "./ContextBattery.tsx";
 

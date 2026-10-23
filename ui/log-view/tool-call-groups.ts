@@ -13,12 +13,12 @@ export function isomuxRequestForToolCall(
     : null;
 }
 
-export type ToolEntryIndex = {
+type ToolEntryIndex = {
   toolCallIds: ReadonlySet<unknown>;
   resultByToolUseId: ReadonlyMap<unknown, LogEntry>;
 };
 
-export function buildToolEntryIndex(entries: LogEntry[]): ToolEntryIndex {
+function buildToolEntryIndex(entries: LogEntry[]): ToolEntryIndex {
   const toolCallIds = new Set<unknown>();
   const resultByToolUseId = new Map<unknown, LogEntry>();
   for (const entry of entries) {
@@ -86,28 +86,21 @@ function subagentIdentity(entry: LogEntry): string {
 
 function matchingResult(
   entry: LogEntry,
-  entries: LogEntry[],
-  index?: ToolEntryIndex | null,
+  index: ToolEntryIndex,
 ): LogEntry | undefined {
   const toolId = entry.metadata?.toolId;
-  if (!toolId) return undefined;
-  if (index) return index.resultByToolUseId.get(toolId);
-  return entries.find(
-    (candidate) =>
-      candidate.kind === "tool_result" &&
-      candidate.metadata?.toolUseId === toolId,
-  );
+  return toolId ? index.resultByToolUseId.get(toolId) : undefined;
 }
 
 function isRawSuccessfulToolCall(
   entry: LogEntry,
   entries: LogEntry[],
-  index?: ToolEntryIndex | null,
+  index: ToolEntryIndex,
 ): boolean {
   if (entry.kind !== "tool_call") return false;
   if (isomuxRequestForToolCall(entry.content, entry.metadata?.input))
     return false;
-  const result = matchingResult(entry, entries, index);
+  const result = matchingResult(entry, index);
   if (result && !isFoldedToolResult(result, entries, index)) return false;
   return result?.metadata?.isError !== true;
 }
@@ -154,8 +147,8 @@ export function liveTailEntryIds(
 export function findRawToolCallGroups(
   entries: LogEntry[],
   excludedIds: ReadonlySet<string> = new Set(),
-  index: ToolEntryIndex | null = buildToolEntryIndex(entries),
 ): RawToolCallGroup[] {
+  const index = buildToolEntryIndex(entries);
   const groups: RawToolCallGroup[] = [];
   let run: LogEntry[] = [];
   let identity = "";

@@ -416,9 +416,6 @@ function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
 // authority distinction has to survive the chip becoming a log entry, because
 // the log is what anyone reads afterwards - and editing someone else's message
 // is a human affordance, so a non-human sender's message is not editable.
-//
-// Exported for its own test: the UI has no React render harness, so the mapping
-// is pinned as a pure function (same pattern as ContextBattery's bandColor).
 export function senderIsHuman(
   metadata: Record<string, unknown> | undefined,
 ): boolean {

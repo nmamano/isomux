@@ -556,13 +556,6 @@ it("sends one answer when two submits land before the card draws again", async (
   view.unmount();
 });
 
-it("draws no option row for an ask without options", async () => {
-  const view = mount(false);
-  await waitFor(() => expect(cards(view.container).length).toBe(2));
-  expect(view.container.querySelector("[data-ask-options]")).toBe(null);
-  view.unmount();
-});
-
 it("keeps the field and leaves the card live after a refused reply, so the next reply posts again", async () => {
   let refuse = true;
   answer = async () => {

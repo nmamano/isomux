@@ -111,3 +111,20 @@ describe("the gone-model mark in the header", () => {
     );
   });
 });
+
+// OpenCode reports no subscription usage. The pill draws a "?" without a
+// reading, so the header leaves it out for OpenCode instead.
+describe("the subscription pill in the header", () => {
+  it("shows for Claude and not for OpenCode", () => {
+    const pills = (a: Agent) => {
+      const { view } = mount(a, []);
+      const count = view.container.querySelectorAll(
+        '[data-testid="subscription-pill"]',
+      ).length;
+      view.unmount();
+      return count;
+    };
+    expect(pills(agent({ agentType: "claude" }))).toBe(1);
+    expect(pills(agent())).toBe(0);
+  });
+});

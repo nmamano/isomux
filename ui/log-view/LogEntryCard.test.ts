@@ -1,9 +1,8 @@
 // Who a `user_message` came from, and whether the reader should treat it as a
-// person. Three senders reach an agent through one queue and land in one log -
-// a manager, another agent, and one of the agent's own apps - and the log is what
-// anyone reads AFTERWARDS, so the distinction has to survive the trip. Pinned as
-// a pure function because the UI has no React render harness (same reason as
-// ContextBattery's bandColor).
+// person. Several senders reach an agent through one queue and land in one
+// log - a member, another agent, one of the agent's own apps, a schedule, a
+// webhook, a script with the member's API token - and the log is what anyone
+// reads AFTERWARDS, so the distinction has to survive the trip.
 
 import { describe, it, expect } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
@@ -14,8 +13,6 @@ import {
 } from "./LogEntryCard.tsx";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 
-// The catalog's English, so every label below is the one the card showed
-// before the strings moved into the catalog (ruling 6).
 const EN = translatorFor("en");
 
 function entry(kind: LogEntry["kind"], content: string): LogEntry {
@@ -46,102 +43,64 @@ describe("serializeEntries", () => {
 });
 
 describe("describeMessageSender", () => {
-  it("a member is a human, labelled by name and device", () => {
-    expect(
-      describeMessageSender(EN, { username: "Nil", device: "Phone" }),
-    ).toEqual({
-      label: "Nil (Phone)",
-      fromHuman: true,
-    });
-  });
-
-  it("no metadata at all is still the human path (the card falls back to 'You')", () => {
-    expect(describeMessageSender(EN, undefined)).toEqual({
-      label: undefined,
-      fromHuman: true,
-    });
-  });
-
-  it("an agent sender is labelled agent + room, and is not human", () => {
-    expect(
-      describeMessageSender(EN, {
-        sender_agent_name: "Isomuxer3",
-        sender_agent_room: "Isomux Dev",
+  // Each row: the metadata the server stamps, the label, and whether the card
+  // treats it as a person (solid band, editable). A non-human sender must win
+  // over a username stamped alongside it: the app's owner or the job's creator
+  // is not the sender.
+  const cases: Array<
+    [string, Record<string, unknown> | undefined, string | undefined, boolean]
+  > = [
+    ["a member", { username: "Nil", device: "Phone" }, "Nil (Phone)", true],
+    // The card falls back to "You".
+    ["no metadata", undefined, undefined, true],
+    [
+      "an agent",
+      { sender_agent_name: "Isomuxer3", sender_agent_room: "Isomux Dev" },
+      EN.t("common.sender.agentInRoom", {
+        name: "Isomuxer3",
+        room: "Isomux Dev",
       }),
-    ).toEqual({
-      label: 'Isomuxer3 · agent · Room "Isomux Dev"',
-      fromHuman: false,
-    });
-  });
-
-  it("an APP sender is labelled as an app, and is not human", () => {
-    // The metadata the server stamps for POST /api/app/message (senderMeta's
-    // app arm). Without this branch an app's message renders exactly like the
-    // member typing - which is the one reading it must never get wrong.
-    expect(describeMessageSender(EN, { sender_app_name: "habits" })).toEqual({
-      label: "habits · app",
-      fromHuman: false,
-    });
-  });
-
-  it("an app sender is not made human by carrying a username alongside", () => {
-    // The app's owner may well be stamped elsewhere on the entry; the sender is
-    // still the app, so the non-human branch has to win.
-    expect(
-      describeMessageSender(EN, { sender_app_name: "habits", username: "Nil" }),
-    ).toEqual({ label: "habits · app", fromHuman: false });
-  });
-
-  it("a CRON JOB sender is labelled as a schedule, and is not human", () => {
-    // The metadata agent-manager stamps for a cron-run sender. Reported live by
-    // Nil, 2026-08-27: without this branch a scheduled alert rendered as the
-    // reader's own message ("YOU") in a solid-accent band.
-    expect(
-      describeMessageSender(EN, {
+      false,
+    ],
+    [
+      "an app, with its owner's username",
+      { sender_app_name: "habits", username: "Nil" },
+      EN.t("common.sender.app", { name: "habits" }),
+      false,
+    ],
+    [
+      "a schedule, with its creator's username",
+      {
         sender_cronjob_id: "08366d7d",
         sender_cronjob_name: "Business health check",
-      }),
-    ).toEqual({ label: "Business health check · schedule", fromHuman: false });
-  });
-
-  it("an API-TOKEN message keeps the human's name but renders as machine-sent", () => {
-    // Reported by Nil, 2026-08-27: a token message rendered exactly like him
-    // typing. The token is his authority, so the label stays his identity, but
-    // it arrived from a script and reads that way (dashed, not editable).
-    expect(
-      describeMessageSender(EN, {
         username: "Nil",
-        device: 'API token "test" (pat-123)',
-      }),
-    ).toEqual({
-      label: 'Nil (API token "test" (pat-123))',
-      fromHuman: false,
-    });
-  });
-
-  it("a WEBHOOK sender is labelled as a webhook, is not human and is not editable", () => {
-    // The metadata agent-manager stamps for a webhook delivery. The JSON in it
-    // comes from an outside service, so it must never read as the reader's
-    // own message, and the edit affordance (senderIsHuman) must refuse it.
-    const metadata = {
-      sender_webhook_id: "wh_3f9a0c1d2e4b5a69",
-      sender_webhook_name: "pr-review",
-      username: "Nil",
-    };
-    expect(describeMessageSender(EN, metadata)).toEqual({
-      label: EN.t("common.sender.webhook", { name: "pr-review" }),
-      fromHuman: false,
-    });
-    expect(senderIsHuman(metadata)).toBe(false);
-  });
-
-  it("a cron sender is not made human by carrying a username alongside", () => {
-    // The job's creator is stamped on the run; the sender is still the job.
-    expect(
-      describeMessageSender(EN, {
-        sender_cronjob_name: "Business health check",
+      },
+      EN.t("common.sender.cronjob", { name: "Business health check" }),
+      false,
+    ],
+    [
+      "a webhook",
+      {
+        sender_webhook_id: "wh_3f9a0c1d2e4b5a69",
+        sender_webhook_name: "pr-review",
         username: "Nil",
-      }),
-    ).toEqual({ label: "Business health check · schedule", fromHuman: false });
+      },
+      EN.t("common.sender.webhook", { name: "pr-review" }),
+      false,
+    ],
+    // The token is the member's authority, so the label stays theirs, but the
+    // message came from a script and reads that way (dashed, not editable).
+    [
+      "an API token",
+      { username: "Nil", device: 'API token "test" (pat-123)' },
+      'Nil (API token "test" (pat-123))',
+      false,
+    ],
+  ];
+
+  it.each(cases)("%s", (_name, metadata, label, fromHuman) => {
+    expect(describeMessageSender(EN, metadata)).toEqual({ label, fromHuman });
+    // The edit affordance reads the same answer.
+    expect(senderIsHuman(metadata)).toBe(fromHuman);
   });
 });

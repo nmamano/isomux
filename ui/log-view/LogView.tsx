@@ -677,7 +677,7 @@ export function ChoiceInteractionCard({
   );
 }
 
-export function showAgentSubscriptionUsageIndicator(
+function showAgentSubscriptionUsageIndicator(
   agentType: AgentInfo["agentType"],
 ): boolean {
   return agentType !== "opencode";
