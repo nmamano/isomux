@@ -675,6 +675,17 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
 .content .shots { display: flex; flex-wrap: wrap; gap: 16px; margin: 8px 0 16px; }
 .content .shots img { border: 1px solid var(--border); border-radius: 8px; height: auto; margin: 0; }
 .content .shots.phone img { width: 260px; }
+.content img.diagram { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+.content img.diagram-narrow { width: 70%; }
+.content img.diagram-light { display: none; }
+@media (prefers-color-scheme: light) {
+  .content img.diagram-light { display: block; }
+  .content img.diagram-dark { display: none; }
+}
+:root[data-theme-mode="dark"] .content img.diagram-light,
+:root[data-theme-mode="light"] .content img.diagram-dark { display: none; }
+:root[data-theme-mode="dark"] .content img.diagram-dark,
+:root[data-theme-mode="light"] .content img.diagram-light { display: block; }
 .content hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
 
 .anchor-link {
@@ -800,6 +811,7 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
 .flow-leaf:has(> .flow-answer)::before { top: 12px; }
 .flow-leaf:has(> .flow-answer)::after { top: 8px; }
 @media (max-width: 650px) {
+  .content img.diagram-narrow { width: 100%; }
   .content .hosting-flow { padding-left: 12px; }
   .content .flow-question { padding: 14px 12px; border-radius: 24px; }
   .flow-row { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 16px; }

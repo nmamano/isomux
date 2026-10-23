@@ -11,12 +11,22 @@ import middleware from "../middleware.ts";
 beforeAll(() => buildDocs());
 
 // The Use cases section of the docs (task 30666e83): an index and one page
-// per use case, each built from docs/use-cases/<name>.md.
+// per use case, each built from docs/use-cases/<name>.md. The pages from Nil's
+// blog posts lead the section (task f575978d).
 const INDEX = "/docs/use-cases";
+const POSTS: Record<string, string> = {
+  "/docs/use-cases-agents-for-normies":
+    "https://nilmamano.com/blog/isomux-enterprise",
+  "/docs/use-cases-ai-native": "https://nilmamano.com/blog/isomux-crews",
+  "/docs/use-cases-personal-app-store":
+    "https://nilmamano.com/blog/personal-software-suites",
+};
+// In the order the index, the sidebar and llms.txt list them.
 const PAGES = [
-  "/docs/use-cases-one-project",
+  ...Object.keys(POSTS),
   "/docs/use-cases-parallel-agents",
   "/docs/use-cases-phone",
+  "/docs/use-cases-one-project",
 ];
 // The old standalone pages, and where links to them land now.
 const MOVED: Record<string, string> = {
@@ -67,7 +77,7 @@ describe("use cases in the docs", () => {
     const sources = readdirSync("docs/use-cases")
       .filter((file) => file.endsWith(".md"))
       .map((file) => `/docs/use-cases-${file.slice(0, -3)}`);
-    expect(sources.sort()).toEqual(PAGES);
+    expect(sources.sort()).toEqual([...PAGES].sort());
     for (const path of [INDEX, ...PAGES]) {
       const window = parse(htmlAt(path));
       const doc = window.document;
@@ -106,7 +116,7 @@ describe("use cases in the docs", () => {
       expect(
         Array.from(item.querySelectorAll(".sidebar-subpages a"), (a) =>
           a.getAttribute("href"),
-        ).sort(),
+        ),
         path,
       ).toEqual(PAGES);
       const current = nav.querySelectorAll('a[aria-current="page"]');
@@ -131,14 +141,49 @@ describe("use cases in the docs", () => {
     }
   });
 
-  it("links every use case from the index", async () => {
+  it("links every use case from the index, in order", async () => {
     const window = parse(htmlAt(INDEX));
     const links = Array.from(
       window.document.querySelectorAll("article a[href]"),
-      (a) => a.getAttribute("href"),
+      (a) => a.getAttribute("href")!,
     );
-    for (const page of PAGES) expect(links).toContain(page);
+    expect(links.filter((href) => PAGES.includes(href))).toEqual(PAGES);
     await window.happyDOM.close();
+  });
+
+  it("links each post page to its post and shows the post's diagram in a light and a dark variant", async () => {
+    for (const [path, post] of Object.entries(POSTS)) {
+      const window = parse(htmlAt(path));
+      const article = window.document.querySelector("article")!;
+      const links = Array.from(article.querySelectorAll("a[href]"), (a) =>
+        a.getAttribute("href"),
+      );
+      expect(links, path).toContain(post);
+      const variants = [".diagram-light", ".diagram-dark"].map((selector) => {
+        const imgs = article.querySelectorAll(`img${selector}`);
+        expect(imgs.length, `${path} ${selector}`).toBe(1);
+        const img = imgs[0];
+        const src = img.getAttribute("src")!;
+        expect(src.endsWith(".svg"), src).toBe(true);
+        expect(existsSync(`site${src}`), src).toBe(true);
+        expect(img.getAttribute("alt")?.trim(), src).toBeTruthy();
+        // The shown size keeps the drawing's aspect ratio.
+        const viewBox = readFileSync(`site${src}`, "utf8")
+          .match(/<svg[^>]*\sviewBox="([^"]+)"/)![1]
+          .trim()
+          .split(/\s+/)
+          .map(Number);
+        const size = [
+          Number(img.getAttribute("width")),
+          Number(img.getAttribute("height")),
+        ];
+        expect(size, src).toEqual([viewBox[2], viewBox[3]]);
+        return { src, size };
+      });
+      expect(variants[0].src, path).not.toBe(variants[1].src);
+      expect(variants[0].size, path).toEqual(variants[1].size);
+      await window.happyDOM.close();
+    }
   });
 
   it("resolves every link on the use-case pages, fragment included", async () => {
@@ -174,6 +219,7 @@ describe("use cases in the docs", () => {
       const window = parse(htmlAt(path));
       for (const img of window.document.querySelectorAll("article img")) {
         const src = img.getAttribute("src")!;
+        if (!src.endsWith(".jpeg")) continue;
         expect(existsSync(`site${src}`), src).toBe(true);
         expect(Number(img.getAttribute("width")), src).toBeGreaterThan(0);
         expect(Number(img.getAttribute("height")), src).toBeGreaterThan(0);
@@ -237,10 +283,12 @@ describe("use cases in the docs", () => {
   it("lists the use-case pages in the sitemap and llms.txt instead of the old URLs", () => {
     const sitemap = readFileSync("site/sitemap.xml", "utf8");
     const llms = readFileSync("site/llms.txt", "utf8");
-    for (const path of [INDEX, ...PAGES]) {
+    for (const path of [INDEX, ...PAGES])
       expect(sitemap, path).toContain(`<loc>https://isomux.com${path}</loc>`);
-      expect(llms, path).toContain(`(https://isomux.com${path})`);
-    }
+    const listed = [...llms.matchAll(/\(https:\/\/isomux\.com([^)#]+)\)/g)]
+      .map((match) => match[1])
+      .filter((path) => path.startsWith(`${INDEX}`));
+    expect(listed).toEqual([INDEX, ...PAGES]);
     for (const old of Object.keys(MOVED)) {
       expect(sitemap).not.toContain(`<loc>https://isomux.com${old}</loc>`);
       expect(STATIC_PATHS).not.toContain(old);

@@ -2,7 +2,7 @@
 title: Your coding agents on your phone with Isomux
 navTitle: On your phone
 description: Isomux runs Claude Code, Codex, and OpenCode agents on a server or a computer that stays on, so you can check on them and talk to them from your phone's browser.
-order: 2
+order: 5
 ---
 
 # Your coding agents on your phone

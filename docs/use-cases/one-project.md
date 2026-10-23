@@ -2,7 +2,7 @@
 title: Several agents on one project
 navTitle: Several agents on one project
 description: Run several Isomux agents on one project - one room, a lead that drives its workers, and hand-offs by message.
-order: 3
+order: 6
 ---
 
 # Several agents on one project

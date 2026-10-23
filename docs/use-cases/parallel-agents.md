@@ -2,7 +2,7 @@
 title: Run many coding agents at once with Isomux
 navTitle: Parallel agents
 description: Run Claude Code, Codex, and OpenCode agents side by side in one office, see which ones wait for you, and let them hand work to each other.
-order: 1
+order: 4
 ---
 
 # Run many coding agents at once
