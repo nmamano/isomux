@@ -83,7 +83,7 @@ The prompt lists these features with a topic name beside each one:
 | Conversation logs and sessions | The agent fetches `GET /api/agent-reference/conversation-history`. |
 | Inter-agent and API-token messaging | The agent fetches `GET /api/agent-reference/messaging`. |
 | Scheduled messages | The agent fetches `GET /api/agent-reference/scheduled-messages`. |
-| New conversation and handoff | The agent fetches `GET /api/agent-reference/conversation-lifecycle`; the `/handoff` skill carries the longer workflow. |
+| New conversation and handoff | The agent fetches `GET /api/agent-reference/conversation-lifecycle`, which also holds the brief's content rules. |
 | Cronjob inspection | The agent fetches `GET /api/agent-reference/cronjobs`. |
 | Shared memory | The agent fetches `GET /api/agent-reference/memory`. |
 | Inline diagrams | The agent fetches `GET /api/agent-reference/visuals`. |
@@ -91,7 +91,7 @@ The prompt lists these features with a topic name beside each one:
 | Privileged agent, room, cronjob, members-chat, and member operations | A privileged agent fetches `agent-management`, `rooms`, `cronjob-management`, `members-chat`, or `members`, one page per situation. |
 | Session closeout | The agent invokes the built-in `/wrap-session` skill when the session goal is complete. |
 
-Each topic holds the current route, method, parameters, response shape, scope, error cases, and one safe example. Long operating procedures remain skills. `/wrap-session` and `/handoff` are examples: the prompt lists them as features, and the skill carries the workflow.
+Each topic holds the current route, method, parameters, response shape, scope, error cases, and one safe example. Long operating procedures remain skills. `/wrap-session` is an example: the prompt lists it as a feature, and the skill carries the workflow.
 
 ## Reference storage and retrieval
 

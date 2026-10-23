@@ -2269,6 +2269,7 @@ App 的一些原则：
   "schedules.human.none": "按需",
   "schedules.nextRunIn": "{duration} 后",
   "commands.clear.description": "清除对话历史",
+  "commands.handoff.description": "在新会话中继续任务",
   "commands.context.description": "查看上下文窗口用量图",
   "commands.help.description": "列出所有可用命令",
   "commands.resume.description": "继续以前的会话",
@@ -2391,6 +2392,11 @@ App 的一些原则：
   "commands.unsupported.unknownCommand":
     "未知命令 `/{name}`。输入 `/help` 查看可用命令。",
   "commands.clear.failed": "清除对话失败：{error}",
+  "commands.handoff.waiting": "本轮结束后交接。",
+  "commands.handoff.underWay": "交接已在进行中。",
+  "commands.handoff.empty": "没有可交接的内容：此对话为空。",
+  "commands.handoff.notResumable":
+    "无法交接：此对话无法恢复。输入 /clear 开始新会话。",
   "commands.context.header":
     "**{model}**：{used} / {max} 个 token（{percent}%）",
   "commands.context.noSession": "没有活动会话。",
@@ -2492,6 +2498,8 @@ App 的一些原则：
     "也可以输入其他消息，以该消息作为拒绝理由。",
   "systemEntries.newConversation": "新对话已开始。",
   "systemEntries.handedOff": "已交接到新会话。",
+  "systemEntries.handoff.failed": "交接未完成。此对话继续。",
+  "systemEntries.handoff.canceled": "交接已取消。",
   "systemEntries.managerChanged":
     "{actor} 将 {member} 设为负责人。新对话已开始。",
   "systemEntries.autoHandoff.writingTokens":

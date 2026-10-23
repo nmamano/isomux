@@ -50,7 +50,7 @@ Nil, 2026-10-15: "one issue with the automatic handoff -- i didn't see the last 
 
 **The agent writes the brief in a server-run brief turn. The server captures the reply and runs the existing handoff logic. The agent does not call the route itself.**
 
-- **Brief turn.** One isomux-authored prompt through `runAgentTurn`, with `humanInput: false` and `usageCapped: true`. The prompt keeps the content rules of `/handoff` step 1 and no more (Nil, 2026-10-13). The text is `autoHandoffBriefPrompt` in `server/auto-handoff.ts`.
+- **Brief turn.** One isomux-authored prompt through `runAgentTurn`, with `humanInput: false` and `usageCapped: true`. The prompt keeps the content rules of the old `/handoff` skill's step 1 and no more (Nil, 2026-10-13). The text is `autoHandoffBriefPrompt` in `server/auto-handoff.ts`; it shares its rules (`BRIEF_RULES`) with the `/handoff` command's prompt (section 7).
 - **In the old chat** the prompt is not shown. The section 5 system entry stands for it.
 - **Capture.** The brief is all `assistant_text` after the brief turn's last own tool call (OpenCode's deltas join with nothing, other engines' blocks with a blank line). Tools are allowed, so the agent can check `git status` first.
 - **Delivery.** Today's `handoff` body: transactional, keeps the queue, and marks the brief as `[Handoff from your previous session]`. A manual `POST /api/agents/:id/handoff` during the brief turn gets 409 `handoff_in_progress`, the agent's own call included. On an armed agent before the brief turn starts, the manual handoff ends the phase and runs with the caller's brief.
@@ -62,7 +62,7 @@ Nil, 2026-10-15: "one issue with the automatic handoff -- i didn't see the last 
 - **Old chat, after the crossing turn:** the reply, as for any turn. Nothing says the mode armed.
 - **Old chat, as the brief turn starts:** `Context is at 500k tokens. Writing a handoff brief for a fresh session.`, `Context is 85% full. ...`, or `Context is NN% full, close to auto-compaction. ...`, by the limit that fired. The brief then appears as normal agent text.
 - **Wrap-up notices.** While an automatic attempt is still possible (switch on, attempt not spent, not paused), both audiences skip every band: the member notice and the agent's `[context check: ...]` block. All bands, because the 50 band only applies to windows of 500k or more, where the 500k trigger fires at or before 50%, and the member copy at every band points at `/handoff`. Nothing is marked fired while they are quiet, so after a failed or paused attempt the highest band fires as before. Codex and OpenCode never get these notices.
-- **The reset** clears the chat, as a manual `/handoff` does (Nil, 2026-10-13: no chat that spans handoffs).
+- **The reset** clears the chat, as a member's `/handoff` does (Nil, 2026-10-13: no chat that spans handoffs).
 - **Fresh chat, first entry** (in place of "New conversation started."): `Handed off automatically at 500k tokens.`, `Handed off automatically at 85% context.`, or `Handed off automatically at NN% context, before auto-compaction.` Both lines name the limit that fired, not the measured value, so they give one reason. Then the brief and the agent's first reply.
 - **An audit row**: operation `agents.handoff`, actor kind `auto_handoff`, the agent as target.
 - Member-facing strings are in `shared/i18n` (en, es, ca, zh).
@@ -78,6 +78,19 @@ Nil, 2026-10-15: "one issue with the automatic handoff -- i didn't see the last 
 | Cron run | Not applicable: a cron run is a separate one-turn session with no `ManagedAgent`. A cron message to an agent is ordinary input. |
 | Agent on a permission prompt | It is mid-turn, so nothing arms. The brief turn never starts in a multi-step flow; the phase waits for the next flush. |
 | Armed agent released while idle | The next message wakes it: `flushQueue` resumes the old session, and the brief turn runs there. |
+
+## 7. The member's `/handoff` command (task 970930a3)
+
+Nil, 2026-10-23: `/handoff` is a built-in command like `/clear`, because it hands off deterministically. It replaces the bundled `isomux-handoff` skill (alias `handoff`), which asked the model to call the route itself. Agents keep `POST /api/agents/:id/handoff` for a self-handoff; the brief's content rules moved to the `conversation-lifecycle` agent reference.
+
+- **Same machinery.** The command arms the phase with `manual: { username, device, note }` (a discriminated `AutoHandoffPhase`). From there the gate, the brief turn, the capture and `handoffBody` are those of sections 3 and 4. The text after the command is the member's note in the prompt (`handoffBriefPrompt`).
+- **Idle agent:** the brief turn starts at once; `flushQueue` wakes a released session first. An agent in `error` after a failed turn resumes its conversation first, as a message's enqueue does; one that cannot resume refuses. The command releases a backend hold, as a member's message does. **Busy agent:** the old chat gets `Hands off when this turn ends.` and the brief turn starts at that turn's end. For this the two empty-queue exits (`updateState`'s trigger and `flushQueue`'s) also pass for a manual phase whose brief has not started (`handoffWaiting`); an armed automatic phase still waits for the next message. Every message queued before or after the command goes to the fresh session after the brief, as `/clear` carries the queue. A steer meanwhile is declined with `steerDeclined: "handoff"`.
+- **Refusals** (an ephemeral echo and line, no state change): an empty conversation (no session id); an agent in `error` whose conversation cannot resume; a handoff already under way (a brief turn, a reset, or another `/handoff` that waits). An armed automatic phase with no brief turn yet gives way to the command.
+- **Brief turn:** `humanInput: true`, capped as a member's own send. The member's echo carries the prompt as `sdkText`, so an edit-fork pairs it. There is no "Writing a handoff brief" line: the echo and the reply show it.
+- **Fresh chat:** `Handed off to a fresh session.`, with no automatic notice, no loop-guard flag and no audit row (a typed `/clear` records none either).
+- **Stop** while the command waits for the current turn cancels it (`Handoff canceled.`), synchronously at the start of `abort`. Stop during the brief turn is a failure.
+- **Failure** (the turn errors, is stopped or capped, gives no brief, or `handoffBody` refuses): no switch, `Handoff did not complete. This conversation continues.`, and the queue goes to the old session. Unlike section 6 it does not spend the automatic attempt.
+- The settings edits that drop an armed phase (switch off, a new token value) apply to an automatic phase only.
 
 ## Rulings
 
@@ -99,7 +112,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 
 ## Doc surfaces
 
-`docs/features.md` and `api/chat.ts` (the `/handoff` line), `server/agent-reference/conversation-lifecycle.md` (the server can run the handoff; 409 meanwhile), `server/agent-reference/agent-management.md` (`autoHandoff` and `autoHandoffTokens` are PATCH fields). `server/system-prompt.ts` does not change: the brief-turn prompt and the fresh-session notice say all the agent needs, and the system prompt avoids per-agent differences.
+`docs/features.md` and `api/chat.ts` (the `/handoff` line, a command since task 970930a3), `server/agent-reference/conversation-lifecycle.md` (the server can run the handoff; 409 meanwhile), `server/agent-reference/agent-management.md` (`autoHandoff` and `autoHandoffTokens` are PATCH fields). `server/system-prompt.ts` does not change: the brief-turn prompt and the fresh-session notice say all the agent needs, and the system prompt avoids per-agent differences.
 
 ---
 
@@ -117,7 +130,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 - Snapshot, generation and fired-sets: `server/internal-types.ts:24-31`, `:90-126`. Sample commit: `server/agent-manager.ts:3983-4019`. Member notice: `:4027-4058`. Refresh: `:4066-4091`. Turn-boundary sampling: `:4718-4725`. Codex `usage_update` sampling: `:4850`. `/context` reading auto-compact: `server/command-handlers.ts:473-480`.
 - Agent notice and its engine opt-out: `server/agent-turn.ts:332`, `:345-348`, `:441-470`.
 - Handoff: `server/agent-manager.ts:9105-9246` (`newConversation` with `keepQueue`), `:9253` (guard), `:9266-9329` (`handoff`). Route: `server/routes/table.ts:644-672`. Handler: `server/routes/handlers/conversation.ts:603-619`. Office wiring: `server/isomux-office.ts:4911-4920`.
-- Skill: `skills/isomux-handoff/SKILL.md`. Agent reference: `server/agent-reference/conversation-lifecycle.md`. System prompt pointer: `server/system-prompt.ts:107`.
+- Skill (retired 2026-10-23, task 970930a3): `skills/isomux-handoff/SKILL.md`. Agent reference: `server/agent-reference/conversation-lifecycle.md`. System prompt pointer: `server/system-prompt.ts:107`.
 - Queue: idle check `server/agent-manager.ts:6651-6653`; `flushQueue` `:6869-6910`; idle-branch flush in `enqueueMessage` `:6806-6815`; idle-transition trigger `:3496-3512`; send-accept drain `:7083-7091`; watchdog `:5370-5386`. Steer: decision `:6739-6762`, `:6826-6855`; tool-boundary delivery and drain `:6426-6482`, `:4690-4696`. Conversation-boundary reset: `:3876`.
 
 ## Appendix C: Mechanism

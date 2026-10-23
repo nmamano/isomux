@@ -41,16 +41,31 @@ export interface ContextUsageSnapshot {
   compactAtTokens?: number;
 }
 
-// An automatic handoff from the moment it arms until the reset (or an exit).
-// In memory only. See internal-docs/auto-handoff-design.md, Appendix C.
-export interface AutoHandoffPhase {
+// A handoff the server runs, from the moment it arms until the reset (or an
+// exit): the automatic one, or a member's typed /handoff (`manual`). In memory
+// only. See internal-docs/auto-handoff-design.md, Appendix C.
+export type AutoHandoffPhase = {
   // Set synchronously when the brief turn starts and never cleared on this
   // object: the brief turn's own idle transition must not start a second one.
   briefStarted: boolean;
-  trigger: AutoHandoffTrigger;
-  // The sample that armed it, for the prompt and the member's lines.
-  totalTokens: number;
-  percentage: number;
+} & (
+  | {
+      manual?: undefined;
+      trigger: AutoHandoffTrigger;
+      // The sample that armed it, for the prompt and the member's lines.
+      totalTokens: number;
+      percentage: number;
+    }
+  | {
+      // The member who typed /handoff, and the text after the command.
+      manual: ManualHandoffRequest;
+    }
+);
+
+export interface ManualHandoffRequest {
+  username?: string;
+  device?: string;
+  note?: string;
 }
 
 export interface ManagedAgent {
@@ -626,10 +641,12 @@ export type AbortResult =
 //     window; letting them through would keep it from ever finishing a turn.
 //   auto_handoff - an automatic handoff is under way; the message waits for
 //     the fresh session.
+//   handoff - a member's /handoff is under way; the same.
 export type SteerDeclineReason =
   | "multi_step_flow"
   | "rate_limited"
-  | "auto_handoff";
+  | "auto_handoff"
+  | "handoff";
 
 // Result of enqueueMessage. `status` is the HTTP status the WS/HTTP layer
 // should forward for the failure case. `steered` / `steerDeclined` are present

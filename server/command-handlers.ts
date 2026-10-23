@@ -59,6 +59,7 @@ import {
   SessionSwappedError,
   inMultiStepFlow,
   type ManagedAgent,
+  type ManualHandoffRequest,
   type AgentEvent,
   type EnqueueResult,
 } from "./internal-types.ts";
@@ -232,6 +233,14 @@ interface HandlerDeps {
   // runs too. `typed` leaves out the "New conversation started." line: the
   // empty chat is the confirmation (Nil, 2026-09-13).
   newConversation: (agentId: string, opts: { typed: true }) => Promise<void>;
+  // The typed /handoff: echoes `rawText`, then arms the server's handoff (one
+  // brief turn, then a fresh session with the brief), or writes the line that
+  // says why not. agent-manager requestHandoff.
+  requestHandoff: (
+    agentId: string,
+    rawText: string,
+    request: ManualHandoffRequest,
+  ) => void;
   persistAll: () => void;
   // A skill turn a session swap cut before the backend took it goes back in
   // the queue for the next session (agent-manager requeueSwappedSend).
@@ -332,6 +341,16 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
         deps.updateState(agentId, "error");
       }
+      return true;
+    },
+
+    async handoff(agentId, _managed, args, rawText, username, device) {
+      const note = args.join(" ");
+      deps.requestHandoff(agentId, rawText, {
+        ...(username ? { username } : {}),
+        ...(device ? { device } : {}),
+        ...(note ? { note } : {}),
+      });
       return true;
     },
 

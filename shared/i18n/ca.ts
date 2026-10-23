@@ -2518,6 +2518,7 @@ Coses que pots fer per ell:
   "schedules.nextRunIn": "d'aquí a {duration}",
 
   "commands.clear.description": "Esborrar l'historial de la conversa",
+  "commands.handoff.description": "Continuar la tasca en una sessió nova",
   "commands.context.description": "Veure l'ús de la finestra de context",
   "commands.help.description": "Llistar totes les ordres disponibles",
   "commands.resume.description": "Reprendre una sessió anterior",
@@ -2662,6 +2663,12 @@ Coses que pots fer per ell:
   "commands.unsupported.unknownCommand":
     "Ordre desconeguda `/{name}`. Escriu `/help` per veure les ordres disponibles.",
   "commands.clear.failed": "No s'ha pogut esborrar la conversa: {error}",
+  "commands.handoff.waiting": "Es traspassa quan acabi aquest torn.",
+  "commands.handoff.underWay": "Ja hi ha un traspàs en curs.",
+  "commands.handoff.empty":
+    "No hi ha res a traspassar: aquesta conversa és buida.",
+  "commands.handoff.notResumable":
+    "No es pot traspassar: aquesta conversa no es pot reprendre. Escriu /clear per començar de zero.",
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No hi ha cap sessió activa.",
   "commands.context.unavailable":
@@ -2774,6 +2781,9 @@ Coses que pots fer per ell:
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
   "systemEntries.handedOff": "Traspassat a una sessió nova.",
+  "systemEntries.handoff.failed":
+    "El traspàs no s'ha completat. Aquesta conversa continua.",
+  "systemEntries.handoff.canceled": "Traspàs cancel·lat.",
   "systemEntries.managerChanged":
     "{actor} ha fet responsable {member}. Conversa nova iniciada.",
   "systemEntries.autoHandoff.writingTokens":

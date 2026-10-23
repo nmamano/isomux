@@ -38,7 +38,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Hierarchical system prompts** - office-wide, per-room, and per-agent instructions compose into one assembled system prompt for every agent, all editable from the UI. The Spawn and Edit agent menus keep instructions and memory together; Show full system prompt previews unsaved settings without saving them.
 - **Custom instructions per agent**, editable at spawn and later.
 - **Agent-collaboration skills**: `/pair-programming`, `/peer-review`, `/soft-handoff`, `/second-opinion`, `/subagent-review`.
-- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left and restarts clean on just that brief, and the chat clears. With **Automatic handoff** on in an agent's settings, it hands off by itself when its context gets full), `/loose-ends` (recap what is in flight and what needs you, without ending the session), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out`, `/isomux-report-bug`.
+- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/loose-ends` (recap what is in flight and what needs you, without ending the session), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out`, `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
 ## Multiple members
@@ -112,7 +112,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Escape** closes the page on top and returns to what was under it.
 - **b** goes between a room's front and its back room.
 - **t**, **a**, **i** and **s** open Tasks, Apps, Integrations and Settings when no text field has focus. Press t, a or i again to close the page.
-- **Built-in slash commands**: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort`, `/plan`, `/reload-plugins`. Claude agents also run Claude Code's `/code-review` (or `/review`) and `/simplify`.
+- **Built-in slash commands**: `/clear`, `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left and restarts clean on just that brief, and the chat clears. With **Automatic handoff** on in an agent's settings, it hands off by itself when its context gets full), `/help`, `/context`, `/resume`, `/model`, `/effort`, `/plan`, `/reload-plugins`. Claude agents also run Claude Code's `/code-review` (or `/review`) and `/simplify`.
 - **Spawn dialog**: pick model, permission mode, thinking effort, and working directory (with recent-CWD suggestions) when creating an agent.
 - Start with a blank-canvas agent or choose from 13 templates like Side Project Builder, Money Planner, and Health Navigator, in your language.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.

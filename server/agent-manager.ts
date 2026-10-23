@@ -234,6 +234,7 @@ import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
   autoHandoffBriefPrompt,
+  handoffBriefPrompt,
   autoHandoffMeasureParams,
   autoHandoffPossible,
   autoHandoffTokensOf,
@@ -261,6 +262,7 @@ import {
   pendingPromptOf,
   type ManagedAgent,
   type AutoHandoffPhase,
+  type ManualHandoffRequest,
   type ContextUsageSnapshot,
   type AgentEvent,
   type EventHandler,
@@ -1760,6 +1762,7 @@ export function createAgentManager(deps: ManagerDeps) {
     if (
       managed.info.autoHandoff !== true &&
       managed.autoHandoffPhase &&
+      !managed.autoHandoffPhase.manual &&
       !managed.autoHandoffPhase.briefStarted
     ) {
       managed.autoHandoffPhase = null;
@@ -1770,6 +1773,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const phase = managed.autoHandoffPhase;
     if (
       phase &&
+      !phase.manual &&
       !phase.briefStarted &&
       events[0].type === "agent_updated" &&
       events[0].changes.autoHandoffTokens !== undefined
@@ -3778,7 +3782,7 @@ export function createAgentManager(deps: ManagerDeps) {
     if (
       state !== prev &&
       isQueueIdleState(state) &&
-      managed.messageQueue.length > 0 &&
+      (managed.messageQueue.length > 0 || handoffWaiting(managed)) &&
       !managed.flushInProgress &&
       !inMultiStepFlow(managed)
     ) {
@@ -7049,6 +7053,7 @@ export function createAgentManager(deps: ManagerDeps) {
     emitLogoutAffordanceFor: emitLogoutAffordance,
     newConversation: (agentId, opts) =>
       newConversation(agentId, undefined, undefined, opts),
+    requestHandoff,
     persistAll,
     requeueSwappedSend,
     wakeDormantSession: (agentId, managed, rawText, username, device) =>
@@ -7940,15 +7945,17 @@ export function createAgentManager(deps: ManagerDeps) {
       if (managed.queueHolds.size > 0) {
         return { ok: true, queued: true, messageId: id, steered: false };
       }
-      // An automatic handoff is under way: the message goes to the fresh
-      // session, and interrupting the brief turn would only cancel it.
+      // A handoff is under way: the message goes to the fresh session, and
+      // interrupting the brief turn would only cancel it.
       if (managed.autoHandoffPhase) {
         return {
           ok: true,
           queued: true,
           messageId: id,
           steered: false,
-          steerDeclined: "auto_handoff",
+          steerDeclined: managed.autoHandoffPhase.manual
+            ? "handoff"
+            : "auto_handoff",
         };
       }
       // Nothing is interrupted, so the rate limit (which protects the
@@ -7985,7 +7992,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (!managed) return;
     if (managed.flushInProgress) return;
-    if (managed.messageQueue.length === 0) return;
+    if (managed.messageQueue.length === 0 && !handoffWaiting(managed)) return;
     // A conversation change holds the queue; its release flushes.
     if (managed.queueHolds.size > 0) return;
 
@@ -8030,7 +8037,7 @@ export function createAgentManager(deps: ManagerDeps) {
       if (!agents.has(agentId)) return;
       if (!isQueueIdleState(managed.info.state)) return;
       if (inMultiStepFlow(managed)) return;
-      if (managed.messageQueue.length === 0) return;
+      if (managed.messageQueue.length === 0 && !handoffWaiting(managed)) return;
 
       if (managed.sessionManager.abortPromise) {
         try {
@@ -8040,7 +8047,8 @@ export function createAgentManager(deps: ManagerDeps) {
         if (!agents.has(agentId)) return;
         if (!isQueueIdleState(managed.info.state)) return;
         if (inMultiStepFlow(managed)) return;
-        if (managed.messageQueue.length === 0) return;
+        if (managed.messageQueue.length === 0 && !handoffWaiting(managed))
+          return;
       }
       // A process marked by an environment change is released here, so the
       // branch below wakes a new one.
@@ -8118,8 +8126,8 @@ export function createAgentManager(deps: ManagerDeps) {
         }
       }
 
-      // Automatic handoff armed: the queue waits for the fresh session. The
-      // brief turn starts here unless it already runs.
+      // A handoff armed (automatic or /handoff): the queue waits for the
+      // fresh session. The brief turn starts here unless it already runs.
       if (managed.autoHandoffPhase) {
         autoHandoffGateHits.set(
           agentId,
@@ -9804,6 +9812,13 @@ export function createAgentManager(deps: ManagerDeps) {
     // never covers exactly the case where the stamp matters most.
     managed.sessionManager.abortCancelToken =
       managed.sessionManager.turnCancelToken;
+    // A member's /handoff that waits for this turn does not happen: the
+    // member wants attention. Before any await, so the stopped turn's end
+    // does not start the brief.
+    if (handoffWaiting(managed)) {
+      managed.autoHandoffPhase = null;
+      addLogEntry(agentId, "system", msg("systemEntries.handoff.canceled"));
+    }
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
     // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
@@ -10450,8 +10465,9 @@ export function createAgentManager(deps: ManagerDeps) {
     },
     // `handoff` marks a handoff's reset (brief at the queue's head): the
     // fresh chat gets no line for the carried queue. `autoHandoff` marks a
-    // reset the automatic handoff runs: the fresh conversation gets its
-    // notice, its member line and the loop guard.
+    // reset the server's brief turn ran: an automatic one gives the fresh
+    // conversation its notice, its member line and the loop guard; a member's
+    // /handoff (`manual`) gets the handoff line only.
     // `typed` marks the typed /clear: no "New conversation started." line.
     // `notice` replaces that line (a manager transfer says who changed what).
     opts?: {
@@ -10542,7 +10558,7 @@ export function createAgentManager(deps: ManagerDeps) {
       resetContextUsage(managed);
       // Set after the reset, which clears them; before the drain, because the
       // held queue's flush may start during it.
-      if (opts?.autoHandoff) {
+      if (opts?.autoHandoff && !opts.autoHandoff.manual) {
         managed.autoHandoffOpened = true;
         managed.autoHandoffNotice = AUTO_HANDOFF_FRESH_NOTICE;
       }
@@ -10559,7 +10575,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          opts?.autoHandoff
+          opts?.autoHandoff && !opts.autoHandoff.manual
             ? autoHandoffLine(opts.autoHandoff, "done")
             : opts?.handoff
               ? msg("systemEntries.handedOff")
@@ -10602,6 +10618,106 @@ export function createAgentManager(deps: ManagerDeps) {
     await drained;
   }
 
+  // A member's typed /handoff (command-handlers): arms the phase with
+  // `manual`, so the brief turn and the switch run as the automatic ones do.
+  function requestHandoff(
+    agentId: string,
+    rawText: string,
+    request: ManualHandoffRequest,
+  ): void {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    const userMeta: Record<string, unknown> = {};
+    if (request.username) userMeta.username = request.username;
+    if (request.device) userMeta.device = request.device;
+    const refuse = (line: LogMessage) => {
+      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      emitEphemeralLog(agentId, "system", line);
+    };
+    // One handoff at a time: a running brief turn, a reset, or a /handoff
+    // that waits for the current turn.
+    const current = managed.autoHandoffPhase;
+    if (
+      handoffInProgress.has(agentId) ||
+      current?.briefStarted ||
+      current?.manual
+    ) {
+      refuse(msg("commands.handoff.underWay"));
+      return;
+    }
+    if (!managed.sessionManager.sessionId) {
+      refuse(msg("commands.handoff.empty"));
+      return;
+    }
+    // After a failed turn the agent is in error: the brief turn needs the
+    // conversation resumed first, as a message's enqueue does.
+    const state = managed.info.state;
+    const resumeId =
+      state === "error" ? pickAutoResumeSessionId(managed) : null;
+    if (state === "error" && resumeId === null) {
+      refuse(msg("commands.handoff.notResumable"));
+      return;
+    }
+    // The echo pairs with the prompt the brief turn sends, for edit-fork.
+    addLogEntry(agentId, "user_message", rawText, {
+      ...userMeta,
+      sdkText: manualBriefText(request),
+    });
+    // An armed automatic handoff with no brief yet gives way, as it does to
+    // an agent's own handoff call.
+    const busy =
+      state === "thinking" ||
+      state === "tool_executing" ||
+      managed.sessionManager.pendingTurn !== null;
+    managed.autoHandoffPhase = { briefStarted: false, manual: request };
+    if (busy) {
+      addLogEntry(agentId, "system", msg("commands.handoff.waiting"));
+      return;
+    }
+    // The resume's move out of error fires updateState's flush trigger,
+    // which starts the brief turn.
+    if (resumeId !== null) {
+      if (!managed.autoResumeInProgress) {
+        managed.autoResumeInProgress = true;
+        void resume(agentId, resumeId).finally(() => {
+          managed.autoResumeInProgress = false;
+        });
+      }
+      return;
+    }
+    // A member's request for a turn retries a backend that failed, as a
+    // message does; the release flushes, which starts the brief turn.
+    releaseBackendHold(agentId, managed);
+    kickFlush(agentId, managed, "handoff");
+  }
+
+  // The manual brief turn's text: the member prefix, then the prompt.
+  function manualBriefText(request: ManualHandoffRequest): string {
+    return `${formatPrefix({ username: request.username, device: request.device })}${handoffBriefPrompt(request.note)}`;
+  }
+
+  // A member's /handoff waits for the current turn: the queue gate runs it
+  // even when no message waits.
+  function handoffWaiting(managed: ManagedAgent): boolean {
+    const phase = managed.autoHandoffPhase;
+    return !!phase?.manual && !phase.briefStarted;
+  }
+
+  function kickFlush(agentId: string, managed: ManagedAgent, label: string) {
+    if (
+      !isQueueIdleState(managed.info.state) ||
+      inMultiStepFlow(managed) ||
+      managed.flushInProgress
+    )
+      return;
+    flushQueue(agentId).catch((err: unknown) => {
+      console.error(
+        `flushQueue (${label}) failed for ${agentId}:`,
+        errMessage(err),
+      );
+    });
+  }
+
   // In-flight handoff guard. A SECOND concurrent handoff for the same agent
   // must not run: its brief would go ahead of the first's, and its reset would
   // throw away the fresh session the first one just woke. We reject the second
@@ -10611,9 +10727,10 @@ export function createAgentManager(deps: ManagerDeps) {
 
   // ---- Automatic handoff (internal-docs/auto-handoff-design.md) ----------
   //
-  // Arms from a committed sample (evaluateAutoHandoff). The next message to
-  // arrive runs one brief turn in the old session (runAutoHandoff), then hands
-  // off through handoffBody. While the phase is set, every send path queues
+  // Arms from a committed sample (evaluateAutoHandoff), or from a member's
+  // /handoff (requestHandoff, with `manual`). The next message to arrive, or
+  // for /handoff the end of the current turn, runs one brief turn in the old
+  // session (runAutoHandoff), then hands off through handoffBody. While the phase is set, every send path queues
   // and flushQueue starts the brief turn instead of sending, so that message
   // and the rest of the queue go to the fresh session. Every exit clears the
   // phase and lets the queue flush.
@@ -10790,7 +10907,8 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
     phase: AutoHandoffPhase,
   ): Promise<void> {
-    addLogEntry(agentId, "system", autoHandoffLine(phase, "writing"));
+    if (!phase.manual)
+      addLogEntry(agentId, "system", autoHandoffLine(phase, "writing"));
     const capture: NonNullable<ManagedAgent["autoHandoffCapture"]> = {
       chunks: [],
       status: null,
@@ -10800,12 +10918,22 @@ export function createAgentManager(deps: ManagerDeps) {
     try {
       // runAgentTurn calls beginTurn before its first await, so the agent is
       // busy before this function yields.
-      await runAgentTurn({
-        managed,
-        sdkText: autoHandoffBriefPrompt(phase),
-        humanInput: false,
-        usageCapped: true,
-      });
+      await runAgentTurn(
+        phase.manual
+          ? {
+              managed,
+              sdkText: manualBriefText(phase.manual),
+              humanInput: true,
+              usageCapped: directInputCapped(phase.manual.username),
+              usageCapUsername: phase.manual.username,
+            }
+          : {
+              managed,
+              sdkText: autoHandoffBriefPrompt(phase),
+              humanInput: false,
+              usageCapped: true,
+            },
+      );
     } catch (err) {
       threw = true;
       if (agents.has(agentId)) briefTurnFailure(agentId, managed, err);
@@ -10818,15 +10946,18 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!agents.has(agentId) || managed.autoHandoffPhase !== phase) return;
     const brief = joinBriefChunks(managed.info.agentType, capture.chunks);
     if (threw || capture.status !== "completed" || !brief) {
-      failAutoHandoff(agentId, managed);
+      failAutoHandoff(agentId, managed, phase);
       return;
     }
     const result = await handoffBody(agentId, brief, phase);
     if (!agents.has(agentId)) return;
     if (!result.ok) {
-      if (managed.autoHandoffPhase === phase) failAutoHandoff(agentId, managed);
+      if (managed.autoHandoffPhase === phase)
+        failAutoHandoff(agentId, managed, phase);
       return;
     }
+    // A typed /handoff records nothing, as a typed /clear does.
+    if (phase.manual) return;
     recordAudit({
       actor: {
         kind: "auto_handoff",
@@ -10857,7 +10988,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // The member's two lines, the old chat's ("writing") and the fresh chat's
   // first ("done"). Both name the limit that fired, so they give one reason.
   function autoHandoffLine(
-    phase: AutoHandoffPhase,
+    phase: AutoHandoffPhase & { manual?: undefined },
     which: "writing" | "done",
   ): LogMessage {
     const params = autoHandoffMeasureParams(phase.trigger);
@@ -10877,13 +11008,22 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
-  // No handoff: the conversation continues and has used its attempt, so the
-  // fullness notices come back. The queue flushes to the old session.
-  function failAutoHandoff(agentId: string, managed: ManagedAgent): void {
+  // No handoff: the conversation continues and the queue flushes to the old
+  // session. A failed automatic attempt uses the conversation's attempt, so
+  // the fullness notices come back; a failed /handoff leaves it.
+  function failAutoHandoff(
+    agentId: string,
+    managed: ManagedAgent,
+    phase: AutoHandoffPhase,
+  ): void {
     managed.autoHandoffPhase = null;
-    managed.autoHandoffSpent = true;
-    addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.failed"));
-    maybeEmitUiContextNotice(managed);
+    if (phase.manual) {
+      addLogEntry(agentId, "system", msg("systemEntries.handoff.failed"));
+    } else {
+      managed.autoHandoffSpent = true;
+      addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.failed"));
+      maybeEmitUiContextNotice(managed);
+    }
     releaseAutoHandoffQueue(agentId, managed);
   }
 
@@ -10928,7 +11068,7 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!managed.queueHolds.delete(hold) || managed.queueHolds.size > 0) return;
     if (
       agents.get(agentId) === managed &&
-      managed.messageQueue.length > 0 &&
+      (managed.messageQueue.length > 0 || handoffWaiting(managed)) &&
       isQueueIdleState(managed.info.state) &&
       !inMultiStepFlow(managed) &&
       !managed.flushInProgress

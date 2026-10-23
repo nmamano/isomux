@@ -27,6 +27,7 @@ type UnsupportedMessageKey = Extract<MessageKey, `commands.${string}.message`>;
 
 export const COMMAND_DESCRIPTION_KEYS = {
   clear: "commands.clear.description",
+  handoff: "commands.handoff.description",
   context: "commands.context.description",
   help: "commands.help.description",
   resume: "commands.resume.description",

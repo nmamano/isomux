@@ -99,6 +99,16 @@ export const commands: Record<string, CommandConfig> = {
     handler: "clear",
     autoRun: true,
   },
+  // The server runs one brief turn, then hands off to a fresh session with
+  // the brief (the automatic handoff's path, server/agent-manager.ts).
+  handoff: {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "handoff",
+    autoRun: true,
+  },
   context: {
     type: "hardcoded",
     supported: true,

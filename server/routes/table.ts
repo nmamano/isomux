@@ -774,9 +774,8 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Clear the session and start a fresh conversation. Operators (users +
   // privileged agents holding agent:converse) clear any agent in an accessible
-  // room; an ordinary agent may clear ITSELF (self:affordance), which is what
-  // lets the /isomux-self-handoff skill schedule a wake-up then reset its own
-  // session. conversationReset enforces the operator-vs-self split.
+  // room; an ordinary agent may clear ITSELF (self:affordance), so it can reset
+  // its own session. conversationReset enforces the operator-vs-self split.
   defineRoute<NewConversationReq, NoContent>({
     opId: "agents.newConversation",
     audit: { owner: "executor", targets: resourceTargets },
@@ -787,8 +786,8 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Instant self-handoff: reset the session (like
   // new-conversation) AND deliver {text} into the fresh session as the agent's
-  // own brief, in one call - the fast path the /handoff skill uses instead of the
-  // up-to-30s deliverAt + separate reset detour. One handoff at a time per agent
+  // own brief, in one call - an agent's self-handoff (a member's /handoff runs
+  // the same reset server-side, agent-manager handoffBody). One handoff at a time per agent
   // (a concurrent second gets 409 handoff_in_progress, so the running one can't
   // be clobbered into a false success); the enqueue is transactional, so a
   // delivery failure surfaces as an HTTP error, not a false ack. Same auth split

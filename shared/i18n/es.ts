@@ -2511,6 +2511,7 @@ Cosas que puedes hacer por él:
   "schedules.nextRunIn": "en {duration}",
 
   "commands.clear.description": "Borrar el historial de la conversación",
+  "commands.handoff.description": "Continuar la tarea en una sesión nueva",
   "commands.context.description": "Ver el uso de la ventana de contexto",
   "commands.help.description": "Listar todos los comandos disponibles",
   "commands.resume.description": "Retomar una sesión anterior",
@@ -2658,6 +2659,12 @@ Cosas que puedes hacer por él:
   "commands.unsupported.unknownCommand":
     "Comando desconocido `/{name}`. Escribe `/help` para ver los comandos disponibles.",
   "commands.clear.failed": "No se pudo borrar la conversación: {error}",
+  "commands.handoff.waiting": "Se traspasa cuando termine este turno.",
+  "commands.handoff.underWay": "Ya hay un traspaso en curso.",
+  "commands.handoff.empty":
+    "No hay nada que traspasar: esta conversación está vacía.",
+  "commands.handoff.notResumable":
+    "No se puede traspasar: esta conversación no se puede reanudar. Escribe /clear para empezar de cero.",
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No hay ninguna sesión activa.",
   "commands.context.unavailable":
@@ -2769,6 +2776,9 @@ Cosas que puedes hacer por él:
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
   "systemEntries.handedOff": "Traspasado a una sesión nueva.",
+  "systemEntries.handoff.failed":
+    "El traspaso no se completó. Esta conversación continúa.",
+  "systemEntries.handoff.canceled": "Traspaso cancelado.",
   "systemEntries.managerChanged":
     "{actor} hizo responsable a {member}. Conversación nueva iniciada.",
   "systemEntries.autoHandoff.writingTokens":

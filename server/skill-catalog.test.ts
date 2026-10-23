@@ -231,13 +231,22 @@ describe("skill catalog", () => {
 
   it("shows a built-in alias once, under the alias, with both names' uses", () => {
     const list = entries(context({ userRoots: [tmp("user")] }), {
-      handoff: 2,
-      "isomux-handoff": 3,
+      "peer-review": 2,
+      "isomux-peer-review": 3,
     });
-    expect(list.some((s) => s.name === "isomux-handoff")).toBe(false);
-    const alias = list.find((s) => s.name === "handoff");
-    expect(alias?.aliasFor).toBe("isomux-handoff");
+    expect(list.some((s) => s.name === "isomux-peer-review")).toBe(false);
+    const alias = list.find((s) => s.name === "peer-review");
+    expect(alias?.aliasFor).toBe("isomux-peer-review");
     expect(alias?.uses).toBe(5);
+  });
+
+  // /handoff is a built-in command (task 970930a3): no skill of either name.
+  it("lists no handoff skill", () => {
+    const list = entries(context({ userRoots: [tmp("user")] }), {});
+    expect(list.some((s) => s.name === "peer-review")).toBe(true);
+    expect(
+      list.filter((s) => s.name === "handoff" || s.name === "isomux-handoff"),
+    ).toEqual([]);
   });
 
   it("finds entries by exact path only", () => {

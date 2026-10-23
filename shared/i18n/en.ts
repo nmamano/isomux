@@ -2460,6 +2460,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // shared/i18n/command-keys.ts. The registry in server/commands.ts holds the
   // structure (type, supported, autocomplete, handler); the words live here.
   "commands.clear.description": "Wipe conversation history",
+  "commands.handoff.description": "Continue the task on a fresh session",
   "commands.context.description": "Visualize context window usage",
   "commands.help.description": "List all available commands",
   "commands.resume.description": "Pick up a previous session",
@@ -2593,6 +2594,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
 
   // /clear (also /reset, /new)
   "commands.clear.failed": "Failed to clear conversation: {error}",
+  "commands.handoff.waiting": "Hands off when this turn ends.",
+  "commands.handoff.underWay": "A handoff is already under way.",
+  "commands.handoff.empty": "Nothing to hand off: this conversation is empty.",
+  "commands.handoff.notResumable":
+    "Cannot hand off: this conversation cannot be resumed. Type /clear to start fresh.",
 
   // /context
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
@@ -2738,6 +2744,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
   "systemEntries.newConversation": "New conversation started.",
   "systemEntries.handedOff": "Handed off to a fresh session.",
+  "systemEntries.handoff.failed":
+    "Handoff did not complete. This conversation continues.",
+  "systemEntries.handoff.canceled": "Handoff canceled.",
   "systemEntries.managerChanged":
     "{actor} made {member} the manager. New conversation started.",
   "systemEntries.autoHandoff.writingTokens":

@@ -2388,15 +2388,6 @@ const DEMO_SKILLS: Array<
     body: "# Grill me\n\nAsk one question at a time about the plan. For each question, give your recommended answer.",
   },
   {
-    name: "handoff",
-    aliasFor: "isomux-handoff",
-    source: "isomux",
-    description:
-      "Continue an unfinished task on a fresh session from a short brief.",
-    path: "/opt/isomux/skills/isomux-handoff/SKILL.md",
-    body: "# Handoff\n\nWrite a short brief of what is left and start a fresh session on that brief.",
-  },
-  {
     name: "wrap-session",
     source: "isomux",
     description: "Check for loose ends and close the session cleanly.",

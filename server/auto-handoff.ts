@@ -99,19 +99,26 @@ export function autoHandoffPossible(managed: ManagedAgent): boolean {
   );
 }
 
-/** The brief turn's prompt. Keeps the content rules of /handoff step 1
- *  (skills/isomux-handoff/SKILL.md) and no more. */
+// What a brief holds, for both brief prompts (automatic and /handoff).
+const BRIEF_RULES =
+  `Reply with only the handoff brief. It is forward-looking: the goal, the next concrete steps, working state not obvious from disk, decisions the fresh session should not relitigate, open questions to revisit with the member, and pointers (files, docs, task IDs). ` +
+  `Leave out a recap of this session and anything already in your system prompt, custom instructions or memory. Keep it tight. Do not call the handoff route.`;
+
+/** The automatic brief turn's prompt. */
 export function autoHandoffBriefPrompt(sample: {
   totalTokens: number;
   percentage: number;
 }): string {
   const tokens = sample.totalTokens.toLocaleString("en-US");
   const pct = Math.round(sample.percentage);
-  return (
-    `[automatic handoff: your context is at ${tokens} tokens (${pct}% full), and after this turn Isomux hands this session off to a fresh one. ` +
-    `Reply with only the handoff brief. It is forward-looking: the goal, the next concrete steps, working state not obvious from disk, decisions the fresh session should not relitigate, open questions to revisit with the member, and pointers (files, docs, task IDs). ` +
-    `Leave out a recap of this session and anything already in your system prompt, custom instructions or memory. Keep it tight. Do not call the handoff route.]`
-  );
+  return `[automatic handoff: your context is at ${tokens} tokens (${pct}% full), and after this turn Isomux hands this session off to a fresh one. ${BRIEF_RULES}]`;
+}
+
+/** The brief turn's prompt for a member's /handoff. `note` is the text the
+ *  member typed after the command. */
+export function handoffBriefPrompt(note?: string): string {
+  const prompt = `[handoff: the member asked for a handoff, and after this turn Isomux hands this session off to a fresh one. ${BRIEF_RULES}]`;
+  return note ? `${prompt}\n\nMember's note: ${note}` : prompt;
 }
 
 /** The fresh session's one-shot notice, sent with the brief. */

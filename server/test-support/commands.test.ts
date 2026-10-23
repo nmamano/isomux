@@ -14,6 +14,7 @@ import { commands, autocompleteCommands } from "../commands.ts";
 // cwd with no arg.
 const EXPECTED_AUTORUN = new Set([
   "clear",
+  "handoff",
   "context",
   "help",
   "login",
