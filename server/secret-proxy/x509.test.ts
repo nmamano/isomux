@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createPrivateKey, X509Certificate } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -22,10 +22,16 @@ const leaf = issuer.issue("api.example-stub.test");
 writeFileSync(join(dir, "ca.pem"), ca.certPem);
 writeFileSync(join(dir, "leaf.pem"), leaf.certPem);
 
+// Only PATH: an agent shell carries proxy and CA variables that would send a
+// client to the secret proxy or override the CA under test.
+function clientEnv(): Record<string, string | undefined> {
+  return { PATH: process.env.PATH };
+}
+
 // Async, so the TLS server in this process can answer while it runs.
 async function run(
   command: string[],
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = clientEnv(),
 ): Promise<{ status: number; stdout: string }> {
   const child = Bun.spawn(command, { env, stdout: "pipe", stderr: "ignore" });
   const stdout = await new Response(child.stdout).text();
@@ -125,6 +131,31 @@ describe("real TLS clients accept a leaf for the name they asked for", () => {
   });
   afterAll(() => server.close());
 
+  // An agent shell routes clients through the secret proxy. Plant a dead one,
+  // with no no_proxy exemption, so every shell (CI too) catches a client
+  // child that inherits it.
+  const SHELL_PROXY: Record<string, string | undefined> = {
+    HTTPS_PROXY: "http://127.0.0.1:9",
+    https_proxy: "http://127.0.0.1:9",
+    NODE_USE_ENV_PROXY: "1",
+    NO_PROXY: undefined,
+    no_proxy: undefined,
+  };
+  const prior = new Map<string, string | undefined>();
+  beforeAll(() => {
+    for (const [name, value] of Object.entries(SHELL_PROXY)) {
+      prior.set(name, process.env[name]);
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  afterAll(() => {
+    for (const [name, value] of prior) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
   test.skipIf(!has("curl"))("curl (SKIPPED when curl is absent)", async () => {
     await ready;
     const result = await run([
@@ -169,7 +200,7 @@ describe("real TLS clients accept a leaf for the name they asked for", () => {
     await ready;
     const script = `require("https").get({host:"127.0.0.1",port:${port},servername:"api.example-stub.test",headers:{host:"api.example-stub.test"}},r=>{console.log(r.statusCode)}).on("error",e=>{console.log("error")})`;
     const result = await run(["node", "-e", script], {
-      ...process.env,
+      ...clientEnv(),
       NODE_EXTRA_CA_CERTS: join(dir, "ca.pem"),
     });
     expect(result.stdout.trim()).toBe("200");
