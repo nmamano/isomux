@@ -1921,7 +1921,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const username = getUsername();
       const me = username ? state.users.get(username.toLowerCase()) : undefined;
       const notifRooms = me?.notifRooms ?? [];
-      // The lobby always sounds (shared/notif-rooms.ts).
+      // The lobby never sounds (shared/notif-rooms.ts).
       if (shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)) {
         playNotificationSound();
       }
