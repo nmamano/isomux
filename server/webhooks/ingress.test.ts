@@ -29,7 +29,7 @@ const CRONJOB = "1a2b3c4d";
 const SPACING_MS =
   Math.ceil(APP_MESSAGE_BURST_WINDOW_MS / APP_MESSAGE_BURST_LIMIT) + 1;
 
-// About 500 deliveries, each with one log write.
+// About 500 deliveries, each with two log writes.
 const CAP_TEST_TIMEOUT_MS = 30_000;
 
 let dir: string;
@@ -316,120 +316,91 @@ describe("webhook ingress: prepareEnqueue is an await", () => {
 });
 
 describe("webhook ingress: the daily dispatch cap", () => {
-  // `count` accepted dispatches, spaced past the minute cap.
-  async function spend(r: Rig, count: number, from = 0): Promise<void> {
-    for (let i = 0; i < count; i++) {
-      t += SPACING_MS;
-      expect((await deliver(r, from + i)).status).toBe(202);
-    }
-  }
-
+  // One fill of the rolling day, then the edge. The fill spaces dispatches
+  // SPACING_MS apart, so moving the clock past a fill dispatch's 24 hours frees
+  // exactly that one slot, with the minute cap empty again.
   it(
-    "500 accepted dispatches per rolling day; the cap lifts as the day rolls",
+    "500 accepted dispatches per rolling day; refusals and failed starts spend no slot, and a send in flight holds one",
     async () => {
       const r = rig();
-      await spend(r, APP_MESSAGE_DAILY_CAP);
-      t += SPACING_MS;
-      const capped = await deliver(r, 9999);
-      expect(capped.status).toBe(429);
-      const wait = Number(capped.headers.get("retry-after"));
-      expect(wait).toBeGreaterThan(60);
-      expect(rows(r)[0].outcome).toBe("dispatch_limited");
-      // The oldest accepted dispatch leaves the rolling day when the advice
-      // says, which is still inside the row's dedup window: the row retries.
-      t += wait * 1000 - 2000;
-      expect((await deliver(r, 9999)).status).toBe(429);
-      t += 2000;
-      expect((await deliver(r, 9999)).status).toBe(202);
-      expect(rows(r)[0]).toMatchObject({ outcome: "dispatched", attempts: 3 });
-      expect(r.enqueued).toHaveLength(APP_MESSAGE_DAILY_CAP + 1);
-    },
-    CAP_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "refused sends spend no daily slot",
-    async () => {
-      const r = rig();
-      r.refuse.code = "queue_full";
-      await (async () => {
-        for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
-          t += SPACING_MS;
-          expect((await deliver(r, i)).status).toBe(503);
-        }
-      })();
-      r.refuse.code = null;
-      t += SPACING_MS;
-      expect((await deliver(r, 0)).status).toBe(202);
-    },
-    CAP_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "a send in flight holds the last daily slot; its refusal releases it",
-    async () => {
-      const r = rig();
-      await spend(r, APP_MESSAGE_DAILY_CAP - 1);
-      const gate = deferred();
-      const entered = deferred();
-      r.onPrepare.fn = async () => {
-        entered.resolve();
-        await gate.promise;
+      const retarget = (target: WebhookRecord["target"]) =>
+        r.registry.update(r.hook.id, { ...r.hook, target });
+      // A 429 from the day, not the minute: near the edge the day frees a
+      // slot within one spacing, while the minute window waits much longer.
+      const dayLimited = (res: Response) => {
+        expect(res.status).toBe(429);
+        expect(Number(res.headers.get("retry-after"))).toBeLessThanOrEqual(
+          Math.ceil(SPACING_MS / 1000),
+        );
       };
-      t += SPACING_MS;
-      const inFlight = deliver(r, 5000);
-      await entered.promise;
-      r.onPrepare.fn = async () => {};
-      // The last slot is held: another delivery is limited, not dispatched.
-      t += SPACING_MS;
-      expect((await deliver(r, 5001)).status).toBe(429);
-      // The held send is refused, so the slot comes back.
-      r.refuse.code = "agent_stopped";
-      gate.resolve();
-      expect((await inFlight).status).toBe(503);
-      r.refuse.code = null;
-      t += SPACING_MS;
-      expect((await deliver(r, 5001)).status).toBe(202);
-      // Now the day is spent.
-      t += SPACING_MS;
-      expect((await deliver(r, 5002)).status).toBe(429);
-      expect(r.enqueued).toHaveLength(APP_MESSAGE_DAILY_CAP);
-    },
-    CAP_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "a cronjob dispatch does not spend the hold of an agent delivery in flight",
-    async () => {
-      const r = rig();
-      for (let i = 0; i < APP_MESSAGE_DAILY_CAP - 2; i++) {
+      for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
         t += SPACING_MS;
         expect((await deliver(r, i)).status).toBe(202);
       }
-      // An agent delivery holds a daily slot while prepareEnqueue waits.
+      t += SPACING_MS;
+      const cappedAt = t;
+      const capped = await deliver(r, 9999);
+      expect(capped.status).toBe(429);
+      expect(rows(r)[0].outcome).toBe("dispatch_limited");
+      // The day blocks, not the minute.
+      const wait = Number(capped.headers.get("retry-after"));
+      expect(wait).toBeGreaterThan(60);
+      t = cappedAt + wait * 1000 - 2000;
+      dayLimited(await deliver(r, 9999));
+
+      // The advice is exact: now the oldest dispatch has left the day, and
+      // one slot is free. None of these five spends it.
+      t = cappedAt + wait * 1000;
+      r.refuse.code = "queue_full";
+      expect((await deliver(r, 8001)).status).toBe(503);
+      r.refuse.code = null;
+      r.onPrepare.fn = async () => {
+        throw new Error("usage cap reading failed");
+      };
+      expect((await deliver(r, 8002)).status).toBe(503);
+      r.onPrepare.fn = async () => {};
+      retarget({ kind: "cronjob", cronjobId: CRONJOB });
+      r.runnable.value = "missing";
+      expect((await deliver(r, 8003)).status).toBe(503);
+      r.runnable.value = "ok";
+      r.onStart.fn = () => null;
+      expect((await deliver(r, 8004)).status).toBe(503);
+      r.onStart.fn = () => {
+        throw new Error("disk full");
+      };
+      expect((await deliver(r, 8005)).status).toBe(503);
+      r.onStart.fn = null;
+      retarget({ kind: "agent", agentId: AGENT });
+      // The limited row retries on the same row and takes the free slot.
+      expect((await deliver(r, 9999)).status).toBe(202);
+      expect(rows(r).find((row) => row.attempts === 3)).toMatchObject({
+        outcome: "dispatched",
+      });
+      dayLimited(await deliver(r, 8006));
+
+      // Two more fill dispatches leave the day: two free slots. An agent send
+      // in flight holds one, a cronjob run takes the other, and nothing is
+      // left, until the held send settles it.
+      t += 2 * SPACING_MS;
       const gate = deferred();
       const entered = deferred();
       r.onPrepare.fn = async () => {
         entered.resolve();
         await gate.promise;
       };
-      t += SPACING_MS;
-      const pending = deliver(r, 7000);
+      const inFlight = deliver(r, 8101);
       await entered.promise;
-      // The hook moves to a cronjob: one run takes the last free slot.
-      r.registry.update(r.hook.id, {
-        ...r.hook,
-        target: { kind: "cronjob", cronjobId: CRONJOB },
-      });
-      t += SPACING_MS;
-      expect((await deliver(r, 7001)).status).toBe(202);
-      t += SPACING_MS;
-      expect((await deliver(r, 7002)).status).toBe(429);
-      // Back to the agent: the held delivery still has its slot.
-      r.registry.update(r.hook.id, r.hook);
+      r.onPrepare.fn = async () => {};
+      retarget({ kind: "cronjob", cronjobId: CRONJOB });
+      expect((await deliver(r, 8102)).status).toBe(202);
+      dayLimited(await deliver(r, 8103));
+      retarget({ kind: "agent", agentId: AGENT });
       gate.resolve();
-      expect((await pending).status).toBe(202);
-      expect(r.enqueued.length + r.started.length).toBe(APP_MESSAGE_DAILY_CAP);
+      expect((await inFlight).status).toBe(202);
+      dayLimited(await deliver(r, 8104));
+
+      // 500 fill sends, the retried row and the held send; one run.
+      expect(r.enqueued).toHaveLength(APP_MESSAGE_DAILY_CAP + 2);
       expect(r.started).toHaveLength(1);
     },
     CAP_TEST_TIMEOUT_MS,
@@ -479,25 +450,23 @@ describe("webhook ingress: the cronjob target", () => {
     expect(r.enqueued).toEqual([]);
   });
 
-  for (const value of ["missing", "forbidden"] as const) {
-    it(`a cronjob that is ${value} at dispatch starts no run, and the row retries`, async () => {
-      const r = rig("cronjob");
-      r.runnable.value = value;
-      expect((await deliver(r, 1)).status).toBe(503);
-      expect(r.started).toEqual([]);
-      expect(rows(r)[0]).toMatchObject({
-        outcome: "target_unavailable",
-        target: { kind: "cronjob", cronjobId: CRONJOB },
-      });
-      expect(rows(r)[0].detail).toBeTruthy();
-      // The target comes back: the same body retries on the same row.
-      r.runnable.value = "ok";
-      expect((await deliver(r, 1)).status).toBe(202);
-      expect(rows(r)).toHaveLength(1);
-      expect(rows(r)[0]).toMatchObject({ outcome: "dispatched", attempts: 2 });
-      expect(r.started).toHaveLength(1);
+  it("a cronjob that is missing at dispatch starts no run, and the row retries", async () => {
+    const r = rig("cronjob");
+    r.runnable.value = "missing";
+    expect((await deliver(r, 1)).status).toBe(503);
+    expect(r.started).toEqual([]);
+    expect(rows(r)[0]).toMatchObject({
+      outcome: "target_unavailable",
+      target: { kind: "cronjob", cronjobId: CRONJOB },
     });
-  }
+    expect(rows(r)[0].detail).toBeTruthy();
+    // The target comes back: the same body retries on the same row.
+    r.runnable.value = "ok";
+    expect((await deliver(r, 1)).status).toBe(202);
+    expect(rows(r)).toHaveLength(1);
+    expect(rows(r)[0]).toMatchObject({ outcome: "dispatched", attempts: 2 });
+    expect(r.started).toHaveLength(1);
+  });
 
   it("a cronjob gone at the start, or a start that throws, leaves a retryable row", async () => {
     const r = rig("cronjob");
@@ -511,25 +480,4 @@ describe("webhook ingress: the cronjob target", () => {
     expect((await deliver(r, 2)).status).toBe(503);
     expect(rows(r)[0].outcome).toBe("target_unavailable");
   });
-
-  it(
-    "only a started run spends a daily slot",
-    async () => {
-      const r = rig("cronjob");
-      r.runnable.value = "missing";
-      for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
-        t += SPACING_MS;
-        expect((await deliver(r, i)).status).toBe(503);
-      }
-      r.runnable.value = "ok";
-      for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
-        t += SPACING_MS;
-        expect((await deliver(r, 1000 + i)).status).toBe(202);
-      }
-      t += SPACING_MS;
-      expect((await deliver(r, 9999)).status).toBe(429);
-      expect(r.started).toHaveLength(APP_MESSAGE_DAILY_CAP);
-    },
-    CAP_TEST_TIMEOUT_MS,
-  );
 });

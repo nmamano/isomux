@@ -91,7 +91,8 @@ export function secretMaterialPaths(stateRoot: string, shareRoot: string) {
 
 // Reads the key and the CA, and makes any that is missing or unreadable.
 // Then writes the bundle from the CA and `systemRootsPem`, every time, so it
-// follows changes of the system roots.
+// follows changes of the system roots. `systemRootsPem` comes from
+// readSystemRoots, which already drops every office CA.
 export function ensureSecretMaterial(input: {
   stateRoot: string;
   shareRoot: string;
@@ -131,7 +132,7 @@ export function ensureSecretMaterial(input: {
   // A separate share is readable by the agent user.
   const sameDir = resolve(paths.bundleDir) === resolve(paths.dir);
   if (!sameDir) ensureDir(paths.bundleDir, 0o755);
-  const roots = withoutOfficeCas(input.systemRootsPem).trim();
+  const roots = input.systemRootsPem.trim();
   writeAtomic(
     paths.bundle,
     `${ca.certPem.trim()}\n${roots ? `${roots}\n` : ""}`,

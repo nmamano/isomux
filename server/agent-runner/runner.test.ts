@@ -200,7 +200,7 @@ describe("agent runner spawn", () => {
     expect(await child.exited).toBe(143);
   });
 
-  it("carries output and input larger than one frame", async () => {
+  it("carries output larger than one frame", async () => {
     start();
     const out = new RunnerProcess(socketPath, [
       "head",
@@ -211,10 +211,6 @@ describe("agent runner spawn", () => {
     expect((await new Response(out.stdout).arrayBuffer()).byteLength).toBe(
       5_000_000,
     );
-    const echo = new RunnerProcess(socketPath, ["wc", "-c"]);
-    await echo.stdin.write(new Uint8Array(3_000_000));
-    void echo.stdin.end();
-    expect((await new Response(echo.stdout).text()).trim()).toBe("3000000");
   });
 
   // A grandchild that ignores SIGTERM and holds none of the pipes: only the

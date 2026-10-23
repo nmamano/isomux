@@ -423,11 +423,6 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     get proxyPort(): number | null {
       return port();
     },
-
-    // Tests only: the child's pid, to kill it.
-    get proxyPid(): number | null {
-      return supervisor?.pid ?? null;
-    },
   };
 }
 

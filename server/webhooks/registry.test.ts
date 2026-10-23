@@ -243,7 +243,8 @@ describe("webhook fields: validation", () => {
   });
 
   it("refuses each broken field with its own code", () => {
-    expect(refusal({ name: "Bad_Name" })).toBe("invalid_name");
+    expect(refusal({ name: "bad_name" })).toBe("invalid_name");
+    expect(refusal({ name: "PR" })).toBe("invalid_name");
     expect(refusal({ scheme: "jwt" })).toBe("invalid_scheme");
     expect(refusal({ signatureHeader: "x-signature" })).toBe("invalid_headers");
     expect(refusal({ scheme: "hmac-sha256" })).toBe("invalid_headers");

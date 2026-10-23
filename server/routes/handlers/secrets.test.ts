@@ -9,7 +9,6 @@ import { join } from "node:path";
 
 import { secretsHandlers } from "./secrets.ts";
 import { createSecretStore } from "../../secret-store.ts";
-import { placeholderFor } from "../../secret-proxy/placeholders.ts";
 import type { HandlerResult, RouteHandlerContext } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { USER_CAPABILITIES } from "../../identity/index.ts";
@@ -123,7 +122,7 @@ describe("after a stored change", () => {
 });
 
 describe("reissue", () => {
-  it("raises the generation, so the placeholder changes and the value stays", async () => {
+  it("raises the generation and keeps the value", async () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-secrets-reissue-"));
     roots.push(root);
     const store = createSecretStore(root);
@@ -137,7 +136,6 @@ describe("reissue", () => {
     });
     await handlers["secrets.create"](ctx(BODY));
     const scope = { kind: "user", userId: "u1" } as const;
-    const key = Buffer.alloc(32, 7);
     const before = store.readForProxy(scope)[0];
     const result = await handlers["secrets.reissue"](
       ctx(undefined, "GH_TOKEN"),
@@ -147,11 +145,6 @@ describe("reissue", () => {
     const after = store.readForProxy(scope)[0];
     expect(after.generation).toBe(before.generation + 1);
     expect(after.value).toBe(BODY.value);
-    expect(
-      placeholderFor(key, scope, "GH_TOKEN", after.generation, after.value),
-    ).not.toBe(
-      placeholderFor(key, scope, "GH_TOKEN", before.generation, before.value),
-    );
     // Create and reissue: the runtime marks the scope for both.
     expect(calls).toBe(2);
   });

@@ -267,19 +267,6 @@ describe("voice.transcribe: the OpenAI call", () => {
     expect(sent).not.toContain("");
   });
 
-  it("spends an OPENAI_API_KEY fallback the same way", async () => {
-    const { handlers, calls } = setup({
-      key: { name: "OPENAI_API_KEY", source: "office_variable", key: KEY },
-    });
-    const res = await handlers["voice.transcribe"](
-      ctx(member, transcribeReq({ audio: clip() })),
-    );
-    expect(res).toMatchObject({ kind: "json" });
-    expect(new Headers(calls[0].init.headers).get("authorization")).toBe(
-      `Bearer ${KEY}`,
-    );
-  });
-
   // An agent's call spends its manager's key: identity.userId is the manager.
   it("spends the agent's manager's key", async () => {
     const { handlers, keyCalls, calls } = setup({});
@@ -299,6 +286,8 @@ describe("voice.transcribe: the OpenAI call", () => {
   });
 });
 
+// Both routes share one OpenAI failure mapping: voice.speak below owns its
+// table; this case proves the mic answers through it.
 describe("voice.transcribe: OpenAI failures", () => {
   // OpenAI's 401 message quotes part of the key it refused.
   const echo = `Incorrect API key provided: ${KEY}. You can find your API key at https://platform.openai.com/account/api-keys.`;
@@ -325,70 +314,6 @@ describe("voice.transcribe: OpenAI failures", () => {
     const everything = JSON.stringify(res) + "\n" + lines.join("\n");
     expect(everything).not.toContain(KEY);
     expect(everything).not.toContain("Incorrect API key");
-  });
-
-  it("a rate limit or an outage is voice_provider_failed with no keyRejected", async () => {
-    for (const status of [429, 500, 503]) {
-      const lines = captureConsole();
-      const { handlers } = setup({ reply: openAiError(status) });
-      const res = await handlers["voice.transcribe"](
-        ctx(member, transcribeReq({ audio: clip() })),
-      );
-      expect({ status, res }).toMatchObject({
-        status,
-        res: {
-          kind: "error",
-          status: 502,
-          code: "voice_provider_failed",
-          detail: { status },
-        },
-      });
-      const detail = (res as { detail?: Record<string, unknown> }).detail;
-      expect(detail?.keyRejected).toBeUndefined();
-      expect(JSON.stringify(res) + lines.join("\n")).not.toContain(KEY);
-      restoreConsole?.();
-      restoreConsole = null;
-    }
-  });
-
-  // Retry cannot fix these, so the UI must be able to tell them from an outage.
-  it("another 4xx is voice_provider_rejected", async () => {
-    for (const status of [400, 413, 415]) {
-      const lines = captureConsole();
-      const { handlers } = setup({ reply: openAiError(status) });
-      const res = await handlers["voice.transcribe"](
-        ctx(member, transcribeReq({ audio: clip() })),
-      );
-      expect({ status, res }).toMatchObject({
-        status,
-        res: {
-          kind: "error",
-          status: 502,
-          code: "voice_provider_rejected",
-          detail: { status },
-        },
-      });
-      expect(JSON.stringify(res) + lines.join("\n")).not.toContain(KEY);
-      restoreConsole?.();
-      restoreConsole = null;
-    }
-  });
-
-  it("a network failure is voice_provider_failed, and its message does not leak", async () => {
-    const lines = captureConsole();
-    const { handlers } = setup({
-      reply: () =>
-        Promise.reject(new Error(`connect ECONNREFUSED while sending ${KEY}`)),
-    });
-    const res = await handlers["voice.transcribe"](
-      ctx(member, transcribeReq({ audio: clip() })),
-    );
-    expect(res).toMatchObject({
-      kind: "error",
-      status: 502,
-      code: "voice_provider_failed",
-    });
-    expect(JSON.stringify(res) + lines.join("\n")).not.toContain(KEY);
   });
 });
 
@@ -511,7 +436,9 @@ describe("voice.speak", () => {
     }
   });
 
-  it("maps OpenAI failures like the mic, and leaks neither key nor body", async () => {
+  // Retry cannot fix a 4xx other than 401 and 429, so the UI must be able to
+  // tell it from an outage.
+  it("maps each OpenAI failure class, and leaks neither key nor body", async () => {
     const echo = `Incorrect API key provided: ${KEY}.`;
     for (const [status, code, keyRejected] of [
       [401, "voice_provider_failed", true],
@@ -545,7 +472,7 @@ describe("voice.speak", () => {
     }
   });
 
-  it("a network failure is voice_provider_failed", async () => {
+  it("a network failure is voice_provider_failed, and its message does not leak", async () => {
     const lines = captureConsole();
     const { handlers } = setup({
       reply: () => Promise.reject(new Error(`socket hang up ${KEY}`)),

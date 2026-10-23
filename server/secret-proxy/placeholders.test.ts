@@ -12,13 +12,7 @@ const FINE = `github_pat_${"F".repeat(82)}`;
 const PLAIN = "fake-plain-value-123456";
 
 describe("placeholderFor", () => {
-  test("is stable for the same key, scope, name, generation and prefix", () => {
-    expect(placeholderFor(KEY, ALICE, "GH_TOKEN", 1, CLASSIC)).toBe(
-      placeholderFor(KEY, ALICE, "GH_TOKEN", 1, CLASSIC),
-    );
-  });
-
-  test("does not change when the value changes inside the same prefix", () => {
+  test("is stable, and does not change when the value changes inside the same prefix", () => {
     const other = "ghp_OTHERotherOTHERotherOTHERotherOTHE";
     expect(placeholderFor(KEY, ALICE, "GH_TOKEN", 1, CLASSIC)).toBe(
       placeholderFor(KEY, ALICE, "GH_TOKEN", 1, other),

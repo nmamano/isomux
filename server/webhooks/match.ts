@@ -7,11 +7,11 @@
 
 import type { WebhookRule } from "../../shared/types.ts";
 
-export type PathLookup = { found: true; value: unknown } | { found: false };
+type PathLookup = { found: true; value: unknown } | { found: false };
 
 const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/;
 
-export function lookupPath(payload: unknown, path: string): PathLookup {
+function lookupPath(payload: unknown, path: string): PathLookup {
   let current: unknown = payload;
   for (const segment of path.split(".")) {
     if (Array.isArray(current)) {
@@ -30,7 +30,7 @@ export function lookupPath(payload: unknown, path: string): PathLookup {
 }
 
 // The string form that a match compares and a template renders.
-export function coerceWebhookValue(value: unknown): string {
+function coerceWebhookValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -73,7 +73,7 @@ export interface TemplateContext {
 // path renders as "". An unknown token and an unclosed "{{" stay literal.
 const TOKEN = /\{\{(event|delivery|payload\.[^{}]+)\}\}/g;
 
-export function renderTemplate(template: string, ctx: TemplateContext): string {
+function renderTemplate(template: string, ctx: TemplateContext): string {
   return template.replace(TOKEN, (_token, name: string) => {
     if (name === "event") return ctx.event;
     if (name === "delivery") return ctx.delivery;

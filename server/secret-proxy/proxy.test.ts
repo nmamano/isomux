@@ -625,6 +625,11 @@ describe("upstream trust", () => {
 });
 
 describe("back pressure", () => {
+  // Each case runs until the byte count stops growing for QUIET_MS: with back
+  // pressure the socket buffers fill and the count stalls well under the
+  // bound; without it the whole 128 MiB moves.
+  const QUIET_MS = 300;
+
   test("a client that reads nothing holds the upstream back", async () => {
     const socket = await tlsThrough(port, "api.stub.test", officeCa);
     // The client never reads: its socket stays paused.
@@ -632,11 +637,14 @@ describe("back pressure", () => {
     socket.write(
       `GET /big?mb=128 HTTP/1.1\r\nHost: api.stub.test\r\nAuthorization: Bearer ${PH_A}\r\n\r\n`,
     );
-    await Bun.sleep(1500);
-    const sent = https.counters.bigSent;
+    let last = -1;
+    while (https.counters.bigSent !== last) {
+      last = https.counters.bigSent;
+      await Bun.sleep(QUIET_MS);
+    }
     socket.destroy();
-    expect(sent).toBeGreaterThan(0);
-    expect(sent).toBeLessThan(BACK_PRESSURE_BOUND);
+    expect(last).toBeGreaterThan(0);
+    expect(last).toBeLessThan(BACK_PRESSURE_BOUND);
   });
 
   test("an upstream that reads nothing holds an upload back", async () => {
@@ -645,18 +653,20 @@ describe("back pressure", () => {
     socket.write(
       `PUT /sink HTTP/1.1\r\nHost: api.stub.test\r\nAuthorization: Bearer ${PH_A}\r\nContent-Length: ${total}\r\n\r\n`,
     );
-    // Write as fast as the proxy takes it, for 1.5 s.
+    // Write as fast as the proxy takes it, until no drain comes.
     const piece = Buffer.alloc(64 * 1024, 0x62);
     let taken = 0;
-    const deadline = Date.now() + 1500;
-    while (Date.now() < deadline && taken < total) {
+    while (taken < total) {
       const fits = socket.write(piece);
       taken += piece.length;
-      if (!fits)
-        await Promise.race([
-          new Promise((resolve) => socket.once("drain", resolve)),
-          Bun.sleep(Math.max(0, deadline - Date.now())),
-        ]);
+      if (fits) continue;
+      const drained = await Promise.race([
+        new Promise<boolean>((resolve) =>
+          socket.once("drain", () => resolve(true)),
+        ),
+        Bun.sleep(QUIET_MS).then(() => false),
+      ]);
+      if (!drained) break;
     }
     socket.destroy();
     expect(https.seen.map((s) => s.target)).toEqual(["/sink"]);

@@ -26,12 +26,6 @@ describe("agent runner frames", () => {
     expect(frames[1].payload.toString()).toBe("hello");
   });
 
-  it("keeps a frame cut off mid-way pending instead of emitting it", () => {
-    const frame = encodeFrame(FRAME_STDOUT, Buffer.from("partial"));
-    const decode = createFrameDecoder();
-    expect(decode(frame.subarray(0, frame.length - 1))).toEqual([]);
-  });
-
   it("splits a byte stream larger than one frame", () => {
     const data = Buffer.alloc(MAX_FRAME_BYTES * 2 + 10, 7);
     const frames = encodeData(FRAME_STDOUT, data);

@@ -53,7 +53,7 @@ const ANGLE_ESCAPES: Record<string, string> = {
 
 // JSON with every "<", ">" and "&" written as a \u escape. Still valid JSON
 // with the same values.
-export function escapeArgsJson(args: Record<string, string>): string {
+function escapeArgsJson(args: Record<string, string>): string {
   return JSON.stringify(args).replace(/[<>&]/g, (c) => ANGLE_ESCAPES[c]);
 }
 

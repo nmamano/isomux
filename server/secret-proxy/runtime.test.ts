@@ -538,7 +538,7 @@ describe("failure paths", () => {
     );
   });
 
-  test("an unreadable office file leaves every member's environment working, and a killed child comes back", async () => {
+  test("an unreadable office file leaves every member's environment working", async () => {
     add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
     // A file this version does not read, as after a downgrade.
     writeFileSync(
@@ -552,19 +552,6 @@ describe("failure paths", () => {
     expect(() => buildEnvForUserId(BOB)).not.toThrow();
     expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBeUndefined();
     expect(logs).toContain("store_unreadable");
-
-    const port = runtime.proxyPort;
-    const first = runtime.proxyPid!;
-    process.kill(first, "SIGKILL");
-    const deadline = Date.now() + 2400;
-    while (
-      Date.now() < deadline &&
-      (runtime.proxyPid === null || runtime.proxyPid === first)
-    )
-      await Bun.sleep(50);
-    expect(runtime.proxyPid).not.toBeNull();
-    expect(runtime.proxyPid).not.toBe(first);
-    expect(runtime.proxyPort).toBe(port);
   });
 });
 

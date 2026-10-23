@@ -147,49 +147,20 @@ describe("ensureSecretMaterial", () => {
 });
 
 describe("office CAs never become roots", () => {
-  test("withoutOfficeCas drops this office's CA and another office's, and keeps real roots", () => {
-    const mine = createCertificateAuthority().certPem;
-    const theirs = createCertificateAuthority().certPem;
-    const out = withoutOfficeCas(`${mine}${SYSTEM_ROOT}${theirs}${OTHER_ROOT}`);
-    expect(certCount(out)).toBe(2);
-    expect(out).toContain(SYSTEM_ROOT.trim());
-    expect(out).toContain(OTHER_ROOT.trim());
-    expect(out).not.toContain(mine.trim());
-    expect(out).not.toContain(theirs.trim());
-  });
-
-  test("roots read from an SSL_CERT_FILE that holds office CAs leave them out", () => {
+  // A server started from an agent's shell has SSL_CERT_FILE pointing at an
+  // office bundle: its CA must not become a root or grow the bundle.
+  test("roots read from an SSL_CERT_FILE drop this office's CA and another office's, and keep real roots", () => {
     const root = tempRoot();
     const file = join(root, "mixed.pem");
-    const officeCa = createCertificateAuthority().certPem;
-    writeFileSync(file, `${officeCa}${SYSTEM_ROOT}`);
+    const mine = createCertificateAuthority().certPem;
+    const theirs = createCertificateAuthority().certPem;
+    writeFileSync(file, `${mine}${SYSTEM_ROOT}${theirs}${OTHER_ROOT}`);
     const roots = readSystemRoots({ SSL_CERT_FILE: file }, "linux");
+    expect(certCount(roots)).toBe(2);
     expect(roots).toContain(SYSTEM_ROOT.trim());
-    expect(roots).not.toContain(officeCa.trim());
-  });
-
-  test("a server whose SSL_CERT_FILE is an office bundle keeps a stable bundle", () => {
-    // A test office started from an agent's shell: SSL_CERT_FILE is the
-    // office bundle that the last start wrote.
-    const root = tempRoot();
-    const first = ensureSecretMaterial({
-      stateRoot: root,
-      shareRoot: root,
-      systemRootsPem: SYSTEM_ROOT,
-    });
-    const sizes: number[] = [];
-    for (let start = 0; start < 3; start++) {
-      ensureSecretMaterial({
-        stateRoot: root,
-        shareRoot: root,
-        systemRootsPem: readSystemRoots(
-          { SSL_CERT_FILE: first.bundlePath },
-          "linux",
-        ),
-      });
-      sizes.push(certCount(readFileSync(first.bundlePath, "utf8")));
-    }
-    expect(sizes).toEqual([2, 2, 2]);
+    expect(roots).toContain(OTHER_ROOT.trim());
+    expect(roots).not.toContain(mine.trim());
+    expect(roots).not.toContain(theirs.trim());
   });
 
   test("selfSignedOnly drops a certificate that a CA issued", () => {

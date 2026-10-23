@@ -10,8 +10,8 @@
 // Every other host goes to a deny proxy (the company-proxy chain) that
 // routes nothing.
 //
-// Tiers: curl and git run everywhere (CI included); gh, stripe and the SDKs
-// run under ISOMUX_TEST_LIVE=1. A tool whose binary is not on PATH skips its
+// Tiers: curl, git, Bun fetch and Python requests run everywhere (CI
+// included); gh, stripe and Node run under ISOMUX_TEST_LIVE=1. A tool whose binary is not on PATH skips its
 // test. Only tools known to honor HTTPS_PROXY (curl, git, Go CLIs) call a
 // preset host name; the SDK checks call a .invalid host, so an SDK that
 // bypassed the proxy would fail DNS instead of reaching a real service.
@@ -583,8 +583,39 @@ describe("each preset end to end: curl and git (stub hosts only)", () => {
   );
 });
 
+// These call a .invalid host and need no live service, so they run wherever
+// their runtime is on PATH. Node stays in the live tier: whether its clients
+// use the proxy depends on the Node version (NODE_USE_ENV_PROXY).
+describe("SDKs: Bun fetch and Python requests (stub host only)", () => {
+  test("Bun fetch", async () => {
+    reset();
+    const { code, out } = await run(
+      `"${process.execPath}" -e 'const r = await fetch("https://${SDK_HOST}/check", { headers: { authorization: "Bearer " + process.env.SDK_TOKEN } }); console.log(await r.text())'`,
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(out).ok).toBe(true);
+    expectDelivered(SDK_HOST, sdkReached, out, "SDK_TOKEN");
+  }, 20000);
+
+  test.skipIf(
+    spawnSync("python3", ["-I", "-c", "import requests"]).status !== 0,
+  )(
+    "Python requests, with the token as the Basic user",
+    async () => {
+      reset();
+      const { code, out } = await run(
+        `python3 -I -c 'import os, requests; r = requests.get("https://${SDK_HOST}/check", auth=(os.environ["SDK_TOKEN"], ""), timeout=10); print(r.text)'`,
+      );
+      expect(code).toBe(0);
+      expect(JSON.parse(out).ok).toBe(true);
+      expectDelivered(SDK_HOST, sdkReached, out, "SDK_TOKEN");
+    },
+    20000,
+  );
+});
+
 describe.skipIf(!LIVE)(
-  "each preset end to end: gh, stripe and the SDKs (live; SKIPPED without ISOMUX_TEST_LIVE=1)",
+  "each preset end to end: gh, stripe and Node (live; SKIPPED without ISOMUX_TEST_LIVE=1)",
   () => {
     test.skipIf(!has("gh"))(
       "gh: gh auth token prints the placeholder, and gh api user reaches GitHub with the value",
@@ -647,32 +678,6 @@ describe.skipIf(!LIVE)(
         reset();
         const { code, out } = await run(
           `node -e 'require("node:https").get("https://${SDK_HOST}/check", { headers: { authorization: "Bearer " + process.env.SDK_TOKEN } }, (r) => { let b = ""; r.on("data", (d) => (b += d)); r.on("end", () => console.log(b)); })'`,
-        );
-        expect(code).toBe(0);
-        expect(JSON.parse(out).ok).toBe(true);
-        expectDelivered(SDK_HOST, sdkReached, out, "SDK_TOKEN");
-      },
-      20000,
-    );
-
-    test("Bun fetch", async () => {
-      reset();
-      const { code, out } = await run(
-        `"${process.execPath}" -e 'const r = await fetch("https://${SDK_HOST}/check", { headers: { authorization: "Bearer " + process.env.SDK_TOKEN } }); console.log(await r.text())'`,
-      );
-      expect(code).toBe(0);
-      expect(JSON.parse(out).ok).toBe(true);
-      expectDelivered(SDK_HOST, sdkReached, out, "SDK_TOKEN");
-    }, 20000);
-
-    test.skipIf(
-      spawnSync("python3", ["-I", "-c", "import requests"]).status !== 0,
-    )(
-      "Python requests, with the token as the Basic user",
-      async () => {
-        reset();
-        const { code, out } = await run(
-          `python3 -I -c 'import os, requests; r = requests.get("https://${SDK_HOST}/check", auth=(os.environ["SDK_TOKEN"], ""), timeout=10); print(r.text)'`,
         );
         expect(code).toBe(0);
         expect(JSON.parse(out).ok).toBe(true);

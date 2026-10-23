@@ -22,11 +22,17 @@ describe("split-mode start", () => {
   });
 
   it("refuses split mode without the rig gate, before it reads anything", async () => {
-    const result = await startSplitMode(
-      { ISOMUX_AGENT_RUNNER: "/run/x.sock" },
+    const runner = { ISOMUX_AGENT_RUNNER: "/run/x.sock" };
+    const gated = await startSplitMode(runner, "/nonexistent");
+    // With the gate open, the same missing state refuses for another reason:
+    // the gate answered first, not the missing split.json.
+    const read = await startSplitMode(
+      { ...runner, ISOMUX_SPLIT_RIG: "1" },
       "/nonexistent",
     );
-    expect(result.mode).toBe("refused");
+    expect(gated.mode).toBe("refused");
+    expect(read.mode).toBe("refused");
+    expect(gated).not.toEqual(read);
   });
 
   it("refuses when split.json is missing or incomplete", async () => {

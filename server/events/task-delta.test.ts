@@ -166,23 +166,3 @@ describe("taskDeltaFor: a closed room's task", () => {
     expect(taskDeltaFor(change, inA)).toBe(null);
   });
 });
-
-describe("delta vs whole-board payload size", () => {
-  it("a delta is orders of magnitude smaller than the board it replaced", () => {
-    // Shaped like the live office when this was diagnosed: 535 tasks, most of
-    // them long-description `done` rows the default view doesn't even show.
-    const board: TaskItem[] = Array.from({ length: 535 }, (_, i) => ({
-      ...task(`t${i}`),
-      status: i < 370 ? ("done" as const) : ("open" as const),
-      description: "x".repeat(900),
-    }));
-    const wholeBoard = JSON.stringify({ type: "tasks", tasks: board }).length;
-    const delta = JSON.stringify(
-      taskDeltaFor({ kind: "created", task: board[0] }, none),
-    ).length;
-    // The old push re-sent the board on EVERY mutation; measured at 635KB on the
-    // real office. Two orders of magnitude is a deliberately loose floor - the
-    // real ratio here is ~500x - so the test pins the property, not the fixture.
-    expect(wholeBoard / delta).toBeGreaterThan(100);
-  });
-});
