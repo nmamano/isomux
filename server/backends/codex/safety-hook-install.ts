@@ -86,6 +86,7 @@ async function sha256File(path: string): Promise<string> {
 
 async function executableStamp(path: string): Promise<string> {
   const child = Bun.spawn([path, "--source-hash"], {
+    env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });

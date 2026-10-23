@@ -35,6 +35,40 @@ export const STATE_ROOT = resolveStateRoot();
 // targeting the active root under an ISOMUX_HOME override.
 export const IS_DEFAULT_STATE_ROOT = STATE_ROOT === join(homedir(), ".isomux");
 
+// Refuses a bun test run on the live state root. bun loads bunfig.toml, and
+// with it the test preload (server/test-support/preload.ts), only from the
+// directory it runs in, so `bun test` from a subfolder would write test data
+// into the office. No signal names a bun test run directly: bun test sets
+// NODE_ENV=test unless it is set, and Bun.main is the test file. Not caught:
+// an exported NODE_ENV and an explicit path without a test-file name. It also
+// refuses a bun subprocess a test starts without env: bun gives that child the
+// environment the test process started with, which has NODE_ENV=test but not
+// the preload's ISOMUX_HOME.
+function refuseUnisolatedTestRun(
+  env: NodeJS.ProcessEnv,
+  main: string | undefined,
+): void {
+  const underBunTest =
+    env.NODE_ENV === "test" ||
+    (main !== undefined && /[._](test|spec)\.[cm]?[jt]sx?$/.test(main));
+  if (
+    !underBunTest ||
+    !IS_DEFAULT_STATE_ROOT ||
+    env.ISOMUX_TEST_PRELOAD === "1"
+  ) {
+    return;
+  }
+  throw new Error(
+    `Refusing to run tests against the live state root ${STATE_ROOT}. ` +
+      "Run `bun test` from the repository root, and pass `env: process.env` to a bun subprocess a test starts.",
+  );
+}
+
+refuseUnisolatedTestRun(
+  process.env,
+  typeof Bun !== "undefined" ? Bun.main : undefined,
+);
+
 // The admin socket (server/admin-socket.ts). ISOMUX_ADMIN_SOCKET moves it out
 // of the state root, for example into a directory a recovery container shares
 // (deploy/kubernetes). Defaults to <state root>/admin.sock.

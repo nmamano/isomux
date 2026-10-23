@@ -231,6 +231,7 @@ describe("standalone Codex safety hook", () => {
       "server/safety-policy.ts",
     ]);
     const child = Bun.spawn([executablePath, "--source-hash"], {
+      env: process.env,
       stdout: "pipe",
       stderr: "pipe",
     });

@@ -99,6 +99,7 @@ export async function buildCodexSafetyHook(
   chmodSync(executablePath, 0o700);
 
   const stamp = Bun.spawn([executablePath, "--source-hash"], {
+    env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });

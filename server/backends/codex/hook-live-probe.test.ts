@@ -38,7 +38,7 @@ describe("Codex hook live coverage (opt-in)", () => {
         "-e",
         `import { runSignalCleanupFixture } from ${JSON.stringify(probeModule)}; await runSignalCleanupFixture(${JSON.stringify(root)});`,
       ],
-      { stdout: "ignore", stderr: "pipe" },
+      { env: process.env, stdout: "ignore", stderr: "pipe" },
     );
     try {
       const deadline = Date.now() + 5000;

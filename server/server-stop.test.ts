@@ -44,6 +44,7 @@ async function runStop(
     process.kill(process.pid, ${JSON.stringify(signal)});
   `;
   const proc = Bun.spawn(["bun", "-e", code], {
+    env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });

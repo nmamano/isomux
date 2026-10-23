@@ -24,7 +24,6 @@ import {
 } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
-import { assertSafeToDelete } from "./temp-state.ts";
 import { loadLogWithAncestors } from "../persistence.ts";
 import { fileLogSource } from "../log-source.ts";
 import {
@@ -41,10 +40,6 @@ import {
   type LogQuery,
 } from "../log-search.ts";
 import type { LogEntry } from "../../shared/types.ts";
-
-// Fail closed before any write: run without the test preload, STATE_ROOT is
-// the real office state, and these fixtures would land in its logs.
-assertSafeToDelete(STATE_ROOT);
 
 const LOGS_DIR = join(STATE_ROOT, "logs");
 const AGENT = "agent-logsearch-fixture";
