@@ -5,7 +5,7 @@ import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecor } from "../shared/room-decor.ts";
-import { join, dirname } from "path";
+import { basename, join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
   TRANSCRIPT_SUFFIX,
@@ -978,6 +978,21 @@ export interface Room {
   agents: PersistedAgent[];
 }
 
+// Rename a state file that cannot be read or parsed aside with a timestamp
+// suffix, so a later save can never clobber data a human might still want to
+// inspect; the caller then starts empty. If the rename fails (e.g.
+// permissions), the file is left alone: saves may still overwrite it in this
+// degraded state, but nothing is written over it at load time. Never throws.
+function quarantineCorruptFile(path: string, err: unknown): void {
+  const name = basename(path);
+  console.error(`Corrupt ${name}; quarantining:`, errMessage(err));
+  try {
+    renameSync(path, `${path}.corrupt-${Date.now()}`);
+  } catch (renameErr) {
+    console.error(`Failed to quarantine ${name}:`, errMessage(renameErr));
+  }
+}
+
 export function loadAgents(): Room[] {
   const defaultRoom = (): Room => ({
     id: generateRoomId(),
@@ -990,7 +1005,8 @@ export function loadAgents(): Room[] {
     if (!existsSync(AGENTS_FILE)) return [defaultRoom()];
     const content = readFileSync(AGENTS_FILE, "utf-8");
     const parsed = JSON.parse(content) as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) return [defaultRoom()];
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    if (parsed.length === 0) return [defaultRoom()];
 
     const first: unknown = parsed[0];
 
@@ -1018,7 +1034,10 @@ export function loadAgents(): Room[] {
         },
       ];
     }
-  } catch {
+  } catch (err) {
+    // The boot runs on the default room and its first save replaces the
+    // file, so move the unreadable bytes aside first.
+    quarantineCorruptFile(AGENTS_FILE, err);
     return [defaultRoom()];
   }
 
@@ -1646,24 +1665,7 @@ export function loadScheduledMessagesRaw(): unknown[] {
     if (!Array.isArray(parsed)) throw new Error("not an array");
     return parsed;
   } catch (err) {
-    console.error(
-      "Corrupt scheduled-messages.json; quarantining:",
-      errMessage(err),
-    );
-    try {
-      renameSync(
-        SCHEDULED_MESSAGES_FILE,
-        `${SCHEDULED_MESSAGES_FILE}.corrupt-${Date.now()}`,
-      );
-    } catch (renameErr) {
-      // Rename failed (e.g. permissions): leave the file alone. Saves may
-      // still overwrite it in this degraded state, but we never write [] here
-      // at load time.
-      console.error(
-        "Failed to quarantine scheduled-messages.json:",
-        errMessage(renameErr),
-      );
-    }
+    quarantineCorruptFile(SCHEDULED_MESSAGES_FILE, err);
     return [];
   }
 }
@@ -1696,21 +1698,7 @@ export function loadMessageQueuesRaw(): Record<string, unknown> {
       throw new Error("not an object");
     return parsed as Record<string, unknown>;
   } catch (err) {
-    console.error(
-      "Corrupt message-queues.json; quarantining:",
-      errMessage(err),
-    );
-    try {
-      renameSync(
-        MESSAGE_QUEUES_FILE,
-        `${MESSAGE_QUEUES_FILE}.corrupt-${Date.now()}`,
-      );
-    } catch (renameErr) {
-      console.error(
-        "Failed to quarantine message-queues.json:",
-        errMessage(renameErr),
-      );
-    }
+    quarantineCorruptFile(MESSAGE_QUEUES_FILE, err);
     return {};
   }
 }

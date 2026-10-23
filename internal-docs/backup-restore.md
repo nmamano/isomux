@@ -33,6 +33,10 @@ that task does not come back on the board. The import does not backfill audit
 rows. A malformed source is preserved as `tasks.json.corrupt-<timestamp>`; the
 server logs both paths and opens an empty board. An old `memory/.oplog.jsonl` is kept untouched, with no import.
 
+A malformed `agents.json` is preserved as `agents.json.corrupt-<timestamp>`;
+the server logs it and boots with one empty room. To recover, stop the service
+and move the file back over `agents.json`.
+
 ## What the daily backup is
 
 `server/backup.ts` archives the office state once a day by default. It omits persisted

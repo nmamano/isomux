@@ -42,6 +42,7 @@ import { removeStateDir } from "./temp-state.ts";
 import { createTaskStore } from "../task-store.ts";
 import {
   loadAgents,
+  saveAgents,
   loadAgentHistory,
   loadOfficeConfig,
   loadLog,
@@ -105,21 +106,69 @@ const HEX8 = /^[0-9a-f]{8}$/;
 // ---------------------------------------------------------------------------
 
 describe("agents.json shape detection (Phase 1.3)", () => {
-  // An unusable agents.json still boots: one generated default room.
-  for (const [what, content] of [
-    ["missing file", undefined],
-    ["empty array", []],
-    ["non-array JSON", { not: "an array" }],
-    ["corrupt JSON", "{ this is not valid json"],
+  // An unusable agents.json still boots: one generated default room. A file
+  // whose bytes the next saveAgents would destroy (unparseable, or JSON that
+  // is not an array) is first renamed aside as agents.json.corrupt-<ms> and
+  // logged, so an operator can recover the office. An absent file or `[]`
+  // holds nothing to lose and is left where it is.
+  const asides = (): string[] =>
+    readdirSync(STATE_ROOT).filter((n) => n.startsWith("agents.json.corrupt"));
+  for (const [what, content, quarantined] of [
+    ["missing file", undefined, false],
+    ["empty array", [], false],
+    ["non-array JSON", { not: "an array" }, true],
+    ["corrupt JSON", "{ this is not valid json", true],
   ] as const) {
-    it(`${what} -> one generated default room with no agents`, () => {
+    it(`${what} -> one generated default room with no agents, ${quarantined ? "original bytes moved aside" : "nothing moved aside"}`, () => {
       if (content !== undefined) seed("agents.json", content);
+      const original =
+        content === undefined
+          ? null
+          : readFileSync(stateFile("agents.json"), "utf-8");
+      const errors: string[] = [];
+      console.error = (...args: unknown[]) => {
+        errors.push(args.map(String).join(" "));
+      };
+
       const rooms = loadAgents();
       expect(rooms.length).toBe(1);
       expect(rooms[0].name).toBe("Room 1");
       expect(rooms[0].prompt).toBeNull();
       expect(rooms[0].agents).toEqual([]);
       expect(rooms[0].id).toMatch(HEX8);
+
+      if (!quarantined) {
+        expect(asides()).toEqual([]);
+        expect(errors.filter((e) => e.includes("agents.json"))).toEqual([]);
+        if (original === null) {
+          expect(existsSync(stateFile("agents.json"))).toBe(false);
+        } else {
+          expect(readFileSync(stateFile("agents.json"), "utf-8")).toBe(
+            original,
+          );
+        }
+        return;
+      }
+
+      // The original bytes are in exactly one aside file, and the live name
+      // is free for the next save.
+      if (original === null) throw new Error("quarantined rows seed a file");
+      expect(existsSync(stateFile("agents.json"))).toBe(false);
+      const moved = asides();
+      expect(moved).toHaveLength(1);
+      expect(moved[0]).toMatch(/^agents\.json\.corrupt-\d+$/);
+      expect(readFileSync(stateFile(moved[0]), "utf-8")).toBe(original);
+      expect(errors.some((e) => e.includes("agents.json"))).toBe(true);
+
+      // The save that used to destroy the office writes the default room to
+      // agents.json and leaves the aside byte-identical.
+      saveAgents(rooms);
+      expect(asides()).toEqual(moved);
+      expect(readFileSync(stateFile(moved[0]), "utf-8")).toBe(original);
+      const saved = JSON.parse(
+        readFileSync(stateFile("agents.json"), "utf-8"),
+      ) as { id: string }[];
+      expect(saved.map((r) => r.id)).toEqual([rooms[0].id]);
     });
   }
 
