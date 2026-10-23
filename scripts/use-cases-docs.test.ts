@@ -189,7 +189,7 @@ describe("use cases in the docs", () => {
     expect([...shown].sort()).toEqual(screenshots.sort());
   });
 
-  it("moves Several agents on one project off the features page and keeps its old fragment", async () => {
+  it("drops Several agents on one project from the features page and keeps its old fragment", async () => {
     const page = "/docs/use-cases-one-project";
     const html = htmlAt("/docs");
     const window = parse(html);
@@ -198,10 +198,15 @@ describe("use cases in the docs", () => {
     expect(
       doc.getElementById("several-agents-on-one-project")?.tagName ?? null,
     ).toBeNull();
-    const links = Array.from(doc.querySelectorAll("article a[href]"), (a) =>
-      a.getAttribute("href"),
+    // The page lives in Use cases only (sign-off, task dd8f1c78): the
+    // features article does not link it, with or without a fragment.
+    const links = Array.from(
+      doc.querySelectorAll("article a[href]"),
+      (a) =>
+        new URL(a.getAttribute("href")!, "https://isomux.com/docs").pathname,
     );
-    expect(links).toContain(page);
+    expect(links.length).toBeGreaterThan(0);
+    expect(links).not.toContain(page);
     const map = doc.getElementById("legacy-fragment-map");
     expect(map).not.toBeNull();
     expect(JSON.parse(map!.textContent!)["several-agents-on-one-project"]).toBe(
