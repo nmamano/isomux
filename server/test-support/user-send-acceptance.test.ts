@@ -17,7 +17,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { existsSync, mkdirSync, renameSync, rmdirSync } from "fs";
 import { join } from "path";
-import type { AgentInfo } from "../../shared/types.ts";
+import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -211,21 +211,32 @@ describe("USER send acceptance (task 51de8814)", () => {
     const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
     const sock = await srv.connectWs(owner.rawSessionId);
-    const entriesFor = () =>
-      sock.messages.filter((m) => {
-        const msg = m as { type?: string; entry?: { agentId?: string } };
-        return msg.type === "log_entry" && msg.entry?.agentId === agent.id;
-      }).length;
+    const entries = () =>
+      sock.messages
+        .map((m) => m as { type?: string; entry?: LogEntry })
+        .filter((m) => m.type === "log_entry" && m.entry?.agentId === agent.id)
+        .map((m) => m.entry!);
+    const echoes = (text: string) =>
+      entries().filter((e) => e.kind === "user_message" && e.content === text)
+        .length;
+    const helpOutputs = () =>
+      entries().filter((e) => e.metadata?.helpContent !== undefined).length;
 
     const body = { text: "/help", clientMessageId: "attempt-cmd" };
     expect((await send(srv, owner, agent.id, body)).status).toBe(200);
-    await sleep(200);
-    const afterFirst = entriesFor();
-    expect(afterFirst).toBeGreaterThan(0);
+    await waitUntil(() => helpOutputs() === 1, "first /help output");
 
     expect((await send(srv, owner, agent.id, body)).status).toBe(200);
-    await sleep(200);
-    expect(entriesFor()).toBe(afterFirst);
+    // Fence: a fresh attempt's output arrives after anything the repeat wrote.
+    const fence = { text: "/help fence", clientMessageId: "attempt-cmd-2" };
+    expect((await send(srv, owner, agent.id, fence)).status).toBe(200);
+    await waitUntil(() => {
+      const all = entries();
+      const at = all.findIndex((e) => e.content === "/help fence");
+      return at >= 0 && all.slice(at).some((e) => e.metadata?.helpContent);
+    }, "fence /help output");
+    expect(echoes("/help")).toBe(1);
+    expect(helpOutputs()).toBe(2);
   });
 
   it("refuses a message whose transcript write fails, and the repaired resend delivers once", async () => {

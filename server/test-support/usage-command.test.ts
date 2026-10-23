@@ -1,11 +1,14 @@
 import { describe, expect, it, mock } from "bun:test";
 import { createCommandHandling } from "../command-handlers.ts";
-import { translatorFor } from "../../shared/i18n/translate.ts";
-import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
+import { logParts, type LogText } from "../../shared/i18n/log-message.ts";
 import type { ManagedAgent } from "../internal-types.ts";
 
 describe("/usage", () => {
-  for (const agentType of ["claude", "codex", "opencode"] as const) {
+  // Claude and Codex share the meter branch; OpenCode has no meter.
+  for (const [agentType, pointer, absent] of [
+    ["claude", "commands.usage.meter", "commands.usage.unavailable"],
+    ["opencode", "commands.usage.unavailable", "commands.usage.meter"],
+  ] as const) {
     it(`gives ${agentType} the matching usage pointer without terminal cards`, async () => {
       const entries: { kind: string; content: LogText }[] = [];
       const updateState = mock(() => {});
@@ -33,20 +36,13 @@ describe("/usage", () => {
         "user_message",
         "system",
       ]);
-      // The reply is message parts each reader words (task c37a7365); this
-      // reads its English render.
-      const { t } = translatorFor("en");
-      expect(renderLogText(translatorFor("en"), entries[1].content)).toBe(
-        [
-          t(
-            agentType === "opencode"
-              ? "commands.usage.unavailable"
-              : "commands.usage.meter",
-          ),
-          "",
-          t("commands.usage.office"),
-        ].join("\n"),
+      // The reply is message parts each reader words (task c37a7365).
+      const keys = logParts(entries[1].content).flatMap((part) =>
+        typeof part === "string" ? [] : [part.key],
       );
+      expect(keys).toContain(pointer);
+      expect(keys).toContain("commands.usage.office");
+      expect(keys).not.toContain(absent);
       expect(updateState).toHaveBeenCalledWith(
         "usage-agent",
         "waiting_for_response",

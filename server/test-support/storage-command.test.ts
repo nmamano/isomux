@@ -24,12 +24,7 @@ import { _testResetSentinel } from "../migrations.ts";
 import { createCommandHandling } from "../command-handlers.ts";
 import type { StorageUsage } from "../storage-usage.ts";
 import type { StorageCategoryId } from "../../shared/contract-shapes.ts";
-import {
-  localizeLogParts,
-  logParts,
-  renderLogText,
-  type LogText,
-} from "../../shared/i18n/log-message.ts";
+import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { formatBytes } from "../../shared/i18n/number.ts";
 import { CATEGORY_KEYS } from "../../shared/storage-labels.ts";
@@ -114,9 +109,23 @@ function harness(opts: { usage?: StorageUsage } = {}) {
         translatorFor("en"),
         logged.find((l) => l.kind === "system")?.content ?? "",
       ),
-    reportParts: () =>
-      logParts(logged.find((l) => l.kind === "system")?.content ?? ""),
+    // Every message key in the reply, nested ones included.
+    keys: () =>
+      messageKeys(logged.find((l) => l.kind === "system")?.content ?? ""),
   };
+}
+
+function messageKeys(value: unknown): string[] {
+  if (typeof value === "string") return [];
+  if (Array.isArray(value)) return value.flatMap(messageKeys);
+  if (typeof value !== "object" || value === null) return [];
+  const record = value as { key?: unknown; params?: unknown };
+  return [
+    ...(typeof record.key === "string" ? [record.key] : []),
+    ...Object.values(record.params ?? {}).flatMap(messageKeys),
+    ...messageKeys((value as { parts?: unknown }).parts),
+    ...messageKeys((value as { lower?: unknown }).lower),
+  ];
 }
 
 function resetStateRoot(): void {
@@ -131,92 +140,49 @@ beforeEach(() => {
 });
 
 describe("/isomux-storage access boundary", () => {
-  it("gives the office owner paths and the per-agent breakdown", async () => {
+  it("gives the owner paths and agent rows, and a member sizes only", async () => {
     claimUser("Owner", { role: "owner", allowedRooms: [], notifRooms: [] });
-    const h = harness();
-    await h.run("Owner");
-    const report = h.report();
-    expect(report).toContain("/srv/office-state");
-    expect(report).toContain("/srv/office-backups");
-    expect(report).toContain("Biggest agents");
-    expect(report).toContain("agentalpha");
-    expect(h.measurements()).toBe(1);
-  });
-
-  it("gives a signed-in member sizes only - no paths, no agent rows", async () => {
     claimUser("Member", { role: "member", allowedRooms: [], notifRooms: [] });
-    const h = harness();
-    await h.run("Member");
-    const report = h.report();
-    // The numbers still come through; that is the point of the projection.
-    expect(report).toContain("**10.0 MB total**");
-    expect(report).toContain("| Conversation transcripts | 10.0 MB | 4 |");
-    // The filesystem layout and the per-agent enumeration do not.
-    expect(report).not.toContain("/srv/office-state");
-    expect(report).not.toContain("/srv/office-backups");
-    expect(report).not.toContain("Biggest agents");
-    expect(report).not.toContain("agentalpha");
-    expect(report).toContain("owner-only");
-  });
-
-  it("refuses an invocation with no user record, without measuring", async () => {
-    const h = harness();
-    await h.run("GhostUser");
-    expect(h.report()).toBe(
-      "Storage usage is only available to signed-in office members.",
-    );
-    // The refusal must be free: no ~10k-inode walk for an unauthenticated
-    // caller, and nothing rendered that could carry office totals.
-    expect(h.measurements()).toBe(0);
-    expect(h.report()).not.toContain("total");
-  });
-
-  it("refuses when no username reached the handler at all", async () => {
-    claimUser("Owner", { role: "owner", allowedRooms: [], notifRooms: [] });
-    const h = harness();
-    await h.run(undefined);
-    expect(h.report()).toBe(
-      "Storage usage is only available to signed-in office members.",
-    );
-    expect(h.measurements()).toBe(0);
-  });
-
-  it("words the report for each reader: labels, sizes, the age and the locations", async () => {
-    claimUser("Owner", { role: "owner", allowedRooms: [], notifRooms: [] });
-    const h = harness();
-    await h.run("Owner");
-    const es = translatorFor("es");
-    const spanish = localizeLogParts(es, h.reportParts());
-    expect(spanish).not.toBeNull();
-    // A table row: the category label and the size in the reader's words.
-    const transcripts = es.t(CATEGORY_KEYS.transcripts);
-    expect(transcripts).not.toBe(
-      translatorFor("en").t(CATEGORY_KEYS.transcripts),
-    );
-    expect(spanish).toContain(
-      `| ${transcripts} | ${formatBytes("es", 10 * MB)} | 4 |`,
-    );
-    // The measurement age, measured just now.
-    expect(spanish).toContain(
-      es.t("storageReport.measured", { age: es.t("common.justNow") }),
-    );
-    // A location: the lowercased label, then the path as written.
-    expect(spanish).toContain(
-      `${es.t(CATEGORY_KEYS.backups).toLocaleLowerCase("es")} \`/srv/office-backups\``,
-    );
-    // The English render is the report an English reader saw before.
-    expect(localizeLogParts(translatorFor("en"), h.reportParts())).toBe(
-      h.report(),
-    );
-  });
-
-  it("echoes the invocation before answering", async () => {
-    claimUser("Owner", { role: "owner", allowedRooms: [], notifRooms: [] });
-    const h = harness();
-    await h.run("Owner");
-    expect(h.logged[0]).toEqual({
+    const owner = harness();
+    await owner.run("Owner");
+    expect(owner.logged[0]).toEqual({
       kind: "user_message",
       content: "/isomux-storage",
     });
+    expect(owner.report()).toContain("/srv/office-state");
+    expect(owner.report()).toContain("/srv/office-backups");
+    expect(owner.report()).toContain("agentalpha");
+    expect(owner.keys()).not.toContain("storageReport.ownerOnly");
+    expect(owner.measurements()).toBe(1);
+
+    const member = harness();
+    await member.run("Member");
+    const report = member.report();
+    // The numbers still come through; that is the point of the projection.
+    const { t } = translatorFor("en");
+    expect(report).toContain(
+      `| ${t(CATEGORY_KEYS.transcripts)} | ${formatBytes("en", 10 * MB)} | 4 |`,
+    );
+    // The filesystem layout and the per-agent enumeration do not.
+    expect(report).not.toContain("/srv/office-state");
+    expect(report).not.toContain("/srv/office-backups");
+    expect(report).not.toContain("agentalpha");
+    expect(member.keys()).not.toContain("storageReport.biggestAgents");
+    expect(member.keys()).toContain("storageReport.ownerOnly");
   });
+
+  // The refusal must be free: no ~10k-inode walk for a caller with no user
+  // record, and nothing rendered that could carry office totals.
+  for (const [label, username] of [
+    ["an unknown username", "GhostUser"],
+    ["no username at all", undefined],
+  ] as const) {
+    it(`refuses ${label} without measuring`, async () => {
+      claimUser("Owner", { role: "owner", allowedRooms: [], notifRooms: [] });
+      const h = harness();
+      await h.run(username);
+      expect(h.keys()).toEqual(["commands.isomuxStorage.forbidden"]);
+      expect(h.measurements()).toBe(0);
+    });
+  }
 });

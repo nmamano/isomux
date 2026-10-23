@@ -168,6 +168,8 @@ function syncSkills(cfg: string, names: string[]): void {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Lets every continuation already queued run: the rows path has no timers.
+const drain = () => new Promise((r) => setImmediate(r));
 async function waitUntil(pred: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 3_000;
   while (!pred()) {
@@ -385,6 +387,7 @@ describe("/reload-plugins on a live Claude session", () => {
     const lines = await agent.run();
     expect(agent.backend.sessionReloads).toBe(0);
     expect(lines.map((line) => line.kind)).toEqual(["user_message", "system"]);
+    expect(lines[1].content).toBe(t("commands.reloadPlugins.busy"));
     expect(agent.lastMenu()).toEqual(["live:s-live"]);
     session.completeTurn();
   });
@@ -434,28 +437,23 @@ describe("/reload-plugins on a live Claude session", () => {
 });
 
 describe("the Sk menu when the Claude process goes", () => {
-  it("/clear rebuilds the menu from the disk at once", async () => {
+  it("a session that ended leaves the next rebuild to the disk and the synced folder", async () => {
     const home = claudeHome();
-    const agent = await agentOn("claude", "user-reload-clear");
-    agent.backend.initPlugins = [
-      { name: "live", path: home.live, source: "live@m" },
-    ];
-    await agent.startSession(true);
-    expect(agent.lastMenu()).toEqual(["live:s-live"]);
-    const menusBefore = agent.menus().length;
-    await agent.run("/clear");
-    expect(agent.menus().length).toBeGreaterThan(menusBefore);
-    expect(agent.lastMenu()).toEqual(["disk:s-disk"]);
-  });
-
-  it("a session that ended leaves the next rebuild to the disk", async () => {
-    const home = claudeHome();
+    syncSkills(home.cfg, ["docx", "pdf"]);
     const agent = await agentOn("claude", "user-reload-ended");
     agent.backend.initPlugins = [
       { name: "live", path: home.live, source: "live@m" },
     ];
+    agent.backend.rows = [{ name: "docx", description: "Docs" }];
     const session = await agent.startSession(true);
+    await waitUntil(
+      () =>
+        agent.lastSkills().find((s) => s.name === "docx")?.description ===
+        "Docs",
+      "rows in the menu",
+    );
     expect(agent.lastMenu()).toEqual(["live:s-live"]);
+    expect(agent.skillsNamed(["docx", "pdf"])).toEqual(["docx"]);
     session.endStream();
     await waitUntil(
       () => agent.mgr.getAgent(agent.id)?.dormant === true,
@@ -465,11 +463,15 @@ describe("the Sk menu when the Claude process goes", () => {
     expect(agent.backend.sessionReloads).toBe(0);
     expect(lines.map((line) => line.kind)).toEqual(["user_message", "system"]);
     expect(agent.lastMenu()).toEqual(["disk:s-disk"]);
+    expect(agent.skillsNamed(["docx", "pdf"])).toEqual(["docx", "pdf"]);
   });
 });
 
 describe("/reload-plugins without a live Claude session", () => {
-  for (const engine of ["claude", "codex"] as const) {
+  for (const [engine, reply] of [
+    ["claude", "commands.reloadPlugins.nextMessage"],
+    ["codex", "commands.reloadPlugins.menuRefreshed"],
+  ] as const) {
     it(`rebuilds the ${engine} agent's menu from the disk`, async () => {
       const home = claudeHome();
       const agent = await agentOn(engine, `user-reload-asleep-${engine}`);
@@ -482,12 +484,7 @@ describe("/reload-plugins without a live Claude session", () => {
         "user_message",
         "system",
       ]);
-      expect(lines[1].content).not.toBe(
-        t("commands.unsupported.engine", {
-          name: "reload-plugins",
-          engines: "OpenCode",
-        }),
-      );
+      expect(lines[1].content).toBe(t(reply));
       expect(agent.lastMenu()).toEqual(["added:s-added", "disk:s-disk"]);
     });
   }
@@ -627,7 +624,7 @@ describe("account-synced skills in the Sk menu", () => {
     await agent.run("/clear");
     expect(session.closed).toBe(true);
     answer([{ name: "late-skill", description: "Late" }]);
-    await sleep(20);
+    await drain();
     expect(agent.skillsNamed(SYNCED)).toEqual(["docx", "pdf"]);
     // Nothing was kept for a later rebuild either.
     await agent.run();
@@ -663,27 +660,5 @@ describe("account-synced skills in the Sk menu", () => {
     const session = agent.backend.sessionForAgent(agent.id)!;
     expect(session.sent[0].text).toContain("my pdf prompt");
     session.completeTurn();
-  });
-
-  it("a session that ended leaves the next rebuild to the folder", async () => {
-    const home = claudeHome();
-    syncSkills(home.cfg, ["docx", "pdf"]);
-    const agent = await agentOn("claude", "user-synced-ended");
-    agent.backend.rows = [{ name: "docx", description: "Docs" }];
-    const session = await agent.startSession(true);
-    await waitUntil(
-      () =>
-        agent.lastSkills().find((s) => s.name === "docx")?.description ===
-        "Docs",
-      "rows in the menu",
-    );
-    expect(agent.skillsNamed(SYNCED)).toEqual(["docx"]);
-    session.endStream();
-    await waitUntil(
-      () => agent.mgr.getAgent(agent.id)?.dormant === true,
-      "session released",
-    );
-    await agent.run();
-    expect(agent.skillsNamed(SYNCED)).toEqual(["docx", "pdf"]);
   });
 });

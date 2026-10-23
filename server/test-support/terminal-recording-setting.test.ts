@@ -16,9 +16,12 @@ import {
 } from "./harness.ts";
 
 let server: TestServer | null = null;
+let sidecars: { mockRestore(): void } | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
+  sidecars?.mockRestore();
+  sidecars = null;
 });
 
 async function call(
@@ -108,7 +111,7 @@ async function spawnAgent(srv: TestServer): Promise<AgentInfo> {
 
 // A terminal sidecar that never runs: openTerminal only needs the process.
 function fakeSidecars() {
-  spyOn(Bun, "spawn").mockImplementation(
+  sidecars = spyOn(Bun, "spawn").mockImplementation(
     () =>
       ({
         stdin: { write: () => 1 },
@@ -149,7 +152,20 @@ describe("the Record terminals switch", () => {
   it("refuses a value that is not a boolean, and changes nothing", async () => {
     const o = await office();
     for (const value of ["yes", 1, null]) {
-      expect(await o.put({ recordTerminals: value }), String(value)).toBe(400);
+      const res = await call(
+        o.srv,
+        "PUT",
+        "/api/office/settings",
+        o.morgan.rawSessionId,
+        { version: (await o.read()).version, recordTerminals: value },
+      );
+      expect(
+        {
+          status: res.status,
+          code: (res.body as { error?: { code?: string } }).error?.code,
+        },
+        String(value),
+      ).toEqual({ status: 400, code: "invalid_request" });
     }
     expect((await o.read()).recordTerminals).not.toBe(true);
     expect(await o.rows("terminal.recordingOn")).toHaveLength(0);

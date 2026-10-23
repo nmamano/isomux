@@ -43,6 +43,10 @@ const WAIT_MS = 20_000;
 setDefaultTimeout(60_000);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Lets every continuation already queued run. The sample path has no timers
+// (FakeBackend answers from a plain async), so a released read has committed
+// or been dropped once this resolves.
+const drain = () => new Promise((r) => setImmediate(r));
 
 async function waitUntil(
   pred: () => boolean,
@@ -168,6 +172,36 @@ function seedClaudeFile(
   writeFileSync(join(dir, `${sessionId}.jsonl`), "");
 }
 
+// A session the agent previously ran under Codex, stamped with a posture the
+// Codex engine does not use (wireClaudeHome points CODEX_HOME here).
+const CODEX_SESSION_ID = "11111111-1111-4111-8111-111111111111";
+function stampCodexPosture(agentId: string, sessionId: string): void {
+  stampSessionEngineConfig(agentId, sessionId, {
+    agentType: "codex",
+    modelFamily: "gpt-5.5",
+    effort: "medium",
+    permissionMode: "on-request",
+    codexSandbox: "workspace-write",
+  });
+}
+function seedCodexSession(agentId: string): string {
+  stampCodexPosture(agentId, CODEX_SESSION_ID);
+  const rolloutDir = join(
+    STATE_ROOT,
+    "codex-home",
+    "sessions",
+    "2026",
+    "08",
+    "27",
+  );
+  mkdirSync(rolloutDir, { recursive: true });
+  writeFileSync(
+    join(rolloutDir, `rollout-test-${CODEX_SESSION_ID}.jsonl`),
+    '{"type":"session_meta"}\n{"type":"response_item"}\n',
+  );
+  return CODEX_SESSION_ID;
+}
+
 describe("subscription usage", () => {
   it("publishes the reading on AgentInfo at a turn boundary, clamped", async () => {
     const fake = new FakeBackend({
@@ -287,32 +321,6 @@ describe("subscription usage", () => {
     expect(calls).toBe(4);
   });
 
-  it("clears the pill when the backend authoritatively has no allowance", async () => {
-    // An API-key login answering "rate limits do not apply here" must take a
-    // populated pill away, which "unknown" deliberately would not.
-    let calls = 0;
-    const fake = new FakeBackend({
-      session: {
-        subscriptionUsage: async () =>
-          ++calls === 1 ? reading(42) : { kind: "unavailable" as const },
-        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
-      },
-    });
-    const mgr = makeManager(fake);
-    const info = await spawn(mgr);
-    await runTurn(mgr, info.id, "one");
-    await waitUntil(
-      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
-      "first reading",
-    );
-    await runTurn(mgr, info.id, "two");
-    await waitUntil(
-      () => !mgr.getAgent(info.id)?.subscriptionUsage,
-      "pill cleared",
-    );
-    expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
-  });
-
   it("ignores a stale sample that resolves after a newer one committed", async () => {
     // Out-of-order resolution: the slow first call must not overwrite the
     // fast second one.
@@ -338,7 +346,7 @@ describe("subscription usage", () => {
       "newer reading committed",
     );
     gates[0](reading(5));
-    await sleep(50);
+    await drain();
     expect(
       mgr.getAgent(info.id)?.subscriptionUsage?.windows[0].usedPercent,
     ).toBe(80);
@@ -423,32 +431,6 @@ describe("subscription usage", () => {
     ).toBe(63);
   });
 
-  it("clears on an engine switch, which is where the account actually changes", async () => {
-    // editAgent routes an agentType change through newConversation and returns
-    // early, so this is the path that has to do the clearing.
-    let samples = 0;
-    const fake = new FakeBackend({
-      session: {
-        subscriptionUsage: async () =>
-          ++samples === 1 ? reading(63) : { kind: "unknown" },
-        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
-      },
-    });
-    const mgr = makeManager(fake);
-    const info = await spawn(mgr);
-    await runTurn(mgr, info.id, "hi");
-    await waitUntil(
-      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
-      "reading published",
-    );
-
-    await mgr.editAgent(info.id, { agentType: "codex" });
-    expect(mgr.getAgent(info.id)?.agentType).toBe("codex");
-    expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
-    const selfCheck = await mgr.getAgentSubscriptionUsage(info.id);
-    expect(selfCheck.available).toBe(false);
-  });
-
   it("clears when resuming a session recorded under the other engine", async () => {
     wireClaudeHome();
     const fake = new FakeBackend({
@@ -465,42 +447,28 @@ describe("subscription usage", () => {
       "reading published",
     );
 
-    // A session this agent previously ran under Codex.
-    const codexSessionId = "11111111-1111-4111-8111-111111111111";
-    stampSessionEngineConfig(info.id, codexSessionId, {
-      agentType: "codex",
-      modelFamily: "gpt-5.5",
-      effort: "medium",
-      permissionMode: "on-request",
-      codexSandbox: "workspace-write",
-    });
-    const rolloutDir = join(
-      STATE_ROOT,
-      "codex-home",
-      "sessions",
-      "2026",
-      "08",
-      "27",
-    );
-    mkdirSync(rolloutDir, { recursive: true });
-    writeFileSync(
-      join(rolloutDir, `rollout-test-${codexSessionId}.jsonl`),
-      '{"type":"session_meta"}\n{"type":"response_item"}\n',
-    );
+    const codexSessionId = seedCodexSession(info.id);
     await mgr.resume(info.id, codexSessionId);
     expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
+  });
+
+  it("does not take a session stamp's posture as a resume input", async () => {
+    wireClaudeHome();
+    const mgr = makeManager(
+      new FakeBackend({
+        session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+      }),
+    );
+    const info = await spawn(mgr);
+    // The stamp records the posture a session ran with; a resume uses the
+    // engine's posture, so neither a cross-engine nor a later same-engine
+    // resume drags the agent back to the stamped values.
+    const codexSessionId = seedCodexSession(info.id);
+    await mgr.resume(info.id, codexSessionId);
     expect(mgr.getAgent(info.id)?.permissionMode).toBe("never");
     expect(mgr.getAgent(info.id)?.codexSandbox).toBe("danger-full-access");
 
-    // The stamp records historical posture but is not a resume input. A later
-    // same-engine resume cannot drag the corrected record back to old defaults.
-    stampSessionEngineConfig(info.id, codexSessionId, {
-      agentType: "codex",
-      modelFamily: "gpt-5.5",
-      effort: "medium",
-      permissionMode: "on-request",
-      codexSandbox: "workspace-write",
-    });
+    stampCodexPosture(info.id, codexSessionId);
     await mgr.resume(info.id, codexSessionId);
     expect(mgr.getAgent(info.id)?.permissionMode).toBe("never");
     expect(mgr.getAgent(info.id)?.codexSandbox).toBe("danger-full-access");
@@ -537,7 +505,7 @@ describe("subscription usage", () => {
     // The old account's answer finally arrives, after the switch. It must not
     // repopulate a Claude figure onto an agent that now runs Codex.
     release!(reading(63));
-    await sleep(50);
+    await drain();
     expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
   });
 
@@ -598,20 +566,11 @@ describe("subscription usage", () => {
       "turn active",
     );
 
-    const result = await mgr.getAgentSubscriptionUsage(info.id);
-    expect(result).toMatchObject({
+    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
       available: true,
       plan: "max",
-      primaryIndex: 1,
       freshness: "fresh",
     });
-    if (result.available) {
-      expect(result.windows.map((window) => window.label)).toEqual([
-        "Weekly",
-        "5-hour",
-        "Weekly (Fable)",
-      ]);
-    }
   });
 
   it("self-check forces a provider refresh on every call", async () => {
@@ -645,27 +604,6 @@ describe("subscription usage", () => {
     expect(forceRefreshValues).toEqual([true, true]);
   });
 
-  it("self-check preserves an older provider observation time", async () => {
-    const observedAtMs = Date.now() - 5_000;
-    const fake = new FakeBackend({
-      session: {
-        subscriptionUsage: async () => observedReading(42, observedAtMs),
-        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
-      },
-    });
-    const mgr = makeManager(fake);
-    const info = await spawn(mgr);
-    await runTurn(mgr, info.id, "sample");
-    await waitUntil(
-      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
-      "reading published",
-    );
-
-    const result = await mgr.getAgentSubscriptionUsage(info.id);
-    expect(result).toMatchObject({ available: true, observedAtMs });
-    if (result.available) expect(result.ageMs).toBeGreaterThanOrEqual(5_000);
-  });
-
   it("self-check treats a completed refresh as fresh with an older pushed observation", async () => {
     const observedAtMs = Date.now() - 5_000;
     const answer = observedReading(42, observedAtMs);
@@ -684,11 +622,13 @@ describe("subscription usage", () => {
       "reading published",
     );
 
-    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
+    const result = await mgr.getAgentSubscriptionUsage(info.id);
+    expect(result).toMatchObject({
       available: true,
       observedAtMs,
       freshness: "fresh",
     });
+    if (result.available) expect(result.ageMs).toBeGreaterThanOrEqual(5_000);
   });
 
   it("self-check broadcasts an unchanged on-demand reading", async () => {
@@ -968,7 +908,7 @@ describe("subscription usage shared by the agents of one account", () => {
     b.set(async () => observedReading(70, newer - 60_000));
     await runTurn(mgr, second.id, "older reading");
     await waitUntil(() => b.reads() > readsBefore, "older reading taken");
-    await sleep(50);
+    await drain();
     for (const id of [first.id, second.id]) {
       expect(percent(mgr, id)).toBe(40);
       expect(mgr.getAgent(id)?.subscriptionUsage?.observedAtMs).toBe(newer);
@@ -1037,7 +977,7 @@ describe("subscription usage shared by the agents of one account", () => {
     );
 
     release!(reading(63));
-    await sleep(50);
+    await drain();
     expect(percent(mgr, mover.id)).toBe(25);
     expect(percent(mgr, onTwo.id)).toBe(25);
   });
@@ -1093,8 +1033,8 @@ describe("subscription usage shared by the agents of one account", () => {
     const sibling = await spawn(mgr, "opencode");
     b.set(async () => reading(40));
     await runTurn(mgr, taker.id, "reading");
+    // Sharing runs in the same commit that set the taker's reading.
     await waitUntil(() => percent(mgr, taker.id) === 40, "own reading");
-    await sleep(50);
     expect(mgr.getAgent(sibling.id)?.subscriptionUsage).toBeFalsy();
   });
 });

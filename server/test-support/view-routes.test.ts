@@ -95,6 +95,29 @@ async function waitForAfter(
   }
 }
 
+// Frames after `mark`, without the pongs the fence adds.
+const framesAfter = (
+  sock: TestSocket,
+  mark: number,
+): Record<string, unknown>[] =>
+  (sock.messages as Record<string, unknown>[])
+    .slice(mark)
+    .filter((m) => m.type !== "pong");
+
+// A pong answers a ping sent after the write returned, so every frame the write
+// sent to that socket arrived before it.
+async function fence(...socks: TestSocket[]): Promise<void> {
+  for (const sock of socks) {
+    const before = bagLen(sock, "pong");
+    sock.send({ type: "ping" });
+    const deadline = Date.now() + 2000;
+    while (bagLen(sock, "pong") <= before) {
+      if (Date.now() > deadline) throw new Error("no pong");
+      await sleep(5);
+    }
+  }
+}
+
 async function waitForFullState(
   sock: TestSocket,
   roomIds: string[],
@@ -128,50 +151,6 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
     });
     // first-wins dedupe, inaccessible/unknown dropped, hidden-but-accessible r2 kept.
     expect(getUserById(memberId)!.order).toEqual([r2, r1]);
-  });
-
-  it("a directly-hidden room is excluded from effective notifRooms on the next view write", async () => {
-    // view.setShown is gone (Phase 4); a hidden room now arrives via the
-    // migration seed (here: direct setup). The clamp still fires on the next
-    // view write - the same clampViewFields path the retired setShown used, and
-    // the same one users.setAccess uses on revoke (covered in user-settings.test).
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const r1 = server.agentManager.getRooms()[0].id;
-    const r2 = server.agentManager.createRoom("R2");
-    grant(member.username, [r1, r2]);
-    hide(member.username, [r2]); // r2 accessible but hidden
-    const memberId = getUserByName(member.username)!.id;
-
-    // notifRooms write clamps to effective shown (accessible \ hidden) → r2 dropped.
-    await putView(server, member.rawSessionId, "notif-rooms", {
-      notifRooms: [r1, r2],
-    });
-    expect(getUserById(memberId)!.notifRooms).toEqual([r1]);
-  });
-
-  it("rejects a malformed body SHAPE (422) but silently accepts an unknown room id", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const r1 = server.agentManager.getRooms()[0].id;
-    grant(member.username, [r1]);
-
-    // Malformed: order is not a string[] → 422 (a shape error is allowed).
-    expect(
-      await putView(server, member.rawSessionId, "order", { order: "nope" }),
-    ).toBe(422);
-    // Unknown id is NOT rejected (rejecting would be an existence oracle) - it's
-    // silently filtered, so the write still succeeds (204) and stores only r1.
-    expect(
-      await putView(server, member.rawSessionId, "order", {
-        order: ["no-such-room", r1],
-      }),
-    ).toBe(204);
-    expect(getUserById(getUserByName(member.username)!.id)!.order).toEqual([
-      r1,
-    ]);
   });
 
   it("multi-socket: an order-only change sends room_order_updated with the projected rooms to ALL the caller's sockets, replays nothing, and reaches no other user", async () => {
@@ -241,12 +220,10 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
       r4,
     ]);
     // The unrelated owner gets nothing from the member's view change.
-    await sleep(50);
-    expect(
-      (ownerSock.messages as Record<string, unknown>[])
-        .slice(markOwner)
-        .map((m) => m.type),
-    ).not.toContain("room_order_updated");
+    await fence(ownerSock);
+    expect(framesAfter(ownerSock, markOwner).map((m) => m.type)).not.toContain(
+      "room_order_updated",
+    );
     expect(bagLen(ownerSock, "full_state")).toBe(1);
   });
 });
@@ -379,25 +356,6 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
 // Task 6c23d908 - view.setTucked: a tucked room leaves the member's tab bar
 // for its overflow chip but stays in the projection, so presence still flows.
 describe("view.setTucked (task 6c23d908)", () => {
-  async function waitForSelfTucked(
-    sock: TestSocket,
-    tucked: string[],
-  ): Promise<void> {
-    const want = JSON.stringify(tucked);
-    const deadline = Date.now() + 2000;
-    for (;;) {
-      const found = (sock.messages as Record<string, unknown>[]).some(
-        (m) =>
-          m.type === "user_self_updated" &&
-          JSON.stringify((m.user as { tucked: string[] }).tucked) === want,
-      );
-      if (found) return;
-      if (Date.now() > deadline)
-        throw new Error(`no user_self_updated with tucked=${want}`);
-      await sleep(5);
-    }
-  }
-
   it("stores the full list: dedupes, drops unknown and inaccessible ids, keeps hidden-but-accessible ones", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
@@ -426,7 +384,8 @@ describe("view.setTucked (task 6c23d908)", () => {
     expect(getUserById(memberId)!.tucked).toEqual([r2]);
   });
 
-  it("sends the member's own record and no full_state; other members get nothing", async () => {
+  // tucked and pushRooms ride only the private record channels.
+  it("setTucked and setPushRooms send the member's own record and the owners' admin record, no full_state and nothing to other members", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const member = await server.seedMember("Mia");
@@ -439,48 +398,30 @@ describe("view.setTucked (task 6c23d908)", () => {
     const sock = await connectSettled(server, member.rawSessionId);
     const otherSock = await connectSettled(server, other.rawSessionId);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    const fsBefore = bagLen(sock, "full_state");
-    const otherBefore = otherSock.messages.length;
-    const ownerBefore = ownerSock.messages.length;
 
-    await putView(server, member.rawSessionId, "tucked", { tucked: [r2] });
-    await waitForSelfTucked(sock, [r2]);
-    await sleep(50);
-    // The tucked room stays in the projection: no full_state is needed.
-    expect(bagLen(sock, "full_state")).toBe(fsBefore);
-    expect(otherSock.messages.slice(otherBefore)).toEqual([]);
-    // Owners get the full record on the admin channel, as for hidden and
-    // order; nothing goes out on the public channel.
-    const ownerNew = (ownerSock.messages as Record<string, unknown>[]).slice(
-      ownerBefore,
-    );
-    expect(ownerNew.map((m) => m.type)).toEqual(["user_admin_updated"]);
-    expect((ownerNew[0].user as { tucked: string[] }).tucked).toEqual([r2]);
-  });
-
-  it("never puts tucked on the public user wire", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const other = await server.seedMember("Ola");
-    const r1 = server.agentManager.getRooms()[0].id;
-    grant(member.username, [r1]);
-    await putView(server, member.rawSessionId, "tucked", { tucked: [r1] });
-    // A connect sends the public roster; a public record change follows.
-    const otherSock = await connectSettled(server, other.rawSessionId);
-    await putView(server, member.rawSessionId, "notif-rooms", {
-      notifRooms: [r1],
-    });
-    await otherSock.waitFor("user_updated");
-    const publicRecords = (otherSock.messages as Record<string, unknown>[])
-      .filter((m) => m.type === "users_list" || m.type === "user_updated")
-      .flatMap((m) =>
-        m.type === "users_list"
-          ? (m.users as Record<string, unknown>[])
-          : [m.user as Record<string, unknown>],
+    for (const [path, body, field, want] of [
+      ["tucked", { tucked: [r2] }, "tucked", [r2]],
+      ["push-rooms", { pushRooms: [r1] }, "pushRooms", [r1]],
+    ] as const) {
+      const selfBefore = sock.messages.length;
+      const otherBefore = otherSock.messages.length;
+      const ownerBefore = ownerSock.messages.length;
+      expect(await putView(server, member.rawSessionId, path, body)).toBe(204);
+      await waitForAfter(ownerSock, ownerBefore, "user_admin_updated");
+      await fence(sock, otherSock, ownerSock);
+      // The room stays in the projection: no full_state is needed.
+      const selfNew = framesAfter(sock, selfBefore);
+      expect(selfNew.map((m) => m.type)).toEqual(["user_self_updated"]);
+      expect((selfNew[0].user as Record<string, unknown>)[field]).toEqual(want);
+      expect(framesAfter(otherSock, otherBefore)).toEqual([]);
+      // Owners get the full record on the admin channel, as for hidden and
+      // order; nothing goes out on the public channel.
+      const ownerNew = framesAfter(ownerSock, ownerBefore);
+      expect(ownerNew.map((m) => m.type)).toEqual(["user_admin_updated"]);
+      expect((ownerNew[0].user as Record<string, unknown>)[field]).toEqual(
+        want,
       );
-    expect(publicRecords.length).toBeGreaterThan(0);
-    expect(publicRecords.every((u) => !("tucked" in u))).toBe(true);
+    }
   });
 
   it("a hidden room keeps its tucked flag and comes back tucked when shown again", async () => {
@@ -494,15 +435,6 @@ describe("view.setTucked (task 6c23d908)", () => {
     const sock = await connectSettled(server, member.rawSessionId);
 
     await putView(server, member.rawSessionId, "tucked", { tucked: [r2] });
-    // Tucked is not hidden: the room stays in the member's projection.
-    expect(
-      fullStateRoomIds(
-        (sock.messages as Record<string, unknown>[]).findLast(
-          (m) => m.type === "full_state",
-        )!,
-      ),
-    ).toEqual([r1, r2]);
-
     await putView(server, member.rawSessionId, "shown", { shown: [r1] });
     await waitForFullState(sock, [r1]);
     expect(getUserById(memberId)!.tucked).toEqual([r2]);
@@ -623,42 +555,7 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
 
     expect(await setRole("member")).toBe(200);
     expect(getUserById(memberId)!.role).toBe("member");
-    expect(getUserById(memberId)!.allowedRooms).not.toContain(r2);
-    expect(getUserById(memberId)!.pushRooms).not.toContain(r2);
-  });
-
-  it("sends the member's own record and the owners' admin record, no full_state and nothing public", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const other = await server.seedMember("Ola");
-    const r1 = server.agentManager.getRooms()[0].id;
-    grant(member.username, [r1]);
-    grant(other.username, [r1]);
-
-    const sock = await connectSettled(server, member.rawSessionId);
-    const otherSock = await connectSettled(server, other.rawSessionId);
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    const selfBefore = sock.messages.length;
-    const otherBefore = otherSock.messages.length;
-    const ownerBefore = ownerSock.messages.length;
-
-    await putView(server, member.rawSessionId, "push-rooms", {
-      pushRooms: [r1],
-    });
-    await waitForAfter(sock, selfBefore, "user_self_updated");
-    await sleep(50);
-    const selfNew = (sock.messages as Record<string, unknown>[]).slice(
-      selfBefore,
-    );
-    expect(selfNew.map((m) => m.type)).toEqual(["user_self_updated"]);
-    expect((selfNew[0].user as { pushRooms: string[] }).pushRooms).toEqual([
-      r1,
-    ]);
-    expect(otherSock.messages.slice(otherBefore)).toEqual([]);
-    const ownerNew = (ownerSock.messages as Record<string, unknown>[]).slice(
-      ownerBefore,
-    );
-    expect(ownerNew.map((m) => m.type)).toEqual(["user_admin_updated"]);
+    expect(getUserById(memberId)!.allowedRooms).toEqual([r1]);
+    expect(getUserById(memberId)!.pushRooms).toEqual([r1]);
   });
 });

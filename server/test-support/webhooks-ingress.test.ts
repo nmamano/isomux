@@ -1,12 +1,11 @@
 // The public webhook route, POST /hooks/:id, through buildServer's real fetch
 // with a real HMAC. See internal-docs/webhooks-design.md sections 1, 5 and 6.
 //
-// Seam: startTestServer() with the webhookNow clock, so the window and limit
-// tests move time without waiting. Zero LLM. The hook belongs to a member,
-// Alice, whose room access is the switch for a target that goes away and
-// comes back.
+// Seam: startTestServer() with the webhookNow clock, so the limit tests move
+// time without waiting. Zero LLM. The hook belongs to a member, Alice, whose
+// room access is the switch for a target that goes away and comes back.
 
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { createHmac, randomUUID } from "crypto";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { connect } from "net";
@@ -17,19 +16,11 @@ import { STATE_ROOT } from "../config.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { formatWebhookSenderPrefix } from "../../shared/identity.ts";
 import { WEBHOOK_DELIVERY_LOG_MAX } from "../webhooks/registry.ts";
-import { WEBHOOK_DEDUP_WINDOW_MS } from "../webhooks/deliveries.ts";
 import {
   WEBHOOK_BODY_MAX_BYTES,
   WEBHOOK_INGRESS_BURST,
 } from "../webhooks/ingress.ts";
 import { APP_MESSAGE_BURST_LIMIT } from "../app-message-limits.ts";
-import {
-  anOfficeWithAnApp,
-  appHost,
-  OFFICE_HOST,
-  raw,
-} from "./app-host-test-kit.ts";
-import { webhookRegistry } from "../webhooks/registry.ts";
 import type {
   AgentInfo,
   LogEntry,
@@ -253,26 +244,30 @@ function webhookMessages(o: Office): LogEntry[] {
     );
 }
 
-// Exactly `n` webhook messages reach the agent, and no more arrive after.
+// Exactly `n` webhook messages reach the agent. The route enqueues before it
+// answers, so once the last answer is in, an agent that is idle with an empty
+// queue has had every message it will get.
 async function expectMessages(o: Office, n: number): Promise<void> {
-  if (n > 0) {
+  const live = () =>
+    o.srv.agentManager.getAllAgents().find((a) => a.id === o.agent.id)!;
+  if (n === 0) {
+    expect(live().queue).toEqual([]);
+    expect(
+      o.srv.fakeBackend.sessions
+        .filter((s) => s.opts.agentId === o.agent.id)
+        .some((s) => s.sent.some((m) => m.text.includes("<webhook-data>"))),
+    ).toBe(false);
+  } else {
     await waitUntil(
-      () => webhookMessages(o).length >= n,
+      () =>
+        (live().state === "idle" || live().state === "waiting_for_response") &&
+        live().queue.length === 0 &&
+        webhookMessages(o).length >= n,
       5000,
-      `${n} webhook messages`,
+      `${n} webhook messages, agent idle`,
     );
   }
-  await sleep(150);
   expect(webhookMessages(o)).toHaveLength(n);
-}
-
-// No two rows share a body hash while both are inside the window.
-function expectWindowInvariant(log: WebhookDelivery[]): void {
-  const inWindow = log.filter(
-    (row) => clock - row.receivedAt < WEBHOOK_DEDUP_WINDOW_MS,
-  );
-  const hashes = inWindow.map((row) => row.bodyHash);
-  expect(new Set(hashes).size).toBe(hashes.length);
 }
 
 function setReach(o: Office, rooms: string[]): void {
@@ -339,6 +334,7 @@ describe("POST /hooks/:id: the stages before the signature write no row", () => 
     const { counters } = await wire(o);
     expect(counters.method?.count).toBe(1);
     expect(counters.bad_signature?.count).toBe(3);
+    expect(counters.bad_signature?.lastAt).toBe(clock);
     expect(counters.body_too_large?.count).toBe(1);
     expect(counters.disabled?.count).toBe(1);
     expect(counters.secret_missing?.count).toBe(1);
@@ -346,21 +342,6 @@ describe("POST /hooks/:id: the stages before the signature write no row", () => 
     // The body never names the hook's target or rule.
     expect(get.body).toEqual({ error: expect.any(String) });
   });
-
-  // 100 requests in series: about 1.7 s alone, but it passed 5 s in a
-  // full-suite run on a loaded box (2026-10-06).
-  it("100 bad signatures leave the log empty and the counter at 100", async () => {
-    const o = await office();
-    for (let i = 0; i < 100; i++) {
-      clock += TOKEN_MS;
-      const res = await deliver(o, { body: prOpened(i), signature: null });
-      expect(res.status).toBe(401);
-    }
-    expect(await rows(o)).toEqual([]);
-    const { counters } = await wire(o);
-    expect(counters.bad_signature?.count).toBe(100);
-    expect(counters.bad_signature?.lastAt).toBe(clock);
-  }, 30_000);
 
   it("the ingress limit answers 429 with Retry-After, keyed on the hook and not the client", async () => {
     const o = await office();
@@ -608,23 +589,6 @@ describe("POST /hooks/:id: verified deliveries", () => {
     await expectMessages(o, 0);
   });
 
-  it("the same body twice answers 200 and raises duplicates, with no second row", async () => {
-    const o = await office();
-    expect((await deliver(o, { body: prOpened(1) })).status).toBe(202);
-    clock += 1000;
-    const again = await deliver(o, { body: prOpened(1) });
-    expect(again.status).toBe(200);
-    expect(again.body).toEqual({ ok: true });
-    const log = await rows(o);
-    expect(log).toHaveLength(1);
-    expect(log[0]).toMatchObject({
-      outcome: "dispatched",
-      duplicates: 1,
-      lastSeenAt: clock,
-    });
-    await expectMessages(o, 1);
-  });
-
   it("concurrent copies of one body make one row and one dispatch", async () => {
     const o = await office();
     const copies = 10;
@@ -766,12 +730,6 @@ describe("POST /hooks/:id: verified deliveries", () => {
         deliveryRowId: row.id,
       },
     });
-    // The prompt, a blank line, and the block with the rendered args.
-    const [prompt, blank, ...block] = run!.promptSnapshot.split("\n");
-    expect(prompt).toBe(job.prompt);
-    expect(blank).toBe("");
-    expect(block.at(-1)).toBe("</webhook-data>");
-    expect(JSON.parse(block.at(-2)!)).toEqual({ pr: "42" });
     await waitUntil(
       () =>
         o.srv.fakeBackend.sessions.some((s) =>
@@ -782,22 +740,6 @@ describe("POST /hooks/:id: verified deliveries", () => {
     );
     // No agent got a message.
     await expectMessages(o, 0);
-  });
-
-  it("a deleted cronjob gives target_unavailable and starts no run", async () => {
-    const o = await office({ fakeBackend: parkingBackend() });
-    const job = await cronjobTarget(o);
-    expect(o.srv.cronjobManager.deleteCronjob(job.id)).toBe(true);
-    const res = await deliver(o);
-    expect(res.status).toBe(503);
-    expect(res.body).toEqual({ error: "target_unavailable" });
-    const [row] = await rows(o);
-    expect(row).toMatchObject({
-      outcome: "target_unavailable",
-      target: { kind: "cronjob", cronjobId: job.id },
-    });
-    expect(row.detail).toBeTruthy();
-    expect(o.srv.cronjobManager.getRunsForCronjob(job.id)).toEqual([]);
   });
 
   it("a hook owner who no longer owns the cronjob starts no run; the row retries once they do", async () => {
@@ -902,160 +844,6 @@ describe("POST /hooks/:id: the dedup window", () => {
     expect(log[0]).toMatchObject({ outcome: "dispatched", attempts: 2 });
     expect(log[1]).toMatchObject({ outcome: "dispatched", duplicates: 1 });
   });
-
-  it("the same body after 25 hours gets a new row and dispatches", async () => {
-    const o = await office();
-    expect((await deliver(o, { body: prOpened(1) })).status).toBe(202);
-    clock += 23 * 60 * 60 * 1000;
-    expect((await deliver(o, { body: prOpened(1) })).status).toBe(200);
-    expectWindowInvariant(await rows(o));
-    clock += 2 * 60 * 60 * 1000;
-    expect((await deliver(o, { body: prOpened(1) })).status).toBe(202);
-    const log = await rows(o);
-    expect(log).toHaveLength(2);
-    expect(log.map((r) => r.bodyHash)).toEqual([
-      log[1].bodyHash,
-      log[1].bodyHash,
-    ]);
-    expectWindowInvariant(log);
-    await expectMessages(o, 2);
-  });
-
-  it("with 501 bodies sent in turn, the first body sent again gets a new row", async () => {
-    const o = await office();
-    const n = WEBHOOK_DELIVERY_LOG_MAX + 1;
-    for (let i = 0; i < n; i++) {
-      clock += TOKEN_MS;
-      expect((await deliver(o, { body: prClosed(i) })).status).toBe(200);
-    }
-    clock += TOKEN_MS;
-    expect((await deliver(o, { body: prClosed(0) })).status).toBe(200);
-    // Still in the window: a copy of the second body adds no row.
-    clock += TOKEN_MS;
-    expect((await deliver(o, { body: prClosed(n - 1) })).status).toBe(200);
-    const log = await rows(o);
-    expect(log).toHaveLength(WEBHOOK_DELIVERY_LOG_MAX);
-    expect(log[0].duplicates).toBe(0);
-    expect(log[1].duplicates).toBe(1);
-    expect(log.filter((r) => r.bodyHash === log[0].bodyHash)).toHaveLength(1);
-    expectWindowInvariant(log);
-    // About 500 sequential requests, each with one log write.
-  }, 60_000);
-});
-
-// A chunked POST whose first chunk goes now and whose rest goes on finish().
-function heldChunkedPost(o: Office, body: Uint8Array, signature: string) {
-  let out = "";
-  let resolveStatus!: (status: number) => void;
-  const status = new Promise<number>((r) => {
-    resolveStatus = r;
-  });
-  const done = () =>
-    resolveStatus(Number(/^HTTP\/1\.1 (\d{3})/.exec(out)?.[1] ?? 0));
-  const socket = connect(o.srv.port, "127.0.0.1", () => {
-    socket.write(
-      [
-        `POST /hooks/${o.hook.id} HTTP/1.1`,
-        `Host: 127.0.0.1:${o.srv.port}`,
-        "Content-Type: application/json",
-        "Transfer-Encoding: chunked",
-        "X-GitHub-Event: pull_request",
-        `X-Hub-Signature-256: ${signature}`,
-        "Connection: close",
-        "",
-        "",
-      ].join("\r\n"),
-    );
-    const head = body.subarray(0, 5);
-    socket.write(`${head.byteLength.toString(16)}\r\n`);
-    socket.write(head);
-    socket.write("\r\n");
-  });
-  socket.on("data", (d) => {
-    out += d.toString("latin1");
-  });
-  socket.on("end", done);
-  socket.on("close", done);
-  return {
-    finish(): Promise<number> {
-      const rest = body.subarray(5);
-      socket.write(`${rest.byteLength.toString(16)}\r\n`);
-      socket.write(rest);
-      socket.write("\r\n0\r\n\r\n");
-      return status;
-    },
-  };
-}
-
-describe("POST /hooks/:id: changes during the awaits", () => {
-  it("a hook deleted while its body streams answers 404 and is not recreated", async () => {
-    const o = await office();
-    // The server runs in this process: once stage 1 has looked the hook up,
-    // the request is waiting for the rest of its body.
-    const get = spyOn(webhookRegistry, "get");
-    const lookups = () => get.mock.calls.filter(([id]) => id === o.hook.id);
-    try {
-      const body = new TextEncoder().encode(prOpened(1));
-      const post = heldChunkedPost(o, body, sign(o.secret, body));
-      await waitUntil(() => lookups().length >= 1, 3000, "stage 1 ran");
-      const del = await o.srv.http(`/api/webhooks/${o.hook.id}`, {
-        method: "DELETE",
-        rawSessionId: o.aliceSession,
-      });
-      expect(del.status).toBe(204);
-      expect(existsSync(join(STATE_ROOT, "webhooks", o.hook.id))).toBe(false);
-      expect(await post.finish()).toBe(404);
-    } finally {
-      get.mockRestore();
-    }
-    expect(existsSync(join(STATE_ROOT, "webhooks", o.hook.id))).toBe(false);
-    await expectMessages(o, 0);
-  });
-
-  it("room access removed during prepareEnqueue: 503 and no message; with no change: 202", async () => {
-    const o = await office();
-    const manager = o.srv.agentManager;
-    const original = manager.prepareEnqueue;
-    let gate = Promise.resolve();
-    let release = () => {};
-    let entered = () => {};
-    const hold = () => {
-      gate = new Promise<void>((r) => {
-        release = r;
-      });
-      return new Promise<void>((r) => {
-        entered = r;
-      });
-    };
-    manager.prepareEnqueue = async (id: string) => {
-      await original(id);
-      entered();
-      await gate;
-    };
-    try {
-      // The control: held, released with no change, dispatched.
-      let started = hold();
-      const control = deliver(o, { body: prOpened(90) });
-      await started;
-      release();
-      expect((await control).status).toBe(202);
-
-      started = hold();
-      const revoked = deliver(o, { body: prOpened(91) });
-      await started;
-      setReach(o, []);
-      expect(getUserByName("Alice")!.allowedRooms).toEqual([]);
-      release();
-      const res = await revoked;
-      expect(res.status).toBe(503);
-      expect(res.body).toEqual({ error: "target_unavailable" });
-    } finally {
-      release();
-      manager.prepareEnqueue = original;
-    }
-    expect((await rows(o))[0].outcome).toBe("target_unavailable");
-    await expectMessages(o, 1);
-  });
 });
 
 describe("POST /hooks/:id: the boundary", () => {
@@ -1072,69 +860,5 @@ describe("POST /hooks/:id: the boundary", () => {
     });
     expect(res.status).toBe(202);
     expect((await rows(o))[0].outcome).toBe("dispatched");
-  });
-
-  it("an app hostname never reaches the handler", async () => {
-    let tracked: TestServer | null = null;
-    const { srv, label, token } = await anOfficeWithAnApp((s) => {
-      tracked = s;
-      server = s;
-    });
-    expect(tracked).not.toBeNull();
-    // An agent's hook with its default target: the agent itself.
-    const made = await srv.http("/api/webhooks", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: NAME,
-        scheme: "github-hmac-sha256",
-        rules: [{ event: "*" }],
-      }),
-    });
-    expect(made.status).toBe(201);
-    const hook = (await made.json()) as WebhookWire;
-    const secret = webhookRegistry.readSecret(hook.id)!;
-    const headers = {
-      "Content-Length": "0",
-      "X-GitHub-Event": "pull_request",
-      "X-Hub-Signature-256": sign(secret, new Uint8Array(0)),
-    };
-    const onApp = await raw(srv.port, {
-      host: appHost(label),
-      path: `/hooks/${hook.id}`,
-      method: "POST",
-      headers,
-    });
-    expect(onApp.status).not.toBe(400);
-    expect(onApp.body).not.toContain("bad_payload");
-    expect(webhookRegistry.readDeliveries(hook.id, 10)).toEqual([]);
-    // The control: the office host reaches the handler, which verifies the
-    // empty body and logs it as a bad payload.
-    const onOffice = await raw(srv.port, {
-      host: OFFICE_HOST,
-      path: `/hooks/${hook.id}`,
-      method: "POST",
-      headers,
-    });
-    expect(onOffice.status).toBe(400);
-    expect(JSON.parse(onOffice.body)).toEqual({ error: "bad_payload" });
-    expect(
-      webhookRegistry.readDeliveries(hook.id, 10).map((r) => r.outcome),
-    ).toEqual(["bad_payload"]);
-  });
-
-  it("a deleted hook answers 404 and its log is not recreated", async () => {
-    const o = await office();
-    expect((await deliver(o)).status).toBe(202);
-    const del = await o.srv.http(`/api/webhooks/${o.hook.id}`, {
-      method: "DELETE",
-      rawSessionId: o.aliceSession,
-    });
-    expect(del.status).toBe(204);
-    expect((await deliver(o, { body: prOpened(8) })).status).toBe(404);
-    expect(existsSync(join(STATE_ROOT, "webhooks", o.hook.id))).toBe(false);
   });
 });

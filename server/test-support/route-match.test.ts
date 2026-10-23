@@ -11,18 +11,6 @@ function m(method: string, path: string) {
 }
 
 describe("routes/match: basic resolution + params", () => {
-  it("resolves a static GET route", () => {
-    const r = m("GET", "/api/tasks");
-    expect(r?.route.opId).toBe("tasks.list");
-    expect(r?.params).toEqual({});
-  });
-
-  it("extracts a single :param", () => {
-    const r = m("GET", "/api/cronjobs/j1");
-    expect(r?.route.opId).toBe("cron.get");
-    expect(r?.params).toEqual({ id: "j1" });
-  });
-
   it("extracts nested :params", () => {
     const r = m("POST", "/api/cronjobs/j1/runs/r1/read-file");
     expect(r?.route.opId).toBe("cron.runReadFile");
@@ -33,6 +21,11 @@ describe("routes/match: basic resolution + params", () => {
     const r = m("GET", "/api/agents/a1/files/my%20file.png");
     expect(r?.route.opId).toBe("agents.getFile");
     expect(r?.params).toEqual({ id: "a1", filename: "my file.png" });
+    // A malformed %xx is kept raw rather than throwing the dispatch.
+    expect(m("GET", "/api/agents/a1/files/%E0%A4%A")?.params).toEqual({
+      id: "a1",
+      filename: "%E0%A4%A",
+    });
   });
 
   it("ignores a trailing slash", () => {
@@ -70,14 +63,12 @@ describe("routes/match: longest-static-wins", () => {
 describe("routes/match: misses", () => {
   it("returns null for an unknown path", () => {
     expect(m("GET", "/api/does-not-exist")).toBeNull();
+    // A legacy (non-/api) path is not in the table.
+    expect(m("GET", "/tasks")).toBeNull();
+    expect(m("POST", "/agents/a1/read-file")).toBeNull();
   });
 
   it("returns null for a method mismatch", () => {
     expect(m("PUT", "/api/tasks")).toBeNull();
-  });
-
-  it("returns null for a legacy (non-/api) path not in the table", () => {
-    expect(m("GET", "/tasks")).toBeNull();
-    expect(m("POST", "/agents/a1/read-file")).toBeNull();
   });
 });

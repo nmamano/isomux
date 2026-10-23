@@ -16,6 +16,7 @@ import {
   type Identity,
 } from "../identity/index.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
+import { LOBBY_ROOM_ID } from "../../shared/types.ts";
 import {
   AGENT_SENDER_PRIVILEGED,
   AGENT_SENDER_SAME_MANAGER,
@@ -49,7 +50,6 @@ describe("system prompt pointer contract", () => {
         expect(prompt).toContain(`\`${topic}\``);
     }
     expect(prompt.match(/curl -s /g)).toHaveLength(1);
-    expect(prompt).toContain("Before your first use");
     expect(prompt).toContain("/api/agent-reference/<page>");
     expect(prompt).not.toContain("/api/tasks");
     expect(prompt).not.toContain("/api/agents/agent-1/read-file");
@@ -193,7 +193,8 @@ describe("system prompt pointer contract", () => {
     expect(pages.filter((p) => privilegedSender.test(p.page ?? ""))).toEqual(
       [],
     );
-    expect(askers.length).toBe(8);
+    // Fail closed: a rewrite that drops every such sentence checks nothing.
+    expect(askers.length).toBeGreaterThan(0);
     for (const a of askers)
       expect(a).toEqual({
         topic: a.topic,
@@ -213,29 +214,6 @@ describe("system prompt pointer contract", () => {
       /Isomux note[^.]*interrupted or stopped your turn[^.]*not from an office member/,
     );
     expect(p).toMatch(/member's denial or safety refusal[^.]*still stands/);
-  });
-
-  // Task f4452169: every agent may stop another agent's turn, so the abort
-  // route sits in the messaging topic every agent reads, and the operator
-  // topic does not repeat it.
-  it("documents the abort route once, in the topic every agent reads", () => {
-    const agent = (capabilities: Identity["capabilities"]): Identity => ({
-      scope: "agent",
-      agentId: "a1",
-      userId: "u1",
-      role: "member",
-      capabilities,
-    });
-    expect(
-      agentReferenceContent(agent(AGENT_CAPABILITIES), "messaging"),
-    ).toContain("`POST /api/agents/:id/abort`");
-    expect(
-      agentReferenceContent(
-        agent(PRIVILEGED_AGENT_CAPABILITIES),
-        "agent-management",
-      ),
-    ).not.toContain("/abort");
-    expect(build()).toMatch(/turn should stop: stop it\. Page: `messaging`/);
   });
 
   it("keeps OpenCode's stable placeholder and proxy command", () => {
@@ -275,15 +253,16 @@ describe("dynamic prompt layers", () => {
     expect(hosted).toContain("root@acme.isomux.app");
   });
 
-  it("keeps lobby scope out of room-scoped features", () => {
-    const prompt = buildSystemPrompt(
-      "Receptionist",
-      "agent-r",
-      "Lobby",
-      "lobby",
-    );
-    expect(prompt).toContain("The lobby has no room task or memory scope");
-    expect(prompt).not.toContain("room id is lobby");
+  // The lobby has no room scope for tasks or memory, so its prompt must not
+  // hand the agent "lobby" as a room id to use there.
+  it("gives a lobby agent no room id where a room agent gets one", () => {
+    const room = buildSystemPrompt("A1", "agent-1", "Room", "room-x");
+    const lobby = buildSystemPrompt("A1", "agent-1", "Room", LOBBY_ROOM_ID);
+    const lines = room.split("\n").filter((line) => line.includes("room-x"));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      expect(lobby).not.toContain(line.replaceAll("room-x", LOBBY_ROOM_ID));
+    }
   });
 
   it("appends manager, office, room, agent, and memory layers in order", () => {

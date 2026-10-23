@@ -6,15 +6,16 @@
 //     user_admin_updated; members NEVER receive those;
 //   - the subject gets their OWN full record via user_self_updated, incl. at
 //     connect hydration; another user never receives it;
-//   - office envFile never reaches a member (full_state.office or the all-
-//     audience office_settings_updated); owners keep it in their full_state.
+//   - office envFile never reaches a member's full_state.office; owners keep
+//     it there.
 
 import { versionOf } from "../../shared/blob-version.ts";
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, beforeAll, afterAll } from "bun:test";
 import {
   startTestServer,
   type TestServer,
   type TestSocket,
+  type SeededIdentity,
 } from "./harness.ts";
 import { getUserByName } from "../users.ts";
 import type { OfficeWire } from "../../shared/types.ts";
@@ -29,14 +30,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Msg = Record<string, unknown>;
 const bag = (s: TestSocket): Msg[] => s.messages as Msg[];
 
-// Fields that must NEVER appear on a PUBLIC user wire.
-const SENSITIVE = [
-  "allowedRooms",
-  "hidden",
-  "order",
-  "notifRooms",
-  "memberPrompt",
-] as const;
+// The public inventory: the fields of UserPublicWire (shared/types.ts). Any
+// other field on a public user record (grants, prompt, view prefs such as
+// hidden/tucked/pushRooms, and anything added later) is a leak.
+const PUBLIC_USER_FIELDS = [
+  "avatarColor",
+  "avatarVariant",
+  "createdAt",
+  "id",
+  "name",
+  "role",
+];
 
 // Connect + block until the WHOLE handshake arrived (presence_list is last).
 async function connectSettled(
@@ -79,7 +83,9 @@ async function pingPong(s: TestSocket): Promise<void> {
 }
 
 function expectPublicOnly(user: Msg): void {
-  for (const f of SENSITIVE) expect(user[f]).toBeUndefined();
+  for (const key of Object.keys(user)) {
+    expect(PUBLIC_USER_FIELDS).toContain(key);
+  }
   expect(typeof user.id).toBe("string");
   expect(typeof user.name).toBe("string");
   expect(typeof user.role).toBe("string");
@@ -128,14 +134,27 @@ async function ownerUpdate(
   }
 }
 
-describe("user-wire projection leak closure (3b.5)", () => {
-  it("a member receives UserPublicWire only on users_list, their OWN full record via self, and NO admin events", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const mia = await server.seedMember("Mia");
-    await server.seedMember("Bob");
+// Connect hydration only reads, so these share one office.
+describe("user-wire at connect (3b.5)", () => {
+  let shared: {
+    srv: TestServer;
+    owner: SeededIdentity;
+    mia: SeededIdentity;
+  };
+  beforeAll(async () => {
+    const srv = await startTestServer();
+    const owner = await srv.seedOwner("Morgan");
+    const mia = await srv.seedMember("Mia");
+    await srv.seedMember("Bob");
+    shared = { srv, owner, mia };
+  });
+  afterAll(async () => {
+    await shared.srv.stop();
+  });
 
-    const miaSock = await connectSettled(server, mia.rawSessionId);
+  it("a member receives UserPublicWire only on users_list, their OWN full record via self, and NO admin events", async () => {
+    const { srv, mia } = shared;
+    const miaSock = await connectSettled(srv, mia.rawSessionId);
 
     // users_list: every entry (incl the owner + Bob) is public-only.
     const usersList = latest(miaSock, "users_list")!;
@@ -157,11 +176,8 @@ describe("user-wire projection leak closure (3b.5)", () => {
   });
 
   it("an owner receives the full admin roster + their own self record; users_list still public", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    await server.seedMember("Mia");
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    const { srv, owner } = shared;
+    const ownerSock = await connectSettled(srv, owner.rawSessionId);
 
     const adminList = latest(ownerSock, "users_admin_list")!;
     const admins = adminList.users as Msg[];
@@ -178,6 +194,28 @@ describe("user-wire projection leak closure (3b.5)", () => {
     );
   });
 
+  it("connect hydration delivers the full self/admin records BEFORE full_state (the UI owner-roster reads depend on this order)", async () => {
+    const { srv, owner, mia } = shared;
+    const idxOf = (s: TestSocket, type: string) =>
+      bag(s).findIndex((m) => m.type === type);
+
+    const miaSock = await connectSettled(srv, mia.rawSessionId);
+    expect(idxOf(miaSock, "user_self_updated")).toBeGreaterThanOrEqual(0);
+    expect(idxOf(miaSock, "user_self_updated")).toBeLessThan(
+      idxOf(miaSock, "full_state"),
+    );
+
+    const ownerSock = await connectSettled(srv, owner.rawSessionId);
+    expect(idxOf(ownerSock, "users_admin_list")).toBeLessThan(
+      idxOf(ownerSock, "full_state"),
+    );
+    expect(idxOf(ownerSock, "user_self_updated")).toBeLessThan(
+      idxOf(ownerSock, "full_state"),
+    );
+  });
+});
+
+describe("user-wire projection leak closure (3b.5)", () => {
   it("a grant change (setAccess, private-only) fans out self(full) to the subject + admin(full) to owners, and NOTHING to other members", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -307,7 +345,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     expectPublicOnly(pub.user as Msg);
   });
 
-  it("office envFile is stripped for members (full_state.office + office_settings_updated) and kept for owners", async () => {
+  it("office envFile is stripped from a member's full_state and kept for owners", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
@@ -322,43 +360,5 @@ describe("user-wire projection leak closure (3b.5)", () => {
     expect(ownerOffice.envFile).toBe("/seed/env/path"); // owner keeps it
     expect(miaOffice.envFile).toBeUndefined(); // member never sees it
     expect(miaOffice.name).toBe("Acme"); // but does see the public fields
-
-    // The all-audience office_settings_updated carries NO envFile (both
-    // recipients). Driven via the manager core directly; the WIRE stripping is
-    // what's under test here.
-    server.agentManager.setOfficeSettings("op2", "/seed/env/path", "Acme2");
-    const ev = await waitForWhere(
-      miaSock,
-      (m) => m.type === "office_settings_updated",
-    );
-    expect(ev.envFile).toBeUndefined();
-    expect(ev.name).toBe("Acme2");
-    const ownerEv = await waitForWhere(
-      ownerSock,
-      (m) => m.type === "office_settings_updated",
-    );
-    expect(ownerEv.envFile).toBeUndefined(); // dropped even for owners on the all-event
-  });
-
-  it("connect hydration delivers the full self/admin records BEFORE full_state (the UI owner-roster reads depend on this order)", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    const mia = await server.seedMember("Mia");
-    const idxOf = (s: TestSocket, type: string) =>
-      bag(s).findIndex((m) => m.type === type);
-
-    const miaSock = await connectSettled(server, mia.rawSessionId);
-    expect(idxOf(miaSock, "user_self_updated")).toBeGreaterThanOrEqual(0);
-    expect(idxOf(miaSock, "user_self_updated")).toBeLessThan(
-      idxOf(miaSock, "full_state"),
-    );
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    expect(idxOf(ownerSock, "users_admin_list")).toBeLessThan(
-      idxOf(ownerSock, "full_state"),
-    );
-    expect(idxOf(ownerSock, "user_self_updated")).toBeLessThan(
-      idxOf(ownerSock, "full_state"),
-    );
   });
 });

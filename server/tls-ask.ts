@@ -39,7 +39,7 @@ import { matchAppHost, normalizeRequestHost } from "./app-hosts.ts";
 // exact path at the edge - see deploy/install.sh.
 export const TLS_ASK_PATH = "/__isomux/tls-ask";
 
-export type TlsAskDecision = "allow" | "deny";
+type TlsAskDecision = "allow" | "deny";
 
 export interface TlsAskDeps {
   // The office's app-host domain, boot-frozen. Null on an office that has none,
@@ -51,11 +51,8 @@ export interface TlsAskDeps {
 // The policy is read-only. A stranger pointing names at this box cannot cause
 // a write and cannot tell from the answer
 // whether a label was never issued or was somebody's app last week.
-export function decideTlsAsk(
-  rawName: string | null,
-  deps: TlsAskDeps,
-): TlsAskDecision {
-  if (deps.domain === null || rawName === null) return "deny";
+function decideTlsAsk(rawName: string, deps: TlsAskDeps): TlsAskDecision {
+  if (deps.domain === null) return "deny";
   // The same normalization the dispatcher applies to a request's Host, so one
   // piece of code decides both which names can get a certificate and which
   // names route to an app. A name that could not be routed must not be able to
@@ -81,7 +78,7 @@ export function decideTlsAsk(
 // Bodies are machine-facing - the terminator reads the status code and nothing
 // else. no-store because the answer is a function of the registry, and
 // a cached "ok" would outlive the app it vouched for.
-export function tlsAskResponse(decision: TlsAskDecision): Response {
+function tlsAskResponse(decision: TlsAskDecision): Response {
   const [status, body] =
     decision === "allow" ? [200, "ok\n"] : [403, "denied\n"];
   return new Response(body, {

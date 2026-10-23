@@ -1,5 +1,5 @@
 import { officeAuditStore } from "../audit-store.ts";
-import { withAuditContextSync } from "../audit-context.ts";
+import { requireAuditContext, withAuditContextSync } from "../audit-context.ts";
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -107,9 +107,17 @@ describe("per-record task persistence", () => {
     const { state, manager, rawManager } = setup();
     const task = manager.addTask("first", "member");
     const before = JSON.stringify(state.tasks);
-    expect(() =>
-      rawManager.updateTask(task.id, { title: "changed" }),
-    ).toThrow();
+    // The owner's own refusal, so an unrelated throw cannot pass for it.
+    let missing: Error | undefined;
+    try {
+      requireAuditContext();
+    } catch (e) {
+      missing = e as Error;
+    }
+    expect(missing).toBeInstanceOf(Error);
+    expect(() => rawManager.updateTask(task.id, { title: "changed" })).toThrow(
+      missing!.message,
+    );
     expect(JSON.stringify(state.tasks)).toBe(before);
     expectBoard(state);
   });

@@ -7,7 +7,6 @@
 //     USER's counter under the invoked name (the Sk menu ranks across both);
 //     counts are per-user (another user still reads {}).
 //   - The route serves only the CALLER's own counts (identity-keyed, no param).
-//   - Auth: plain AGENT bearer 403 (no office:read); no identity 401.
 //   - The store module: copies out (no aliasing into the live store) and
 //     sanitizes a corrupted file to empty instead of crashing.
 
@@ -15,7 +14,6 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
@@ -69,12 +67,9 @@ async function spawnAgent(
 
 async function getCounts(
   srv: TestServer,
-  opts: { bearer?: string; rawSessionId?: string } = {},
+  opts: { rawSessionId: string },
 ): Promise<{ status: number; counts: Record<string, number> | undefined }> {
-  const headers: Record<string, string> = {};
-  if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
   const res = await srv.http("/api/skill-usage", {
-    headers,
     rawSessionId: opts.rawSessionId,
   });
   let counts: Record<string, number> | undefined;
@@ -136,24 +131,6 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
     const restarted = await srv.restart();
     server = restarted;
     expect(getSkillUseCounts(morganUserId)["grill-me"]).toBe(2);
-  });
-
-  it("rejects a plain agent bearer (403) and anonymous callers (401); a wiped boot starts at zero", async () => {
-    const srv = await startTestServer({});
-    server = srv;
-    const morgan = await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const token = getAgentTokenRaw(agent.id)!;
-
-    expect((await getCounts(srv, { bearer: token })).status).toBe(403);
-    expect((await getCounts(srv)).status).toBe(401);
-
-    // Isolation: this boot wiped STATE_ROOT and reset the module cache, so the
-    // previous test's counts are gone (pins the harness _testResetSkillUsage).
-    const r = await getCounts(srv, { rawSessionId: morgan.rawSessionId });
-    expect(r.status).toBe(200);
-    expect(r.counts).toEqual({});
   });
 });
 

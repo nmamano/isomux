@@ -30,6 +30,8 @@ describe("source hygiene: no raw NUL bytes in tracked TS source", () => {
       maxBuffer: 64 * 1024 * 1024,
     });
     const tracked = out.toString("utf8").split(NUL).filter(Boolean);
+    // Fail closed: no listing (no git, an exported tree) checks nothing.
+    expect(tracked.length).toBeGreaterThan(0);
 
     const offenders: string[] = [];
     for (const rel of tracked) {

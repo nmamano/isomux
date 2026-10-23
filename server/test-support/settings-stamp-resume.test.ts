@@ -269,15 +269,19 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
     await server.seedOwner();
     const agent = await spawn(server, "opencode", REFUSED, "high");
     const sessionId = await runTurn(server, agent.id, "error");
-    server.fakeBackend.setSessionResumableError(sessionId, "missing");
+    const resumeError = "fake: session gone";
+    server.fakeBackend.setSessionResumableError(sessionId, resumeError);
 
-    let failed = false;
-    try {
-      await server.agentManager.editAgent(agent.id, { modelFamily: GOOD });
-    } catch {
-      failed = true;
-    }
-    expect(failed).toBe(true);
+    // Only the resume check for this session returns that error, so the edit
+    // got as far as resuming it.
+    const failure = await server.agentManager
+      .editAgent(agent.id, { modelFamily: GOOD })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(resumeError);
     expect(agentOf(server, agent.id).modelFamily).toBe(REFUSED);
     expect(getSessionEngineConfig(agent.id, sessionId)?.modelFamily).toBe(
       REFUSED,

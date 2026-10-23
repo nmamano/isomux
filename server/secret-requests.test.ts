@@ -391,8 +391,11 @@ describe("the member's answer", () => {
     const saving = t.requests.save("u-alice", "a1", requestId, {
       value: VALUE,
     });
-    // The save waits on the proxy push now.
+    // The save waits on the proxy push now; the agent hears nothing until it
+    // lands, so its confirmation reaches the process that has the secret.
     expect(t.changes()).toBe(1);
+    expect(t.told).toEqual([]);
+    expect(t.settled).toEqual([]);
     expect(code(t.requests.decline("u-alice", "a1", requestId))).toBe(
       "not_found",
     );

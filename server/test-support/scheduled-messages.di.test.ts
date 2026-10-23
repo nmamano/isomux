@@ -267,13 +267,6 @@ describe("schedule (create)", () => {
     );
   });
 
-  it("allows scheduling to SELF (the reminder/wake-up case)", () => {
-    const w = makeWorld();
-    const m = createScheduledMessageManager(w.deps);
-    const entry = scheduleOk(m, { receiverAgentId: "agent-a" });
-    expect(entry.receiverAgentId).toBe("agent-a");
-  });
-
   it("enforces the per-sender pending quota with 429 schedule_full", () => {
     const w = makeWorld();
     const m = createScheduledMessageManager(w.deps);

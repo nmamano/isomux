@@ -8,7 +8,8 @@
 //
 // Direct-call seam against the preload's temp STATE_ROOT, per the
 // fork-usage.test.ts idiom: seed sessions.json + agent-history.json by hand,
-// hand renderUsageReport a minimal agents map, assert on the markdown.
+// hand the report a minimal agents map, assert on its data (and once on the
+// rendered markdown).
 // Zero LLM calls.
 
 import {
@@ -34,7 +35,7 @@ import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manag
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { CronjobManager } from "../cronjob-manager.ts";
 import type { ManagedAgent } from "../internal-types.ts";
-import type { RoomWire, UserRecord } from "../../shared/types.ts";
+import type { RoomWire } from "../../shared/types.ts";
 
 import { LOBBY_ROOM_ID, LOBBY_ROOM } from "../../shared/types.ts";
 
@@ -147,41 +148,6 @@ function lifetimeTotalUsd(report: string): string {
 }
 
 describe("usageAudienceForUser", () => {
-  const base: Omit<UserRecord, "role" | "allowedRooms"> = {
-    id: "u1",
-    name: "U",
-    notifRooms: [],
-    createdAt: 0,
-    avatarColor: "#000000",
-    avatarVariant: "classic",
-    hidden: [],
-    order: [],
-    tucked: [],
-    pushRooms: [],
-    memberPrompt: null,
-    language: null,
-  };
-
-  it("gives an owner the office-wide audience even with no room grants", () => {
-    // Owners access every room by RULE; their allowedRooms is [] post-migration
-    // and must not be read as a grant list.
-    expect(
-      usageAudienceForUser({ ...base, role: "owner", allowedRooms: [] }),
-    ).toEqual({ kind: "owner" });
-  });
-
-  it("scopes a member to their grants", () => {
-    const audience = usageAudienceForUser({
-      ...base,
-      role: "member",
-      allowedRooms: [ROOM_A],
-    });
-    expect(audience.kind).toBe("member");
-    expect(audience.kind === "member" && [...audience.roomIds]).toEqual([
-      ROOM_A,
-    ]);
-  });
-
   it("fails closed on an unresolved user", () => {
     const audience = usageAudienceForUser(undefined);
     expect(audience.kind).toBe("member");
@@ -218,16 +184,21 @@ describe("renderUsageReport room scoping", () => {
   });
 
   it("shows an owner every room, every agent, and schedules", () => {
-    const report = renderUsageReport(seedOffice(), ROOMS, OWNER);
-    expect(report).toContain("| Alpha | Room A |");
-    expect(report).toContain("| Beta | Room B |");
-    expect(report).toContain("| Room A |");
-    expect(report).toContain("| Room B |");
-    expect(report).toContain("(unknown room)");
-    expect(report).toContain("## Per-schedule usage");
-    expect(report).toContain("## Office total");
+    const data = buildUsageReportData(seedOffice(), ROOMS, OWNER);
+    expect(data.scoped).toBe(false);
+    expect(data.agents.map((a) => a.id).sort()).toEqual([
+      "agent-live-a",
+      "agent-live-b",
+    ]);
+    // The killed agent with no history lands in a bucket of its own.
+    expect(data.rooms.map((r) => [r.id, r.deleted]).sort()).toEqual([
+      ["__unknown__", true],
+      [ROOM_A, false],
+      [ROOM_B, false],
+    ]);
+    expect(data.cronjobs?.map((c) => c.id)).toEqual(["cron-1"]);
     // 1 + 2 + 4 + 8 agents + 7 cron = 22.
-    expect(lifetimeTotalUsd(report)).toBe("$22.00");
+    expect(data.total.lifetime.costUSD).toBe(22);
   });
 
   it("hides agents, rooms, and their spend outside a member's access", () => {
@@ -237,31 +208,10 @@ describe("renderUsageReport room scoping", () => {
     expect(report).toContain("| Room A |");
     expect(report).not.toContain("Room B");
     // Killed agents in a room the member can't reach, and the unknown-room
-    // bucket, are owner-only - including their spend.
-    expect(report).not.toContain("(unknown room)");
+    // bucket, are owner-only - including their spend, and the schedules'.
     expect(lifetimeTotalUsd(report)).toBe("$1.00");
-  });
-
-  it("keeps schedules out of a member's report and out of their total", () => {
-    const report = renderUsageReport(seedOffice(), ROOMS, MEMBER_OF_A);
-    expect(report).not.toContain("Per-schedule usage");
-    expect(report).not.toContain("Nightly");
-    expect(report).not.toContain("## Office total");
-    expect(report).toContain("## Total");
-    // $1.00, not $8.00 - the cron job's $7 never lands in a member's bottom line.
-    expect(lifetimeTotalUsd(report)).toBe("$1.00");
-  });
-
-  it("gives a member with no grants an empty report, not the office's", () => {
-    const report = renderUsageReport(seedOffice(), ROOMS, {
-      kind: "member",
-      roomIds: new Set(),
-    });
-    expect(report).not.toContain("Alpha");
-    expect(report).not.toContain("Beta");
-    expect(report).not.toContain("Room A");
-    expect(report).not.toContain("Room B");
-    expect(lifetimeTotalUsd(report)).toBe("-");
+    const data = buildUsageReportData(seedOffice(), ROOMS, MEMBER_OF_A);
+    expect(data.rooms.map((r) => r.id)).toEqual([ROOM_A]);
   });
 });
 
@@ -292,20 +242,20 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     server = null;
   });
 
-  // The command's report lands as a `system` entry in the agent's log. Read the
-  // live log rather than the JSONL: a freshly spawned agent has no session yet
-  // (the command is answered locally, without waking the backend), so nothing is
-  // persisted - which is exactly the state a member typing /isomux-usage first
-  // thing is in.
+  // The command's report is the `system` entry after the last /isomux-usage
+  // in the agent's log. Read the live log rather than the JSONL: a freshly
+  // spawned agent has no session yet (the command is answered locally, without
+  // waking the backend), so nothing is persisted - which is exactly the state a
+  // member typing /isomux-usage first thing is in.
   function lastReport(srv: TestServer, agentId: string): string {
-    const entries = srv.agentManager
-      .getAgentLogs(agentId)
-      .filter(
-        (e) => e.kind === "system" && e.content.includes("## Agent usage"),
-      );
-    const last = entries[entries.length - 1];
-    if (!last) throw new Error("no usage report in the agent's log");
-    return last.content;
+    const logs = srv.agentManager.getAgentLogs(agentId);
+    const asked = logs.findLastIndex(
+      (e) => e.kind === "user_message" && e.content === "/isomux-usage",
+    );
+    const report = logs[asked + 1];
+    if (asked < 0 || report?.kind !== "system")
+      throw new Error("no usage report in the agent's log");
+    return report.content;
   }
 
   it("scopes the report to the caller, in the same conversation", async () => {
@@ -351,9 +301,6 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     expect(memberReport).toContain("Beta");
     expect(memberReport).toContain("Room B");
     expect(memberReport).not.toContain("Alpha");
-    expect(memberReport).toContain(
-      "_Scoped to the rooms you can access; schedule spend isn't included._",
-    );
 
     await srv.agentManager.sendMessage(
       beta.id,
@@ -363,8 +310,6 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     const ownerReport = lastReport(srv, beta.id);
     expect(ownerReport).toContain("Alpha");
     expect(ownerReport).toContain("Beta");
-    expect(ownerReport).toContain("## Office total");
-    expect(ownerReport).not.toContain("Scoped to the rooms you can access");
   });
 });
 

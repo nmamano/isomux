@@ -137,10 +137,6 @@ export function encodeBinaryFrame(data: Buffer): Buffer {
   return encodeFrame(OPCODE_BINARY, data);
 }
 
-export function encodePingFrame(payload: Buffer): Buffer {
-  return encodeFrame(OPCODE_PING, payload);
-}
-
 // A ping's payload must come back verbatim in the pong (RFC 6455 section
 // 5.5.3), because that is what makes a pong attributable to the ping that
 // asked for it.

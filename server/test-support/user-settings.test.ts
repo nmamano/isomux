@@ -1,18 +1,10 @@
-// Phase 3d slice 9b - the notifRooms clamp, re-homed onto the REST split
-// (Option A, Nil-gated). Setting one's OWN notifRooms goes through the SELF-ONLY
-// view.* routes (clamped to the caller's accessible rooms by the shared
-// applyViewChange core); an owner changing a member's allowedRooms goes through
-// users.setAccess, which PRUNE-clamps the member's existing notifRooms to the new
-// access in ONE write (the clamp deferred from slice 6). The old WS update_user
-// (an owner setting a member's notif in one command) is retired - notifRooms is
-// self-only now. Asserts the PERSISTED record so it is robust across the slice-5
-// user-wire projection change. (The Default Room setting was later removed, so
-// the former defaultRoom clamp cases are gone.)
+// The notifRooms clamp on the persisted user record: a member's own save
+// through the self-only view route keeps only rooms they can access, and an
+// owner's users.setAccess prunes the member's notifRooms to the new access.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getUserByName, getUserById, updateUserById } from "../users.ts";
-import type { UserRecord } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -58,42 +50,7 @@ const ownerSetAccess = (
     { allowedRooms },
   );
 
-// Poll the persisted record until a predicate holds.
-async function waitForUserField(
-  userId: string,
-  pred: (u: UserRecord) => boolean,
-  timeoutMs = 2000,
-): Promise<UserRecord> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const u = getUserById(userId);
-    if (u && pred(u)) return u;
-    if (Date.now() > deadline) throw new Error("waitForUserField timed out");
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
-
-describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
-  it("legacy-pref migration (former claim_user) clamps notif to the caller's accessible rooms", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const r1 = server.agentManager.getRooms()[0].id;
-    const r2 = server.agentManager.createRoom("R2"); // live but NOT granted
-    const memberId = getUserByName(member.username)!.id;
-    expect(updateUserById(memberId, { allowedRooms: [r1] }).ok).toBe(true);
-
-    // The store migration PUTs the legacy notif pref to its self-only view.*
-    // route (replacing claim_user). r2 is inaccessible: notif keeps only r1.
-    // The call still 204s (the clamp is silent - no oracle).
-    expect(await selfSetNotif(server, member.rawSessionId, [r1, r2])).toBe(204);
-    const u = await waitForUserField(
-      memberId,
-      (x) => x.notifRooms.length === 1,
-    );
-    expect(u.notifRooms).toEqual([r1]); // r2 dropped
-  });
-
+describe("view.setNotifRooms clamps to accessible", () => {
   it("an owner (allowedRooms=[]) saving their OWN notifRooms keeps every live room (rule access)", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -121,7 +78,7 @@ describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
   });
 });
 
-describe("users.setAccess prune-clamps notifRooms to the new access (3d.9b)", () => {
+describe("users.setAccess prune-clamps notifRooms to the new access", () => {
   it("revoking a room prunes the member's existing notif pointing at it", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -140,8 +97,7 @@ describe("users.setAccess prune-clamps notifRooms to the new access (3d.9b)", ()
     expect(await selfSetNotif(server, member.rawSessionId, [r1, r2])).toBe(204);
     expect(getUserById(memberId)!.notifRooms).toEqual([r1, r2]);
 
-    // Owner revokes r2: setAccess prune-clamps notif -> [r1] in ONE write (the
-    // atomic clamp deferred from slice 6).
+    // Owner revokes r2: setAccess prune-clamps notif -> [r1] in ONE write.
     expect(
       await ownerSetAccess(server, owner.rawSessionId, member.username, [r1]),
     ).toBe(200);

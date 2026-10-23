@@ -55,11 +55,9 @@ async function waitFor(check: () => boolean): Promise<void> {
   expect(check()).toBe(true);
 }
 
-// The one-shot is fire-and-forget; give a skipped trigger the same window a
-// real one would need to reach the backend.
-async function settle(): Promise<void> {
-  await Bun.sleep(100);
-}
+// Lets every continuation already queued run. The one-shot path has no
+// timers, so a call whose reply has settled has finished once this resolves.
+const drain = () => new Promise((r) => setImmediate(r));
 
 // A one-shot reply the test settles by hand, to hold a generation open.
 function deferred() {
@@ -141,10 +139,15 @@ async function harness(
   // Waits until every topic call so far has its reply and the flag is down.
   const idle = () => waitFor(() => answered === calls && generating() !== true);
   // Sends one message and waits until any topic call it started has settled.
+  // sendMessage fills an empty topic before it resolves, and a generation
+  // raises its flag before its first await, so a send that started none shows
+  // no flag change. Returns whether it started one.
   const send = async (text: string) => {
+    const from = events.length;
     await mgr.sendMessage(agentId, text, "tester");
-    await settle();
+    const started = changesSince(from).some((c) => c.topicGenerating === true);
     await idle();
+    return started;
   };
   const refresh = async () => {
     const before = calls;
@@ -190,7 +193,7 @@ describe("topic generation backoff", () => {
       // A first label that fails leaves no topic, and the flag drops.
       expect(topic()).toBeNull();
       expect(generating()).toBe(false);
-      await send("second, same minute");
+      expect(await send("second, same minute")).toBe(false);
       expect(topicCalls()).toBe(1);
 
       setSystemTime(START + 10 * MINUTE + 1);
@@ -199,7 +202,7 @@ describe("topic generation backoff", () => {
 
       // The second failure waits 20 minutes, not 10.
       setSystemTime(START + 20 * MINUTE + 2);
-      await send("10 minutes after the second failure");
+      expect(await send("10 minutes after the second failure")).toBe(false);
       expect(topicCalls()).toBe(2);
       setSystemTime(START + 30 * MINUTE + 2);
       await send("20 minutes after the second failure");
@@ -256,7 +259,7 @@ describe("topic generation backoff", () => {
       await send("first");
       expect(topicCalls()).toBe(1);
       // The wait is active: an automatic try in the same minute is skipped.
-      await send("second, same minute");
+      expect(await send("second, same minute")).toBe(false);
       expect(topicCalls()).toBe(1);
       await refresh();
       expect(topicCalls()).toBe(2);
@@ -395,15 +398,16 @@ describe("topic lifecycle (task 1b8084fd)", () => {
 
   it("lets a refresh run after a typed topic overtook a generation", async () => {
     const first = deferred();
-    const { topicCalls, topic, mgr, agentId, refresh, answered } =
+    const { topicCalls, topic, generating, mgr, agentId, refresh, answered } =
       await harness([first.reply, "Fresh label"]);
     await mgr.sendMessage(agentId, "first", "tester");
     await waitFor(() => topicCalls() === 1);
     mgr.setTopic(agentId, "Typed label");
     first.resolve("Late label");
     await waitFor(() => answered() === 1);
-    await settle();
+    await drain();
     expect(topic()).toBe("Typed label");
+    expect(generating()).toBe(false);
 
     // Before the fix the overtaken call left the generator marked busy, so
     // no refresh or automatic fill ever ran again in this conversation.
@@ -434,7 +438,7 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     // refresh's flag alone.
     first.resolve("Late label");
     await waitFor(() => answered() === 1);
-    await settle();
+    await drain();
     expect(topic()).toBe("Typed label");
     expect(generating()).toBe(true);
 
@@ -500,12 +504,25 @@ describe("topic lifecycle (task 1b8084fd)", () => {
   });
 
   it("keeps the topic when a refresh finds no user message", async () => {
-    const { topicCalls, topic, generating, mgr, agentId } = await harness([
-      "Unused label",
-    ]);
+    const {
+      topicCalls,
+      topic,
+      generating,
+      mgr,
+      agentId,
+      events,
+      changesSince,
+    } = await harness(["Unused label"]);
     mgr.setTopic(agentId, "Typed label");
+    const from = events.length;
     mgr.resetTopic(agentId);
-    await settle();
+    // The refresh ran and ended without a one-shot call.
+    const flags = () =>
+      changesSince(from)
+        .map((c) => c.topicGenerating)
+        .filter((g) => g !== undefined);
+    await waitFor(() => flags().length === 2);
+    expect(flags()).toEqual([true, false]);
     expect(topicCalls()).toBe(0);
     expect(topic()).toBe("Typed label");
     expect(generating()).toBe(false);

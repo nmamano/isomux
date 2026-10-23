@@ -312,8 +312,9 @@ describe("renderStorageReport in the reader's language", () => {
       usageFixture({ transcripts: 100 * MB, backups: 400 * MB }),
     );
     expect(local.length).toBe(en.length);
-    // Heading and totals sentence, then the table header cell by cell.
-    for (const index of [0, 2]) {
+    // Heading, totals sentence and measured age, then the table header cell
+    // by cell.
+    for (const index of [0, 2, 4]) {
       expect(en[index].length).toBeGreaterThan(0);
       expect(local[index]).not.toBe(en[index]);
     }

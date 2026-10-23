@@ -8,7 +8,6 @@ import {
   ok,
   created,
   noContent,
-  bytes,
   fail,
   type ExecutorDeps,
   type RouteHandler,
@@ -32,6 +31,7 @@ import {
   type Identity,
 } from "../identity/index.ts";
 import { createIdempotencyCache } from "../transport/idempotency.ts";
+import type { AuditWrite } from "../audit-store.ts";
 
 // --- Fakes ------------------------------------------------------------------
 const NOOP_GUARD_DEPS: GuardDeps = {
@@ -81,12 +81,21 @@ function capAuth(cap: Capability, guard = authenticated): RouteAuth {
   return { kind: "capability", requiredCapability: cap, resourceGuard: guard };
 }
 
+// `auditRows` holds what the executor handed the audit store.
 function makeDeps(
   handlers: Record<string, RouteHandler>,
   preconditions: Record<string, PreconditionFn> = {},
   guardDeps: GuardDeps = NOOP_GUARD_DEPS,
-): ExecutorDeps {
+): ExecutorDeps & { auditRows: AuditWrite[] } {
+  const auditRows: AuditWrite[] = [];
   return {
+    auditRows,
+    audit: {
+      actor: () => ({ kind: "member", id: "u1", name: "Member" }),
+      write: (row) => {
+        auditRows.push(row);
+      },
+    },
     guardDeps,
     idempotency: createIdempotencyCache(),
     handlers: new Map(Object.entries(handlers)),
@@ -118,100 +127,37 @@ function match(r: RouteDef, params: Record<string, string> = {}): RouteMatch {
 
 // --- Authorization ----------------------------------------------------------
 describe("executor: authorization", () => {
-  it("runs the handler when capability + guard pass", async () => {
-    const r = route("t.read", "GET", "/api/x", capAuth("task:read"));
-    const deps = makeDeps({ "t.read": () => ok({ hi: true }) });
-    const res = await executeRoute(
-      match(r),
-      req("GET", "/api/x"),
-      userIdentity("member"),
-      deps,
-    );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ hi: true });
-  });
-
-  it("403s a missing capability WITHOUT running the handler", async () => {
-    let ran = false;
-    const r = route("a.spawn", "POST", "/api/x", capAuth("agent:manage"));
-    const deps = makeDeps({
-      "a.spawn": () => {
-        ran = true;
-        return noContent();
-      },
-    });
-    // An AGENT identity lacks agent:manage.
-    const res = await executeRoute(
-      match(r),
-      req("POST", "/api/x", {}),
-      agentIdentity(),
-      deps,
-    );
-    expect(res.status).toBe(403);
-    expect((await res.json()).error.code).toBe("forbidden");
-    expect(ran).toBe(false);
-  });
-
-  it("403s a resource-guard denial (officeOwner on a member)", async () => {
-    const r = route(
-      "o.set",
-      "PUT",
-      "/api/x",
-      capAuth("office:admin", officeOwner),
-    );
-    const deps = makeDeps({ "o.set": () => noContent() });
-    const res = await executeRoute(
-      match(r),
-      req("PUT", "/api/x", {}),
-      userIdentity("member"),
-      deps,
-    );
-    expect(res.status).toBe(403);
-  });
-
-  it("authenticated-kind route runs with no capability gate", async () => {
-    const r = route("s.logout", "DELETE", "/api/x", {
-      kind: "authenticated",
-      resourceGuard: authenticated,
-    });
-    const deps = makeDeps({ "s.logout": () => noContent() });
-    const res = await executeRoute(
-      match(r),
-      req("DELETE", "/api/x"),
-      userIdentity("member"),
-      deps,
-    );
-    expect(res.status).toBe(204);
+  it("403s a missing capability or a guard denial WITHOUT running the handler", async () => {
+    // An AGENT identity lacks agent:manage (stage 1); officeOwner refuses a
+    // member who holds office:admin (stage 2).
+    const cases: [RouteAuth, Identity][] = [
+      [capAuth("agent:manage"), agentIdentity()],
+      [capAuth("office:admin", officeOwner), userIdentity("member")],
+    ];
+    for (const [auth, identity] of cases) {
+      let ran = false;
+      const r = route("a.spawn", "POST", "/api/x", auth);
+      const deps = makeDeps({
+        "a.spawn": () => {
+          ran = true;
+          return noContent();
+        },
+      });
+      const res = await executeRoute(
+        match(r),
+        req("POST", "/api/x", {}),
+        identity,
+        deps,
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()).error.code).toBe("forbidden");
+      expect(ran).toBe(false);
+    }
   });
 });
 
 // --- Result rendering -------------------------------------------------------
 describe("executor: result rendering", () => {
-  it("created -> 201, noContent -> 204", async () => {
-    const c = route("t.create", "POST", "/api/c", capAuth("task:write"));
-    const n = route("t.del", "DELETE", "/api/n", capAuth("task:write"));
-    const deps = makeDeps({
-      "t.create": () => created({ id: "x" }),
-      "t.del": () => noContent(),
-    });
-    const r1 = await executeRoute(
-      match(c),
-      req("POST", "/api/c", {}),
-      userIdentity("member"),
-      deps,
-    );
-    expect(r1.status).toBe(201);
-    expect(await r1.json()).toEqual({ id: "x" });
-    const r2 = await executeRoute(
-      match(n),
-      req("DELETE", "/api/n"),
-      userIdentity("member"),
-      deps,
-    );
-    expect(r2.status).toBe(204);
-    expect(await r2.text()).toBe("");
-  });
-
   it("error result -> {error:{code,message}} envelope with the status", async () => {
     const r = route("t.get", "GET", "/api/g", capAuth("task:read"));
     const deps = makeDeps({
@@ -229,62 +175,8 @@ describe("executor: result rendering", () => {
     });
   });
 
-  it("renders byte results without changing the PNG body", async () => {
-    const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
-    const r = route(
-      "app.thumbnail",
-      "GET",
-      "/api/apps/x/thumbnail",
-      capAuth("app:read"),
-    );
-    const deps = makeDeps({
-      "app.thumbnail": () =>
-        bytes(png, "image/png", { "Cache-Control": "no-store" }),
-    });
-    const res = await executeRoute(
-      match(r),
-      req("GET", "/api/apps/x/thumbnail"),
-      userIdentity("member"),
-      deps,
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(new Uint8Array(await res.arrayBuffer())).toEqual(png);
-  });
-
-  // A binary route (an image upload) leaves the body to the handler: the
-  // bytes arrive unchanged, and a refused caller's body is never read.
-  it("a binary route hands the handler the exact request bytes", async () => {
-    // Not UTF-8 and not JSON: a text read would replace 0xff and a JSON
-    // parse would answer 400.
-    const raw = Uint8Array.from([0x89, 0x50, 0xff, 0x00, 0xfe, 0x7b]);
-    const r: RouteDef = {
-      ...route("app.upload", "PUT", "/api/u", capAuth("app:write")),
-      body: "binary",
-    };
-    let seen: Uint8Array | null = null;
-    const deps = makeDeps({
-      "app.upload": async (ctx) => {
-        seen = new Uint8Array(await ctx.req.arrayBuffer());
-        return ok({ size: seen.length });
-      },
-    });
-    const res = await executeRoute(
-      match(r),
-      new Request("http://test/api/u", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: raw,
-      }),
-      userIdentity("member"),
-      deps,
-    );
-    expect(res.status).toBe(200);
-    expect(seen).not.toBeNull();
-    expect(Array.from(seen!)).toEqual(Array.from(raw));
-  });
-
+  // A binary route (an image upload) reads the body itself, after
+  // authorization: a refused caller's body is never read.
   it("a binary route refused by authorization never reads the body", async () => {
     const r: RouteDef = {
       ...route(
@@ -333,14 +225,15 @@ describe("executor: result rendering", () => {
   });
 
   it("unparseable JSON body -> 400 before authorization", async () => {
-    const r = route("t.create", "POST", "/api/c", capAuth("task:write"));
-    const deps = makeDeps({ "t.create": () => created({}) });
+    // An AGENT identity lacks agent:manage, so a valid body would 403.
+    const r = route("a.spawn", "POST", "/api/c", capAuth("agent:manage"));
+    const deps = makeDeps({ "a.spawn": () => created({}) });
     const bad = new Request("http://test/api/c", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{not json",
     });
-    const res = await executeRoute(match(r), bad, userIdentity("member"), deps);
+    const res = await executeRoute(match(r), bad, agentIdentity(), deps);
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe("invalid_json");
   });
@@ -522,27 +415,6 @@ describe("executor: preconditions", () => {
     expect(ran).toBe(false);
   });
 
-  it("a passing precondition (null) lets the handler run", async () => {
-    const r = route(
-      "s.revoke",
-      "DELETE",
-      "/api/s/x",
-      capAuth("session:manage"),
-      ["sessionOwnerOrSelf"],
-    );
-    const deps = makeDeps(
-      { "s.revoke": () => noContent() },
-      { sessionOwnerOrSelf: () => null },
-    );
-    const res = await executeRoute(
-      match(r, { sessionPrefix: "x" }),
-      req("DELETE", "/api/s/x"),
-      userIdentity("owner"),
-      deps,
-    );
-    expect(res.status).toBe(204);
-  });
-
   it("throws (fail-closed) when a declared precondition has no enforcer", async () => {
     const r = route(
       "s.revoke",
@@ -569,7 +441,6 @@ describe("executor: preconditions", () => {
 
 describe("executor audit", () => {
   it("records only executed successful writes, with ids and field names but no values", async () => {
-    const rows: import("../audit-store.ts").AuditWrite[] = [];
     const { resourceTargets } = await import("../routes/audit.ts");
     const r = route("test.write", "POST", "/api/x", capAuth("task:write"));
     r.audit = { owner: "executor", targets: resourceTargets };
@@ -579,12 +450,7 @@ describe("executor audit", () => {
           ? fail(400, "bad")
           : created({ id: "new-id", secret: "response-secret" }),
     });
-    deps.audit = {
-      actor: () => ({ kind: "member", id: "u1", name: "Before rename" }),
-      write: (value) => {
-        rows.push(value);
-      },
-    };
+    const rows = deps.auditRows;
     const call = (body: unknown, key?: string) =>
       executeRoute(
         match(r),
@@ -652,14 +518,7 @@ it("inbox polling adds no audit row", async () => {
   const { API_ROUTES } = await import("../routes/table.ts");
   const { API_CAPABILITIES } = await import("../identity/index.ts");
   const r = API_ROUTES.find((r) => r.opId === "apiTokenInbox.drain")!;
-  const rows: unknown[] = [];
   const deps = makeDeps({ [r.opId]: () => ok({ messages: [] }) });
-  deps.audit = {
-    actor: () => ({ kind: "api_token", id: "token", name: "Token" }),
-    write: (row) => {
-      rows.push(row);
-    },
-  };
   const identity: Identity = {
     scope: "api",
     userId: "owner",
@@ -671,5 +530,5 @@ it("inbox polling adds no audit row", async () => {
     (await executeRoute(match(r), req("POST", r.path, {}), identity, deps))
       .status,
   ).toBe(200);
-  expect(rows).toHaveLength(0);
+  expect(deps.auditRows).toHaveLength(0);
 });

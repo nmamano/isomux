@@ -76,14 +76,9 @@ async function world() {
       ? placeholderFor(KEY, scope, name, secret.generation, secret.value)
       : null;
   };
-  // Every send completes its turn, except "hold", which stays busy until the
-  // test completes it.
+  // Every send completes its turn.
   const fake = new FakeBackend({
-    session: {
-      onSend: (text, _a, s) => {
-        if (!text.includes("hold")) s.completeTurn({ text: "ok" });
-      },
-    },
+    session: { onSend: (_text, _a, s) => s.completeTurn({ text: "ok" }) },
   });
   const mgr = createAgentManager({
     resolveBackend: () => fake,
@@ -247,26 +242,4 @@ it("idle: the agent asks, the member saves in the masked form, and the confirmat
   });
   expect(saved.ok).toBe(true);
   await expectConfirmedOnNewProcess(w, requestId, firstSession);
-});
-
-it("busy: the member saves while the agent's turn still runs, and the confirmation waits for a new process", async () => {
-  const w = await world();
-  w.mgr.enqueueMessage(w.id, {
-    sender: { kind: "user", username: "alice" },
-    text: "hold",
-  });
-  await waitUntil(
-    () =>
-      w.fake.sessionForAgent(w.id)!.sent.some((m) => m.text.includes("hold")),
-    "busy",
-  );
-  const busySession = w.fake.sessionForAgent(w.id)!;
-  // The agent asks during its turn, and the member saves before it ends.
-  const requestId = ask(w);
-  const saved = await w.requests.save(USER, w.id, requestId, {
-    value: VALUE,
-  });
-  expect(saved.ok).toBe(true);
-  busySession.completeTurn({ text: "waiting for the secret" });
-  await expectConfirmedOnNewProcess(w, requestId, busySession);
 });

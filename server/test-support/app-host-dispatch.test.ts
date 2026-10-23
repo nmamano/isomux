@@ -27,12 +27,14 @@
 // header order and cannot send an arbitrary Host.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { createHmac } from "crypto";
 import { type TestServer } from "./harness.ts";
 import { startTestServer } from "./harness.ts";
 import { appRegistrationGeneration, appRegistry } from "../app-registry.ts";
 import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
+  expectAuthRequired,
   expectBounce,
   NOT_FOUND,
   OFFICE_HOST,
@@ -52,6 +54,7 @@ import {
   wsConnect,
 } from "./app-host-test-kit.ts";
 import { sessionCookieName } from "../auth.ts";
+import { webhookRegistry } from "../webhooks/registry.ts";
 
 let server: TestServer | null = null;
 
@@ -563,6 +566,39 @@ describe("app hosts: the arm", () => {
       { label, path: "/api/apps" },
       "/api/apps on an app host",
     );
+    // A signed delivery to a live hook gets the arm's refusal, not the webhook
+    // handler's verdict, and writes no delivery row.
+    const made = await srv.http("/api/webhooks", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "hook",
+        scheme: "github-hmac-sha256",
+        rules: [{ event: "*" }],
+      }),
+    });
+    expect(made.status).toBe(201);
+    const { id: hookId } = (await made.json()) as { id: string };
+    const signature = createHmac("sha256", webhookRegistry.readSecret(hookId)!)
+      .update(new Uint8Array(0))
+      .digest("hex");
+    expectAuthRequired(
+      await raw(srv.port, {
+        host: `${label}.${OFFICE_HOST}`,
+        path: `/hooks/${hookId}`,
+        method: "POST",
+        headers: {
+          "Content-Length": "0",
+          "X-GitHub-Event": "pull_request",
+          "X-Hub-Signature-256": `sha256=${signature}`,
+        },
+      }),
+      "/hooks/:id on an app host",
+    );
+    expect(webhookRegistry.readDeliveries(hookId, 10)).toEqual([]);
   });
 
   it("matches an app host through case, a port and a trailing dot", async () => {

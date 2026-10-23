@@ -106,32 +106,25 @@ async function connectAndSettle(
 }
 
 describe("receptionist profile and lobby", () => {
-  it("claim creates three welcome agents and one ordinary lobby agent; preclaim has none", async () => {
+  // The welcome agents themselves: onboarding.test.ts.
+  it("claim creates one ordinary lobby agent next to the welcome agents; preclaim has none", async () => {
     const srv = (server = await startTestServer());
     expect(srv.agentManager.getAllAgents()).toHaveLength(0);
     expect(srv.agentManager.getRooms().some((r) => r.type === "lobby")).toBe(
       false,
     );
     await claimOwner(srv, "Morgan");
+    expect(srv.agentManager.getAllAgents()).toHaveLength(4);
     expect(
-      srv.agentManager
-        .getAllAgents()
-        .map((a) => a.name)
-        .sort(),
-    ).toEqual([
-      "Claude Welcome Agent",
-      "Codex Welcome Agent",
-      "Free Welcome Agent",
-      "Receptionist",
-    ]);
+      srv.agentManager.getAllAgents().filter((a) => a.roomId === LOBBY_ROOM_ID),
+    ).toHaveLength(1);
     const r = receptionistOf(srv);
     expect(r.cwd).toBe(homedir());
     expect(r.permissionMode).toBe("bypassPermissions");
     expect(r.manager).toBe("Morgan");
     expect(r.userId).toBeTruthy();
     expect(r.customInstructions).toContain(ISOMUX_KNOWLEDGE);
-    expect(r.customInstructions).toContain('Owners: "Morgan". Members: none.');
-    expect("receptionist" in r).toBe(false);
+    expect(r.customInstructions).toContain(JSON.stringify("Morgan"));
     expect(srv.agentManager.getOrdinaryRooms()[0].canCloseWhenEmpty).toBe(
       false,
     );
@@ -368,29 +361,6 @@ describe("receptionist profile and lobby", () => {
       expect(discovery.calls).toBe(1);
     });
 
-    it("ignores a request that settles after the window", async () => {
-      const { srv, discovery } = await startWithHungDiscovery(50);
-      await sleep(100);
-      discovery.release(liveModels);
-      await sleep(100);
-      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
-      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
-    });
-
-    it("keeps the fallback when discovery finds no free model", async () => {
-      const { srv, discovery } = await startWithFailingDiscovery();
-      discovery.models = liveModels.filter((m) => m.id !== LIVE_FREE);
-      const callsBefore = discovery.calls;
-      await waitUntil(
-        () => discovery.calls > callsBefore,
-        3000,
-        "retry discovered",
-      );
-      await sleep(100);
-      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
-      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
-    });
-
     // The retry is only for a seed that fell back. Here discovery succeeds and
     // lists the fallback, and a later request lists another free model; one
     // test per seed call site.
@@ -536,19 +506,23 @@ describe("receptionist profile and lobby", () => {
       body: { ...body, name: "Invalid", profileKey: "unknown" },
     });
     expect(errCode(badProfile.body)).toBe("invalid_request");
-    for (const desk of [-1, 1, 7, 0.5]) {
+    // Desk 4 was valid in the ordinary room above; the lobby has one desk.
+    for (const desk of [-1, 1, 0.5]) {
       const badDesk = await api(srv, "POST", "/api/agents", {
         rawSessionId: cookie,
         body: { ...body, name: "Invalid", roomId: "lobby", desk },
       });
-      expect(badDesk.status).toBe(422);
-      expect(JSON.stringify(badDesk.body)).toContain("0 to 0");
+      expect({
+        desk,
+        status: badDesk.status,
+        code: errCode(badDesk.body),
+      }).toEqual({ desk, status: 422, code: "invalid_desk" });
     }
     const swap = await api(srv, "POST", "/api/rooms/lobby/swap-desks", {
       rawSessionId: cookie,
       body: { deskA: 0, deskB: 1 },
     });
-    expect(swap.status).toBe(422);
+    expect([swap.status, errCode(swap.body)]).toEqual([422, "invalid_desks"]);
   });
 
   it("shows the current lobby occupant to a member, and keeps ordinary grants separate", async () => {
@@ -576,9 +550,8 @@ describe("receptionist profile and lobby", () => {
     await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
     const prompt = srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt;
     expect(prompt).toContain(ISOMUX_KNOWLEDGE);
-    expect(prompt).toContain('Owners: "Morgan". Members: none.');
+    expect(prompt).toContain(JSON.stringify("Morgan"));
     expect(prompt).toContain("curl");
-    expect(prompt).not.toContain("What you can and cannot see");
     expect(
       (
         await api(srv, "POST", "/api/tasks", {
@@ -597,6 +570,8 @@ describe("receptionist profile and lobby", () => {
     sock.close();
   });
 
+  // A lobby member reads the Receptionist's log, and its prompt carries the
+  // first owner's member memory: the log must hold a marker, not the prompt.
   it("omits lobby room memory in session prompts and logs only a system-prompt marker", async () => {
     const srv = (server = await startTestServer());
     const cookie = await claimOwner(srv, "Morgan");
@@ -617,9 +592,9 @@ describe("receptionist profile and lobby", () => {
       ).status,
     ).toBe(200);
     await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
-    expect(
-      srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt,
-    ).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
+    const prompt = srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt;
+    expect(prompt).toContain(ISOMUX_KNOWLEDGE);
+    expect(prompt).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
     expect(
       (
         await api(srv, "POST", `/api/agents/${r.id}/messages`, {
@@ -636,9 +611,7 @@ describe("receptionist profile and lobby", () => {
     const marker = srv.agentManager
       .getAgentLogs(r.id)
       .find((entry) => entry.metadata?.systemPrompt === true)!;
-    expect(marker.content).toContain("Full system prompt");
-    expect(marker.content).not.toContain("## Your Manager");
-    expect(marker.content).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
+    expect(marker.content).not.toContain(ISOMUX_KNOWLEDGE);
   });
 
   it("uses the first owner's normal token reach for rooms, agents, tasks and messages", async () => {

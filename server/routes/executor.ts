@@ -151,7 +151,7 @@ export type PreconditionFn = (
 ) => HandlerResult | null | Promise<HandlerResult | null>;
 
 export interface ExecutorDeps {
-  audit?: ExecutorAudit;
+  audit: ExecutorAudit;
   guardDeps: GuardDeps;
   idempotency: IdempotencyCache;
   handlers: ReadonlyMap<string, RouteHandler>;
@@ -381,7 +381,7 @@ export async function executeRoute(
       async () => {
         const actor =
           !isGet && route.audit?.owner !== "none"
-            ? deps.audit?.actor(ctx)
+            ? deps.audit.actor(ctx)
             : undefined;
         const run = async () => {
           const result = await handler(ctx);
@@ -391,7 +391,7 @@ export async function executeRoute(
           // idempotency callback: replay, conflict and errors must add no row.
           // Values never enter the row, except a prompt's text after the write
           // (notePromptContent). Multipart/binary have no field names.
-          if (!isGet && deps.audit && route.audit?.owner === "executor") {
+          if (!isGet && route.audit?.owner === "executor") {
             const promptContent = notedPromptContent();
             try {
               deps.audit.write({
@@ -419,9 +419,7 @@ export async function executeRoute(
           }
           return result;
         };
-        return !isGet && deps.audit
-          ? withAuditContext(actor!, route.opId, run)
-          : run();
+        return !isGet ? withAuditContext(actor!, route.opId, run) : run();
       },
     );
     if (outcome.kind === "conflict") {

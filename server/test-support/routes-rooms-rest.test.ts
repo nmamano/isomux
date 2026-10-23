@@ -18,10 +18,11 @@
 //     version); existence is checked before the version.
 //
 // The value rules are unit-pinned: parseRoomPet (ui/office/RoomProps.test.ts),
-// parseRoomSkin (ui/office/skins/skins.test.ts), the decor parse and merge
-// (room-decor.test.ts). The room prompt's read/write round trip, its version
-// and its broadcast ride the instructions route too: routes-instructions.test.ts
-// (room layer, "shares one store with the old route").
+// parseRoomSkin (ui/office/skins/skins.test.ts), the decor parse and the
+// stored-decor filter (room-state.test.ts). The room prompt's read/write round
+// trip, its version and its broadcast ride the instructions route too:
+// routes-instructions.test.ts (room layer, "shares one store with the old
+// route").
 //
 // Seam: startTestServer() - real auth + /api executor. Zero LLM.
 

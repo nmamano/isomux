@@ -61,6 +61,10 @@ const agentOf = (srv: TestServer, id: string): AgentInfo =>
 const session = (srv: TestServer, id: string): FakeSession =>
   srv.fakeBackend.sessionForAgent(id)!;
 
+// The live queue (getAgent's info.queue is not kept current).
+const queued = (srv: TestServer, id: string) =>
+  srv.agentManager.getAllAgents().find((a) => a.id === id)!.queue.length;
+
 // A Claude resume needs the session's .jsonl under CLAUDE_CONFIG_DIR.
 const claudeEnv = (srv: TestServer) => ({
   CLAUDE_CONFIG_DIR: join(srv.stateRoot, "claude-config"),
@@ -376,7 +380,7 @@ describe("settings notice", () => {
       "turn running",
     );
     void srv.agentManager.sendMessage(id, "queued-one", "tester");
-    await sleep(50);
+    await waitUntil(() => queued(srv, id) === 1, "message queued");
     await patch(srv, id, { modelFamily: "sonnet" }, owner);
     await waitUntil(
       () => session(srv, id).sent.some((m) => m.text.includes("queued-one")),
@@ -503,10 +507,14 @@ describe("settings notice", () => {
     const to = join(srv.stateRoot, "codex-b");
     mkdirSync(to, { recursive: true });
     const id = await liveCodex(srv);
+    const before = session(srv, id);
 
     await patch(srv, id, { cwd: to }, owner);
     await turn(srv, id, "after-codex-cwd");
 
+    const after = session(srv, id);
+    expect(after.isResume).toBe(false);
+    expect(after.sessionId).not.toBe(before.sessionId);
     expect(noticeSentWith(srv, id, "after-codex-cwd")).toBeNull();
   });
 
@@ -517,10 +525,15 @@ describe("settings notice", () => {
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const id = await liveCodex(srv);
+    const before = session(srv, id);
 
     await patch(srv, id, { codexSandbox: "read-only" }, owner);
     await turn(srv, id, "after-fresh");
 
+    // The restart started a fresh conversation.
+    const after = session(srv, id);
+    expect(after.isResume).toBe(false);
+    expect(after.sessionId).not.toBe(before.sessionId);
     expect(noticeSentWith(srv, id, "after-fresh")).toBeNull();
   });
 

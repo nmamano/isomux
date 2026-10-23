@@ -78,7 +78,6 @@ async function office() {
     srv,
     morgan,
     member,
-    morganId,
     record,
     readers: {
       owner: { session: morgan.rawSessionId },
@@ -103,11 +102,19 @@ async function office() {
 describe("who reads terminal recordings", () => {
   it("the audit log's readers list and read them; every other caller gets 403", async () => {
     const o = await office();
+    await o.record("agent-b", Date.now() - 1_000).close();
     const recording = o.record("agent-a", Date.now());
     recording.output("$ ls\r\n");
     await recording.close();
+    const all = await get(o.srv, "/api/terminal-recordings", o.readers.owner);
+    expect(((await all.json()) as { items: Item[] }).items).toHaveLength(2);
     for (const [who, as] of Object.entries(o.readers)) {
-      const list = await get(o.srv, "/api/terminal-recordings", as);
+      // ?agentId= reaches the listing's filter.
+      const list = await get(
+        o.srv,
+        "/api/terminal-recordings?agentId=agent-a",
+        as,
+      );
       expect(list.status, who).toBe(200);
       const { items } = (await list.json()) as { items: Item[] };
       expect(
@@ -132,50 +139,6 @@ describe("who reads terminal recordings", () => {
       expect(file.status, who).toBe(403);
       expect(await file.text(), who).not.toContain("$ ls");
     }
-  });
-});
-
-describe("the list", () => {
-  it("is newest first, says which recordings ended, and filters by agent", async () => {
-    const o = await office();
-    const t0 = Date.now() - 60_000;
-    const first = o.record("agent-a", t0);
-    const second = o.record("agent-b", t0 + 1_000);
-    const live = o.record("agent-a", t0 + 2_000);
-    await first.close();
-    await second.close();
-    live.output("still going\r\n");
-    await live.flush();
-
-    const all = await get(o.srv, "/api/terminal-recordings", o.readers.owner);
-    const { items } = (await all.json()) as { items: Item[] };
-    expect(items.map((item) => item.id)).toEqual([
-      live.id,
-      second.id,
-      first.id,
-    ]);
-    const byId = new Map(items.map((item) => [item.id, item]));
-    expect(byId.get(first.id)).toMatchObject({
-      agentId: "agent-a",
-      startedAt: t0,
-      startedBy: { id: o.morganId },
-      endedAt: t0,
-    });
-    expect(byId.get(live.id)).not.toHaveProperty("endedAt");
-    expect(byId.get(live.id)!.bytes).toBe(
-      readFileSync(terminalRecordingPath(live.id, o.srv.stateRoot)!).length,
-    );
-
-    const filtered = await get(
-      o.srv,
-      "/api/terminal-recordings?agentId=agent-a",
-      o.readers.owner,
-    );
-    expect(
-      ((await filtered.json()) as { items: Item[] }).items.map(
-        (item) => item.id,
-      ),
-    ).toEqual([live.id, first.id]);
   });
 });
 

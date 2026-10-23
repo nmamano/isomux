@@ -4,10 +4,11 @@
 // browser's turn-end sound.
 //
 // Pins: a member's message whose turn ends pushes once to a member with the
-// room in their push rooms, also with the room's sound notifications off;
-// with the room out of them, nothing; a turn started by another agent,
-// nothing; a member who cannot see the room gets nothing even with the room
-// in a stale pushRooms; the rooms save through PUT /api/me/view/push-rooms.
+// room in their push rooms; a turn started by another agent, nothing; a member
+// who cannot see the room gets nothing even with the room in a stale
+// pushRooms; the rooms save through PUT /api/me/view/push-rooms. A later
+// member turn is the fence: a push that should not happen would land before
+// its push does.
 //
 // Seam: startTestServer() with an auto-completing FakeBackend and a stub
 // webPushFetch. Zero LLM, no push service.
@@ -39,7 +40,7 @@ async function waitUntil(cond: () => boolean, ms = 3000) {
   }
 }
 
-async function office(opts: { pushRoom: boolean }) {
+async function office() {
   const pushed: string[] = [];
   const srv = await startTestServer({
     fakeBackend: new FakeBackend({
@@ -101,49 +102,36 @@ async function office(opts: { pushRoom: boolean }) {
   );
   expect(added.status).toBe(200);
   const saved = await http("/api/me/view/push-rooms", "PUT", {
-    pushRooms: opts.pushRoom ? [roomA] : [],
+    pushRooms: [roomA],
   });
   expect(saved.status).toBe(204);
-  expect(getUserByName("Morgan")!.pushRooms.includes(roomA)).toBe(
-    opts.pushRoom,
-  );
+  expect(getUserByName("Morgan")!.pushRooms).toContain(roomA);
   expect(getUserByName("Morgan")!.notifRooms).toContain(roomA);
   const stateOf = (id: string) =>
     srv.agentManager.getAgent(id)?.state ?? "missing";
-  return { srv, bot, spawn, http, pushed, stateOf, roomA };
+  // A member message to the bot; resolves once its turn has ended and pushed.
+  const memberTurn = async (text: string) => {
+    const before = pushed.length;
+    const res = await http(`/api/agents/${bot.id}/messages`, "POST", { text });
+    expect(res.status).toBeLessThan(300);
+    await waitUntil(
+      () =>
+        pushed.length > before && stateOf(bot.id) === "waiting_for_response",
+    );
+  };
+  return { srv, bot, spawn, http, pushed, stateOf, memberTurn, roomA };
 }
 
 describe("turn-end push", () => {
   it("a member's turn that ends pushes once to a member with the room in their push rooms", async () => {
-    const { bot, http, pushed, stateOf } = await office({ pushRoom: true });
-    const res = await http(`/api/agents/${bot.id}/messages`, "POST", {
-      text: "hello",
-    });
-    expect(res.status).toBeLessThan(300);
-    await waitUntil(() => pushed.length === 1);
-    expect(stateOf(bot.id)).not.toBe("thinking");
-    await sleep(50);
-    expect(pushed).toEqual([ENDPOINT]);
-  });
-
-  it("pushes with the room's sound notifications off", async () => {
-    const { bot, http, pushed, roomA } = await office({ pushRoom: true });
-    expect(
-      (await http("/api/me/view/notif-rooms", "PUT", { notifRooms: [] }))
-        .status,
-    ).toBe(204);
-    expect(getUserByName("Morgan")!.notifRooms).not.toContain(roomA);
-    expect(getUserByName("Morgan")!.pushRooms).toContain(roomA);
-    await http(`/api/agents/${bot.id}/messages`, "POST", { text: "hello" });
-    await waitUntil(() => pushed.length === 1);
-    await sleep(50);
-    expect(pushed).toEqual([ENDPOINT]);
+    const { pushed, memberTurn } = await office();
+    await memberTurn("hello");
+    await memberTurn("again");
+    expect(pushed).toEqual([ENDPOINT, ENDPOINT]);
   });
 
   it("a member who cannot see the room gets nothing, even with it in a stale pushRooms", async () => {
-    const { srv, bot, http, pushed, roomA } = await office({
-      pushRoom: true,
-    });
+    const { srv, pushed, memberTurn, roomA } = await office();
     const mia = await srv.seedMember("Mia");
     const miaHttp = (path: string, method: string, body: unknown) =>
       srv.http(path, {
@@ -168,24 +156,13 @@ describe("turn-end push", () => {
     expect(getUserByName("Mia")!.pushRooms).toContain(roomA);
     expect(getUserByName("Mia")!.allowedRooms).not.toContain(roomA);
 
-    await http(`/api/agents/${bot.id}/messages`, "POST", { text: "hello" });
-    await waitUntil(() => pushed.length >= 1);
-    await sleep(50);
-    expect(pushed).toEqual([ENDPOINT]);
-  });
-
-  it("with the room out of the push rooms, a turn end pushes nothing", async () => {
-    const { bot, http, pushed, stateOf } = await office({ pushRoom: false });
-    await http(`/api/agents/${bot.id}/messages`, "POST", { text: "hello" });
-    await waitUntil(() => stateOf(bot.id) === "waiting_for_response");
-    await sleep(50);
-    expect(pushed).toEqual([]);
+    await memberTurn("hello");
+    await memberTurn("again");
+    expect(pushed).toEqual([ENDPOINT, ENDPOINT]);
   });
 
   it("a turn another agent started pushes nothing", async () => {
-    const { bot, spawn, http, pushed, stateOf } = await office({
-      pushRoom: true,
-    });
+    const { bot, spawn, http, pushed, stateOf, memberTurn } = await office();
     const sender = await spawn("Sender");
     const res = await http(
       `/api/agents/${bot.id}/messages`,
@@ -200,7 +177,7 @@ describe("turn-end push", () => {
         stateOf(bot.id) === "waiting_for_response" &&
         server!.agentManager.getAgent(bot.id)?.turnHadHumanInput === false,
     );
-    await sleep(50);
-    expect(pushed).toEqual([]);
+    await memberTurn("hello");
+    expect(pushed).toEqual([ENDPOINT]);
   });
 });
