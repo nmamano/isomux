@@ -1,7 +1,7 @@
 /**
  * Provider-neutral safety policy for isomux agents.
  *
- * Evaluates provider-neutral proposed actions. Seven concerns:
+ * Evaluates provider-neutral proposed actions. Eight concerns:
  *
  *   1. Git safety - block destructive git commands (checkout --, reset --hard, etc.)
  *   2. Filesystem safety - block rm -rf and similar
@@ -10,6 +10,7 @@
  *   5. Network safety - block recognized outbound tunnel launch commands
  *   6. Process safety - block killing processes by name pattern (pkill/killall)
  *   7. Admin socket - block using admin.sock, which mints owner sign-in links
+ *   8. Process environments - block reads of another process's environment
  *
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
@@ -789,22 +790,41 @@ function excludesSecretStore(args: ShellWord[]): boolean {
   return false;
 }
 
-/** The root of the first recursive search that would read the secret store,
- *  or null. */
-function bashStoreSearchRoot(command: string, cwd: unknown): string | null {
+/** Each recursive search a bash line runs, with its roots. */
+function recursiveSearches(
+  command: string,
+): { args: ShellWord[]; roots: string[] }[] {
+  const searches: { args: ShellWord[]; roots: string[] }[] = [];
   for (const cmd of collectCommands(command, true)) {
     const grammar = READER_GRAMMAR[cmd.name];
     if (!grammar) continue;
     const recursive =
       RECURSIVE_SEARCHERS.has(cmd.name) ||
       (GREP_FAMILY.has(cmd.name) && isRecursiveGrep(cmd.args));
-    if (!recursive || excludesSecretStore(cmd.args)) continue;
+    if (!recursive) continue;
     const roots = readerPathOperands(cmd.args, grammar).filter(
       (path) => !path.startsWith("!"),
     );
-    for (const root of roots.length > 0 ? roots : ["."])
+    searches.push({ args: cmd.args, roots: roots.length > 0 ? roots : ["."] });
+  }
+  return searches;
+}
+
+/** The root of the first recursive search that would read the secret store,
+ *  or null. */
+function bashStoreSearchRoot(command: string, cwd: unknown): string | null {
+  for (const { args, roots } of recursiveSearches(command)) {
+    if (excludesSecretStore(args)) continue;
+    for (const root of roots)
       if (searchReachesSecretStore(root, cwd)) return root;
   }
+  return null;
+}
+
+/** The root of the first recursive search under /proc or at /, or null. */
+function bashProcSearchRoot(command: string, cwd: unknown): string | null {
+  for (const { roots } of recursiveSearches(command))
+    for (const root of roots) if (searchReachesProc(root, cwd)) return root;
   return null;
 }
 
@@ -816,6 +836,270 @@ function denyStoreSearch(target: string, tool: string): PolicyDecision {
       `${tool} target: ${target}\n\n` +
       `Exclude the store and run it again: grep --exclude-dir=secrets, ` +
       `rg -g '!secrets/**', or Grep with glob "!**/secrets/**".`,
+  );
+}
+
+// Another process's environment. All agents run as one OS user, so another
+// agent's /proc/<pid>/environ holds its office token and secret placeholders
+// (internal-docs/secrets-design.md, section 3). Accident protection like the
+// rules above: an interpreter or a script still reads it.
+//
+// "Own" is what the text names. The policy has no pid to walk a process tree
+// from: Claude's hook runs in the server, and OpenCode's in one server that all
+// agents of a profile share. So a literal pid counts as another process.
+const OWN_PROCESS = new Set(["self", "thread-self"]);
+const OWN_PID_VARIABLE =
+  /\$\{(?:\$|BASHPID|!)\}|\$(?:\$|!|BASHPID(?![A-Za-z0-9_]))/g;
+// Any other expansion stands for one unknown path segment.
+const OTHER_EXPANSION =
+  /\$\{[^}]*\}|\$\(\)|``|\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?!-])/g;
+const ENVIRON_REASON =
+  `another process's environment can hold other agents' office tokens ` +
+  `and secrets. Read your own at /proc/self/environ.`;
+const PROC_SEARCH_REASON =
+  `a recursive search of / or /proc reads other processes' environments, ` +
+  `which can hold other agents' office tokens and secrets.`;
+
+/** The first `{a,b}` group of a word: its bounds and its alternatives. */
+function firstBraceGroup(
+  word: string,
+): { start: number; end: number; alternatives: string[] } | null {
+  for (let start = 0; start < word.length; start++) {
+    if (word[start] !== "{") continue;
+    let depth = 0;
+    const commas: number[] = [];
+    for (let j = start; j < word.length; j++) {
+      if (word[j] === "{") depth++;
+      else if (word[j] === "," && depth === 1) commas.push(j);
+      else if (word[j] === "}" && --depth === 0) {
+        if (commas.length === 0) break;
+        const cuts = [start, ...commas, j];
+        const alternatives = cuts
+          .slice(1)
+          .map((cut, k) => word.slice(cuts[k] + 1, cut));
+        return { start, end: j, alternatives };
+      }
+    }
+  }
+  return null;
+}
+
+/** The words a brace expansion yields, or null past a sanity limit. */
+function expandBraces(word: string): string[] | null {
+  const words: string[] = [];
+  const pending = [word];
+  while (pending.length > 0) {
+    const next = pending.pop()!;
+    const group = firstBraceGroup(next);
+    if (!group) words.push(next);
+    else
+      for (const alternative of group.alternatives)
+        pending.push(
+          next.slice(0, group.start) + alternative + next.slice(group.end + 1),
+        );
+    if (words.length + pending.length > 256) return null;
+  }
+  return words;
+}
+
+/** A shell glob segment (`*`, `?`, `[...]`) as an anchored regex. */
+function segmentPattern(segment: string): RegExp {
+  let source = "";
+  for (let i = 0; i < segment.length; i++) {
+    const c = segment[i];
+    if (c === "*") source += ".*";
+    else if (c === "?") source += ".";
+    else if (c === "[" && segment.indexOf("]", i + 2) !== -1) {
+      const close = segment.indexOf("]", i + 2);
+      const body = segment.slice(i + 1, close).replace(/\\/g, "\\\\");
+      source += `[${body.replace(/^[!^]/, "^")}]`;
+      i = close;
+    } else source += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  try {
+    return new RegExp(`^${source}$`);
+  } catch {
+    return /^.*$/; // a malformed class: assume it can match anything
+  }
+}
+
+// The paths that name another process's environment, as a small automaton
+// over path segments: proc <pid> (environ | task <tid> environ), where
+// <pid>/root and <pid>/task/<tid>/root lead back to the start.
+type EnvironState =
+  | "start"
+  | "pid"
+  | "own"
+  | "other"
+  | "task"
+  | "tid"
+  | "ownTask"
+  | "ownTid"
+  | "found";
+// `on` is a literal segment name, or "own", "other" or "any" for the pid and
+// tid slots.
+type EnvironEdge = { to: EnvironState; on: string };
+const ENVIRON_EDGES: Record<EnvironState, EnvironEdge[]> = {
+  start: [{ to: "pid", on: "proc" }],
+  pid: [
+    { to: "own", on: "own" },
+    { to: "other", on: "other" },
+  ],
+  own: [
+    { to: "start", on: "root" },
+    { to: "ownTask", on: "task" },
+  ],
+  ownTask: [{ to: "ownTid", on: "any" }],
+  ownTid: [{ to: "start", on: "root" }],
+  other: [
+    { to: "found", on: "environ" },
+    { to: "start", on: "root" },
+    { to: "task", on: "task" },
+  ],
+  task: [{ to: "tid", on: "any" }],
+  tid: [
+    { to: "found", on: "environ" },
+    { to: "start", on: "root" },
+  ],
+  found: [],
+};
+
+function segmentTakes(segment: string, on: string): boolean {
+  if (on === "any") return true;
+  // Only an exact own name is surely own; a glob or a number can be another.
+  if (on === "other") return !OWN_PROCESS.has(segment);
+  const pattern = segmentPattern(segment);
+  if (on === "own") return [...OWN_PROCESS].some((name) => pattern.test(name));
+  return pattern.test(on);
+}
+
+function reachesForeignEnviron(segments: string[]): boolean {
+  let states = new Set<EnvironState>(["start"]);
+  for (const segment of segments) {
+    const next = new Set<EnvironState>();
+    if (segment.includes("**")) {
+      // Any number of segments, none included.
+      const queue = [...states];
+      for (const state of queue) {
+        next.add(state);
+        for (const edge of ENVIRON_EDGES[state])
+          if (!next.has(edge.to)) queue.push(edge.to);
+      }
+    } else {
+      for (const state of states)
+        for (const edge of ENVIRON_EDGES[state])
+          if (segmentTakes(segment, edge.on)) next.add(edge.to);
+    }
+    states = next;
+    if (states.size === 0) return false;
+  }
+  return states.has("found");
+}
+
+/** True when a word could name another process's environment file. */
+function namesForeignEnviron(word: string, cwd: unknown): boolean {
+  const text = word
+    .replace(OWN_PID_VARIABLE, "self")
+    .replace(OTHER_EXPANSION, "*");
+  const words = expandBraces(text) ?? [text.replace(/\{.*\}/s, "**")];
+  return words.some((candidate) => {
+    const path = resolvePath(candidate, cwd);
+    return (
+      path !== null && reachesForeignEnviron(path.split("/").filter(Boolean))
+    );
+  });
+}
+
+/** The first shell word that names another process's environment, or null.
+ *  Every word of every command counts, assignments and input redirections
+ *  included, and so do the part after a word's first `=` (`dd if=...`) and a
+ *  path attached to a short option (`grep -f/proc/1/environ`). */
+function bashForeignEnvironWord(command: string, cwd: unknown): string | null {
+  for (const line of commandLines(command))
+    for (const words of parseCommands(stripHeredocBodies(line), true))
+      for (const { text } of words) {
+        const parts = [text];
+        const eq = text.indexOf("=");
+        if (eq !== -1) parts.push(text.slice(eq + 1));
+        const slash = text.indexOf("/");
+        if (/^-[^-]/.test(text) && slash !== -1) parts.push(text.slice(slash));
+        if (parts.some((part) => namesForeignEnviron(part, cwd))) return text;
+      }
+  return null;
+}
+
+// ps prints environments with BSD `e` or BSD/macOS `-E`. Unix `-e` selects
+// every process and is fine. The values of these options are skipped, so
+// `ps axo etime` and `ps -C sleeper` are not read as `e`.
+const PS_UNIX_VALUE_LETTERS = new Set("CGgkOopqstUu");
+const PS_BSD_VALUE_LETTERS = new Set("kOopqtU");
+const PS_LONG_VALUE_OPTIONS = new Set([
+  "--cols",
+  "--columns",
+  "--format",
+  "--group",
+  "--Group",
+  "--lines",
+  "--pid",
+  "--ppid",
+  "--quick-pid",
+  "--rows",
+  "--sid",
+  "--sort",
+  "--tty",
+  "--user",
+  "--User",
+  "--width",
+]);
+
+function psPrintsEnvironment(args: ShellWord[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const tok = args[i].text;
+    if (tok.startsWith("--")) {
+      if (PS_LONG_VALUE_OPTIONS.has(tok)) i++;
+      continue;
+    }
+    const dashed = tok.startsWith("-");
+    const letters = dashed ? tok.slice(1) : tok;
+    if (!/^[A-Za-z]+$/.test(letters)) continue;
+    const valueLetters = dashed ? PS_UNIX_VALUE_LETTERS : PS_BSD_VALUE_LETTERS;
+    const cut = [...letters].findIndex((c) => valueLetters.has(c));
+    const flags = cut === -1 ? letters : letters.slice(0, cut + 1);
+    if (cut === letters.length - 1) i++;
+    if (flags.includes(dashed ? "E" : "e")) return true;
+  }
+  return false;
+}
+
+function bashPrintsEnvironments(command: string): boolean {
+  return collectCommands(command).some(
+    (cmd) => cmd.name === "ps" && psPrintsEnvironment(cmd.args),
+  );
+}
+
+// A recursive search under /proc reads every environ below it, and one at /
+// reaches /proc. grep -R follows /proc/self/root back to /, so /proc/self is
+// no exception, and an exclusion does not help.
+function searchReachesProc(root: string, cwd: unknown): boolean {
+  const resolved = resolvePath(root, cwd);
+  return (
+    resolved !== null && (resolved === "/" || isAtOrBelow(resolved, "/proc"))
+  );
+}
+
+function denyEnvironRead(target: string, tool: string): PolicyDecision {
+  return deny(
+    `BLOCKED by isomux safety hooks\n\n` +
+      `Reason: ${ENVIRON_REASON}\n\n` +
+      `${tool} target: ${target}`,
+  );
+}
+
+function denyProcSearch(target: string, tool: string): PolicyDecision {
+  return deny(
+    `BLOCKED by isomux safety hooks\n\n` +
+      `Reason: ${PROC_SEARCH_REASON}\n\n` +
+      `${tool} target: ${target}`,
   );
 }
 
@@ -2673,6 +2957,13 @@ function checkBashSafety(
   const storeSearch = bashStoreSearchRoot(command, cwd);
   if (storeSearch !== null) return denyStoreSearch(storeSearch, "Bash");
 
+  const environWord = bashForeignEnvironWord(command, cwd);
+  if (environWord !== null || bashPrintsEnvironments(command))
+    return denyMessage(`Refused: ${ENVIRON_REASON}`, command);
+
+  const procSearch = bashProcSearchRoot(command, cwd);
+  if (procSearch !== null) return denyProcSearch(procSearch, "Bash");
+
   const secretTarget = bashSensitiveReadTarget(command, cwd, codexHome);
   if (secretTarget) {
     return denyMessage(
@@ -2895,6 +3186,8 @@ function checkSensitiveFileRead(
   for (const filePath of filePaths) {
     if (isSensitiveFile(filePath, cwd, codexHome))
       return denySecretRead(filePath, toolName);
+    if (namesForeignEnviron(filePath, cwd))
+      return denyEnvironRead(filePath, toolName);
   }
 
   // A search tool reads every file below its root, which is the working
@@ -2907,6 +3200,7 @@ function checkSensitiveFileRead(
     const excluded = glob.startsWith("!") && glob.includes("secrets");
     if (!excluded && searchReachesSecretStore(root, cwd))
       return denyStoreSearch(root, toolName);
+    if (searchReachesProc(root, cwd)) return denyProcSearch(root, toolName);
   }
 
   return allow();

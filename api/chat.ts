@@ -273,7 +273,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
   - Filesystem safety: blocks \`rm -rf\` except on one entry directly in /tmp or /var/tmp
   - Config protection: blocks writes under ~/.isomux/ (managed by the server)
   - Secrets protection: blocks reads of .env files, private keys, and credentials
-  - Process safety: blocks recognized process-kill commands
+  - Process safety: blocks recognized process-kill commands, and reads of another process's environment (\`/proc/<pid>/environ\`, \`ps e\`)
   - Tunnel safety: blocks recognized commands that open outbound tunnels. It's a guardrail, not complete prevention.
 - These guards are an honest-agent safety layer, not OS isolation. A filesystem-capable MCP can still reach protected Isomux state, backend login files, and the Codex checker executable.
 - The embedded terminal is handy when you need to run a blocked command manually

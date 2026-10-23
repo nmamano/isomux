@@ -182,7 +182,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 ## Safety
 
-- **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, recognized process-kill commands, reading secret-bearing files like `.env`, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
+- **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, recognized process-kill commands, reading secret-bearing files like `.env`, reading another process's environment, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
 - **Secret leak prevention** - Isomux masks recognized secret patterns before they reach the logs or the chat.
 - **Managed environment variables** - keep API tokens and other secrets out of prompts: set office-wide and personal variables on the Integrations page, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Values are not embedded in prompts or conversation logs.
 - **Secrets** - save a credential with the hosts that may receive it. Agents get a stand-in, not the value. An agent that reads the office's files on purpose can still find the value. Show reveals a value to its own member, and an office value to an owner.

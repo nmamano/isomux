@@ -221,6 +221,7 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, and the secrets and managed environment files in the state directory,
 - recursive searches (`grep -r`, `rg`, the Grep tool) rooted at the secret store or above it, unless they exclude `secrets/`,
 - recognized process-kill commands, such as `pkill`, `killall` and kills of processes found by name,
+- reads of another process's environment (`/proc/<pid>/environ`, `ps e`), and recursive searches of `/proc` or `/`,
 - recognized commands that open outbound tunnels,
 - recognized uses of the owner recovery socket.
 
