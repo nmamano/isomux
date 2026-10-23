@@ -14,9 +14,11 @@
 # Set, the commit goes to the remote by `git push` over ssh, and this file is
 # piped to the remote shell to run it there (--remote below). The remote half
 # exits 0 for a green run and 1 for a red one. Any other code, ssh's own 255
-# included, means the remote could not run the suite, and the run happens here
-# instead. A red from the remote never falls back. A push that fails gets one
-# repair of the remote's cache (--repair below) and one more try.
+# included, means the remote could not run the suite: the script says why and
+# tries again every CI_RETRY_EVERY seconds, for CI_RETRY_FOR seconds from that
+# first failure, and then runs the suite here. A red from the remote is never
+# retried and never falls back. A push that fails gets one repair of the
+# remote's cache (--repair below) and one more try.
 #
 # Each run tees its output to a log under ${TMPDIR:-/tmp} and prints the path
 # first. A green run deletes its log; a red run keeps it.
@@ -47,6 +49,12 @@ PG_VERSION=18.4.0-beta.17
 # The control-plane suite's Postgres port, a constant in control-plane/testing/pg.ts.
 PG_PORT=5433
 RUN_LIMIT=30m
+# Seconds to keep trying the remote after its first no-verdict, and the pause
+# between tries: long enough for a remote that crashed to come back (the WSL
+# remote used here restarts within one 5-minute keepalive cycle plus its boot,
+# 2026-10-23).
+CI_RETRY_FOR=360
+CI_RETRY_EVERY=30
 REMOTE_ROOT=.cache/isomux-ci-remote
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 # Gate runs at once on the remote. Each takes about 2.5 GiB (tsc peaked at
@@ -78,18 +86,28 @@ run_here() {
 # to stdout. A failed push gets one repair of the remote's cache and one more
 # try: a crash of the remote can leave empty object files and refs to them,
 # and every later push then fails. Returns 0, or 255 when the commit is not
-# there.
+# there. When the second push fails, PUSH_ERROR holds git's first error line.
 push_commit() {
-  local sha=$1 ref=$2
+  local sha=$1 ref=$2 out
   local push=(git push -q --no-verify "$TARGET:$REMOTE_ROOT/repo.git" "$sha:$ref")
+  PUSH_ERROR=""
   # --no-verify: this push is the transport, and the pre-push hook may be
   # what called us.
   ssh "${SSH_OPTS[@]}" "$TARGET" "git init -q --bare $REMOTE_ROOT/repo.git" 2>&1 || return 255
   GIT_SSH_COMMAND="ssh ${SSH_OPTS[*]}" "${push[@]}" 2>&1 && return 0
   echo "→ the push to $TARGET failed; repairing its cache"
   ssh "${SSH_OPTS[@]}" "$TARGET" bash -s -- --repair <"${BASH_SOURCE[0]}" 2>&1 || return 255
-  GIT_SSH_COMMAND="ssh ${SSH_OPTS[*]}" "${push[@]}" 2>&1 && return 0
+  out=$(GIT_SSH_COMMAND="ssh ${SSH_OPTS[*]}" "${push[@]}" 2>&1) && return 0
+  [[ -z $out ]] || printf '%s\n' "$out"
+  # git's last line only says that some refs failed.
+  PUSH_ERROR=$(grep -m1 -E 'fatal:|error:' <<<"$out" || last_line "$out")
+  PUSH_ERROR=${PUSH_ERROR:-no output}
   return 255
+}
+
+# The last non-empty line of its argument.
+last_line() {
+  grep -v '^[[:space:]]*$' <<<"$1" | tail -n1 | tr -d '\r'
 }
 
 new_id() {
@@ -109,29 +127,62 @@ run_remote() {
   return "$status"
 }
 
+# Why an attempt gave no verdict, from its exit code and its output.
+attempt_cause() {
+  local status=$1 out=$2 line
+  if [[ -n $PUSH_ERROR ]]; then
+    echo "the push failed: $PUSH_ERROR"
+    return
+  fi
+  case $status in
+    255)
+      # ssh prints its own error last, also when a running connection drops.
+      line=$(last_line "$out")
+      echo "ssh exit 255${line:+: $line}"
+      ;;
+    3)
+      # The remote half's setup_failed line.
+      line=$(grep -o 'could not run CI: .*' <<<"$out" | tail -n1 | tr -d '\r')
+      line=${line#could not run CI: }
+      echo "${line:-exit 3}"
+      ;;
+    *) echo "exit $status" ;;
+  esac
+}
+
 one_commit() {
-  local rev=$1 sha id log status
+  local rev=$1 sha id log status start cause deadline=""
   sha=$(git rev-parse --verify --quiet "$rev^{commit}") || {
     echo "✗ not a commit: $rev" >&2
     return 2
   }
   id=$(new_id)
   log="${TMPDIR:-/tmp}/isomux-ci-$id.log"
-  run_remote "$sha" "$log" "$id"
-  status=$?
-  case $status in
-    0)
-      rm -f -- "$log"
-      echo "✓ CI passed on $TARGET."
-      ;;
-    1) echo "✗ CI failed on $TARGET. Full output: $log" ;;
-    *)
-      echo "→ $TARGET could not run CI (exit $status); running it here"
-      run_here "$log"
-      status=$?
-      ;;
-  esac
-  return "$status"
+  while :; do
+    start=$(wc -c 2>/dev/null <"$log" || echo 0)
+    run_remote "$sha" "$log" "$id"
+    status=$?
+    case $status in
+      0)
+        rm -f -- "$log"
+        echo "✓ CI passed on $TARGET."
+        return 0
+        ;;
+      1)
+        echo "✗ CI failed on $TARGET. Full output: $log"
+        return 1
+        ;;
+    esac
+    cause=$(attempt_cause "$status" "$(tail -c +$((start + 1)) "$log" 2>/dev/null)")
+    # The window counts from the first failure, which can come late in a run.
+    [[ -n $deadline ]] || deadline=$((SECONDS + CI_RETRY_FOR))
+    ((SECONDS + CI_RETRY_EVERY <= deadline)) || break
+    echo "→ $TARGET could not run CI: $cause; trying again in ${CI_RETRY_EVERY}s" | tee -a "$log"
+    sleep "$CI_RETRY_EVERY"
+    id=$(new_id)
+  done
+  echo "→ $TARGET could not run CI: $cause; running it here" | tee -a "$log"
+  run_here "$log"
 }
 
 # The gate's local half. Every outcome prints the sha first and exit=<n> last.

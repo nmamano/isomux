@@ -21,6 +21,9 @@ import { join } from "path";
 const SCRIPT = join(import.meta.dir, "ci-remote.sh");
 const HOOK = join(import.meta.dir, "..", ".githooks", "pre-push");
 const REMOTE_ROOT = ".cache/isomux-ci-remote";
+const TARGET = "ci@ci-box";
+/** What the stub ssh prints when it cannot connect. */
+const SSH_DOWN = "ssh: connect to host ci-box port 22: Connection timed out";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -65,7 +68,33 @@ type Local = {
   logs(): string[];
 };
 
-function local(remoteCode: number, localCode = 0): Local {
+/**
+ * Replaces the script's CI_RETRY_FOR and CI_RETRY_EVERY (seconds): the run
+ * uses a patched copy, so a no-verdict does not wait 6 minutes.
+ */
+type Retry = { for: number; every: number };
+/** Never retries: no attempt can start before the window ends. */
+const NO_RETRY: Retry = { for: 0, every: 1 };
+/** Retries at once, for longer than any test runs. */
+const RETRY_NOW: Retry = { for: 600, every: 0 };
+
+function patchRetry(dir: string, retry: Retry): string {
+  let text = readFileSync(SCRIPT, "utf8");
+  for (const [name, value] of [
+    ["CI_RETRY_FOR", retry.for],
+    ["CI_RETRY_EVERY", retry.every],
+  ] as const) {
+    const before = text;
+    text = text.replace(new RegExp(`^${name}=\\d+$`, "m"), `${name}=${value}`);
+    if (text === before)
+      throw new Error(`ci-remote.sh has no ${name}=<seconds>`);
+  }
+  const script = join(dir, "ci-remote.sh");
+  writeFileSync(script, text);
+  return script;
+}
+
+function local(remoteCode: number, localCode = 0, retry?: Retry): Local {
   const dir = mkdtempSync(join(tmpdir(), "isomux-ci-remote-"));
   dirs.push(dir);
   const repo = join(dir, "repo");
@@ -86,20 +115,42 @@ function local(remoteCode: number, localCode = 0): Local {
   const second = git(repo, "rev-parse", "HEAD");
 
   // ssh: drops options, then runs the command in the remote's home. The
-  // remote half itself (CI or gate) is not run; it answers with remoteCode.
-  // Any other piped script runs for real. With push-fails, every push fails.
+  // remote half itself (CI or gate) is not run; it answers with remoteCode,
+  // or with the next "<code>|<seconds>|<last line>" of remote-queue. Any
+  // other piped script runs for real. With push-fails, every push fails.
+  // unreachable fails every ssh call, or as many as the number it holds.
   stub(
     join(bin, "ssh"),
     `printf '%s\\n' "$*" >> "$FIX/ssh.log"
 while [[ $1 == -o ]]; do shift 2; done
-[[ -e $FIX/unreachable ]] && exit 255
+if [[ -e $FIX/unreachable ]]; then
+  left=$(cat "$FIX/unreachable")
+  if [[ -z $left ]] || ((left > 0)); then
+    [[ -z $left ]] || echo $((left - 1)) > "$FIX/unreachable"
+    echo "${SSH_DOWN}" >&2
+    exit 255
+  fi
+fi
 shift
 cd "$FIX/home" || exit 1
-[[ -e $FIX/push-fails && $* == *receive-pack* ]] && { echo "push refused" >&2; exit 1; }
+if [[ -e $FIX/push-fails && $* == *receive-pack* ]]; then
+  n=$(($(cat "$FIX/push-count" 2>/dev/null || echo 0) + 1))
+  echo "$n" > "$FIX/push-count"
+  echo "fatal: bad object refs/ci-base (push $n)" >&2
+  exit 1
+fi
 if [[ $1 == bash && $2 == -s && ( $4 == --remote || $4 == --remote-gate ) ]]; then
   cat > "$FIX/remote-script"
   printf '%s\\n' "$*" >> "$FIX/remote.log"
   echo "remote output for $5"
+  if [[ -s $FIX/remote-queue ]]; then
+    IFS='|' read -r code pause line < "$FIX/remote-queue"
+    sed -i 1d "$FIX/remote-queue"
+    sleep "$pause"
+    # ssh prints its own error on stderr; the remote half prints on stdout.
+    if ((code == 255)); then echo "$line" >&2; else echo "$line"; fi
+    exit "$code"
+  fi
   [[ -e $FIX/red-$5 ]] && exit 1
   exit ${remoteCode}
 fi
@@ -110,6 +161,8 @@ exec bash -c "$*"`,
     `echo "$* $(git rev-parse HEAD)" >> "$FIX/bun.log"
 exit ${localCode}`,
   );
+
+  const script = retry ? patchRetry(dir, retry) : SCRIPT;
 
   return {
     dir,
@@ -122,7 +175,7 @@ exit ${localCode}`,
         if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
       }
       if (opts.target) git(repo, "config", "isomux.ciRemote", opts.target);
-      const entry = [opts.entry ?? SCRIPT, ...args];
+      const entry = [opts.entry ?? script, ...args];
       const argv = opts.merge
         ? ["-c", 'exec bash "$@" 2>&1', "_", ...entry]
         : entry;
@@ -150,7 +203,16 @@ exit ${localCode}`,
   };
 }
 
-const TARGET = "ci@ci-box";
+/**
+ * The lines in which the local half names the target and why its attempt
+ * gave no verdict: one per failed attempt, whether it retries or runs here.
+ */
+const causeLines = (out: string, cause: string) =>
+  out.split("\n").filter((l) => l.includes(TARGET) && l.includes(cause));
+
+/** One per attempt: each one starts by creating the remote's bare repo. */
+const attempts = (f: Local) =>
+  f.sshCalls().filter((l) => l.includes("git init -q --bare")).length;
 
 // A red run keeps its log, and the verdict (the last line) names it.
 function keptLog(f: Local, out: string, prefix: string): string {
@@ -217,10 +279,13 @@ describe("ci-remote, with a target", () => {
     expect(f.remoteRuns()[0]).toContain(` ${f.shas[0]} `);
   });
 
-  it("takes a remote red as the verdict and never falls back", () => {
-    const f = local(1, 0);
+  it("takes a remote red as the verdict and never retries or falls back", () => {
+    const f = local(0, 0, RETRY_NOW);
+    // A retry would get a green.
+    writeFileSync(join(f.dir, "remote-queue"), "1|0|\n");
     const r = f.run([], { target: TARGET });
     expect(r.status, r.out).toBe(1);
+    expect(f.remoteRuns()).toHaveLength(1);
     expect(f.bunCalls()).toEqual([]);
     expect(read(keptLog(f, r.out, "isomux-ci"))).toContain("remote output");
   });
@@ -231,7 +296,7 @@ describe("ci-remote, with a target", () => {
   ])(
     "runs here when the remote cannot run the suite (local exit %d)",
     (localCode, expected) => {
-      const f = local(3, localCode);
+      const f = local(3, localCode, NO_RETRY);
       const r = f.run([], { target: TARGET });
       expect(r.status, r.out).toBe(expected);
       expect(f.remoteRuns()).toHaveLength(1);
@@ -241,13 +306,78 @@ describe("ci-remote, with a target", () => {
     },
   );
 
-  it("runs here when the remote is unreachable", () => {
-    const f = local(0, 0);
-    writeFileSync(join(f.dir, "unreachable"), "");
+  it("retries an unreachable remote and takes its verdict when it comes back", () => {
+    const f = local(0, 0, RETRY_NOW);
+    writeFileSync(join(f.dir, "unreachable"), "2");
     const r = f.run([], { target: TARGET });
     expect(r.status, r.out).toBe(0);
+    expect(attempts(f)).toBe(3);
+    expect(f.remoteRuns()).toHaveLength(1);
+    expect(f.bunCalls()).toEqual([]);
+    // Each failed attempt says why, in ssh's own words.
+    expect(causeLines(r.out, SSH_DOWN), r.out).toHaveLength(2);
+  });
+
+  // The window is real seconds, so the attempt count is a lower bound.
+  it("runs here once the retry window passes, and names ssh's error", () => {
+    const f = local(0, 1, { for: 1, every: 0 });
+    writeFileSync(join(f.dir, "unreachable"), "");
+    const r = f.run([], { target: TARGET });
+    expect(r.status, r.out).toBe(1);
     expect(f.remoteRuns()).toEqual([]);
     expect(f.bunCalls()).toEqual([`run ci ${f.shas[1]}`]);
+    const n = attempts(f);
+    expect(n).toBeGreaterThanOrEqual(2);
+    // The last of these lines is the one that falls back.
+    expect(causeLines(r.out, SSH_DOWN), r.out).toHaveLength(n);
+    const log = read(keptLog(f, r.out, "isomux-ci"));
+    expect(causeLines(log, SSH_DOWN), log).toHaveLength(n);
+  }, 10_000);
+
+  it("counts the retry window from the failure, not from the start of the run", () => {
+    const f = local(0, 0, { for: 1, every: 0 });
+    // The connection drops 2 s into the run, past a window counted from
+    // its start.
+    const drop = "Timeout, server ci-box not responding.";
+    writeFileSync(join(f.dir, "remote-queue"), `255|2|${drop}\n`);
+    const r = f.run([], { target: TARGET });
+    expect(r.status, r.out).toBe(0);
+    expect(f.remoteRuns()).toHaveLength(2);
+    expect(f.bunCalls()).toEqual([]);
+    expect(causeLines(r.out, drop), r.out).toHaveLength(1);
+  }, 10_000);
+
+  it("names the remote's own reason for each attempt it could not run", () => {
+    const f = local(0, 0, RETRY_NOW);
+    // As the remote half's setup_failed prints them.
+    const docker = "Docker is not running";
+    const port = "port 5433 is in use";
+    writeFileSync(
+      join(f.dir, "remote-queue"),
+      `3|0|✗ remote-host could not run CI: ${docker}\n3|0|✗ remote-host could not run CI: ${port}\n`,
+    );
+    const r = f.run([], { target: TARGET });
+    expect(r.status, r.out).toBe(0);
+    expect(f.remoteRuns()).toHaveLength(3);
+    expect(f.bunCalls()).toEqual([]);
+    const lines = [...causeLines(r.out, docker), ...causeLines(r.out, port)];
+    expect(lines, r.out).toHaveLength(2);
+    expect(lines[0]).not.toContain(port);
+    expect(lines[1]).not.toContain(docker);
+  });
+
+  it("reads an attempt's reason from that attempt's output only", () => {
+    const f = local(0, 0, RETRY_NOW);
+    // The second attempt gives no reason; the first one's is still in the log.
+    const docker = "Docker is not running";
+    writeFileSync(
+      join(f.dir, "remote-queue"),
+      `3|0|✗ remote-host could not run CI: ${docker}\n3|0|\n`,
+    );
+    const r = f.run([], { target: TARGET });
+    expect(r.status, r.out).toBe(0);
+    expect(f.remoteRuns()).toHaveLength(3);
+    expect(causeLines(r.out, docker), r.out).toHaveLength(1);
   });
 
   it("does not run the pre-push hook for its own push", () => {
@@ -575,14 +705,17 @@ describe("ci-remote, push repair", () => {
     expect(f.bunCalls()).toEqual([]);
   });
 
-  it("ci: a second push failure falls back to a run here, as before", () => {
-    const f = local(0, 0);
+  it("ci: a second push failure falls back to a run here and names git's error", () => {
+    const f = local(0, 0, NO_RETRY);
     writeFileSync(join(f.dir, "push-fails"), "");
     const r = f.run([], { target: TARGET });
     expect(r.status, r.out).toBe(0);
     expect(receivePacks(f)).toBe(2);
     expect(f.remoteRuns()).toEqual([]);
     expect(f.bunCalls()).toEqual([`run ci ${f.shas[1]}`]);
+    // git's first error from the push after the repair, not its last line.
+    const lines = causeLines(r.out, "fatal: bad object refs/ci-base (push 2)");
+    expect(lines, r.out).toHaveLength(1);
   });
 });
 
