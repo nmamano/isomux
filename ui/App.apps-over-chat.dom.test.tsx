@@ -12,5 +12,5 @@ describeOverChat({
   key: "a",
   marker: "[data-apps-page]",
   path: "/apps",
-  toggles: true,
+  sameKeyCase: true,
 });

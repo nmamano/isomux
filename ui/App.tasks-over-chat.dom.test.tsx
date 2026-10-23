@@ -12,5 +12,6 @@ describeOverChat({
   key: "t",
   marker: "[data-tasks-page]",
   path: "/tasks",
-  toggles: true,
+  sameKeyCase: true,
+  back: true,
 });

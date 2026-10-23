@@ -9,6 +9,7 @@ const { App } = await import("./App.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { en } = await import("../shared/i18n/en.ts");
 
 const { settingsReportsApi: apiShim } =
   await import("./test-support/settings-reports-fixture.ts");
@@ -26,26 +27,43 @@ describe("Storage cleanup navigation", () => {
 
     // Restrict the lookup to the named button. Computing accessible names
     // for every button in App dominated this test's cost under load.
-    const storage = view.getByText("Storage", { selector: "button" });
+    const storage = view.getByText(en["settings.sidebar.storage"], {
+      selector: "button",
+    });
     fireEvent.click(
-      within(storage.parentElement!).getByRole("button", { name: "Storage" }),
+      within(storage.parentElement!).getByRole("button", {
+        name: en["settings.sidebar.storage"],
+      }),
     );
     const content = within(view.getByTestId("settings-content"));
     fireEvent.click(
-      content.getByRole("button", { name: "Preview what would be deleted" }),
+      content.getByRole("button", { name: en["settings.storage.preview"] }),
     );
     fireEvent.click(
       await content.findByRole("button", {
-        name: /Delete 1 conversation transcripts permanently/,
+        // "Delete 1 <target> permanently": the count is the plan's.
+        name: (name) =>
+          name.startsWith(
+            en["settings.storage.deleteCount"]
+              .replace("{count}", "1")
+              .split("{target}")[0],
+          ),
       }),
     );
-    fireEvent.change(content.getByPlaceholderText("Type DELETE to confirm"), {
-      target: { value: "DELETE" },
-    });
-    fireEvent.click(
-      content.getByRole("button", { name: "Delete permanently" }),
+    fireEvent.change(
+      content.getByPlaceholderText(en["settings.storage.confirmPlaceholder"]),
+      {
+        target: { value: "DELETE" },
+      },
     );
-    const applying = content.getByRole("button", { name: "Deleting…" });
+    fireEvent.click(
+      content.getByRole("button", {
+        name: en["settings.storage.deletePermanently"],
+      }),
+    );
+    const applying = content.getByRole("button", {
+      name: en["settings.storage.deleting"],
+    });
     expect(applying.hasAttribute("disabled")).toBe(true);
 
     const originalConfirm = window.confirm;
@@ -62,8 +80,12 @@ describe("Storage cleanup navigation", () => {
       window.confirm = originalConfirm;
     }
 
-    expect(view.queryByText(/A cleanup is still running/) !== null).toBe(true);
-    expect(view.getByRole("button", { name: "Leave" })).toBeDefined();
+    expect(view.queryByText(en["settings.storage.leaveConfirm"]) !== null).toBe(
+      true,
+    );
+    expect(
+      view.getByRole("button", { name: en["settings.storage.leave"] }),
+    ).toBeDefined();
     expect(window.location.pathname).toBe("/settings");
   });
 });

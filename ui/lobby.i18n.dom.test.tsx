@@ -1,6 +1,12 @@
-// Render in two non-English languages so missing catalog wiring cannot hide.
+// The lobby scene and the members chat read the member's language. Spanish,
+// with every anchor distinct from English, so missing catalog wiring cannot
+// hide behind English text.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 
@@ -11,47 +17,48 @@ const { LobbyScene } = await import("./office/lobby/LobbyScene.tsx");
 const { MembersChatPanel } =
   await import("./members-chat/MembersChatPanel.tsx");
 
-for (const [language, heading, welcome, directory, placeholder] of [
-  [
-    "es",
-    "Chat de miembros",
-    "BIENVENIDOS",
-    "DIRECTORIO",
-    "Escribe a los miembros…",
-  ],
-  ["ca", "Xat de membres", "BENVINGUTS", "DIRECTORI", "Escriu als membres…"],
-] as const) {
-  it(`renders lobby and members chat in ${language}`, () => {
-    const state = {
-      membersChat: {
-        messages: [],
-        hasMore: false,
-        loaded: true,
-        readPointer: null,
-        unread: 0,
-      },
-    };
-    const scene = render(
-      onLanguage(
-        language,
-        createElement(LobbyScene, {
-          rooms: [],
-          officeName: null,
-          mode: "light",
-          layout: "nilo",
-        }),
-        state,
-      ),
+const ANCHOR = {
+  welcome: translationsFor("lobby.welcome"),
+  directory: translationsFor("lobby.directory"),
+  heading: translationsFor("membersChat.title"),
+  placeholder: translationsFor("membersChat.placeholder"),
+  empty: translationsFor("membersChat.empty"),
+};
+
+it("resolves each anchor in every shipped language", () => {
+  for (const [name, anchor] of Object.entries(ANCHOR))
+    expect(new Set(Object.values(anchor)).size, name).toBe(
+      SHIPPED_LANGUAGE_CODES.length,
     );
-    expect(scene.container.textContent).toContain(welcome);
-    expect(scene.container.textContent).toContain(directory);
-    const chat = render(
-      onLanguage(language, createElement(MembersChatPanel), state),
-    );
-    expect(chat.queryByText(heading)).not.toBeNull();
-    expect(chat.queryByPlaceholderText(placeholder)).not.toBeNull();
-    expect(chat.container.textContent).not.toContain(
-      "Only people see this chat",
-    );
-  });
-}
+});
+
+it("renders the lobby and the members chat in Spanish", () => {
+  const state = {
+    membersChat: {
+      messages: [],
+      hasMore: false,
+      loaded: true,
+      readPointer: null,
+      unread: 0,
+    },
+  };
+  const scene = render(
+    onLanguage(
+      "es",
+      createElement(LobbyScene, {
+        rooms: [],
+        officeName: null,
+        mode: "light",
+        layout: "nilo",
+      }),
+      state,
+    ),
+  );
+  expect(scene.container.textContent).toContain(ANCHOR.welcome.es);
+  expect(scene.container.textContent).toContain(ANCHOR.directory.es);
+  const chat = render(onLanguage("es", createElement(MembersChatPanel), state));
+  expect(chat.queryByText(ANCHOR.heading.es)).not.toBeNull();
+  expect(chat.queryByPlaceholderText(ANCHOR.placeholder.es)).not.toBeNull();
+  expect(chat.container.textContent).toContain(ANCHOR.empty.es);
+  expect(chat.container.textContent).not.toContain(ANCHOR.empty.en);
+});

@@ -12,5 +12,7 @@ describeOverChat({
   key: "i",
   marker: "[data-integrations-page]",
   path: "/integrations",
-  toggles: true,
+  // "i" again closes through the same closePage call as "a" again
+  // (App.tsx, pageUpdate "home"); ui/App.apps-over-chat.dom.test.tsx has it.
+  sameKeyCase: false,
 });

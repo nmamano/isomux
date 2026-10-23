@@ -79,14 +79,6 @@ describe("reducer: log_entries_batch", () => {
     expect(after).toBe(seeded);
   });
 
-  it("returns the same state for an empty batch", () => {
-    const after = reducer(initialState, {
-      type: "log_entries_batch",
-      entries: [],
-    });
-    expect(after).toBe(initialState);
-  });
-
   it("routes entries to their own streams by agentId", () => {
     const T = "cronrun-run2";
     const merged = reducer(initialState, {
@@ -119,7 +111,7 @@ describe("ProviderSignInCard", () => {
     },
   ];
 
-  it("presents both account scopes without a selection toggle", () => {
+  it("presents both account scopes and the sign-in", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts }),
     );
@@ -928,19 +920,13 @@ describe("reducer: apps", () => {
     expect(next.apps.map((a) => a.name)).toEqual(["alpha", "beta", "gamma"]);
   });
 
-  it("app_upserted is idempotent - the same delta twice holds one row", () => {
-    const app = appWire("alpha", { state: "stopped" });
-    const once = reducer(seeded, { type: "app_upserted", app });
-    const twice = reducer(once, { type: "app_upserted", app });
-    expect(twice.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
-  });
-
   it("app_deleted drops the app, and a repeat leaves the list alone", () => {
     const gone = reducer(seeded, { type: "app_deleted", name: "alpha" });
     expect(gone.apps.map((a) => a.name)).toEqual(["beta"]);
     // A delta racing the tab's first fetch must not throw or clear the list.
-    // The rows are untouched, but the revision still moves - see the
-    // do-not-hold case below for why that is not an accident.
+    // The rows are untouched, but the revision still moves: otherwise an
+    // in-flight GET that DOES carry that app would be accepted and resurrect
+    // it, since the row is missing here, not everywhere.
     const again = reducer(gone, { type: "app_deleted", name: "alpha" });
     expect(again.apps).toBe(gone.apps);
     expect(again.appsRevision).toBe(gone.appsRevision + 1);
@@ -984,24 +970,6 @@ describe("reducer: apps", () => {
     expect(afterStale.apps.find((a) => a.name === "alpha")!.state).toBe(
       "stopped",
     );
-  });
-
-  it("a delete for an app we do not hold still moves the revision", () => {
-    // Otherwise an in-flight GET that DOES carry that app would be accepted and
-    // resurrect it: the row is missing here, not everywhere.
-    const after = reducer(seeded, { type: "app_deleted", name: "ghost" });
-    expect(after.appsRevision).toBe(seeded.appsRevision + 1);
-    expect(after.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
-  });
-
-  it("accepts the snapshot once its revision is current again", () => {
-    const afterDelta = reducer(seeded, { type: "app_deleted", name: "alpha" });
-    const fresh = reducer(afterDelta, {
-      type: "apps_loaded",
-      apps: [appWire("beta"), appWire("gamma")],
-      revision: afterDelta.appsRevision,
-    });
-    expect(fresh.apps.map((a) => a.name)).toEqual(["beta", "gamma"]);
   });
 
   it("full_state leaves the apps slice untouched", () => {

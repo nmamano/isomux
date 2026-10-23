@@ -8,7 +8,7 @@
 // went to the office would clear focus into a no-op dispatch and still render
 // the chat, so a test could not tell the two apart.
 
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { act, render } from "@testing-library/react";
 import { createElement, useReducer } from "react";
 import { App } from "../App.tsx";
@@ -83,13 +83,18 @@ export function Harness({
 export const chatShowing = (view: View) =>
   view.container.querySelector(".log-view-shell") !== null;
 
-/** The shortcut, the marker its page renders, the path it shows at, and
- *  whether the same key closes it again (Settings only opens). */
+/** The shortcut, the marker its page renders, the path it shows at, and which
+ *  of the shared cases this page carries. sameKeyCase: pressing the key again
+ *  closes the page (Settings only opens; "i" closes through the same line as
+ *  "a", so only "t" and "a" carry it). back: Back runs App's popstate handler,
+ *  which is the same for every page, so one page carries it. Escape and Close
+ *  are wired per page, so every page carries them. */
 export interface OverChatPage {
   key: string;
   marker: string;
   path: string;
-  toggles: boolean;
+  sameKeyCase: boolean;
+  back?: boolean;
 }
 
 /** The entry the page loaded on. Back to the office must land on it: a page
@@ -126,6 +131,22 @@ export async function expectBackToOffice(view: View): Promise<void> {
   expect(window.history.state).toEqual(LOAD_ENTRY);
 }
 
+/** Run a way out that must close the page in place. Under the Harness the
+ *  chat sits on an entry App pushed, so goHome() would call history.back()
+ *  and the popstate handler would land on the same chat: only the absent
+ *  back() tells closePage() from goHome(). */
+export async function closesInPlace(
+  action: () => Promise<void>,
+): Promise<void> {
+  const back = spyOn(window.history, "back");
+  try {
+    await action();
+    expect(back).not.toHaveBeenCalled();
+  } finally {
+    back.mockRestore();
+  }
+}
+
 export async function clickClose(view: View): Promise<void> {
   const close =
     view.baseElement.querySelector<HTMLButtonElement>("[data-page-close]");
@@ -137,7 +158,8 @@ export function describeOverChat({
   key,
   marker,
   path,
-  toggles,
+  sameKeyCase,
+  back = false,
 }: OverChatPage): void {
   setUpOverChat();
 
@@ -148,10 +170,14 @@ export function describeOverChat({
     async function openFromChat(): Promise<View> {
       const view = render(createElement(Harness));
       expect(chatShowing(view)).toBe(true);
+      const entries = window.history.length;
       await press(key);
       expect(pageOpen(view)).toBe(true);
       expect(chatShowing(view)).toBe(false);
       expect(window.location.pathname).toBe(path);
+      // Chat to page is deep to deep: the chat's entry is replaced, not
+      // pushed over (ruling 5 of internal-docs/url-routing-loop.md).
+      expect(window.history.length).toBe(entries);
       return view;
     }
 
@@ -164,29 +190,28 @@ export function describeOverChat({
 
     it("Escape returns to the chat, and Back from it to the office", async () => {
       const view = await openFromChat();
-      await press("Escape");
+      await closesInPlace(() => press("Escape"));
       await expectChatThenOffice(view);
     });
 
     it("Close returns to the chat, and Back from it to the office", async () => {
       const view = await openFromChat();
-      await clickClose(view);
+      await closesInPlace(() => clickClose(view));
       await expectChatThenOffice(view);
     });
 
-    it("Back returns to the chat, and a further Back to the office", async () => {
-      const view = await openFromChat();
-      await goBack();
-      await expectChatThenOffice(view);
-    });
-
-    it.if(toggles)(
-      "the same key again returns to the chat, and Back to the office",
-      async () => {
+    if (back)
+      it("Back returns to the chat, and a further Back to the office", async () => {
         const view = await openFromChat();
-        await press(key);
+        await goBack();
         await expectChatThenOffice(view);
-      },
-    );
+      });
+
+    if (sameKeyCase)
+      it("the same key again returns to the chat, and Back to the office", async () => {
+        const view = await openFromChat();
+        await closesInPlace(() => press(key));
+        await expectChatThenOffice(view);
+      });
   });
 }

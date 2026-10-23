@@ -15,6 +15,7 @@ const { createElement } = await import("react");
 const { LogView } = await import("./log-view/LogView.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
+const { translatorFor } = await import("../shared/i18n/translate.ts");
 
 type LogEntry = import("../shared/types.ts").LogEntry;
 type AgentInfo = import("../shared/types.ts").AgentInfo;
@@ -44,6 +45,16 @@ const agent = {
 } as unknown as AgentInfo;
 setApiShim(async () => ({}));
 afterAll(() => setApiShim(null));
+
+// The two controls' names, from the catalog of the language on screen.
+const controls = (language: "es" | null) => {
+  const { t } = translatorFor(language ?? "en");
+  return {
+    expand: t("cards.userMessage.expand"),
+    collapse: t("cards.userMessage.collapse"),
+  };
+};
+const { expand: EXPAND, collapse: COLLAPSE } = controls(null);
 
 // happy-dom has no layout. Supply only the measured height; the real LogView
 // still decides sender scope, clips the body and keeps the expansion state.
@@ -107,7 +118,7 @@ const peer = message("peer", { sender_agent_name: "Peer" });
 const app = message("app", { sender_app_name: "Monitor" });
 const mount = (
   logs: LogEntry[],
-  language: "ca" | "es" | null = null,
+  language: "es" | null = null,
   isMobile = false,
 ) =>
   onLanguage(
@@ -137,26 +148,20 @@ describe("inbound message height", () => {
       message("cron", { sender_cronjob_name: "Nightly" }),
     ];
     const view = render(mount(logs));
-    const buttons = view.getAllByRole("button", { name: "Expand message" });
+    const buttons = view.getAllByRole("button", { name: EXPAND });
     expect(buttons).toHaveLength(2);
     expect(parseFloat(body(buttons[0]).style.maxHeight)).toBeCloseTo(124.8);
     expect(body(buttons[0]).style.overflow).toBe("hidden");
     fireEvent.click(buttons[0]);
-    const collapse = view.getByRole("button", { name: "Collapse message" });
+    const collapse = view.getByRole("button", { name: COLLAPSE });
     expect(collapse.getAttribute("aria-expanded")).toBe("true");
     expect(body(collapse).style.maxHeight).toBe("");
-    expect(
-      view.getAllByRole("button", { name: "Expand message" }),
-    ).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: EXPAND })).toHaveLength(1);
     view.rerender(mount([app]));
     view.rerender(mount(logs));
-    expect(
-      view.getAllByRole("button", { name: "Collapse message" }),
-    ).toHaveLength(1);
-    fireEvent.click(view.getByRole("button", { name: "Collapse message" }));
-    expect(
-      view.getAllByRole("button", { name: "Expand message" }),
-    ).toHaveLength(2);
+    expect(view.getAllByRole("button", { name: COLLAPSE })).toHaveLength(1);
+    fireEvent.click(view.getByRole("button", { name: COLLAPSE }));
+    expect(view.getAllByRole("button", { name: EXPAND })).toHaveLength(2);
     for (const id of ["morgan", "cron"])
       expect(
         view.getByText(`Long ${id} message`).parentElement!.parentElement!.style
@@ -177,7 +182,7 @@ describe("inbound message height", () => {
       ],
     };
     const view = render(mount([withFile]));
-    expect(view.getByRole("button", { name: "Expand message" })).not.toBeNull();
+    expect(view.getByRole("button", { name: EXPAND })).not.toBeNull();
     // The chip, not its download button (a[download]) that names the same file.
     const chips = view
       .getAllByRole("link", { name: /report\.txt/ })
@@ -186,44 +191,37 @@ describe("inbound message height", () => {
     const attachment = chips[0];
     act(() => attachment.focus());
     expect(document.activeElement).toBe(attachment);
-    const collapse = view.getByRole("button", { name: "Collapse message" });
+    const collapse = view.getByRole("button", { name: COLLAPSE });
     expect(body(collapse).style.maxHeight).toBe("");
     act(() => {
       attachment.blur();
       attachment.focus();
     });
-    expect(view.getByRole("button", { name: "Collapse message" })).toBe(
-      collapse,
-    );
+    expect(view.getByRole("button", { name: COLLAPSE })).toBe(collapse);
   });
 
   it("does not offer expansion for short messages; resize can make wrapped text overflow", () => {
     measuredHeight = 20;
     const view = render(mount([peer, { ...app, content: "OK" }]));
-    expect(view.queryByRole("button", { name: "Expand message" })).toBeNull();
+    expect(view.queryByRole("button", { name: EXPAND })).toBeNull();
     measuredHeight = 300;
     act(() => {
       for (const callback of observed.values()) callback();
     });
-    expect(
-      view.getAllByRole("button", { name: "Expand message" }),
-    ).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: EXPAND })).toHaveLength(1);
     measuredHeight = 20;
     act(() => {
       for (const callback of observed.values()) callback();
     });
-    expect(view.queryByRole("button", { name: "Expand message" })).toBeNull();
+    expect(view.queryByRole("button", { name: EXPAND })).toBeNull();
   });
 
   it("uses a six-line phone preview and translates both controls", () => {
     const view = render(mount([peer], null, true));
-    const expand = view.getByRole("button", { name: "Expand message" });
+    const expand = view.getByRole("button", { name: EXPAND });
     expect(body(expand).style.maxHeight).toBe("144px");
-    for (const [language, open, close] of [
-      [null, "Expand message", "Collapse message"],
-      ["es", "Expandir mensaje", "Contraer mensaje"],
-      ["ca", "Expandeix el missatge", "Contrau el missatge"],
-    ] as const) {
+    for (const language of [null, "es"] as const) {
+      const { expand: open, collapse: close } = controls(language);
       view.rerender(mount([peer], language, true));
       fireEvent.click(view.getByRole("button", { name: open }));
       fireEvent.click(view.getByRole("button", { name: close }));

@@ -7,6 +7,9 @@ const { EditAgentDialog } = await import("./components/EditAgentDialog.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { translatorFor } = await import("../shared/i18n/translate.ts");
+const { RECEPTIONIST_INSTRUCTIONS, RECEPTIONIST_PROFILE_KEY } =
+  await import("../shared/receptionist-profile.ts");
 
 const capture: { submitted: Record<string, unknown> | null } = {
   submitted: null,
@@ -34,11 +37,11 @@ const room = {
 };
 
 describe("receptionist profile dialog", () => {
-  for (const [language, label] of [
-    [null, "Isomux Receptionist"],
-    ["es", "Recepcionista de Isomux"],
-    ["ca", "Recepcionista d’Isomux"],
-  ] as const) {
+  // The profile's name is the catalog's label in the member's language.
+  for (const language of [null, "es"] as const) {
+    const label = translatorFor(language ?? "en").t(
+      "templates.receptionist.label",
+    );
     it(`shows the profile in ${language ?? "en"}`, async () => {
       const view = render(
         onLanguage(
@@ -64,15 +67,13 @@ describe("receptionist profile dialog", () => {
           fireEvent.click(view.getByRole("button", { name: /^Spawn$/ })),
         );
         expect(submission()).toMatchObject({
-          profileKey: "isomux-receptionist",
+          profileKey: RECEPTIONIST_PROFILE_KEY,
           cwd: "~",
           permissionMode: "bypassPermissions",
           name: label,
+          instructions: RECEPTIONIST_INSTRUCTIONS,
         });
         expect(submission()).not.toHaveProperty("customInstructions");
-        expect(String(submission().instructions)).toContain(
-          "Never ask for or repeat secrets",
-        );
       }
       view.unmount();
     });

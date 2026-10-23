@@ -1,5 +1,5 @@
 export const APP_WIDGET_RECHECK_MS = 60_000;
-export const APP_WIDGET_AUTH_COOLDOWN_MS = 60_000;
+const APP_WIDGET_AUTH_COOLDOWN_MS = 60_000;
 export const APP_WIDGET_SANDBOX =
   "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-modals";
 

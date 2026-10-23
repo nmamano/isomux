@@ -1,7 +1,8 @@
 // Two pages stacked over an agent chat close top first (task d6c09d1c): t then
-// s shows Settings over Tasks, and each way out closes Settings to Tasks, then
-// Tasks to the chat, then Back goes to the office. The steps are in
-// ui/test-support/over-chat-fixture.ts.
+// s shows Settings over Tasks, and Escape or Back closes Settings to Tasks, then
+// Tasks to the chat, then Back goes to the office. The Close button goes
+// through the same closePage as Escape; each page's own Close is driven in
+// ui/test-support/over-chat-fixture.ts, with the other steps.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -13,7 +14,7 @@ const { createElement } = await import("react");
 const {
   Harness,
   chatShowing,
-  clickClose,
+  closesInPlace,
   expectBackToOffice,
   expectChatEntry,
   goBack,
@@ -57,17 +58,9 @@ async function expectChatThenOffice(view: View): Promise<void> {
 describe("Settings over Tasks over a chat", () => {
   it("Escape closes Settings, then Tasks", async () => {
     const view = await settingsOverTasks();
-    await press("Escape");
+    await closesInPlace(() => press("Escape"));
     expectTasks(view);
-    await press("Escape");
-    await expectChatThenOffice(view);
-  });
-
-  it("Close closes Settings, then Tasks", async () => {
-    const view = await settingsOverTasks();
-    await clickClose(view);
-    expectTasks(view);
-    await clickClose(view);
+    await closesInPlace(() => press("Escape"));
     await expectChatThenOffice(view);
   });
 

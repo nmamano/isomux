@@ -70,14 +70,6 @@ it("opens a back-room agent's chat from its address, over the back screen", asyn
   view.unmount();
 });
 
-it("reopens the saved spot at a path below an agent's address", async () => {
-  saveView("member", { ...SAVED_SPOT, panel: null });
-  const view = await boot("/agents/a2/x");
-  expect(document.title).toContain("Scout");
-  expect(window.location.pathname).toBe("/");
-  view.unmount();
-});
-
 // "a9" stands for an agent in a room the member cannot see: the member's state
 // does not hold it, so the address reopens the saved spot, as "/" does.
 it("tries the address once: an agent that appears later does not take the view", async () => {

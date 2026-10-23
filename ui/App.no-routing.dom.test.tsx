@@ -3,7 +3,7 @@
 // routing={false}, where a real path would name a public URL that does not
 // exist. Its own file because each case renders the office and the 5 s cap is
 // per file; the rest of the cold-load behaviour is in
-// ui/App.boot.dom.test.tsx.
+// ui/App.deeplink.dom.test.tsx.
 //
 // Routing is an INPUT rather than something App infers from the URL. Inferring
 // it would mean a real office loaded at an unknown path silently stopped having
@@ -43,19 +43,15 @@ const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 describe("deployed without routing", () => {
   // The landing demo serves this same App under /demo (ui/demo-entry.tsx),
   // where a real path would name a public URL that does not exist. Routing is
-  // an input rather than something App infers, so these mount at /demo AND
+  // an input rather than something App infers, so this mounts at /demo AND
   // pass routing={false}, which is exactly what the demo entry does.
-  it("leaves the address bar alone instead of normalising it", () => {
+  it("leaves the address bar alone, and opens a page on one entry without a path", async () => {
     const view = mountAt("/demo", { routing: false });
 
     expect(officeShowing(view)).toBe(true);
     expect(window.location.pathname).toBe("/demo");
-  });
 
-  it("still opens a page, still on one entry, without writing a path", async () => {
-    const view = mountAt("/demo", { routing: false });
     const pushState = spyOn(window.history, "pushState");
-
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "t" }));
     });

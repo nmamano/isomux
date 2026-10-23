@@ -73,8 +73,6 @@ async function save(view: ReturnType<typeof mount>) {
 const cancelDisabled = (view: ReturnType<typeof mount>) =>
   (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled;
 
-// The PATCH is part of the save, not a side effect of it. When it fails the
-// reader has to be able to tell: the pane must not settle to "Saved" over a
 // Cancel puts every staged choice back. A species tile shows the pet and
 // opens its coat row, and the coat tiles set the coat.
 it("puts staged choices back on Cancel, and saves a pet with its coat", async () => {

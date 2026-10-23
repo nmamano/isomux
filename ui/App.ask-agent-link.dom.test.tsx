@@ -1,7 +1,7 @@
 // An ask's link to an agent's chat (task 9aaec0eb), through the real App and
 // store: the card's button on the Inbox's Asks tab closes the Inbox, switches
 // to the agent's room and opens its chat, over the back screen for a back-room
-// agent. Links to office pages are covered in App.inbox.dom.test.tsx.
+// agent. Links to office pages are covered in App.inbox-ask-links.dom.test.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";

@@ -222,25 +222,4 @@ describe("a cold link over a restored chat", () => {
     expect(back).not.toHaveBeenCalled();
     back.mockRestore();
   });
-
-  // A second "a" closes the page the way Escape does: over the chat, in place.
-  it("closes the linked Apps page to that chat on a second a", async () => {
-    const view = bootWithSavedAgent("/apps");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(appsPageOpen(view)).toBe(true);
-    const back = spyOn(window.history, "back");
-
-    await act(async () => {
-      document.body.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "a", bubbles: true }),
-      );
-    });
-    expect(appsPageOpen(view)).toBe(false);
-    expect(chatShowing(view)).toBe(true);
-    expect(window.location.pathname).toBe("/");
-    expect(back).not.toHaveBeenCalled();
-    back.mockRestore();
-  });
 });

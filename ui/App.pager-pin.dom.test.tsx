@@ -11,8 +11,10 @@ setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
 const {
   boot,
+  loadMore,
   page,
   pending,
+  resolved,
   rowIds,
   settle,
   setupPagerAppTests,
@@ -20,21 +22,6 @@ const {
   toggleOf,
 } = await import("./test-support/pager-app-fixture.tsx");
 setupPagerAppTests();
-
-type View = Awaited<ReturnType<typeof boot>>;
-
-// Resolved pages r<from>..r<to-1>, newest first by resolve and by raise.
-const resolved = (from: number, to: number) =>
-  Array.from({ length: to - from }, (_, i) =>
-    page(`r${from + i}`, {
-      state: "resolved",
-      lastRaisedAt: 100_000 - (from + i),
-      resolved: { by: "Morgan", at: 100_000 - (from + i) },
-    }),
-  );
-
-const loadMore = (view: View) =>
-  view.container.querySelector<HTMLButtonElement>("[data-pager-load-more]");
 
 describe("the Discord-linked page", () => {
   it("a page opened from a Discord link stays, and is not where Load more continues", async () => {

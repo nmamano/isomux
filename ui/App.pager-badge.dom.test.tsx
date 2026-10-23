@@ -1,4 +1,5 @@
-// The office bar badge and a failed pager load, through the real App. The view itself is covered in
+// The office bar badge and a failed pager load, through the real App. Which
+// Inbox tab the bar entry opens is in ui/App.inbox.dom.test.tsx; the view is in
 // ui/components/PagerView.dom.test.tsx; shared setup is in
 // ui/test-support/pager-app-fixture.tsx.
 
@@ -13,9 +14,7 @@ const {
   boot,
   en,
   page,
-  inboxButton,
   pending,
-  rowIds,
   settle,
   setupPagerAppTests,
   shimEmit,
@@ -43,18 +42,6 @@ describe("the badge", () => {
       }),
     );
     expect(badge(view)).toBeNull();
-    // With no open page of the member's, the bar entry opens the Asks tab.
-    await act(async () => fireEvent.click(inboxButton(view)));
-    expect(window.location.pathname).toBe("/inbox/asks");
-    // The Pages tab lists every visible page, not only the member's: open
-    // first.
-    await act(async () =>
-      fireEvent.click(
-        view.container.querySelector<HTMLElement>('[data-inbox-tab="pager"]')!,
-      ),
-    );
-    expect(window.location.pathname).toBe("/inbox/pages");
-    expect(rowIds(view)).toEqual(["theirs", "mine", "seen"]);
   });
 });
 

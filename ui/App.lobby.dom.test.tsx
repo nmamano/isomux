@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 for (const [label, path, page] of [
-  ["Apps", "/apps", "apps"],
+  [en["common.apps"], "/apps", "apps"],
   [en["common.automations"], "/automations", "cronjobs"],
 ] as const) {
   it(`opens ${path} from its lobby wall control`, async () => {

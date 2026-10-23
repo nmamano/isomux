@@ -41,19 +41,6 @@ describe("the Discord link", () => {
     expect(toggleOf(view, "p2")?.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("wins over the Asks tab's path", async () => {
-    const view = await boot("/inbox/asks?pager=p1");
-    expect(window.location.pathname).toBe("/inbox/pages");
-    expect(
-      view.container
-        .querySelector('[role="tab"][aria-selected="true"]')
-        ?.getAttribute("data-inbox-tab"),
-    ).toBe("pager");
-    await settle(0, [page("p1"), page("p2")]);
-    expect(toggleOf(view, "p1")?.getAttribute("aria-expanded")).toBe("true");
-    expect(toggleOf(view, "p2")?.getAttribute("aria-expanded")).toBe("false");
-  });
-
   it("ends in the unavailable notice for a page the snapshot does not hold and the server refuses", async () => {
     const view = await boot("/?pager=hidden1");
     await settle(0, [page("p2")]);

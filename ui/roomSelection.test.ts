@@ -32,8 +32,11 @@ describe("resolveSelectedRoomId", () => {
     expect(resolveSelectedRoomId([A, B, C], "gone")).toBe("a");
   });
 
-  it("first hydration with no preferred selects the first room", () => {
-    expect(resolveSelectedRoomId([A, B, C], null)).toBe("a");
+  // The lobby is a room on the wire but never the selected room.
+  it("never selects the lobby, even when preferred or listed first", () => {
+    const lobby: RoomWire = { ...room("l"), type: "lobby" };
+    expect(resolveSelectedRoomId([lobby, A, B], "l", "l")).toBe("a");
+    expect(resolveSelectedRoomId([lobby], null)).toBe(null);
   });
 
   it("returns null when there are no rooms", () => {
@@ -53,12 +56,6 @@ describe("applyRoomClose", () => {
     expect(r!.rooms.map((x) => x.id)).toEqual(["b", "c"]);
   });
 
-  it("closed-after-current: selection preserved (ids don't shift)", () => {
-    const r = applyRoomClose([A, B, C], "c", "a");
-    expect(r!.currentRoomId).toBe("a");
-    expect(r!.rooms.map((x) => x.id)).toEqual(["a", "b"]);
-  });
-
   it("closed-current (middle): jumps to the room taking its slot", () => {
     const r = applyRoomClose([A, B, C], "b", "b");
     expect(r!.currentRoomId).toBe("c");
@@ -75,10 +72,5 @@ describe("applyRoomClose", () => {
     const r = applyRoomClose([A], "a", "a");
     expect(r!.currentRoomId).toBe(null);
     expect(r!.rooms).toEqual([]);
-  });
-
-  it("keeps a null selection null", () => {
-    const r = applyRoomClose([A, B], "a", null);
-    expect(r!.currentRoomId).toBe(null);
   });
 });

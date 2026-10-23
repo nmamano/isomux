@@ -1,7 +1,6 @@
 // No profile in Settings has an Integrations section (Nil, 2026-10-14: the
-// Integrations page is the one place): not yours, for an owner or a member,
-// and not a member's under an owner. None asks the server for a member's
-// names.
+// Integrations page is the one place), and Settings has no row for it. None
+// asks the server for a member's names.
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -72,9 +71,10 @@ async function openProfile(state: typeof initialState, name: string) {
   return view;
 }
 
+// The owner sees every profile pane a member does and more, so the two owner
+// views cover the member's own.
 for (const [who, viewer, id, role, rowName] of [
   ["an owner's own profile", "Ricky", "u1", "owner", "Profile"],
-  ["a member's own profile", "Beth", "u2", "member", "Beth"],
   ["a member's profile under an owner", "Ricky", "u1", "owner", "Beth"],
 ] as const)
   it(`gives ${who} no Integrations section, and asks for no names`, async () => {
@@ -85,5 +85,9 @@ for (const [who, viewer, id, role, rowName] of [
     );
     expect(headings.length).toBeGreaterThan(0);
     expect(headings).not.toContain(t("common.integrations"));
+    // Nor a sidebar row: the page's only door is the office bar.
+    expect(
+      view.queryByRole("button", { name: t("common.integrations") }),
+    ).toBeNull();
     expect(fake.requests("GET", /\/env\/names$/)).toHaveLength(0);
   });

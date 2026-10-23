@@ -3,7 +3,7 @@
 // settles it. Split across files to keep each under the DOM per-file cap.
 
 import { afterAll, beforeEach } from "bun:test";
-const { act, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { App } = await import("../App.tsx");
 const { SceneDecorationContext } =
@@ -90,6 +90,16 @@ export function page(id: string, patch: Partial<PagerEntry> = {}): PagerEntry {
   };
 }
 
+/** Resolved pages r<from>..r<to-1>, newest first by resolve and by raise. */
+export const resolved = (from: number, to: number) =>
+  Array.from({ length: to - from }, (_, i) =>
+    page(`r${from + i}`, {
+      state: "resolved",
+      lastRaisedAt: 100_000 - (from + i),
+      resolved: { by: "Morgan", at: 100_000 - (from + i) },
+    }),
+  );
+
 export async function boot(path: string) {
   window.history.replaceState(null, "", path);
   // ws.ts fires the shim's connect on a timer, so wait for it.
@@ -146,5 +156,14 @@ export const rowIds = (view: ReturnType<typeof render>) =>
   [...view.container.querySelectorAll<HTMLElement>("[data-pager-id]")].map(
     (el) => el.dataset.pagerId,
   );
+
+export const loadMore = (view: ReturnType<typeof render>) =>
+  view.container.querySelector<HTMLButtonElement>("[data-pager-load-more]");
+
+/** The view's state filter to All, so resolved pages show. */
+export function showAll(view: ReturnType<typeof render>) {
+  const state = view.container.querySelector<HTMLSelectElement>("select")!;
+  fireEvent.change(state, { target: { value: "all" } });
+}
 
 export { shimEmit, en };

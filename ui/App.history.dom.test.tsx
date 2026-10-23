@@ -1,12 +1,10 @@
 // Back and Forward step between the office and a page the way they do on any
 // site. What a restored page forgets is in ui/App.settings-section.dom.test.tsx;
-// a page opened over a chat in ui/App.over-chat.dom.test.tsx; the pages' own
-// paths in ui/App.pages.dom.test.tsx and
-// ui/App.pages.cronjobs-settings.dom.test.tsx; arriving on
-// a page path, including ruling 8's replace-instead-of-back, in
-// ui/App.deeplink.dom.test.tsx; a cold link over a restored chat in
-// ui/App.restored-chat.dom.test.tsx; and every other cold load in
-// ui/App.boot.dom.test.tsx. One subject per file because each case renders a
+// a page opened over a chat in ui/test-support/over-chat-fixture.ts; the pages'
+// own paths in ui/App.pages.dom.test.tsx; every cold load, including
+// ruling 8's replace-instead-of-back, in ui/App.deeplink.dom.test.tsx; and a
+// cold link over a restored chat in ui/App.restored-chat.dom.test.tsx. One
+// subject per file because each case renders a
 // full page: measured 2026-09-05, a file of App renders runs 2.4-4.8 s for the
 // same tests depending on what else the box is doing, and the 5 s cap is per
 // file, so a file is split well before its number looks tight.

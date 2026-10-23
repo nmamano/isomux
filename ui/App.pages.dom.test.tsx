@@ -1,24 +1,12 @@
-// One test per page: opening it from the office shows it, puts its own path in
-// the address bar, and pushes exactly one entry carrying that page. This file
-// holds the task board and apps; cron jobs and settings are in
-// ui/App.pages.cronjobs-settings.dom.test.tsx.
-//
-// Four cases of one subject do not divide by meaning, so they divide by cost:
-// each renders the office AND a full page, and all four together ran 2.3-3.2 s
-// of a 5 s budget (measured 2026-09-05), which is past the half a file is
-// allowed before it counts as a latent flake. The rest of App's history wiring
-// is in ui/App.history.dom.test.tsx, and the cold-load half in
-// ui/App.boot.dom.test.tsx.
+// Each page's door in the office bar: the button opens its page, puts the
+// page's own path in the address bar, and pushes exactly one entry carrying
+// that page; Back returns to the office. One render walks every door, since
+// each render is most of a file's DOM budget. The path table is in
+// ui/routes.test.ts; the rest of App's history wiring is in
+// ui/App.history.dom.test.tsx, and the cold-load half in
+// ui/App.deeplink.dom.test.tsx.
 
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  spyOn,
-} from "bun:test";
+import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
@@ -26,66 +14,74 @@ setUpDomTestFile();
 const { act, render } = await import("@testing-library/react");
 const { App } = await import("./App.tsx");
 const { setApiShim } = await import("./api.ts");
+const { pathForPage } = await import("./routes.ts");
+const { en } = await import("../shared/i18n/en.ts");
 const { createElement } = await import("react");
 type Page = import("./routes.ts").Page;
 
-type View = ReturnType<typeof render>;
-
-// The cronjobs, apps and settings pages each fetch when they mount; without the
-// shim happy-dom opens real sockets to localhost.
-setApiShim(async () => ({}));
+// The pages fetch when they mount; without the shim happy-dom opens real
+// sockets to localhost. Settings reads a memory text from it.
+setApiShim(async () => ({ text: "", version: "v", size: 0, cap: 1000 }));
 afterAll(() => setApiShim(null));
 
-let pushState: ReturnType<typeof spyOn<History, "pushState">>;
-
 beforeEach(() => {
+  window.localStorage.clear();
   window.history.replaceState(null, "", "/");
-  pushState = spyOn(window.history, "pushState");
 });
 
-afterEach(() => {
-  pushState.mockRestore();
-});
-
-/**
- * Each page: the office button that opens it (NavActions renders a label as the
- * button's title unless the action names its own) and something only that page
- * renders, so the test proves the right page came up and not just the path.
- */
-const PAGES: Array<{
-  page: Page;
-  button: string;
-  showing: (v: View) => boolean;
-}> = [
+// Each door's title and a marker only that page renders, so the test proves
+// the right page came up and not just the path. Settings last: it only opens.
+const DOORS: Array<{ page: Page; title: string; marker: string }> = [
   {
     page: "tasks",
-    button: "Tasks (t)",
-    showing: (v) => v.queryByPlaceholderText(/Quick add a task/) !== null,
+    title: en["nav.tasksShortcut"],
+    marker: "[data-tasks-page]",
+  },
+  { page: "apps", title: en["nav.appsShortcut"], marker: "[data-apps-page]" },
+  {
+    page: "cronjobs",
+    title: en["common.automations"],
+    marker: "[data-schedules-tab]",
   },
   {
-    page: "apps",
-    button: "Apps (a)",
-    showing: (v) => v.baseElement.querySelector("[data-apps-page]") !== null,
+    page: "integrations",
+    title: en["nav.integrationsShortcut"],
+    marker: "[data-integrations-page]",
+  },
+  {
+    page: "settings",
+    title: en["nav.settingsShortcut"],
+    marker: '[data-testid="settings-content"]',
   },
 ];
 
-describe("opening a page from the office", () => {
-  for (const { page, button, showing } of PAGES) {
-    it(`shows ${page} at its own path, in one pushed entry`, async () => {
-      const view = render(createElement(App, {}));
-
+it("opens each page from its office door at its own path, in one pushed entry, and Back returns to the office", async () => {
+  const view = render(createElement(App, {}));
+  const shown = (marker: string) =>
+    view.baseElement.querySelector(marker) !== null;
+  for (const { page, title, marker } of DOORS) {
+    const pushState = spyOn(window.history, "pushState");
+    try {
       await act(async () => {
-        view.getByTitle(button).click();
+        view.getByTitle(title).click();
       });
-
-      expect(showing(view)).toBe(true);
-      expect(window.location.pathname).toBe(`/${page}`);
-      expect(pushState).toHaveBeenCalledTimes(1);
-      expect(pushState.mock.calls[0]).toEqual([
-        { isomux: true, page },
-        "",
-        `/${page}`,
+      expect([page, shown(marker)]).toEqual([page, true]);
+      expect(window.location.pathname).toBe(pathForPage(page));
+      expect(pushState.mock.calls).toEqual([
+        [{ isomux: true, page }, "", pathForPage(page)],
       ]);
+    } finally {
+      pushState.mockRestore();
+    }
+    if (page === "settings") break;
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    expect([page, shown(marker), window.location.pathname]).toEqual([
+      page,
+      false,
+      "/",
+    ]);
   }
 });

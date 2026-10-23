@@ -77,11 +77,11 @@ function asChrome() {
   (window as unknown as Record<string, unknown>).onbeforeinstallprompt = null;
 }
 
-function installEvent(outcome: "accepted" | "dismissed" = "accepted") {
+function installEvent() {
   const prompt = mock(async () => {});
   const event = Object.assign(
     new Event("beforeinstallprompt", { cancelable: true }),
-    { prompt, userChoice: Promise.resolve({ outcome }) },
+    { prompt, userChoice: Promise.resolve({ outcome: "accepted" }) },
   );
   return { event, prompt };
 }
@@ -159,15 +159,15 @@ it("shows no install entry where the browser cannot install", async () => {
   expect(page.popover()).toBeNull();
 });
 
-for (const ending of ["accepted", "dismissed", "appinstalled"] as const) {
+// A dismissed prompt ends as an accepted one does (promptInstall drops the
+// event whatever the outcome; ui/app-install.test.ts runs both outcomes).
+for (const ending of ["accepted", "appinstalled"] as const) {
   it(`installs with the held event from the chat header and then hides the entry (${ending})`, async () => {
     asChrome();
     const page = await mount({ chat: true });
     // Chrome decides when the event comes, often after the page renders.
     expect(page.entries()).toHaveLength(0);
-    const { event, prompt } = installEvent(
-      ending === "dismissed" ? "dismissed" : "accepted",
-    );
+    const { event, prompt } = installEvent();
     await act(async () => {
       window.dispatchEvent(event);
     });

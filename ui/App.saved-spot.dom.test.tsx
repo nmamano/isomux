@@ -1,10 +1,8 @@
 // Reopening the spot a reload left: the saved panel opens on top of the office,
-// so Back returns to it, and a page named in the URL beats the saved panel
-// (ruling 4 of internal-docs/url-routing-loop.md) while the saved spot still
-// supplies room and agent.
-//
-// Its own file because both cases mount the app twice over and the 5 s cap is
-// per file; the unknown-path case is in ui/App.boot.dom.test.tsx.
+// so Back returns to it. A page named in the URL beats the saved panel (ruling
+// 4 of internal-docs/url-routing-loop.md); that case is in
+// ui/App.restored-chat.dom.test.tsx, and the unknown-path case in
+// ui/App.deeplink.dom.test.tsx.
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -75,19 +73,5 @@ describe("the saved spot on /", () => {
     expect(taskPageOpen(view)).toBe(false);
     expect(officeShowing(view)).toBe(true);
     expect(window.location.pathname).toBe("/");
-  });
-
-  it("lets a page in the URL win over the saved panel", () => {
-    saveView("ricky", {
-      roomId: null,
-      agentId: null,
-      panel: "apps",
-      lobby: false,
-    });
-
-    const view = mountAt("/tasks", { state: RESTORED });
-
-    expect(taskPageOpen(view)).toBe(true);
-    expect(window.location.pathname).toBe("/tasks");
   });
 });

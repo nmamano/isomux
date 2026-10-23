@@ -16,6 +16,7 @@ const {
   WITH_CHAT,
   chatShowing,
   clickClose,
+  closesInPlace,
   expectBackToOffice,
   expectChatEntry,
   setUpOverChat,
@@ -49,7 +50,7 @@ describe("Skills restored over a chat", () => {
     expect(chatShowing(view)).toBe(false);
     expect(window.location.pathname).toBe("/skills");
 
-    await clickClose(view);
+    await closesInPlace(() => clickClose(view));
     expect(skillsOpen()).toBe(false);
     expectChatEntry(view);
     await expectBackToOffice(view);

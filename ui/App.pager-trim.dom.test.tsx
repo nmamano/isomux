@@ -11,29 +11,19 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
-const { boot, page, pending, rowIds, settle, setupPagerAppTests, shimEmit } =
-  await import("./test-support/pager-app-fixture.tsx");
+const {
+  boot,
+  loadMore,
+  page,
+  pending,
+  resolved,
+  rowIds,
+  settle,
+  setupPagerAppTests,
+  shimEmit,
+  showAll,
+} = await import("./test-support/pager-app-fixture.tsx");
 setupPagerAppTests();
-
-type View = Awaited<ReturnType<typeof boot>>;
-
-// Resolved pages r<from>..r<to-1>, newest first by resolve and by raise.
-const resolved = (from: number, to: number) =>
-  Array.from({ length: to - from }, (_, i) =>
-    page(`r${from + i}`, {
-      state: "resolved",
-      lastRaisedAt: 100_000 - (from + i),
-      resolved: { by: "Morgan", at: 100_000 - (from + i) },
-    }),
-  );
-
-const loadMore = (view: View) =>
-  view.container.querySelector<HTMLButtonElement>("[data-pager-load-more]");
-
-function showAll(view: View) {
-  const state = view.container.querySelector<HTMLSelectElement>("select")!;
-  fireEvent.change(state, { target: { value: "all" } });
-}
 
 describe("the bound on resolved pages", () => {
   it("live resolves keep the list at its loaded size, and Load more brings the dropped pages back, none skipped or repeated", async () => {

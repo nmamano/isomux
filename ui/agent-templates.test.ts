@@ -30,48 +30,11 @@ import {
   resolveTemplatePermission,
   templateFormValues,
   templateEngineValues,
-  type AgentTemplateGroup,
 } from "./agent-templates.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 
 // English, so the expectations below stay the frozen English bytes (ruling 6).
 const english = translatorFor("en");
-
-// The card titles the catalog holds, in the order the dialog lays them out.
-// Read through an English translator rather than off the table, because S4
-// moved the words out of ui/agent-templates.ts (internal-docs/i18n-loop.md).
-const EXPECTED_LABELS = [
-  "Side Project Builder",
-  "Personal Site Builder",
-  "Code Reviewer",
-  "Money Planner",
-  "Job Search Coach",
-  "Research Analyst",
-  "Health Navigator",
-  "Life Coach",
-  "Relationship Advisor",
-  "Todo List Assistant",
-  "City Guide",
-  "Trip Planner",
-];
-
-const EXPECTED_TEMPLATE_SETTINGS: Record<
-  string,
-  [AgentTemplateGroup, EffortLevel, EffortLevel]
-> = {
-  "Side Project Builder": ["build", "high", "high"],
-  "Personal Site Builder": ["build", "high", "high"],
-  "Code Reviewer": ["build", "high", "high"],
-  "Money Planner": ["work", "high", "high"],
-  "Job Search Coach": ["work", "medium", "medium"],
-  "Research Analyst": ["work", "high", "high"],
-  "Health Navigator": ["life", "medium", "medium"],
-  "Life Coach": ["life", "medium", "medium"],
-  "Relationship Advisor": ["life", "medium", "medium"],
-  "Todo List Assistant": ["life", "medium", "medium"],
-  "City Guide": ["places", "medium", "medium"],
-  "Trip Planner": ["places", "medium", "medium"],
-};
 
 function model(
   id: string,
@@ -87,31 +50,13 @@ function model(
 }
 
 describe("agent template catalog", () => {
-  it("contains the receptionist profile and the existing templates in order", () => {
-    expect(
-      AGENT_TEMPLATES.map((template) => english.t(template.labelKey)),
-    ).toEqual(["Isomux Receptionist", ...EXPECTED_LABELS]);
+  // Which templates exist, their order, group, efforts and costumes are
+  // catalog data, not rules: a test that copied them would change with every
+  // edit. The rules are below.
+  it("gives every template its own key", () => {
     expect(new Set(AGENT_TEMPLATES.map((template) => template.key)).size).toBe(
-      13,
+      AGENT_TEMPLATES.length,
     );
-  });
-
-  it("pins every template's group and both engine effort recommendations", () => {
-    expect(
-      Object.fromEntries(
-        AGENT_TEMPLATES.map((template) => [
-          english.t(template.labelKey),
-          [
-            template.group,
-            template.recommendations.claude.desiredEffort,
-            template.recommendations.codex.desiredEffort,
-          ],
-        ]),
-      ),
-    ).toEqual({
-      "Isomux Receptionist": ["work", "medium", "medium"],
-      ...EXPECTED_TEMPLATE_SETTINGS,
-    });
   });
 
   it("composes every prompt from the shared software workflow clauses", () => {
@@ -138,18 +83,6 @@ describe("agent template catalog", () => {
       expect(ACCESSORIES).toContain(template.outfit.accessory);
       expect(COSTUMES).toContain(template.outfit.costume ?? "none");
     }
-  });
-
-  it("assigns costumes to Health Navigator and the two builders only", () => {
-    expect(
-      AGENT_TEMPLATES.filter((template) => template.outfit.costume).map(
-        (template) => [template.key, template.outfit.costume],
-      ),
-    ).toEqual([
-      ["side-project-builder", "construction"],
-      ["personal-site-builder", "construction"],
-      ["health-navigator", "doctor"],
-    ]);
   });
 
   it("keeps each Claude recommendation valid through the product helper", () => {

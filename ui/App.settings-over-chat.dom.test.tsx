@@ -14,5 +14,5 @@ describeOverChat({
   key: "s",
   marker: '[data-testid="settings-content"]',
   path: "/settings",
-  toggles: false,
+  sameKeyCase: false,
 });

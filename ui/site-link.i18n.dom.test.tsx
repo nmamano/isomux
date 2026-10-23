@@ -92,16 +92,8 @@ describe("the office's link to the public site", () => {
     expect(openedBy("en", "off")).toEqual(["https://isomux.com"]);
   });
 
-  it("opens the Spanish landing for a member on Spanish", () => {
-    expect(openedBy("es", "on")).toEqual(["https://isomux.com/es"]);
-    expect(openedBy("es", "off")).toEqual(["https://isomux.com/es"]);
-  });
-
-  it("opens the Catalan landing for a member on Catalan", () => {
-    expect(openedBy("ca", "on")).toEqual(["https://isomux.com/ca"]);
-    expect(openedBy("ca", "off")).toEqual(["https://isomux.com/ca"]);
-  });
-
+  // Spanish and Catalan take the same path as Chinese; their URLs are pinned
+  // in shared/i18n/site-url.test.ts, which has no Chinese case.
   it("opens the Chinese landing for a member on Chinese", () => {
     expect(openedBy("zh", "on")).toEqual(["https://isomux.com/zh"]);
     expect(openedBy("zh", "off")).toEqual(["https://isomux.com/zh"]);

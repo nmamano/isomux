@@ -1,4 +1,5 @@
-// The way back to the Integrations page from an MCP sign-in, at the new path
+// The Integrations page on a cold load: a pasted tab URL, and the way back
+// from an MCP sign-in, at the new path
 // (/integrations?mcpSignIn=<code>) and at the old one an in-flight sign-in
 // still uses (/settings?mcpSignIn=<code>; Lead, ruling 1). The result shows on
 // the server's row, in the card it belongs to (b1035).
@@ -24,6 +25,9 @@ const { rememberSignIn } = await import("./integrations/sign-in-return.ts");
 const { IntegrationsFake, server } =
   await import("./test-support/integrations-fake.ts");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
+const { getIntegrationsTab, setIntegrationsTab } =
+  await import("./device-settings.ts");
+const { INTEGRATIONS_TABS } = await import("../shared/office-links.ts");
 const { createElement } = await import("react");
 afterAll(() => setApiShim(null));
 
@@ -112,7 +116,9 @@ const only = (view: View) => {
 
 describe("back from an MCP sign-in", () => {
   // A tab path names a tab too (task df206fe3): the sign-in result wins.
-  for (const path of ["/integrations", "/settings", "/integrations/variables"])
+  // The old /settings return is pageForLocation's (ui/routes.test.ts); App
+  // takes the page from it the same way.
+  for (const path of ["/integrations", "/integrations/variables"])
     it(`lands on the MCP servers tab from ${path}, on the member's row`, async () => {
       // No saved spot: the restore would open the page whatever the path says.
       localStorage.clear();
@@ -263,5 +269,27 @@ describe("back from an MCP sign-in", () => {
     });
     expect(page(view)).not.toBeNull();
     expect(notices(view)).toHaveLength(0);
+  });
+});
+
+describe("a pasted tab URL", () => {
+  it("opens a pasted tab URL on that tab, not the saved one, and shows /integrations", async () => {
+    // No saved spot: an earlier case leaves the page saved, and the restore
+    // would open it whatever the path says.
+    localStorage.clear();
+    setIntegrationsTab("mcp");
+    window.history.replaceState(null, "", "/integrations/variables");
+    const view = await app();
+    expect(page(view)).not.toBeNull();
+    const selected = [
+      ...view.baseElement.querySelectorAll(
+        '[data-integrations-tab][aria-selected="true"]',
+      ),
+    ].map((el) => el.getAttribute("data-integrations-tab"));
+    expect(selected).toEqual(["variables"]);
+    expect(window.location.pathname).toBe("/integrations");
+    expect(pushState).not.toHaveBeenCalled();
+    // The tab counts as picked, so a reload of /integrations opens it again.
+    expect(getIntegrationsTab(INTEGRATIONS_TABS)).toBe("variables");
   });
 });

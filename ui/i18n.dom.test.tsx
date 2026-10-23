@@ -1,6 +1,7 @@
-// The Catalan desktop slice of the office i18n loop
-// (internal-docs/i18n-loop.md, S1). Other nav variants and preferences live in
-// sibling files so each real App scene stays below half of the DOM budget.
+// The desktop slice of the office i18n loop (internal-docs/i18n-loop.md, S1):
+// the nav bar in Catalan, then after a language change. The phone menu and
+// preferences live in sibling files so each real App scene stays below half of
+// the DOM budget.
 //
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -23,7 +24,9 @@ setApiShim(OK);
 afterEach(() => setApiShim(OK));
 afterAll(() => setApiShim(null));
 
-const TASKS = translationsFor("common.tasks");
+const TASKS_KEY = translationsFor("nav.tasksShortcut");
+const APPS_KEY = translationsFor("nav.appsShortcut");
+const SETTINGS_KEY = translationsFor("nav.settingsShortcut");
 const AUTOMATIONS = translationsFor("common.automations");
 const SETTINGS = translationsFor("common.settings");
 const THEME = translationsFor("common.theme");
@@ -32,16 +35,19 @@ const ZOOM_IN = translationsFor("office.zoom.inShortcut");
 const ZOOM_OUT = translationsFor("office.zoom.outShortcut");
 const ZOOM_RESET = translationsFor("office.zoom.reset");
 
-const app = (language: "ca") => onLanguage(language, createElement(App));
+const app = (language: "ca" | "es" | null) =>
+  onLanguage(language, createElement(App));
 
 describe("the anchors", () => {
   it("covers every shipped language with a distinct resolved label", () => {
-    expect(Object.keys(TASKS).sort()).toEqual(
-      [...SHIPPED_LANGUAGE_CODES].sort(),
-    );
-    expect(new Set(Object.values(TASKS)).size).toBe(
-      SHIPPED_LANGUAGE_CODES.length,
-    );
+    for (const anchor of [TASKS_KEY, SETTINGS_KEY]) {
+      expect(Object.keys(anchor).sort()).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 });
 
@@ -53,10 +59,10 @@ describe("the office nav bar", () => {
     // Shortcut titles include the key; Schedules has no shortcut. The room's
     // matching wall controls are asserted in site-link.i18n.dom.test.tsx.
     for (const [title, count] of [
-      [`${TASKS.ca} (t)`, 1],
+      [TASKS_KEY.ca, 1],
       [AUTOMATIONS.ca, 1],
-      ["Apps (a)", 1],
-      [`${SETTINGS.ca} (s)`, 1],
+      [APPS_KEY.ca, 1],
+      [SETTINGS_KEY.ca, 1],
     ] as const)
       expect(view.queryAllByTitle(title).length, title).toBe(count);
     // The vent in the scene carries the same word as its SVG title, so the
@@ -67,7 +73,16 @@ describe("the office nav bar", () => {
     expect(view.queryByTitle(ZOOM_IN.ca)).not.toBeNull();
     expect(view.queryByTitle(ZOOM_OUT.ca)).not.toBeNull();
     expect(view.queryByTitle(ZOOM_RESET.ca)).not.toBeNull();
-    expect(view.queryByTitle(`${TASKS.en} (t)`)).toBeNull();
+    expect(view.queryByTitle(TASKS_KEY.en)).toBeNull();
+
+    // A language change reaches the nav bar: Spanish, then the default
+    // English of a member who never chose.
+    view.rerender(app("es"));
+    expect(view.queryAllByTitle(TASKS_KEY.es).length).toBe(1);
+    expect(view.queryByTitle(TASKS_KEY.ca)).toBeNull();
+    view.rerender(app(null));
+    expect(view.queryAllByTitle(TASKS_KEY.en).length).toBe(1);
+    expect(view.queryByTitle(TASKS_KEY.es)).toBeNull();
 
     // Flush App's pending office work before happy-dom unregisters window.
     await act(async () => {

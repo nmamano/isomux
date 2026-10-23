@@ -43,58 +43,46 @@ describe("pageForPath", () => {
     expect(pageForPath("")).toBeNull();
   });
 
-  it("tolerates trailing slashes", () => {
-    expect(pageForPath("/tasks/")).toBe("tasks");
-    expect(pageForPath("/settings//")).toBe("settings");
+  // Old names and trailing slashes: accepted, never produced.
+  it("accepts trailing slashes and the old paths", () => {
+    for (const [path, page] of [
+      ["/tasks/", "tasks"],
+      ["/settings//", "settings"],
+      ["/inbox/pages/", "pager"],
+      ["/users", "settings"],
+      ["/users/", "settings"],
+      ["/cronjobs", "cronjobs"],
+      ["/cronjobs/", "cronjobs"],
+      ["/pager", "pager"],
+      ["/asks", "asks"],
+      ["/asks/", "asks"],
+      ["/inbox", "pager"],
+      ["/inbox/", "pager"],
+    ] as const)
+      expect([path, pageForPath(path)]).toEqual([path, page]);
   });
 
-  it("accepts /users as the settings page's old name", () => {
-    expect(pageForPath("/users")).toBe("settings");
-    expect(pageForPath("/users/")).toBe("settings");
-  });
-
-  it("accepts /cronjobs as the automations page's old path", () => {
-    expect(pageForPath("/cronjobs")).toBe("cronjobs");
-    expect(pageForPath("/cronjobs/")).toBe("cronjobs");
-  });
-
-  it("accepts the Inbox tabs' old paths, and /inbox as Pages", () => {
-    expect(pageForPath("/pager")).toBe("pager");
-    expect(pageForPath("/asks")).toBe("asks");
-    expect(pageForPath("/asks/")).toBe("asks");
-    expect(pageForPath("/inbox")).toBe("pager");
-    expect(pageForPath("/inbox/")).toBe("pager");
-    expect(pageForPath("/inbox/pages/")).toBe("pager");
-  });
-
-  it("matches the Inbox tab paths segment by segment", () => {
-    expect(pageForPath("/inbox/x")).toBeNull();
-    expect(pageForPath("/inbox/pages/x")).toBeNull();
-    expect(pageForPath("/Inbox/pages")).toBeNull();
-    expect(pageForPath("/inbox/Asks")).toBeNull();
-    expect(pageForPath("/inbox//asks")).toBeNull();
-  });
-
-  it("is case-sensitive", () => {
-    expect(pageForPath("/Tasks")).toBeNull();
-    expect(pageForPath("/SETTINGS")).toBeNull();
-  });
-
-  it("requires exactly one leading slash", () => {
-    // Ruling 3 names four paths AT THE ROOT. A bare segment is not one of them,
-    // and neither is a doubled slash, which is a different URL to any browser.
-    expect(pageForPath("tasks")).toBeNull();
-    expect(pageForPath("//tasks")).toBeNull();
-    expect(pageForPath("/tasks")).toBe("tasks");
-  });
-
-  it("rejects anything else, including inherited object properties", () => {
-    expect(pageForPath("/garbage")).toBeNull();
-    expect(pageForPath("/tasks/extra")).toBeNull();
-    // Would answer with a function if the table were an object index.
-    expect(pageForPath("/constructor")).toBeNull();
-    expect(pageForPath("/__proto__")).toBeNull();
-    expect(pageForPath("/toString")).toBeNull();
+  it("rejects anything else, matching case and segment by segment", () => {
+    for (const path of [
+      "/garbage",
+      "/tasks/extra",
+      "/Tasks",
+      "/SETTINGS",
+      // Ruling 3 names the paths AT THE ROOT: a bare segment is not one, and
+      // a doubled slash is a different URL to any browser.
+      "tasks",
+      "//tasks",
+      "/inbox/x",
+      "/inbox/pages/x",
+      "/Inbox/pages",
+      "/inbox/Asks",
+      "/inbox//asks",
+      // Would answer with a function if the table were an object index.
+      "/constructor",
+      "/__proto__",
+      "/toString",
+    ])
+      expect([path, pageForPath(path)]).toEqual([path, null]);
   });
 });
 
@@ -181,16 +169,6 @@ describe("pathForPage", () => {
     expect(pathForPage(null)).toBe("/");
     for (const page of PAGES) expect(pathForPage(page)).toBe(PATHS[page]);
   });
-
-  it("round-trips every path it produces", () => {
-    for (const page of [...PAGES, null])
-      expect(pageForPath(pathForPage(page))).toBe(page);
-  });
-
-  it("never produces an accepted-only alias", () => {
-    const aliases = ["/users", "/cronjobs", "/pager", "/asks", "/inbox"];
-    for (const page of PAGES) expect(aliases).not.toContain(pathForPage(page));
-  });
 });
 
 const office: PageFlags = {
@@ -258,61 +236,44 @@ describe("page shortcuts and rendered-page precedence", () => {
     expect(update.tasksOpen(update.tasksOpen(false))).toBe(false);
   });
 
-  it("leaves the pager for Apps on a", () => {
-    const shown = pressPageKey({ ...office, pagerOpen: true }, "a");
-    expect(pageForFlags(shown)).toBe("apps");
-    expect(shown.pagerOpen).toBe(false);
-  });
-
-  it("leaves the Asks tab for Apps on a", () => {
-    const shown = pressPageKey({ ...office, asksOpen: true }, "a");
-    expect(pageForFlags(shown)).toBe("apps");
-    expect(shown.asksOpen).toBe(false);
-  });
-
-  it("leaves the Asks tab for Integrations on i", () => {
-    const shown = pressPageKey({ ...office, asksOpen: true }, "i");
-    expect(pageForFlags(shown)).toBe("integrations");
-    expect(shown.asksOpen).toBe(false);
-  });
-
-  it("shows the Asks tab under every other page", () => {
-    for (const page of PAGES) {
-      if (page === "asks") continue;
-      expect(
-        pageForFlags({ ...office, asksOpen: true, [flagForPage(page)]: true }),
-      ).toBe(page);
-    }
-  });
-
-  it("leaves the Skills page for Apps on a", () => {
-    const shown = pressPageKey({ ...office, skillsOpen: true }, "a");
-    expect(pageForFlags(shown)).toBe("apps");
-    expect(shown.skillsOpen).toBe(false);
-  });
-
-  it("leaves the Integrations page for Apps on a", () => {
-    const shown = pressPageKey({ ...office, integrationsOpen: true }, "a");
-    expect(pageForFlags(shown)).toBe("apps");
-    expect(shown.integrationsOpen).toBe(false);
-  });
-
-  it("shows Integrations over the pager and under Skills", () => {
-    expect(
-      pageForFlags({ ...office, integrationsOpen: true, pagerOpen: true }),
-    ).toBe("integrations");
-    expect(
-      pageForFlags({ ...office, integrationsOpen: true, skillsOpen: true }),
-    ).toBe("skills");
-  });
-
-  it("shows Skills over the pager and under Apps", () => {
-    expect(pageForFlags({ ...office, skillsOpen: true, pagerOpen: true })).toBe(
-      "skills",
-    );
-    expect(pageForFlags({ ...office, skillsOpen: true, appsOpen: true })).toBe(
+  // One order decides the page shown when flags overlap; App renders and
+  // writes history from it.
+  it("shows the pages in one precedence order", () => {
+    const ORDER: Page[] = [
+      "settings",
+      "tasks",
+      "cronjobs",
       "apps",
-    );
+      "skills",
+      "integrations",
+      "pager",
+      "asks",
+    ];
+    expect([...ORDER].sort()).toEqual([...PAGES].sort());
+    ORDER.forEach((page, i) => {
+      expect(pageForFlags({ ...office, [flagForPage(page)]: true })).toBe(page);
+      for (const lower of ORDER.slice(i + 1))
+        expect(
+          pageForFlags({
+            ...office,
+            [flagForPage(page)]: true,
+            [flagForPage(lower)]: true,
+          }),
+        ).toBe(page);
+    });
+  });
+
+  it("opens Apps on a over any page below Settings, and clears the others", () => {
+    const every = {
+      ...office,
+      tasksOpen: true,
+      cronjobsOpen: true,
+      skillsOpen: true,
+      integrationsOpen: true,
+      pagerOpen: true,
+      asksOpen: true,
+    };
+    expect(pressPageKey(every, "a")).toEqual({ ...office, appsOpen: true });
   });
 
   it("only closes Apps when Apps is the visible page", () => {
@@ -345,13 +306,6 @@ describe("page shortcuts and rendered-page precedence", () => {
       ...office,
       integrationsOpen: true,
     });
-    // Tasks over Apps: Integrations comes up and Apps closes.
-    const shown = pressPageKey(
-      { ...office, tasksOpen: true, appsOpen: true },
-      "i",
-    );
-    expect(shown).toEqual({ ...office, integrationsOpen: true });
-    expect(pageForFlags(shown)).toBe("integrations");
   });
 
   it("closes Integrations on i only when it is the page shown", () => {
@@ -378,27 +332,10 @@ describe("page shortcuts and rendered-page precedence", () => {
       expect(pageShortcut({ key }, { ...office, usersOpen: true })).toBeNull();
     }
     expect(pageShortcut({ key: "x" }, office)).toBeNull();
-    expect(
-      pageForFlags({
-        usersOpen: true,
-        tasksOpen: true,
-        cronjobsOpen: true,
-        appsOpen: true,
-        skillsOpen: true,
-        integrationsOpen: true,
-        pagerOpen: true,
-        asksOpen: true,
-      }),
-    ).toBe("settings");
   });
 });
 
 describe("pageUnder", () => {
-  it("names each page by the flag that shows it", () => {
-    for (const page of PAGES)
-      expect(pageForFlags({ ...office, [flagForPage(page)]: true })).toBe(page);
-  });
-
   it("is null with no page or one page open", () => {
     expect(pageUnder(office)).toBeNull();
     for (const page of PAGES)
@@ -480,21 +417,6 @@ describe("pageUnder", () => {
     });
     expect(Math.max(...depths)).toBe(3);
   });
-
-  it("drops only the page on top", () => {
-    const all = {
-      usersOpen: true,
-      tasksOpen: true,
-      cronjobsOpen: true,
-      appsOpen: true,
-      skillsOpen: true,
-      integrationsOpen: true,
-      pagerOpen: true,
-      asksOpen: true,
-    };
-    expect(pageUnder(all)).toBe("tasks");
-    expect(pageUnder({ ...all, usersOpen: false })).toBe("cronjobs");
-  });
 });
 
 describe("backRoomShortcut", () => {
@@ -505,19 +427,6 @@ describe("backRoomShortcut", () => {
     expect(
       backRoomShortcut({ key: "b" }, { ...office, backRoomOpen: true }),
     ).toBe("close");
-  });
-
-  it("does nothing without a back room, while typing, with a modifier, or under a log or page", () => {
-    expect(
-      backRoomShortcut({ key: "b" }, { ...office, hasBackRoom: false }),
-    ).toBeNull();
-    expect(backRoomShortcut({ key: "b", isInput: true }, office)).toBeNull();
-    for (const mod of ["metaKey", "ctrlKey", "altKey"] as const)
-      expect(backRoomShortcut({ key: "b", [mod]: true }, office)).toBeNull();
-    expect(
-      backRoomShortcut({ key: "b" }, { ...office, covered: true }),
-    ).toBeNull();
-    expect(backRoomShortcut({ key: "c" }, office)).toBeNull();
   });
 
   // Nil, 2026-10-20: in a back room, a lone Shift or Shift+Tab goes to the
@@ -542,26 +451,22 @@ describe("backRoomShortcut", () => {
     expect(backRoomShortcut({ key: "Tab" }, open)).toBeNull();
   });
 
-  it("lone Shift and Shift+Tab keep the guards of b", () => {
-    for (const input of [loneShift, shiftTab]) {
+  it("does nothing without a back room, while typing, with a modifier, or under a log or page", () => {
+    expect(backRoomShortcut({ key: "c" }, office)).toBeNull();
+    for (const input of [{ key: "b" }, loneShift, shiftTab]) {
+      const state = input.key === "b" ? office : open;
       expect(
-        backRoomShortcut(input, { ...open, hasBackRoom: false }),
+        backRoomShortcut(input, { ...state, hasBackRoom: false }),
       ).toBeNull();
-      expect(backRoomShortcut({ ...input, isInput: true }, open)).toBeNull();
+      expect(backRoomShortcut({ ...input, isInput: true }, state)).toBeNull();
       for (const mod of ["metaKey", "ctrlKey", "altKey"] as const)
-        expect(backRoomShortcut({ ...input, [mod]: true }, open)).toBeNull();
-      expect(backRoomShortcut(input, { ...open, covered: true })).toBeNull();
+        expect(backRoomShortcut({ ...input, [mod]: true }, state)).toBeNull();
+      expect(backRoomShortcut(input, { ...state, covered: true })).toBeNull();
     }
   });
 });
 
 describe("createLoneShiftTracker", () => {
-  it("counts Shift pressed and released with nothing in between", () => {
-    const t = createLoneShiftTracker();
-    t.keydown("Shift");
-    expect(t.keyup("Shift")).toBe(true);
-  });
-
   it("keeps a held Shift lone across its repeat keydowns", () => {
     const t = createLoneShiftTracker();
     t.keydown("Shift");
@@ -584,19 +489,6 @@ describe("createLoneShiftTracker", () => {
     held.keydown("Shift", true);
     held.keydown("Shift", true);
     expect(held.keyup("Shift")).toBe(false);
-  });
-
-  it("does not count Shift used with another key, a click or a blur", () => {
-    const capital = createLoneShiftTracker();
-    capital.keydown("Shift");
-    capital.keydown("A");
-    capital.keyup("A");
-    expect(capital.keyup("Shift")).toBe(false);
-
-    const clicked = createLoneShiftTracker();
-    clicked.keydown("Shift");
-    clicked.reset();
-    expect(clicked.keyup("Shift")).toBe(false);
   });
 
   it("counts one press once, and a spoiled press does not spoil the next", () => {

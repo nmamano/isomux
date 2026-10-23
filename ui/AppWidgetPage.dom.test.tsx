@@ -16,6 +16,21 @@ const agent = {
   outfit: { color: "#218cff", hair: "#3e3025", skin: "#FFD5B8" },
   queue: [],
 } as unknown as import("../shared/types.ts").AgentInfo;
+// No remote page loads in a DOM test: the widget's iframe stays empty. Returns
+// the undo.
+function iframesOff(): () => void {
+  const settings = (
+    window as unknown as {
+      happyDOM: { settings: { disableIframePageLoading: boolean } };
+    }
+  ).happyDOM.settings;
+  const before = settings.disableIframePageLoading;
+  settings.disableIframePageLoading = true;
+  return () => {
+    settings.disableIframePageLoading = before;
+  };
+}
+
 const props = {
   boot,
   agent,
@@ -25,10 +40,9 @@ const props = {
   onRecheck: () => {},
 };
 
-for (const [platform, hint] of [
-  ["Win32", "appWidget.windowsHint"],
-  ["MacIntel", "appWidget.macHint"],
-] as const) {
+// One platform: this proves WidgetChat reads the navigator and shows the hint.
+// Which hint each platform gets is the table in ui/app-widget-state.test.ts.
+for (const [platform, hint] of [["Win32", "appWidget.windowsHint"]] as const) {
   it(`renders the screenshot shortcut for ${platform}`, () => {
     sessionStorage.clear();
     const values = { platform, userAgent: "Mozilla/5.0", maxTouchPoints: 0 };
@@ -128,13 +142,7 @@ it("does not send while the reply connection is offline", async () => {
 for (const serverLive of [false, true]) {
   it(`latches failed recovery across later refreshes (server live: ${serverLive})`, async () => {
     sessionStorage.clear();
-    const settings = (
-      window as unknown as {
-        happyDOM: { settings: { disableIframePageLoading: boolean } };
-      }
-    ).happyDOM.settings;
-    const iframeLoading = settings.disableIframePageLoading;
-    settings.disableIframePageLoading = true;
+    const iframesOn = iframesOff();
     let now = 100000;
     const date = spyOn(Date, "now").mockImplementation(() => now);
     const assign = spyOn(window.location, "assign").mockImplementation(
@@ -185,7 +193,7 @@ for (const serverLive of [false, true]) {
       view?.unmount();
       assign.mockRestore();
       date.mockRestore();
-      settings.disableIframePageLoading = iframeLoading;
+      iframesOn();
     }
   });
 }
@@ -500,13 +508,7 @@ it("folds a settled tool group, expands results on demand, and updates the offic
 it("toggles the desktop chat with its launcher, and Escape closes it", async () => {
   sessionStorage.clear();
   const { StateCtx, initialState } = await import("./store.tsx");
-  const settings = (
-    window as unknown as {
-      happyDOM: { settings: { disableIframePageLoading: boolean } };
-    }
-  ).happyDOM.settings;
-  const iframeLoading = settings.disableIframePageLoading;
-  settings.disableIframePageLoading = true;
+  const iframesOn = iframesOff();
   setApiShim(async () => ({
     ...boot,
     appUrl: "https://hello.office.example",
@@ -562,7 +564,7 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
     expect(document.activeElement).toBe(launcher);
   } finally {
     view?.unmount();
-    settings.disableIframePageLoading = iframeLoading;
+    iframesOn();
   }
 });
 
@@ -582,13 +584,7 @@ for (const [variant, phone, homeScreen] of [
       await import("./test-support/ios-home-screen.ts");
     const undo = homeScreen ? asDevice(IPHONE_HOME_SCREEN) : () => {};
     const { StateCtx, initialState } = await import("./store.tsx");
-    const settings = (
-      window as unknown as {
-        happyDOM: { settings: { disableIframePageLoading: boolean } };
-      }
-    ).happyDOM.settings;
-    const iframeLoading = settings.disableIframePageLoading;
-    settings.disableIframePageLoading = true;
+    const iframesOn = iframesOff();
     setApiShim(async () => ({
       ...boot,
       appUrl: "https://hello.office.example",
@@ -635,7 +631,7 @@ for (const [variant, phone, homeScreen] of [
       expect(links[0].getAttribute("aria-label")).toBeTruthy();
     } finally {
       view?.unmount();
-      settings.disableIframePageLoading = iframeLoading;
+      iframesOn();
       undo();
     }
   });
@@ -886,13 +882,7 @@ it("links the agent's name in the header to its office chat, in a new tab", () =
 it("a recorded send neither shows in the widget chat nor marks it unread", async () => {
   sessionStorage.clear();
   const { StateCtx, initialState } = await import("./store.tsx");
-  const settings = (
-    window as unknown as {
-      happyDOM: { settings: { disableIframePageLoading: boolean } };
-    }
-  ).happyDOM.settings;
-  const iframeLoading = settings.disableIframePageLoading;
-  settings.disableIframePageLoading = true;
+  const iframesOn = iframesOff();
   setApiShim(async () => ({
     ...boot,
     appUrl: "https://hello.office.example",
@@ -951,6 +941,6 @@ it("a recorded send neither shows in the widget chat nor marks it unread", async
     expect(dots()).toBe(1);
   } finally {
     view?.unmount();
-    settings.disableIframePageLoading = iframeLoading;
+    iframesOn();
   }
 });

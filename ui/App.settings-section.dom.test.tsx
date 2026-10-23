@@ -15,6 +15,7 @@ const { act, render } = await import("@testing-library/react");
 const { App } = await import("./App.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { en } = await import("../shared/i18n/en.ts");
 
 setApiShim(async () => ({}));
 afterAll(() => setApiShim(null));
@@ -36,10 +37,10 @@ describe("restoring the settings page", () => {
 
     // The theme button is one of the doors that opens Settings ON a row.
     await act(async () => {
-      view.getByTitle("Change theme").click();
+      view.getByTitle(en["common.changeTheme"]).click();
     });
     expect(window.location.pathname).toBe("/settings");
-    expect(view.queryByText(/Select a setting from the list/)).toBeNull();
+    expect(view.queryByText(en["settings.selectHint"])).toBeNull();
 
     await go("back");
     await go("forward");
@@ -48,6 +49,6 @@ describe("restoring the settings page", () => {
     // nothing else. Restoring it lands on the generic page rather than
     // resurrecting the row from the visit before.
     expect(window.location.pathname).toBe("/settings");
-    expect(view.queryByText(/Select a setting from the list/)).not.toBeNull();
+    expect(view.queryByText(en["settings.selectHint"])).not.toBeNull();
   });
 });
