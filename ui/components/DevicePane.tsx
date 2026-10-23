@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  getDevice,
-  getRoomTurn,
-  setDevice,
-  setRoomTurn,
-  ROOM_TURNS,
-  type RoomTurn,
-} from "../device-settings.ts";
+import { getDevice, setDevice } from "../device-settings.ts";
 import { sectionHeader, hint as hintStyle } from "./access-shared.tsx";
 import { OfficeInstallEntry } from "./OfficeInstallNotice.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -95,7 +88,6 @@ export function DevicePane({
           {justSaved && !dirty ? t("common.saved") : t("common.save")}
         </button>
       </div>
-      <RoomTurnSetting />
       <OfficeInstallEntry />
       {discardPrompt.open && (
         <UnsavedChangesPrompt
@@ -104,40 +96,6 @@ export function DevicePane({
         />
       )}
     </div>
-  );
-}
-
-// Applies on change, outside the label's save and discard flow.
-function RoomTurnSetting() {
-  const { t } = useI18n();
-  const [choice, setChoice] = useState<RoomTurn>(getRoomTurn);
-  const name = (v: RoomTurn) =>
-    v === "off"
-      ? t("settings.roomTurn.off")
-      : t("settings.roomTurn.ms", { ms: v.slice("turn-".length) });
-  return (
-    <>
-      <h4 style={{ ...sectionHeader, marginTop: 32 }}>
-        <label htmlFor="room-turn-select">{t("settings.roomTurn.title")}</label>
-      </h4>
-      <p style={hintStyle}>{t("settings.roomTurn.hint")}</p>
-      <select
-        id="room-turn-select"
-        value={choice}
-        onChange={(e) => {
-          const v = ROOM_TURNS.find((c) => c === e.target.value) ?? "off";
-          setRoomTurn(v);
-          setChoice(v);
-        }}
-        style={{ ...inputStyle, maxWidth: 320 }}
-      >
-        {ROOM_TURNS.map((v) => (
-          <option key={v} value={v}>
-            {name(v)}
-          </option>
-        ))}
-      </select>
-    </>
   );
 }
 

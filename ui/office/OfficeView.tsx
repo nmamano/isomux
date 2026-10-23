@@ -308,15 +308,19 @@ export function OfficeView({
   // (prev/next neighbour); -1 when nothing is selected.
   const currentRoomIndex = tabs.findIndex((r) => r.id === currentRoomId);
   const dispatch = useDispatch();
-  // A wall door between two rooms turns the room (the Room switch animation
-  // device setting); tabs and the lobby doors switch with no animation.
+  // A wall door turns the room, between two rooms and between the lobby and
+  // the first room; a tab switches with no animation.
   const contentEl = useRef<HTMLDivElement | null>(null);
   const doorGo = (side: TurnSide, roomId: string) => {
     beginRoomTurn(contentEl.current, side, roomId);
-    dispatch({ type: "set_current_room", roomId });
+    dispatch(
+      roomId === LOBBY_ROOM_ID
+        ? { type: "set_lobby_open", open: true }
+        : { type: "set_current_room", roomId },
+    );
   };
   useLayoutEffect(() => {
-    finishRoomTurn(lobbyOpen ? null : currentRoomId);
+    finishRoomTurn(lobbyOpen ? LOBBY_ROOM_ID : currentRoomId);
   }, [currentRoomId, lobbyOpen]);
   useEffect(() => cancelRoomTurn, []);
   const { mode, cycleTheme } = useTheme();
@@ -846,11 +850,7 @@ export function OfficeView({
                       tabs[0]
                         ? {
                             label: tabs[0].name,
-                            onClick: () =>
-                              dispatch({
-                                type: "set_current_room",
-                                roomId: tabs[0].id,
-                              }),
+                            onClick: () => doorGo("right", tabs[0].id),
                           }
                         : newRoomDoor
                     }
@@ -900,11 +900,7 @@ export function OfficeView({
                             ? {
                                 label: t("common.lobby"),
                                 passCount: leftDoorUses,
-                                onClick: () =>
-                                  dispatch({
-                                    type: "set_lobby_open",
-                                    open: true,
-                                  }),
+                                onClick: () => doorGo("left", LOBBY_ROOM_ID),
                               }
                             : null
                       }

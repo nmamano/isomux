@@ -1,5 +1,6 @@
 // The room turn when a member walks through a wall door between two rooms,
-// as chosen in the Room switch animation device setting (off by default).
+// or between the lobby and the first room. It lasts TURN_MS; a member who
+// asks for reduced motion gets a plain switch.
 //
 // At the click the old room is snapshotted (a DOM clone), the room switch
 // dispatches at once, and after React commits the new room is snapshotted
@@ -14,14 +15,9 @@
 // sprites (desks, characters, props) move with their floor anchor and stay
 // upright, in the depth order of their turned floor points.
 
-import { getRoomTurn, type RoomTurn } from "../device-settings.ts";
-
 export type TurnSide = "left" | "right";
 
-const DURATION_MS: Record<Exclude<RoomTurn, "off">, number> = {
-  "turn-350": 350,
-  "turn-600": 600,
-};
+const TURN_MS = 600;
 
 // Scene pixel coordinates (950x700 box): the back corner is SVG (120, 40)
 // shifted by the viewBox origin (-355, -100).
@@ -249,7 +245,6 @@ function ramp(p: number, a: number, b: number): number {
 
 interface Job {
   side: TurnSide;
-  ms: number;
   targetRoomId: string;
   from: HTMLElement;
   content: HTMLElement;
@@ -274,27 +269,25 @@ export function cancelRoomTurn(): void {
   running = null;
 }
 
-/** Call from a door click, BEFORE the switch dispatches. The choice and its
- * time are read here, so a change mid-turn does not mix them. */
+/** Call from a door click, BEFORE the switch dispatches. targetRoomId is
+ * LOBBY_ROOM_ID for the lobby door. */
 export function beginRoomTurn(
   content: HTMLElement | null,
   side: TurnSide,
   targetRoomId: string,
 ) {
   cancelRoomTurn();
-  const choice = getRoomTurn();
-  if (!content || choice === "off" || reducedMotion()) return;
+  if (!content || reducedMotion()) return;
   pending = {
     side,
-    ms: DURATION_MS[choice],
     targetRoomId,
     from: snapshot(content, "__turnA"),
     content,
   };
 }
 
-/** Call from a layout effect on every room change; roomId is null when the
- * lobby is open. A change to any room but the door's target (a tab, the
+/** Call from a layout effect on every room change; roomId is LOBBY_ROOM_ID
+ * when the lobby is open, null when no room is selected. A change to any room but the door's target (a tab, the
  * lobby) is a plain switch: it ends the turn and starts none. */
 export function finishRoomTurn(roomId: string | null) {
   const job = pending;
@@ -312,7 +305,7 @@ export function finishRoomTurn(roomId: string | null) {
   };
 }
 
-function runTurn({ side, ms, targetRoomId, from, content }: Job) {
+function runTurn({ side, targetRoomId, from, content }: Job) {
   const to = snapshot(content, "__turnB");
   // Siblings of the live scene in the viewport layer, so zoom, pan and the
   // centering transform apply to them exactly as to the live scene.
@@ -348,7 +341,7 @@ function runTurn({ side, ms, targetRoomId, from, content }: Job) {
     content.style.opacity = "";
   };
   const tick = (now: number) => {
-    const p = Math.min(1, (now - t0) / ms);
+    const p = Math.min(1, (now - t0) / TURN_MS);
     frame(p);
     if (p < 1) raf = requestAnimationFrame(tick);
     else {

@@ -555,11 +555,6 @@ Coses que pots fer per ell:
   "settings.device.label": "Etiqueta del dispositiu",
   "settings.device.optional": "(opcional)",
   "settings.device.placeholder": "Mòbil, Portàtil, …",
-  "settings.roomTurn.title": "Animació en canviar de sala",
-  "settings.roomTurn.hint":
-    "Es reprodueix en fer clic a una porta entre dues sales.",
-  "settings.roomTurn.off": "Cap",
-  "settings.roomTurn.ms": "{ms} ms",
 
   "settings.devices.title": "Enllaços d'inici de sessió",
   "settings.devices.outstandingLinks": "Enllaços de dispositiu pendents",

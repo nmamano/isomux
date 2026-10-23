@@ -33,8 +33,6 @@ const {
   setMembersChatWidth,
   getUsagePin,
   setUsagePin,
-  getRoomTurn,
-  setRoomTurn,
 } = await import("./device-settings.ts");
 
 // The usage pill's pinned limit (task df489513). Stored per device per agent
@@ -124,49 +122,4 @@ it("reads a missing or unknown desktop chat visibility value as no saved choice"
   expect(getMembersChatHidden()).toBe(true);
   store.set("isomux-members-chat-hidden", "false");
   expect(getMembersChatHidden()).toBe(false);
-});
-
-// The room switch animation, one choice per browser (task ada9af7b). The key
-// is the one task fee198a0 used, so a browser that chose a turn then keeps it.
-describe("room switch animation", () => {
-  const KEY = "isomux-room-turn";
-  beforeEach(() => store.clear());
-
-  it("round-trips each turn under the fee198a0 key, and off leaves nothing stored", () => {
-    expect(getRoomTurn()).toBe("off");
-    for (const value of ["turn-350", "turn-600"] as const) {
-      setRoomTurn(value);
-      expect(getRoomTurn()).toBe(value);
-      expect([...store.entries()]).toEqual([[KEY, value]]);
-    }
-    setRoomTurn("off");
-    expect(getRoomTurn()).toBe("off");
-    expect([...store.keys()]).toEqual([]);
-  });
-
-  it("reads a removed cube choice, an unknown value or unreadable storage as off", () => {
-    for (const raw of ["cube-600", "cube-350", "turn-9000", ""]) {
-      store.set(KEY, raw);
-      expect(getRoomTurn()).toBe("off");
-    }
-    store.set(KEY, "turn-600");
-    const stub = localStorage as {
-      getItem: (k: string) => string | null;
-      setItem: (k: string, v: string) => void;
-    };
-    const { getItem, setItem } = stub;
-    stub.getItem = () => {
-      throw new Error("storage disabled");
-    };
-    stub.setItem = () => {
-      throw new Error("storage disabled");
-    };
-    try {
-      expect(getRoomTurn()).toBe("off");
-      expect(() => setRoomTurn("turn-350")).not.toThrow();
-    } finally {
-      stub.getItem = getItem;
-      stub.setItem = setItem;
-    }
-  });
 });

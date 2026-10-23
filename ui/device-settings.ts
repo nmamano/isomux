@@ -130,28 +130,6 @@ export function markOfficeInstallNoticeSeen(): void {
   } catch {}
 }
 
-// The Room switch animation for wall doors between two rooms, on this device.
-export type RoomTurn = "off" | "turn-350" | "turn-600";
-const KEY_ROOM_TURN = "isomux-room-turn";
-
-export const ROOM_TURNS: readonly RoomTurn[] = ["off", "turn-350", "turn-600"];
-
-export function getRoomTurn(): RoomTurn {
-  try {
-    const raw = localStorage.getItem(KEY_ROOM_TURN);
-    return ROOM_TURNS.find((v) => v === raw) ?? "off";
-  } catch {
-    return "off";
-  }
-}
-
-export function setRoomTurn(value: RoomTurn): void {
-  try {
-    if (value === "off") localStorage.removeItem(KEY_ROOM_TURN);
-    else localStorage.setItem(KEY_ROOM_TURN, value);
-  } catch {}
-}
-
 // Read legacy localStorage prefs used during the one-shot claim_user
 // migration. Once the server acks the claim, the corresponding keys can be
 // cleared via `clearLegacyUserPrefs()` so they don't drift. The legacy

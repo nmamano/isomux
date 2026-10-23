@@ -104,11 +104,12 @@ function activeTab(c: HTMLElement): string {
   return el?.textContent?.match(/Room ([a-z])/)?.[1] ?? "?";
 }
 
-// The wall doors, left then right, by label.
+// The live wall doors, left then right, by label. A door click turns the room
+// (task 8f71e886), and the turn's snapshots are inert copies of the doors.
 function doors(c: HTMLElement): (string | null)[] {
-  return [
-    ...c.querySelectorAll('svg[data-turn="doors"] g.isomux-wall-door'),
-  ].map((g) => g.getAttribute("aria-label"));
+  return [...c.querySelectorAll('svg[data-turn="doors"] g.isomux-wall-door')]
+    .filter((g) => !g.closest("[inert]"))
+    .map((g) => g.getAttribute("aria-label"));
 }
 
 // What the doors must say for the active tab: its neighbours in the bar, the
