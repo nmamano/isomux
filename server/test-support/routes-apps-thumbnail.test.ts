@@ -685,15 +685,75 @@ describe("routes/apps: thumbnail upload ordering", () => {
 });
 
 describe("routes/apps: archive ordering", () => {
-  it("refuses a starting app like a running one", () => {
-    const result = appsHandlers(deps({ states: () => running("starting") }))[
-      "apps.archive"
-    ](ctx());
+  // Archive fails closed: only a state systemd reported as at rest may hide
+  // the app. `unknown` may still serve, so it is refused, under its own code
+  // because the app may not be running at all.
+  const archiveRefusal: Record<AppRuntime["state"], string | null> = {
+    stopped: null,
+    failed: null,
+    running: "app_running",
+    starting: "app_running",
+    unknown: "app_state_unknown",
+  };
+  for (const [state, code] of Object.entries(archiveRefusal)) {
+    it(`archive in state ${state}: ${code ?? "200, archived"}`, () => {
+      const updates: unknown[] = [];
+      const result = appsHandlers(
+        deps({
+          states: () => running(state as AppRuntime["state"]),
+          update: (_name, patch) => {
+            updates.push(patch);
+            return record({ archived: patch.archived });
+          },
+        }),
+      )["apps.archive"](ctx());
+      if (code === null) {
+        expect(result).toMatchObject({
+          kind: "json",
+          body: { state, archived: true },
+        });
+        expect(updates).toEqual([{ archived: true }]);
+      } else {
+        expect(result).toMatchObject({ kind: "error", status: 409, code });
+        expect(updates).toEqual([]);
+      }
+    });
+  }
+
+  it("refuses archive when the supervisor has no answer for the app", () => {
+    let updated = false;
+    const result = appsHandlers(
+      deps({
+        states: () => new Map(),
+        update: () => {
+          updated = true;
+          return record({ archived: true });
+        },
+      }),
+    )["apps.archive"](ctx());
     expect(result).toMatchObject({
       kind: "error",
       status: 409,
-      code: "app_running",
+      code: "app_state_unknown",
     });
+    expect(updated).toBe(false);
+  });
+
+  it("unarchives an app whose state is unknown", () => {
+    const updates: unknown[] = [];
+    const result = appsHandlers(
+      deps({
+        get: () => record({ archived: true }),
+        states: () => running("unknown"),
+        update: (_name, patch) => {
+          updates.push(patch);
+          return record();
+        },
+      }),
+    )["apps.unarchive"](ctx());
+    expect(result).toMatchObject({ kind: "json", body: { state: "unknown" } });
+    expect(result).not.toMatchObject({ body: { archived: true } });
+    expect(updates).toEqual([{ archived: false }]);
   });
 
   it("a start that worked answers 200 even when clearing the flag fails", () => {

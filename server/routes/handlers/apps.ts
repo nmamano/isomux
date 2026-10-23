@@ -67,7 +67,7 @@ import {
 } from "../../identity/index.ts";
 import { noteAuditTarget } from "../../audit-context.ts";
 import { scrubText } from "../../secret-proxy/scrub.ts";
-import type { AppRecord } from "../../../shared/types.ts";
+import { archivableState, type AppRecord } from "../../../shared/types.ts";
 import {
   MAX_APP_THUMBNAIL_BYTES,
   readCappedBody,
@@ -912,6 +912,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
 
     // A shared flag that moves a stopped app out of the way on the Apps page.
     // A running app cannot be archived: it would be hidden while it serves.
+    // Nor can an app whose state is unknown, since it may be running.
     // Asking for the state an app already has is a 200, as start is on a
     // running app.
     "apps.archive": archiveHandler(deps, true),
@@ -1172,6 +1173,13 @@ function archiveHandler(deps: AppsDeps, archived: boolean): RouteHandler {
       const state = (runtime ?? UNKNOWN_RUNTIME).state;
       if (archived && (state === "running" || state === "starting")) {
         return fail(409, "app_running", "stop the app before you archive it");
+      }
+      if (archived && !archivableState(state)) {
+        return fail(
+          409,
+          "app_state_unknown",
+          "Isomux cannot tell whether the app is running, so it cannot archive it",
+        );
       }
       if ((record.archived === true) !== archived) {
         const after = deps.update(record.name, { archived });

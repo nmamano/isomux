@@ -81,12 +81,16 @@ describe("thumbnailVerb", () => {
 });
 
 describe("appMenuActions", () => {
-  it("offers Archive only in Stopped and Unarchive only in Archived", () => {
+  // The server archives only an app systemd reported at rest (stopped or
+  // failed); an unknown app sits in Stopped but would only earn a 409.
+  it("offers Archive only for an unarchived app at rest, Unarchive only in Archived", () => {
     for (const state of STATES) {
       for (const archived of [false, true]) {
         const actions = appMenuActions({ state, archived });
         const section = appSection({ state, archived });
-        expect(actions.includes("archive")).toBe(section === "stopped");
+        expect(actions.includes("archive")).toBe(
+          !archived && (state === "stopped" || state === "failed"),
+        );
         expect(actions.includes("unarchive")).toBe(section === "archived");
         expect(actions).toContain("log");
         expect(actions.at(-1)).toBe("delete");
