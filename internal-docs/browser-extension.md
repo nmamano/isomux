@@ -180,7 +180,7 @@ Integrations → Browser Use tab is authoritative. Offline revocation is done th
 Run the opt-in office check with:
 
 ```
-systemd-run --user --scope -p MemoryMax=2G timeout 75s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-office.live.test.ts
+systemd-run --user --scope -p MemoryMax=2G timeout 300s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-office.live.test.ts
 ```
 
 ## Slice 3 review artifacts

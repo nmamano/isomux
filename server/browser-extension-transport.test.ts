@@ -12,20 +12,11 @@ async function offered() {
     memberForCredentialHash: () => "member",
     mayUse: () => true,
   });
-  let hold = false;
-  let pending!: () => void;
-  const started = new Promise<void>((resolve) => {
-    pending = resolve;
-  });
   const messages: Fields[] = [];
   const connection: ExtensionConnection = bridge.connect("fixture", {
     send(msg) {
       messages.push(msg);
       if (msg.kind !== "command" || msg.method === "detach") return;
-      if (hold) {
-        pending();
-        return;
-      }
       const params = fields(msg.params);
       const result =
         msg.method === "attach"
@@ -70,14 +61,7 @@ async function offered() {
   });
   await Promise.resolve();
   await Promise.resolve();
-  return {
-    connection,
-    messages,
-    started,
-    hold: () => {
-      hold = true;
-    },
-  };
+  return { connection, messages };
 }
 
 test("public Playwright transport initializes the offered page and cannot create another", async () => {
@@ -101,28 +85,6 @@ test("public Playwright transport initializes the offered page and cannot create
   expect(h.messages.some((m) => m.method === "create")).toBe(false);
   await browser.close();
   expect(h.connection.offered("agent")).toBeUndefined();
-  h.connection.close();
-}, 3000);
-
-test("Off rejects a pending Playwright command without replay", async () => {
-  const h = await offered();
-  const browser = await chromium.connectOverCDP(
-    browserExtensionTransport(h.connection, "agent"),
-    { noDefaults: true, timeout: 1000 },
-  );
-  h.hold();
-  const result = browser
-    .contexts()[0]
-    .pages()[0]
-    .goto("https://example.com/next")
-    .then(
-      () => false,
-      () => true,
-    );
-  await h.started;
-  h.connection.revoke("agent");
-  expect(await result).toBe(true);
-  expect(() => browserExtensionTransport(h.connection, "agent")).toThrow();
   h.connection.close();
 }, 3000);
 

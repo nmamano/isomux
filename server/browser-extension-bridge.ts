@@ -49,7 +49,7 @@ const grantClock: GrantClock = {
 // draws, and a second capture of the same tab releases it (Chrome 151 under
 // Xvfb, task c04479de). Each pending capture gets such kicks. The delay before
 // kick n (from 0) is captureKickDelay(n), because a kick costs a full capture.
-export const CAPTURE_KICK_MS = 300;
+const CAPTURE_KICK_MS = 300;
 export const captureKickDelay = (kicks: number): number =>
   CAPTURE_KICK_MS * 2 ** kicks;
 type Assignment = {
@@ -83,7 +83,7 @@ type Assignment = {
   };
 };
 
-export type BrowserTab = {
+type BrowserTab = {
   target: string;
   scope: BrowserGrantScope;
   browser: string;

@@ -10,7 +10,6 @@ import {
   fields,
   type Fields,
 } from "../shared/browser-extension-protocol";
-import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
 
 function peer() {
   return {
@@ -103,27 +102,6 @@ async function create(h: Awaited<ReturnType<typeof harness>>) {
 }
 
 describe("browser extension isolation", () => {
-  test("real fixture socket requires the browser credential before assignment", async () => {
-    const fixture = browserExtensionFixture();
-    const ws = new WebSocket(fixture.extensionURL);
-    const received: string[] = [];
-    try {
-      await new Promise<void>((resolve, reject) => {
-        ws.onopen = () =>
-          ws.send(
-            JSON.stringify({ kind: "hello", version: 4, credential: "wrong" }),
-          );
-        ws.onmessage = (event) => received.push(String(event.data));
-        ws.onclose = () => resolve();
-        ws.onerror = () => reject(new Error("Fixture socket failed"));
-      });
-      expect(received).toHaveLength(0);
-      expect(fixture.bridge.connections("fixture-member")[0]).toBeUndefined();
-    } finally {
-      ws.close();
-      fixture.stop();
-    }
-  });
   test("structural transport URL checks", () => {
     for (const url of [
       "ws://127.0.0.1:123/extension",

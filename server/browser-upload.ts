@@ -5,7 +5,7 @@ import { evaluateProposedAction } from "./safety-policy";
 
 // Base64 plus the Playwright Runtime envelope must fit the 8 MiB bridge frame.
 export const MAX_BROWSER_UPLOAD_BYTES = 4 * 1024 * 1024;
-export const MAX_BROWSER_UPLOAD_PATH = 4096;
+const MAX_BROWSER_UPLOAD_PATH = 4096;
 export class BrowserUploadError extends Error {}
 export interface UploadedFile {
   name: string;

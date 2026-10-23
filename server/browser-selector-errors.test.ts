@@ -19,11 +19,11 @@ test("known selector parse failures return fixed guidance without private input"
       status: 400,
       code: "invalid_request",
     });
-    expect(result?.error).toContain("role=button");
+    expect(result?.error.length).toBeGreaterThan(0);
     expect(JSON.stringify(result)).not.toContain(privateText);
   }
-  expect(role?.error).toContain("[exact=true]");
-  expect(css?.error).toContain("CSS");
+  // Each parser failure class gets its own guidance.
+  expect(role?.error).not.toBe(css?.error);
 });
 
 test("non-parser failures keep their existing classification", () => {

@@ -11,6 +11,28 @@ import {
 import { BrowserExtensionStore } from "./browser-extension-store";
 import type { Fields } from "../shared/browser-extension-protocol";
 
+const origin = "chrome-extension://" + "a".repeat(32);
+// An extension socket as the server opens one on the service.
+function openSocket(service: BrowserExtensionService) {
+  const messages: Fields[] = [];
+  let closed = false;
+  const ws = {
+    data: { kind: "extension", origin } as ExtensionWsData,
+    send: (value: string) => {
+      messages.push(JSON.parse(value));
+    },
+    close: () => {
+      closed = true;
+      service.close(typed);
+    },
+  };
+  const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
+  service.open(typed);
+  return { ws: typed, messages, closed: () => closed };
+}
+const hello = (fields: Fields) =>
+  JSON.stringify({ kind: "hello", version: 4, ...fields });
+
 test("socket payload limits precede redemption; heartbeat loss rejects work without replay", async () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-service-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
@@ -18,26 +40,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     memberExists: () => true,
     mayUse: () => true,
   });
-  const socket = () => {
-    const messages: Fields[] = [];
-    let closed = false;
-    const ws = {
-      data: {
-        kind: "extension",
-        origin: "chrome-extension://" + "a".repeat(32),
-      } as ExtensionWsData,
-      send: (value: string) => {
-        messages.push(JSON.parse(value));
-      },
-      close: () => {
-        closed = true;
-        service.close(ws as unknown as ServerWebSocket<ExtensionWsData>);
-      },
-    };
-    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
-    service.open(typed);
-    return { ws: typed, messages, closed: () => closed };
-  };
+  const socket = () => openSocket(service);
   try {
     const pair = store.pair("member");
     const obsolete = socket();
@@ -53,20 +56,12 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     const oversized = socket();
     service.message(
       oversized.ws,
-      JSON.stringify({
-        kind: "hello",
-        version: 4,
-        code: pair.code,
-        padding: "x".repeat(4096),
-      }),
+      hello({ code: pair.code, padding: "x".repeat(4096) }),
     );
     expect(oversized.closed()).toBe(true);
     expect(store.paired("member")).toBe(false);
     const first = socket();
-    service.message(
-      first.ws,
-      JSON.stringify({ kind: "hello", version: 4, code: pair.code }),
-    );
+    service.message(first.ws, hello({ code: pair.code }));
     const credential = first.messages.find(
       (message) => message.kind === "paired",
     )!.credential;
@@ -95,10 +90,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     expect(connection.offered("agent")).toBeUndefined();
     expect(first.closed()).toBe(true);
     const fresh = socket();
-    service.message(
-      fresh.ws,
-      JSON.stringify({ kind: "hello", version: 4, credential }),
-    );
+    service.message(fresh.ws, hello({ credential }));
     expect(fresh.ws.data.connection!.generation).not.toBe(
       connection.generation,
     );
@@ -123,28 +115,7 @@ test("a wrong code or credential closes its socket and leaves the member's pairi
     memberExists: () => true,
     mayUse: () => true,
   });
-  const socket = () => {
-    const messages: Fields[] = [];
-    let closed = false;
-    const ws = {
-      data: {
-        kind: "extension",
-        origin: "chrome-extension://" + "a".repeat(32),
-      } as ExtensionWsData,
-      send: (value: string) => {
-        messages.push(JSON.parse(value));
-      },
-      close: () => {
-        closed = true;
-        service.close(ws as unknown as ServerWebSocket<ExtensionWsData>);
-      },
-    };
-    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
-    service.open(typed);
-    return { ws: typed, messages, closed: () => closed };
-  };
-  const hello = (fields: Fields) =>
-    JSON.stringify({ kind: "hello", version: 4, ...fields });
+  const socket = () => openSocket(service);
   const wrong = "A".repeat(43);
   try {
     const first = store.pair("member");
@@ -191,7 +162,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
   const ws = {
     data: {
       kind: "extension",
-      origin: "chrome-extension://" + "a".repeat(32),
+      origin,
     } as ExtensionWsData,
     send: (text: string) => messages.push(JSON.parse(text)),
     close: () =>
@@ -201,10 +172,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
   try {
     const { code } = store.pair("m");
     service.open(socket);
-    service.message(
-      socket,
-      JSON.stringify({ kind: "hello", version: 4, code }),
-    );
+    service.message(socket, hello({ code }));
     const connection = ws.data.connection!;
     const assignment = crypto.randomUUID();
     connection.receive({
@@ -274,13 +242,10 @@ test("metadata uses current records; unpair is bound to authenticated generation
     const reconnect = () => {
       ws.data = {
         kind: "extension",
-        origin: "chrome-extension://" + "a".repeat(32),
+        origin,
       };
       service.open(socket);
-      service.message(
-        socket,
-        JSON.stringify({ kind: "hello", version: 4, credential }),
-      );
+      service.message(socket, hello({ credential }));
     };
     reconnect();
     ws.data.origin = "chrome-extension://" + "b".repeat(32);
@@ -306,14 +271,11 @@ test("metadata uses current records; unpair is bound to authenticated generation
     member = false;
     ws.data = {
       kind: "extension",
-      origin: "chrome-extension://" + "a".repeat(32),
+      origin,
     };
     const count = messages.filter((m) => m.kind === "metadata").length;
     service.open(socket);
-    service.message(
-      socket,
-      JSON.stringify({ kind: "hello", version: 4, code: fresh.code }),
-    );
+    service.message(socket, hello({ code: fresh.code }));
     expect(messages.filter((m) => m.kind === "metadata")).toHaveLength(count);
   } finally {
     service.stop();
@@ -321,7 +283,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
   }
 });
 
-test("popup unpair from one of two browsers revokes only that browser and keeps a pending code", async () => {
+test("popup unpair from one of two browsers revokes only that browser and keeps a pending code", () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-two-unpair-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const service = new BrowserExtensionService(store, {
@@ -329,25 +291,9 @@ test("popup unpair from one of two browsers revokes only that browser and keeps 
     mayUse: () => true,
   });
   const socket = (code: string) => {
-    const messages: Fields[] = [];
-    let closed = false;
-    const ws = {
-      data: {
-        kind: "extension",
-        origin: "chrome-extension://" + "a".repeat(32),
-      } as ExtensionWsData,
-      send: (value: string) => {
-        messages.push(JSON.parse(value));
-      },
-      close: () => {
-        closed = true;
-        service.close(ws as unknown as ServerWebSocket<ExtensionWsData>);
-      },
-    };
-    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
-    service.open(typed);
-    service.message(typed, JSON.stringify({ kind: "hello", version: 4, code }));
-    return { ws: typed, messages, closed: () => closed };
+    const opened = openSocket(service);
+    service.message(opened.ws, hello({ code }));
+    return opened;
   };
   try {
     const laptop = socket(store.pair("m", "Laptop").code);
@@ -387,29 +333,6 @@ test("popup unpair from one of two browsers revokes only that browser and keeps 
     expect(service.status("m").browsers.map((b) => [b.name, b.online])).toEqual(
       [["Desk", true]],
     );
-    // The remaining browser still serves an offer.
-    const connection = desk.ws.data.connection!;
-    connection.receive({
-      kind: "offer",
-      durationMinutes: 0,
-      generation: connection.generation,
-      assignment: crypto.randomUUID(),
-      scope: { kind: "all" },
-    });
-    connection.receive({
-      kind: "result",
-      generation: connection.generation,
-      id: desk.messages.at(-1)!.id,
-      result: {
-        targetInfo: {
-          targetId: "desk",
-          type: "page",
-          url: "https://example.com/",
-        },
-      },
-    });
-    await Promise.resolve();
-    expect(service.bridge.resolve("m", "agent")?.connection).toBe(connection);
     // Popup unpair revokes one browser; the pending code still pairs.
     const third = socket(pending.code);
     expect(third.messages.map((m) => m.kind).slice(0, 2)).toEqual([

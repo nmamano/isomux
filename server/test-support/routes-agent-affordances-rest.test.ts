@@ -413,10 +413,9 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
 });
 
 describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
-  // The route, its gate, and its validation. The pool is an office-wide
-  // singleton, so these cover what the REST layer owns and stop before a real
-  // Chrome; the engine (contexts, idle close, action mapping, caps) is covered
-  // by browser-actions.test.ts and browser-extension-store.test.ts.
+  // The route, its gate, and its validation. These stop before a real Chrome;
+  // browser-actions.test.ts and browser-extension-session.test.ts cover the
+  // action engine.
 
   it("rejects a missing or unknown action -> 400", async () => {
     const srv = await startTestServer();

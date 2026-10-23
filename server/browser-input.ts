@@ -1,7 +1,7 @@
 import type { Frame, Locator, Page, Request } from "playwright-core";
 
 // A navigation that a click starts shows as a request within this window.
-export const SETTLE_QUIET_MS = 300;
+const SETTLE_QUIET_MS = 300;
 
 // The call log of a timed-out Playwright click names the last actionability
 // state it saw. Only these fixed strings leave this module; the log never does.
@@ -192,7 +192,7 @@ export async function firstMatchingOption(
 
 // A CSS string token that holds any text: every character outside a small
 // safe set becomes a hex escape.
-export function cssString(text: string): string {
+function cssString(text: string): string {
   let out = '"';
   for (const ch of text)
     out += /[a-zA-Z0-9 _-]/.test(ch)

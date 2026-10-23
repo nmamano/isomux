@@ -13,7 +13,7 @@ const MAX_DIM = 2560;
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 
-export const BROWSER_ACTIONS = [
+const BROWSER_ACTIONS = [
   "tabs",
   "goto",
   "snapshot",
@@ -27,9 +27,9 @@ export const BROWSER_ACTIONS = [
   "screenshot",
   "close",
 ] as const;
-export type BrowserAction = (typeof BROWSER_ACTIONS)[number];
+type BrowserAction = (typeof BROWSER_ACTIONS)[number];
 
-export type BrowserErrorCode =
+type BrowserErrorCode =
   | "browser_target_required"
   | "browser_not_paired"
   | "browser_offline"
@@ -48,7 +48,7 @@ export interface BrowserFailure {
   dialogs?: BrowserDialog[];
 }
 
-export interface BrowserSuccess {
+interface BrowserSuccess {
   ok: true;
   target?: string;
   tabs?: {
@@ -148,7 +148,7 @@ interface ParsedParams {
   viewport: { width: number; height: number };
 }
 
-export function validBrowserBound(value: unknown): value is number {
+function validBrowserBound(value: unknown): value is number {
   return (
     typeof value === "number" &&
     Number.isInteger(value) &&

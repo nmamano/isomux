@@ -6,7 +6,7 @@ import { browserDisplay } from "./browser-extension-display";
 
 // One paired Chrome (a computer or a Chrome profile). `id` is a non-secret
 // handle for settings; the credential itself is never saved.
-export type PairedBrowser = {
+type PairedBrowser = {
   id: string;
   name: string;
   hash: string;

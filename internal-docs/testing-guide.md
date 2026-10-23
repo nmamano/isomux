@@ -309,17 +309,22 @@ Playwright transport, and disconnect races without a browser. The worker test
 builds and executes the extension bundle against a fake Chrome API.
 `bun run build:extension` builds the package; CI builds it through `build:ui`.
 
-The separate local Chrome check uses a new profile and no real accounts:
+The real-Chrome checks are the opt-in `server/browser-extension-*.live.test.ts`
+files, with a new profile and no real accounts. They need
+`/usr/bin/google-chrome` with the CDP `Extensions.loadUnpacked` command and
+`xvfb-run`. Run each file alone:
 
 ```sh
-systemd-run --user --scope -p MemoryMax=2G timeout 65s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension.live.test.ts
+systemd-run --user --scope -p MemoryMax=2G timeout 300s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test <file>
 ```
 
-It needs `/usr/bin/google-chrome` with the CDP `Extensions.loadUnpacked`
-command and `xvfb-run`. It removes the profile and fixture credentials, and
-keeps a screenshot and sanitized evidence under `/tmp/isomux-extension-proof-*`.
-The fixture alone opens a loopback WebSocket listener. No production office
-route imports it. See [the bridge design](browser-extension.md) for limits.
+The dialogs file reads `ISOMUX_TEST_BROWSER_DIALOGS=1` instead. Measured
+2026-10-23 on auntie: the office file takes about 2 minutes and the
+interactions file about 80 seconds; the others take about 10 seconds each.
+[The bridge design](browser-extension.md) gives their limits. Those that do
+not boot an office connect through the loopback socket of
+`server/test-support/browser-extension-fixture.ts`, which no production office
+route imports.
 
 `control-plane/drive-loop.test.ts` pins the deployed combined cadence: operation
 and lifecycle passes stay sequential, failures are visible and retried, and a
@@ -452,7 +457,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 | Editor | T1 | editor_open/save/external-change routes + path safety; watch deletion/recreation lifecycle + per-path revision guard (file-editor-watch.test.ts, routes-editor-rest.test.ts) | - |
 | Diff tool | T0/T1 | diff summary unit + POST diff route | - |
 | Browser preview card (preview-url) | T0/T1 | `preview-capture.test.ts`: capturePreview seam with a fake shell-script "browser" - strict validation matrix (syntax-only: any host incl. public is accepted since task fb02f521), no_browser/unreachable/capture_failed/timeout/busy codes, group-kill on deadline, temp-dir cleanup + slot release on every path. REST (`routes-agent-affordances-rest.test.ts`): full path via `ISOMUX_PREVIEW_BROWSER` fake → file-view log_entry with sanitized caption; 400s; cross-agent 403. ROUTE CAPS: `routes-table.test.ts`. The browser probe's absolute-path fallbacks (a systemd unit's PATH misses `/snap/bin`) are pinned through the `no_browser` message. | real-Chrome capture (needs Chrome on the box; exercised in normal office use) |
-| Agent browser (browser) | T0/T1 | `browser-actions.test.ts`: action validation (including `select` and `dialog`) and screenshot provenance; `browser-input.test.ts`: fixed reasons for a click that never became clickable; `browser-upload.test.ts`: bounded server file payloads. Extension bridge/store/service/transport tests: current ownership, migration, pairing, generation, expiry, popup chains, timeout retention and settlement with no replay. Debugger recovery tests cover the handshake capability, same-tab/target checks, one bounded attempt, pending-action failure and queued-action recovery or release. REST (`routes-browser-extension.test.ts`, `routes-agent-affordances-rest.test.ts`): pairing, action validation, access and cross-agent rejection. `preview-capture.test.ts` and app preview tests retain server screenshot coverage. ROUTE CAPS: `routes-table.test.ts`. | `browser-extension-office.live.test.ts`: isolated packaged raw Chrome, explicit offers, uploads, inactive clicks, timeout recovery and Off. `browser-extension-custom-protocol.live.test.ts`: custom-protocol click retains the same grant; real tab close and member Off release it. `browser-extension-interactions.live.test.ts`: Namecheap-like page; javascript: links, custom listbox, hidden select, dialogs, known no-op versus unknown clicks, `loading` |
+| Agent browser (browser) | T0/T1 | `browser-actions.test.ts`: action validation (including `select` and `dialog`) and screenshot provenance; `browser-input.test.ts`: fixed reasons for a click that never became clickable; `browser-upload.test.ts`: bounded server file payloads. Extension bridge/store/service/session/transport tests: current ownership, migration, pairing, generation, expiry, popup chains, timeout retention and settlement with no replay. Debugger recovery tests cover the handshake capability, same-tab/target checks, one bounded attempt, pending-action failure and queued-action recovery or release. REST (`routes-browser-extension.test.ts`, `routes-agent-affordances-rest.test.ts`): pairing, action validation, access and cross-agent rejection. `preview-capture.test.ts` and app preview tests retain server screenshot coverage. ROUTE CAPS: `routes-table.test.ts`. | `browser-extension-office.live.test.ts`: isolated packaged raw Chrome, explicit offers, uploads, inactive clicks, timeout recovery and Off. `browser-extension-custom-protocol.live.test.ts`: custom-protocol click retains the same grant; real tab close and member Off release it. `browser-extension-interactions.live.test.ts`: Namecheap-like page; javascript: links, custom listbox, hidden select, dialogs, known no-op versus unknown clicks, `loading` |
 | Voice-to-text / TTS | manual | - | browser manual |
 | Cron jobs | T1 | CronjobManager + FakeBackend: schedule/fire/run transcript/manual-run | - |
 | Agent idle eviction | T1 | `agent-idle-eviction.di.test.ts`: demote guards, same-session wake, truthful wake wording + wake-notice delivery (e06b7e23), boot lazy-restore, demote-vs-message races | - |
