@@ -22,3 +22,12 @@ export function pinnedHumanMessageId(
   }
   return null;
 }
+
+// Height of the pinned bar, which overlays the top of the chat scroller.
+export const PINNED_BAR_HEIGHT = 30;
+
+// The part of the scroller the bar does not cover. It does not depend on
+// whether the bar shows, so showing or hiding it cannot flip the result.
+export function pinnedViewport(root: VerticalRect): VerticalRect {
+  return { top: root.top + PINNED_BAR_HEIGHT, bottom: root.bottom };
+}

@@ -52,7 +52,11 @@ import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { serializeEntries } from "./LogEntryCard.tsx";
-import { pinnedHumanMessageId } from "./pinned-message.ts";
+import {
+  PINNED_BAR_HEIGHT,
+  pinnedHumanMessageId,
+  pinnedViewport,
+} from "./pinned-message.ts";
 import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
 import { citationBlock } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
@@ -960,11 +964,11 @@ export function LogView({
     onSwipeRight ?? (() => {}),
     isMobile,
   );
-  // An image that loads late, or a scroller that shrinks (the pinned banner,
-  // the composer), moves the bottom with no logs change and no scroll event.
-  // Follow those here: Safari before 27 has no scroll anchoring, and there the
-  // view stayed where the old bottom was. Other growth is left alone: a card
-  // the member expands at the bottom must open downward, not scroll away.
+  // An image that loads late, or a scroller that shrinks (the composer),
+  // moves the bottom with no logs change and no scroll event. Follow those
+  // here: Safari before 27 has no scroll anchoring, and there the view stayed
+  // where the old bottom was. Other growth is left alone: a card the member
+  // expands at the bottom must open downward, not scroll away.
   const stopFollowingResizesRef = useRef<(() => void) | null>(null);
   const messagesRef: RefCallback<HTMLDivElement> = useCallback(
     (node: HTMLDivElement | null) => {
@@ -1222,7 +1226,7 @@ export function LogView({
       pinnedHumanMessageId(
         logs,
         (id) => userMsgNodesRef.current.get(id)?.getBoundingClientRect(),
-        rootRect,
+        pinnedViewport(rootRect),
       ),
     );
   }, [logs]);
@@ -2451,19 +2455,18 @@ export function LogView({
             }}
           >
             {/* Floating agent portrait: absolute in this wrapper, outside the
-            scroll container, so the pinned "you:" line appearing above the
-            messages does not move it (Nil, 2026-09-13). Only mounted when
-            visible, so the backdrop-filter element is not in any layer tree
-            when hidden (suspected to deactivate selections on layout
-            commit). */}
+            scroll container, so the pinned "you:" line does not move it (Nil,
+            2026-09-13). Only mounted when visible, so the backdrop-filter
+            element is not in any layer tree when hidden (suspected to
+            deactivate selections on layout commit). */}
             {showAvatar && (
               <div
                 style={{
                   position: "absolute",
-                  // Below the pinned "you:" line's band (about 30 px) whether
-                  // or not that line is showing, so it never covers the line
-                  // and never moves (Nil, 2026-09-13).
-                  top: isMobile ? 32 : 36,
+                  // Below the pinned "you:" line's band whether or not that
+                  // line is showing, so it never covers the line and never
+                  // moves (Nil, 2026-09-13).
+                  top: PINNED_BAR_HEIGHT + (isMobile ? 2 : 6),
                   right: isMobile ? 12 : 24,
                   zIndex: 10,
                   display: "flex",
@@ -2508,24 +2511,34 @@ export function LogView({
                 </div>
               </div>
             )}
-            {/* Pinned user message - sits between the header and the messages
-          when no user_message is currently visible in the scroll viewport.
-          Click scrolls the conversation back to that message. */}
+            {/* Pinned user message - overlays the top band of the messages
+            when no user_message is visible below that band. Click scrolls the
+            conversation back to that message. It takes no layout space: in
+            the flow, showing it shrank the scroller, which could reveal the
+            message and hide it again in a loop. */}
             {pinnedMessage && (
               <div
                 onClick={scrollToPinnedMessage}
                 title={pinnedMessage.content}
                 style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: PINNED_BAR_HEIGHT,
+                  boxSizing: "border-box",
+                  zIndex: 5,
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
-                  padding: isMobile ? "6px 12px" : "6px 24px",
-                  background: "var(--bg-subtle)",
+                  padding: isMobile ? "0 12px" : "0 24px",
+                  // Opaque, since messages scroll under it.
+                  background:
+                    "linear-gradient(var(--bg-subtle), var(--bg-subtle)), var(--bg-base)",
                   borderBottom: "1px solid var(--border)",
                   cursor: "pointer",
                   color: "var(--text-muted)",
                   fontSize: 12,
-                  flexShrink: 0,
                 }}
               >
                 <span
@@ -2571,6 +2584,8 @@ export function LogView({
                 overflowY: "auto",
                 overflowX: "hidden",
                 padding: isMobile ? "12px 12px" : "16px 24px",
+                // Scrolls into view stop below the pinned bar.
+                scrollPaddingTop: PINNED_BAR_HEIGHT,
                 color: "var(--text-secondary)",
                 position: "relative",
               }}

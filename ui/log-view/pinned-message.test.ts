@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
-import { pinnedHumanMessageId, type VerticalRect } from "./pinned-message.ts";
+import {
+  PINNED_BAR_HEIGHT,
+  pinnedHumanMessageId,
+  pinnedViewport,
+  type VerticalRect,
+} from "./pinned-message.ts";
 
 function message(id: string, metadata?: Record<string, unknown>): LogEntry {
   return {
@@ -42,5 +47,16 @@ describe("pinnedHumanMessageId", () => {
       }),
     ];
     expect(pinnedHumanMessageId(logs, () => above, viewport)).toBeNull();
+  });
+});
+
+// Task f4baf304: the bar overlays a fixed band at the top of the scroller, so
+// the band is out of view whether or not the bar shows. Only the top moves.
+describe("pinnedViewport", () => {
+  it("starts the viewport below the bar's band and keeps the bottom", () => {
+    expect(pinnedViewport({ top: 100, bottom: 600 })).toEqual({
+      top: 100 + PINNED_BAR_HEIGHT,
+      bottom: 600,
+    });
   });
 });
