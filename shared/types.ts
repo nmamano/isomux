@@ -1087,7 +1087,7 @@ export interface LogEntry {
 }
 
 // Task item (replaces todos)
-// "backlog" was a status until 2026-10; loadTasks migrates it to open + P4.
+// "backlog" was a status until 2026-10; the task store load migrates it to open + P4.
 // done and obsolete are both closed: done means the ask landed, obsolete
 // that the task was dropped without doing it.
 export type TaskStatus = "open" | "in_progress" | "done" | "obsolete";

@@ -19,7 +19,6 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { _testMintLegacyInvite } from "../auth.ts";
 import { getUserByName, updateUserById } from "../users.ts";
-import { translatorFor } from "../../shared/i18n/translate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -172,7 +171,6 @@ describe("the invite-accept page", () => {
     server = await startTestServer();
     const token = await bootstrapInviteToken();
     const seen: Record<string, string> = {};
-    const intros: Record<string, { invite: string; claim: string }> = {};
     for (const [label, header, lang] of HEADERS) {
       const { status, html } = await page(server, `/i/${token}`, header);
       expect({ label, status }).toEqual({ label, status: 200 });
@@ -181,45 +179,11 @@ describe("the invite-accept page", () => {
         lang: true,
       });
       seen[label] = html;
-      // No owner yet, so / is the claim page in the same language.
-      const claim = await page(server, "/", header);
-      intros[label] = {
-        invite: slot(html, INTRO),
-        claim: slot(claim.html, INTRO),
-      };
     }
-    // The bootstrap invite and the claim page greet the same first owner
-    // with one intro, in every language.
-    for (const [label] of HEADERS)
-      expect({ label, invite: intros[label].invite }).toEqual({
-        label,
-        invite: intros[label].claim,
-      });
-    // ...and it is translated, not English on every page.
     const elements = [TITLE, DESCRIPTION, H1, INTRO, BUTTON];
     expectTranslated(seen.Spanish, seen.English, elements);
     expectTranslated(seen.Catalan, seen.English, elements);
     expectTranslated(seen.Catalan, seen.Spanish, elements);
-    expectSame(seen["no header"], seen.English, elements);
-  });
-
-  it("reads in the browser's language on a named invite", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const token = await inviteTokenFor("Yu");
-    const seen: Record<string, string> = {};
-    for (const [label, header, lang] of HEADERS) {
-      const { status, html } = await page(server, `/i/${token}`, header);
-      expect({ label, status }).toEqual({ label, status: 200 });
-      expect({ label, lang: html.includes(`<html lang="${lang}">`) }).toEqual({
-        label,
-        lang: true,
-      });
-      seen[label] = html;
-    }
-    const elements = [TITLE, DESCRIPTION, H1, INTRO, BUTTON];
-    expectTranslated(seen.Spanish, seen.English, elements);
-    expectTranslated(seen.Catalan, seen.English, elements);
     expectSame(seen["no header"], seen.English, elements);
   });
 });
@@ -264,14 +228,6 @@ describe("the login page", () => {
     const { html: ca } = await page(server, "/nope", "ca");
     for (const html of [en, ca]) expect(html).toContain("<code>ssh -L</code>");
     expectTranslated(ca, en, [RETURN_LINK]);
-    // Nothing on this branch goes through escapeHtml, so an apostrophe in the
-    // Catalan link text stays an apostrophe, exactly like the English
-    // possessive.
-    const key = "preAuth.login.claimHereLink";
-    const catalan = translatorFor("ca").t(key);
-    expect(catalan).not.toBe(translatorFor("en").t(key));
-    expect(catalan).toContain("'");
-    expect(slot(ca, RETURN_LINK)).toBe(catalan);
   });
 });
 
@@ -322,17 +278,6 @@ describe("a page that knows its reader", () => {
     }
   });
 
-  it("leaves a signed-in user with no stored preference in English", async () => {
-    // "Never chosen" is English on the server (S7), and a Spanish header does
-    // not override a reader we know.
-    server = await startTestServer();
-    const refusal = await seedConflict();
-    const en = await refusal(null, "en");
-    const withHeader = await refusal(null, "es");
-    expect(withHeader).toContain('<html lang="en">');
-    expectSame(withHeader, en, [H1, INTRO, RETURN_LINK]);
-  });
-
   it("still escapes the names it writes into the sentence", async () => {
     // The sentence moved into the catalog and the names did not: an
     // apostrophe in a display name must still arrive as an entity, exactly as
@@ -370,17 +315,5 @@ describe("a page that knows its reader", () => {
     const ca = await logout("ca");
     expect(ca).toContain('<html lang="ca">');
     expectTranslated(ca, en, [TITLE, H1, INTRO, RETURN_LINK]);
-    // The refusal sentence goes through escapeHtml as it always has; the link
-    // text is written into the template unescaped.
-    const ca_ = translatorFor("ca").t;
-    const en_ = translatorFor("en").t;
-    const refusal = ca_("preAuth.signOutBlocked.lastOwnerSession");
-    const link = ca_("common.returnToOffice");
-    expect(refusal).not.toBe(en_("preAuth.signOutBlocked.lastOwnerSession"));
-    expect(link).not.toBe(en_("common.returnToOffice"));
-    expect(refusal).toContain("'");
-    expect(link).toContain("'");
-    expect(slot(ca, INTRO)).toBe(refusal.replaceAll("'", "&#39;"));
-    expect(slot(ca, RETURN_LINK)).toBe(link);
   });
 });

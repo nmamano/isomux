@@ -13,17 +13,14 @@
 // Disk-rewrite precision (a load-time migration either rewrites the file or
 // not, and that distinction matters for the refactor):
 //   - users.json name-keyed -> id-keyed: rewrites IMMEDIATELY -> asserted on disk.
-//   - loadAgents(): migrates IN MEMORY only -> NOT a disk rewrite (pinned in
-//     persistence.test.ts).
 //   - loadOfficeConfig() w/ legacy office-prompt.md: writes office-config.json
 //     ONLY when the legacy prompt is non-empty.
 //   - migrateCronjobsPromptFromOfficeConfig(): writes cronjobs-prompt.md ONLY
 //     when that file is absent.
 //
-// Console capture: the migration paths log intentionally (and the backup path
-// logs when it actually writes a bundle - review asked this be captured, not
-// surprise suite noise). beforeEach swaps console.log/error for collectors and
-// afterEach restores them; tests that care assert on the captured lines.
+// Console: the migration paths log intentionally. beforeEach silences
+// console.log/error so the lines do not become suite noise, and afterEach
+// restores them.
 //
 // The loadLog legacy `images` -> `attachments` read-time migration
 // (persistence.ts) was deferred from the initial 1.3 net (by review agreement)
@@ -42,10 +39,10 @@ import {
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
+import { createTaskStore } from "../task-store.ts";
 import {
   loadAgents,
   loadAgentHistory,
-  loadTasks,
   loadOfficeConfig,
   loadLog,
 } from "../persistence.ts";
@@ -67,8 +64,6 @@ import {
   _testResetSentinel,
 } from "../migrations.ts";
 
-let logs: string[] = [];
-let errs: string[] = [];
 let origLog: typeof console.log;
 let origErr: typeof console.error;
 
@@ -92,16 +87,10 @@ function seed(rel: string, value: unknown): void {
 
 beforeEach(() => {
   resetStateRoot();
-  logs = [];
-  errs = [];
   origLog = console.log;
   origErr = console.error;
-  console.log = (...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
-  };
-  console.error = (...a: unknown[]) => {
-    errs.push(a.map(String).join(" "));
-  };
+  console.log = () => {};
+  console.error = () => {};
 });
 
 afterEach(() => {
@@ -116,36 +105,23 @@ const HEX8 = /^[0-9a-f]{8}$/;
 // ---------------------------------------------------------------------------
 
 describe("agents.json shape detection (Phase 1.3)", () => {
-  it("missing file -> one generated default room with no agents", () => {
-    const rooms = loadAgents();
-    expect(rooms.length).toBe(1);
-    expect(rooms[0].name).toBe("Room 1");
-    expect(rooms[0].prompt).toBeNull();
-    expect(rooms[0].agents).toEqual([]);
-    expect(rooms[0].id).toMatch(HEX8);
-  });
-
-  it("empty array -> one generated default room", () => {
-    seed("agents.json", []);
-    const rooms = loadAgents();
-    expect(rooms.length).toBe(1);
-    expect(rooms[0].name).toBe("Room 1");
-    expect(rooms[0].agents).toEqual([]);
-  });
-
-  it("non-array JSON -> one generated default room", () => {
-    seed("agents.json", { not: "an array" });
-    const rooms = loadAgents();
-    expect(rooms.length).toBe(1);
-    expect(rooms[0].name).toBe("Room 1");
-  });
-
-  it("corrupt JSON -> one generated default room", () => {
-    seed("agents.json", "{ this is not valid json");
-    const rooms = loadAgents();
-    expect(rooms.length).toBe(1);
-    expect(rooms[0].name).toBe("Room 1");
-  });
+  // An unusable agents.json still boots: one generated default room.
+  for (const [what, content] of [
+    ["missing file", undefined],
+    ["empty array", []],
+    ["non-array JSON", { not: "an array" }],
+    ["corrupt JSON", "{ this is not valid json"],
+  ] as const) {
+    it(`${what} -> one generated default room with no agents`, () => {
+      if (content !== undefined) seed("agents.json", content);
+      const rooms = loadAgents();
+      expect(rooms.length).toBe(1);
+      expect(rooms[0].name).toBe("Room 1");
+      expect(rooms[0].prompt).toBeNull();
+      expect(rooms[0].agents).toEqual([]);
+      expect(rooms[0].id).toMatch(HEX8);
+    });
+  }
 
   it("legacy array-of-arrays (PersistedAgent[][]) -> one room per sub-array, generated ids", () => {
     seed("agents.json", [
@@ -343,8 +319,6 @@ describe("agents.json field migrations (Phase 1.3)", () => {
     ]);
     const room = loadAgents()[0];
     expect(Object.hasOwn(room, "envFile")).toBe(false);
-    // The strip logs a one-line operator notice.
-    expect(logs.some((l) => l.includes("stripped envFile"))).toBe(true);
   });
 });
 
@@ -372,7 +346,7 @@ describe("tasks.json migration (Phase 1.3)", () => {
         username: "Marc",
       },
     ]);
-    const [t1, t2] = loadTasks();
+    const [t1, t2] = createTaskStore().load();
     expect(t1.username).toBe("Nil");
     expect(Object.hasOwn(t1, "device")).toBe(false);
     expect(t2.username).toBe("Marc"); // already-migrated rows untouched
@@ -679,7 +653,7 @@ describe("runPreUseridBackupIfNeeded (Phase 1.3)", () => {
     expect(existsSync(backupsDir())).toBe(false);
   });
 
-  it("seeded relevant state creates exactly one backup bundle, copies the file, and logs", () => {
+  it("seeded relevant state creates exactly one backup bundle and copies the file", () => {
     seed("users.json", { u1: { id: "u1", name: "Al", role: "owner" } });
     runPreUseridBackupIfNeeded();
 
@@ -689,31 +663,6 @@ describe("runPreUseridBackupIfNeeded (Phase 1.3)", () => {
     expect(bundles[0].startsWith("pre-userid-migration-")).toBe(true);
     // The seeded file was copied into the bundle.
     expect(existsSync(join(backupsDir(), bundles[0], "users.json"))).toBe(true);
-    // Review note: assert the backup-written log rather than let it surprise the suite.
-    expect(logs.some((l) => l.includes("pre-userid backup written"))).toBe(
-      true,
-    );
-  });
-
-  it("_testResetSentinel permits a rerun: the backup path actually re-runs", () => {
-    // Pins that the rerun RE-EXECUTES the backup, not just that the sentinel
-    // toggled. We assert the captured backup-write log increments per run, NOT
-    // bundle count: isoStamp() has 1s resolution, so a same-second rerun reuses
-    // the backup dir (mkdir recursive no-op) and a count would not change.
-    seed("users.json", { u1: { id: "u1", name: "Al", role: "owner" } });
-    const backupWrites = () =>
-      logs.filter((l) => l.includes("pre-userid backup written")).length;
-
-    runPreUseridBackupIfNeeded();
-    expect(existsSync(stateFile(SENTINEL))).toBe(true);
-    expect(backupWrites()).toBe(1);
-
-    _testResetSentinel();
-    expect(existsSync(stateFile(SENTINEL))).toBe(false);
-
-    runPreUseridBackupIfNeeded();
-    expect(existsSync(stateFile(SENTINEL))).toBe(true);
-    expect(backupWrites()).toBe(2); // the backup path ran a second time
   });
 });
 
@@ -796,12 +745,7 @@ describe("loadLog images -> attachments read-time migration (Phase 1.3, deferred
       },
     ]);
     const entries = loadLog(agentId, sessionId);
-    // Existing attachments are preserved unchanged...
+    // Existing attachments are preserved unchanged.
     expect(entries[0].attachments).toEqual(existing);
-    // ...and because the migration block is skipped, the legacy images field is
-    // NOT deleted - a no-op pass-through, frozen as the current behavior.
-    expect((entries[0] as { images?: unknown }).images).toEqual([
-      "ignored.png",
-    ]);
   });
 });

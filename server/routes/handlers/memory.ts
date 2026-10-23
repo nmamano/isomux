@@ -56,7 +56,7 @@ export interface MemoryDeps {
     scopeId: string | null;
     text: string;
     author: string;
-    expectedVersion?: string | null;
+    expectedVersion: string;
   }):
     | { ok: true; version: string }
     | { ok: false; conflict: true; version: string };

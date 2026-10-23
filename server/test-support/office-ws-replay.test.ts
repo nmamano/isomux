@@ -64,12 +64,18 @@ async function seedTranscripts(
   return srv.restart();
 }
 
-// Start the stalled reader and resolve once it has stalled.
+// Start the stalled reader and resolve once it has stalled. release() ends
+// the stall; with an entry id, the reader stops once that entry has arrived
+// after the replay fence.
 async function startReader(
   srv: TestServer,
   rawSessionId: string,
-  stallMs: number,
-): Promise<{ done: Promise<{ closed: boolean; frames: ReaderFrame[] }> }> {
+): Promise<{
+  release: (awaitedId?: string) => void;
+  done: Promise<{ closed: boolean; frames: ReaderFrame[] }>;
+}> {
+  // Under the state root, which the harness removes.
+  const releaseFile = join(srv.stateRoot, "stalled-ws-reader-release");
   const child = Bun.spawn(
     [
       process.execPath,
@@ -77,7 +83,7 @@ async function startReader(
       String(srv.port),
       `${sessionCookieName()}=${rawSessionId}`,
       buildPublicOrigin().origin,
-      String(stallMs),
+      releaseFile,
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
@@ -90,10 +96,8 @@ async function startReader(
     err += decoder.decode(value);
   }
   reader.releaseLock();
-  // The reader stalls after the 101, which the server writes before it runs
-  // the open handler; a short wait covers the rest of that handler.
-  await Bun.sleep(200);
   return {
+    release: (awaitedId = "") => writeFileSync(releaseFile, awaitedId),
     done: new Response(child.stdout)
       .text()
       .then(
@@ -134,7 +138,7 @@ describe("office connect replay to a client that stops reading", () => {
     expect(cached.slice(0, ENTRIES)).toEqual(
       Array.from({ length: ENTRIES }, (_, k) => `${agent.id}-e${k}`),
     );
-    const reader = await startReader(server, owner.rawSessionId, 3000);
+    const reader = await startReader(server, owner.rawSessionId);
     // A live entry while the replay waits in the outbox.
     const res = await server.http(`/api/agents/${agent.id}/messages`, {
       method: "POST",
@@ -149,6 +153,7 @@ describe("office connect replay to a client that stops reading", () => {
       .map((e) => e.id);
     // Enabling condition: the live entry exists, so the order below covers it.
     expect(live.length).toBeGreaterThan(0);
+    reader.release(live.at(-1));
 
     const { closed, frames } = await reader.done;
     expect(closed).toBe(false);
@@ -188,8 +193,10 @@ describe("office connect replay to a client that stops reading", () => {
     await setAccess([r1, r2]);
     server = await seedTranscripts(server, [hidden.id]);
 
-    const reader = await startReader(server, member.rawSessionId, 3000);
+    const reader = await startReader(server, member.rawSessionId);
+    // The access change closes the socket before the PUT answers.
     await setAccess([r1]);
+    reader.release();
 
     const { closed, frames } = await reader.done;
     expect(closed).toBe(true);

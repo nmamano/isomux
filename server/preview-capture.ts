@@ -168,9 +168,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-export function parsePreviewParams(
-  body: unknown,
-): ParsedParams | PreviewFailure {
+function parsePreviewParams(body: unknown): ParsedParams | PreviewFailure {
   if (!isPlainObject(body)) return invalid("body must be a JSON object");
   const rawUrl = body.url;
   if (typeof rawUrl !== "string" || rawUrl.length === 0)
@@ -234,7 +232,7 @@ export function parsePreviewParams(
 // for deterministic tests (a fake shell-script "browser"). Exported because
 // Shared executable discovery for server screenshot previews.
 
-export function defaultFindBrowser(): string | null {
+function defaultFindBrowser(): string | null {
   const override = process.env.ISOMUX_PREVIEW_BROWSER;
   if (override) return override;
   for (const candidate of BROWSER_CANDIDATES) {
@@ -267,7 +265,7 @@ export function defaultFindBrowser(): string | null {
 
 // PNG streams end with an IEND chunk: length(4) + "IEND"(4) + CRC(4).
 const PNG_IEND = Buffer.from("IEND", "ascii");
-export function isCompletePng(data: Buffer): boolean {
+function isCompletePng(data: Buffer): boolean {
   return (
     data.length > PNG_SIGNATURE.length + 12 &&
     data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) &&

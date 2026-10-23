@@ -151,8 +151,13 @@ describe("the gone model on the agent", () => {
     expect(mgr.getAgent(agentId)?.modelFamily).toBe(GONE);
   });
 
-  it("a model change clears the flag for the browser too; another edit keeps it", async () => {
+  it("a model change or setGoneModel(null) clears the flag for the browser too; another edit keeps it", async () => {
     const { mgr, agentId, asBrowserSees } = await harness({ roomId: ROOM.id });
+    mgr.setGoneModel(agentId, GONE);
+    expect(asBrowserSees().goneModel).toBe(GONE);
+    mgr.setGoneModel(agentId, null);
+    expect(mgr.getAgent(agentId)?.goneModel ?? null).toBeNull();
+    expect(asBrowserSees().goneModel ?? null).toBeNull();
     mgr.setGoneModel(agentId, GONE);
     await mgr.editAgent(agentId, { name: "Renamed" });
     expect(mgr.getAgent(agentId)?.goneModel).toBe(GONE);
@@ -169,15 +174,6 @@ describe("the gone model on the agent", () => {
     expect(asBrowserSees().goneModel).toBe(GONE);
     await mgr.editAgent(agentId, { agentType: "claude" });
     expect(mgr.getAgent(agentId)?.agentType).toBe("claude");
-    expect(mgr.getAgent(agentId)?.goneModel ?? null).toBeNull();
-    expect(asBrowserSees().goneModel ?? null).toBeNull();
-  });
-
-  it("setGoneModel(null) clears the flag for the browser", async () => {
-    const { mgr, agentId, asBrowserSees } = await harness({ roomId: ROOM.id });
-    mgr.setGoneModel(agentId, GONE);
-    expect(asBrowserSees().goneModel).toBe(GONE);
-    mgr.setGoneModel(agentId, null);
     expect(mgr.getAgent(agentId)?.goneModel ?? null).toBeNull();
     expect(asBrowserSees().goneModel ?? null).toBeNull();
   });

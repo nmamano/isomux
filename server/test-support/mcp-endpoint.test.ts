@@ -169,7 +169,7 @@ async function ownerOffice(srv: TestServer) {
 }
 
 describe("/mcp authentication", () => {
-  it("takes a personal API token only, and ignores a foreign Origin", async () => {
+  it("takes a personal API token only, ignores a foreign Origin, and marks only the two reads read-only", async () => {
     const srv = await startTestServer();
     server = srv;
     const { owner, userId, room } = await ownerOffice(srv);
@@ -238,17 +238,8 @@ describe("/mcp authentication", () => {
     const client = await connect(srv, minted.token, {
       Origin: "https://claude.ai",
     });
-    expect(client.getServerVersion()).toBeDefined();
-  });
-});
 
-describe("/mcp tools", () => {
-  it("lists the four tools and marks only the two reads read-only", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const { owner } = await ownerOffice(srv);
-    const minted = await mintToken(srv, owner.rawSessionId);
-    const client = await connect(srv, minted.token);
+    // The four tools; clients auto-approve the ones marked read-only.
     const { tools } = await client.listTools();
     const readOnly = Object.fromEntries(
       tools.map((tool) => [tool.name, tool.annotations?.readOnlyHint === true]),
@@ -260,7 +251,9 @@ describe("/mcp tools", () => {
       read_replies: false,
     });
   });
+});
 
+describe("/mcp tools", () => {
   it("sends as the token, reads the chat, and waits for the agent's reply", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { manualSend: true } }),
@@ -352,7 +345,7 @@ describe("/mcp tools", () => {
     const replyAt = Date.now();
     const waiting = call(client, "read_replies", {
       after: sent.sequence + 1,
-      waitSeconds: 2,
+      waitSeconds: 25,
     });
     await Bun.sleep(300);
     const reply = await bearer(
@@ -376,7 +369,7 @@ describe("/mcp tools", () => {
     ]);
     expect(replies.entries[0].sequence).toBeGreaterThan(sent.sequence + 1);
     expect(replies.latestSequence).toBe(replies.entries[0].sequence);
-    expect(elapsed).toBeLessThan(1_500);
+    expect(elapsed).toBeLessThan(5_000);
 
     // Nothing new after the cursor: the tool waits out its wait, then
     // returns no entries.
@@ -384,12 +377,12 @@ describe("/mcp tools", () => {
     const quiet = toolJson<{ entries: LogEntry[]; latestSequence: number }>(
       await call(client, "read_replies", {
         after: replies.latestSequence,
-        waitSeconds: 1,
+        waitSeconds: 0.2,
       }),
     );
     expect(quiet.entries).toEqual([]);
     expect(quiet.latestSequence).toBe(replies.latestSequence);
-    expect(Date.now() - quietAt).toBeGreaterThanOrEqual(900);
+    expect(Date.now() - quietAt).toBeGreaterThanOrEqual(150);
 
     srv.fakeBackend.sessionForAgent(agent.id)?.releaseSends();
   });

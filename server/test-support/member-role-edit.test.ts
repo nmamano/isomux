@@ -19,23 +19,32 @@ it("only an owner can edit roles; the edit updates live sessions and cannot remo
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+  // A refusal is its status and its error code (a protocol value).
+  const refusal = async (res: Response) => [
+    res.status,
+    ((await res.json()) as { error: { code: string } }).error.code,
+  ];
   const socket = await srv.connectWs(member.rawSessionId);
   try {
     expect(
-      (await patch("Member", member.rawSessionId, { role: "owner" })).status,
-    ).toBe(403);
+      await refusal(
+        await patch("Member", member.rawSessionId, { role: "owner" }),
+      ),
+    ).toEqual([403, "forbidden"]);
     expect(getUserByName("Member")?.role).toBe("member");
     expect(
-      (await patch("Morgan", morgan.rawSessionId, { role: "member" })).status,
-    ).toBe(409);
+      await refusal(
+        await patch("Morgan", morgan.rawSessionId, { role: "member" }),
+      ),
+    ).toEqual([409, "last_owner"]);
     expect(
-      (
+      await refusal(
         await patch("Member", morgan.rawSessionId, {
           role: "owner",
           name: "Morgan",
-        })
-      ).status,
-    ).toBe(409);
+        }),
+      ),
+    ).toEqual([409, "name_taken"]);
     expect(getUserByName("Member")?.role).toBe("member");
     await socket.waitFor("session_context");
     socket.messages.length = 0;
@@ -69,11 +78,15 @@ it("only an owner can edit roles; the edit updates live sessions and cannot remo
       ).status,
     ).toBe(403);
     expect(
-      (await patch("Morgan", morgan.rawSessionId, { role: "member" })).status,
-    ).toBe(409);
+      await refusal(
+        await patch("Morgan", morgan.rawSessionId, { role: "member" }),
+      ),
+    ).toEqual([409, "last_owner"]);
     expect(
-      (await patch("Member", morgan.rawSessionId, { role: "invalid" })).status,
-    ).toBe(422);
+      await refusal(
+        await patch("Member", morgan.rawSessionId, { role: "invalid" }),
+      ),
+    ).toEqual([422, "invalid_request"]);
   } finally {
     socket.close();
   }

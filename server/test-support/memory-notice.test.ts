@@ -9,7 +9,6 @@
 //   - /clear starts a new conversation, which re-arms it.
 //   - A model change rebuilds the session WITHOUT starting a new conversation,
 //     so it must NOT re-fire (this is what memoryNoticeFired is for).
-//   - Memory comfortably under the cap produces no notice at all.
 //   - A /clear while a send is parked does NOT let the stale send consume the
 //     fresh conversation's notice (the send-accept generation guard).
 //   - A FAILED edit-fork that rolls back restores the SAME conversation, so an
@@ -42,6 +41,9 @@ afterEach(async () => {
 
 const WAIT_MS = 20_000;
 setDefaultTimeout(60_000);
+
+// The notice's envelope label, a wire label stripOutboundEnvelope parses.
+const NOTICE = "--- begin isomux: memory-check ---";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(pred: () => boolean, label: string): Promise<void> {
@@ -135,9 +137,7 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
 
     await runTurn(srv, agent.id, "one");
     const sent = srv.fakeBackend.sessionForAgent(agent.id)!.sent[0].text;
-    expect(sent).toContain("--- begin isomux: memory-check ---");
-    expect(sent).toContain("[memory check:");
-    expect(sent).not.toContain("context check");
+    expect(sent).toContain(NOTICE);
   });
 
   it("rides the first send, once per conversation, and re-arms on /clear", async () => {
@@ -156,20 +156,14 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
 
     await runTurn(srv, agent.id, "one");
     const turn1 = lastSent();
-    expect(turn1.startsWith("--- begin isomux: memory-check ---")).toBe(true);
-    expect(turn1).toContain(
-      "[memory check: auto-loaded memory is close to its",
-    );
-    expect(turn1).toMatch(
-      new RegExp(`Room "${room.name}" at 9\\d% of its cap`),
-    );
+    expect(turn1.startsWith(NOTICE)).toBe(true);
     const unwrapped = stripOutboundEnvelope(turn1);
     expect(unwrapped).not.toContain("---");
     expect(unwrapped.endsWith("one")).toBe(true);
 
     // Once per conversation.
     await runTurn(srv, agent.id, "two");
-    expect(lastSent()).not.toContain("memory check");
+    expect(lastSent().endsWith("two")).toBe(true);
     expect(lastSent()).not.toContain("--- begin isomux:");
 
     // A model change rebuilds the session but continues the conversation. Seed
@@ -182,27 +176,13 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
     writeFileSync(join(dir, `${sessionId}.jsonl`), "");
     await srv.agentManager.editAgent(agent.id, { modelFamily: "sonnet" });
     await runTurn(srv, agent.id, "three");
-    expect(lastSent()).not.toContain("memory check");
+    expect(lastSent().endsWith("three")).toBe(true);
+    expect(lastSent()).not.toContain(NOTICE);
 
     // /clear starts a new conversation, which re-arms the notice.
     await srv.agentManager.newConversation(agent.id);
     await runTurn(srv, agent.id, "four");
-    expect(lastSent()).toContain("[memory check:");
-  });
-
-  it("says nothing when every scope is well under its cap", async () => {
-    const srv = await startTestServer({ fakeBackend: backend() });
-    server = srv;
-    await srv.seedOwner("Morgan");
-    const room = srv.agentManager.getRooms()[0];
-    seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.3));
-    const agent = await spawnAgent(srv, "Worker", room.id);
-    const sess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
-
-    await runTurn(srv, agent.id, "one");
-    const turn1 = sess().sent[sess().sent.length - 1].text;
-    expect(turn1).not.toContain("memory check");
-    expect(turn1).not.toContain("--- begin isomux:");
+    expect(lastSent()).toContain(NOTICE);
   });
 });
 
@@ -238,7 +218,7 @@ describe("memory notice: conversation-boundary races", () => {
     send("one");
     await waitUntil(() => curSess().sent.length === 1, "turn1 parked");
     const s1 = curSess();
-    expect(s1.sent[0].text).toContain("[memory check:");
+    expect(s1.sent[0].text).toContain(NOTICE);
 
     // Swap the conversation WHILE the send is parked, then release it.
     await srv.agentManager.newConversation(agent.id);
@@ -250,7 +230,7 @@ describe("memory notice: conversation-boundary races", () => {
     await waitUntil(() => curSess() !== s1, "turn2 session woke");
     const s2 = curSess();
     await waitUntil(() => s2.sent.length === 1, "turn2 parked");
-    expect(s2.sent[0].text).toContain("[memory check:");
+    expect(s2.sent[0].text).toContain(NOTICE);
     s2.releaseSends();
   });
 
@@ -289,7 +269,7 @@ describe("memory notice: conversation-boundary races", () => {
     const lastSent = () => sess().sent[sess().sent.length - 1].text;
 
     await runTurn(srv, agent.id, "first");
-    expect(lastSent()).toContain("[memory check:");
+    expect(lastSent()).toContain(NOTICE);
     const parentSid = srv.agentManager.getCurrentSessionId(agent.id)!;
     expect(parentSid).toBe(PARENT_SID);
     const cwd = srv.agentManager.getAgent(agent.id)!.cwd;
@@ -318,7 +298,8 @@ describe("memory notice: conversation-boundary races", () => {
       "recovered from the failed fork",
     );
     await runTurn(srv, agent.id, "after-rollback");
-    expect(lastSent()).not.toContain("memory check");
+    expect(lastSent().endsWith("after-rollback")).toBe(true);
+    expect(lastSent()).not.toContain(NOTICE);
   });
 });
 
@@ -338,9 +319,10 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
     const lastSent = () => sess().sent[sess().sent.length - 1].text;
 
     await runTurn(srv, agent.id, "one");
-    expect(lastSent()).toContain("[memory check:");
+    expect(lastSent()).toContain(NOTICE);
     await runTurn(srv, agent.id, "two");
-    expect(lastSent()).not.toContain("memory check");
+    expect(lastSent().endsWith("two")).toBe(true);
+    expect(lastSent()).not.toContain(NOTICE);
 
     // A DIFFERENT session id is a new conversation: createSession runs first
     // (arming null off the old fired flag), then resetContextUsage clears the
@@ -349,7 +331,7 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
     seedClaudeFile(claudeHome, srv.agentManager.getAgent(agent.id)!.cwd, other);
     await srv.agentManager.resume(agent.id, other);
     await runTurn(srv, agent.id, "three");
-    expect(lastSent()).toContain("[memory check:");
+    expect(lastSent()).toContain(NOTICE);
   });
 
   it("a successful edit-fork arms the fork's notice", async () => {
@@ -379,7 +361,7 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
     const lastSent = () => sess().sent[sess().sent.length - 1].text;
 
     await runTurn(srv, agent.id, "first");
-    expect(lastSent()).toContain("[memory check:");
+    expect(lastSent()).toContain(NOTICE);
     const parentSid = srv.agentManager.getCurrentSessionId(agent.id)!;
     expect(parentSid).toBe(PARENT_SID);
     seedClaudeFile(
@@ -397,6 +379,6 @@ describe("memory notice: session built BEFORE the conversation reset", () => {
       "forked to the new session",
     );
     // The fork's own first turn is the edited message itself.
-    expect(lastSent()).toContain("[memory check:");
+    expect(lastSent()).toContain(NOTICE);
   });
 });

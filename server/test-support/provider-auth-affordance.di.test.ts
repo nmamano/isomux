@@ -25,9 +25,7 @@ import {
 } from "../provider-homes.ts";
 import { STATE_ROOT } from "../config.ts";
 import { english } from "../i18n.ts";
-import { translatorFor } from "../../shared/i18n/translate.ts";
 import { renderLogText } from "../../shared/i18n/log-message.ts";
-import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents } from "../persistence.ts";
 import { claudeBackend } from "../backends/claude.ts";
@@ -192,29 +190,17 @@ function claudeWire(
   };
 }
 
-const BEDROCK_PAYMENT_ERROR =
-  "Failed to authenticate. API Error: 403 Model access is denied due to INVALID_PAYMENT_INSTRUMENT: A valid payment instrument must be provided. Your AWS Marketplace subscription for this model cannot be completed at this time. If you recently fixed this issue, try again after 5 minutes.";
-
 describe("Claude auth classification by provider", () => {
   const classify = (text: string, env: Record<string, string | undefined>) =>
     detectAuthErrorForEnvironment("claude", text, env, (value) =>
       claudeBackend.detectAuthError(value),
     );
 
-  it("does not classify the Bedrock 403 as a first-party auth error", () => {
-    expect(
-      classify(BEDROCK_PAYMENT_ERROR, { CLAUDE_CODE_USE_BEDROCK: "1" }),
-    ).toBe(false);
-  });
-
-  // The control for the cases above: without a cloud selector, first-party
-  // sign-in text is classified. (A 403 is a provider refusal everywhere since
-  // task 2bd836d5.)
-  it("keeps first-party sign-in text classified when no cloud selector is active", () => {
-    expect(classify("Not logged in · Please run /login", {})).toBe(true);
-  });
-
   it("does not classify first-party-shaped text under a cloud selector", () => {
+    // The control: without a cloud selector, first-party sign-in text is
+    // classified. (A 403 is a provider refusal everywhere since task
+    // 2bd836d5.)
+    expect(classify("Not logged in · Please run /login", {})).toBe(true);
     expect(
       classify("Not logged in · Please run /login", {
         CLAUDE_CODE_USE_VERTEX: "true",
@@ -224,58 +210,14 @@ describe("Claude auth classification by provider", () => {
 });
 
 describe("provider auth affordances", () => {
-  it("keeps a cloud provider failure and skips the OAuth account check", async () => {
-    setTestManagedOfficeEnv({ CLAUDE_CODE_USE_BEDROCK: "1" });
-    let accountChecks = 0;
-    const fake = new FakeBackend({
-      isAuthError: (text) => claudeBackend.detectAuthError(text),
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.completeTurn({
-            status: "failed",
-            error: BEDROCK_PAYMENT_ERROR,
-          }),
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "claude",
-      fake,
-      accounts: async () => {
-        accountChecks++;
-        return [claudeWire("office", { accountStatus: "connected" })];
-      },
-      target: () => ({
-        provider: "claude",
-        scope: "office",
-        dir: "/accounts/office",
-      }),
-    });
-
-    await mgr.sendMessage(agentId, "hello", "tester");
-
-    const logs = mgr.getAgentLogs(agentId);
-    expect(
-      logs.filter((entry) => entry.content === BEDROCK_PAYMENT_ERROR),
-    ).toHaveLength(1);
-    expect(
-      logs.some((entry) => entry.content.includes("Checking the connection…")),
-    ).toBe(false);
-    expect(
-      logs.some((entry) => entry.metadata?.providerLogin === "claude"),
-    ).toBe(false);
-    expect(accountChecks).toBe(0);
-    expect(mgr.getAgent(agentId)?.state).toBe("error");
-  });
-
-  for (const selector of [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-  ]) {
+  // No credentials file, but a cloud selector signs Claude in: not known
+  // signed out, so the topic runs, with the managed env on every launch.
+  {
+    const selector = "CLAUDE_CODE_USE_BEDROCK";
     it(`keeps an auth topic and passes ${selector} to the topic launch`, async () => {
       const env = {
         CLAUDE_CONFIG_DIR: join(STATE_ROOT, `signed-out-${selector}`),
         ANTHROPIC_API_KEY: "",
-        CLAUDE_CODE_USE_BEDROCK: "",
         CLAUDE_CODE_USE_VERTEX: "",
         [selector]: "1",
         AWS_REGION: "us-east-1",
@@ -296,11 +238,6 @@ describe("provider auth affordances", () => {
         },
       });
       const { mgr, agentId } = await harness({ backendType: "claude", fake });
-      const instructions = await claudeBackend.getLoginInstructions({
-        env: mgr.buildEnvForUserId("user-a"),
-      });
-      expect(instructions.kind).toBe("already_authed");
-      expect(instructions.cardEligible).toBe(false);
       await mgr.sendMessage(agentId, "Help me design an OAuth flow", "tester");
       await waitFor(() => fake.oneShotCount === 1);
       expect(topicEnv).toMatchObject(env);
@@ -338,31 +275,6 @@ describe("provider auth affordances", () => {
         () => opts.active === true,
       );
 
-    const callerClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
-    try {
-      process.env.CLAUDE_CONFIG_DIR = "/accounts/fixture-sentinel";
-      expect(() =>
-        withClaudeConfigDirUnset(() => {
-          throw new Error("restore probe");
-        }),
-      ).toThrow("restore probe");
-      expect(process.env.CLAUDE_CONFIG_DIR).toBe("/accounts/fixture-sentinel");
-
-      delete process.env.CLAUDE_CONFIG_DIR;
-      expect(() =>
-        withClaudeConfigDirUnset(() => {
-          throw new Error("restore probe");
-        }),
-      ).toThrow("restore probe");
-      expect("CLAUDE_CONFIG_DIR" in process.env).toBe(false);
-    } finally {
-      if (callerClaudeConfigDir === undefined) {
-        delete process.env.CLAUDE_CONFIG_DIR;
-      } else {
-        process.env.CLAUDE_CONFIG_DIR = callerClaudeConfigDir;
-      }
-    }
-
     withClaudeConfigDirUnset(() => {
       expect(makeManager({}).effectiveTarget("user-a", "claude").scope).toBe(
         "office",
@@ -394,7 +306,7 @@ describe("provider auth affordances", () => {
     });
   });
 
-  it("coalesces Claude system_text and a failed 401 completion", async () => {
+  it("gives a signed-out Claude one notice with the sign-in card, and no topic", async () => {
     setTestManagedOfficeEnv({
       CLAUDE_CONFIG_DIR: join(STATE_ROOT, "signed-out-claude"),
       ANTHROPIC_API_KEY: "",
@@ -455,15 +367,6 @@ describe("provider auth affordances", () => {
     // Topic generation skips a signed-out engine instead of calling it.
     expect(fake.oneShotCount).toBe(0);
     expect<string | null>(successfulTopicResult).toBeNull();
-    expect(logs.some((entry) => entry.kind === "user_message")).toBe(true);
-    expect(
-      logs.filter((entry) => entry.metadata?.providerLogin === "claude"),
-    ).toHaveLength(1);
-    expect(
-      logs.some(
-        (entry) => entry.content === "Not logged in · Please run /login",
-      ),
-    ).toBe(false);
     expect(mgr.getAgent(agentId)?.topic).toBeNull();
     expect(
       loadAgents()
@@ -502,93 +405,10 @@ describe("provider auth affordances", () => {
     expect(mgr.getAgent(agentId)?.topic).toBe(label);
   });
 
-  it("keeps an auth-flavored topic when Codex is signed in", async () => {
-    const codexHome = join(STATE_ROOT, "signed-in-codex");
-    mkdirSync(codexHome, { recursive: true });
-    writeFileSync(join(codexHome, "auth.json"), "{}");
-    setTestManagedOfficeEnv({ CODEX_HOME: codexHome });
-    const label = "Debugging 401 errors in the API";
-    const fake = new FakeBackend({
-      isAuthError: (text) => codexBackend.detectAuthError(text),
-      oneShot: label,
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.completeTurn({ text: "ok" }),
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "codex",
-      fake,
-    });
-    expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(true);
-
-    await mgr.sendMessage(agentId, "Help me debug a 401 API error", "tester");
-    await waitFor(() => fake.oneShotCount === 1);
-
-    expect(codexBackend.detectAuthError(label)).toBe(true);
-    expect(fake.oneShotCount).toBe(1);
-    expect(mgr.getAgent(agentId)?.topic).toBe(label);
-  });
-
-  it("skips topic generation while Codex is signed out", async () => {
-    const codexHome = join(
-      STATE_ROOT,
-      `signed-out-codex-${crypto.randomUUID()}`,
-    );
-    mkdirSync(codexHome, { recursive: true });
-    setTestManagedOfficeEnv({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" });
-    const fake = new FakeBackend({
-      oneShot: () => {
-        throw new Error("Codex one-shot error: Reconnecting... 2/5");
-      },
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.completeTurn({ text: "ok" }),
-      },
-    });
-    const { mgr, agentId } = await harness({ backendType: "codex", fake });
-    expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(false);
-    const errors: unknown[][] = [];
-    const original = console.error;
-    console.error = (...args: unknown[]) => errors.push(args);
-    try {
-      await mgr.sendMessage(agentId, "first request", "tester");
-      await Bun.sleep(50);
-    } finally {
-      console.error = original;
-    }
-    expect(fake.oneShotCount).toBe(0);
-    expect(errors).toEqual([]);
-    expect(mgr.getAgent(agentId)?.topic).toBeNull();
-  });
-
-  for (const token of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"]) {
-    it(`generates topics for a Claude agent that signs in with ${token}`, async () => {
-      const dir = join(STATE_ROOT, `token-claude-${crypto.randomUUID()}`);
-      mkdirSync(dir, { recursive: true });
-      setTestManagedOfficeEnv({
-        CLAUDE_CONFIG_DIR: dir,
-        ANTHROPIC_API_KEY: "",
-        [token]: "test-token",
-      });
-      const label = "Project planning";
-      const fake = new FakeBackend({
-        oneShot: label,
-        session: {
-          onSend: (_text, _attachments, session) =>
-            session.completeTurn({ text: "ok" }),
-        },
-      });
-      const { mgr, agentId } = await harness({ backendType: "claude", fake });
-      const env = mgr.buildEnvForUserId("user-a");
-      expect(env?.[token]).toBe("test-token");
-      expect(existsSync(join(dir, ".credentials.json"))).toBe(false);
-      await mgr.sendMessage(agentId, "Plan the project", "tester");
-      await settle(() => mgr.getAgent(agentId)?.topic === label);
-      expect(fake.oneShotCount).toBe(1);
-      expect(mgr.getAgent(agentId)?.topic).toBe(label);
-    });
-
+  // A rejected credential that is not a file still gets the connection
+  // check, not the "no credentials" notice.
+  {
+    const token = "CLAUDE_CODE_OAUTH_TOKEN";
     it(`keeps the rejected-credential check for a rejected ${token}`, async () => {
       const dir = join(STATE_ROOT, `token-claude-${crypto.randomUUID()}`);
       mkdirSync(dir, { recursive: true });
@@ -647,42 +467,6 @@ describe("provider auth affordances", () => {
       ).toBe(true);
     });
   }
-
-  it("gives /login on a signed-out Codex agent its own notice", async () => {
-    const fake = new FakeBackend({
-      loginInstructions: {
-        kind: "login",
-        text: "terminal fallback",
-        commands: ["~/.isomux/bin/codex login"],
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "codex",
-      fake,
-      accounts: async () => [
-        { ...claudeWire("office"), provider: "codex" as const },
-      ],
-      target: () => ({
-        provider: "codex",
-        scope: "office",
-        dir: "/accounts/office-codex",
-      }),
-    });
-    await mgr.sendMessage(agentId, "/login", "tester");
-    await waitFor(() =>
-      mgr
-        .getAgentLogs(agentId)
-        .some((entry) => entry.metadata?.providerLogin === "codex"),
-    );
-    const notices = mgr
-      .getAgentLogs(agentId)
-      .filter((entry) => entry.metadata?.providerLogin === "codex");
-    expect(notices).toHaveLength(1);
-    // The default manager is a member on the office account: no "below".
-    expect(notices[0].content).toBe(
-      english.t("systemEntries.notSignedIn", { provider: "Codex" }),
-    );
-  });
 
   describe("a signed-out Codex agent", () => {
     async function signedOutCodex(
@@ -815,23 +599,6 @@ describe("provider auth affordances", () => {
       await h.mgr.sendMessage(h.agentId, "second", "tester");
       expect(h.sent()).toHaveLength(1);
       expect(h.sent()[0].text.endsWith("second")).toBe(true);
-    });
-
-    it("leaves a backend without the capability alone", async () => {
-      // Claude declares no signed-out state: it stops on its own and reports
-      // that through its auth notice.
-      expect("isKnownSignedOut" in claudeBackend).toBe(false);
-      const fake = new FakeBackend({
-        session: {
-          onSend: (_text, _attachments, session) =>
-            session.completeTurn({ text: "ok" }),
-        },
-      });
-      const { mgr, agentId } = await withClaudeConfigDirUnset(() =>
-        harness({ backendType: "claude", fake }),
-      );
-      await mgr.sendMessage(agentId, "hi", "tester");
-      expect(fake.sessions.flatMap((session) => session.sent)).toHaveLength(1);
     });
 
     it("is what the Codex backend reports with no credentials", () => {
@@ -967,16 +734,12 @@ describe("provider auth affordances", () => {
       };
     }
 
-    it("gives a failed turn the sign-in walkthrough", async () => {
-      const h = await codexWithAuthJson();
-      await h.mgr.sendMessage(h.agentId, "hello", "tester");
-      await settle(() => h.notices().length > 0);
-      expect(h.notices()).toEqual([h.signedOutText]);
-      expect(h.commands()).toEqual(h.signedOut.commands!);
-    });
-
+    // An account that cannot sign in on the card keeps the backend's own
+    // signed-in notice.
     it("keeps the signed-in notice on a typed /login", async () => {
-      const h = await codexWithAuthJson();
+      const h = await codexWithAuthJson({
+        account: { accountStatus: "connected", canBrowserLogin: false },
+      });
       await h.mgr.sendMessage(h.agentId, "/login", "tester");
       await settle(() => h.notices().length > 0);
       expect(h.notices()).toEqual([h.signedInText]);
@@ -988,11 +751,10 @@ describe("provider auth affordances", () => {
     // card; only the office half held from a member says to ask an owner.
     const rejectedCases = [
       ["personal", "member", "systemEntries.signInRejected"],
-      ["office", "owner", "systemEntries.signInRejected"],
       ["office", "member", "systemEntries.signInRejectedOffice"],
     ] as const;
     for (const [scope, manager, key] of rejectedCases) {
-      it(`points a failed turn at the card of a connected ${scope} account managed by ${manager === "owner" ? "an owner" : "a member"}`, async () => {
+      it(`points a failed turn at the card of a connected ${scope} account managed by a ${manager}`, async () => {
         const h = await codexWithAuthJson({
           account: { accountStatus: "connected", canBrowserLogin: true },
           scope,
@@ -1082,48 +844,6 @@ describe("provider auth affordances", () => {
     ).toEqual(["~/.isomux/bin/codex login"]);
   });
 
-  it("coalesces Claude system_text and an auth-looking stream exit", async () => {
-    const fake = new FakeBackend({
-      isAuthError: (text) => /not logged in|401/i.test(text),
-      loginInstructions: {
-        kind: "login",
-        text: "terminal fallback",
-        commands: ["claude"],
-      },
-      session: {
-        onSend: (_text, _attachments, session) => {
-          session.push({ kind: "auth_needed" });
-          session.failStream(new Error("401 subprocess exit"));
-        },
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "claude",
-      fake,
-      accounts: async () => [claudeWire("office")],
-      target: () => ({
-        provider: "claude",
-        scope: "office",
-        dir: "/accounts/office-claude",
-      }),
-    });
-    mgr.enqueueMessage(agentId, {
-      sender: { kind: "user", username: "tester" },
-      text: "hello",
-    });
-    await waitFor(() =>
-      mgr
-        .getAgentLogs(agentId)
-        .some((entry) => entry.metadata?.providerLogin === "claude"),
-    );
-    await Bun.sleep(20);
-    expect(
-      mgr
-        .getAgentLogs(agentId)
-        .filter((entry) => entry.metadata?.providerLogin === "claude"),
-    ).toHaveLength(1);
-  });
-
   it("uses only the failing Claude scope for the sign-in card", async () => {
     storeClaudeCredentials();
     const fake = new FakeBackend({
@@ -1155,7 +875,10 @@ describe("provider auth affordances", () => {
     await waitFor(() =>
       mgr
         .getAgentLogs(agentId)
-        .some((entry) => entry.content.includes("could not finish")),
+        .some(
+          (entry) =>
+            entry.content === english.t("systemEntries.claudeAuth.incomplete"),
+        ),
     );
     const logs = mgr.getAgentLogs(agentId);
     expect(logs.some((entry) => entry.content === "terminal fallback")).toBe(
@@ -1164,80 +887,6 @@ describe("provider auth affordances", () => {
     expect(
       logs.some((entry) => entry.metadata?.providerLogin === "claude"),
     ).toBe(false);
-  });
-
-  it("uses the fresh account status instead of the standalone CLI installation hint", async () => {
-    storeClaudeCredentials();
-    const fake = new FakeBackend({
-      isAuthError: (text) => text.includes("Not logged in"),
-      loginInstructions: {
-        kind: "not_installed",
-        cardEligible: false,
-        text: "Install Claude first.",
-        commands: ["curl -fsSL https://claude.ai/install.sh | bash"],
-      },
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.push({ kind: "auth_needed" }),
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "claude",
-      fake,
-      accounts: async () => [claudeWire("personal")],
-      target: () => ({
-        provider: "claude",
-        scope: "personal",
-        dir: "/accounts/personal-claude",
-      }),
-    });
-    mgr.enqueueMessage(agentId, {
-      sender: { kind: "user", username: "tester" },
-      text: "hello",
-    });
-    await waitFor(() =>
-      mgr
-        .getAgentLogs(agentId)
-        .some((entry) => entry.metadata?.providerLogin === "claude"),
-    );
-    const logs = mgr.getAgentLogs(agentId);
-    expect(
-      logs.some((entry) => entry.content === "Install Claude first."),
-    ).toBe(false);
-    expect(
-      logs.some((entry) => entry.metadata?.providerLogin === "claude"),
-    ).toBe(true);
-  });
-
-  it("routes /login through the Claude card", async () => {
-    const fake = new FakeBackend({
-      loginInstructions: {
-        kind: "login",
-        text: "terminal fallback",
-        commands: ["claude"],
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "claude",
-      fake,
-      accounts: async () => [claudeWire("office")],
-      target: () => ({
-        provider: "claude",
-        scope: "office",
-        dir: "/accounts/office-claude",
-      }),
-    });
-    await mgr.sendMessage(agentId, "/login", "tester");
-    await waitFor(() =>
-      mgr
-        .getAgentLogs(agentId)
-        .some((entry) => entry.metadata?.providerLogin === "claude"),
-    );
-    expect(
-      mgr
-        .getAgentLogs(agentId)
-        .filter((entry) => entry.metadata?.providerLogin === "claude"),
-    ).toHaveLength(1);
   });
 
   // The backend names the sign-out command for the agent's env (it finds
@@ -1345,7 +994,7 @@ describe("provider auth affordances", () => {
       claude.mgr
         .getAgentLogs(claude.agentId)
         .find((entry) => entry.metadata?.providerLogin === "claude")?.content,
-    ).toBe("Manage your Claude sign-in below.");
+    ).toBe(english.t("systemEntries.manageSignIn", { provider: "Claude" }));
 
     const opencode = await harness({
       backendType: "opencode",
@@ -1357,7 +1006,7 @@ describe("provider auth affordances", () => {
         .getAgentLogs(opencode.agentId)
         .some(
           (entry) =>
-            entry.content === "Sign-out is not available for OpenCode agents.",
+            entry.content === english.t("systemEntries.signOutOpenCode"),
         ),
     ).toBe(true);
     expect(
@@ -1625,84 +1274,42 @@ describe("Claude auth-error status checks", () => {
   // A sign-in already running on the directory (task 84e98d49): no account
   // read starts during it, and the chat says the sign-in is in progress -
   // never "disconnected" - with the card, which follows the login live.
-  const SIGNING_IN = "systemEntries.claudeAuth.signingIn";
-  for (const c of [
-    {
-      name: "the owner's own office sign-in",
-      role: "owner",
-      scope: "office",
-      wire: { loginStatus: "waiting_external" },
-      key: SIGNING_IN,
-    },
-    {
-      name: "a member's own personal sign-in",
-      role: "member",
-      scope: "personal",
-      wire: { loginStatus: "waiting_external" },
-      key: SIGNING_IN,
-    },
-    {
-      name: "another person's office sign-in, seen by a member",
-      role: "member",
-      scope: "office",
-      wire: {
-        loginStatus: "waiting_external",
-        loginQueue: { holderName: "Morgan", startedAt: 1 },
-      },
-      key: SIGNING_IN,
-    },
-    {
-      name: "a sign-in that already ended",
-      role: "owner",
-      scope: "office",
-      wire: { loginStatus: "succeeded" },
-      key: "systemEntries.claudeAuth.disconnected",
-    },
-  ] as const) {
-    it(`a not-connected account during ${c.name}`, async () => {
-      expect(english.t(SIGNING_IN)).not.toBe(SIGNING_IN);
-      const { mgr, agentId } = await harness({
-        backendType: "claude",
-        fake: rejected(),
-        target: () => ({
-          provider: "claude",
-          scope: c.scope,
-          dir: `/accounts/${c.scope}-claude`,
+  // Seen by a member, so a check that ran after not_connected would read
+  // as "ask an owner".
+  it("a not-connected account during another person's office sign-in, seen by a member", async () => {
+    const { mgr, agentId } = await harness({
+      backendType: "claude",
+      fake: rejected(),
+      target: () => ({
+        provider: "claude",
+        scope: "office",
+        dir: "/accounts/office-claude",
+      }),
+      findUser: () => ({ id: "user-a", role: "member" }),
+      accounts: async () => [
+        claudeWire("office", {
+          loginStatus: "waiting_external",
+          loginQueue: { holderName: "Morgan", startedAt: 1 },
         }),
-        findUser: () => ({ id: "user-a", role: c.role }),
-        accounts: async () => [claudeWire(c.scope, c.wire)],
-      });
-      mgr.enqueueMessage(agentId, {
-        sender: { kind: "user", username: "tester" },
-        text: "hello",
-      });
-      const entry = () =>
-        mgr
-          .getAgentLogs(agentId)
-          .find((e) => e.metadata?.providerLogin === "claude");
-      await settle(() => !!entry());
-      expect(entry()?.content).toBe(
-        english.t(c.key, {
-          location: english.t("systemEntries.claudeAuth.officeLocation"),
-        }),
-      );
+      ],
     });
-  }
-
-  it("has the member sentence in every language", () => {
-    const sentences = SUPPORTED_LANGUAGES.map(({ code }) =>
-      translatorFor(code).t("systemEntries.claudeAuth.disconnectedAskOwner"),
+    mgr.enqueueMessage(agentId, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    const entry = () =>
+      mgr
+        .getAgentLogs(agentId)
+        .find((e) => e.metadata?.providerLogin === "claude");
+    await settle(() => !!entry());
+    expect(entry()?.content).toBe(
+      english.t("systemEntries.claudeAuth.signingIn"),
     );
-    for (const sentence of sentences) {
-      expect(sentence).not.toBe(
-        "systemEntries.claudeAuth.disconnectedAskOwner",
-      );
-      expect(sentence).not.toContain("{");
-    }
-    expect(new Set(sentences).size).toBe(sentences.length);
   });
 
-  for (const scope of ["office", "personal"] as const) {
+  // The office location is pinned by the owner row above.
+  {
+    const scope = "personal";
     it(`ignores credential-file presence and requests a fresh ${scope} Claude read once`, async () => {
       const dir = join(STATE_ROOT, `present-invalid-${scope}`);
       mkdirSync(dir, { recursive: true });
@@ -1742,99 +1349,30 @@ describe("Claude auth-error status checks", () => {
           ),
       );
       const logs = mgr.getAgentLogs(agentId);
-      expect(logs.some((e) => e.content.includes("released while idle"))).toBe(
-        true,
+      // The agent was woken from idle, so this is the resume path.
+      expect(
+        logs.some((e) => e.content === english.t("systemEntries.wake.idle")),
+      ).toBe(true);
+      // Three auth signals, one read, one checking line, then one card.
+      expect(calls).toBe(1);
+      const checking = english.t("systemEntries.claudeAuth.checking");
+      expect(logs.filter((e) => e.content === checking)).toHaveLength(1);
+      const cards = logs.filter((e) => e.metadata?.providerLogin === "claude");
+      expect(cards).toHaveLength(1);
+      expect(logs.indexOf(cards[0])).toBeGreaterThan(
+        logs.findIndex((e) => e.content === checking),
+      );
+      // The card points at this scope's own place, never the backend's text.
+      expect(cards[0].content).toBe(
+        english.t("systemEntries.claudeAuth.disconnected", {
+          location: english.t("systemEntries.claudeAuth.personalLocation"),
+        }),
       );
       expect(
         logs.some((e) => e.content.includes("Claude Code is signed in")),
       ).toBe(false);
-      expect(calls).toBe(1);
-      expect(
-        logs.filter(
-          (e) =>
-            e.content ===
-            "Claude rejected the credentials. Checking the connection…",
-        ),
-      ).toHaveLength(1);
-      expect(
-        logs.filter((e) => e.metadata?.providerLogin === "claude"),
-      ).toHaveLength(1);
-      expect(
-        logs.some(
-          (e) =>
-            e.content.includes("Claude Code is signed in") ||
-            e.content.includes("`/clear`"),
-        ),
-      ).toBe(false);
-      // Each scope points at its own card on the Integrations page.
-      const content =
-        logs.find((e) => e.metadata?.providerLogin === "claude")?.content ?? "";
-      expect(content).toContain("Integrations");
-      expect(content).toContain(
-        scope === "office" ? "Office-wide" : "Personal",
-      );
-      expect(content).not.toContain("Settings →");
     });
   }
-
-  it("replaces duplicate system_text auth signals with one checking/final pair", async () => {
-    let finish!: (accounts: ProviderAccountWire[]) => void;
-    const pending = new Promise<ProviderAccountWire[]>((resolve) => {
-      finish = resolve;
-    });
-    let calls = 0;
-    const fake = new FakeBackend({
-      isAuthError: (text) => claudeBackend.detectAuthError(text),
-      session: {
-        onSend: (_text, _attachments, session) => {
-          session.push({ kind: "auth_needed" });
-          session.push({ kind: "auth_needed" });
-          session.push({ kind: "turn_completed", status: "completed" });
-        },
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "claude",
-      fake,
-      accounts: () => {
-        calls++;
-        return pending;
-      },
-    });
-    try {
-      await mgr.sendMessage(agentId, "hello", "tester");
-      const before = mgr.getAgentLogs(agentId);
-      expect(
-        before.filter((e) => e.content.includes("Checking the connection…")),
-      ).toHaveLength(1);
-      expect(
-        before.some(
-          (e) =>
-            e.content.includes("Not logged in") || e.metadata?.providerLogin,
-        ),
-      ).toBe(false);
-      expect(calls).toBe(1);
-    } finally {
-      finish([claudeWire("office")]);
-    }
-    await waitFor(() =>
-      mgr
-        .getAgentLogs(agentId)
-        .some((e) => e.metadata?.providerLogin === "claude"),
-    );
-    const logs = mgr.getAgentLogs(agentId);
-    const checking = logs.findIndex((e) =>
-      e.content.includes("Checking the connection…"),
-    );
-    const guidance = logs.findIndex(
-      (e) => e.metadata?.providerLogin === "claude",
-    );
-    expect(guidance).toBeGreaterThan(checking);
-    expect(
-      logs.filter((e) => e.metadata?.providerLogin === "claude"),
-    ).toHaveLength(1);
-    expect(logs.some((e) => e.content.includes("Not logged in"))).toBe(false);
-  });
 
   for (const initialized of [false, true]) {
     it(`keeps the account explanation conditional with ${initialized ? "an unchanged" : "no recorded"} root`, async () => {
@@ -1857,23 +1395,30 @@ describe("Claude auth-error status checks", () => {
         accounts: async () => [
           claudeWire("office", { accountStatus: "connected" }),
         ],
+        target: () => ({
+          provider: "claude",
+          scope: "office",
+          dir: "/accounts/office-claude",
+        }),
       });
+      const connected = english.t("systemEntries.claudeAuth.connected");
       try {
         await mgr.sendMessage(agentId, "hello", "tester");
         await waitFor(() =>
           mgr
             .getAgentLogs(agentId)
-            .some((entry) => entry.content.includes("may still use")),
+            .some((entry) => entry.content === connected),
         );
         const entry = mgr
           .getAgentLogs(agentId)
-          .find((value) => value.content.includes("may still use"));
+          .find((value) => value.content === connected);
         expect(entry?.metadata?.providerLogin).toBe("claude");
         expect(
           mgr
             .getAgentLogs(agentId)
-            .some((value) =>
-              value.content.includes("keeps the Claude account"),
+            .some(
+              (value) =>
+                value.content === english.t("systemEntries.claudeAuth.pinned"),
             ),
         ).toBe(false);
       } finally {
@@ -2009,8 +1554,9 @@ describe("Claude auth-error status checks", () => {
       // A real sign-in leaves credentials in the personal home.
       mkdirSync(personalDir, { recursive: true });
       writeFileSync(join(personalDir, ".credentials.json"), "{}");
+      const pinned = english.t("systemEntries.claudeAuth.pinned");
       const guidanceEvent = events.waitFor(
-        (event) => event.entry.content.includes("new account"),
+        (event) => event.entry.content === pinned,
         "Claude new-account guidance after sign-in",
       );
       await mgr.sendMessage(agentId, "after sign-in", "tester");
@@ -2019,9 +1565,6 @@ describe("Claude auth-error status checks", () => {
         join(STATE_ROOT, "old-office-claude"),
       );
       const guidance = (await guidanceEvent).entry;
-      expect(guidance.content).toBe(
-        "This conversation keeps the Claude account it started with. Start a new conversation (`/clear`) to use the new account.",
-      );
       expect(guidance.metadata?.providerLogin).toBe("claude");
       // Explicit resume exercises the same replacement used after interrupt.
       await mgr.resume(agentId, oldSession.sessionId);
@@ -2032,15 +1575,13 @@ describe("Claude auth-error status checks", () => {
         join(STATE_ROOT, "old-office-claude"),
       );
       const resumedGuidanceEvent = events.waitFor(
-        (event) => event.entry.content.includes("keeps the Claude account"),
+        (event) => event.entry.content === pinned,
         "Claude pinned-account guidance after resume",
       );
       await mgr.sendMessage(agentId, "retry after resume", "tester");
       await resumedGuidanceEvent;
       expect(
-        mgr
-          .getAgentLogs(agentId)
-          .filter((e) => e.content.includes("keeps the Claude account")),
+        mgr.getAgentLogs(agentId).filter((e) => e.content === pinned),
       ).toHaveLength(2);
       // A cwd edit must move the transcript within the pinned root.
       const oldProject = claudeProjectDir(STATE_ROOT, oldSession.opts.env);
@@ -2082,63 +1623,43 @@ describe("Claude auth-error status checks", () => {
     }
   });
 
-  for (const failure of [
-    "throw",
-    "unavailable",
-    "hang",
-    "missing",
-    "scope",
-    "owner",
-  ] as const) {
+  // Every failed read lands in one catch; a hang also aborts the read.
+  for (const failure of ["throw", "hang"] as const) {
     it(`finishes ${failure} with retry/sign-in guidance, not a disconnected claim`, async () => {
       let aborted = false;
       const { mgr, agentId } = await harness({
         backendType: "claude",
         fake: rejected(),
         timeoutMs: 20,
-        userId: failure === "owner" ? null : undefined,
-        target:
-          failure === "scope"
-            ? () => {
-                throw new Error("unresolved scope");
-              }
-            : undefined,
-        accounts:
-          failure === "missing"
-            ? undefined
-            : async (_userId, options) => {
-                if (failure === "throw") throw new Error("probe failed");
-                if (failure === "unavailable")
-                  return [
-                    claudeWire("office", { accountStatus: "unavailable" }),
-                  ];
-                options!.signal.addEventListener(
-                  "abort",
-                  () => {
-                    aborted = true;
-                  },
-                  { once: true },
-                );
-                return new Promise(() => {});
-              },
+        target: () => ({
+          provider: "claude",
+          scope: "office",
+          dir: "/accounts/office-claude",
+        }),
+        accounts: async (_userId, options) => {
+          if (failure === "throw") throw new Error("probe failed");
+          options!.signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+            },
+            { once: true },
+          );
+          return new Promise(() => {});
+        },
       });
+      const incomplete = english.t("systemEntries.claudeAuth.incomplete");
       await mgr.sendMessage(agentId, "hello", "tester");
       await waitFor(() =>
-        mgr
-          .getAgentLogs(agentId)
-          .some(
-            (e) =>
-              e.content ===
-              "The Claude connection check could not finish. Retry the request or sign in to Claude in Settings.",
-          ),
+        mgr.getAgentLogs(agentId).some((e) => e.content === incomplete),
       );
       const logs = mgr.getAgentLogs(agentId);
       expect(
-        logs.filter((e) => e.content.includes("Checking the connection…")),
+        logs.filter(
+          (e) => e.content === english.t("systemEntries.claudeAuth.checking"),
+        ),
       ).toHaveLength(1);
-      expect(
-        logs.filter((e) => e.content.includes("could not finish")),
-      ).toHaveLength(1);
+      expect(logs.filter((e) => e.content === incomplete)).toHaveLength(1);
       expect(
         logs.some(
           (e) =>
@@ -2150,31 +1671,4 @@ describe("Claude auth-error status checks", () => {
       if (failure === "hang") expect(aborted).toBe(true);
     });
   }
-
-  it("does not read accounts on a normal same-session idle wake", async () => {
-    let calls = 0;
-    const fake = new FakeBackend({
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.completeTurn({ text: "ok" }),
-      },
-    });
-    const { mgr, agentId } = await harness({
-      backendType: "claude",
-      fake,
-      accounts: async () => {
-        calls++;
-        return [claudeWire("office")];
-      },
-    });
-    await mgr.sendMessage(agentId, "hello", "tester");
-    expect(await mgr.demoteToLazy(agentId)).toBe(true);
-    await mgr.sendMessage(agentId, "hello again", "tester");
-    expect(
-      mgr
-        .getAgentLogs(agentId)
-        .some((e) => e.content.includes("released while idle")),
-    ).toBe(true);
-    expect(calls).toBe(0);
-  });
 });

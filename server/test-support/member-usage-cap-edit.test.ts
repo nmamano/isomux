@@ -140,6 +140,14 @@ describe("member usage cap: edit-to-fork", () => {
       .filter((e) => e.kind === "error")
       .at(-1);
     expect(refusal?.metadata?.[FAILED_EDIT_TEXT_KEY]).toBe("second draft");
+    // The cap refused it, not one of the edit's other failure paths.
+    expect(
+      refusal?.message?.some(
+        (part) =>
+          typeof part !== "string" &&
+          part.key === "systemEntries.usageCap.pace",
+      ),
+    ).toBe(true);
     // The parent conversation is back: its first message is still there.
     expect(
       mgr

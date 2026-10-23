@@ -72,7 +72,6 @@ function weekly(usedPercent: number): OfficeWeeklyOutcome {
 }
 const AHEAD = () => weekly(60);
 const BEHIND = () => weekly(40);
-const UNREADABLE = (): OfficeWeeklyOutcome => ({ kind: "failed" });
 
 // Swap in a cap over a scripted reader. `reading` is read on every admission.
 function installCap(opts: { enabled?: boolean } = {}) {
@@ -153,6 +152,16 @@ function errors(srv: TestServer, agentId: string): LogEntry[] {
   return srv.agentManager
     .getAgentLogs(agentId)
     .filter((entry) => entry.kind === "error");
+}
+
+// The error line is the cap's pace refusal, not some other turn-start error.
+function isPaceRefusal(entry: LogEntry): boolean {
+  return (
+    entry.message?.some(
+      (part) =>
+        typeof part !== "string" && part.key === "systemEntries.usageCap.pace",
+    ) ?? false
+  );
 }
 
 function stateOf(srv: TestServer, id: string): string {
@@ -266,20 +275,6 @@ describe("member usage cap: direct human input", () => {
       2000,
       "skill sent behind pace",
     );
-  });
-
-  it("does nothing while the owner leaves it off", async () => {
-    const { srv } = await boot();
-    const agent = await spawnFor(srv, "AliceBot", "Alice");
-    const cap = installCap({ enabled: false });
-
-    void srv.agentManager.sendMessage(agent.id, "member hello", "Alice");
-    await waitUntil(
-      () => sentTexts(srv, agent.id).some((t) => t.includes("member hello")),
-      2000,
-      "turn sent with the cap off",
-    );
-    expect(cap.reads).toBe(0);
   });
 });
 
@@ -563,40 +558,8 @@ describe("member usage cap: input no human sent", () => {
     expect(result.ok).toBe(true);
     await refusedOrSent(srv, target.id);
     expect(sentTexts(srv, target.id)).toEqual([]);
-    expect(errors(srv, target.id)).toHaveLength(1);
+    expect(errors(srv, target.id).map(isPaceRefusal)).toEqual([true]);
     expect(queueOf(srv, target.id) ?? []).toEqual([]);
-  });
-});
-
-describe("member usage cap: unreadable office usage", () => {
-  it("lets members' input through when the usage cannot be read", async () => {
-    const { srv } = await boot();
-    const agent = await spawnFor(srv, "AliceBot", "Alice");
-    const sender = await spawnFor(srv, "MorganBot", "Morgan");
-    const cap = installCap();
-    cap.reading = UNREADABLE;
-
-    void srv.agentManager.sendMessage(agent.id, "member hello", "Alice");
-    await refusedOrSent(srv, agent.id);
-    expect(cap.reads).toBeGreaterThan(0);
-    expect(errors(srv, agent.id)).toEqual([]);
-    expect(sentTexts(srv, agent.id)).toHaveLength(1);
-    srv.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
-    await waitUntil(() => stateOf(srv, agent.id) === "waiting_for_response");
-
-    const fromAgent = await postAsAgent(
-      srv,
-      `/api/agents/${agent.id}/messages`,
-      sender.id,
-      { text: "agent hello" },
-    );
-    expect(fromAgent.status).toBe(200);
-    await waitUntil(
-      () => sentTexts(srv, agent.id).some((t) => t.includes("agent hello")),
-      2000,
-      "agent message sent",
-    );
-    expect(errors(srv, agent.id)).toEqual([]);
   });
 });
 

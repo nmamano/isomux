@@ -64,15 +64,6 @@ export function setOnOwnerCreated(cb: OwnerCreatedCb | null): void {
   onOwnerCreated = cb;
 }
 
-// Test-only driver for the registered first-owner hook. This lets onboarding
-// tests prove the seed itself is idempotent without manufacturing a second
-// first-owner auth transition, which the real auth state correctly forbids.
-export async function _testRunOwnerCreatedHook(
-  username: string,
-): Promise<void> {
-  await onOwnerCreated?.({ username });
-}
-
 // Origin check. Reverse proxies are configured by the operator setting the
 // office's public origin (office-config.json `publicOrigin`); we do not infer the origin from Host/X-Forwarded-Host
 // because that's how WebSocket-hijacking bugs happen.

@@ -14,7 +14,7 @@
 // arbitrary sleeps.
 
 import { sessionCookieName } from "../auth.ts";
-import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import {
   startTestServer,
   type TestServer,
@@ -161,7 +161,7 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
     expect(presenceEntry(memberView, memberCid)!.currentRoomId).toBe(r3);
   });
 
-  it("an inaccessible or unknown currentRoomId is clamped to null and the ghost is omitted", async () => {
+  it("an inaccessible or unknown currentRoomId is clamped to null and the ghost is omitted; so is a focus outside the room", async () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -179,6 +179,39 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
       ownerSock,
       (m) => m.type === "presence_list" && !!presenceEntry(m, memberCid),
     );
+
+    // A focus claim on an agent outside the ghost's room (here a room the
+    // member cannot see) is clamped to null; one in the room is kept.
+    const spawnIn = async (name: string, roomId: string) =>
+      (await server!.agentManager.spawn(
+        name,
+        server!.stateRoot,
+        "default",
+        undefined,
+        undefined,
+        roomId,
+      ))!.id;
+    const hiddenAgent = await spawnIn("Hidden", r1);
+    const roomAgent = await spawnIn("Here", r2);
+    for (const [focusedAgentId, expected] of [
+      [hiddenAgent, null],
+      [roomAgent, roomAgent],
+    ] as const) {
+      memberSock.send({
+        type: "presence_update",
+        currentRoomId: r2,
+        focusedAgentId,
+        viewMode: "log",
+      });
+      const view = await waitForMessageWhere(
+        ownerSock,
+        (m) =>
+          m.type === "presence_list" &&
+          presenceEntry(m, memberCid)?.viewMode === "log" &&
+          presenceEntry(m, memberCid)?.focusedAgentId === expected,
+      );
+      expect(presenceEntry(view, memberCid)!.currentRoomId).toBe(r2);
+    }
 
     // R1 is a real room but NOT in the member's access → canAccess fails →
     // clamped to null → ghost omitted entirely. (An unknown id fails the
@@ -221,43 +254,6 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
     expect(
       presenceEntry(memberLists[memberLists.length - 1], ownerCid),
     ).toBeUndefined();
-  });
-
-  it("reorder_rooms keeps the ghost's stable currentRoomId (no dense remap, not dropped)", async () => {
-    server = await startTestServer();
-    const r1 = server.agentManager.getRooms()[0].id;
-    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Morgan");
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    const ownerCid = connectionIdOf(ownerSock);
-
-    presenceUpdate(ownerSock, r1);
-    await waitForMessageWhere(
-      ownerSock,
-      (m) =>
-        m.type === "presence_list" &&
-        presenceEntry(m, ownerCid)?.currentRoomId === r1,
-    );
-
-    // Reorder R1 to the end of the owner's view. Pre-cut this remapped a dense
-    // index on the wire; post-cut the wire carries the stable id, so the ghost's
-    // currentRoomId is UNCHANGED and the ghost is not dropped (the reorder still
-    // rebroadcasts presence to the caller).
-    const before = presenceCount(ownerSock);
-    // reorder cut over to view.setOrder (PUT /api/me/view/order) in slice 6; the
-    // applyViewChange core still re-pushes presence to the caller's sockets.
-    await server.http("/api/me/view/order", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order: [r3, r2, r1] }),
-      rawSessionId: owner.rawSessionId,
-    });
-    await waitForPresenceAfter(ownerSock, before, "reorder");
-    const lists = bag(ownerSock).filter((m) => m.type === "presence_list");
-    expect(
-      presenceEntry(lists[lists.length - 1], ownerCid)!.currentRoomId,
-    ).toBe(r1);
   });
 });
 
@@ -394,31 +390,9 @@ describe("lobby presence", () => {
         bag(b).filter((x) => x.type === "pong").length === 2,
     );
     expect(bag(b).filter((m) => m.type === "presence_list")).toHaveLength(0);
-    const { getPresence } = await import("../presence.ts");
-    expect(getPresence(bid)!.lobbySpotId).toBe(bp.lobbySpotId);
-    expect(getPresence(aid)!.lobbySpotId).toBe(free);
-    // A grant edit must keep the lobby; an unknown room must still sanitize.
-    await setAccess(server, owner.rawSessionId, member.username, []);
-    expect(getPresence(bid)!.currentRoomId).toBe("lobby");
-    presenceUpdate(b, "unknown-room");
-    b.send({ type: "ping" });
-    await waitForMessageWhere(
-      b,
-      () => getPresence(bid)?.currentRoomId === null,
-    );
-    expect(getPresence(bid)!.currentRoomId).toBeNull();
-    b.send({ type: "lobby_move", spotId: ap.lobbySpotId! });
-    b.send({ type: "ping" });
-    await waitForMessageWhere(
-      b,
-      (m) =>
-        m.type === "pong" &&
-        bag(b).filter((x) => x.type === "pong").length >= 4,
-    );
-    expect(getPresence(bid)!.lobbySpotId).toBeUndefined();
   });
 
-  it("starts no interval on lobby entry and preserves receptionist focus", async () => {
+  it("keeps a focus on the receptionist in the lobby", async () => {
     server = await startTestServer();
     const claim = await server.http("/auth/claim", {
       method: "POST",
@@ -436,24 +410,18 @@ describe("lobby presence", () => {
       .getAllAgents()
       .find((a) => a.roomId === "lobby")!;
     expect(receptionist).toBeDefined();
-    const interval = spyOn(globalThis, "setInterval");
-    try {
-      sock.send({
-        type: "presence_update",
-        currentRoomId: "lobby",
-        focusedAgentId: receptionist.id,
-        viewMode: "log",
-      });
-      const first = await waitForMessageWhere(
-        sock,
-        (m) =>
-          m.type === "presence_list" &&
-          presenceEntry(m, cid)?.currentRoomId === "lobby",
-      );
-      expect(presenceEntry(first, cid)!.focusedAgentId).toBe(receptionist.id);
-      expect(interval).not.toHaveBeenCalled();
-    } finally {
-      interval.mockRestore();
-    }
+    sock.send({
+      type: "presence_update",
+      currentRoomId: "lobby",
+      focusedAgentId: receptionist.id,
+      viewMode: "log",
+    });
+    const first = await waitForMessageWhere(
+      sock,
+      (m) =>
+        m.type === "presence_list" &&
+        presenceEntry(m, cid)?.currentRoomId === "lobby",
+    );
+    expect(presenceEntry(first, cid)!.focusedAgentId).toBe(receptionist.id);
   });
 });

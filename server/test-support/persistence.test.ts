@@ -1,15 +1,14 @@
 // Phase 1.3 - Persistence round-trip + pre-flatten (stable-room-IDs) characterization.
 //
 // Freezes TODAY's on-disk persistence at the persistence-FUNCTION seam:
-// loadAgents/saveAgents, loadTasks/saveTasks, the cronjob config + run files,
+// loadAgents/saveAgents, the legacy tasks.json import, the cronjob config + run files,
 // agent-history, office/server config, recent-cwds, and users (via the real
 // write API - there is no saveUsers). Two jobs:
 //   - Round-trip: write then load, asserting field preservation, so the Phase 3
 //     refactor cannot silently drop or mangle a persisted field.
 //   - Stable-room-IDs (3c) shape: agents.json stays a nested Room[] (NO
 //     structural flatten - additive only). Phase 3c slice 1 stamps an explicit
-//     roomId on each PersistedAgent, backfilled from its container room. userId
-//     is still NOT resolved at this layer (that is agent-manager's job).
+//     roomId on each PersistedAgent, backfilled from its container room.
 //
 // Why NOT the WS harness (startTestServer): the harness WIPES + recreates
 // STATE_ROOT on boot (clean slate per server), so it cannot host pre-seeded
@@ -20,14 +19,9 @@
 // Isolation: beforeEach wipes + recreates STATE_ROOT (mirroring the harness) and
 // resets the one cached module on this seam (users.ts). Most persistence
 // functions are stateless reads/writes of STATE_ROOT, so no other cache to drop.
-//
-// Updated for 3c slice 1: the roomId assertion flipped from "absent" to
-// "backfilled from container" (additive, no structural flatten). The remaining
-// nested/positional + userId-not-derived assertions stay current-behavior.
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   writeFileSync,
@@ -37,12 +31,11 @@ import {
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
+import { createTaskStore } from "../task-store.ts";
 import { compressTranscript } from "../transcript-files.ts";
 import {
   loadAgents,
   saveAgents,
-  loadTasks,
-  saveTasks,
   loadAgentHistory,
   saveAgentHistory,
   loadRecentCwds,
@@ -89,7 +82,6 @@ import {
 import { _testResetSentinel } from "../migrations.ts";
 import type {
   AgentOutfit,
-  TaskItem,
   Cronjob,
   CronjobRun,
   LogEntry,
@@ -176,16 +168,9 @@ describe("agents persistence round-trip (Phase 1.3)", () => {
         agents: [claude],
       },
       { id: "bbbb0002", name: "Room 2", prompt: null, agents: [codex] },
+      { id: "cccc0003", name: "Empty", prompt: null, agents: [] },
     ];
 
-    saveAgents(rooms);
-    expect(loadAgents()).toEqual(rooms);
-  });
-
-  it("round-trips an empty room (a room with no agents survives)", () => {
-    const rooms: Room[] = [
-      { id: "aaaa0001", name: "Room 1", prompt: null, agents: [] },
-    ];
     saveAgents(rooms);
     expect(loadAgents()).toEqual(rooms);
   });
@@ -214,59 +199,6 @@ describe("users persistence round-trip (Phase 1.3)", () => {
     _testResetUsers();
     const reloaded = getUserById(claimed.id);
     expect(reloaded).toEqual(inMemory);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Round-trip: tasks
-// ---------------------------------------------------------------------------
-
-describe("tasks persistence round-trip (Phase 1.3)", () => {
-  it("preserves TaskItem[] (all fields) through saveTasks -> loadTasks", () => {
-    // Without version: it is derived, and OfficeState stamps it after a load.
-    const tasks: Omit<TaskItem, "version">[] = [
-      {
-        id: "task0001",
-        title: "Ship 1.3",
-        description: "the persistence net",
-        priority: "P1",
-        status: "in_progress",
-        assignee: "Isomuxer1",
-        createdBy: "Isomuxer1",
-        username: "Nil",
-        createdAt: 1700000000000,
-      },
-      {
-        // Minimal task: only the required fields. Optional-absence is pinned
-        // explicitly by the key-set assertion below (toEqual alone can't catch
-        // an injected `undefined` key, and JSON.stringify drops it on save).
-        id: "task0002",
-        title: "Backlog item",
-        status: "open",
-        createdBy: "Nil",
-        createdAt: 1700000001000,
-      },
-      {
-        id: "task0003",
-        title: "Dropped",
-        description: "superseded by task0001",
-        status: "obsolete",
-        createdBy: "Nil",
-        createdAt: 1700000002000,
-      },
-    ];
-    saveTasks(tasks);
-    const loaded = loadTasks();
-    expect(loaded).toEqual(tasks);
-    // A loader that injected an optional field (even as undefined) would change
-    // this key set; toEqual would not catch it.
-    expect(Object.keys(loaded[1]).sort()).toEqual([
-      "createdAt",
-      "createdBy",
-      "id",
-      "status",
-      "title",
-    ]);
   });
 });
 
@@ -300,13 +232,17 @@ describe("backlog -> P4 boot migration (task 77460aea)", () => {
           status: "open",
           createdBy: "Nil",
           createdAt: 3,
+          version: "stale",
         },
       ]),
     );
 
   it("turns every backlog task into an open P4 task and leaves the rest", () => {
     seed();
-    const byId = new Map(loadTasks().map((t) => [t.id, t]));
+    const loaded = createTaskStore().load();
+    // The import runs once: a second load reads the same board.
+    expect(createTaskStore().load()).toEqual(loaded);
+    const byId = new Map(loaded.map((t) => [t.id, t]));
     for (const id of ["b0000001", "b0000002"]) {
       expect(byId.get(id)?.status).toBe("open");
       expect(byId.get(id)?.priority).toBe("P4");
@@ -315,31 +251,8 @@ describe("backlog -> P4 boot migration (task 77460aea)", () => {
       status: "open",
       priority: "P2",
     });
-  });
-
-  it("imports the new shape once and preserves the original JSON", () => {
-    seed();
-    const original = readFileSync(tasksFile(), "utf-8");
-    const first = loadTasks();
-    expect(readFileSync(tasksFile(), "utf-8")).toBe(original);
-    expect(loadTasks()).toEqual(first);
-  });
-
-  it("drops a stored version, which OfficeState recomputes", () => {
-    writeFileSync(
-      tasksFile(),
-      JSON.stringify([
-        {
-          id: "v0000001",
-          title: "t",
-          status: "open",
-          createdBy: "Nil",
-          createdAt: 1,
-          version: "stale",
-        },
-      ]),
-    );
-    expect(loadTasks()[0]).not.toHaveProperty("version");
+    // OfficeState recomputes the version; a stored one is dropped.
+    expect(byId.get("o0000001")).not.toHaveProperty("version");
   });
 });
 
@@ -399,26 +312,6 @@ describe("cronjob persistence round-trip (Phase 1.3)", () => {
   it("preserves Cronjob[] through saveCronjobs -> loadCronjobs", () => {
     saveCronjobs([job]);
     expect(loadCronjobs()).toEqual([job]);
-  });
-
-  it("preserves an OpenCode composite model in cron definition and run snapshots", () => {
-    const openCodeJob: Cronjob = {
-      ...job,
-      id: "joboc001",
-      agentType: "opencode",
-      modelFamily: "gate/gate-model",
-    };
-    const openCodeRun: CronjobRun = {
-      ...run1,
-      id: "runoc001",
-      cronjobId: openCodeJob.id,
-      agentTypeSnapshot: "opencode",
-      modelFamilySnapshot: "gate/gate-model",
-    };
-    saveCronjobs([openCodeJob]);
-    saveRuns(openCodeJob.id, [openCodeRun]);
-    expect(loadCronjobs()).toEqual([openCodeJob]);
-    expect(loadRuns(openCodeJob.id)).toEqual([openCodeRun]);
   });
 
   it("preserves CronjobRun[] through saveRuns -> loadRuns and supports append/update/find", () => {
@@ -537,15 +430,6 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
     });
   });
 
-  it("does not restore the retired Browser panel setting", () => {
-    seed("office-config.json", {
-      prompt: "P",
-      name: "N",
-      experimental: { browserPanel: true },
-    });
-    expect(loadOfficeConfig()).not.toHaveProperty("experimental");
-  });
-
   it("saveOfficeConfig preserves the server/deployment sibling keys (publicOrigin/externalAccess)", () => {
     saveServerConfig({
       publicOrigin: "https://office.example.com",
@@ -647,6 +531,9 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
         seed("office-config.json", { networkBind });
         expect(loadServerConfig().networkBind).toBe("auto");
       }
+      // null is a silent unset: auto, and no log line.
+      seed("office-config.json", { networkBind: null });
+      expect(loadServerConfig().networkBind).toBe("auto");
     } finally {
       console.error = original;
     }
@@ -695,19 +582,6 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
     expect(errors).toHaveLength(4);
     expect(errors.every((line) => line.includes("trustedProxy"))).toBe(true);
   });
-
-  it("treats a null networkBind as a silent unset", () => {
-    seed("office-config.json", { networkBind: null });
-    const original = console.error;
-    const errors: string[] = [];
-    console.error = (...args: unknown[]) => errors.push(args.join(" "));
-    try {
-      expect(loadServerConfig().networkBind).toBe("auto");
-    } finally {
-      console.error = original;
-    }
-    expect(errors).toEqual([]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -724,8 +598,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
   //
   // loadAgents STILL returns Room[] with nested .agents (3c is additive, not a
   // structural flatten); slice 1 stamps each agent's roomId from its container
-  // room. The positional/return-shape and userId-not-derived tests stay
-  // current-behavior characterization; the roomId test pins the slice-1 backfill.
+  // room.
   function seedNestedAgents(): void {
     seed("agents.json", [
       {
@@ -774,16 +647,6 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     ]);
   }
 
-  it("loadAgents returns the nested Room[] with positional membership preserved", () => {
-    // Return-shape characterization (not a flatten tripwire - see describe note):
-    // pins that loadAgents groups agents by room, in order, by array position.
-    seedNestedAgents();
-    const rooms = loadAgents();
-    expect(rooms.map((r) => r.id)).toEqual(["aaaa0001", "bbbb0002"]);
-    expect(rooms[0].agents.map((a) => a.id)).toEqual(["agent-aaa"]);
-    expect(rooms[1].agents.map((a) => a.id)).toEqual(["agent-bbb"]);
-  });
-
   it("backfills an explicit roomId on each PersistedAgent from its container room (3c slice 1)", () => {
     // Phase 3c slice 1: a pre-3c file (no roomId on agents) is migrated on load
     // by stamping each agent's roomId from its container room - the physical
@@ -792,6 +655,10 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     // by the round-trip test above).
     seedNestedAgents();
     const rooms = loadAgents();
+    expect(rooms.map((r) => r.agents.map((a) => a.id))).toEqual([
+      ["agent-aaa"],
+      ["agent-bbb"],
+    ]);
     for (const room of rooms) {
       for (const agent of room.agents) {
         expect(agent.roomId).toBe(room.id);
@@ -835,100 +702,19 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     const rooms = loadAgents();
     expect(rooms[0].agents[0].roomId).toBe("aaaa0001"); // container wins
   });
-
-  it("preserves userId when present but does NOT derive it at this layer when absent", () => {
-    seedNestedAgents();
-    const rooms = loadAgents();
-    const alice = rooms[0].agents[0];
-    const bob = rooms[1].agents[0];
-
-    expect(alice.userId).toBe("user-1");
-    // Legacy username->userId resolution is agent-manager (restoreAgents)'s job,
-    // not persistence's. loadAgents must leave userId absent for Bob.
-    expect(Object.hasOwn(bob, "userId")).toBe(false);
-    expect(bob.manager).toBe("Nil");
-  });
-
-  it("users' room references (allowedRooms/notifRooms) stay intact and id-based; a legacy defaultRoomId field is tolerated and dropped", () => {
-    seed("users.json", {
-      "user-1": {
-        id: "user-1",
-        name: "Morgan",
-        role: "owner",
-        allowedRooms: ["aaaa0001", "bbbb0002"],
-        notifRooms: ["aaaa0001"],
-        // Simulates an existing users.json written before the Default Room
-        // setting was removed. The read must tolerate it (not crash) and simply
-        // ignore it - the field is dropped from the in-memory record.
-        defaultRoomId: "bbbb0002",
-        envFile: null,
-        createdAt: 1700000000000,
-        memberPrompt: null,
-        avatarColor: "#abcdef",
-        avatarVariant: "classic",
-      },
-    });
-    _testResetUsers();
-    const morgan = getUserById("user-1");
-    expect(morgan?.allowedRooms).toEqual(["aaaa0001", "bbbb0002"]);
-    expect(morgan?.notifRooms).toEqual(["aaaa0001"]);
-    expect(
-      (morgan as unknown as Record<string, unknown>).defaultRoomId,
-    ).toBeUndefined();
-  });
-
-  it("killed-agent summaries keep their lastRoomId reference", () => {
-    seed("agent-history.json", {
-      "agent-ccc": {
-        name: "Carol",
-        lastRoomId: "aaaa0001",
-        lastRoomName: "Room 1",
-        killedAt: 1700000005000,
-        userId: "user-1",
-        username: "Morgan",
-      },
-    });
-    const hist = loadAgentHistory();
-    expect(hist["agent-ccc"].lastRoomId).toBe("aaaa0001");
-    expect(hist["agent-ccc"].lastRoomName).toBe("Room 1");
-  });
-
-  it("loadAgents migrates in memory only - it does NOT rewrite agents.json on disk", () => {
-    seedNestedAgents();
-    const original = readFileSync(stateFile("agents.json"), "utf-8");
-    loadAgents();
-    // The upgraded shape lands on the next saveAgents (agent-manager's job),
-    // never as a side effect of loadAgents.
-    expect(readFileSync(stateFile("agents.json"), "utf-8")).toBe(original);
-  });
 });
 
 describe("per-session engine config (Claude <-> Codex switching)", () => {
   const AGENT = "agent-engine-test";
 
-  it("stamps and reads back a session's engine config", () => {
-    stampSessionEngineConfig(AGENT, "S1", {
-      agentType: "codex",
-      modelFamily: "gpt-5.5",
-      effort: "high",
-      permissionMode: "on-request",
-      codexSandbox: "workspace-write",
-    });
-    const cfg = getSessionEngineConfig(AGENT, "S1");
-    expect(cfg?.agentType).toBe("codex");
-    expect(cfg?.modelFamily).toBe("gpt-5.5");
-    expect(cfg?.effort).toBe("high");
-    expect(cfg?.permissionMode).toBe("on-request");
-    expect(cfg?.codexSandbox).toBe("workspace-write");
-  });
-
-  it("getSessionEngineConfig returns null for an unknown session", () => {
-    expect(getSessionEngineConfig(AGENT, "missing")).toBeNull();
-  });
-
   it("backfill tags legacy (engine-less) sessions but leaves stamped ones untouched", () => {
     // A legacy session: created with cwd only, no engine (pre-feature shape).
     ensureSessionCwd(AGENT, "legacy", "/home/u/proj");
+    // listAgentSessions enumerates by on-disk .jsonl transcript.
+    writeFileSync(stateFile(`logs/${AGENT}/legacy.jsonl`), "");
+    const before = listAgentSessions(AGENT).find(
+      (s) => s.sessionId === "legacy",
+    );
     expect(getSessionEngineConfig(AGENT, "legacy")?.agentType).toBeUndefined();
     // An already-stamped session must not be rewritten by the backfill.
     stampSessionEngineConfig(AGENT, "stamped", {
@@ -947,37 +733,20 @@ describe("per-session engine config (Claude <-> Codex switching)", () => {
       codexSandbox: undefined,
     });
 
-    // Legacy session adopts the agent's current engine...
+    // Legacy session adopts the agent's current engine, keeps its cwd and
+    // does not move in the resume picker...
     const legacy = getSessionEngineConfig(AGENT, "legacy");
     expect(legacy?.agentType).toBe("claude");
     expect(legacy?.modelFamily).toBe("opus");
-    // ...while the already-tagged Codex session is preserved verbatim.
-    const stamped = getSessionEngineConfig(AGENT, "stamped");
-    expect(stamped?.agentType).toBe("codex");
-    expect(stamped?.modelFamily).toBe("gpt-5.5");
-  });
-
-  it("backfill preserves the legacy session's cwd and does not reorder it", () => {
-    ensureSessionCwd(AGENT, "legacy", "/home/u/proj");
-    // listAgentSessions enumerates by on-disk .jsonl transcript, so create one
-    // for the session to appear (its metadata still comes from sessions.json).
-    writeFileSync(stateFile(`logs/${AGENT}/legacy.jsonl`), "");
-    const before = listAgentSessions(AGENT).find(
-      (s) => s.sessionId === "legacy",
-    );
-    backfillSessionEngineConfigs(AGENT, {
-      agentType: "claude",
-      modelFamily: "opus",
-      effort: "medium",
-      permissionMode: "auto",
-      codexSandbox: undefined,
-    });
     const after = listAgentSessions(AGENT).find(
       (s) => s.sessionId === "legacy",
     );
     expect(after?.cwd).toBe("/home/u/proj");
     expect(after?.lastModified).toBe(before?.lastModified);
-    expect(after?.agentType).toBe("claude");
+    // ...while the already-tagged Codex session is preserved verbatim.
+    const stamped = getSessionEngineConfig(AGENT, "stamped");
+    expect(stamped?.agentType).toBe("codex");
+    expect(stamped?.modelFamily).toBe("gpt-5.5");
   });
 
   it("stores the first user message preview beside session metadata", () => {
@@ -1031,18 +800,13 @@ describe("per-session engine config (Claude <-> Codex switching)", () => {
       kind: "user_message",
       content: "Readable session",
     });
-    const unreadable = stateFile(`logs/${AGENT}/unreadable.jsonl`);
-    writeFileSync(unreadable, "not readable");
-    chmodSync(unreadable, 0);
-    try {
-      expect(
-        listAgentSessions(AGENT).some(
-          (session) => session.sessionId === "readable",
-        ),
-      ).toBe(true);
-    } finally {
-      chmodSync(unreadable, 0o600);
-    }
+    // A directory fails the read for any uid (chmod 0 does not stop root).
+    mkdirSync(stateFile(`logs/${AGENT}/unreadable.jsonl`));
+    expect(
+      listAgentSessions(AGENT).some(
+        (session) => session.sessionId === "readable",
+      ),
+    ).toBe(true);
   });
 });
 

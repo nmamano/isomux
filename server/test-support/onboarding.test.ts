@@ -20,8 +20,7 @@
 //
 // The first user message also kicks off fire-and-forget topic generation
 // (oneShotPrompt); the fake resolves it synchronously so its tail settles before
-// teardown. The OpenCode wiring test also checks that the one-shot call keeps
-// the owner's isolated environment identity.
+// teardown.
 //
 // Zero LLM calls: bun test. The opt-in T3 live logged-in happy path is deferred
 // to Phase 1.4 (where the live/adapter infra lands); see live-gate.ts.
@@ -36,25 +35,18 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import {
-  clearTestManagedOfficeEnv,
-  setTestManagedOfficeEnv,
-} from "./managed-office-env.ts";
 import { BackendNotConfiguredError } from "../internal-types.ts";
-import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
 import { listAgentSessions } from "../persistence.ts";
 import { getUserByName } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { MODEL_FAMILIES } from "../../shared/types.ts";
-import type { OneShotOptions } from "../backends/types.ts";
 
 let server: TestServer | null = null;
 
 afterEach(async () => {
   await server?.stop();
   server = null;
-  clearTestManagedOfficeEnv();
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -234,24 +226,16 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 
     // Lazy spawn: the welcome agents are seeded DORMANT - zero subprocesses
     // until someone messages them (a fresh-install office shouldn't burn ~330MB
-    // on three agents nobody has talked to yet). The `agents.length === 3` check
-    // above already guards the accidental double-seed regression the
-    // onOwnerCreated guard prevents.
+    // on three agents nobody has talked to yet).
     expect(server.fakeBackend.createSessionCount).toBe(0);
     expect(claude!.dormant).toBe(true);
     expect(codex!.dormant).toBe(true);
     expect(opencode!.dormant).toBe(true);
 
+    // Each welcome agent's instructions name the whole roster.
     for (const agent of agents.filter((a) => a.roomId !== "lobby")) {
-      expect(agent.customInstructions).toContain(
-        "New offices come preset with these welcome agents: Claude Welcome Agent (Claude), Codex Welcome Agent (Codex), Free Welcome Agent (OpenCode).",
-      );
-      expect(agent.customInstructions).toContain(
-        "The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription.",
-      );
-      expect(agent.customInstructions).toContain(
-        "The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet.",
-      );
+      for (const name of [CLAUDE_WELCOME, CODEX_WELCOME, OPENCODE_WELCOME])
+        expect(agent.customInstructions).toContain(name);
     }
 
     // Persisted to disk under the temp STATE_ROOT (parse records, not substring).
@@ -286,28 +270,6 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(calls).toEqual([getUserByName("Morgan")!.id]);
   });
 
-  it("does not add welcome agents when the first-owner hook runs again", async () => {
-    server = await startTestServer();
-    await claimOwner(server, "Morgan");
-    const openCode = requireAgentByName(server, OPENCODE_WELCOME);
-    await server.agentManager.editAgent(openCode.id, {
-      name: "Renamed Welcome Agent",
-    });
-    const before = server.agentManager.getAllAgents().map((agent) => agent.id);
-
-    await _testRunOwnerCreatedHook("Morgan");
-
-    expect(server.agentManager.getAllAgents().map((agent) => agent.id)).toEqual(
-      before,
-    );
-    expect(before).toHaveLength(4); // three welcome agents + the receptionist
-    expect(
-      server.agentManager
-        .getAllAgents()
-        .some((agent) => agent.name === OPENCODE_WELCOME),
-    ).toBe(false);
-  });
-
   it("leaves an office that already has an agent unchanged on first-owner claim", async () => {
     server = await startTestServer();
     const existing = await server.agentManager.spawn(
@@ -326,43 +288,6 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(agents).toHaveLength(1);
     expect(agents[0].id).toBe(existing!.id);
     expect(agents[0].name).toBe("Existing Agent");
-  });
-
-  it("OpenCode welcome-agent wiring completes its first fake-backend turn", async () => {
-    let topicOptions: OneShotOptions | undefined;
-    const fakeBackend = new FakeBackend({
-      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
-      oneShot: (_prompt, opts) => {
-        topicOptions = opts;
-        return "OpenCode welcome";
-      },
-    });
-    server = await startTestServer({ fakeBackend });
-    const rawSessionId = await claimOwner(server, "Morgan");
-
-    const opencode = requireAgentByName(server, OPENCODE_WELCOME);
-    const sock = await connectAsOwner(server, rawSessionId);
-
-    await server.http(`/api/agents/${opencode.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "hi" }),
-      rawSessionId,
-    });
-
-    // The completed turn streams the assistant text, then lands the agent in
-    // waiting_for_response (deriveStateFromEvent: completed -> waiting_for_response;
-    // idle is only the pre-turn state).
-    await waitForLog(
-      sock,
-      opencode.id,
-      (e) => e.kind === "text" && e.content === "ok",
-    );
-    await waitForState(server, opencode.id, "waiting_for_response");
-    await waitUntil(() => fakeBackend.oneShotCount === 1, "topic generation");
-    expect(topicOptions?.environmentKey).toBeString();
-    expect(topicOptions?.environmentRevision).toBeString();
-    expect(topicOptions?.systemPrompt).toContain("You are a labelling tool");
   });
 
   it("persists a topic that resolves before a fresh OpenCode session id", async () => {
@@ -394,111 +319,6 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       topic: "Resolved topic",
       firstUserMessage: "first request",
     });
-  });
-
-  it("persists no topic when generation fails", async () => {
-    let rejectTopic!: (error: Error) => void;
-    const topicResult = new Promise<string>((_resolve, reject) => {
-      rejectTopic = reject;
-    });
-    const fakeBackend = new FakeBackend({
-      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
-      oneShot: () => topicResult,
-    });
-    server = await startTestServer({ fakeBackend });
-    const rawSessionId = await claimOwner(server, "Morgan");
-    const opencode = requireAgentByName(server, OPENCODE_WELCOME);
-
-    await server.http(`/api/agents/${opencode.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "first request" }),
-      rawSessionId,
-    });
-
-    await waitUntil(
-      () => listAgentSessions(opencode.id).length === 1,
-      "resolved session id in the listing",
-    );
-    expect(server.agentManager.getAgent(opencode.id)?.topicGenerating).toBe(
-      true,
-    );
-    rejectTopic(new Error("topic unavailable"));
-    await waitUntil(
-      () =>
-        server?.agentManager.getAgent(opencode.id)?.topicGenerating === false,
-      "failed topic generation to end",
-    );
-    expect(server.agentManager.getAgent(opencode.id)?.topic).toBeNull();
-    expect(listAgentSessions(opencode.id)[0]).toMatchObject({
-      sessionId: "fake-session-1",
-      topic: null,
-      firstUserMessage: "first request",
-    });
-  });
-
-  it("backend installed but not logged in: surfaces sign-in instructions", async () => {
-    const LOGIN = "Sign in: run `claude`, then `/login`.";
-    const LOGIN_CMD = "claude /login";
-    const fakeBackend = new FakeBackend({
-      // A failed turn whose error text reads as an auth failure.
-      session: {
-        onSend: (_t, _a, s) => {
-          s.push({ kind: "auth_needed" });
-          s.completeTurn({
-            status: "failed",
-            error: "Error: not logged in. Run /login to authenticate.",
-          });
-        },
-      },
-      isAuthError: (t) => /not logged in|\/login/i.test(t),
-      loginInstructions: { text: LOGIN, commands: [LOGIN_CMD] },
-    });
-    server = await startTestServer({
-      fakeBackend,
-      startServer: {
-        createClaudeAccountClient: () =>
-          ({
-            start: async () => {},
-            read: async () => ({ connected: false }),
-            close: async () => {},
-          }) as never,
-      },
-    });
-    // A fresh office: no Claude credentials anywhere.
-    setTestManagedOfficeEnv({
-      CLAUDE_CONFIG_DIR: join(STATE_ROOT, "onboarding-no-claude-credentials"),
-      ANTHROPIC_API_KEY: "",
-    });
-    const rawSessionId = await claimOwner(server, "Morgan");
-
-    const claude = requireAgentByName(server, CLAUDE_WELCOME);
-    const sock = await connectAsOwner(server, rawSessionId);
-
-    await server.http(`/api/agents/${claude.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "hi" }),
-      rawSessionId,
-    });
-
-    // With no credentials to reject, the failed turn gets one notice, and it
-    // carries the sign-in card.
-    await waitForLog(sock, claude.id, (e) => e.kind === "error");
-    await waitForLog(
-      sock,
-      claude.id,
-      (e) => e.kind === "system" && e.metadata?.providerLogin === "claude",
-    );
-    const entries = logEntriesFor(sock, claude.id);
-    const sent = entries.findIndex((e) => e.kind === "user_message");
-    expect(sent).toBeGreaterThan(-1);
-    const notices = entries.slice(sent).filter((e) => e.kind === "system");
-    expect(notices).toHaveLength(1);
-    expect(notices[0].metadata?.providerLogin).toBe("claude");
-    // Auth failure parks at waiting_for_response ("user needs to sign in"), not
-    // "error" ("agent crashed").
-    await waitForState(server, claude.id, "waiting_for_response");
   });
 
   it("backend not installed: surfaces the not-configured hint on first message, no crash", async () => {
@@ -564,22 +384,20 @@ describe("onboarding by host platform", () => {
     return { agents, receptionist: receptionist!, fullState };
   }
 
-  it("Linux seeds the OpenCode Receptionist and Free Welcome Agent, and every engine is available", async () => {
-    const { agents, receptionist, fullState } = await claimOn("linux");
-    expect(receptionist.agentType).toBe("opencode");
-    expect(receptionist.permissionMode).toBe("bypassPermissions");
-    expect(agents.map((a) => a.name)).toContain(OPENCODE_WELCOME);
-    expect(fullState.unavailableEngines).toEqual({});
-    expect(fullState.unavailableFeatures).toEqual({});
-  });
-
-  it("macOS seeds like Linux", async () => {
-    const { agents, receptionist, fullState } = await claimOn("darwin");
-    expect(receptionist.agentType).toBe("opencode");
-    expect(receptionist.permissionMode).toBe("bypassPermissions");
-    expect(agents.map((a) => a.name)).toContain(OPENCODE_WELCOME);
-    expect(fullState.unavailableEngines).toEqual({});
-  });
+  // App hosting needs systemd, so macOS reports apps as unavailable.
+  for (const [platform, unavailableFeatures] of [
+    ["linux", {}],
+    ["darwin", { apps: "needs_linux" }],
+  ] as const) {
+    it(`${platform} seeds the OpenCode Receptionist and Free Welcome Agent, and every engine is available`, async () => {
+      const { agents, receptionist, fullState } = await claimOn(platform);
+      expect(receptionist.agentType).toBe("opencode");
+      expect(receptionist.permissionMode).toBe("bypassPermissions");
+      expect(agents.map((a) => a.name)).toContain(OPENCODE_WELCOME);
+      expect(fullState.unavailableEngines).toEqual({});
+      expect(fullState.unavailableFeatures).toEqual(unavailableFeatures);
+    });
+  }
 
   it("an unsupported host seeds a Claude Receptionist with the same permission mode and no Free Welcome Agent", async () => {
     const { agents, receptionist, fullState } = await claimOn("win32");

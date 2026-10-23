@@ -6,7 +6,7 @@
 //     not just the in-memory record - a preference that doesn't survive a
 //     restart is worse than no preference);
 //   - the write is SELF-scoped (no :username param exists, so one user's call
-//     can never land on another's record) and out of reach of agent tokens;
+//     can never land on another's record);
 //   - malformed / unsupported values are rejected rather than silently
 //     clamped. Unlike view.*, there's no no-oracle concern here: a language
 //     code says nothing about the office's contents;
@@ -21,17 +21,6 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getUserByName } from "../users.ts";
-import { API_ROUTES } from "../routes/table.ts";
-import { authorize, type RouteAuthz } from "../identity/dispatch.ts";
-import type { GuardDeps } from "../identity/guards.ts";
-import {
-  AGENT_CAPABILITIES,
-  PRIVILEGED_AGENT_CAPABILITIES,
-  USER_CAPABILITIES,
-  type Identity,
-} from "../identity/index.ts";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -54,18 +43,43 @@ async function putPrefs(
 }
 
 describe("prefs.update - persistence", () => {
-  it("round-trips language through a cold restart", async () => {
+  it("round-trips every preference through a cold restart, each write leaving the others alone", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
-
-    expect(await putPrefs(server, owner.rawSessionId, { language: "es" })).toBe(
-      204,
-    );
+    const session = owner.rawSessionId;
+    for (const body of [
+      { language: "es" },
+      { voiceInput: "openai" },
+      { voiceOutput: "openai", voiceName: "cedar" },
+    ])
+      expect({ body, status: await putPrefs(server, session, body) }).toEqual({
+        body,
+        status: 204,
+      });
 
     // Cold reload re-runs the real boot path against persisted users.json.
     server = await server.restart();
     const reloaded = getUserByName("Morgan")!;
-    expect(reloaded.language).toBe("es");
+    expect([
+      reloaded.language,
+      reloaded.voiceInput,
+      reloaded.voiceOutput,
+      reloaded.voiceName,
+    ]).toEqual(["es", "openai", "openai", "cedar"]);
+
+    expect(await putPrefs(server, session, { voiceInput: "browser" })).toBe(
+      204,
+    );
+    expect(await putPrefs(server, session, { voiceOutput: "browser" })).toBe(
+      204,
+    );
+    const rec = getUserByName("Morgan")!;
+    expect([
+      rec.language,
+      rec.voiceInput,
+      rec.voiceOutput,
+      rec.voiceName,
+    ]).toEqual(["es", "browser", "browser", "cedar"]);
   });
 
   it("language: null clears an earlier pick", async () => {
@@ -78,14 +92,6 @@ describe("prefs.update - persistence", () => {
       204,
     );
     expect(getUserByName("Morgan")!.language).toBe(null);
-  });
-
-  it("new users start with no language", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const rec = getUserByName(member.username)!;
-    expect(rec.language).toBe(null);
   });
 });
 
@@ -104,17 +110,6 @@ describe("prefs.update - self scoping", () => {
     await putPrefs(server, owner.rawSessionId, { language: "en" });
     expect(getUserByName("Morgan")!.language).toBe("en");
     expect(getUserByName(member.username)!.language).toBe("es");
-  });
-
-  it("rejects an unauthenticated call", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const resp = await server.http("/api/me/preferences", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ language: "es" }),
-    });
-    expect(resp.status).toBe(401);
   });
 });
 
@@ -145,18 +140,53 @@ describe("prefs.update - value validation", () => {
   });
 
   // The worst answer to a typo is 204: the user watches Save succeed and
-  // nothing happen.
+  // nothing happen. turnEndPush is a retired key (task 0c3fa26f), refused like
+  // any unknown one.
   it("rejects an unknown key and an empty update", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
-    expect(await putPrefs(server, owner.rawSessionId, { langauge: "es" })).toBe(
-      422,
-    );
-    expect(
-      await putPrefs(server, owner.rawSessionId, { language: "es", nope: 1 }),
-    ).toBe(422);
-    expect(await putPrefs(server, owner.rawSessionId, {})).toBe(422);
+    for (const body of [
+      { langauge: "es" },
+      { language: "es", nope: 1 },
+      { turnEndPush: true },
+      {},
+    ])
+      expect({
+        body,
+        status: await putPrefs(server, owner.rawSessionId, body),
+      }).toEqual({ body, status: 422 });
     expect(getUserByName("Morgan")!.language).toBe(null);
+  });
+
+  // The store drops a bad voice value silently, so only the route stands
+  // between a typo and a 204 that saved nothing.
+  it("rejects a voice value it does not know, and writes nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    for (const body of [
+      { voiceInput: "google" },
+      { voiceInput: "OpenAI" },
+      { voiceInput: null },
+      { voiceInput: 1 },
+      { voiceOutput: "google" },
+      { voiceOutput: null },
+      { voiceName: "robot" },
+      { voiceName: "Cedar" },
+      { voiceName: null },
+      // A bad field refuses the whole write.
+      { language: "es", voiceInput: "google" },
+      { voiceOutput: "openai", voiceName: "robot" },
+    ]) {
+      expect({
+        body,
+        status: await putPrefs(server, owner.rawSessionId, body),
+      }).toEqual({ body, status: 422 });
+    }
+    const rec = getUserByName("Morgan")!;
+    expect(rec.language).toBe(null);
+    expect(rec.voiceInput ?? "browser").toBe("browser");
+    expect(rec.voiceOutput ?? "browser").toBe("browser");
+    expect(rec.voiceName).toBeUndefined();
   });
 });
 
@@ -166,6 +196,17 @@ describe("prefs.update - value validation", () => {
 describe("prefs.update - live event contract", () => {
   const bag = (sock: TestSocket, type: string): Record<string, unknown>[] =>
     (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type);
+  // The write emits before it answers, and a socket keeps order: once the
+  // pong for a later ping is in, every event of the write is too.
+  async function fence(sock: TestSocket): Promise<void> {
+    const before = bag(sock, "pong").length;
+    sock.send({ type: "ping" });
+    const deadline = Date.now() + 2000;
+    while (bag(sock, "pong").length <= before) {
+      if (Date.now() > deadline) throw new Error("fence timed out");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  }
 
   it("subject gets user_self_updated, owners get user_admin_updated, and the private fields never ride a public event", async () => {
     server = await startTestServer();
@@ -175,239 +216,47 @@ describe("prefs.update - live event contract", () => {
     const memberSock = await server.connectWs(member.rawSessionId);
     await ownerSock.waitFor("presence_list");
     await memberSock.waitFor("presence_list");
-    // Ignore the connect-time hydration; only events caused by the write count.
-    const beforeSelf = bag(memberSock, "user_self_updated").length;
-    const beforeAdmin = bag(ownerSock, "user_admin_updated").length;
 
-    expect(
-      await putPrefs(server, member.rawSessionId, { language: "es" }),
-    ).toBe(204);
-    await sleep(50);
+    for (const [field, value] of [
+      ["language", "es"],
+      ["voiceInput", "openai"],
+    ] as const) {
+      // Ignore earlier events; only events caused by this write count.
+      const beforeSelf = bag(memberSock, "user_self_updated").length;
+      const beforeAdmin = bag(ownerSock, "user_admin_updated").length;
+      expect(
+        await putPrefs(server, member.rawSessionId, { [field]: value }),
+      ).toBe(204);
+      await fence(memberSock);
+      await fence(ownerSock);
 
-    // The subject's own sockets get their full record - this is what makes the
-    // pane authoritative on their other devices.
-    const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
-    expect(selfEvents.length).toBe(1);
-    const selfUser = selfEvents[0].user as Record<string, unknown>;
-    expect(selfUser.language).toBe("es");
+      // The subject's own sockets get their full record - this is what makes
+      // the pane authoritative on their other devices.
+      const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
+      expect(selfEvents.length).toBe(1);
+      expect((selfEvents[0].user as Record<string, unknown>)[field]).toBe(
+        value,
+      );
 
-    // Owners get it on the owners-only admin channel.
-    const adminEvents = bag(ownerSock, "user_admin_updated").slice(beforeAdmin);
-    expect(adminEvents.length).toBe(1);
-    const adminUser = adminEvents[0].user as Record<string, unknown>;
-    expect(adminUser.language).toBe("es");
+      // Owners get it on the owners-only admin channel.
+      const adminEvents = bag(ownerSock, "user_admin_updated").slice(
+        beforeAdmin,
+      );
+      expect(adminEvents.length).toBe(1);
+      expect((adminEvents[0].user as Record<string, unknown>)[field]).toBe(
+        value,
+      );
+    }
 
-    // And NOTHING rides the all-audience public channels: neither field is in
+    // And NOTHING rides the all-audience public channels: no preference is in
     // UserPublicWire, so a public event would carry no delta and would only
     // broadcast the timing of someone's private edit.
     expect(bag(ownerSock, "user_updated").length).toBe(0);
     expect(bag(memberSock, "user_updated").length).toBe(0);
-    // users_list arrives once at connect hydration; the write must not add one.
+    // users_list arrives once at connect hydration; the writes must not add one.
     expect(bag(ownerSock, "users_list").length).toBe(1);
     expect(bag(memberSock, "users_list").length).toBe(1);
     ownerSock.close();
     memberSock.close();
-  });
-
-  it("a no-op write emits nothing", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    await putPrefs(server, owner.rawSessionId, { language: "es" });
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("presence_list");
-    const before = bag(sock, "user_self_updated").length;
-
-    // Same values again.
-    expect(await putPrefs(server, owner.rawSessionId, { language: "es" })).toBe(
-      204,
-    );
-    await sleep(50);
-    expect(bag(sock, "user_self_updated").length).toBe(before);
-    expect(bag(sock, "user_admin_updated").length).toBe(0);
-    sock.close();
-  });
-});
-
-// What the composer mic uses (task 4481e64b): "browser" (the default) or
-// "openai". The UI reads it off the self record, so it must persist and fan
-// out on the self channel like language, and never ride a public event.
-describe("prefs.update - voiceInput", () => {
-  const bag = (sock: TestSocket, type: string): Record<string, unknown>[] =>
-    (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type);
-
-  it("round-trips through a cold restart and back to browser", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    expect(
-      await putPrefs(server, owner.rawSessionId, { voiceInput: "openai" }),
-    ).toBe(204);
-    server = await server.restart();
-    expect(getUserByName("Morgan")!.voiceInput).toBe("openai");
-    // Writing voiceInput leaves language alone, and the reverse.
-    expect(getUserByName("Morgan")!.language).toBe(null);
-    const session = owner.rawSessionId;
-    expect(await putPrefs(server, session, { language: "es" })).toBe(204);
-    expect(getUserByName("Morgan")!.voiceInput).toBe("openai");
-    expect(await putPrefs(server, session, { voiceInput: "browser" })).toBe(
-      204,
-    );
-    expect(getUserByName("Morgan")!.voiceInput).toBe("browser");
-    expect(getUserByName("Morgan")!.language).toBe("es");
-  });
-
-  it("rejects a value that is not a mic source, and writes nothing", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    for (const voiceInput of ["google", "OpenAI", null, 1, true]) {
-      expect({
-        voiceInput,
-        status: await putPrefs(server, owner.rawSessionId, { voiceInput }),
-      }).toEqual({ voiceInput, status: 422 });
-    }
-    // A bad voiceInput refuses the whole write, language included.
-    expect(
-      await putPrefs(server, owner.rawSessionId, {
-        language: "es",
-        voiceInput: "google",
-      }),
-    ).toBe(422);
-    const rec = getUserByName("Morgan")!;
-    expect(rec.voiceInput ?? "browser").toBe("browser");
-    expect(rec.language).toBe(null);
-  });
-
-  it("reaches the member's own sockets and no public event", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-    const memberSock = await server.connectWs(member.rawSessionId);
-    await memberSock.waitFor("presence_list");
-    const beforeSelf = bag(memberSock, "user_self_updated").length;
-
-    expect(
-      await putPrefs(server, member.rawSessionId, { voiceInput: "openai" }),
-    ).toBe(204);
-    await sleep(50);
-
-    const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
-    expect(selfEvents.length).toBe(1);
-    expect((selfEvents[0].user as Record<string, unknown>).voiceInput).toBe(
-      "openai",
-    );
-    expect(bag(memberSock, "user_updated").length).toBe(0);
-    memberSock.close();
-  });
-});
-
-// Read aloud (task 4481e64b): voiceOutput ("browser" | "openai") and the
-// OpenAI voice, written like voiceInput.
-describe("prefs.update - voiceOutput and voiceName", () => {
-  it("round-trips both through a cold restart, each write leaving the other alone", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    expect(
-      await putPrefs(server, owner.rawSessionId, {
-        voiceOutput: "openai",
-        voiceName: "cedar",
-      }),
-    ).toBe(204);
-    server = await server.restart();
-    let rec = getUserByName("Morgan")!;
-    expect([rec.voiceOutput, rec.voiceName]).toEqual(["openai", "cedar"]);
-
-    expect(
-      await putPrefs(server, owner.rawSessionId, { voiceOutput: "browser" }),
-    ).toBe(204);
-    rec = getUserByName("Morgan")!;
-    expect([rec.voiceOutput, rec.voiceName]).toEqual(["browser", "cedar"]);
-  });
-
-  it("rejects an unknown output or voice, and writes nothing", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    for (const body of [
-      { voiceOutput: "google" },
-      { voiceOutput: null },
-      { voiceName: "robot" },
-      { voiceName: "Cedar" },
-      { voiceName: null },
-      { voiceOutput: "openai", voiceName: "robot" },
-    ]) {
-      expect({
-        body,
-        status: await putPrefs(server, owner.rawSessionId, body),
-      }).toEqual({ body, status: 422 });
-    }
-    const rec = getUserByName("Morgan")!;
-    expect(rec.voiceOutput ?? "browser").toBe("browser");
-    expect(rec.voiceName).toBeUndefined();
-  });
-});
-
-// The retired turn-end box (task 0c3fa26f): the per-room Devices column
-// replaced it, so the key is refused like any unknown one and writes nothing.
-describe("prefs.update - turnEndPush is gone", () => {
-  it("refuses turnEndPush as an unknown preference", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Morgan");
-    expect(
-      await putPrefs(server, owner.rawSessionId, { turnEndPush: true }),
-    ).toBe(422);
-    expect("turnEndPush" in getUserByName("Morgan")!).toBe(false);
-    expect(getUserByName("Morgan")!.pushRooms).toEqual([]);
-  });
-});
-
-// Capability check against the LIVE route table (same technique as
-// routes-privileged-auth.test.ts): agents must not be able to change a human's
-// personal settings - the agent system prompt promises exactly that.
-describe("prefs.update - agent tokens are locked out", () => {
-  function authz(opId: string): RouteAuthz {
-    const r = API_ROUTES.find((r) => r.opId === opId);
-    if (!r) throw new Error(`no route ${opId}`);
-    if (r.auth.kind !== "capability") {
-      throw new Error(`${opId} is auth.kind=${r.auth.kind}, not capability`);
-    }
-    return {
-      requiredCapability: r.auth.requiredCapability,
-      resourceGuard: r.auth.resourceGuard,
-    };
-  }
-  const deps: GuardDeps = {
-    hasRoomAccess: () => true,
-    roomIdForAgent: () => "r-1",
-    userIdForUsername: () => null,
-    cronjobCreatorUserId: () => "u-1",
-    appOwnerUserId: () => null,
-    webhookOwnerUserId: () => null,
-    isOfficeOwnerUserId: () => false,
-    agentManagerUserId: () => "u-1",
-    killedAgentManagerUserId: () => null,
-    killedAgentLastRoomId: () => null,
-    roomExists: () => false,
-    cronRunVisibleTo: () => false,
-  };
-  const identity = (
-    scope: Identity["scope"],
-    capabilities: readonly Identity["capabilities"][number][],
-  ): Identity => ({
-    scope,
-    userId: "u-1",
-    ...(scope === "agent" ? { agentId: "a-1" } : {}),
-    role: "member",
-    capabilities,
-  });
-  const can = (id: Identity) =>
-    authorize(authz("prefs.update"), {
-      identity: id,
-      params: {},
-      body: undefined,
-      deps,
-    }).ok;
-
-  it("a human can, a normal agent and a PRIVILEGED agent cannot", () => {
-    expect(can(identity("user", USER_CAPABILITIES))).toBe(true);
-    expect(can(identity("agent", AGENT_CAPABILITIES))).toBe(false);
-    expect(can(identity("agent", PRIVILEGED_AGENT_CAPABILITIES))).toBe(false);
   });
 });

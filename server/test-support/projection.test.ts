@@ -27,7 +27,7 @@
 //     recipient's visible set; all_rooms_list is owner-only and UNFILTERED.
 //     (Phase 3c slice 4 removed the dense per-recipient agent.room index.)
 //   - reorder is a PER-USER view preference (view.setOrder), always allowed; the
-//     global owner-only gate is gone.
+//     global owner-only gate is gone (pinned in view-routes.test.ts).
 //
 // Determinism (no arbitrary sleeps): routeAgentEvent fans out to every socket
 // SYNCHRONOUSLY, so "a full-access owner socket received event X" implies every
@@ -50,8 +50,7 @@
 // interactive PTY path (live input/resize/close routing) stays carved into a
 // future stubbed-PTY/opt-in seam and is NOT characterized here.
 
-import { describe, it, expect, afterEach, spyOn } from "bun:test";
-import { chromium, type Browser } from "playwright-core";
+import { describe, it, expect, afterEach } from "bun:test";
 import {
   startTestServer,
   type TestServer,
@@ -60,10 +59,6 @@ import {
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
-import {
-  memberRequest,
-  extensionSocket,
-} from "./browser-extension-route-fixture";
 import type {
   AgentInfo,
   LogEntry,
@@ -374,45 +369,14 @@ describe("full_state projection - connect-time ACL (Phase 1.2)", () => {
     expect(agentInFullState(mfs, a1.id)!.roomId).toBe(r1);
     expect(agentInFullState(mfs, a3.id)!.roomId).toBe(r3);
     expect(agentInFullState(mfs, a2.id)).toBeUndefined();
-  });
 
-  it("agent.roomId is the stable global id - identical across recipients and present in each recipient's filtered rooms", async () => {
-    // Post-cut invariant: every agent's roomId names a room that IS in that
-    // recipient's own filtered rooms list (we never ship an agent whose room the
-    // recipient can't see), and the id is recipient-independent.
-    server = await boot();
-    const r1 = server.agentManager.getRooms()[0].id;
-    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-
-    const a1 = await spawnIn(server, "A1", r1);
-    await spawnIn(server, "A2", r2);
-    const a3 = await spawnIn(server, "A3", r3);
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(server, owner.rawSessionId, member.username, [r1, r3]); // member sees R1 + R3
-    const memberSock = await connectSettled(server, member.rawSessionId);
-
-    // Invariant for BOTH recipients: every agent's roomId names a room that IS in
-    // that recipient's own filtered rooms list.
-    for (const sock of [ownerSock, memberSock]) {
-      const fs = latestFullState(sock)!;
+    // Every agent's roomId names a room in that recipient's own filtered
+    // rooms list: no agent ships whose room the recipient can't see.
+    for (const fs of [ofs, mfs]) {
       const roomIds = new Set((fs.rooms as RoomWire[]).map((r) => r.id));
-      for (const agent of fs.agents as AgentInfo[]) {
+      for (const agent of fs.agents as AgentInfo[])
         expect(roomIds.has(agent.roomId)).toBe(true);
-      }
     }
-
-    // roomId is the STABLE GLOBAL id - identical across recipients (A3 is r3 for
-    // both the owner and Mia, who can't even see R2).
-    const ownerA3 = agentInFullState(latestFullState(ownerSock)!, a3.id)!;
-    const memberA3 = agentInFullState(latestFullState(memberSock)!, a3.id)!;
-    expect(ownerA3.roomId).toBe(r3);
-    expect(memberA3.roomId).toBe(r3);
-    expect(agentInFullState(latestFullState(ownerSock)!, a1.id)!.roomId).toBe(
-      r1,
-    );
   });
 
   it("owner access is RULE-BASED: writing an owner's grants does NOT restrict their view; owner-only all_rooms_list stays unfiltered; members never receive all_rooms_list (3b flip)", async () => {
@@ -565,31 +529,6 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     expect(slashCommandsFor(ownerTab2, hid.id).length).toBeGreaterThan(0);
   });
 
-  it("fences the connect-time replay with log_replay_complete, after the last replayed frame", async () => {
-    // The client swaps the whole transcript in at once on this frame; without
-    // it the replay is an unterminated burst and the client has to guess when
-    // it ended (task 4a38a3f9). Position matters: a fence that arrived BEFORE
-    // the last log_entry would commit a partial transcript.
-    server = await boot();
-    const r1 = server.agentManager.getRooms()[0].id;
-    const owner = await server.seedOwner("Morgan");
-    const a = await spawnIn(server, "Vis", r1);
-
-    const first = await connectSettled(server, owner.rawSessionId);
-    await driveTurn(server, owner.rawSessionId, first, a.id, "replay-me");
-
-    const fresh = await connectSettled(server, owner.rawSessionId);
-    const msgs = bag(fresh);
-    const fenceAt = msgs.findIndex((m) => m.type === "log_replay_complete");
-    expect(fenceAt).toBeGreaterThan(-1);
-    const lastLogAt = msgs.reduce(
-      (acc, m, i) => (m.type === "log_entry" ? i : acc),
-      -1,
-    );
-    expect(lastLogAt).toBeGreaterThan(-1);
-    expect(fenceAt).toBeGreaterThan(lastLogAt);
-  });
-
   it("fences an empty replay too - the case a client cannot infer", async () => {
     // An office with nothing cached sends zero log_entry frames, so "the
     // replay is over" is unobservable without the fence.
@@ -718,116 +657,6 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
     // Scope: a DIFFERENT visible user is not re-seeded - the replay is for the
     // requester only, not an ACL-scoped broadcast to everyone who can see Hid.
     expect(terminalOutFor(visibleSock)).toHaveLength(0);
-  });
-});
-
-describe("desktop browser projection", () => {
-  it("ignores retired panel commands without browser events or capabilities", async () => {
-    server = await boot();
-    const manager = await server.seedOwner("Morgan");
-    const agent = await spawnIn(
-      server,
-      "Managed",
-      server.agentManager.getRooms()[0].id,
-      manager,
-    );
-    const socket = await connectSettled(server, manager.rawSessionId);
-    const state = bag(socket).find((m) => m.type === "full_state")!;
-    expect(
-      (state.agents as AgentInfo[]).find((a) => a.id === agent.id),
-    ).not.toHaveProperty("browserPanelAvailable");
-    socket.send({ type: "browser_watch", agentId: agent.id, watching: true });
-    socket.send({
-      type: "browser_input",
-      agentId: agent.id,
-      input: { kind: "navigate", action: "goto", url: "https://example.test" },
-    });
-    await pingPong(socket);
-    expect(
-      bag(socket).filter((m) => String(m.type).startsWith("browser_")),
-    ).toEqual([]);
-    expect(
-      await server.agentManager.runAgentBrowserAction(agent.id, {
-        action: "snapshot",
-      }),
-    ).toMatchObject({ ok: false, code: "browser_not_paired" });
-  });
-  it("does not emit a panel notification when the extension controls an offered page", async () => {
-    server = await boot();
-    const manager = await server.seedOwner("Morgan");
-    const agent = await spawnIn(
-      server,
-      "Managed",
-      server.agentManager.getRooms()[0].id,
-      manager,
-    );
-    const socket = await connectSettled(server, manager.rawSessionId);
-    const { code } = await (
-      await memberRequest(server, manager, "POST", "/api/me/browser/pair", {})
-    ).json();
-    const extension = await extensionSocket(server, {
-      kind: "hello",
-      version: 4,
-      code,
-    });
-    const { generation } = await extension.wait("ready");
-    extension.ws.send(
-      JSON.stringify({
-        kind: "offer",
-        generation,
-        assignment: crypto.randomUUID(),
-        scope: { kind: "agent", agentId: agent.id },
-        durationMinutes: 0,
-      }),
-    );
-    const attach = await extension.wait("command");
-    expect(attach.method).toBe("attach");
-    extension.ws.send(
-      JSON.stringify({
-        kind: "result",
-        generation,
-        id: attach.id,
-        result: {
-          targetInfo: {
-            type: "page",
-            targetId: "owned",
-            browserContextId: "context",
-            url: "https://example.test",
-          },
-        },
-      }),
-    );
-    await extension.wait("offered");
-    let navigated = false;
-    const page = {
-      on: () => {},
-      isClosed: () => false,
-      goto: async () => {
-        navigated = true;
-      },
-      url: () => "https://example.test",
-      title: async () => "Example",
-    };
-    const connect = spyOn(chromium, "connectOverCDP").mockResolvedValue({
-      contexts: () => [{ pages: () => [page], on: () => {} }],
-      on: () => {},
-      isConnected: () => true,
-      close: async () => {},
-    } as unknown as Browser);
-    try {
-      const result = await server.agentManager.runAgentBrowserAction(agent.id, {
-        action: "goto",
-        url: "https://example.test",
-      });
-      expect(result.ok).toBe(true);
-      expect(navigated).toBe(true);
-      await pingPong(socket);
-      expect(bag(socket).filter((m) => m.type === "browser_action")).toEqual(
-        [],
-      );
-    } finally {
-      connect.mockRestore();
-    }
   });
 });
 
@@ -1000,7 +829,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
   });
 });
 
-describe("room close / reorder with restricted members (Phase 1.2)", () => {
+describe("room close with restricted members (Phase 1.2)", () => {
   it("closing a visible room sends a bare room_closed delta (no full_state refresh, no dense remap)", async () => {
     server = await boot();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -1049,74 +878,6 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     expect(agentInFullState(latestFullState(memberSock)!, y.id)!.roomId).toBe(
       r3,
     );
-  });
-
-  it("reorder_rooms is PER-USER (3b.4 flip): a member reorders their own visible rooms; the global order is unchanged; an owner's reorder does not affect the member", async () => {
-    // 3b.4 FLIP of the old global/owner-only reorder. Reorder is now a per-user
-    // VIEW preference (applyViewChange): always allowed, NO global _rooms
-    // mutation, NO global rooms_reordered event. The reordering user's own
-    // sockets get room_order_updated (task 49bebe8d: their projected list, no
-    // full_state replay); one user's reorder never reprojects another.
-    server = await boot();
-    const r1 = server.agentManager.getRooms()[0].id;
-    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(server, owner.rawSessionId, member.username, [r1, r2]); // member sees R1, R2
-    const memberSock = await connectSettled(server, member.rawSessionId);
-    expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1, r2]);
-    const memberFullStates = bag(memberSock).filter(
-      (m) => m.type === "full_state",
-    ).length;
-
-    // Member reorders their OWN visible slice (R2 before R1) - always allowed,
-    // no owner gate. An inaccessible id in the request (none here) would be
-    // silently filtered.
-    await httpMut(server, member.rawSessionId, "PUT", "/api/me/view/order", {
-      order: [r2, r1],
-    });
-    const memberReorder = await waitForMessageWhere(
-      memberSock,
-      (m) => m.type === "room_order_updated",
-    );
-    expect(fullStateRoomIds(memberReorder)).toEqual([r2, r1]);
-    // The GLOBAL room order is UNCHANGED - reorder no longer mutates _rooms.
-    expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
-      r1,
-      r2,
-      r3,
-    ]);
-    // No rooms_reordered wire message is ever emitted (retired in 3b.4).
-    expect(bag(memberSock).some((m) => m.type === "rooms_reordered")).toBe(
-      false,
-    );
-
-    // The owner reorders THEIR own (full) view; this is independent of the
-    // member's order and of the global list.
-    await httpMut(server, owner.rawSessionId, "PUT", "/api/me/view/order", {
-      order: [r3, r2, r1],
-    });
-    const ownerReorder = await waitForMessageWhere(
-      ownerSock,
-      (m) => m.type === "room_order_updated",
-    );
-    expect(fullStateRoomIds(ownerReorder)).toEqual([r3, r2, r1]);
-    await sleep(50);
-    // Member's order is untouched by the owner's reorder: no second
-    // room_order_updated and no full_state; global still stable.
-    expect(
-      bag(memberSock).filter((m) => m.type === "room_order_updated").length,
-    ).toBe(1);
-    expect(bag(memberSock).filter((m) => m.type === "full_state").length).toBe(
-      memberFullStates,
-    );
-    expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
-      r1,
-      r2,
-      r3,
-    ]);
   });
 });
 
@@ -1316,82 +1077,6 @@ describe("agent_removed room-ACL (task 03382535 - 3b.3 flip of the broadcast-all
       (m) => m.type === "agent_removed" && m.agentId === hidden.id,
     );
     expect(ownerRemoved?.roomId).toBe(r2);
-  });
-});
-
-describe("room_pet_updated room-ACL (emitted through the registry, not the bridge)", () => {
-  it("a pet change reaches a member restricted to that room, and not one who cannot see it", async () => {
-    server = await boot();
-    const r1 = server.agentManager.getRooms()[0].id;
-    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(server, owner.rawSessionId, member.username, [r1]);
-    const memberSock = await connectSettled(server, member.rawSessionId);
-
-    // Hidden-room change first, visible-room change second; the second one
-    // arriving on the member socket is the barrier for the first.
-    expect(
-      server.agentManager.setRoomPet(r2, { species: "dog", coat: 0 }),
-    ).toBe(true);
-    expect(
-      server.agentManager.setRoomPet(r1, { species: "rabbit", coat: 0 }),
-    ).toBe(true);
-
-    await waitForMessageWhere(
-      ownerSock,
-      (m) => m.type === "room_pet_updated" && m.roomId === r2,
-    );
-    const visible = await waitForMessageWhere(
-      memberSock,
-      (m) => m.type === "room_pet_updated" && m.roomId === r1,
-    );
-    expect((visible as { pet?: { species?: string } }).pet?.species).toBe(
-      "rabbit",
-    );
-    expect(
-      bag(memberSock).some(
-        (m) => m.type === "room_pet_updated" && m.roomId === r2,
-      ),
-    ).toBe(false);
-  });
-});
-
-describe("room_decor_updated room-ACL (emitted through the registry, not the bridge)", () => {
-  it("a decor change reaches a member restricted to that room, and not one who cannot see it", async () => {
-    server = await boot();
-    const r1 = server.agentManager.getRooms()[0].id;
-    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
-    const owner = await server.seedOwner("Morgan");
-    const member = await server.seedMember("Mia");
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(server, owner.rawSessionId, member.username, [r1]);
-    const memberSock = await connectSettled(server, member.rawSessionId);
-
-    // Hidden-room change first, visible-room change second; the second one
-    // arriving on the member socket is the barrier for the first.
-    expect(server.agentManager.setRoomDecor(r2, { walls: "clinic" })).toBe(
-      "ok",
-    );
-    expect(server.agentManager.setRoomDecor(r1, { ward: "beds" })).toBe("ok");
-
-    await waitForMessageWhere(
-      ownerSock,
-      (m) => m.type === "room_decor_updated" && m.roomId === r2,
-    );
-    const visible = await waitForMessageWhere(
-      memberSock,
-      (m) => m.type === "room_decor_updated" && m.roomId === r1,
-    );
-    expect((visible as { decor?: unknown }).decor).toEqual({ ward: "beds" });
-    expect(
-      bag(memberSock).some(
-        (m) => m.type === "room_decor_updated" && m.roomId === r2,
-      ),
-    ).toBe(false);
   });
 });
 

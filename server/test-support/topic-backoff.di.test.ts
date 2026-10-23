@@ -180,13 +180,16 @@ describe("topic generation backoff", () => {
   it("skips automatic tries until the wait ends, and doubles the wait", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { topicCalls, agentId, send } = await harness([
+      const { topicCalls, agentId, topic, generating, send } = await harness([
         timedOut(),
         timedOut(),
         timedOut(),
       ]);
       await send("first");
       expect(topicCalls()).toBe(1);
+      // A first label that fails leaves no topic, and the flag drops.
+      expect(topic()).toBeNull();
+      expect(generating()).toBe(false);
       await send("second, same minute");
       expect(topicCalls()).toBe(1);
 

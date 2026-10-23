@@ -1629,10 +1629,6 @@ export function saveAgentHistory(history: AgentHistory) {
   }
 }
 
-// Existing import seam for persistence characterization and migration tests.
-// Runtime task mutations use createTaskStore's per-record operations.
-export { loadTasks, saveTasks } from "./task-store.ts";
-
 const SCHEDULED_MESSAGES_FILE = join(ISOMUX_DIR, "scheduled-messages.json");
 
 // Load the raw scheduled-messages array. Returns unknown[] - per-entry shape

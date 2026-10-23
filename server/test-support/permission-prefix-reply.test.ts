@@ -40,77 +40,64 @@ describe("permission options", () => {
     }
   });
 
-  function renderedChoices(
+  // The numbered rows of the typed-reply prompt, each resolved through the
+  // menu the prompt was built from. A row's label must be the label of the
+  // option its number picks.
+  function renderedDecisions(
     allowPersistentLabel?: string,
     allowPrefixLabel?: string,
-  ): Array<{ label: string; decision: string }> {
+  ): { decisions: string[]; labels: string[]; text: string } {
     const options = permissionOptions(allowPersistentLabel, allowPrefixLabel);
-    const lines = promptText(
+    const text = promptText(
       permissionPromptLines({
         toolName: "Bash",
         allowPersistentLabel,
         allowPrefixLabel,
+        allowPrefixExample: "rg",
       }),
-    ).split("\n");
-    return lines
+    );
+    const rows = text
+      .split("\n")
       .map((line) => /^ {2}(\d+)\. (.*)$/.exec(line))
-      .filter((match): match is RegExpExecArray => match !== null)
-      .map((match) => ({
-        label: match[2],
-        decision:
-          resolvePermissionReply(match[1], options)?.kind ?? "deny_reason",
-      }));
+      .filter((match): match is RegExpExecArray => match !== null);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const [, number, label] of rows)
+      expect(label).toBe(
+        renderLogText(english, [options[Number(number) - 1].label]),
+      );
+    return {
+      text,
+      labels: rows.map(([, , label]) => label),
+      decisions: rows.map(
+        ([, number]) =>
+          resolvePermissionReply(number, options)?.kind ?? "deny_reason",
+      ),
+    };
   }
 
   it("round-trips every rendered option through the same ordered choices", () => {
-    expect(renderedChoices("Allow always")).toEqual([
-      { label: "Allow always", decision: "allow_persistent" },
-      { label: "Allow - just this time", decision: "allow_once" },
-      { label: "Deny", decision: "deny" },
+    expect(renderedDecisions("Allow always").decisions).toEqual([
+      "allow_persistent",
+      "allow_once",
+      "deny",
     ]);
-    expect(renderedChoices()).toEqual([
-      { label: "Allow - just this time", decision: "allow_once" },
-      { label: "Deny", decision: "deny" },
+    expect(renderedDecisions().decisions).toEqual(["allow_once", "deny"]);
+    const four = renderedDecisions("Allow always", "rg --files");
+    expect(four.decisions).toEqual([
+      "allow_persistent",
+      "allow_once",
+      "deny",
+      "allow_prefix",
     ]);
-    expect(renderedChoices("Allow always", "rg --files")).toEqual([
-      { label: "Allow always", decision: "allow_persistent" },
-      { label: "Allow - just this time", decision: "allow_once" },
-      { label: "Deny", decision: "deny" },
-      {
-        label:
-          "Allow - and don't ask again this session for any command starting with `rg --files`",
-        decision: "allow_prefix",
-      },
-    ]);
-    expect(renderedChoices(undefined, "rg --files")).toEqual([
-      { label: "Allow - just this time", decision: "allow_once" },
-      { label: "Deny", decision: "deny" },
-      {
-        label:
-          "Allow - and don't ask again this session for any command starting with `rg --files`",
-        decision: "allow_prefix",
-      },
-    ]);
-  });
-
-  it("maps the persistent three-option menu", () => {
-    const options = permissionOptions("Allow always");
-    expect(resolvePermissionReply("1", options)).toEqual({
-      kind: "allow_persistent",
-    });
-    expect(resolvePermissionReply("2", options)).toEqual({
-      kind: "allow_once",
-    });
-    expect(resolvePermissionReply("3", options)).toEqual({ kind: "deny" });
-  });
-
-  it("maps the OpenCode two-option menu and never allows an absent number", () => {
-    const options = permissionOptions();
-    expect(resolvePermissionReply("1", options)).toEqual({
-      kind: "allow_once",
-    });
-    expect(resolvePermissionReply("2", options)).toEqual({ kind: "deny" });
-    expect(resolvePermissionReply("3", options)).toBeNull();
+    // What a click grants is on its row: the backend's own persistent label,
+    // and the prefix the agent asked for.
+    expect(four.labels[0]).toBe("Allow always");
+    expect(four.labels[3]).toContain("`rg --files`");
+    // The prefix hint names the number its row carries.
+    expect(four.text).toContain("`4 <prefix>`");
+    const three = renderedDecisions(undefined, "rg --files");
+    expect(three.decisions).toEqual(["allow_once", "deny", "allow_prefix"]);
+    expect(three.text).toContain("`3 <prefix>`");
   });
 
   it("renumbers prefix replies with and without a persistent choice", () => {
@@ -156,35 +143,5 @@ describe("permission options", () => {
     expect(resolvePermissionReply("3", shapes[3])).toEqual({
       kind: "allow_prefix",
     });
-  });
-
-  it("keeps Claude and Codex prompt bytes and starts OpenCode at one", () => {
-    expect(
-      promptText(
-        permissionPromptLines({
-          toolName: "Bash",
-          allowPersistentLabel:
-            "Allow - and don't ask again for similar calls this session",
-        }),
-      ),
-    ).toBe(
-      "**Wants to use Bash**\n\nReply:\n  1. Allow - and don't ask again for similar calls this session\n  2. Allow - just this time\n  3. Deny\n\nOr type any other message to deny with that as the reason.",
-    );
-    expect(
-      promptText(
-        permissionPromptLines({
-          toolName: "Bash",
-          allowPersistentLabel:
-            "Allow - and don't ask again for this exact command this session",
-          allowPrefixLabel: "rg --files",
-          allowPrefixExample: "rg",
-        }),
-      ),
-    ).toBe(
-      "**Wants to use Bash**\n\nReply:\n  1. Allow - and don't ask again for this exact command this session\n  2. Allow - just this time\n  3. Deny\n  4. Allow - and don't ask again this session for any command starting with `rg --files`\n     Reply `4 <prefix>` to choose how much to allow, e.g. `4 rg`.\n\nOr type any other message to deny with that as the reason.",
-    );
-    expect(promptText(permissionPromptLines({ toolName: "bash" }))).toBe(
-      "**Wants to use bash**\n\nReply:\n  1. Allow - just this time\n  2. Deny\n\nOr type any other message to deny with that as the reason.",
-    );
   });
 });

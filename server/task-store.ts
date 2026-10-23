@@ -112,22 +112,6 @@ function loadFromStore(store: AuditStore, root: string): StoredTask[] {
     }[]
   ).map((r) => JSON.parse(r.record) as StoredTask);
 }
-export function loadTasks(): StoredTask[] {
-  return loadFromStore(officeAuditStore(), STATE_ROOT);
-}
-// Tests only: whole-board fixture seeding. Production mutations
-// use change(), never a whole-board save. No audit backfill for imported state.
-export function saveTasks(tasks: StoredTask[]): void {
-  const { db } = officeAuditStore();
-  db.transaction(() => {
-    db.exec("DELETE FROM tasks");
-    for (const task of tasks)
-      db.query("INSERT INTO tasks(id,record) VALUES (?,?)").run(
-        task.id,
-        JSON.stringify(stored(task)),
-      );
-  })();
-}
 export function createTaskStore(
   getStore: () => AuditStore = officeAuditStore,
   root = STATE_ROOT,

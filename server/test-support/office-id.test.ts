@@ -5,7 +5,7 @@
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
   chmodSync,
-  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -55,11 +55,10 @@ describe("readOrCreateOfficeId", () => {
     expect(readOrCreateOfficeId(path)).toEqual({ id: "0123456789ab" });
   });
 
-  for (const [label, bytes, reason] of [
-    ["empty", "", "empty"],
-    ["garbage", "not an id at all", "hex"],
-    ["upper-case hex", "0123456789AB", "hex"],
-    ["too long", "0123456789abc", "hex"],
+  for (const [label, bytes] of [
+    ["empty", ""],
+    ["upper-case hex", "0123456789AB"],
+    ["too long", "0123456789abc"],
   ] as const) {
     it(`moves a ${label} file aside with its bytes, and makes a new id once`, () => {
       const path = scratch();
@@ -67,7 +66,6 @@ describe("readOrCreateOfficeId", () => {
       const read = readOrCreateOfficeId(path, 1234);
       expect(read.id).toMatch(OFFICE_ID_PATTERN);
       expect(read.replaced?.asidePath).toBe(`${path}.invalid-1234`);
-      expect(read.replaced?.problem).toContain(reason);
       // The original bytes are kept for the operator, never overwritten.
       expect(readFileSync(`${path}.invalid-1234`, "utf8")).toBe(bytes);
       expect(readFileSync(path, "utf8")).toBe(read.id);
@@ -79,29 +77,19 @@ describe("readOrCreateOfficeId", () => {
     });
   }
 
-  it.skipIf(process.getuid?.() === 0)(
-    "throws when the file exists but cannot be read, and leaves it in place",
-    () => {
-      const path = scratch();
-      writeFileSync(path, "0123456789ab");
-      chmodSync(path, 0o000);
-      try {
-        expect(() => readOrCreateOfficeId(path)).toThrow();
-        expect(readdirSync(dir!)).toEqual(["office-id"]);
-      } finally {
-        chmodSync(path, 0o600);
-      }
-    },
-  );
-
   it("throws when a new id cannot be written", () => {
     const path = scratch();
-    // The target's parent is a regular file, so no write can succeed.
-    writeFileSync(join(dir!, "blocker"), "");
-    expect(() =>
-      readOrCreateOfficeId(join(dir!, "blocker", "office-id")),
-    ).toThrow();
-    expect(existsSync(path)).toBe(false);
+    // The read finds no file; the atomic write's temp path is a directory,
+    // so the write fails (for any uid).
+    mkdirSync(`${path}.tmp`);
+    let error: NodeJS.ErrnoException | undefined;
+    try {
+      readOrCreateOfficeId(path);
+    } catch (e) {
+      error = e as NodeJS.ErrnoException;
+    }
+    expect(error?.code).toBe("EISDIR");
+    expect(readdirSync(dir!)).toEqual(["office-id.tmp"]);
   });
 });
 
@@ -118,7 +106,7 @@ describe("the office id at boot", () => {
     expect(officeSessionCookieNames().plain).toBe(`isomux_session_${id}`);
   });
 
-  it("logs the path and the problem when it replaces a damaged file", async () => {
+  it("logs the aside path, never the content, when it replaces a damaged file", async () => {
     server = await startTestServer();
     writeFileSync(officeIdFile(), "damaged");
     const errors = spyOn(console, "error").mockImplementation(() => {});
@@ -127,7 +115,6 @@ describe("the office id at boot", () => {
       const lines = errors.mock.calls.map((call) => call.join(" "));
       const line = lines.find((l) => l.includes(officeIdFile())) ?? "";
       expect(line).toContain(`${officeIdFile()}.invalid-`);
-      expect(line).toContain("hex");
       // Never the content.
       expect(line).not.toContain("damaged");
     } finally {

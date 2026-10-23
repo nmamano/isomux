@@ -146,11 +146,10 @@ describe("native Claude Code commands", () => {
   });
 
   // The first send parks (the agent stays busy); every later one completes.
-  function firstTurnParks(slashCommands: string[] = []) {
+  function firstTurnParks() {
     const parked: { session: FakeSession | null } = { session: null };
     const fake = new FakeBackend({
       session: {
-        slashCommands,
         onSend: (_t, _a, s) => {
           if (!parked.session) {
             parked.session = s;
@@ -164,11 +163,8 @@ describe("native Claude Code commands", () => {
     return { fake, parked };
   }
 
-  async function queuedBetweenPlainItems(
-    command: string,
-    slashCommands?: string[],
-  ) {
-    const { fake, parked } = firstTurnParks(slashCommands);
+  async function queuedBetweenPlainItems(command: string) {
+    const { fake, parked } = firstTurnParks();
     const srv = (server = await startTestServer({ fakeBackend: fake }));
     const owner = await srv.seedOwner("Morgan");
     const agent = await spawnAgent(srv);
@@ -206,13 +202,11 @@ describe("native Claude Code commands", () => {
     await queuedBetweenPlainItems("/code-review low");
   });
 
-  it("treat a command the SDK reports as native, idle and busy", async () => {
+  // The busy path uses the same classification (see the queue test above).
+  it("treat a command the SDK reports as native", async () => {
     const reported = ["verify"];
     // Enabling condition: Isomux itself has no entry for it.
     expect("verify" in commands).toBe(false);
-    await queuedBetweenPlainItems("/verify the login flow", reported);
-    await server?.stop();
-
     const srv = (server = await startTestServer({
       fakeBackend: new FakeBackend({
         session: {
@@ -239,7 +233,6 @@ describe("native Claude Code commands", () => {
     await srv.agentManager.sendMessage(agent.id, "/review 57", owner.username);
     await waitUntil(() => sentTexts(srv, agent.id).length >= 1, "a send");
     expect(sentTexts(srv, agent.id)).toEqual(["/review 57"]);
-    expect(commands.review.aliasFor).toBe("code-review");
   });
 
   it("are refused with an attachment, with nothing sent", async () => {

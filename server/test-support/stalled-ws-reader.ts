@@ -2,23 +2,30 @@
 // (server/test-support/office-ws-replay.test.ts). Test-support ONLY.
 //
 // Run as its own process: `bun stalled-ws-reader.ts <port> <cookie> <origin>
-// <stallMs>`. It opens /ws and, once the upgrade is answered, blocks its own
-// event loop for stallMs (and prints "stalling" to stderr first), so
-// the kernel buffers fill and the server's socket backs up exactly as it
-// does for a slow link. Then it reads everything until the server closes
-// the socket or sends nothing for a second, and prints one JSON line: every
-// text frame's type (and the log entry's id and agent, or the full_state
-// agent ids), and
-// whether the server closed the connection.
+// <releaseFile>`. It opens /ws and, once the first frame arrives, blocks its
+// own event loop until the test creates releaseFile (and prints "stalling" to
+// stderr first), so the kernel buffers fill and the server's socket backs up
+// exactly as it does for a slow link. Then it reads until the server closes
+// the socket, or, when releaseFile names a log entry id, until that entry
+// has arrived after the log_replay_complete fence (plus a short tail, to see
+// a duplicate). It prints one JSON line: every text frame's type (and the log
+// entry's id and agent, or the full_state agent ids), and whether the server
+// closed the connection.
 //
 // A raw TCP client because Bun's WebSocket and node:net clients keep reading
 // into memory while the script is paused, which never backs the server up.
 
-import { writeSync } from "node:fs";
+import { existsSync, readFileSync, writeSync } from "node:fs";
 
-const [portArg, cookie, origin, stallArg] = process.argv.slice(2);
+const [portArg, cookie, origin, releaseFile] = process.argv.slice(2);
 const port = Number(portArg);
-const stallMs = Number(stallArg);
+// The fail-closed bound on a stall the test never releases.
+const STALL_LIMIT_MS = 10_000;
+// After the awaited entry: long enough to see it arrive a second time.
+const TAIL_MS = 100;
+// With nothing awaited, or the awaited entry never arriving: this much
+// silence ends the read.
+const QUIET_MS = 1_000;
 
 interface Frame {
   type: string;
@@ -33,6 +40,7 @@ let buf = Buffer.alloc(0);
 let upgraded = false;
 let lastData = Date.now();
 let stalled = false;
+let awaitedId = "";
 
 function parse(): void {
   if (!upgraded) {
@@ -89,12 +97,17 @@ const socket = await Bun.connect({
       lastData = Date.now();
       buf = Buffer.concat([buf, chunk]);
       parse();
-      // Stall once the upgrade is answered: by then the server has opened
-      // the socket and started the replay. Blocking here stops all reads.
-      if (upgraded && !stalled) {
+      // Stall at the first frame: the server sends the snapshot and queues
+      // the whole replay in its open handler, so by then the replay is
+      // under way. Blocking here stops all reads.
+      if (frames.length > 0 && !stalled) {
         stalled = true;
         writeSync(2, "stalling\n");
-        Bun.sleepSync(stallMs);
+        const deadline = Date.now() + STALL_LIMIT_MS;
+        while (!existsSync(releaseFile) && Date.now() < deadline)
+          Bun.sleepSync(5);
+        if (existsSync(releaseFile))
+          awaitedId = readFileSync(releaseFile, "utf8").trim();
         lastData = Date.now();
       }
     },
@@ -120,8 +133,17 @@ socket.write(
     "",
   ].join("\r\n"),
 );
-while (!stalled || (!closed && Date.now() - lastData < 1000)) {
-  await Bun.sleep(50);
+// The awaited entry has arrived after the fence.
+function awaitedSeen(): boolean {
+  if (!awaitedId) return false;
+  const fence = frames.findIndex((f) => f.type === "log_replay_complete");
+  return fence >= 0 && frames.slice(fence).some((f) => f.id === awaitedId);
+}
+let seenAt = 0;
+while (!stalled || (!closed && Date.now() - lastData < QUIET_MS)) {
+  if (!seenAt && awaitedSeen()) seenAt = Date.now();
+  if (seenAt && Date.now() - seenAt >= TAIL_MS) break;
+  await Bun.sleep(10);
 }
 console.log(JSON.stringify({ closed, frames }));
 process.exit(0);

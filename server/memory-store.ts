@@ -72,7 +72,7 @@ function nowIsoUtc(): string {
 // the reader. It costs twice otherwise - once against the scope's hard size cap,
 // and again in the agent's own prompt. Every other writer (another agent, a member,
 // a human rewrite) still gets named, because there the name carries information.
-export function formatMemoryLine(input: {
+function formatMemoryLine(input: {
   author: string | null;
   date: string;
   text: string;
@@ -98,7 +98,7 @@ export function formatMemoryLine(input: {
 const AUTHORLESS_LINE_RE = /^- (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 const AUTHORED_LINE_RE = /^- (.+?), (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 
-export function parseMemoryLine(
+function parseMemoryLine(
   raw: string,
   scope: MemoryScope,
   scopeId: string | null,
@@ -120,7 +120,7 @@ export function parseMemoryLine(
 // punctuation (so internal hyphens/slashes/dots in `isomux-active`, paths, IPs
 // survive). Normalization is for COMPARISON only; the stored line keeps the
 // original text verbatim.
-export function normalizeForDedup(text: string): string {
+function normalizeForDedup(text: string): string {
   return text
     .trim()
     .toLowerCase()
@@ -132,7 +132,7 @@ export function normalizeForDedup(text: string): string {
 // True when `text` is a normalized-exact restatement of `existing`. The single
 // non-prompt guardrail: cheap, deterministic, catches an agent re-adding a fact
 // it doesn't remember writing. No fuzzy matching (a reword is allowed through).
-export function isExactDuplicateText(text: string, existing: string): boolean {
+function isExactDuplicateText(text: string, existing: string): boolean {
   return normalizeForDedup(text) === normalizeForDedup(existing);
 }
 
@@ -218,9 +218,6 @@ export type MemoryReplaceResult =
 export interface MemoryStore {
   // The whole raw file (verbatim bytes, "" if missing) plus its version. Uncapped.
   read(scope: MemoryScope, scopeId: string | null): MemoryReadResult;
-  // Raw file bytes only (verbatim, "" if missing). For callers that don't need a
-  // version (auto-load render, dedup, the transitional curation reads).
-  readText(scope: MemoryScope, scopeId: string | null): string;
   // Append one server-stamped line. Returns the new item + post-write version.
   // `authorAgentId` is the caller's OWN agentId when the caller is an agent (null
   // otherwise); it is what lets an agent's notes to itself skip the redundant
@@ -232,16 +229,15 @@ export interface MemoryStore {
     authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult;
-  // Overwrite the whole file. If expectedVersion is given and no longer matches
-  // the current file, returns a conflict (with the current version) and writes
-  // nothing. Omit expectedVersion to force (human/owner curation save). `author`
-  // is display attribution only - the file bytes are written verbatim.
+  // Overwrite the whole file. If expectedVersion no longer matches the current
+  // file, returns a conflict (with the current version) and writes nothing.
+  // `author` is display attribution only - the file bytes are written verbatim.
   replace(input: {
     scope: MemoryScope;
     scopeId: string | null;
     text: string;
     author: string;
-    expectedVersion?: string | null;
+    expectedVersion: string;
   }): MemoryReplaceResult;
   // The first line in this scope that `text` exactly restates (normalized), or
   // null. The write-time dedup guard (APPEND only).
@@ -401,17 +397,14 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scopeId: string | null;
     text: string;
     author: string;
-    expectedVersion?: string | null;
+    expectedVersion: string;
   }): MemoryReplaceResult {
     requireAuditContext();
     // Read current state + version check + write are ONE synchronous task, so the
     // single-threaded event loop serializes concurrent replaces (no lost update).
     const current = readText(input.scope, input.scopeId);
     const currentVersion = versionOf(current);
-    if (
-      input.expectedVersion != null &&
-      input.expectedVersion !== currentVersion
-    ) {
+    if (input.expectedVersion !== currentVersion) {
       return { ok: false, conflict: true, version: currentVersion };
     }
     // Hard cap on growth. A replace that SHRINKS a legacy over-cap file is
@@ -504,7 +497,6 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
 
   return {
     read,
-    readText,
     append,
     replace,
     findDuplicate,

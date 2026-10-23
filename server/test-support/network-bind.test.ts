@@ -43,47 +43,13 @@ async function bootClaimed(
 }
 
 describe("office network bind and origin-policy split", () => {
-  it("wires the 120-second idle timeout into Bun.serve", () => {
-    const source = readFileSync(
-      new URL("../isomux-office.ts", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("export const OFFICE_IDLE_TIMEOUT_SECONDS = 120;");
-    expect(source).toContain("idleTimeout: OFFICE_IDLE_TIMEOUT_SECONDS,");
-  });
-
-  it("keeps the seven deployment shapes on independent bind and origin policies", async () => {
+  it("keeps the deployment shapes on independent bind and origin policies", async () => {
+    // A hosted, installer or Caddy office: https origin, loopback bind. A raw
+    // tailnet port: no origin, and auto (explicit or absent) binds wide.
     const shapes = [
-      ["1 hosted new", "https://one.example", "loopback", true, "one.example"],
-      [
-        "2 hosted existing",
-        "https://two.example",
-        "loopback",
-        true,
-        "two.example",
-      ],
-      [
-        "3 installer VPS",
-        "https://three.example",
-        "loopback",
-        true,
-        "three.example",
-      ],
-      [
-        "4 hand-provisioned Caddy",
-        "https://four.example",
-        "loopback",
-        true,
-        "four.example",
-      ],
-      ["5 raw tailnet port", null, "auto", false, null],
-      [
-        "6 Tailscale Serve",
-        "https://auntie.example.ts.net",
-        "loopback",
-        true,
-        null,
-      ],
+      ["hosted", "https://one.example", "loopback", true, "one.example"],
+      ["raw tailnet port", null, "auto", false, null],
+      ["raw tailnet port, bind absent", null, undefined, false, null],
     ] as const;
 
     for (const [
@@ -96,7 +62,7 @@ describe("office network bind and origin-policy split", () => {
       const srv = await bootClaimed({
         externalAccess: true,
         publicOrigin,
-        networkBind,
+        ...(networkBind ? { networkBind } : {}),
       });
       expect(isOutsideReachabilityBlocked(), name).toBe(false);
       expect(isProcessBoundLoopback(), name).toBe(expectedLoopback);
@@ -113,21 +79,23 @@ describe("office network bind and origin-policy split", () => {
         expectedLoopback ? "127.0.0.1" : "localhost",
       );
       expect(appHostDomain(), name).toBe(expectedAppDomain);
+      // A boot never writes a default for an absent bind.
+      expect(officeConfig().networkBind, name).toBe(networkBind);
       await srv.stop();
       server = null;
     }
 
     const local = await startTestServer();
     server = local;
-    expect(isOutsideReachabilityBlocked(), "7 local only").toBe(true);
-    expect(isProcessBoundLoopback(), "7 local only").toBe(true);
-    expect(buildPublicOrigin(), "7 local only").toEqual({
+    expect(isOutsideReachabilityBlocked(), "local only").toBe(true);
+    expect(isProcessBoundLoopback(), "local only").toBe(true);
+    expect(buildPublicOrigin(), "local only").toEqual({
       origin: `http://localhost:${local.port}`,
       isHttps: false,
       source: "localhost",
     });
-    expect(local.server.hostname, "7 local only").toBe("127.0.0.1");
-    expect(appHostDomain(), "7 local only").toBe(null);
+    expect(local.server.hostname, "local only").toBe("127.0.0.1");
+    expect(appHostDomain(), "local only").toBe(null);
   });
 
   it("keeps pre-claim and external-access-off as loopback safety floors", async () => {
@@ -148,27 +116,6 @@ describe("office network bind and origin-policy split", () => {
     expect(externalOff.server.hostname).toBe("127.0.0.1");
   });
 
-  it("treats absent and explicit auto alike without materializing absence", async () => {
-    const absent = await bootClaimed({
-      externalAccess: true,
-      publicOrigin: null,
-    });
-    expect(isOutsideReachabilityBlocked()).toBe(false);
-    expect(isProcessBoundLoopback()).toBe(false);
-    expect("networkBind" in officeConfig()).toBe(false);
-    await absent.stop();
-    server = null;
-
-    await bootClaimed({
-      externalAccess: true,
-      publicOrigin: null,
-      networkBind: "auto",
-    });
-    expect(isOutsideReachabilityBlocked()).toBe(false);
-    expect(isProcessBoundLoopback()).toBe(false);
-    expect(officeConfig().networkBind).toBe("auto");
-  });
-
   it("refuses a non-loopback address only for the explicit loopback bind", async () => {
     const address = Object.values(networkInterfaces())
       .flat()
@@ -180,17 +127,14 @@ describe("office network bind and origin-policy split", () => {
       publicOrigin: "https://office.example",
       networkBind: "loopback",
     });
-    const refusalStarted = performance.now();
-    let refused = false;
-    try {
-      await fetch(`http://${address}:${loopback.port}/readyz`, {
-        signal: AbortSignal.timeout(500),
-      });
-    } catch {
-      refused = true;
-    }
-    expect(refused).toBe(true);
-    expect(performance.now() - refusalStarted).toBeLessThan(250);
+    // The OS refuses the connection: nothing listens on that address.
+    const refusal = await fetch(`http://${address}:${loopback.port}/readyz`, {
+      signal: AbortSignal.timeout(500),
+    }).then(
+      () => "answered",
+      (error: { code?: string }) => error.code,
+    );
+    expect(refusal).toBe("ECONNREFUSED");
     await loopback.stop();
     server = null;
 

@@ -399,7 +399,7 @@ export function compileRegex(pattern: string): RegExp | null {
 // the fork point at which its child branched off. Mirrors the walk in
 // persistence.loadLogWithAncestors (which log-search.test.ts pins against, so
 // the two cannot drift silently).
-export function forkChain(
+function forkChain(
   sessionId: string,
   meta: Record<string, SessionMeta>,
 ): { sessionId: string; forkMessageId?: string }[] {
@@ -424,7 +424,7 @@ export function forkChain(
 // reconstructing is the only way `session=<id>` can see the conversation the
 // agent actually experienced. An all-session scan instead reads each PHYSICAL
 // entry exactly once, so a shared ancestor is not reported N times over.
-export async function reconstructTimeline(
+async function reconstructTimeline(
   source: LogSource,
   agentId: string,
   sessionId: string,
@@ -738,12 +738,6 @@ export interface ScanOptions {
   // cooperative one, so an ordinary large scan returns a clean partial result
   // instead of being killed.
   budgetMs: number;
-  // Injectable clock so the timeout path is testable without real waiting.
-  now?: () => number;
-  // TEST SEAM. Reports the largest the hit buffer ever grew to, so the memory
-  // bound can be asserted directly rather than inferred from a comment. Called
-  // once, after the scan.
-  onBufferHighWater?: (n: number) => void;
 }
 
 // The sessions whose paragraph or topic matches `q`, newest first, at most
@@ -791,8 +785,7 @@ export async function searchLogs(
   const q = query.q ?? "";
   const re = query.regex ? compileRegex(q) : null;
   const meta = await source.readSessionsMeta(agentId);
-  const now = opts.now ?? Date.now;
-  const deadline = now() + opts.budgetMs;
+  const deadline = Date.now() + opts.budgetMs;
   const sessions = await source.listSessions(agentId);
   const summaryHits = matchSummaries(
     query.session === undefined
@@ -816,7 +809,6 @@ export async function searchLogs(
   // retained hits, so the final answer is unchanged. `totalMatches` keeps
   // counting past the prune and stays the TRUE total.
   const pruneAt = Math.max(query.limit * 8, 200);
-  let bufferHighWater = 0;
   const prune = (): void => {
     hits.sort((a, b) => b.timestamp - a.timestamp);
     hits.length = Math.min(hits.length, query.limit);
@@ -845,7 +837,6 @@ export async function searchLogs(
       entryId: entry.id,
       snippet: buildSnippet(content, m.index, m.length),
     });
-    if (hits.length > bufferHighWater) bufferHighWater = hits.length;
     if (hits.length >= pruneAt) prune();
   };
 
@@ -859,7 +850,7 @@ export async function searchLogs(
     // reconstructed iterator is the fix if this ever bites.
     const timeline = await reconstructTimeline(source, agentId, query.session);
     for (const entry of timeline) {
-      if (now() > deadline) {
+      if (Date.now() > deadline) {
         timedOut = true;
         break;
       }
@@ -876,7 +867,7 @@ export async function searchLogs(
     const ordered = [...sessions].sort((a, b) => recency(b) - recency(a));
     outer: for (const { sessionId } of ordered) {
       for await (const line of source.streamLines(agentId, sessionId)) {
-        if (now() > deadline) {
+        if (Date.now() > deadline) {
           timedOut = true;
           break outer;
         }
@@ -906,7 +897,6 @@ export async function searchLogs(
   // contract, only the timestamp ordering is.
   hits.sort((a, b) => b.timestamp - a.timestamp);
   const results = hits.slice(0, query.limit);
-  opts.onBufferHighWater?.(bufferHighWater);
 
   return {
     agentId,

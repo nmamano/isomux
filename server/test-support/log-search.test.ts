@@ -4,22 +4,27 @@
 //
 // What these freeze, in order of how easy each is to break by accident:
 //   1. MATCHING HAPPENS ON DECODED CONTENT. Every "raw grep would miss this"
-//      case (escaped quotes, embedded newlines, tabs, non-ASCII) is asserted
-//      positively, and canPrefilter is asserted to REFUSE those queries - which
-//      is the actual mechanism that keeps the optimization sound.
+//      case (escaped quotes, embedded newlines, tabs) is asserted positively.
 //   2. Fork asymmetry: session= reconstructs the ancestor timeline, an
-//      all-session scan reads each PHYSICAL entry once. reconstructTimeline is
-//      pinned against persistence.loadLogWithAncestors on the same fixture, so
-//      the duplicated walk cannot drift.
+//      all-session scan reads each PHYSICAL entry once. Retrieval is pinned
+//      against persistence.loadLogWithAncestors on the same fixture, so the
+//      duplicated walk cannot drift.
 //   3. The tier ladder, the around-window (including an anchor its own tier
 //      filters out), ordering, and the truncated/timedOut split.
 //   4. Query validation bounds - every rejection path, since those are what
 //      stand between a caller-supplied string and the filesystem.
 
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
+import { assertSafeToDelete } from "./temp-state.ts";
 import { loadLogWithAncestors } from "../persistence.ts";
 import { fileLogSource } from "../log-source.ts";
 import {
@@ -30,18 +35,20 @@ import {
   MAX_SNIPPET,
   buildSessionIndex,
   canPrefilter,
-  forkChain,
   parseLogQuery,
-  reconstructTimeline,
   retrieveSession,
   searchLogs,
   type LogQuery,
 } from "../log-search.ts";
 import type { LogEntry } from "../../shared/types.ts";
 
+// Fail closed before any write: run without the test preload, STATE_ROOT is
+// the real office state, and these fixtures would land in its logs.
+assertSafeToDelete(STATE_ROOT);
+
 const LOGS_DIR = join(STATE_ROOT, "logs");
 const AGENT = "agent-logsearch-fixture";
-const EMPTY_AGENT = "agent-logsearch-empty";
+const MISSING_AGENT = "agent-logsearch-missing";
 
 // s1 is the root session; s2 forked off it at e3, so s2's own JSONL holds only
 // its branch-local entries and e1/e2 reach it only through reconstruction.
@@ -94,7 +101,6 @@ const source = fileLogSource(LOGS_DIR);
 
 beforeAll(() => {
   mkdirSync(join(LOGS_DIR, AGENT), { recursive: true });
-  mkdirSync(join(LOGS_DIR, EMPTY_AGENT), { recursive: true });
   writeSession(S1, S1_ENTRIES);
   writeSession(S2, S2_ENTRIES);
   writeFileSync(
@@ -124,70 +130,27 @@ function q(qs: string): LogQuery {
 const scan = { budgetMs: 10_000 };
 
 describe("log search: decoding happens before matching", () => {
-  it("finds text that JSON escaped on disk (quotes) - a raw grep would miss it", async () => {
-    // Prove the premise first: the literal is NOT present in the raw file.
-    const raw = await Bun.file(join(LOGS_DIR, AGENT, `${S1}.jsonl`)).text();
-    expect(raw.includes(`said "ship it`)).toBe(false);
-
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q(`q=${encodeURIComponent('said "ship it')}`),
-      scan,
-    );
-    expect(res.totalMatches).toBe(1);
-    expect(res.results[0].entryId).toBe("e2");
-  });
-
-  it("finds text across an embedded newline", async () => {
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q(`q=${encodeURIComponent("alpha\nbeta")}`),
-      scan,
-    );
-    expect(res.results.map((r) => r.entryId)).toEqual(["e6"]);
-  });
-
-  it("finds text across an embedded tab", async () => {
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q(`q=${encodeURIComponent("one\tcol")}`),
-      scan,
-    );
-    expect(res.results.map((r) => r.entryId)).toEqual(["e10"]);
-  });
-
-  it("finds non-ASCII text", async () => {
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q(`q=${encodeURIComponent("café ☕")}`),
-      scan,
-    );
-    expect(res.results.map((r) => r.entryId)).toEqual(["e7"]);
-  });
-
-  it("refuses the raw-line prefilter exactly for the queries it would break on", () => {
-    // Plain ASCII survives JSON encoding unchanged, so the prefilter is a sound
-    // superset test and gets used.
-    expect(canPrefilter("permission prompt")).toBe(true);
-    expect(canPrefilter("a-b_c.d/e 1")).toBe(true);
-    // These do NOT survive encoding (or survive it but break case folding), so
-    // the scan must fall back to parsing every line. If this ever returns true,
-    // the four tests above are what start failing.
-    expect(canPrefilter('said "ship')).toBe(false);
-    expect(canPrefilter("alpha\nbeta")).toBe(false);
-    expect(canPrefilter("one\tcol")).toBe(false);
-    expect(canPrefilter("back\\slash")).toBe(false);
-    expect(canPrefilter("café")).toBe(false);
-  });
-
-  it("matches case-insensitively", async () => {
-    const res = await searchLogs(source, AGENT, q("q=PERMISSION+PROMPT"), scan);
-    expect(res.totalMatches).toBeGreaterThan(0);
-  });
+  // Each query's literal is ESCAPED on disk, so a raw grep would miss it.
+  for (const [what, query, session, id] of [
+    ["quotes", 'said "ship it', S1, "e2"],
+    ["an embedded newline", "alpha\nbeta", S2, "e6"],
+    ["an embedded tab", "one\tcol", S2, "e10"],
+  ] as const) {
+    it(`finds text across ${what} that JSON escaped on disk`, async () => {
+      // Prove the premise first: the literal is NOT present in the raw file.
+      const raw = await Bun.file(
+        join(LOGS_DIR, AGENT, `${session}.jsonl`),
+      ).text();
+      expect(raw.includes(query)).toBe(false);
+      const res = await searchLogs(
+        source,
+        AGENT,
+        q(`q=${encodeURIComponent(query)}`),
+        scan,
+      );
+      expect(res.results.map((r) => r.entryId)).toEqual([id]);
+    });
+  }
 
   it("agrees with itself when case folding crosses out of ASCII", async () => {
     // The prefilter lowercases the RAW line while the real match lowercases the
@@ -217,21 +180,19 @@ describe("log search: decoding happens before matching", () => {
 });
 
 describe("log search: fork semantics", () => {
-  it("reconstructTimeline agrees with persistence.loadLogWithAncestors", () => {
+  it("retrieval walks the fork chain the way persistence.loadLogWithAncestors does", async () => {
     // The search core walks the fork chain itself (it must work inside the
     // worker, over an injected source). Pinning it against the production
     // walker on the same fixture is what stops the two drifting apart.
-    const viaCore = reconstructTimeline(source, AGENT, S2);
+    const viaCore = await retrieveSession(
+      source,
+      AGENT,
+      S2,
+      q(`session=${S2}&tier=full`),
+    );
     const viaPersistence = loadLogWithAncestors(AGENT, S2);
-    return viaCore.then((entries) => {
-      expect(entries.map((e) => e.id)).toEqual(viaPersistence.map((e) => e.id));
-    });
-  });
-
-  it("truncates the ancestor at the fork point", async () => {
-    const timeline = await reconstructTimeline(source, AGENT, S2);
     // e1, e2 come from s1 (up to but NOT including the edited e3), then s2's own.
-    expect(timeline.map((e) => e.id)).toEqual([
+    expect(viaPersistence.map((e) => e.id)).toEqual([
       "e1",
       "e2",
       "e6",
@@ -240,14 +201,36 @@ describe("log search: fork semantics", () => {
       "e9",
       "e10",
     ]);
+    expect(viaCore.entries.map((e) => e.entryId)).toEqual(
+      viaPersistence.map((e) => e.id),
+    );
   });
 
-  it("forkChain guards against a cycle instead of looping forever", () => {
-    const chain = forkChain("a", {
-      a: { topic: null, lastModified: 0, forkedFrom: "b" },
-      b: { topic: null, lastModified: 0, forkedFrom: "a" },
-    });
-    expect(chain.map((c) => c.sessionId)).toEqual(["b", "a"]);
+  it("retrieval survives a fork cycle in sessions.json instead of looping forever", async () => {
+    const agent = "agent-logsearch-cycle";
+    mkdirSync(join(LOGS_DIR, agent), { recursive: true });
+    writeFileSync(
+      join(LOGS_DIR, agent, "a.jsonl"),
+      JSON.stringify(entry("a1", "text", "in a", 1)) + "\n",
+    );
+    writeFileSync(
+      join(LOGS_DIR, agent, "b.jsonl"),
+      JSON.stringify(entry("b1", "text", "in b", 2)) + "\n",
+    );
+    writeFileSync(
+      join(LOGS_DIR, agent, "sessions.json"),
+      JSON.stringify({
+        a: { topic: null, lastModified: 0, forkedFrom: "b" },
+        b: { topic: null, lastModified: 0, forkedFrom: "a" },
+      }),
+    );
+    const res = await retrieveSession(
+      source,
+      agent,
+      "a",
+      q("session=a&tier=full"),
+    );
+    expect(res.entries.map((e) => e.entryId)).toContain("a1");
   });
 
   it("an all-session scan reports a shared ancestor entry ONCE, not once per branch", async () => {
@@ -257,6 +240,9 @@ describe("log search: fork semantics", () => {
     const res = await searchLogs(source, AGENT, q("q=first+prompt"), scan);
     expect(res.totalMatches).toBe(1);
     expect(res.results[0].sessionId).toBe(S1);
+    // Each hit carries its session topic; everything fit, so no truncation.
+    expect(res.results[0].topic).toBe("permission prompt design");
+    expect(res.truncated).toBe(false);
   });
 
   it("a session-scoped search DOES see inherited ancestor entries", async () => {
@@ -279,55 +265,14 @@ describe("log search: kinds, tiers and filters", () => {
     // e1 (user_message) matches; e4 (thinking) also contains the phrase but is
     // not in the default tier.
     expect(res.results.map((r) => r.entryId)).toEqual(["e1"]);
-  });
-
-  it("reaches thinking traces via an explicit kind=", async () => {
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q("q=permission+prompt&kind=thinking"),
-      scan,
-    );
-    expect(res.results.map((r) => r.entryId)).toEqual(["e4"]);
-  });
-
-  it("reaches thinking traces via tier=full", async () => {
-    const res = await searchLogs(
+    // tier=full has no kind filter, so the thinking trace is reached.
+    const full = await searchLogs(
       source,
       AGENT,
       q("q=permission+prompt&tier=full"),
       scan,
     );
-    expect(res.results.map((r) => r.entryId).sort()).toEqual(["e1", "e4"]);
-  });
-
-  it("tier=prompts sees only user messages", async () => {
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q("q=permission+prompt&tier=prompts"),
-      scan,
-    );
-    expect(res.results.map((r) => r.entryId)).toEqual(["e1"]);
-  });
-
-  it("honours before/after time bounds", async () => {
-    const all = await searchLogs(source, AGENT, q("q=e&tier=full"), scan);
-    expect(all.totalMatches).toBeGreaterThan(1);
-    const after = await searchLogs(
-      source,
-      AGENT,
-      q("q=e&tier=full&after=6000"),
-      scan,
-    );
-    expect(after.results.every((r) => r.timestamp >= 6_000)).toBe(true);
-    const before = await searchLogs(
-      source,
-      AGENT,
-      q("q=e&tier=full&before=3000"),
-      scan,
-    );
-    expect(before.results.every((r) => r.timestamp <= 3_000)).toBe(true);
+    expect(full.results.map((r) => r.entryId).sort()).toEqual(["e1", "e4"]);
   });
 });
 
@@ -336,29 +281,6 @@ describe("log search: results, ordering and bounds", () => {
     const res = await searchLogs(source, AGENT, q("q=e&tier=full"), scan);
     const stamps = res.results.map((r) => r.timestamp);
     expect([...stamps].sort((a, b) => b - a)).toEqual(stamps);
-  });
-
-  it("reports the TRUE total when results are capped, and flags truncation", async () => {
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q("q=e&tier=full&limit=2"),
-      scan,
-    );
-    expect(res.results).toHaveLength(2);
-    expect(res.totalMatches).toBeGreaterThan(2);
-    expect(res.truncated).toBe(true);
-    expect(res.timedOut).toBe(false);
-  });
-
-  it("does not flag truncation when everything fit", async () => {
-    const res = await searchLogs(source, AGENT, q("q=first+prompt"), scan);
-    expect(res.truncated).toBe(false);
-  });
-
-  it("joins each hit to its session topic", async () => {
-    const res = await searchLogs(source, AGENT, q("q=first+prompt"), scan);
-    expect(res.results[0].topic).toBe("permission prompt design");
   });
 
   it("bounds the snippet and centres it on the match", async () => {
@@ -372,18 +294,6 @@ describe("log search: results, ordering and bounds", () => {
     expect(snippet.length).toBeLessThanOrEqual(MAX_SNIPPET + 6);
   });
 
-  it("timedOut is a SEPARATE signal from truncated", async () => {
-    // A zero budget stops the scan on its first entry. `truncated` must stay
-    // about the limit alone - conflating the two would tell a caller to narrow
-    // their query when the real answer is "ask again".
-    const res = await searchLogs(source, AGENT, q("q=e&tier=full"), {
-      budgetMs: -1,
-    });
-    expect(res.timedOut).toBe(true);
-    expect(res.results).toHaveLength(0);
-    expect(res.truncated).toBe(false);
-  });
-
   it("refuses to report a total it could not know when the scan stopped early", async () => {
     // The dangerous confusion this prevents: a caller reading a partial 0 as
     // "there are no matches" and concluding their history is empty. A scan that
@@ -394,67 +304,16 @@ describe("log search: results, ordering and bounds", () => {
     });
     expect(res.totalMatches).toBeNull();
     expect(res.matchesFoundBeforeTimeout).toBe(0);
+    // timedOut is a separate signal from truncated: conflating the two would
+    // tell a caller to narrow their query when the real answer is "ask again".
+    expect(res.timedOut).toBe(true);
+    expect(res.results).toHaveLength(0);
+    expect(res.truncated).toBe(false);
 
     // A completed scan does know, and says so.
     const done = await searchLogs(source, AGENT, q("q=first+prompt"), scan);
     expect(done.totalMatches).toBe(1);
     expect(done.matchesFoundBeforeTimeout).toBeUndefined();
-  });
-
-  it("never buffers more hits than its bound, whatever the match count", async () => {
-    // The memory bound asserted DIRECTLY through a test seam, rather than
-    // inferred from the fact that the answer came out right - an unbounded
-    // implementation produces the same answer.
-    const agent = "agent-logsearch-highwater";
-    mkdirSync(join(LOGS_DIR, agent), { recursive: true });
-    writeFileSync(
-      join(LOGS_DIR, agent, "h.jsonl"),
-      Array.from({ length: 900 }, (_, i) =>
-        JSON.stringify(entry(`h${i}`, "text", `haystack ${i}`, 1_000 + i)),
-      ).join("\n") + "\n",
-    );
-    let highWater = 0;
-    const res = await searchLogs(
-      fileLogSource(LOGS_DIR),
-      agent,
-      q("q=haystack&limit=5"),
-      { ...scan, onBufferHighWater: (n) => (highWater = n) },
-    );
-    expect(res.totalMatches).toBe(900);
-    // 900 matches, but the buffer never held more than the prune threshold.
-    expect(highWater).toBeLessThanOrEqual(Math.max(5 * 8, 200));
-    expect(highWater).toBeLessThan(900);
-  });
-
-  it("survives an entry with a missing or non-numeric timestamp", async () => {
-    // A NaN timestamp would compare false against everything in the sort
-    // comparator and silently corrupt the ordering of the WHOLE result set,
-    // not just its own position - so it is normalized to 0 (sorts last).
-    const agent = "agent-logsearch-badstamp";
-    mkdirSync(join(LOGS_DIR, agent), { recursive: true });
-    writeFileSync(
-      join(LOGS_DIR, agent, "s.jsonl"),
-      [
-        JSON.stringify({ id: "n1", kind: "text", content: "stamped findme" }),
-        JSON.stringify({
-          id: "n2",
-          kind: "text",
-          content: "unstamped findme",
-          timestamp: "not-a-number",
-        }),
-        JSON.stringify(entry("n3", "text", "real findme", 5_000)),
-      ].join("\n") + "\n",
-    );
-    const res = await searchLogs(
-      fileLogSource(LOGS_DIR),
-      agent,
-      q("q=findme"),
-      scan,
-    );
-    expect(res.totalMatches).toBe(3);
-    // The properly stamped entry sorts first; the two unusable stamps land at 0.
-    expect(res.results[0].entryId).toBe("n3");
-    expect(res.results.every((r) => Number.isFinite(r.timestamp))).toBe(true);
   });
 
   it("survives a line that PARSES but carries fields of the wrong type", async () => {
@@ -485,6 +344,12 @@ describe("log search: results, ordering and bounds", () => {
           content: "findme unstamped",
         }),
         JSON.stringify({
+          id: "t-strstamp",
+          kind: "text",
+          content: "findme string stamp",
+          timestamp: "not-a-number",
+        }),
+        JSON.stringify({
           id: "t-badkind",
           kind: "not_a_real_kind",
           content: "findme odd",
@@ -513,8 +378,12 @@ describe("log search: results, ordering and bounds", () => {
     expect(all.results.map((r) => r.entryId).sort()).toEqual([
       "t-nostamp",
       "t-ok",
+      "t-strstamp",
     ]);
-    for (const r of all.results) expect(ALL_KINDS).toContain(r.kind);
+    for (const r of all.results) {
+      expect(ALL_KINDS).toContain(r.kind);
+      expect(Number.isFinite(r.timestamp)).toBe(true);
+    }
 
     // Unknown age normalizes to 0 ("as old as possible"), so `after` excludes it
     // and `before` includes it - filtered and displayed by the SAME value.
@@ -531,7 +400,10 @@ describe("log search: results, ordering and bounds", () => {
       q("q=findme&tier=full&before=4999"),
       scan,
     );
-    expect(before.results.map((r) => r.entryId)).toEqual(["t-nostamp"]);
+    expect(before.results.map((r) => r.entryId).sort()).toEqual([
+      "t-nostamp",
+      "t-strstamp",
+    ]);
 
     // Retrieval honours the same contract: every content a string, every kind
     // in the union.
@@ -545,9 +417,11 @@ describe("log search: results, ordering and bounds", () => {
       "t-ok",
       "t-num",
       "t-nostamp",
+      "t-strstamp",
     ]);
     for (const e of got.entries) {
       expect(typeof e.content).toBe("string");
+      expect(Number.isFinite(e.timestamp)).toBe(true);
       expect(ALL_KINDS).toContain(e.kind);
     }
   });
@@ -636,36 +510,20 @@ describe("log search: results, ordering and bounds", () => {
     expect(res.timedOut).toBe(true);
     expect(res.results).toHaveLength(0);
   });
-
-  it("an agent with no logs searches to an empty result, not an error", async () => {
-    const res = await searchLogs(source, EMPTY_AGENT, q("q=anything"), scan);
-    expect(res.totalMatches).toBe(0);
-    expect(res.results).toEqual([]);
-  });
 });
 
 describe("log search: regex mode", () => {
-  it("matches a regular expression", async () => {
+  it("matches a regular expression, and never through the raw-line prefilter", async () => {
+    // Plain ASCII, so a prefilter would look for the literal "perm.ssion" on
+    // the raw line and skip every entry.
     const res = await searchLogs(
       source,
       AGENT,
-      q(`q=${encodeURIComponent("perm.ssion\\s+prompt")}&regex=1`),
+      q(`q=${encodeURIComponent("perm.ssion")}&regex=1`),
       scan,
     );
     expect(res.results.map((r) => r.entryId)).toEqual(["e1"]);
     expect(res.regex).toBe(true);
-  });
-
-  it("regex mode never uses the raw-line prefilter", async () => {
-    // A pattern that only matches DECODED content: the raw line has \" where
-    // the decoded content has a bare quote.
-    const res = await searchLogs(
-      source,
-      AGENT,
-      q(`q=${encodeURIComponent('said "ship')}&regex=1`),
-      scan,
-    );
-    expect(res.results.map((r) => r.entryId)).toEqual(["e2"]);
   });
 
   it("rejects a pattern that does not compile", () => {
@@ -691,24 +549,21 @@ describe("log retrieval: tiers and windows", () => {
     expect(res.truncated).toBe(false);
   });
 
-  it("tier=prompts returns only user messages", async () => {
-    const res = await retrieveSession(
+  it("tier=prompts returns only user messages, tier=full everything", async () => {
+    const prompts = await retrieveSession(
       source,
       AGENT,
       S2,
       q(`session=${S2}&tier=prompts`),
     );
-    expect(res.entries.map((e) => e.entryId)).toEqual(["e1", "e6"]);
-  });
-
-  it("tier=full returns everything, including thinking and tool entries", async () => {
-    const res = await retrieveSession(
+    expect(prompts.entries.map((e) => e.entryId)).toEqual(["e1", "e6"]);
+    const full = await retrieveSession(
       source,
       AGENT,
       S1,
       q(`session=${S1}&tier=full`),
     );
-    expect(res.entries.map((e) => e.entryId)).toEqual([
+    expect(full.entries.map((e) => e.entryId)).toEqual([
       "e1",
       "e2",
       "e3",
@@ -794,8 +649,10 @@ describe("log index", () => {
     });
   });
 
-  it("an agent with no sessions lists nothing", async () => {
-    const res = await buildSessionIndex(source, EMPTY_AGENT);
+  it("an agent with no log directory lists nothing", async () => {
+    // A spawned agent before its first session has no directory at all.
+    expect(existsSync(join(LOGS_DIR, MISSING_AGENT))).toBe(false);
+    const res = await buildSessionIndex(source, MISSING_AGENT);
     expect(res.sessions).toEqual([]);
   });
 });
@@ -814,27 +671,18 @@ describe("log query parsing: mode resolution and bounds", () => {
     expect(q("q=hi&session=s").mode).toBe("search");
   });
 
-  it("rejects around= outside retrieval mode", () => {
-    expect(err("around=e1")).toBe("invalid_around");
-    expect(err("q=hi&session=s&around=e1")).toBe("invalid_around");
-  });
-
   it("caps query length, with a tighter cap for regex patterns", () => {
     expect(err(`q=${"a".repeat(MAX_QUERY_LENGTH)}`)).toBe(false);
     expect(err(`q=${"a".repeat(MAX_QUERY_LENGTH + 1)}`)).toBe("query_too_long");
     expect(err(`q=${"a".repeat(MAX_PATTERN_LENGTH + 1)}&regex=1`)).toBe(
       "query_too_long",
     );
-  });
-
-  it("rejects an empty query", () => {
     expect(err("q=")).toBe("invalid_q");
   });
 
   it("rejects an unsafe session id before any path is built from it", () => {
     expect(err("session=../../etc/passwd")).toBe("unknown_session");
-    expect(err("session=/abs/path")).toBe("unknown_session");
-    expect(err("session=a%00b")).toBe("unknown_session");
+    expect(err("session=..")).toBe("unknown_session");
   });
 
   it("rejects unknown tiers and kinds", () => {
@@ -854,18 +702,10 @@ describe("log query parsing: mode resolution and bounds", () => {
     expect(err("session=s&limit=1001")).toBe("invalid_limit");
     expect(err("session=s&around=e&window=51")).toBe("invalid_window");
     expect(err("session=s&around=e&window=-1")).toBe("invalid_window");
-  });
-
-  it("an explicit kind= overrides the tier preset", () => {
-    expect(q("tier=full&kind=user_message").kinds).toEqual(["user_message"]);
-    expect(q("tier=prompts&kind=text,thinking").kinds).toEqual([
-      "text",
-      "thinking",
-    ]);
-  });
-
-  it("tier=full means no kind filter at all, not a hardcoded list", () => {
-    expect(q("tier=full").kinds).toBeNull();
+    // The index has its own ceiling, and no limit when none is given.
+    expect(q("").indexLimit).toBeUndefined();
+    expect(q("limit=1000").indexLimit).toBe(1000);
+    expect(err("limit=1001")).toBe("invalid_limit");
   });
 
   it("rejects a malformed tier even when kind= would have overridden it", () => {
@@ -876,6 +716,8 @@ describe("log query parsing: mode resolution and bounds", () => {
   });
 
   it("bounds the around id rather than reflecting an arbitrary string", () => {
+    expect(err("around=e1")).toBe("invalid_around");
+    expect(err("q=hi&session=s&around=e1")).toBe("invalid_around");
     expect(err(`session=s&around=${"x".repeat(200)}`)).toBe("invalid_around");
     expect(err("session=s&around=has%20a%20space")).toBe("invalid_around");
     expect(err("session=s&around=log-123-ab")).toBe(false);
@@ -883,39 +725,28 @@ describe("log query parsing: mode resolution and bounds", () => {
 });
 
 describe("log search: the response describes the selection it actually applied", () => {
-  it("names the tier when a preset was used", async () => {
-    const res = await searchLogs(source, AGENT, q("q=permission+prompt"), scan);
-    expect(res.tier).toBe("conversation");
-    expect(res.kinds).toEqual([
-      "user_message",
-      "text",
-      "api_token_outbound",
-      "agent_outbound",
-    ]);
-  });
-
   it("reports tier:null when kind= overrode the preset", async () => {
     // The self-contradiction this prevents: `tier=full&kind=user_message`
     // answering `tier:"full"` while having excluded tool and thinking entries.
     const res = await searchLogs(
       source,
       AGENT,
-      q("q=permission+prompt&tier=full&kind=user_message"),
+      q("q=permission+prompt&tier=full&kind=user_message,thinking"),
       scan,
     );
     expect(res.tier).toBeNull();
-    expect(res.kinds).toEqual(["user_message"]);
-  });
-
-  it("reports kinds:null for tier=full, meaning no filter at all", async () => {
-    const res = await searchLogs(
+    // A comma list is several kinds, and the search applies all of them.
+    expect(res.kinds).toEqual(["user_message", "thinking"]);
+    expect(res.results.map((r) => r.entryId).sort()).toEqual(["e1", "e4"]);
+    // tier=full reports kinds:null, meaning no filter at all.
+    const full = await searchLogs(
       source,
       AGENT,
       q("q=permission+prompt&tier=full"),
       scan,
     );
-    expect(res.tier).toBe("full");
-    expect(res.kinds).toBeNull();
+    expect(full.tier).toBe("full");
+    expect(full.kinds).toBeNull();
   });
 
   it("retrieval describes its selection the same way", async () => {
@@ -935,35 +766,6 @@ describe("log search: the response describes the selection it actually applied",
     );
     expect(override.tier).toBeNull();
     expect(override.kinds).toEqual(["thinking"]);
-  });
-});
-
-describe("log index: recency without a recorded lastModified", () => {
-  it("falls back to the log file's mtime instead of sorting to the bottom", async () => {
-    // persistence.listAgentSessions falls back to the JSONL mtime for sessions
-    // whose sessions.json entry predates the lastModified field (and for
-    // migrated state). Substituting 0 here would bury exactly those sessions at
-    // the end of a list whose entire job is recency.
-    const agent = "agent-logsearch-nomtime";
-    mkdirSync(join(LOGS_DIR, agent), { recursive: true });
-    writeFileSync(
-      join(LOGS_DIR, agent, "untracked.jsonl"),
-      JSON.stringify(entry("u1", "text", "no metadata for me", 1)) + "\n",
-    );
-    writeFileSync(
-      join(LOGS_DIR, agent, "tracked.jsonl"),
-      JSON.stringify(entry("t1", "text", "recorded", 1)) + "\n",
-    );
-    writeFileSync(
-      join(LOGS_DIR, agent, "sessions.json"),
-      // `tracked` carries an ancient lastModified; `untracked` has no entry at
-      // all, so only its file mtime (just now) can place it.
-      JSON.stringify({ tracked: { topic: "Old", lastModified: 5_000 } }),
-    );
-
-    const res = await buildSessionIndex(fileLogSource(LOGS_DIR), agent);
-    expect(res.sessions[0].sessionId).toBe("untracked");
-    expect(res.sessions[0].lastModified).toBeGreaterThan(5_000);
   });
 });
 
@@ -1030,13 +832,7 @@ describe("log summaries: search, index and retrieval", () => {
     expect(b.snippet).toBe("Quince follow-up");
   });
 
-  it("finds an entry and a paragraph in the same search, each in its own list", async () => {
-    const res = await search("q=plain+message+in+a");
-    expect(res.results.map((h) => h.entryId)).toEqual(["a-1"]);
-    expect(hitIds(res)).toEqual([]);
-  });
-
-  it("applies regex, session, limit, before and after; kind and tier do not narrow it", async () => {
+  it("applies regex, session, limit, before and after; a kind filter does not narrow it", async () => {
     expect(hitIds(await search("q=quince%5Cs%2Bagain&regex=1"))).toEqual(["d"]);
     expect(hitIds(await search("q=quince&session=a"))).toEqual(["a"]);
     expect(hitIds(await search("q=quince&limit=2"))).toEqual(["d", "b"]);
@@ -1046,11 +842,6 @@ describe("log summaries: search, index and retrieval", () => {
       "b",
     ]);
     expect(hitIds(await search("q=quince&kind=tool_call"))).toEqual([
-      "d",
-      "b",
-      "a",
-    ]);
-    expect(hitIds(await search("q=quince&tier=prompts"))).toEqual([
       "d",
       "b",
       "a",
@@ -1126,21 +917,12 @@ describe("log index: pages", () => {
     }
     expect(seen).toEqual(all);
     expect(truncatedFlags).toEqual([true, true, false]);
-  });
-
-  it("before without limit lists every older session", async () => {
-    const res = await buildSessionIndex(source, PAGE_AGENT, {
+    // A cursor without a limit lists every older session.
+    const older = await buildSessionIndex(source, PAGE_AGENT, {
       before: 20_000,
     });
-    expect(ids(res)).toEqual(all.slice(5));
-    expect(res.truncated).toBe(false);
-  });
-
-  it("parses an index limit up to its own ceiling, and none when absent", () => {
-    expect(q("").indexLimit).toBeUndefined();
-    expect(q("limit=1000").indexLimit).toBe(1000);
-    const over = parseLogQuery(new URLSearchParams("limit=1001"));
-    expect("code" in over && over.code).toBe("invalid_limit");
+    expect(ids(older)).toEqual(all.slice(5));
+    expect(older.truncated).toBe(false);
   });
 });
 

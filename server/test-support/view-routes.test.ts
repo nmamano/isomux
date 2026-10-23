@@ -181,7 +181,7 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
     const r3 = server.agentManager.createRoom("R3"); // hidden from Mia's view
-    server.agentManager.createRoom("R4"); // inaccessible to Mia
+    const r4 = server.agentManager.createRoom("R4"); // inaccessible to Mia
     grant(member.username, [r1, r2, r3]);
     hide(member.username, [r3]);
     const agent = await server.agentManager.spawn(
@@ -233,6 +233,13 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
         expect(types).not.toContain(replayType);
       }
     }
+    // The order is the member's view: the office's room order is unchanged.
+    expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
+      r1,
+      r2,
+      r3,
+      r4,
+    ]);
     // The unrelated owner gets nothing from the member's view change.
     await sleep(50);
     expect(

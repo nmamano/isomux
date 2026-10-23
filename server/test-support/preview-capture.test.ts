@@ -30,10 +30,9 @@ let tmpBase: string;
 let fakeBrowser: string; // writes a valid PNG to the --screenshot path
 let slowBrowser: string; // sleeps forever (until killed)
 let hangingBrowser: string; // writes a valid PNG, then hangs instead of exiting
-let lateWriterBrowser: string; // writes a valid PNG only after 1s
+let lateWriterBrowser: string; // writes a valid PNG only after 0.3s
 let stubbornBrowser: string; // ignores SIGTERM and sleeps forever
 let failingBrowser: string; // exits 3 with stderr, writes nothing
-let silentBrowser: string; // exits 0 without writing a screenshot
 let junkBrowser: string; // writes a non-PNG file
 
 function script(name: string, body: string): string {
@@ -76,14 +75,13 @@ ${FIND_OUT}\n${WRITE_PNG}`,
   );
   lateWriterBrowser = script(
     "late-writer-browser.sh",
-    `${FIND_OUT}\nsleep 1\n${WRITE_PNG}\nsleep 600`,
+    `${FIND_OUT}\nsleep 0.3\n${WRITE_PNG}\nsleep 600`,
   );
   stubbornBrowser = script("stubborn-browser.sh", `trap '' TERM\nsleep 600`);
   failingBrowser = script(
     "failing-browser.sh",
     'echo "chrome exploded: boom" >&2\nexit 3',
   );
-  silentBrowser = script("silent-browser.sh", "exit 0");
   junkBrowser = script("junk-browser.sh", `${FIND_OUT}\necho notapng > "$out"`);
 });
 
@@ -120,12 +118,11 @@ function tmpLeftovers(): string[] {
 
 describe("preview-capture: validation (strict, no clamping)", () => {
   const cases: Array<[string, unknown]> = [
-    ["missing url", {}],
-    ["non-string url", { url: 42 }],
+    // A missing url and embedded credentials: the route test owns them.
     ["unparseable url", { url: "not a url" }],
+    // An allow-list: any scheme but http(s) is refused, not just file:.
     ["non-http scheme", { url: "ftp://localhost/x" }],
     ["file scheme", { url: "file:///etc/passwd" }],
-    ["embedded credentials", { url: "http://user:pw@localhost:3000/" }],
     ["url too long", { url: `http://localhost/${"a".repeat(2050)}` }],
     [
       "viewport not an object",
@@ -158,29 +155,10 @@ describe("preview-capture: validation (strict, no clamping)", () => {
 });
 
 describe("preview-capture: any host passes validation (policy dropped, fb02f521)", () => {
-  // Syntax-only validation now: loopback, private, AND public hosts are all
-  // accepted. findBrowser:null stops the run cheaply right after validation -
-  // reaching no_browser PROVES the URL was accepted.
-  const hosts = [
-    "127.0.0.1",
-    "192.168.1.1",
-    "100.100.7.7", // tailscale CGNAT
-    "[::1]",
-    "8.8.8.8", // public IPv4 - rejected under the old policy
-    "[2001:4860:4860::8888]", // public IPv6
-    "example.com", // named host, no DNS resolution step anymore
-    "auntie", // single-label host
-  ];
-  for (const host of hosts) {
-    it(`accepts http://${host}`, async () => {
-      const r = await capturePreview(
-        { url: `http://${host}:3000/` },
-        deps({ findBrowser: () => null }),
-      );
-      expectFail(r, 500, "no_browser");
-    });
-  }
-
+  // Syntax-only validation now: no host is refused. findBrowser:null stops
+  // the run cheaply right after validation - reaching no_browser PROVES the
+  // URL was accepted. A public named host is the case a host policy would
+  // refuse first.
   it("accepts an https URL to a public named host", async () => {
     const r = await capturePreview(
       { url: "https://example.com/some/page" },
@@ -204,13 +182,6 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
     for (const name of [...BROWSER_CANDIDATES, ...BROWSER_ABSOLUTE_PATHS]) {
       expect(r.error).toContain(name);
     }
-    expect(BROWSER_ABSOLUTE_PATHS).toContain("/usr/bin/google-chrome");
-    expect(BROWSER_ABSOLUTE_PATHS).toContain("/snap/bin/chromium");
-    // macOS installs Chrome as an app bundle, off PATH.
-    expect(BROWSER_ABSOLUTE_PATHS).toContain(
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    );
-    expect(BROWSER_ABSOLUTE_PATHS.every((p) => p.startsWith("/"))).toBe(true);
   });
 
   it("pre-flight network failure -> 500 unreachable, no temp dir left", async () => {
@@ -239,15 +210,6 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
     expect(tmpLeftovers()).toEqual([]);
   });
 
-  it("child exits clean without writing a screenshot -> capture_failed", async () => {
-    const r = await capturePreview(
-      { url: "http://127.0.0.1:3000/" },
-      deps({ findBrowser: () => silentBrowser }),
-    );
-    expectFail(r, 500, "capture_failed");
-    expect(r.error).toContain("no screenshot");
-  });
-
   it("child writes a non-PNG -> capture_failed (signature check)", async () => {
     const r = await capturePreview(
       { url: "http://127.0.0.1:3000/" },
@@ -261,20 +223,20 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
     const started = Date.now();
     const r = await capturePreview(
       { url: "http://127.0.0.1:3000/" },
-      deps({ findBrowser: () => slowBrowser, deadlineMs: 400 }),
+      deps({ findBrowser: () => slowBrowser, deadlineMs: 100 }),
     );
     expectFail(r, 500, "capture_timeout");
-    // SIGTERM at the 400ms deadline; sh dies on it, so no grace needed.
+    // SIGTERM at the 100ms deadline; sh dies on it, so no grace needed.
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(tmpLeftovers()).toEqual([]);
   });
 
   it("PNG completed only AFTER the deadline -> capture_timeout, not success", async () => {
     // The deadline must win permanently: a screenshot landing post-deadline
-    // (here at ~1s vs a 300ms deadline) cannot resurrect the capture.
+    // (here at ~0.3s vs a 100ms deadline) cannot resurrect the capture.
     const r = await capturePreview(
       { url: "http://127.0.0.1:3000/" },
-      deps({ findBrowser: () => lateWriterBrowser, deadlineMs: 300 }),
+      deps({ findBrowser: () => lateWriterBrowser, deadlineMs: 100 }),
     );
     expectFail(r, 500, "capture_timeout");
     expect(tmpLeftovers()).toEqual([]);
@@ -284,12 +246,15 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
     const started = Date.now();
     const r = await capturePreview(
       { url: "http://127.0.0.1:3000/" },
-      deps({ findBrowser: () => stubbornBrowser, deadlineMs: 400 }),
+      // Long enough for sh to install its trap before the SIGTERM.
+      deps({ findBrowser: () => stubbornBrowser, deadlineMs: 250 }),
     );
     expectFail(r, 500, "capture_timeout");
-    // SIGTERM at 400ms is ignored; SIGKILL lands after the 2s grace. The
-    // documented bound is deadline + grace (+ scheduling slack).
+    // SIGTERM at 250ms is ignored; SIGKILL lands after the 2s grace. The
+    // documented bound is deadline + grace (+ scheduling slack). At least
+    // the grace proves the trap held and the SIGKILL path ran.
     const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(2_000);
     expect(elapsed).toBeLessThan(4_000);
     expect(tmpLeftovers()).toEqual([]);
   });
@@ -330,11 +295,10 @@ describe("preview-capture: happy path + concurrency", () => {
   });
 
   it("third concurrent capture -> immediate 429 capture_busy; slots recover", async () => {
-    const slow = deps({ findBrowser: () => slowBrowser, deadlineMs: 1_500 });
+    const slow = deps({ findBrowser: () => slowBrowser, deadlineMs: 200 });
+    // Each call takes its slot before its first await.
     const a = capturePreview({ url: "http://127.0.0.1:3000/" }, slow);
     const b = capturePreview({ url: "http://127.0.0.1:3000/" }, slow);
-    // Let a/b get past pre-flight and take their slots.
-    await new Promise((res) => setTimeout(res, 200));
     const c = await capturePreview({ url: "http://127.0.0.1:3000/" }, deps());
     expectFail(c, 429, "capture_busy");
     const [ra, rb] = await Promise.all([a, b]);

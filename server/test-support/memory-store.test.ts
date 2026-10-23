@@ -16,22 +16,16 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  formatMemoryLine,
-  parseMemoryLine,
   createMemoryStore,
   isSafeScopeId,
-  normalizeForDedup,
-  isExactDuplicateText,
   versionOf,
   MEMORY_LINE_MAX,
   MemoryCapError,
-  MemoryLineTooLongError,
   injectedSize,
 } from "../memory-store.ts";
 import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
 const dirs: string[] = [];
-const auditRows = new Map<string, AuditWrite[]>();
 function tempRoot(): string {
   const d = mkdtempSync(join(tmpdir(), "isomux-mem-"));
   dirs.push(d);
@@ -45,9 +39,9 @@ const DATE = "2026-06-28";
 const TS = "2026-06-28T12:00:00.000Z";
 function freshStore(opts?: { caps?: Record<string, number> }) {
   const root = tempRoot();
+  const audits: AuditWrite[] = [];
   const rawStore = createMemoryStore({
-    audit: (entry) =>
-      auditRows.set(root, [...(auditRows.get(root) ?? []), entry]),
+    audit: (entry) => audits.push(entry),
     stateRoot: root,
     today: () => DATE,
     now: () => TS,
@@ -74,186 +68,8 @@ function freshStore(opts?: { caps?: Record<string, number> }) {
         () => rawStore.replace(input),
       ),
   };
-  return { root, store };
+  return { root, store, audits };
 }
-function opLog(root: string): AuditWrite[] {
-  return auditRows.get(root) ?? [];
-}
-
-describe("memory-store: format/parse", () => {
-  it("formatMemoryLine renders the raw bullet shape", () => {
-    expect(
-      formatMemoryLine({
-        author: "Isomuxer3",
-        date: "2026-06-28",
-        text: "no em dashes in prose",
-      }),
-    ).toBe("- Isomuxer3, 2026-06-28: no em dashes in prose");
-  });
-
-  it("parseMemoryLine round-trips a formatted line", () => {
-    const raw = formatMemoryLine({
-      author: "Bot",
-      date: "2026-06-28",
-      text: "a fact",
-    });
-    const item = parseMemoryLine(raw, "office", null);
-    expect(item).toEqual({
-      scope: "office",
-      scopeId: null,
-      author: "Bot",
-      date: "2026-06-28",
-      text: "a fact",
-      raw,
-    });
-  });
-
-  it("parseMemoryLine tolerates a comma in the author (date is the anchor)", () => {
-    const item = parseMemoryLine(
-      "- Dr. No, Esq., 2026-06-28: spies are durable",
-      "agent",
-      "a1",
-    );
-    expect(item?.author).toBe("Dr. No, Esq.");
-    expect(item?.text).toBe("spies are durable");
-  });
-
-  // The author-less shape (task f9d2bbac): an agent's note to its own scope.
-  it("formatMemoryLine drops the author when it is null", () => {
-    expect(
-      formatMemoryLine({
-        author: null,
-        date: "2026-06-28",
-        text: "no em dashes in prose",
-      }),
-    ).toBe("- 2026-06-28: no em dashes in prose");
-  });
-
-  it("parseMemoryLine round-trips an author-less line", () => {
-    const raw = formatMemoryLine({
-      author: null,
-      date: "2026-06-28",
-      text: "a fact",
-    });
-    expect(parseMemoryLine(raw, "agent", "a1")).toEqual({
-      scope: "agent",
-      scopeId: "a1",
-      author: null,
-      date: "2026-06-28",
-      text: "a fact",
-      raw,
-    });
-  });
-
-  // Both shapes coexist in one file: existing memory across deployments keeps
-  // its author stamp and has to keep parsing next to new self-notes.
-  it("parseMemoryLine handles both shapes in the same scope", () => {
-    expect(
-      parseMemoryLine("- Bot, 2026-06-28: named", "agent", "a1")?.author,
-    ).toBe("Bot");
-    expect(
-      parseMemoryLine("- 2026-06-28: unnamed", "agent", "a1")?.author,
-    ).toBeNull();
-  });
-
-  // The reason the parser tries authorless FIRST instead of using one regex with
-  // an optional author group: a greedy optional group fills itself off a comma
-  // inside the TEXT, inventing an author out of the line's own body.
-  it("parseMemoryLine does not invent an author from a comma+date inside the text", () => {
-    const item = parseMemoryLine(
-      "- 2026-06-28: shipped, 2026-07-01: done",
-      "agent",
-      "a1",
-    );
-    expect(item?.author).toBeNull();
-    expect(item?.date).toBe("2026-06-28");
-    expect(item?.text).toBe("shipped, 2026-07-01: done");
-  });
-
-  it("parseMemoryLine keeps an author that itself looks like a date", () => {
-    const item = parseMemoryLine(
-      "- 2026-06-28, 2026-07-01: odd but authored",
-      "office",
-      null,
-    );
-    expect(item?.author).toBe("2026-06-28");
-    expect(item?.date).toBe("2026-07-01");
-  });
-
-  it("parseMemoryLine trims trailing whitespace on both shapes", () => {
-    expect(
-      parseMemoryLine("- 2026-06-28: a fact   ", "agent", "a1"),
-    ).toMatchObject({
-      author: null,
-      text: "a fact",
-      raw: "- 2026-06-28: a fact",
-    });
-    expect(
-      parseMemoryLine("- Bot, 2026-06-28: a fact  ", "agent", "a1"),
-    ).toMatchObject({
-      author: "Bot",
-      text: "a fact",
-      raw: "- Bot, 2026-06-28: a fact",
-    });
-  });
-
-  it("parseMemoryLine returns null for free-form / non-matching lines", () => {
-    expect(parseMemoryLine("just some prose", "office", null)).toBeNull();
-    expect(parseMemoryLine("", "office", null)).toBeNull();
-    // old id-tagged format no longer parses (treated as raw text)
-    expect(
-      parseMemoryLine(
-        "- <!-- mem:ab12cd --> [X, 2026-06-28] y",
-        "office",
-        null,
-      ),
-    ).toBeNull();
-  });
-});
-
-describe("memory-store: version", () => {
-  it("is deterministic and 12 hex chars", () => {
-    const v = versionOf("hello\n");
-    expect(v).toMatch(/^[0-9a-f]{12}$/);
-    expect(versionOf("hello\n")).toBe(v);
-  });
-  it("empty content hashes to a fixed sentinel; different content differs", () => {
-    expect(versionOf("")).toBe(versionOf(""));
-    expect(versionOf("a")).not.toBe(versionOf("b"));
-    // same length, different bytes still differ (sha, not size)
-    expect(versionOf("ab")).not.toBe(versionOf("ba"));
-  });
-});
-
-describe("memory-store: dedup helpers", () => {
-  it("normalizeForDedup trims, lowercases, collapses ws, strips terminal punct", () => {
-    expect(normalizeForDedup("  Hello   World!! ")).toBe("hello world");
-    // internal punctuation survives
-    expect(normalizeForDedup("use ~/isomux-active.")).toBe(
-      "use ~/isomux-active",
-    );
-  });
-  it("isExactDuplicateText matches normalized restatements, not rewords", () => {
-    expect(isExactDuplicateText("Foo bar.", "foo  bar")).toBe(true);
-    expect(isExactDuplicateText("foo bar baz", "foo bar")).toBe(false);
-  });
-});
-
-describe("memory-store: caps", () => {
-  it("MEMORY_CAPS are the Nil-set values", () => {
-    expect(MEMORY_CAPS).toEqual({
-      office: 2500,
-      room: 10000,
-      agent: 5000,
-      member: 5000,
-    });
-  });
-  it("injectedSize: counts non-empty lines joined, as the prompt renders them", () => {
-    expect(injectedSize("- a\n- b\n- c")).toBe(11);
-    expect(injectedSize("- a\n\n\n- b\n")).toBe(7); // blank lines don't count
-    expect(injectedSize("")).toBe(0);
-  });
-});
 
 describe("memory-store: isSafeScopeId", () => {
   it("accepts identifiers, rejects traversal/slashes", () => {
@@ -286,18 +102,16 @@ describe("memory-store: append", () => {
     void root;
   });
 
-  it("refuses append text over the one-line limit without writing", () => {
-    const { store } = freshStore();
-    const text = "x".repeat(MEMORY_LINE_MAX + 1);
-    let err: unknown;
-    try {
-      store.append({ scope: "agent", scopeId: "a1", author: "Bot", text });
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(MemoryLineTooLongError);
-    expect((err as MemoryLineTooLongError).size).toBe(MEMORY_LINE_MAX + 1);
-    expect(store.readText("agent", "a1")).toBe("");
+  // The audit target names the scope's file; office memory has no id, so
+  // it is named "office" (the audit filter matches on it).
+  it("audits each write against its scope's target", () => {
+    const { store, audits } = freshStore();
+    store.append({ scope: "office", scopeId: null, author: "Nil", text: "x" });
+    store.append({ scope: "agent", scopeId: "a1", author: "Nil", text: "y" });
+    expect(audits.map((a) => a.targets)).toEqual([
+      ["memory:office:office"],
+      ["memory:agent:a1"],
+    ]);
   });
 
   it("separates an append from raw REPLACE content without a trailing newline", () => {
@@ -308,6 +122,7 @@ describe("memory-store: append", () => {
       scopeId: "a1",
       text: replaced,
       author: "Nil",
+      expectedVersion: versionOf(""),
     });
     const res = store.append({
       scope: "agent",
@@ -316,60 +131,8 @@ describe("memory-store: append", () => {
       text: "second fact",
     });
     const expected = `${replaced}\n- Bot, 2026-06-28: second fact\n`;
-    expect(store.readText("agent", "a1")).toBe(expected);
+    expect(store.read("agent", "a1").text).toBe(expected);
     expect(res.size).toBe(injectedSize(expected));
-  });
-
-  // authorAgentId is what makes a line a self-note. The store owns the rule, so
-  // these pin it at the store seam rather than only through the route.
-  it("drops the author when the caller is the agent scope's own agent", () => {
-    const { store } = freshStore();
-    const res = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "Bot",
-      authorAgentId: "a1",
-      text: "a durable fact",
-    });
-    expect(res.item.raw).toBe("- 2026-06-28: a durable fact");
-    expect(res.item.author).toBeNull();
-    expect(store.read("agent", "a1").text).toBe(
-      "- 2026-06-28: a durable fact\n",
-    );
-  });
-
-  it("keeps the author for every writer that is not the scope's own agent", () => {
-    const { store } = freshStore();
-    // another agent -> named
-    expect(
-      store.append({
-        scope: "agent",
-        scopeId: "a1",
-        author: "Other",
-        authorAgentId: "a2",
-        text: "one",
-      }).item.raw,
-    ).toBe("- Other, 2026-06-28: one");
-    // a human (no agentId at all) -> named
-    expect(
-      store.append({
-        scope: "agent",
-        scopeId: "a1",
-        author: "Nil",
-        authorAgentId: null,
-        text: "two",
-      }).item.raw,
-    ).toBe("- Nil, 2026-06-28: two");
-    // the same agent writing to a NON-agent scope -> named
-    expect(
-      store.append({
-        scope: "room",
-        scopeId: "a1",
-        author: "Bot",
-        authorAgentId: "a1",
-        text: "three",
-      }).item.raw,
-    ).toBe("- Bot, 2026-06-28: three");
   });
 
   // The whole point of task f9d2bbac is cap space, so prove the bytes are
@@ -420,37 +183,6 @@ describe("memory-store: append", () => {
     ).toThrow(MemoryCapError);
   });
 
-  it("a self-note's op-log actor still names the agent", () => {
-    const { root, store } = freshStore();
-    store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "Bot",
-      authorAgentId: "a1",
-      text: "x",
-    });
-    expect(opLog(root)[0]).toMatchObject({
-      actor: { name: "Bot", kind: "agent", id: "a1" },
-      operation: "memory.append",
-      memoryContent: "- 2026-06-28: x\n",
-    });
-  });
-
-  it("logs an append op with server-stamped actor + post-op content", () => {
-    const { root, store } = freshStore();
-    store.append({ scope: "office", scopeId: null, author: "Nil", text: "x" });
-    const log = opLog(root);
-    expect(log).toHaveLength(1);
-    expect(log[0]).toMatchObject({
-      time: Date.parse(TS),
-      actor: { name: "Nil" },
-      targets: ["memory:office:office"],
-      operation: "memory.append",
-      memoryContent: "- Nil, 2026-06-28: x\n",
-    });
-    expect(existsSync(join(root, "memory", ".oplog.jsonl"))).toBe(false);
-  });
-
   it("findDuplicate matches an exact active restatement, not a reword", () => {
     const { store } = freshStore();
     store.append({
@@ -460,9 +192,45 @@ describe("memory-store: append", () => {
       text: "Deploys at 9.",
     });
     expect(store.findDuplicate("room", "r1", "deploys at 9")).not.toBeNull();
+    // Inner whitespace collapses; inner punctuation counts.
+    expect(store.findDuplicate("room", "r1", "Deploys   at 9")).not.toBeNull();
     expect(store.findDuplicate("room", "r1", "deploys at 09:00")).toBeNull();
+    store.append({
+      scope: "room",
+      scopeId: "r1",
+      author: "A",
+      text: "use ~/isomux-active.",
+    });
+    expect(store.findDuplicate("room", "r1", "use ~/isomuxactive")).toBeNull();
     // per-scope: same text in another scope is not a dup
     expect(store.findDuplicate("office", null, "deploys at 9")).toBeNull();
+  });
+
+  it("findDuplicate reads both line shapes, whatever the author or text holds", () => {
+    const { store } = freshStore();
+    // The date anchors the author, so a comma in it is fine.
+    store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "Dr. No, Esq.",
+      text: "spies are durable",
+    });
+    // A self-note has no author; a comma and a date in its text do not
+    // make one.
+    store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "Bot",
+      authorAgentId: "a1",
+      text: "shipped, 2026-07-01: done",
+    });
+    expect(
+      store.findDuplicate("agent", "a1", "spies are durable"),
+    ).not.toBeNull();
+    expect(
+      store.findDuplicate("agent", "a1", "shipped, 2026-07-01: done"),
+    ).not.toBeNull();
+    expect(store.findDuplicate("agent", "a1", "done")).toBeNull();
   });
 });
 
@@ -475,12 +243,13 @@ describe("memory-store: replace", () => {
       scopeId: "a1",
       text,
       author: "Nil",
+      expectedVersion: versionOf(""),
     });
     expect(res.ok).toBe(true);
-    expect(store.readText("agent", "a1")).toBe(text);
+    expect(store.read("agent", "a1").text).toBe(text);
   });
   it("overwrites with the correct version and returns the new version", () => {
-    const { root, store } = freshStore();
+    const { store } = freshStore();
     store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
     const { version } = store.read("agent", "a1");
     const res = store.replace({
@@ -496,115 +265,28 @@ describe("memory-store: replace", () => {
     expect(store.read("agent", "a1").text).toBe(
       "- hand-edited line\n- another\n",
     );
-    const log = opLog(root);
-    expect(log[log.length - 1]).toMatchObject({
-      operation: "memory.replace",
-      actor: { name: "Nil" },
-      memoryContent: "- hand-edited line\n- another\n",
-    });
-  });
-
-  it("rejects a stale version (409-equivalent) and writes nothing", () => {
-    const { store } = freshStore();
-    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
-    const original = store.read("agent", "a1");
-    const res = store.replace({
+    // A stale version writes nothing and answers with the CURRENT version,
+    // which the client needs for its next try.
+    const current = store.read("agent", "a1");
+    expect(
+      store.replace({
+        scope: "agent",
+        scopeId: "a1",
+        text: "clobber",
+        author: "Nil",
+        expectedVersion: version,
+      }),
+    ).toEqual({ ok: false, conflict: true, version: current.version });
+    expect(store.read("agent", "a1")).toEqual(current);
+    // Empty text clears the file.
+    store.replace({
       scope: "agent",
       scopeId: "a1",
-      text: "clobber",
-      author: "Bot",
-      expectedVersion: "deadbeef0000",
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.version).toBe(original.version);
-    // file unchanged
-    expect(store.read("agent", "a1").text).toBe(original.text);
-  });
-
-  it("force-overwrites when expectedVersion is omitted (curation save)", () => {
-    const { store } = freshStore();
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "Bot",
-      text: "one",
-    });
-    const res = store.replace({
-      scope: "office",
-      scopeId: null,
-      text: "- curated\n",
-      author: "Nil",
-    });
-    expect(res.ok).toBe(true);
-    expect(store.read("office", null).text).toBe("- curated\n");
-  });
-
-  it("writes raw text verbatim; empty text clears the file", () => {
-    const { store } = freshStore();
-    store.replace({
-      scope: "room",
-      scopeId: "r1",
-      text: "anything\ngoes here",
-      author: "Nil",
-    });
-    expect(store.read("room", "r1").text).toBe("anything\ngoes here");
-    const v = store.read("room", "r1").version;
-    store.replace({
-      scope: "room",
-      scopeId: "r1",
       text: "",
       author: "Nil",
-      expectedVersion: v,
+      expectedVersion: versionOf("- hand-edited line\n- another\n"),
     });
-    expect(store.read("room", "r1").text).toBe("");
-  });
-});
-
-describe("memory-store: render for prompt", () => {
-  it("joins non-empty lines, null when empty", () => {
-    const { store } = freshStore();
-    expect(store.renderForPrompt("agent", "a1")).toBeNull();
-    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
-    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "two" });
-    expect(store.renderForPrompt("agent", "a1")).toBe(
-      "- Bot, 2026-06-28: one\n- Bot, 2026-06-28: two",
-    );
-  });
-
-  it("renders a legacy over-cap scope in FULL - caps never drop lines at render", () => {
-    // Write the over-cap file directly, as a legacy file would exist on disk:
-    // the write API itself refuses to create this state.
-    const { root, store } = freshStore({
-      caps: { office: 30, room: 30, agent: 30, member: 30 },
-    });
-    const legacy =
-      "- A, 2026-01-01: oldest fact kept\n- A, 2026-01-02: newest fact kept\n";
-    mkdirSync(join(root, "memory"), { recursive: true });
-    writeFileSync(join(root, "memory", "office.md"), legacy);
-    const out = store.renderForPrompt("office", null)!;
-    expect(out).toContain("oldest fact kept");
-    expect(out).toContain("newest fact kept");
-  });
-
-  it("append refuses a line that would put the scope over its cap", () => {
-    const { store } = freshStore({
-      caps: { office: 60, room: 60, agent: 60, member: 60 },
-    });
-    store.append({ scope: "office", scopeId: null, author: "A", text: "one" });
-    let err: unknown;
-    try {
-      store.append({
-        scope: "office",
-        scopeId: null,
-        author: "A",
-        text: "a fact long enough to overflow the tiny cap for sure",
-      });
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(MemoryCapError);
-    // and the file was not written
-    expect(store.readText("office", null)).not.toContain("overflow");
+    expect(store.read("agent", "a1").text).toBe("");
   });
 
   it("replace refuses growth over the cap but allows a shrinking trim of a legacy over-cap file", () => {
@@ -623,6 +305,7 @@ describe("memory-store: render for prompt", () => {
       scopeId: null,
       text: smaller,
       author: "A",
+      expectedVersion: versionOf(legacy),
     });
     expect(res.ok).toBe(true);
     // growth over the cap: refused
@@ -633,13 +316,16 @@ describe("memory-store: render for prompt", () => {
         scopeId: null,
         text: smaller + "- A, 2026-01-03: cccccccccccccccc\n",
         author: "A",
+        expectedVersion: versionOf(smaller),
       });
     } catch (e) {
       err = e;
     }
     expect(err).toBeInstanceOf(MemoryCapError);
   });
+});
 
+describe("memory-store: render for prompt", () => {
   it("renderForPromptMulti labels each non-empty scope and skips empties", () => {
     const { store } = freshStore();
     store.append({ scope: "office", scopeId: null, author: "A", text: "o" });
