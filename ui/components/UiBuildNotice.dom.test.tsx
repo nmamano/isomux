@@ -8,7 +8,6 @@ const { StateCtx, DispatchCtx, initialState, reducer } =
   await import("../store.tsx");
 const browser = await import("../reload-browser.ts");
 const { UiBuildNotice } = await import("./UiBuildNotice.tsx");
-const { ownUiBuild } = await import("../ui-build.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 type Action = Parameters<typeof reducer>[1];
@@ -82,20 +81,6 @@ function show(own: string | null) {
   return { view, send, reloadButton, dismissButton };
 }
 
-describe("ownUiBuild", () => {
-  it("reads this page's build from the meta", () => {
-    setMeta(OWN);
-    expect(ownUiBuild()).toBe(OWN);
-  });
-
-  it("is unknown without the meta, or with the unfilled placeholder", () => {
-    setMeta(null);
-    expect(ownUiBuild()).toBeNull();
-    setMeta("__ISOMUX_UI_BUILD__");
-    expect(ownUiBuild()).toBeNull();
-  });
-});
-
 describe("new UI build notice", () => {
   it("shows when the server's build on connect differs from this tab's", () => {
     const { send, reloadButton, dismissButton } = show(OWN);
@@ -122,6 +107,12 @@ describe("new UI build notice", () => {
     const noOwn = show(null);
     noOwn.send(fullState(NEW));
     expect(noOwn.reloadButton()).toBeNull();
+    noOwn.view.unmount();
+
+    // A page served unbuilt still holds ui/index.html's placeholder.
+    const placeholder = show("__ISOMUX_UI_BUILD__");
+    placeholder.send(fullState(NEW));
+    expect(placeholder.reloadButton()).toBeNull();
   });
 
   it("follows a build that lands with no reconnect, both ways", () => {

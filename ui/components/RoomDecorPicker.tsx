@@ -40,7 +40,7 @@ import { FLOOR_CLIP } from "../office/grid.ts";
 import { pickDecor, pickPet, pickPreset, type RoomLook } from "../room-look.ts";
 
 /** What the pane would draw if saved now. */
-export function stagedRoomDecor(
+function stagedRoomDecor(
   room: RoomWire,
   rooms: RoomWire[],
   look: RoomLook,

@@ -512,8 +512,6 @@ Coses que pots fer per ell:
     "Desat, però aquesta pàgina no ha pogut recarregar l'oficina. Tria una altra fila i torna per continuar editant.",
   "settings.office.conflict":
     "La configuració de l'oficina ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
-  "settings.office.loadedVariables.one": "S'ha carregat {count} variable.",
-  "settings.office.loadedVariables.other": "S'han carregat {count} variables.",
   "settings.office.memberUsageCap": "Marcar el ritme d'ús dels membres",
   "settings.office.memberUsageCapHint":
     "Els torns dels membres amb la sessió de tota l'oficina s'aturen en un límit que puja cada dia de la setmana, fins a la part dels membres.",
@@ -2439,7 +2437,6 @@ Coses que pots fer per ell:
   "apps.openAgent": "Obre l'agent",
   "apps.commandIn": "a {cwd}",
   "apps.verbTitle.start": "Posa l'app en marxa",
-  "apps.verbTitle.stop": "Atura l'app (les seves dades es conserven)",
   "apps.verbTitle.restart": "Atura l'app i torna-la a engegar",
   "apps.delete": "elimina",
   "apps.cancel": "cancel·la",

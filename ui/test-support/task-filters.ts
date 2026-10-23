@@ -16,10 +16,7 @@ export function filterButton(
 }
 
 // The checkbox values in the open list, in order.
-export function filterOptions(
-  container: HTMLElement,
-  which: TaskFilter,
-): string[] {
+function filterOptions(container: HTMLElement, which: TaskFilter): string[] {
   return [
     ...root(container, which).querySelectorAll<HTMLInputElement>(
       'input[type="checkbox"]',

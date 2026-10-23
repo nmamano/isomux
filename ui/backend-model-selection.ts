@@ -151,14 +151,15 @@ export function modelListErrorMessage(
     : i18n.t("common.model.listLoadFailed", { detail });
 }
 
+// A failed discovery leaves backendModels null, so a stored model stays
+// saveable until a loaded catalog says it is gone.
 export function openCodeModelSelectionReady(
   modelFamily: string,
   modelsLoading: boolean,
-  modelsFailed: boolean,
   backendModels: BackendModelWire[] | null,
 ): boolean {
   if (!modelFamily) return false;
-  if (modelsLoading || modelsFailed || backendModels === null) return true;
+  if (modelsLoading || backendModels === null) return true;
   return backendModels.some(
     (model) => !model.hidden && model.id === modelFamily,
   );

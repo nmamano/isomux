@@ -86,7 +86,6 @@ async function mount(currentRoomId: string | null = null, lobbyOpen = false) {
     }),
   );
   await act(async () => {});
-  await act(async () => view.getByText("schedules").click());
   const row = (id: string) =>
     view.container.querySelector<HTMLElement>(`tr[data-cronjob-row="${id}"]`);
   const listed = () =>
@@ -108,7 +107,7 @@ it("a room member's row has no run or edit controls and opens the job's runs", a
   view.unmount();
 });
 
-it("filters by room and no room, and keeps no choice for the next open", async () => {
+it("filters by room and no room, and the next open starts on the office's room, not the last choice", async () => {
   const first = await mount();
   expect(first.listed()).toEqual(["mine0001", "view0001", "none0001"]);
   await act(async () => {
@@ -121,22 +120,9 @@ it("filters by room and no room, and keeps no choice for the next open", async (
   expect(first.listed()).toEqual(["none0001"]);
   first.view.unmount();
 
-  const again = await mount();
-  expect(again.filter().value).toBe("all");
-  expect(again.listed()).toHaveLength(3);
+  // The next open starts on the room the office shows, not on "none".
+  const again = await mount(ROOM_A);
+  expect(again.filter().value).toBe(ROOM_A);
+  expect(again.listed()).toEqual(["mine0001"]);
   again.view.unmount();
-});
-
-it("opens on the room the office shows, and on all rooms from the lobby", async () => {
-  const fromA = await mount(ROOM_A);
-  expect(fromA.filter().value).toBe(ROOM_A);
-  expect(fromA.listed()).toEqual(["mine0001"]);
-  fromA.view.unmount();
-  const fromB = await mount(ROOM_B);
-  expect(fromB.listed()).toEqual(["view0001"]);
-  fromB.view.unmount();
-  const fromLobby = await mount(ROOM_A, true);
-  expect(fromLobby.filter().value).toBe("all");
-  expect(fromLobby.listed()).toHaveLength(3);
-  fromLobby.view.unmount();
 });

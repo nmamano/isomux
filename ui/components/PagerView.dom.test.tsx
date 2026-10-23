@@ -1,7 +1,7 @@
 // The pager view over a real reducer: list order, both filters, ack and
-// resolve, the deep-link selection, the unavailable notice, and a failed
-// load. App sources are in PagerView.apps.dom.test.tsx; App-level wiring
-// (boot, sync, badge) is in ui/App.pager-*.dom.test.tsx.
+// resolve, and the deep-link selection. App sources are in
+// PagerView.apps.dom.test.tsx; App-level wiring (boot, sync, badge, the
+// unavailable notice, a failed load) is in ui/App.pager-*.dom.test.tsx.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -10,6 +10,8 @@ setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
 const { en } = await import("../../shared/i18n/en.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const EN = translatorFor("en");
 const {
   h,
   mount,
@@ -107,14 +109,16 @@ describe("the pager list", () => {
     );
     // The count is shown for a single raise too.
     expect(row(view, "p1").querySelector(".pager-raised")?.textContent).toBe(
-      en["pager.view.raised.one"].replace("{count}", "1"),
+      EN.tn("pager.view.raised", 1),
     );
     expect(row(view, "p2").querySelector(".pager-raised")?.textContent).toBe(
-      en["pager.view.raised.other"].replace("{count}", "4"),
+      EN.tn("pager.view.raised", 4),
     );
-    expect(
-      row(view, "p1").querySelector(".pager-delivery")?.textContent,
-    ).toContain(en["pager.failure.noWebhook"]);
+    expect(row(view, "p1").querySelector(".pager-delivery")?.textContent).toBe(
+      EN.t("pager.delivery.notSent", {
+        reason: EN.t("pager.failure.noWebhook"),
+      }),
+    );
   });
 });
 
@@ -181,37 +185,5 @@ describe("the deep link", () => {
     expect(room.value).toBe("all");
     expect(toggle(view, "gone").getAttribute("aria-expanded")).toBe("true");
     expect(view.container.querySelector(".pager-unavailable")).toBeNull();
-  });
-
-  it("waits for the first snapshot, then says an unknown page is unavailable", async () => {
-    const { view } = await mount([], { pagerLoaded: false });
-    await act(async () => h.requestSelect({ id: "nope" }));
-    expect(view.container.querySelector(".pager-unavailable")).toBeNull();
-    // The snapshot lands through the reducer, as usePagerSync lands it.
-    await act(async () =>
-      h.dispatch({
-        type: "pager_loaded",
-        entries: [page("p1")],
-        revision: h.latest.pagerRevision,
-        more: false,
-      }),
-    );
-    expect(view.container.querySelector(".pager-unavailable")).not.toBeNull();
-    expect(toggle(view, "p1").getAttribute("aria-expanded")).toBe("false");
-  });
-});
-
-describe("loading", () => {
-  it("shows a failed first load as an error with Retry, never as an empty list", async () => {
-    const { view } = await mount([], {
-      pagerLoaded: false,
-      pagerLoadFailed: true,
-    });
-    expect(view.container.querySelector(".pager-load-failed")).not.toBeNull();
-    expect(view.queryByText(en["pager.view.empty"])).toBeNull();
-    const seq = h.latest.pagerFetchSeq;
-    fireEvent.click(view.getByRole("button", { name: en["pager.view.retry"] }));
-    expect(h.latest.pagerFetchSeq).toBe(seq + 1);
-    expect(h.latest.pagerLoadFailed).toBe(false);
   });
 });

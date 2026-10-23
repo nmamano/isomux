@@ -75,7 +75,7 @@ const recordOf = (pairs: Pair[]): Record<string, string> | undefined => {
   if (kept.length === 0) return undefined;
   return Object.fromEntries(kept.map((p) => [p.name.trim(), p.value]));
 };
-export function rulesOf(drafts: RuleDraft[]): WebhookRule[] {
+function rulesOf(drafts: RuleDraft[]): WebhookRule[] {
   return drafts.map((d) => {
     const match = recordOf(d.match);
     const args = recordOf(d.args);

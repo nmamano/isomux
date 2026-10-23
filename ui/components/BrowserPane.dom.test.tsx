@@ -5,6 +5,7 @@ const { render, fireEvent, act } = await import("@testing-library/react");
 const { BrowserPane } = await import("./BrowserPane");
 const { setApiShim } = await import("../api");
 const { onLanguage } = await import("../test-support/language-fixture");
+const { translatorFor } = await import("../../shared/i18n/translate");
 afterAll(() => setApiShim(null));
 
 test("Chrome pairing adds named browsers; each one unpairs through its own self route", async () => {
@@ -37,7 +38,6 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
   });
   const view = render(<BrowserPane />);
   await act(async () => {});
-  expect(view.queryByTestId("browser-backend")).toBeNull();
   expect(view.queryAllByTestId("browser-row")).toHaveLength(0);
   expect(writes).toHaveLength(0);
   await act(async () =>
@@ -88,12 +88,16 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
     paired.getAllByTestId("browser-row").map((r) => r.dataset.online),
   ).toEqual(["false"]);
   expect(paired.getByTestId("browser-state").dataset.paired).toBe("true");
-  const english = paired.container.textContent;
   paired.unmount();
-  const translated = render(onLanguage("es", <BrowserPane />));
-  await act(async () => {});
-  expect(translated.container.textContent).not.toBe(english);
-  translated.unmount();
+  // The pane reads the member's language.
+  for (const language of ["en", "es"] as const) {
+    const translated = render(onLanguage(language, <BrowserPane />));
+    await act(async () => {});
+    expect(translated.getByTestId("browser-pair").textContent).toBe(
+      translatorFor(language).t("browser.generate"),
+    );
+    translated.unmount();
+  }
 });
 
 test("the extensions step copies the Chrome address it names", async () => {

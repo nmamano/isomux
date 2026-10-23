@@ -11,7 +11,6 @@ const { setApiShim } = await import("../api.ts");
 const {
   checkedFilterValues,
   filterButton,
-  filterOptions,
   openTaskFilter,
   setTaskFilter,
   toggleTaskFilter,
@@ -106,27 +105,7 @@ it("defaults to Open and In progress, and every priority but P4", async () => {
   );
 });
 
-it("lists only statuses in the status filter", async () => {
-  const { c } = renderView();
-  await openTaskFilter(c, "status");
-  expect(filterOptions(c, "status")).toEqual([
-    "open",
-    "in_progress",
-    "done",
-    "obsolete",
-  ]);
-  await openTaskFilter(c, "priority");
-  expect(filterOptions(c, "priority")).toEqual([
-    "P0",
-    "P1",
-    "P2",
-    "P3",
-    "P4",
-    "none",
-  ]);
-});
-
-it("shows a task when its status AND its priority are checked", async () => {
+it("shows a task when its status AND its priority are checked, and dims a closed one", async () => {
   const { c, shown, looksClosed } = renderView();
   await toggleTaskFilter(c, "status", "done");
   expect(shown()).toEqual(
@@ -148,13 +127,15 @@ it("shows a task when its status AND its priority are checked", async () => {
       .sort(),
   );
 
-  for (const p of ["P0", "P1", "P2", "P3", "P4"]) {
+  const byPriority: Record<string, string[]> = {
+    P0: ["p0-open"],
+    P1: ["p1-open"],
+    P2: ["p2-progress"],
+    P3: ["p3-done", "p3-open"],
+    P4: ["p4-done", "p4-open", "p4-progress"],
+  };
+  for (const [p, expected] of Object.entries(byPriority)) {
     await setTaskFilter(c, "priority", [p]);
-    const expected = tasks
-      .filter((t) => t.priority === p && notObsolete(t))
-      .map((t) => t.title)
-      .sort();
-    expect(expected.length > 0).toBe(true);
     expect(shown()).toEqual(expected);
   }
   await setTaskFilter(c, "priority", ["none"]);

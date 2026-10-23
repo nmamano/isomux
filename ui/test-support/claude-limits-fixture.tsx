@@ -1,5 +1,5 @@
-// Shared by the EditAgentDialog claude-limits DOM tests: a Claude agent with
-// its manager's limitedClaudeFamilies, a viewer session, and dialog helpers.
+// Shared by the EditAgentDialog DOM tests: a Claude agent with its manager's
+// limitedClaudeFamilies, a viewer session, and dialog helpers.
 // Imports the dialog and store, so a test loads it with `await import(...)`
 // after setUpDomTestFile(), never statically.
 import { act, fireEvent, render } from "@testing-library/react";

@@ -487,8 +487,6 @@ App 的一些原则：
     "已保存，但此页面无法重新加载办公室。请先选择其他行，再返回继续编辑。",
   "settings.office.conflict":
     "此页面加载后，办公室设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
-  "settings.office.loadedVariables.one": "已加载 {count} 个变量。",
-  "settings.office.loadedVariables.other": "已加载 {count} 个变量。",
   "settings.office.memberUsageCap": "控制成员用量节奏",
   "settings.office.memberUsageCapHint":
     "成员使用办公室通用登录的轮次会在每日上限处停止；该上限每天递增，最多到成员份额。",
@@ -2192,7 +2190,6 @@ App 的一些原则：
   "apps.openAgent": "打开智能体",
   "apps.commandIn": "位于 {cwd}",
   "apps.verbTitle.start": "运行 App",
-  "apps.verbTitle.stop": "关闭 App（保留数据）",
   "apps.verbTitle.restart": "停止 App 并重新启动",
   "apps.delete": "删除",
   "apps.cancel": "取消",

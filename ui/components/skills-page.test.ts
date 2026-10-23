@@ -86,8 +86,8 @@ describe("skillBody", () => {
 });
 
 describe("validSkillName", () => {
-  it("matches the server's name rule", () => {
-    for (const ok of ["a", "triage-bugs", "x1-2"])
+  it("accepts lowercase hyphenated names up to 64 characters", () => {
+    for (const ok of ["a", "triage-bugs", "x1-2", "x".repeat(64)])
       expect(validSkillName(ok)).toBe(true);
     for (const bad of ["", "A", "a--b", "-a", "a-", "a b", "x".repeat(65)])
       expect(validSkillName(bad)).toBe(false);

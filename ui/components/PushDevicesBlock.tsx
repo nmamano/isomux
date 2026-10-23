@@ -25,7 +25,7 @@ import {
   unsubscribe,
 } from "../push-subscription.ts";
 
-export const PUSH_FAILURE_KEYS = {
+const PUSH_FAILURE_KEYS = {
   gone: "push.failure.gone",
   rejected: "push.failure.rejected",
   unreachable: "push.failure.unreachable",

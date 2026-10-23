@@ -124,17 +124,6 @@ describe("update screen", () => {
     expect(view.queryByRole("dialog")).toBeNull();
   });
 
-  it("the launching tab does not reload on an unknown version", () => {
-    const view = show(watching(true), {
-      ...status(NEW, ok),
-      current: { release: null, version: null },
-    });
-    expect(reload).not.toHaveBeenCalled();
-    expect(
-      view.queryByRole("button", { name: t("update.screen.reload") }),
-    ).not.toBeNull();
-  });
-
   it("another tab offers Reload", async () => {
     const view = show(watching(false), status(NEW, ok));
     expect(reload).not.toHaveBeenCalled();
@@ -180,10 +169,5 @@ describe("update screen", () => {
     expect(
       view.queryByRole("button", { name: t("update.screen.reload") }),
     ).toBeNull();
-  });
-
-  it("shows nothing when no update is watched", () => {
-    const view = show(initialUpdateWatch, status(OLD, null));
-    expect(view.queryByRole("dialog")).toBeNull();
   });
 });

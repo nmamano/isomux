@@ -95,7 +95,7 @@ function matchesState(filter: StateFilter, state: PagerState): boolean {
  * normally registered after the raise. Equal timestamps or a clock correction
  * can defeat that, so it is a convenience link, never an identity check.
  */
-export function sourceApp(
+function sourceApp(
   entry: PagerEntry,
   apps: readonly AppListWire[],
 ): AppListWire | null {

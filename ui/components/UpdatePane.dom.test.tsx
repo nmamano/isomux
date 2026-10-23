@@ -27,15 +27,15 @@ function fixture(
   initial: Status = oldStatus,
   role: "owner" | "member" = "owner",
 ) {
-  let gets = 0;
   let post: () => Promise<unknown> = async () => ({ ok: true });
+  const posts: unknown[] = [];
   const actions: { type: string }[] = [];
-  setApiShim(async (method, path) => {
+  setApiShim(async (method, path, body) => {
     if (path !== "/api/office/update")
       throw new Error(`Unexpected path ${path}`);
-    if (method === "POST") return post();
-    gets++;
-    return { busyAgents: 0, status: initial };
+    if (method !== "POST") return { busyAgents: 0, status: initial };
+    posts.push(body);
+    return post();
   });
   const tree = (updateInfo = initial) => (
     <StateCtx.Provider
@@ -61,7 +61,7 @@ function fixture(
   return {
     view,
     actions,
-    gets: () => gets,
+    posts,
     failPost: () => {
       post = async () => {
         throw new Error("polkit denied");
@@ -82,12 +82,33 @@ function fixture(
         );
       });
     },
-    async rerender(status: Status) {
-      await act(async () => {
-        view.rerender(tree(status));
-      });
-    },
   };
+}
+
+// The pane in a quiet state: the up-to-date branch, with no release body, no
+// guide link, and nothing to copy.
+async function expectQuiet(view: ReturnType<typeof render>) {
+  expect(
+    view.queryByRole("heading", {
+      name: t("settings.update.upToDateTitle"),
+    }),
+  ).not.toBeNull();
+  expect(view.queryByText(t("settings.update.upToDate"))).not.toBeNull();
+  expect(
+    view.queryByRole("heading", { name: t("settings.update.newRelease") }),
+  ).toBeNull();
+  expect(
+    view.queryByRole("link", { name: t("settings.update.updateGuide") }),
+  ).toBeNull();
+  let copied = "unset";
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void (copied = text) },
+  });
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: t("common.copy") }));
+  });
+  expect(copied).toBe("");
 }
 
 describe("update trigger", () => {
@@ -98,15 +119,8 @@ describe("update trigger", () => {
       { type: "update_launching" },
       { type: "update_clicked" },
     ]);
-    // The pane keeps no reconnect check of its own: the busy count is its
-    // only read, and a status change does not trigger another.
-    const reads = f.gets();
-    await f.rerender({
-      ...oldStatus,
-      updateAvailable: false,
-      current: { release: "v2026.9.8", version: "v2026.9.8" },
-    });
-    expect(f.gets()).toBe(reads);
+    // The updater installs the release the pane offered.
+    expect(f.posts).toEqual([{ tag: "v2026.9.8" }]);
   });
 
   it("a refused launch stays in the pane with the error", async () => {
@@ -122,7 +136,7 @@ describe("update trigger", () => {
     ).not.toBeNull();
   });
 
-  it("adds the refresh reminder to commit mode without a reconnect check", async () => {
+  it("a source checkout shows the manual update steps", () => {
     const status: Status = {
       mode: "commit",
       updateAvailable: true,
@@ -131,12 +145,14 @@ describe("update trigger", () => {
       releaseStanding: "unknown",
       mainAhead: 1,
     };
-    const f = fixture(status);
-    expect(f.view.queryByText(t("settings.update.stepRefresh")) !== null).toBe(
-      true,
-    );
-    await f.rerender(status);
-    expect(f.gets()).toBe(0);
+    const { view } = fixture(status);
+    expect(view.queryByText(t("settings.update.stepRefresh"))).not.toBeNull();
+    // The commit branch, neither the release body nor the quiet one.
+    for (const title of [
+      "settings.update.newRelease",
+      "settings.update.upToDateTitle",
+    ] as const)
+      expect(view.queryByRole("heading", { name: t(title) })).toBeNull();
   });
 });
 
@@ -151,7 +167,7 @@ describe("last update note", () => {
     },
   };
 
-  it("an owner sees the installer's messages under a dated heading", () => {
+  it("an owner sees the installer's messages under a dated heading, a member does not", () => {
     const { view } = fixture(withNote);
     // The installer's sentence, as the box wrote it.
     expect(view.queryByText(NOTE)).not.toBeNull();
@@ -165,16 +181,13 @@ describe("last update note", () => {
         name: t("settings.update.lastUpdate", { date }),
       }),
     ).not.toBeNull();
-  });
+    view.unmount();
 
-  it("a member does not", () => {
-    const { view } = fixture(withNote, "member");
-    expect(view.queryByText(NOTE)).toBeNull();
-  });
-
-  it("no note, no heading", () => {
-    const { view } = fixture();
-    expect(view.queryByRole("heading", { name: /2026/ })).toBeNull();
+    const member = fixture(withNote, "member").view;
+    expect(
+      member.queryByRole("heading", { name: t("settings.update.newRelease") }),
+    ).not.toBeNull();
+    expect(member.queryByText(NOTE)).toBeNull();
   });
 });
 
@@ -221,6 +234,9 @@ describe("image deployments (no host updater)", () => {
     for (const role of ["owner", "member"] as const) {
       const { view, calls } = renderImage(imageStatus("kubernetes"), role);
       await act(async () => {});
+      expect(
+        view.queryByRole("link", { name: en.t("settings.update.updateGuide") }),
+      ).not.toBeNull();
       expect(
         view.queryByRole("button", { name: en.t("settings.update.updateNow") }),
       ).toBeNull();
@@ -283,7 +299,7 @@ describe("image deployments (no host updater)", () => {
     expect(copied.indexOf(restart)).toBeGreaterThan(copied.indexOf(upgrade));
   });
 
-  it("shows an untagged image as its short commit and a tagged one as its release", () => {
+  it("shows an untagged image as its short commit, a tagged one as its release, an unpinned host as its full version", () => {
     const untagged = renderImage(imageStatus("render"), "member");
     expect(
       untagged.view.queryByText(
@@ -297,50 +313,13 @@ describe("image deployments (no host updater)", () => {
       "member",
     );
     expect(tagged.view.queryByText("v2026.9.1")).not.toBeNull();
-  });
-
-  // The pane in a quiet image state: the up-to-date branch, with no platform
-  // action, no guide link and no deploy text on the clipboard.
-  async function expectQuiet(view: ReturnType<typeof render>) {
-    expect(
-      view.queryByRole("heading", {
-        name: en.t("settings.update.upToDateTitle"),
-      }),
-    ).not.toBeNull();
-    expect(view.queryByText(en.t("settings.update.upToDate"))).not.toBeNull();
-    expect(
-      view.queryByRole("heading", { name: en.t("settings.update.newRelease") }),
-    ).toBeNull();
-    expect(
-      view.queryByRole("link", { name: en.t("settings.update.updateGuide") }),
-    ).toBeNull();
-    let copied = "unset";
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async (text: string) => void (copied = text) },
-    });
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: en.t("common.copy") }));
-    });
-    expect(copied.includes("To update")).toBe(false);
-    expect(copied.includes("isomux.com/docs")).toBe(false);
-    expect(copied.includes("v2026.9.8")).toBe(false);
-  }
-
-  it("a quiet image status reads as up to date, with or without a latest release", async () => {
-    for (const status of [
-      { ...imageStatus("render"), updateAvailable: false },
-      { ...imageStatus("kubernetes"), updateAvailable: false, latest: null },
-      {
-        ...imageStatus("container", "v2026.9.8"),
-        updateAvailable: false,
-      },
-    ] as Status[]) {
-      const { view, calls } = renderImage(status, "owner");
-      await expectQuiet(view);
-      expect(calls).toEqual([]);
-      view.unmount();
-    }
+    tagged.view.unmount();
+    const hostUnpinned = {
+      ...oldStatus,
+      current: { release: null, version: sha },
+    } as Status;
+    const host = renderImage(hostUnpinned, "member");
+    expect(host.view.queryByText(sha)).not.toBeNull();
   });
 
   it("an image notice clears when the status goes quiet", async () => {
@@ -377,15 +356,6 @@ describe("image deployments (no host updater)", () => {
     await expectQuiet(view);
   });
 
-  it("the host path shows an unpinned box as its full version", () => {
-    const hostUnpinned = {
-      ...oldStatus,
-      current: { release: null, version: sha },
-    } as Status;
-    const { view } = renderImage(hostUnpinned, "member");
-    expect(view.queryByText(sha)).not.toBeNull();
-  });
-
   it("copies the platform action, not the host updater instructions", async () => {
     let copied = "";
     Object.defineProperty(navigator, "clipboard", {
@@ -406,7 +376,9 @@ describe("image deployments (no host updater)", () => {
       fireEvent.click(view.getByRole("button", { name: en.t("common.copy") }));
     });
     expect(copied.includes("isomux-update")).toBe(false);
-    expect(copied.includes(`commit ${sha.slice(0, 7)}`)).toBe(true);
+    // The running image as its short commit, as the pane shows it.
+    expect(copied.includes(sha.slice(0, 7))).toBe(true);
+    expect(copied.includes(sha)).toBe(false);
     expect(
       copied.includes(
         "https://isomux.com/docs/hosting-render#update-the-office",
@@ -415,49 +387,44 @@ describe("image deployments (no host updater)", () => {
   });
 });
 
-describe("host office on or past the latest release", () => {
+describe("an office with no update to offer", () => {
   const en = translatorFor("en");
   const onLatest: Status = {
     ...oldStatus,
     updateAvailable: false,
     current: { release: "v2026.9.8", version: "v2026.9.8" },
   };
-  // A pre-release box: Latest is older than what runs.
-  const pastLatest: Status = {
+  const sha = "c".repeat(40);
+  const image = (
+    guide: "render" | "kubernetes" | "container",
+    release: string | null = null,
+  ): Status => ({
     ...oldStatus,
     updateAvailable: false,
-    current: { release: "v2026.9.9", version: "v2026.9.9" },
-  };
+    current: { release, version: release ?? sha },
+    apply: { kind: "image", guide },
+  });
 
-  it("reads as up to date and offers no update, for owners and members", async () => {
-    for (const status of [onLatest, pastLatest]) {
-      for (const role of ["owner", "member"] as const) {
-        const f = fixture(status, role);
-        await act(async () => {});
-        const { view } = f;
-        expect(
-          view.queryByRole("heading", {
-            name: en.t("settings.update.upToDateTitle"),
-          }),
-        ).not.toBeNull();
-        expect(
-          view.queryByText(en.t("settings.update.upToDate")),
-        ).not.toBeNull();
-        expect(
-          view.queryByRole("heading", {
-            name: en.t("settings.update.newRelease"),
-          }),
-        ).toBeNull();
-        expect(
-          view.queryByRole("button", {
-            name: en.t("settings.update.updateNow"),
-          }),
-        ).toBeNull();
-        // No release body: neither version line nor the latest tag.
-        expect(view.container.textContent?.includes("v2026.9.8")).toBe(false);
-        expect(f.gets()).toBe(0);
-        view.unmount();
-      }
+  // The UI reads only `updateAvailable`: the server decides whether a box on
+  // or past Latest has an update, so host and image boxes take one branch.
+  it("reads as up to date and offers no update, on a host or an image", async () => {
+    for (const status of [
+      onLatest,
+      image("render"),
+      { ...image("kubernetes"), latest: null },
+      image("container", "v2026.9.8"),
+    ] as Status[]) {
+      const { view } = fixture(status);
+      await act(async () => {});
+      await expectQuiet(view);
+      expect(
+        view.queryByRole("button", {
+          name: en.t("settings.update.updateNow"),
+        }),
+      ).toBeNull();
+      // No release body: neither version line nor the latest tag.
+      expect(view.container.textContent?.includes("v2026.9.8")).toBe(false);
+      view.unmount();
     }
   });
 

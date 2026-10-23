@@ -117,13 +117,19 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
 });
 
 test("while the settings load, the pane shows its form with nothing to act on, and holds the webhook row it last showed", async () => {
+  // Only the settings read is held; the push devices block answers at once.
   let resolve!: (value: unknown) => void;
-  setApiShim(
-    () =>
-      new Promise((done) => {
-        resolve = done;
-      }),
-  );
+  setApiShim(async (method, path) => {
+    if (method === "GET" && path === "/api/users/morgan/push-devices") {
+      return { publicKey: "", devices: [] };
+    }
+    if (method !== "GET" || path !== PATH) {
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    }
+    return new Promise((done) => {
+      resolve = done;
+    });
+  });
   const mount = () => render(<PagerSettingsPane username="morgan" />);
   const busy = (view: ReturnType<typeof mount>) =>
     view.container.querySelector('[aria-busy="true"]');

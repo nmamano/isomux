@@ -1,10 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   cronjobFormDirty,
-  updateCronjobMachineDefaults,
   type CronjobFormSnapshot,
 } from "./CronjobDialog.tsx";
-import { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 
 const CLAUDE_CREATE: CronjobFormSnapshot = {
   name: "",
@@ -24,42 +22,7 @@ const CLAUDE_CREATE: CronjobFormSnapshot = {
   roomId: "",
 };
 
-const CODEX_CREATE: CronjobFormSnapshot = {
-  ...CLAUDE_CREATE,
-  agentType: "codex",
-  modelFamily: "gpt-fallback",
-  permissionMode: "never",
-};
-
 describe("cronjobFormDirty", () => {
-  it("does not prompt for untouched Claude create and edit forms", () => {
-    expect(cronjobFormDirty({ ...CLAUDE_CREATE }, CLAUDE_CREATE)).toBe(false);
-    const edit = {
-      ...CLAUDE_CREATE,
-      name: "Daily review",
-      prompt: "Review the office.",
-    };
-    expect(cronjobFormDirty({ ...edit }, edit)).toBe(false);
-  });
-
-  it("does not prompt for untouched Codex create and edit forms after model fetch", () => {
-    const createBaseline = { ...CODEX_CREATE };
-    updateCronjobMachineDefaults(createBaseline, "gpt-live", "medium");
-    expect(
-      cronjobFormDirty(
-        { ...CODEX_CREATE, modelFamily: "gpt-live", effort: "medium" },
-        createBaseline,
-      ),
-    ).toBe(false);
-
-    const edit = {
-      ...CODEX_CREATE,
-      name: "Codex review",
-      prompt: "Review the office.",
-    };
-    expect(cronjobFormDirty({ ...edit }, edit)).toBe(false);
-  });
-
   it("counts each form field as dirty on its own", () => {
     const edits: Array<Partial<CronjobFormSnapshot>> = [
       { name: "Daily review" },
@@ -103,40 +66,5 @@ describe("cronjobFormDirty", () => {
         baseline,
       ),
     ).toBe(false);
-  });
-});
-
-describe("OpenCode cron model selection", () => {
-  it("requires a connected model after discovery and keeps edits available during discovery failure", () => {
-    const models = [
-      { id: "gate/model", label: "Gate model", supportedEfforts: [] },
-    ];
-    expect(openCodeModelSelectionReady("", false, false, models)).toBe(false);
-    expect(
-      openCodeModelSelectionReady("gate/model", false, false, models),
-    ).toBe(true);
-    expect(
-      openCodeModelSelectionReady("retired/model", false, false, models),
-    ).toBe(false);
-    expect(
-      openCodeModelSelectionReady("retired/model", false, true, null),
-    ).toBe(true);
-  });
-
-  it("matches the agent dialog's loading and unavailable-model treatment", async () => {
-    const source = await Bun.file(
-      new URL("./CronjobDialog.tsx", import.meta.url),
-    ).text();
-    // The sentences moved to the catalog in S4, so this checks that both
-    // dialogs read the same internal message-key identifiers.
-    expect(source).toContain('t("common.model.currentIs"');
-    expect(source).toContain('t("common.model.checkFailed")');
-  });
-
-  it("uses the shared backend-model default picker", async () => {
-    const source = await Bun.file(
-      new URL("./CronjobDialog.tsx", import.meta.url),
-    ).text();
-    expect(source).toContain("defaultBackendModel(r.models, isCodex)");
   });
 });

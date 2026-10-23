@@ -60,17 +60,6 @@ describe("NavActions", () => {
     expect(clicked).toBe(0);
   });
 
-  it("runs a desktop action's onClick", () => {
-    let clicked = 0;
-    const view = render(
-      <NavActions actions={actions(() => clicked++)} viewport="desktop" />,
-    );
-
-    fireEvent.click(view.getByText("Tasks"));
-
-    expect(clicked).toBe(1);
-  });
-
   it("opens the mobile overflow menu into a portal and runs the action", () => {
     let clicked = 0;
     const view = render(

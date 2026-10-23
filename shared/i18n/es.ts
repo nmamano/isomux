@@ -512,8 +512,6 @@ Cosas que puedes hacer por él:
     "Guardado, pero esta página no pudo recargar la oficina. Elige otra fila y vuelve para seguir editando.",
   "settings.office.conflict":
     "Los ajustes de la oficina cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
-  "settings.office.loadedVariables.one": "Se cargó {count} variable.",
-  "settings.office.loadedVariables.other": "Se cargaron {count} variables.",
   "settings.office.memberUsageCap": "Marcar el ritmo de uso de los miembros",
   "settings.office.memberUsageCapHint":
     "Los turnos de los miembros con la sesión de toda la oficina se detienen en un límite que sube cada día de la semana, hasta la parte de los miembros.",
@@ -2431,7 +2429,6 @@ Cosas que puedes hacer por él:
   "apps.openAgent": "Abrir el agente",
   "apps.commandIn": "en {cwd}",
   "apps.verbTitle.start": "Poner la app en marcha",
-  "apps.verbTitle.stop": "Apagar la app (sus datos se conservan)",
   "apps.verbTitle.restart": "Parar la app y volver a arrancarla",
   "apps.delete": "eliminar",
   "apps.cancel": "cancelar",

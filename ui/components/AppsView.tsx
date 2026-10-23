@@ -140,10 +140,7 @@ export function appLinkHref(
 }
 
 // Not a component, so the translator arrives as an argument (ruling 18).
-export function appLinkLabel(
-  t: Translator["t"],
-  app: Pick<AppWire, "url">,
-): string {
+function appLinkLabel(t: Translator["t"], app: Pick<AppWire, "url">): string {
   return typeof app.url === "string" && app.url !== ""
     ? t("apps.openApp")
     : t("apps.openOnNetwork");
@@ -270,7 +267,7 @@ export function appSection(
  * upload time is in the query so a new upload is a new URL and the browser
  * cache never shows the old image.
  */
-export function appThumbnailSrc(
+function appThumbnailSrc(
   app: Pick<AppListWire, "name" | "thumbnailUpdatedAt">,
 ): string | null {
   if (app.thumbnailUpdatedAt === undefined) return null;
@@ -798,7 +795,7 @@ const SECTION_LABELS: Record<AppSection, PlainMessageKey> = {
  * app belongs to, not the agent that registered it. With no session there is
  * no "me", so the filter lets everything through.
  */
-export function filterApps<T extends Pick<AppListWire, "userId">>(
+function filterApps<T extends Pick<AppListWire, "userId">>(
   apps: readonly T[],
   onlyMine: boolean,
   selfUserId: string | null,
@@ -854,7 +851,7 @@ const ACTION_FAILED: Record<AppVerb, ErrorKey> = {
 // `.retired` next to the other apps' data instead of erasing it (Nil's ruling,
 // 2026-09-10: no automatic deletion, ever). Shown in the delete confirmation so
 // the member knows the data stays on the office's disk and where.
-export function retiredDirOf(dataDir: string): string {
+function retiredDirOf(dataDir: string): string {
   const cut = dataDir.lastIndexOf("/");
   return `${cut > 0 ? dataDir.slice(0, cut) : dataDir}/.retired`;
 }
@@ -1624,11 +1621,10 @@ export function AppsView({
 
 // Keys, not words (the S5 id-to-key pattern).
 const VERB_TITLES: Record<
-  "start" | "stop" | "restart",
+  "start" | "restart",
   Extract<MessageKey, `apps.verbTitle.${string}`>
 > = {
   start: "apps.verbTitle.start",
-  stop: "apps.verbTitle.stop",
   restart: "apps.verbTitle.restart",
 };
 

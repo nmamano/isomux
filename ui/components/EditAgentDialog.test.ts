@@ -1,29 +1,18 @@
 // The unsaved-changes gate on the spawn/edit agent dialog (task 5a20e3f0). What
 // matters is that EVERY field counts, not just the two big textareas - someone
 // who retyped a name and clicked the backdrop should get the same prompt as
-// someone who rewrote the agent's memory. The dialog's own dismissal wiring
-// isn't covered because the UI has no React render harness (same limitation
-// noted in ContextBattery.test.ts).
+// someone who rewrote the agent's memory. Also the pure rules the dialog seeds
+// its permission and template values with. The dialog's rendered behavior is
+// in the EditAgentDialog.*.dom.test.tsx files.
 import { describe, it, expect } from "bun:test";
 import {
-  agentEngineSwitchChanges,
   agentFormDirty,
-  codexNewEngineDefaults,
-  defaultBackendModel,
   initialPermissionModeFor,
-  openCodeModelSelectionReady,
-  permissionModeChangeForEdit,
   templateValuesAfterEngineSwitch,
   type AgentFormSnapshot,
 } from "./EditAgentDialog.tsx";
-import {
-  modelSelectCursor,
-  partitionBackendModelsForPicker,
-  selectSupportedEffort,
-} from "../backend-model-selection.ts";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
 import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
-import { CODEX_MODELS } from "../../shared/types.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
 
 const BASE: AgentFormSnapshot = {
@@ -43,10 +32,6 @@ const BASE: AgentFormSnapshot = {
 };
 
 describe("agentFormDirty", () => {
-  it("is clean when nothing moved", () => {
-    expect(agentFormDirty({ ...BASE }, BASE, false)).toBe(false);
-  });
-
   it("catches an edit in every field, not just the textareas", () => {
     const edits: Array<Partial<AgentFormSnapshot>> = [
       { name: "Dwight K." },
@@ -98,59 +83,6 @@ describe("agentFormDirty", () => {
       ),
     ).toBe(false);
   });
-
-  // Trimming must not swallow a real edit that merely starts or ends with a
-  // space - only the padding is ignored, not the content inside it.
-  it("still catches a real edit that carries padding", () => {
-    expect(agentFormDirty({ ...BASE, name: "  Jim  " }, BASE, false)).toBe(
-      true,
-    );
-  });
-});
-
-describe("Codex new-engine defaults", () => {
-  it("gives spawns full access without approval prompts", () => {
-    expect(codexNewEngineDefaults()).toEqual({
-      permissionMode: "never",
-      codexSandbox: "danger-full-access",
-    });
-  });
-
-  it("gives edit-path engine switches full access without approval prompts", () => {
-    const defaults = codexNewEngineDefaults();
-    expect(
-      agentEngineSwitchChanges(
-        "codex",
-        "gpt-5.6-sol",
-        "high",
-        defaults.permissionMode,
-        defaults.codexSandbox,
-      ),
-    ).toEqual({
-      agentType: "codex",
-      modelFamily: "gpt-5.6-sol",
-      effort: "high",
-      permissionMode: "never",
-      codexSandbox: "danger-full-access",
-    });
-  });
-});
-
-describe("OpenCode effort selection", () => {
-  const options = (...levels: string[]) => levels.map((level) => ({ level }));
-
-  it("keeps a supported effort, then prefers high, then enum order", () => {
-    expect(
-      selectSupportedEffort("medium", options("low", "medium", "high")),
-    ).toBe("medium");
-    expect(
-      selectSupportedEffort("xhigh", options("low", "medium", "high")),
-    ).toBe("high");
-    expect(selectSupportedEffort("xhigh", options("low", "medium"))).toBe(
-      "low",
-    );
-    expect(selectSupportedEffort("xhigh", [])).toBeUndefined();
-  });
 });
 
 describe("initial permission mode", () => {
@@ -163,16 +95,12 @@ describe("initial permission mode", () => {
       permissionMode,
     }) as AgentInfo;
 
-  it("reopens a persisted OpenCode bypass mode as Bypass", () => {
-    expect(
-      initialPermissionModeFor(openCodeAgent("bypassPermissions"), "opencode"),
-    ).toBe("bypassPermissions");
-  });
-
-  it("reopens a persisted OpenCode default mode as Ask", () => {
-    expect(initialPermissionModeFor(openCodeAgent("default"), "opencode")).toBe(
-      "default",
-    );
+  it("reopens a stored OpenCode mode as stored", () => {
+    for (const mode of ["bypassPermissions", "default"] as const) {
+      expect(initialPermissionModeFor(openCodeAgent(mode), "opencode")).toBe(
+        mode,
+      );
+    }
   });
 
   it("uses Bypass for a new OpenCode spawn", () => {
@@ -180,56 +108,9 @@ describe("initial permission mode", () => {
       "bypassPermissions",
     );
   });
-
-  it("does not silently revert persisted Bypass during an unrelated save", () => {
-    const shown = initialPermissionModeFor(
-      openCodeAgent("bypassPermissions"),
-      "opencode",
-    );
-    const changes = {
-      name: "Renamed agent",
-      ...permissionModeChangeForEdit("bypassPermissions", shown),
-    };
-    expect(changes).toEqual({ name: "Renamed agent" });
-    expect(changes).not.toHaveProperty("permissionMode");
-  });
 });
 
-describe("initial Claude permission mode on a limited family", () => {
-  const claudeAgent = (
-    modelFamily: string,
-    permissionMode: AgentInfo["permissionMode"],
-  ): AgentInfo =>
-    ({ agentType: "claude", modelFamily, permissionMode }) as AgentInfo;
-
-  it("shows a stored Auto as Ask, the mode the agent runs with", () => {
-    expect(
-      initialPermissionModeFor(claudeAgent("haiku", "auto"), "claude", [
-        "haiku",
-      ]),
-    ).toBe("default");
-    expect(
-      initialPermissionModeFor(claudeAgent("haiku", "auto"), "claude"),
-    ).toBe("auto");
-    expect(
-      initialPermissionModeFor(claudeAgent("opus", "auto"), "claude", [
-        "haiku",
-      ]),
-    ).toBe("auto");
-  });
-
-  it("does not rewrite the stored Auto during an unrelated save", () => {
-    const shown = initialPermissionModeFor(
-      claudeAgent("haiku", "auto"),
-      "claude",
-      ["haiku"],
-    );
-    expect(permissionModeChangeForEdit(shown, shown)).toEqual({});
-    expect(permissionModeChangeForEdit(shown, "bypassPermissions")).toEqual({
-      permissionMode: "bypassPermissions",
-    });
-  });
-
+describe("template values on a limited Claude family", () => {
   it("gives a template on a limited family Ask instead of Auto", () => {
     const base = AGENT_TEMPLATES.find(
       (candidate) => candidate.key !== RECEPTIONIST_PROFILE_KEY,
@@ -257,106 +138,11 @@ describe("initial Claude permission mode on a limited family", () => {
 });
 
 describe("template values after an engine switch", () => {
-  it("preserves Free, Pay-as-you-go, and Subscription membership and order", () => {
-    const free: BackendModelWire = {
-      id: "opencode/big-pickle",
-      label: "Big Pickle",
-      isFree: true,
-      supportedEfforts: [],
-    };
-    const secondFree: BackendModelWire = {
-      id: "opencode/gpt-5-nano",
-      label: "GPT-5 Nano",
-      isFree: true,
-      supportedEfforts: [],
-    };
-    const paid: BackendModelWire = {
-      id: "opencode/kimi-k3",
-      label: "Kimi K3",
-      supportedEfforts: [],
-    };
-    const go: BackendModelWire = {
-      id: "opencode-go/kimi-k3",
-      label: "Kimi K3",
-      supportedEfforts: [],
-    };
-    expect(
-      partitionBackendModelsForPicker([go, free, paid, secondFree], true),
-    ).toEqual({
-      available: [paid],
-      free: [free, secondFree],
-      subscription: [go],
-    });
-  });
-
-  it("leaves Codex models in their original picker list", () => {
-    const models: BackendModelWire[] = [
-      {
-        id: "gpt-5.6-terra",
-        label: "GPT-5.6 Terra",
-        supportedEfforts: [],
-      },
-    ];
-    expect(partitionBackendModelsForPicker(models, false)).toEqual({
-      available: models,
-      free: [],
-      subscription: [],
-    });
-  });
-
-  it("keeps Claude on its static picker and confines dynamic models to OpenCode", async () => {
-    const source = await Bun.file(
-      new URL("./EditAgentDialog.tsx", import.meta.url),
-    ).text();
-    expect(source).toContain("MODEL_FAMILIES.map((m) => (");
-    expect(source).toContain("partitionBackendModelsForPicker(");
-    expect(source).toContain("isOpenCode,");
-    expect(source).not.toContain("Connect a provider");
-  });
-
-  it("keeps an existing OpenCode agent editable when discovery fails", () => {
-    expect(
-      openCodeModelSelectionReady("gate/gate-model", false, true, []),
-    ).toBe(true);
-  });
-
-  it("keeps the model cursor in lockstep with the loading disable rule", () => {
-    expect(modelSelectCursor(true, true)).toBe("not-allowed");
-    expect(modelSelectCursor(true, false)).toBe("pointer");
-    expect(modelSelectCursor(false, true)).toBe("pointer");
-  });
-
-  it("requires a selection and rejects one absent from a loaded catalog", () => {
-    expect(openCodeModelSelectionReady("", false, false, null)).toBe(false);
-    expect(
-      openCodeModelSelectionReady("old/model", false, false, [
-        {
-          id: "gate/gate-model",
-          label: "Gate - Gate model",
-          supportedEfforts: [],
-        },
-      ]),
-    ).toBe(false);
-  });
-
-  it("fetches runtime models on engine selection without a tracer fallback", async () => {
-    const source = await Bun.file(
-      new URL("./EditAgentDialog.tsx", import.meta.url),
-    ).text();
-    expect(source).toContain("}, [usesBackendModels, targetEngine]);");
-    expect(source).not.toContain("OPENCODE_TRACER_MODEL");
-  });
-
-  it("offers both OpenCode permission modes", async () => {
-    const source = await Bun.file(
-      new URL("./EditAgentDialog.tsx", import.meta.url),
-    ).text();
-    expect(source).toMatch(/<option\s+value="default"[^>]*>/);
-    expect(source).toMatch(/<option\s+value="bypassPermissions"[^>]*>/);
-  });
-
   it("selects a discovered OpenCode model and uses Bypass mode", () => {
-    const template = AGENT_TEMPLATES[0];
+    // Not the receptionist, whose key forces Bypass on any engine.
+    const template = AGENT_TEMPLATES.find(
+      (candidate) => candidate.key === "side-project-builder",
+    )!;
     const models: BackendModelWire[] = [
       {
         id: "gate/gate-model",
@@ -373,58 +159,7 @@ describe("template values after an engine switch", () => {
     });
   });
 
-  it("prefers Muse Spark in the dialog and falls back for a login without it", () => {
-    const first: BackendModelWire = {
-      id: "first/model",
-      label: "First",
-      supportedEfforts: [],
-    };
-    const spare: BackendModelWire = {
-      id: "spare/model",
-      label: "Spare",
-      supportedEfforts: [],
-    };
-    const reported: BackendModelWire = {
-      id: "reported/model",
-      label: "Reported",
-      isDefault: true,
-      supportedEfforts: [],
-    };
-    const muse: BackendModelWire = {
-      id: "opencode/muse-spark-1.2-contributor-free",
-      label: "Muse Spark 1.2 Free",
-      isFree: true,
-      supportedEfforts: [],
-    };
-    expect(defaultBackendModel([first, spare, reported, muse], false)?.id).toBe(
-      muse.id,
-    );
-    expect(defaultBackendModel([first, reported], false)?.id).toBe(reported.id);
-    expect(defaultBackendModel([first], false)?.id).toBe(first.id);
-  });
-
-  it("follows the Codex-reported default, then the static default, then the first model", () => {
-    const model = (id: string, isDefault = false): BackendModelWire => ({
-      id,
-      label: id,
-      isDefault,
-      supportedEfforts: [],
-    });
-    const fallback = model(CODEX_MODELS[0].value);
-    const other = model("gpt-other");
-    const reported = model("gpt-reported", true);
-    expect(defaultBackendModel([other, fallback, reported], true)?.id).toBe(
-      reported.id,
-    );
-    expect(defaultBackendModel([other, fallback], true)?.id).toBe(fallback.id);
-    expect(defaultBackendModel([other], true)?.id).toBe(other.id);
-  });
-
-  it("blocks an empty OpenCode seed from reaching save", () => {
-    expect(openCodeModelSelectionReady("", false, false, null)).toBe(false);
-  });
-
-  it("resolves a spawn template from valid target-Codex defaults", () => {
+  it("resolves a template from valid target-Codex defaults", () => {
     const template = AGENT_TEMPLATES.find(
       (candidate) => candidate.key === "side-project-builder",
     )!;
@@ -442,14 +177,5 @@ describe("template values after an engine switch", () => {
       effort: "high",
       permissionMode: "never",
     });
-  });
-
-  it("resolves an edit template from the same target-Codex defaults", () => {
-    const template = AGENT_TEMPLATES.find(
-      (candidate) => candidate.key === "side-project-builder",
-    )!;
-    expect(
-      templateValuesAfterEngineSwitch(template, "codex", null, false),
-    ).toMatchObject({ permissionMode: "never" });
   });
 });

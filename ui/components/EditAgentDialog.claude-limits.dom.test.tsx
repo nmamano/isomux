@@ -30,7 +30,6 @@ describe("edit dialog on another member's agent", () => {
     const { view } = renderEdit(claudeAgent("haiku", "auto", CLOUD), []);
     try {
       await settle();
-      expect(modeSelect(view.container).value).toBe("default");
       expect(offersAuto(view.container)).toBe(false);
       expect(hasEffort(view.container)).toBe(false);
       await renameAndSave(view.container);
@@ -59,7 +58,7 @@ describe("edit dialog on another member's agent", () => {
   });
 
   it("follows the selected model inside edit", async () => {
-    shimRequests();
+    const patches = shimRequests();
     const { view } = renderEdit(claudeAgent("opus", "auto", CLOUD), []);
     try {
       await settle();
@@ -67,9 +66,12 @@ describe("edit dialog on another member's agent", () => {
       const model = selectWith(view.container, "haiku");
       fireEvent.change(model, { target: { value: "sonnet" } });
       await settle();
-      expect(modeSelect(view.container).value).toBe("default");
       expect(offersAuto(view.container)).toBe(false);
       expect(hasEffort(view.container)).toBe(false);
+      // The Auto the limited family cannot run is not saved: the stored Auto
+      // stays and runs as Ask there.
+      await renameAndSave(view.container);
+      expect(patches).toEqual([{ name: "Renamed", modelFamily: "sonnet" }]);
       fireEvent.change(model, { target: { value: "fable" } });
       await settle();
       expect(offersAuto(view.container)).toBe(true);

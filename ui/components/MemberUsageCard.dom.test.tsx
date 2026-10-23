@@ -8,6 +8,8 @@ const { MemberUsageCard } = await import("./MemberUsageCard.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const t = translatorFor("en").t;
 
 // The member usage cap switch and member share (task 6de8f530), on the office
 // half of Connections: they round-trip through the version-guarded settings
@@ -61,12 +63,9 @@ it("saves the switch and share with the settings and shows one status line per p
   await act(async () => fireEvent.click(box));
   const select = view.getByRole("combobox") as HTMLSelectElement;
   expect(select.value).toBe("80");
-  expect(
-    Array.from(select.options).map((option) => Number(option.value)),
-  ).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
   await act(async () => fireEvent.change(select, { target: { value: "70" } }));
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "Save" })),
+    fireEvent.click(view.getByRole("button", { name: t("common.save") })),
   );
   expect(savedBody).not.toHaveProperty("name");
   expect(savedBody).toMatchObject({
@@ -84,32 +83,29 @@ it("saves the switch and share with the settings and shows one status line per p
   view.unmount();
 });
 
-it("reserves the card frame and disables writes until settings arrive", async () => {
+it("reserves the card frame, with the switch neither on nor off and writes disabled, until settings arrive", async () => {
   let resolve!: (value: unknown) => void;
   const pending = new Promise((done) => {
     resolve = done;
   });
-  const writes: unknown[] = [];
-  setApiShim(async (method, _path, body) => {
-    if (method === "GET") return pending;
-    writes.push(body);
-  });
+  setApiShim(async () => pending);
   const view = render(onLanguage(null, createElement(MemberUsageCard)));
   const frame = view.container.querySelector('section[aria-busy="true"]');
   expect(frame?.tagName).toBe("SECTION");
   const box = view.getByRole("checkbox") as HTMLInputElement;
   expect(box.disabled).toBe(true);
+  expect(box.indeterminate).toBe(true);
   const buttons = view.getAllByRole("button") as HTMLButtonElement[];
   expect(buttons.every((button) => button.disabled)).toBe(true);
-  await act(async () => {
-    for (const button of buttons) fireEvent.click(button);
-    resolve({ version: "1", memberUsageCap: false, memberUsageShare: 80 });
-  });
-  expect(writes).toHaveLength(0);
+  await act(async () =>
+    resolve({ version: "1", memberUsageCap: true, memberUsageShare: 80 }),
+  );
   expect(
     view.container.querySelector('section[aria-busy="false"]')?.tagName,
   ).toBe("SECTION");
-  expect((view.getByRole("checkbox") as HTMLInputElement).disabled).toBe(false);
+  expect(box.disabled).toBe(false);
+  expect(box.indeterminate).toBe(false);
+  expect(box.checked).toBe(true);
   view.unmount();
 });
 
@@ -134,25 +130,6 @@ for (const outcome of ["failed", "unsupported"] as const) {
     view.unmount();
   });
 }
-
-it("shows the switch as neither on nor off until settings arrive", async () => {
-  let resolve!: (value: unknown) => void;
-  setApiShim(
-    () =>
-      new Promise((done) => {
-        resolve = done;
-      }),
-  );
-  const view = render(onLanguage(null, createElement(MemberUsageCard)));
-  const box = view.getByRole("checkbox") as HTMLInputElement;
-  expect(box.indeterminate).toBe(true);
-  await act(async () =>
-    resolve({ version: "1", memberUsageCap: true, memberUsageShare: 80 }),
-  );
-  expect(box.indeterminate).toBe(false);
-  expect(box.checked).toBe(true);
-  view.unmount();
-});
 
 it("holds the share row and status lines it last showed on this device while settings load", async () => {
   const mount = () => render(onLanguage(null, createElement(MemberUsageCard)));

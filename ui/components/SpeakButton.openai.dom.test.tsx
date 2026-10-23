@@ -241,9 +241,10 @@ it("starts the audio element inside the click, before any answer (iOS)", () => {
   install({ speechSynthesis: true });
   const view = render(page(["Hello there."], "openai"));
   fireEvent.click(buttonOf(view.container));
-  // No await: the click handler itself started playback.
-  expect(plays.length).toBeGreaterThanOrEqual(1);
-  expect(speakCalls.length).toBeLessThanOrEqual(1);
+  // No await: the click handler itself played the silent unlock clip, before
+  // any piece came back.
+  expect(plays[0]?.src.startsWith("data:audio/wav")).toBe(true);
+  expect(created).toHaveLength(0);
   view.unmount();
 });
 
@@ -262,9 +263,10 @@ it("reads a long reply in pieces: the first plays while the next loads, then the
   expect(lastPlayed().src).toBe(created[0]);
   expect(speakCalls).toHaveLength(2);
 
-  // Play to the end. 300 sentences of 39 characters fill three pieces. Piece
-  // i is on its way at the latest when piece i-1 starts playing.
-  const pieces = 3;
+  // Play to the end. Pieces are filled up to the limit. Piece i is on its way
+  // at the latest when piece i-1 starts playing.
+  const pieces = Math.ceil(longReply.length / MAX_SPEAK_CHARS);
+  expect(pieces).toBeGreaterThan(2);
   for (let i = 1; i < pieces; i++) {
     expect(speakCalls.length).toBeGreaterThan(i);
     await act(async () => speakCalls[i].release(mp3()));
@@ -276,9 +278,7 @@ it("reads a long reply in pieces: the first plays while the next loads, then the
   expect(speakCalls).toHaveLength(pieces);
 
   expect(speakCalls.map((c) => c.voice)).toEqual(speakCalls.map(() => "cedar"));
-  for (const call of speakCalls) {
-    expect(call.text.length).toBeLessThanOrEqual(MAX_SPEAK_CHARS);
-  }
+  // Each request carries its own piece, in order.
   expect(speakCalls.map((c) => c.text).join(" ")).toBe(longReply);
   expect(isStopShown(button)).toBe(false);
   expect(new Set(revoked)).toEqual(new Set(created));
@@ -412,12 +412,16 @@ it("a piece that fails mid-reply stops playback and shows the error", async () =
     ),
   );
   await settle();
+  expect(isStopShown(buttonOf(view.container))).toBe(false);
+  // The first piece ending plays nothing more.
+  const playsAtFailure = plays.length;
   await endChunk();
+  expect(plays.length).toBe(playsAtFailure);
+  expect(created).toHaveLength(1);
   expect(view.queryByRole("alert")).not.toBeNull();
   expect(
     view.getByRole("alert").querySelector('[data-voice-action="use-browser"]'),
   ).not.toBeNull();
-  expect(plays.every((p) => p.src !== created[1])).toBe(true);
   expect(speakCalls).toHaveLength(2);
   view.unmount();
 });

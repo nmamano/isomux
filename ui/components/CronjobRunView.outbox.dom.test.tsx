@@ -1,7 +1,9 @@
 // Task 44872c41: a follow-up the member sends into a cronjob run never
 // disappears before the server accepts it. The run composer uses the same
-// outbox as agent chat: a failed attempt stays above the composer with Resend /
-// Edit / Discard, and Resend reuses the attempt id.
+// outbox as agent chat (Resend and Discard are covered in ui/log-view); this
+// file covers the run view's own wiring: the run's route and Edit. The store
+// here starts unhydrated, which also pins that the transcript backfill waits
+// for the first full_state.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -9,8 +11,10 @@ setUpDomTestFile();
 
 const { act, fireEvent, render, waitFor } =
   await import("@testing-library/react");
+const { useEffect } = await import("react");
 const { CronjobRunView } = await import("./CronjobRunView.tsx");
-const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
+const { StateCtx, StoreProvider, useAppState, useDispatch } =
+  await import("../store.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { _resetOutboxForTests } = await import("../log-view/outbox.ts");
@@ -42,7 +46,9 @@ interface Post {
   clientMessageId: string;
 }
 let posts: Post[] = [];
+let gets: string[] = [];
 let answer: () => Promise<unknown> = async () => ({});
+let dispatch!: ReturnType<typeof useDispatch>;
 
 setShim(() => {});
 afterAll(() => {
@@ -56,18 +62,24 @@ afterAll(() => {
 beforeEach(() => {
   _resetOutboxForTests();
   posts = [];
+  gets = [];
   answer = async () => ({});
   setApiShim(async (method, path, body) => {
     if (method === "POST" && path.endsWith("/messages")) {
       posts.push({ path, ...(body as Omit<Post, "path">) });
       return answer();
     }
+    if (method === "GET") gets.push(path);
     return { run, entries: [] };
   });
 });
 
 function Page() {
   const state = useAppState();
+  const send = useDispatch();
+  useEffect(() => {
+    dispatch = send;
+  }, [send]);
   return (
     <StateCtx.Provider
       value={{
@@ -129,32 +141,6 @@ it("posts to the run's messages route with a clientMessageId and drops the row o
   view.unmount();
 });
 
-it("keeps a network failure as a not-sent row, and Resend reuses the attempt id", async () => {
-  answer = async () => {
-    throw new TypeError("Failed to fetch");
-  };
-  const view = mount();
-  await sendText(view.container, "careful follow up");
-
-  await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
-  expect(composer(view.container).value).toBe("");
-  const failed = rows(view.container, "failed")[0];
-  expect(failed.textContent).toContain("careful follow up");
-
-  answer = async () => ({});
-  await act(async () => {
-    fireEvent.click(action(failed, "resend"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  await waitFor(() =>
-    expect(view.container.querySelector("[data-outbox-attempt]")).toBeNull(),
-  );
-  expect(posts.length).toBe(2);
-  expect(posts[1].clientMessageId).toBe(posts[0].clientMessageId);
-  expect(posts[1].text).toBe("careful follow up");
-  view.unmount();
-});
-
 it("shows the server's refusal reason, and Edit puts the text back in the composer", async () => {
   answer = async () => {
     throw new ApiError(409, "run_busy", "server-reason-409");
@@ -176,18 +162,23 @@ it("shows the server's refusal reason, and Edit puts the text back in the compos
   view.unmount();
 });
 
-it("Discard drops a not-sent row without sending", async () => {
-  answer = async () => {
-    throw new TypeError("Failed to fetch");
-  };
+it("waits for the first hydration to fetch the run's transcript, then fetches it once", async () => {
+  const runRoute = `/api/cronjobs/${encodeURIComponent(run.cronjobId)}/runs/run1`;
   const view = mount();
-  await sendText(view.container, "never mind");
-  await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
+  await act(async () => {});
+  // Unhydrated: the full_state still to come would wipe what a fetch returned.
+  expect(gets.filter((p) => p === runRoute)).toHaveLength(0);
 
   await act(async () => {
-    fireEvent.click(action(rows(view.container, "failed")[0], "discard"));
+    dispatch({
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [],
+      killedAgents: [],
+    });
   });
-  expect(view.container.querySelector("[data-outbox-attempt]")).toBeNull();
-  expect(posts.length).toBe(1);
+  expect(gets.filter((p) => p === runRoute)).toHaveLength(1);
   view.unmount();
 });

@@ -80,21 +80,19 @@ import {
   selectSupportedEffort,
   effortPickerOptions,
 } from "../backend-model-selection.ts";
-export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
-export { defaultBackendModel } from "../backend-model-selection.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
 const MAX_CWD_SUGGESTIONS = 10;
 
-export function codexNewEngineDefaults(): {
+function codexNewEngineDefaults(): {
   permissionMode: AgentInfo["permissionMode"];
   codexSandbox: CodexSandboxMode;
 } {
   return { permissionMode: "never", codexSandbox: "danger-full-access" };
 }
 
-export function agentEngineSwitchChanges(
+function agentEngineSwitchChanges(
   targetEngine: AgentBackendType,
   modelFamily: string,
   effort: EffortLevel,
@@ -133,7 +131,7 @@ export function initialPermissionModeFor(
 
 // Measured against the mode the dialog opened with, so an unrelated save
 // never rewrites a stored mode the dialog showed differently.
-export function permissionModeChangeForEdit(
+function permissionModeChangeForEdit(
   shown: AgentInfo["permissionMode"],
   current: AgentInfo["permissionMode"],
 ): Pick<EditAgentReq, "permissionMode"> {
@@ -238,8 +236,8 @@ export function agentFormDirty(
 
 // The threshold field in thousands of tokens, as tokens: null unless it is a
 // whole number of tokens in the sanity range. Parsed from the digits, so
-// "123.456" is exactly 123_456. Exported for tests.
-export function parseAutoHandoffThousands(text: string): number | null {
+// "123.456" is exactly 123_456.
+function parseAutoHandoffThousands(text: string): number | null {
   const m = /^(\d+)(?:\.(\d{1,3}))?$/.exec(text.trim());
   if (!m) return null;
   const tokens = Number(m[1]) * 1000 + Number((m[2] ?? "").padEnd(3, "0"));
@@ -459,12 +457,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const pendingTemplateRef = useRef<AgentTemplate | null>(null);
   const openCodeModelReady =
     !isOpenCode ||
-    openCodeModelSelectionReady(
-      modelFamily,
-      modelsLoading,
-      modelsError !== null,
-      backendModels,
-    );
+    openCodeModelSelectionReady(modelFamily, modelsLoading, backendModels);
   const openCodeCatalogRejectsSelection =
     isOpenCode &&
     !!modelFamily &&
@@ -1210,7 +1203,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     setEffort(DEFAULT_EFFORT);
                   // Dynamic backends keep only an effort the selected
                   // model advertises. OpenCode has no reported default,
-                  // so its enum-ordered first option is the fallback.
+                  // so it falls back to the default effort, then to the
+                  // first level the model lists.
                   if ((isCodex || isOpenCode) && backendVisible) {
                     const picked = backendVisible.find((m) => m.id === next);
                     if (picked) {
@@ -1741,7 +1735,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     type="button"
                     onClick={applyBlankTemplate}
                     aria-pressed={selectedTemplateKey === null}
-                    data-spawn-initial-focus="template"
                     autoFocus={isSpawn}
                     style={{
                       ...templateCardStyle(selectedTemplateKey === null, false),

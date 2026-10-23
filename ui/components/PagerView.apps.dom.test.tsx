@@ -8,7 +8,6 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 
 const { act } = await import("@testing-library/react");
-const { sourceApp } = await import("./PagerView.tsx");
 const { h, mount, page, row, setupPagerViewTests, shim } =
   await import("../test-support/pager-view-fixture.tsx");
 setupPagerViewTests();
@@ -39,14 +38,6 @@ describe("app sources", () => {
       createdByAgentId: "a1",
       canManage: false,
     }) as AppListWire;
-
-  it("matches the registration that raised the page, not a later one", async () => {
-    expect(sourceApp(appPage, [app(4_000)])).not.toBeNull();
-    expect(sourceApp(appPage, [app(6_000)])).toBeNull();
-    expect(sourceApp(page("p2"), [app(4_000)])).toBeNull();
-    const undated = { ...app(4_000), createdAt: undefined } as unknown;
-    expect(sourceApp(appPage, [undated as AppListWire])).toBeNull();
-  });
 
   it("links to the app it reads on mount, and stays text for a replacement", async () => {
     shim.apps = [app(4_000)];

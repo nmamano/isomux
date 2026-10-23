@@ -78,13 +78,11 @@ function targetName(
 
 function AuditRows({
   items,
-  restore,
   onError,
   names,
 }: {
   items: AuditEntry[];
   names: Map<string, string>;
-  restore?: boolean;
   onError: (message: string) => void;
 }) {
   const { t } = useI18n();
@@ -144,7 +142,7 @@ function AuditRows({
                 {entry.promptContent}
               </pre>
             )}
-            {restore && entry.deletedTask && (
+            {entry.deletedTask && (
               <button
                 style={dialogCancelBtn}
                 disabled={restored.includes(entry.sequence)}
@@ -442,12 +440,7 @@ export function AuditPane() {
       {loading ? (
         <p>{t("common.loading")}</p>
       ) : (
-        <AuditRows
-          items={page.items}
-          names={names}
-          restore
-          onError={setError}
-        />
+        <AuditRows items={page.items} names={names} onError={setError} />
       )}
       {page.nextBefore !== null && (
         <button

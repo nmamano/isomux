@@ -1011,7 +1011,7 @@ function sameRoomSet(a: string[], b: string[]): boolean {
 
 // The tab bar's order: the rooms in `order` first, then every other room in
 // the order it arrived (the office order).
-export function roomsInMemberOrder<T extends { id: string }>(
+function roomsInMemberOrder<T extends { id: string }>(
   rooms: readonly T[],
   order: readonly string[],
 ): T[] {

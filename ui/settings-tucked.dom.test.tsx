@@ -1,5 +1,6 @@
 // The Tucked column of the Rooms table on the member's own profile: the touch
-// path to tuck a room (the tab bar's drag-to-chip needs a mouse).
+// path to tuck a room (the tab bar's drag-to-chip needs a mouse). The table
+// lists the rooms in the viewer's tab order.
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -34,7 +35,11 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
-const page = (over: { hidden?: string[]; tucked?: string[] }) =>
+type Over = { hidden?: string[]; tucked?: string[] };
+type Room = (typeof rooms)[number] & { type?: "lobby" };
+type StoreRooms = { rooms?: Room[]; allRooms?: Room[] };
+
+const page = (over: Over, store: StoreRooms = {}) =>
   onLanguage(
     null,
     createElement(UserSettingsView, {
@@ -45,20 +50,31 @@ const page = (over: { hidden?: string[]; tucked?: string[] }) =>
       rooms,
       hasReceivedInitialState: true,
       users: new Map([["tester", { ...selfUserRecord(null), ...over }]]),
+      ...store,
     },
   );
 
 // Mount, then let the mount-time reads (memory) settle inside act.
-async function mount(over: { hidden?: string[]; tucked?: string[] }) {
-  const view = render(page(over));
+async function mount(over: Over, store: StoreRooms = {}) {
+  const view = render(page(over, store));
   await act(async () => {});
   return view;
 }
 
+const tuckLabel = (id: string) =>
+  en["settings.profile.tuck"].replace("{room}", `Room ${id}`);
+
 const tuckBox = (view: ReturnType<typeof render>, id: string) =>
-  view.getByRole("checkbox", {
-    name: en["settings.profile.tuck"].replace("{room}", `Room ${id}`),
-  }) as HTMLInputElement;
+  view.getByRole("checkbox", { name: tuckLabel(id) }) as HTMLInputElement;
+
+// The room ids of the table's rows, top to bottom, read from the Tucked column.
+const rowOrder = (view: ReturnType<typeof render>, ids: string[]) => {
+  const byLabel = new Map(ids.map((id) => [tuckLabel(id), id]));
+  return view
+    .getAllByRole("checkbox")
+    .map((box) => byLabel.get(box.getAttribute("aria-label") ?? ""))
+    .filter((id) => id !== undefined);
+};
 
 describe("Tucked column", () => {
   it("saves the tucked list with the full-list route", async () => {
@@ -96,6 +112,29 @@ describe("Tucked column", () => {
       name: en["common.saved"],
     }) as HTMLButtonElement;
     expect(saved.disabled).toBe(true);
+    view.unmount();
+  });
+
+  it("lists the rooms in the viewer's tab order, then the rest in office order", async () => {
+    const lobby: Room = {
+      id: "lobby",
+      name: "Room lobby",
+      type: "lobby",
+      prompt: null,
+      canCloseWhenEmpty: false,
+    };
+    const r3 = { ...rooms[0], id: "r3", name: "Room r3" };
+    // The office holds every room; the viewer's tab bar has r3 before r1 and
+    // no r2, which they hid. The lobby is never a row.
+    const view = await mount(
+      { hidden: ["r2"] },
+      { allRooms: [lobby, ...rooms, r3], rooms: [lobby, r3, rooms[0]] },
+    );
+    expect(rowOrder(view, ["lobby", "r1", "r2", "r3"])).toStrictEqual([
+      "r3",
+      "r1",
+      "r2",
+    ]);
     view.unmount();
   });
 });

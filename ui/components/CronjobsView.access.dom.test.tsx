@@ -10,6 +10,7 @@ const { act, render } = await import("@testing-library/react");
 const { CronjobsView } = await import("./CronjobsView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { DispatchCtx } = await import("../store.tsx");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
 type AppState = import("../store.tsx").AppState;
@@ -189,20 +190,7 @@ it("an open run view stays for a room member and closes when the job leaves the 
   view.unmount();
 });
 
-it("a deleted job's open run view closes for a member and stays for an office owner", async () => {
-  const member = await openRun();
-  member.rerender(
-    tree(
-      stateFor({
-        cronjobs: [],
-        cronjobRunsByJob: new Map([["job00001", [run]]]),
-      }),
-    ),
-  );
-  await act(async () => {});
-  expect(member.queryByText(RUN_PROMPT)).toBeNull();
-  member.unmount();
-
+it("a deleted job's open run view stays for an office owner, with a composer", async () => {
   const owner = render(tree({ ...readable, ...stateFor({}, "owner") }));
   await act(async () => {});
   await showRuns(owner);
@@ -264,6 +252,10 @@ it("an owner's open run fetches its transcript again after the delete drops it, 
   await act(async () => {});
   expect(transcriptGets).toBe(2);
   expect(runListGets).toBe(listsBefore + 1);
+  // The open view's answer seeds the transcript: the control for the late
+  // answers that seed nothing above.
+  await act(async () => answerTranscript!());
+  expect(dispatched.map((a) => a.type)).toContain("log_entries_batch");
   view.unmount();
 });
 
@@ -295,12 +287,11 @@ it("a run-list answer that was already pending when access changed carries the o
 it("an open edit dialog closes when the job is no longer the viewer's to manage", async () => {
   const view = render(tree(readable));
   await act(async () => {});
-  await act(async () => view.getByText("schedules").click());
   const row = view.container.querySelector<HTMLElement>(
     'tr[data-cronjob-row="job00001"]',
   )!;
   const edit = [...row.querySelectorAll("button")].find(
-    (b) => b.textContent === "Edit",
+    (b) => b.textContent === translatorFor("en").t("common.edit"),
   )!;
   await act(async () => edit.click());
   const promptShown = () =>

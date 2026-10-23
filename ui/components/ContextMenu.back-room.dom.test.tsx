@@ -111,5 +111,6 @@ it("room_back_room_updated sets the room's flag in the store", () => {
     roomId: "r1",
     backRoom: true,
   });
-  expect(next.rooms.map((r) => r.backRoom)).toEqual([true, undefined]);
+  // Only that room: the other keeps no flag.
+  expect(next.rooms.map((r) => r.backRoom)).toStrictEqual([true, undefined]);
 });

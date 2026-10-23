@@ -47,19 +47,6 @@ const STATUS_COLOR: Record<CronjobRun["status"], string> = {
   skipped: "var(--text-muted)",
 };
 
-// The transcript backfill guard, as a decision so it can be tested without a
-// React render harness (the UI has none). Epoch 0 means nothing has hydrated
-// yet: the full_state that is about to land would wipe whatever we fetched, so
-// wait for it rather than spending a request twice.
-export function transcriptFetchAction(
-  hydrationEpoch: number,
-  fetchedKey: string | null,
-  fetchKey: string,
-): "fetch" | "skip" {
-  if (hydrationEpoch === 0) return "skip";
-  return fetchedKey === fetchKey ? "skip" : "fetch";
-}
-
 // Cronjob runs are resumable: the job's maker and office owners can send
 // follow-up turns into a past run, and edit-to-fork lets them branch from any
 // prior user message. Everyone else who sees the job reads the transcript. The
@@ -122,46 +109,36 @@ export function CronjobRunView({
   // the app. The reducer dedupes by id, so re-sending overlapping entries is
   // harmless.
   //
-  // The once-only guard is a ref holding the {jobId,runId} it already fetched,
-  // not a bare boolean: a boolean would never reset if this view were ever
-  // reused for a different run without unmounting. Today it is a per-run
-  // overlay that always remounts, so the key comparison is belt-and-braces -
-  // but it costs nothing and removes the latent trap.
-  //
-  // "Once" means once per HYDRATION, not once per mount: a WS reconnect sends
-  // full_state, which drops every log stream except the focused agent's, and
-  // the server's replay is agent-only - so this run's transcript is gone and
-  // nothing brings it back (pinned in store.test.ts). Folding hydrationEpoch
-  // into the key is what makes the next hydration refetch it.
+  // It fetches again on every HYDRATION, not once per mount: a WS reconnect
+  // sends full_state, which drops every log stream except the focused agent's,
+  // and the server's replay is agent-only - so this run's transcript is gone
+  // and nothing brings it back (pinned in store.test.ts). hydrationEpoch in the
+  // effect's deps is what makes the next hydration refetch it. Epoch 0 means
+  // nothing has hydrated yet: the full_state that is about to land would wipe
+  // whatever we fetched, so the effect waits for it rather than spending a
+  // request twice.
   //
   // The epoch rather than `connected`: ws.ts's onVisible() reconnects a frozen
   // mobile socket without ever flipping connected false (dead socket, ping
   // throw, pong timeout), so a false->true edge is not something every
   // reconnect produces. full_state always arrives.
   //
-  // cronjobsStateSeq joins the key for the same reason: a cronjob delete or
+  // cronjobsStateSeq joins the deps for the same reason: a cronjob delete or
   // re-projection drops cached run transcripts it cannot tie to a readable job
   // (store.tsx dropCronjobRuns), and a view still open is one its parent still
   // allows, so it fetches its transcript again.
   const runKey = `${jobId}\u0000${runId}`;
-  const fetchKey = `${runKey}\u0000${hydrationEpoch}\u0000${cronjobsStateSeq}`;
-  const fetchedKeyRef = useRef<string | null>(null);
   // The run as the server returned it, kept only as a header fallback for when
-  // the store has no copy (see `run` below). Keyed by runKey, NOT fetchKey, so
-  // a hydration doesn't blank the header back to "Run #<id>" for the length of
-  // the refetch; a stale answer from a previous run still can't be shown.
+  // the store has no copy (see `run` below). Keyed by runKey, not the
+  // hydration, so a hydration doesn't blank the header back to "Run #<id>" for
+  // the length of the refetch; a stale answer from a previous run still can't
+  // be shown.
   const [fetchedRun, setFetchedRun] = useState<{
     key: string;
     run: CronjobRun;
   } | null>(null);
   useEffect(() => {
-    const action = transcriptFetchAction(
-      hydrationEpoch,
-      fetchedKeyRef.current,
-      fetchKey,
-    );
-    if (action === "skip") return;
-    fetchedKeyRef.current = fetchKey;
+    if (hydrationEpoch === 0) return;
     // Fetch the historical transcript and merge it into the run's log stream
     // (the same stream live `log_entry` events feed during an active run). The
     // batch reducer dedupes by id, so overlapping live entries are neither
@@ -190,10 +167,8 @@ export function CronjobRunView({
       });
     return () => {
       cancelled = true;
-      // A dropped fetch did not fill this key, so a remount fetches again.
-      if (fetchedKeyRef.current === fetchKey) fetchedKeyRef.current = null;
     };
-  }, [jobId, runId, runKey, fetchKey, hydrationEpoch, dispatch]);
+  }, [jobId, runId, runKey, hydrationEpoch, cronjobsStateSeq, dispatch]);
 
   // Store first, fetched copy second. The store (cronjobRunsByJob) is the live
   // one: cron list queries seed it and `cronjob_run_updated` events keep it

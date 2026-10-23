@@ -14,6 +14,11 @@ const { connect, setShim } = await import("../ws.ts");
 const { EditorView } = await import("@codemirror/view");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { ENGINE_NAMES } = await import("../../shared/types.ts");
+const ENGINE_NAMES_KEYS = Object.keys(
+  ENGINE_NAMES,
+) as (keyof typeof ENGINE_NAMES)[];
+const { commands } = await import("../../shared/commands.ts");
+const { skillFileProblem } = await import("../../shared/skill-validation.ts");
 type SkillCatalogRes =
   import("../../shared/contract-shapes.ts").SkillCatalogRes;
 
@@ -31,7 +36,9 @@ afterAll(() => {
 });
 
 const USER_PATH = "/h/.claude/skills/mine/SKILL.md";
+const OTHER_PATH = "/h/.claude/skills/other/SKILL.md";
 const BUILTIN_PATH = "/opt/isomux/skills/grill-me/SKILL.md";
+const CODEX_PATH = "/h/.codex/skills/codex-only/SKILL.md";
 const catalog: SkillCatalogRes = {
   engines: (["claude", "codex", "opencode"] as const).map((engine) => ({
     engine,
@@ -46,6 +53,15 @@ const catalog: SkillCatalogRes = {
         uses: 3,
       },
       {
+        name: "other",
+        source: "user",
+        kind: "skill",
+        path: OTHER_PATH,
+        dir: "/h/.claude/skills",
+        editable: true,
+        uses: 0,
+      },
+      {
         name: "grill-me",
         source: "isomux",
         kind: "skill",
@@ -54,6 +70,19 @@ const catalog: SkillCatalogRes = {
         editable: false,
         uses: 0,
       },
+      ...(engine === "codex"
+        ? [
+            {
+              name: "codex-only",
+              source: "user" as const,
+              kind: "skill" as const,
+              path: CODEX_PATH,
+              dir: "/h/.codex/skills",
+              editable: true,
+              uses: 0,
+            },
+          ]
+        : []),
     ],
   })),
   newSkillDir: "/h/.claude/skills",
@@ -61,12 +90,17 @@ const catalog: SkillCatalogRes = {
 };
 
 let puts: unknown[] = [];
+let catalogReads = 0;
 let putAnswer: () => unknown = () => ({ path: USER_PATH, rev: 2, mtime: 2 });
 beforeEach(() => {
   puts = [];
+  catalogReads = 0;
   localStorage.removeItem("isomux:skills:engine");
   setApiShim(async (method, path, body) => {
-    if (method === "GET" && path === "/api/skills") return catalog;
+    if (method === "GET" && path === "/api/skills") {
+      catalogReads++;
+      return catalog;
+    }
     if (method === "GET" && path.startsWith("/api/skills/file?")) {
       const p = new URLSearchParams(path.split("?")[1]).get("path");
       return {
@@ -74,10 +108,12 @@ beforeEach(() => {
         content:
           p === USER_PATH
             ? "---\ndescription: d\n---\nold body\n"
-            : "---\ndescription: g\n---\ngrill body\n",
+            : p === OTHER_PATH
+              ? "---\ndescription: o\n---\nother body\n"
+              : "---\ndescription: g\n---\ngrill body\n",
         rev: 1,
         mtime: 1,
-        editable: p === USER_PATH,
+        editable: p !== BUILTIN_PATH,
       };
     }
     if (method === "PUT" && path === "/api/skills/file") {
@@ -266,13 +302,13 @@ it("keeps text typed while a save is in flight", async () => {
   await act(async () => {
     cm.dispatch({ changes: { from: cm.state.doc.length, insert: "later\n" } });
   });
+  const readsBefore = catalogReads;
   await act(async () => {
     release();
   });
-  await waitFor(() => expect(puts).toHaveLength(1));
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 20));
-  });
+  // An accepted save refetches the catalog after it settles the editor.
+  await waitFor(() => expect(catalogReads).toBeGreaterThan(readsBefore));
+  expect(puts).toHaveLength(1);
   expect((await editor(view)).state.doc.toString()).toContain("first\nlater\n");
   expect(
     view.container
@@ -291,7 +327,7 @@ it("drops a save answer that lands after the member opened another skill", async
   await act(async () => {
     (
       view.container.querySelector(
-        '[data-skill-row="grill-me"]',
+        '[data-skill-row="other"]',
       ) as HTMLButtonElement
     ).click();
   });
@@ -302,24 +338,22 @@ it("drops a save answer that lands after the member opened another skill", async
   await act(async () => {
     discard.click();
   });
-  await waitFor(() =>
-    expect(
-      view.container.querySelector(
-        '[data-skill-detail="grill-me"] [data-skill-preview]',
-      ),
-    ).not.toBe(null),
-  );
+  const remove = await waitFor(() => {
+    const button = view.container.querySelector<HTMLButtonElement>(
+      '[data-skill-detail="other"] [data-skill-delete]',
+    );
+    if (!button) throw new Error("other skill not open");
+    return button;
+  });
+  // Delete stays disabled while the save is in flight.
+  expect(remove.disabled).toBe(true);
   await act(async () => {
     release();
-    await new Promise((r) => setTimeout(r, 20));
   });
-  const detail = view.container.querySelector('[data-skill-detail="grill-me"]');
-  expect(detail).not.toBe(null);
-  expect(detail?.querySelector("[data-skill-path]")?.textContent).toBe(
-    BUILTIN_PATH,
-  );
+  await waitFor(() => expect(remove.disabled).toBe(false));
+  const detail = view.container.querySelector('[data-skill-detail="other"]');
   expect(detail?.querySelector("[data-skill-preview]")?.textContent).toContain(
-    "grill body",
+    "other body",
   );
   expect(
     detail?.querySelector("[data-skill-preview]")?.textContent,
@@ -348,86 +382,104 @@ it("keeps a broken disk file editable and keeps the draft when validation refuse
     });
   });
   await clickSave(view);
-  await waitFor(() =>
-    expect(view.container.querySelector("[data-skill-save-problem]")).not.toBe(
-      null,
+  // The page names the rule the draft breaks, not the server's message.
+  const problem = await waitFor(() => {
+    const el = view.container.querySelector(
+      '[data-skill-save-problem="error"]',
+    );
+    if (!el) throw new Error("no save problem");
+    return el;
+  });
+  expect(problem.textContent).toBe(
+    translatorFor("en").t(
+      skillFileProblem("broken draft") ?? "common.saveFailed",
     ),
   );
   expect((await editor(view)).state.doc.toString()).toBe("broken draft");
-  expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
+  expect(
+    view.container
+      .querySelector("[data-skill-source]")
+      ?.getAttribute("data-editable"),
+  ).toBe("true");
   expect(view.container.querySelector("[data-skill-delete]")).not.toBe(null);
   expect(puts).toHaveLength(1);
   view.unmount();
 });
 
+async function openTab(view: ReturnType<typeof render>, tab: string) {
+  await act(async () => {
+    (
+      view.container.querySelector(
+        `[data-skill-engine="${tab}"]`,
+      ) as HTMLButtonElement
+    ).click();
+  });
+}
+
 it("keeps shared skills out of the engine tabs and returns to the shared list", async () => {
   const view = await mount();
-  await act(async () => {
-    (
-      view.container.querySelector(
-        '[data-skill-engine="codex"]',
-      ) as HTMLButtonElement
-    ).click();
-  });
-  expect(view.container.querySelector("[data-skill-row]")).toBe(null);
-  expect(view.container.querySelector("[data-skill-detail]")).toBe(null);
-  await act(async () => {
-    (
-      view.container.querySelector(
-        '[data-skill-engine="commands"]',
-      ) as HTMLButtonElement
-    ).click();
-  });
-  const commandList = view.container.querySelector("[data-office-commands]");
-  const clear = commandList?.querySelector('[data-office-command="clear"]');
-  expect(clear?.textContent).toContain(
-    translatorFor("en").t("commands.clear.description"),
-  );
-  expect(clear?.querySelector("[data-command-aliases]")?.textContent).toContain(
-    "/reset",
-  );
-  expect(clear?.querySelector("[data-command-aliases]")?.textContent).toContain(
-    "/new",
-  );
-  expect(commandList?.querySelector('[data-office-command="reset"]')).toBe(
+  expect(view.container.querySelector('[data-skill-row="codex-only"]')).toBe(
     null,
   );
-  expect(commandList?.querySelector('[data-office-command="compact"]')).toBe(
-    null,
-  );
-  // Engine built-ins Isomux passes through are listed with the engines that
-  // run them; a command every engine runs has no engine line.
-  expect(clear?.querySelector("[data-command-engines]")).toBe(null);
-  for (const name of ["code-review", "simplify"]) {
-    const row = commandList?.querySelector(`[data-office-command="${name}"]`);
-    expect(row?.querySelector("[data-command-engines]")?.textContent).toContain(
-      ENGINE_NAMES.claude,
-    );
-    expect(
-      row?.querySelector("[data-command-engines]")?.textContent,
-    ).not.toContain(ENGINE_NAMES.codex);
-  }
+  await openTab(view, "codex");
   expect(
-    commandList
-      ?.querySelector('[data-office-command="code-review"]')
-      ?.querySelector("[data-command-aliases]")?.textContent,
-  ).toContain("/review");
-  expect(
-    commandList?.querySelector("button, input, textarea, [contenteditable]"),
-  ).toBe(null);
-  expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
-  expect(view.container.querySelector("[data-skill-delete]")).toBe(null);
-  await act(async () => {
-    (
-      view.container.querySelector(
-        '[data-skill-engine="all"]',
-      ) as HTMLButtonElement
-    ).click();
-  });
+    view.container.querySelector('[data-skill-row="codex-only"]'),
+  ).not.toBe(null);
+  expect(view.container.querySelector('[data-skill-row="mine"]')).toBe(null);
+  await openTab(view, "all");
   await waitFor(() =>
     expect(view.container.querySelector('[data-skill-row="mine"]')).not.toBe(
       null,
     ),
   );
+  view.unmount();
+});
+
+it("lists office commands read-only, with aliases and engine lines", async () => {
+  const view = await mount();
+  await openTab(view, "commands");
+  const commandList = view.container.querySelector("[data-office-commands]");
+  const supported = Object.entries(commands).filter(
+    ([, config]) => config.supported,
+  );
+  const listed = supported.filter(([, config]) => !config.aliasFor);
+  expect(commandList?.querySelectorAll("[data-office-command]")).toHaveLength(
+    listed.length,
+  );
+  const clear = commandList?.querySelector('[data-office-command="clear"]');
+  expect(clear?.textContent).toContain(
+    translatorFor("en").t("commands.clear.description"),
+  );
+  // An alias shows on its command's row, never as a row of its own.
+  for (const [alias, config] of supported.filter(([, c]) => c.aliasFor)) {
+    const row = commandList?.querySelector(
+      `[data-office-command="${config.aliasFor}"]`,
+    );
+    expect(row?.querySelector("[data-command-aliases]")?.textContent).toContain(
+      `/${alias}`,
+    );
+    expect(commandList?.querySelector(`[data-office-command="${alias}"]`)).toBe(
+      null,
+    );
+  }
+  // Engine built-ins Isomux passes through are listed with the engines that
+  // run them; a command every engine runs has no engine line.
+  expect(clear?.querySelector("[data-command-engines]")).toBe(null);
+  const engineBound = listed.filter(([, config]) => config.engines);
+  expect(engineBound.length).toBeGreaterThan(0);
+  for (const [name, config] of engineBound) {
+    const line = commandList
+      ?.querySelector(`[data-office-command="${name}"]`)
+      ?.querySelector("[data-command-engines]")?.textContent;
+    for (const engine of ENGINE_NAMES_KEYS)
+      if (config.engines?.includes(engine))
+        expect(line).toContain(ENGINE_NAMES[engine]);
+      else expect(line).not.toContain(ENGINE_NAMES[engine]);
+  }
+  expect(
+    commandList?.querySelector("button, input, textarea, [contenteditable]"),
+  ).toBe(null);
+  expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
+  expect(view.container.querySelector("[data-skill-delete]")).toBe(null);
   view.unmount();
 });

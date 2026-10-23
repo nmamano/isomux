@@ -8,7 +8,7 @@ import { useMemo } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import { asksFor, visibleAsks } from "../asks-sync.ts";
+import { asksFor } from "../asks-sync.ts";
 import { AskCard } from "../log-view/AskCard.tsx";
 import type { AgentInfo, AskMemberWire } from "../../shared/types.ts";
 
@@ -17,15 +17,18 @@ interface AskGroup {
   entries: AskMemberWire[];
 }
 
-/** The open asks per agent: cards oldest first, groups by their oldest ask. */
-export function askGroups(
+/**
+ * The open asks per agent: cards oldest first, groups by their oldest ask.
+ * Only agents in the agents slice get a group, so an ask whose agent the
+ * client does not have stays out, as `visibleAsks` leaves it out of the count.
+ */
+function askGroups(
   asks: readonly AskMemberWire[],
   agents: readonly AgentInfo[],
 ): AskGroup[] {
-  const shown = visibleAsks(asks, agents);
   const groups: AskGroup[] = [];
   for (const agent of agents) {
-    const entries = asksFor(shown, agent.id);
+    const entries = asksFor(asks, agent.id);
     if (entries.length > 0) groups.push({ agent, entries });
   }
   return groups.sort(

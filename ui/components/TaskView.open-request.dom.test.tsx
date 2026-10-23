@@ -9,6 +9,7 @@ const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { checkedFilterValues } = await import("../test-support/task-filters.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 
 setApiShim(async () => ({}));
@@ -28,10 +29,14 @@ const second = {
   id: "22222222",
   title: "Second task",
   status: "done",
+  priority: "P4",
   roomId: "r2",
 } as TaskItem;
 
-it("routes a new chip request through the open panel's discard flow", async () => {
+// Scope and status widening are covered in App.task-chip.dom.test.tsx; this
+// linked task is P4, which the default filter leaves unchecked.
+it("routes a new chip request through the open panel's discard flow, and checks the linked task's priority", async () => {
+  const { t } = translatorFor("en");
   const state = {
     ...initialState,
     tasks: [first, second],
@@ -63,20 +68,19 @@ it("routes a new chip request through the open panel's discard flow", async () =
   const title = await view.findByDisplayValue(first.title);
   fireEvent.change(title, { target: { value: "Unsaved edit" } });
   await act(async () => requestTask({ id: second.id }));
-  expect(await view.findByText("Discard unsaved changes?")).toBeDefined();
+  expect(await view.findByText(t("common.discardPrompt"))).toBeDefined();
   expect(view.getByDisplayValue("Unsaved edit")).toBeDefined();
 
-  await act(async () => fireEvent.click(view.getByText("Discard")));
+  await act(async () => fireEvent.click(view.getByText(t("common.discard"))));
   expect(await view.findByDisplayValue(second.title)).toBeDefined();
-  const scope = view.container.querySelector(
-    'select:has(option[value="global"])',
-  ) as HTMLSelectElement;
-  expect(scope.value).toBe("r2");
-  // The default statuses, plus the linked done task's status.
-  expect(await checkedFilterValues(view.container, "status")).toEqual([
-    "open",
-    "in_progress",
-    "done",
+  // The default priorities, plus the linked task's P4.
+  expect(await checkedFilterValues(view.container, "priority")).toStrictEqual([
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "none",
   ]);
   expect(view.getByText(second.title)).toBeDefined();
 

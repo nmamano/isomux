@@ -137,21 +137,27 @@ it("cancel and stale delete keep the draft; successful delete removes the select
   };
   await click("[data-skill-delete]");
   await click("[data-skill-delete-submit]");
-  expect(view.getByRole("alert")).not.toBe(null);
+  expect(
+    document.querySelector("[data-skill-delete-problem]")?.textContent,
+  ).toBe(translatorFor("en").t("skills.delete.stale"));
   expect(cm.state.doc.toString()).toBe("unsaved draft");
   expect(deletes).toEqual([{ path, expectedRev: 7 }]);
   answer = async () => {
     entries = entries.filter((entry) => entry.path !== path);
   };
+  const readsBefore = reads;
   await click("[data-skill-delete-submit]");
+  // The deleted skill's pane closes, so desktop opens the first skill left.
   await waitFor(() =>
-    expect(view.container.querySelector('[data-skill-row="mine"]')).toBe(null),
+    expect(
+      view.container.querySelector('[data-skill-detail="command"]'),
+    ).not.toBe(null),
   );
-  expect(view.container.querySelector('[data-skill-detail="mine"]')).toBe(null);
-  expect(reads).toBeGreaterThan(1);
+  expect(view.container.querySelector('[data-skill-row="mine"]')).toBe(null);
+  await waitFor(() => expect(reads).toBeGreaterThan(readsBefore));
   view.unmount();
 });
-it("binds confirmation to the opened file and leaves a newer selection open after the response", async () => {
+it("leaves a newer selection open when a delete answer lands", async () => {
   const view = await mount();
   let finish!: () => void;
   answer = () =>
@@ -171,7 +177,10 @@ it("binds confirmation to the opened file and leaves a newer selection open afte
       ),
     ).not.toBe(null),
   );
+  const readsBefore = reads;
   await act(async () => finish());
+  // A delete the server accepts refetches the catalog after it settles.
+  await waitFor(() => expect(reads).toBeGreaterThan(readsBefore));
   expect(deletes).toEqual([{ path, expectedRev: 7 }]);
   expect(view.container.querySelector('[data-skill-detail="plugin"]')).not.toBe(
     null,
@@ -189,14 +198,5 @@ it("binds confirmation to the opened file and leaves a newer selection open afte
     translatorFor("en").t("skills.delete.command"),
   );
   await click("[data-skill-delete-cancel]");
-  await click('[data-skill-row="plugin"]');
-  await waitFor(() =>
-    expect(
-      view.container.querySelector(
-        '[data-skill-detail="plugin"] [data-skill-preview]',
-      ),
-    ).not.toBe(null),
-  );
-  expect(view.container.querySelector("[data-skill-delete]")).toBe(null);
   view.unmount();
 });

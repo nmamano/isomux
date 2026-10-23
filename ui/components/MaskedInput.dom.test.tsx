@@ -9,6 +9,7 @@ setUpDomTestFile();
 
 const { fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
+const { renderToStaticMarkup } = await import("react-dom/server");
 const { MaskedInput } = await import("./MaskedInput.tsx");
 
 // A spy on happy-dom's CSS.supports does not reach the component, so each
@@ -42,6 +43,12 @@ it("is a text field masked by CSS where the browser has the mask", () => {
   expectMasked(input);
   expect(input.type).toBe("text");
   expect(input.style.width).toBe("100px");
+  // happy-dom drops the mask property, so read it from the server render:
+  // without it the value shows in clear text in Chrome.
+  const html = renderToStaticMarkup(
+    createElement(MaskedInput, { value: "sk-123", onChange: () => {} }),
+  );
+  expect(html).toContain("-webkit-text-security:disc");
 });
 
 it("falls back to a password field where it has not", () => {

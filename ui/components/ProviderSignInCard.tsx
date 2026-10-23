@@ -26,7 +26,7 @@ export function signOutButtonLabel(i18n: Translator, pending: boolean): string {
     : i18n.t("settings.signIn.confirmSignOut");
 }
 
-export function sharedLoginQueueMessage(
+function sharedLoginQueueMessage(
   i18n: Translator,
   provider: string,
   queue: ProviderLoginQueueWire,

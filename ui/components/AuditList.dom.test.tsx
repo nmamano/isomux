@@ -4,8 +4,10 @@ setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
 const { AuditPane, TaskHistoryList } = await import("./AuditList.tsx");
 const { setApiShim } = await import("../api.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { t } = translatorFor("en");
 afterAll(() => setApiShim(null));
-it("filters audit rows and restores the task named by its deletion snapshot", async () => {
+it("names a deleted task by its snapshot and restores it", async () => {
   const calls: string[] = [];
   setApiShim(async (method, path) => {
     calls.push(`${method} ${path}`);
@@ -21,15 +23,6 @@ it("filters audit rows and restores the task named by its deletion snapshot", as
           fields: [],
           deletedTask: { id: "task-1", title: "A deleted task title" },
         },
-        {
-          sequence: 2,
-          time: 2,
-          actor: { kind: "member", id: "u", name: "Member" },
-          operation: "tasks.update",
-          targets: ["task-2"],
-          fields: ["title"],
-          taskChanges: { title: { old: "old-content", new: "new-content" } },
-        },
       ],
       nextBefore: null,
     };
@@ -39,21 +32,16 @@ it("filters audit rows and restores the task named by its deletion snapshot", as
   expect(view.container.querySelector('[title="task-1"]')?.textContent).toBe(
     "A deleted task title",
   );
-  expect(view.getByText("old-content").textContent).toBe("old-content");
-  expect(view.getAllByText("new-content").length).toBeGreaterThan(0);
-  fireEvent.click(view.getByRole("button", { name: "Restore" }));
+  fireEvent.click(view.getByRole("button", { name: t("audit.restore") }));
   await act(async () => {});
   expect(calls).toContain("POST /api/tasks/task-1/restore");
   expect(
-    (view.getByRole("button", { name: "Restored" }) as HTMLButtonElement)
-      .disabled,
+    (
+      view.getByRole("button", {
+        name: t("audit.restored"),
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
-  fireEvent.change(view.getByLabelText("Target id"), {
-    target: { value: "task-1" },
-  });
-  fireEvent.click(view.getByRole("button", { name: "Filter" }));
-  await act(async () => {});
-  expect(calls).toContain("GET /api/audit-log?targetId=task-1");
 });
 it("reads task-scoped history and renders changed values", async () => {
   const calls: string[] = [];
@@ -69,8 +57,13 @@ it("reads task-scoped history and renders changed values", async () => {
           actor: { name: "Editor" },
           operation: "tasks.update",
           targets: ["task-1"],
-          fields: ["title"],
-          taskChanges: { title: { old: "before-title", new: "after-title" } },
+          fields: ["title", "assignee", "assigneeAgentId", "createdByAgentId"],
+          taskChanges: {
+            title: { old: "before-title", new: "after-title" },
+            assignee: { old: "Old Holder", new: "New Holder" },
+            assigneeAgentId: { old: "agent-1-old", new: "agent-2-new" },
+            createdByAgentId: { old: null, new: "agent-3-maker" },
+          },
         },
       ],
       nextBefore: null,
@@ -85,41 +78,11 @@ it("reads task-scoped history and renders changed values", async () => {
   });
   await act(async () => {});
   expect(calls).toEqual(["GET /api/tasks/task-1/history"]);
-  expect(view.container.textContent).toContain("before-title");
-  expect(view.container.textContent).toContain("after-title");
-});
-
-// The agent id rides next to the assignee name (task 83f71be9). History shows
-// the name change once; the id that changed with it is bookkeeping.
-it("task history shows an assignee change once, without the agent id beside it", async () => {
-  setApiShim(async () => ({
-    createdAt: 1,
-    createdBy: "Creator",
-    items: [
-      {
-        sequence: 1,
-        time: 2,
-        actor: { name: "Editor" },
-        operation: "tasks.update",
-        targets: ["task-1"],
-        fields: ["assignee", "assigneeAgentId", "createdByAgentId"],
-        taskChanges: {
-          assignee: { old: "Old Holder", new: "New Holder" },
-          assigneeAgentId: { old: "agent-1-old", new: "agent-2-new" },
-          createdByAgentId: { old: null, new: "agent-3-maker" },
-        },
-      },
-    ],
-    nextBefore: null,
-  }));
-  const view = render(<TaskHistoryList id="task-1" version="v1" />);
-  await act(async () => {
-    const details = view.container.querySelector("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
-  });
-  await act(async () => {});
   const text = view.container.textContent ?? "";
+  expect(text).toContain("before-title");
+  expect(text).toContain("after-title");
+  // The agent id rides next to the assignee name (task 83f71be9). History
+  // shows the name change once; the id that changed with it is bookkeeping.
   expect(text).toContain("Old Holder");
   expect(text).toContain("New Holder");
   expect(text).not.toContain("assigneeAgentId");
@@ -212,7 +175,7 @@ it("maps roster IDs and local minute bounds, keeps filters when paging, and clea
     fireEvent.submit(view.container.querySelector("form")!);
     await act(async () => {});
     expect(calls).toHaveLength(beforeInvalid);
-    expect(view.queryByRole("alert")).not.toBeNull();
+    expect(view.container.querySelector('form [role="alert"]')).not.toBeNull();
     expect(
       (view.container.querySelector('[name="actorId"]') as HTMLSelectElement)
         .value,
@@ -221,7 +184,7 @@ it("maps roster IDs and local minute bounds, keeps filters when paging, and clea
     process.env.TZ = previousZone;
   }
 });
-it("shows the request of a secret use, and survives a wrong-shaped one", async () => {
+it("shows each row's payload, and survives a wrong-shaped secret use", async () => {
   setApiShim(async () => ({
     items: [
       {
@@ -245,7 +208,26 @@ it("shows the request of a secret use, and survives a wrong-shaped one", async (
         operation: "secrets.use",
         targets: ["OTHER"],
         fields: [],
-        secretUse: { host: 5, method: null },
+        // An object host would crash the render if it reached the page.
+        secretUse: { host: {}, method: "GET", path: "/wrong" },
+      },
+      {
+        sequence: 3,
+        time: 3,
+        actor: { kind: "agent", id: "a1", name: "Helper", ownerId: "u" },
+        operation: "office.setSettings",
+        targets: ["office"],
+        fields: ["prompt", "version"],
+        promptContent: "Line one\nLine two",
+      },
+      {
+        sequence: 4,
+        time: 4,
+        actor: { kind: "member", id: "u", name: "Member" },
+        operation: "memory.replace",
+        targets: ["memory:office:office"],
+        fields: ["content"],
+        memoryContent: "- note\n",
       },
     ],
     nextBefore: null,
@@ -253,30 +235,12 @@ it("shows the request of a secret use, and survives a wrong-shaped one", async (
   const view = render(<AuditPane />);
   await act(async () => {});
   const rows = view.container.querySelectorAll("li");
-  expect(rows).toHaveLength(2);
+  expect(rows).toHaveLength(4);
   expect(rows[0].textContent).toContain("GET api.github.com/user");
   expect(rows[1].textContent).toContain("OTHER");
-  expect(rows[1].textContent).not.toContain("null");
-});
-it("shows the prompt text that a prompt row keeps", async () => {
-  setApiShim(async () => ({
-    items: [
-      {
-        sequence: 1,
-        time: 1,
-        actor: { kind: "agent", id: "a1", name: "Helper", ownerId: "u" },
-        operation: "office.setSettings",
-        targets: ["office"],
-        fields: ["prompt", "version"],
-        promptContent: "Line one\nLine two",
-      },
-    ],
-    nextBefore: null,
-  }));
-  const view = render(<AuditPane />);
-  await act(async () => {});
-  const text = view.container.querySelector("li pre");
-  expect(text?.textContent).toBe("Line one\nLine two");
+  expect(rows[1].textContent).not.toContain("/wrong");
+  expect(rows[2].querySelector("pre")?.textContent).toBe("Line one\nLine two");
+  expect(rows[3].querySelector("pre")?.textContent).toBe("- note\n");
 });
 // Member-memory rows were written as memory:boss:<id> before task f41c93e9 and
 // as memory:member:<id> after it: both read as the same member memory.

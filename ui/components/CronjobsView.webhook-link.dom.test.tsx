@@ -1,5 +1,6 @@
 // A webhook run on the Automations page links to the delivery row that started
-// it (design section 8).
+// it (design section 8). "Last run" counts runs of every trigger (PM ruling,
+// webhooks loop S5), so the on-demand job here shows its webhook run.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -12,6 +13,7 @@ const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
 const { hookWire, deliveryRow, HOOK_ID } =
   await import("../test-support/webhook-fixture.ts");
+const { timeSince } = await import("../../shared/i18n/time.ts");
 type AppState = import("../store.tsx").AppState;
 type Action = Parameters<typeof import("../store.tsx").reducer>[1];
 type CronjobListWire = import("../../shared/types.ts").CronjobListWire;
@@ -120,10 +122,16 @@ async function showRuns(view: { container: HTMLElement }) {
   );
 }
 
-it("a webhook run shows the hook glyph, and its link opens the hook at the delivery row", async () => {
+it("a webhook run counts as an on-demand job's last run, shows the hook glyph, and its link opens the hook at the delivery row", async () => {
   deliveries = [deliveryRow({ id: "d_00000003" }), deliveryRow({ id: ROW_ID })];
   const view = render(tree({}));
   await act(async () => {});
+  // Last run reads the webhook run's age, though lastFireAt is null.
+  const since = timeSince("en", webhookRun.startedAt);
+  expect(since.kind).toBe("formatted");
+  expect(
+    view.container.querySelector('[data-last-run="job00001"]')!.textContent,
+  ).toBe(since.kind === "formatted" ? since.text : "");
   await showRuns(view);
   const row = view.container.querySelector<HTMLElement>(
     'tr[data-cronjob-run-row="run00001"]',

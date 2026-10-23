@@ -53,6 +53,58 @@ const cast = [
 
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 
+// happy-dom lays nothing out, so xterm measures a zero character and maps no
+// mouse position to a cell. Give its measuring element a size (8 x 16 px) so
+// a pointer over the link reaches xterm's link handling.
+function measureXtermCharacters() {
+  const saved = (["offsetWidth", "offsetHeight"] as const).map(
+    (name) =>
+      [
+        name,
+        Object.getOwnPropertyDescriptor(HTMLElement.prototype, name),
+      ] as const,
+  );
+  for (const [name, size] of [
+    ["offsetWidth", 8 * 32],
+    ["offsetHeight", 16],
+  ] as const)
+    Object.defineProperty(HTMLElement.prototype, name, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("xterm-char-measure-element") ? size : 0;
+      },
+    });
+  return () => {
+    for (const [name, descriptor] of saved)
+      if (descriptor)
+        Object.defineProperty(HTMLElement.prototype, name, descriptor);
+      else
+        delete (HTMLElement.prototype as unknown as Record<string, unknown>)[
+          name
+        ];
+  };
+}
+
+// Clicks the cell at column `col`, row `row` (1-based) of the replay's
+// terminal, the way a member clicks a link in it.
+function clickCell(dialog: HTMLElement, col: number, row: number) {
+  const screen = dialog.querySelector<HTMLElement>(".xterm-screen")!;
+  screen.style.padding = "0px";
+  const line = dialog.querySelector<HTMLElement>(".xterm-rows > div")!;
+  const cellWidth = parseFloat(line.style.width) / 80;
+  const cellHeight = parseFloat(line.style.height);
+  const at = {
+    clientX: (col - 0.5) * cellWidth,
+    clientY: (row - 0.5) * cellHeight,
+    bubbles: true,
+  };
+  fireEvent.mouseMove(screen, at);
+  // xterm marks a link under the pointer with a pointer cursor.
+  expect(screen.classList.contains("xterm-cursor-pointer")).toBe(true);
+  fireEvent.mouseDown(screen, at);
+  fireEvent.mouseUp(screen, at);
+}
+
 it("replays a recorded session that cannot write the clipboard or open a page, and pauses", async () => {
   setApiShim(async () => ({
     items: [row(2, { id: RECORDING }), row(1)],
@@ -81,6 +133,10 @@ it("replays a recorded session that cannot write the clipboard or open a page, a
   const realOpen = window.open;
   const open = mock(() => null);
   window.open = open;
+  // xterm's own link handler opens the page once the member confirms.
+  const realConfirm = window.confirm;
+  window.confirm = () => true;
+  const restoreMeasure = measureXtermCharacters();
   try {
     const view = render(<AuditPane />);
     await act(async () => {});
@@ -127,13 +183,17 @@ it("replays a recorded session that cannot write the clipboard or open a page, a
     await wait(450);
     expect(screen()).toContain("second-line");
 
+    // The link is the second line's first word.
+    clickCell(dialog, 2, 2);
     expect(writeText).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
     view.unmount();
   } finally {
+    restoreMeasure();
     globalThis.fetch = realFetch;
     window.open = realOpen;
+    window.confirm = realConfirm;
   }
 });
 

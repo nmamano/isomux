@@ -522,8 +522,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Saved, but this page could not reload the office. Select another row and come back to keep editing.",
   "settings.office.conflict":
     "Office settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
-  "settings.office.loadedVariables.one": "Loaded {count} variable.",
-  "settings.office.loadedVariables.other": "Loaded {count} variables.",
   "settings.office.memberUsageCap": "Pace member usage",
   "settings.office.memberUsageCapHint":
     "Members' turns on the office sign-in stop at a line that rises each day of the week, up to the member share.",
@@ -2377,7 +2375,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.openAgent": "Open the agent",
   "apps.commandIn": "in {cwd}",
   "apps.verbTitle.start": "Run the app",
-  "apps.verbTitle.stop": "Shut the app down (its data is kept)",
   "apps.verbTitle.restart": "Stop the app and start it again",
   "apps.delete": "delete",
   "apps.cancel": "cancel",

@@ -1,6 +1,6 @@
 // The webhook dialog: an edit sends only what changed and never the scheme,
-// and a target the viewer cannot pick stays selected until the member
-// changes it.
+// a target the viewer cannot pick stays selected until the member changes
+// it, and a new hook posts only once a target is chosen.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -12,6 +12,7 @@ const { setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { hookWire, HOOK_ID } =
   await import("../test-support/webhook-fixture.ts");
+type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
 let sent: { method: string; path: string; body: unknown }[] = [];
 setApiShim(async (method, path, body) => {
@@ -61,9 +62,10 @@ it("an edit of the name sends only the name", async () => {
   view.unmount();
 });
 
-it("a new hook cannot be saved before a target is chosen", async () => {
+it("a new hook cannot be saved before a target is chosen, and then posts it", async () => {
+  const agents = [{ id: "a1", name: "Bot" } as unknown as AgentInfo];
   const view = render(
-    onLanguage("en", <WebhookDialog onClose={() => {}} />, { agents: [] }),
+    onLanguage("en", <WebhookDialog onClose={() => {}} />, { agents }),
   );
   const save = view.container.querySelector<HTMLButtonElement>(
     "[data-webhook-save]",
@@ -71,5 +73,20 @@ it("a new hook cannot be saved before a target is chosen", async () => {
   expect(save.disabled).toBe(true);
   await act(async () => save.click());
   expect(sent).toHaveLength(0);
+  // Once an agent is chosen, the click creates the hook.
+  const agent = view.container.querySelector<HTMLSelectElement>(
+    '[data-field="agentId"]',
+  )!;
+  act(() => {
+    fireEvent.change(agent, { target: { value: "a1" } });
+  });
+  expect(save.disabled).toBe(false);
+  await act(async () => save.click());
+  expect(sent).toHaveLength(1);
+  expect(sent[0].method).toBe("POST");
+  expect(sent[0].path).toBe("/api/webhooks");
+  const body = sent[0].body as { scheme: string; target: unknown };
+  expect(body.scheme).toBe("github-hmac-sha256");
+  expect(body.target).toEqual({ kind: "agent", agentId: "a1" });
   view.unmount();
 });

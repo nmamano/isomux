@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError } from "./api.ts";
 import {
+  defaultBackendModel,
   effortPickerOptions,
   fetchBackendModels,
   modelListErrorMessage,
+  openCodeModelSelectionReady,
+  partitionBackendModelsForPicker,
+  selectSupportedEffort,
 } from "./backend-model-selection.ts";
 import { effortLevelsFor, type BackendModelWire } from "../shared/types.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
@@ -192,5 +196,114 @@ describe("effortPickerOptions", () => {
     expect(fallback).toContain("minimal");
     expect(fallback).not.toContain("max");
     expect(fallback).not.toContain("ultra");
+  });
+});
+
+describe("defaultBackendModel", () => {
+  const model = (
+    id: string,
+    extra: Partial<BackendModelWire> = {},
+  ): BackendModelWire => ({ id, label: id, supportedEfforts: [], ...extra });
+  const first = model("first/model");
+  const reported = model("reported/model", { isDefault: true });
+  const muse = model("opencode/muse-spark-1.2-contributor-free", {
+    isFree: true,
+  });
+
+  it("prefers Muse Spark for OpenCode and falls back for a login without it", () => {
+    const spare = model("spare/model");
+    expect(defaultBackendModel([first, spare, reported, muse], false)?.id).toBe(
+      muse.id,
+    );
+    expect(defaultBackendModel([first, reported], false)?.id).toBe(reported.id);
+    expect(defaultBackendModel([first], false)?.id).toBe(first.id);
+  });
+
+  // The rest of the Codex order is codexDefaultModel's (shared/types.test.ts).
+  it("follows the Codex-reported default, not the OpenCode preference", () => {
+    expect(defaultBackendModel([first, muse, reported], true)?.id).toBe(
+      reported.id,
+    );
+  });
+});
+
+describe("selectSupportedEffort", () => {
+  const options = (...levels: string[]) => levels.map((level) => ({ level }));
+
+  it("keeps a supported effort, then prefers high, then the first level the model lists", () => {
+    expect(
+      selectSupportedEffort("medium", options("low", "medium", "high")),
+    ).toBe("medium");
+    expect(
+      selectSupportedEffort("xhigh", options("low", "medium", "high")),
+    ).toBe("high");
+    expect(selectSupportedEffort("xhigh", options("medium", "low"))).toBe(
+      "medium",
+    );
+    expect(selectSupportedEffort("xhigh", [])).toBeUndefined();
+  });
+});
+
+describe("openCodeModelSelectionReady", () => {
+  const models: BackendModelWire[] = [
+    { id: "gate/model", label: "Gate model", supportedEfforts: [] },
+    {
+      id: "gate/hidden",
+      label: "Hidden model",
+      hidden: true,
+      supportedEfforts: [],
+    },
+  ];
+
+  it("needs a model the loaded catalog shows, and trusts the stored one until a catalog loads", () => {
+    type Row = [string, string, boolean, BackendModelWire[] | null, boolean];
+    const rows: Row[] = [
+      ["no model", "", false, null, false],
+      ["listed", "gate/model", false, models, true],
+      ["not listed", "retired/model", false, models, false],
+      ["hidden", "gate/hidden", false, models, false],
+      // Still loading, or discovery failed: nothing to check against.
+      ["no catalog", "retired/model", false, null, true],
+    ];
+    for (const [row, modelFamily, loading, catalog, ready] of rows) {
+      expect({
+        row,
+        ready: openCodeModelSelectionReady(modelFamily, loading, catalog),
+      }).toEqual({ row, ready });
+    }
+  });
+});
+
+describe("partitionBackendModelsForPicker", () => {
+  it("preserves Free, Pay-as-you-go, and Subscription membership and order", () => {
+    const free: BackendModelWire = {
+      id: "opencode/big-pickle",
+      label: "Big Pickle",
+      isFree: true,
+      supportedEfforts: [],
+    };
+    const secondFree: BackendModelWire = {
+      id: "opencode/gpt-5-nano",
+      label: "GPT-5 Nano",
+      isFree: true,
+      supportedEfforts: [],
+    };
+    const paid: BackendModelWire = {
+      id: "opencode/kimi-k3",
+      label: "Kimi K3",
+      supportedEfforts: [],
+    };
+    const go: BackendModelWire = {
+      id: "opencode-go/kimi-k3",
+      label: "Kimi K3",
+      supportedEfforts: [],
+    };
+    expect(
+      partitionBackendModelsForPicker([go, free, paid, secondFree], true),
+    ).toEqual({
+      available: [paid],
+      free: [free, secondFree],
+      subscription: [go],
+    });
   });
 });

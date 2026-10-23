@@ -7,6 +7,8 @@ const { act, fireEvent, render } = await import("@testing-library/react");
 const { ExternalAccessPane } = await import("./ExternalAccessPane.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const t = translatorFor("en").t;
 afterAll(() => setApiShim(null));
 
 it("shows the hosted address with no URL input, toggle or save", async () => {
@@ -18,41 +20,47 @@ it("shows the hosted address with no URL input, toggle or save", async () => {
   }));
   const view = render(onLanguage(null, <ExternalAccessPane />));
   await act(async () => {});
-  expect(view.getByText("https://acme.isomux.app")).toBeTruthy();
-  expect(
-    view.getByText(
-      "Hosted Isomux manages this office's address; it cannot be changed.",
-    ),
-  ).toBeTruthy();
+  expect(view.queryByText("https://acme.isomux.app")).not.toBeNull();
+  expect(view.queryByText(t("settings.externalAccess.managed"))).not.toBeNull();
   expect(view.queryByRole("textbox")).toBeNull();
   expect(view.queryByRole("checkbox")).toBeNull();
-  expect(view.queryByRole("button", { name: "Save" })).toBeNull();
-  expect(view.queryByText(/Control whether this office/)).toBeNull();
-  expect(view.queryByText(/restart isomux/)).toBeNull();
+  expect(view.queryAllByRole("button")).toHaveLength(0);
+  // No restart instructions: the office cannot change its bind.
+  expect(view.container.querySelectorAll("code")).toHaveLength(0);
 });
 
-it("keeps self-hosted controls and the restart instructions after a save", async () => {
-  setApiShim(async (method) =>
-    method === "GET"
-      ? {
-          hosted: false,
-          externalAccess: true,
-          publicOrigin: "https://office.example",
-          boundLoopback: false,
-        }
-      : { signInUrl: null, restartRequired: true },
-  );
+it("saves the switch off with no address and shows the restart commands", async () => {
+  const puts: unknown[] = [];
+  setApiShim(async (method, _path, body) => {
+    if (method === "GET")
+      return {
+        hosted: false,
+        externalAccess: true,
+        publicOrigin: "https://office.example",
+        boundLoopback: false,
+      };
+    puts.push(body);
+    return { signInUrl: null, restartRequired: true };
+  });
   const view = render(onLanguage(null, <ExternalAccessPane />));
   await act(async () => {});
-  expect(view.getByRole("textbox")).toBeTruthy();
+  expect(view.queryByRole("textbox")).not.toBeNull();
   await act(async () => {
     fireEvent.click(view.getByRole("checkbox"));
   });
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "Save" }));
+    fireEvent.click(view.getByRole("button", { name: t("common.save") }));
   });
-  expect(view.getByText("sudo systemctl restart isomux")).toBeTruthy();
-  expect(view.getAllByText("systemctl --user restart isomux")).toHaveLength(1);
+  // Switched off, the address goes out empty.
+  expect(puts).toStrictEqual([{ externalAccess: false, publicOrigin: "" }]);
+  // The self-hosted switch stays, with a restart command per service kind.
+  expect((view.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  expect(
+    [...view.container.querySelectorAll("code")].map((c) => c.textContent),
+  ).toStrictEqual([
+    "systemctl --user restart isomux",
+    "sudo systemctl restart isomux",
+  ]);
 });
 
 it("shows the form it last loaded on this device while the settings load, with nothing to act on", async () => {

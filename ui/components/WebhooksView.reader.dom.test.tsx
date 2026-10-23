@@ -18,9 +18,14 @@ type WebhookWire = import("../../shared/types.ts").WebhookWire;
 
 const ROW_ID = "d_00000001";
 let requests: string[] = [];
-setApiShim(async (method, path) => {
+let patches: { path: string; body: unknown }[] = [];
+setApiShim(async (method, path, body) => {
   requests.push(`${method} ${path}`);
   if (method === "GET" && path === "/api/webhooks") return [];
+  if (method === "PATCH") {
+    patches.push({ path, body });
+    return {};
+  }
   if (
     method === "GET" &&
     path.startsWith(`/api/webhooks/${HOOK_ID}/deliveries`)
@@ -31,6 +36,7 @@ setApiShim(async (method, path) => {
 afterAll(() => setApiShim(null));
 beforeEach(() => {
   requests = [];
+  patches = [];
 });
 
 // Another member's hook. The self user of the fixture is "u1".
@@ -65,20 +71,24 @@ function tree(
 const q = (view: { container: HTMLElement }, selector: string) =>
   view.container.querySelector<HTMLElement>(selector);
 
-it("a reader's row has no enabled toggle, and a click on the dot sends nothing", async () => {
+it("a reader's row has no enabled toggle, and only a manager's click on the dot sends a PATCH", async () => {
   const view = render(tree([othersHook], null));
   await act(async () => {});
   expect(q(view, `tr[data-webhook-row="${HOOK_ID}"]`)).not.toBeNull();
   expect(q(view, "[data-webhook-toggle]")).toBeNull();
   const dotCell = q(view, `tr[data-webhook-row="${HOOK_ID}"] td`)!;
   await act(async () => dotCell.click());
-  expect(requests.filter((r) => r.startsWith("PATCH"))).toEqual([]);
+  expect(patches).toHaveLength(0);
   view.unmount();
 
-  // The owner of the hook and an office owner keep the toggle.
+  // The owner of the hook and an office owner keep the toggle, and the
+  // owner's click turns the hook off.
   const own = render(tree([hookWire()], null));
   await act(async () => {});
-  expect(q(own, "[data-webhook-toggle]")).not.toBeNull();
+  await act(async () => q(own, "[data-webhook-toggle]")!.click());
+  expect(patches).toStrictEqual([
+    { path: `/api/webhooks/${HOOK_ID}`, body: { enabled: false } },
+  ]);
   own.unmount();
   const officeOwner = render(tree([othersHook], null, "owner"));
   await act(async () => {});

@@ -24,8 +24,8 @@ it("mints a sign-in link for the picked existing member by id, with no profile f
     }),
   );
   expect(view.container.querySelector("textarea")).toBeNull();
-  expect(view.queryAllByRole("checkbox")).toEqual([]);
-  expect(view.queryAllByRole("textbox")).toEqual([]);
+  expect(view.queryAllByRole("checkbox")).toHaveLength(0);
+  expect(view.queryAllByRole("textbox")).toHaveLength(0);
 
   const [create] = view.getAllByRole("button") as HTMLButtonElement[];
   expect(create.disabled).toBe(true);

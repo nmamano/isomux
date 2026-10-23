@@ -11,9 +11,12 @@ const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
 const { hookWire, deliveryRow, HOOK_ID } =
   await import("../test-support/webhook-fixture.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AppState = import("../store.tsx").AppState;
 type WebhookWire = import("../../shared/types.ts").WebhookWire;
 type WebhookDelivery = import("../../shared/types.ts").WebhookDelivery;
+
+const en = translatorFor("en");
 
 const BLOCK = "BLOCK_MARKER";
 let posted: { path: string; body: unknown }[] = [];
@@ -108,7 +111,7 @@ it("lists one row per hook and marks a missing secret or a rejection", async () 
   view.unmount();
 });
 
-it("the dry run posts the event and the parsed payload and shows the matched rule and block", async () => {
+it("the dry run refuses a payload that is not a JSON object, and posts the event and an object payload and shows the matched rule and block", async () => {
   const hook = hookWire();
   const view = render(tree([hook], HOOK_ID));
   await act(async () => {});
@@ -120,6 +123,21 @@ it("the dry run posts the event and the parsed payload and shows the matched rul
   const payload = view.container.querySelector<HTMLTextAreaElement>(
     "[data-dry-run-payload]",
   )!;
+  const notObject = () =>
+    [...view.container.querySelectorAll("p")].filter(
+      (p) => p.textContent === en.t("webhooks.dryRun.notObject"),
+    );
+  for (const text of ["not json", "[1,2]", "null"]) {
+    act(() => {
+      fireEvent.change(payload, { target: { value: text } });
+    });
+    await act(async () =>
+      view.container.querySelector<HTMLElement>("[data-dry-run-test]")!.click(),
+    );
+    expect(posted).toHaveLength(0);
+    expect(notObject()).toHaveLength(1);
+  }
+  expect(view.container.querySelector("[data-dry-run-result]")).toBeNull();
   act(() => {
     fireEvent.change(payload, { target: { value: '{"action":"opened"}' } });
   });
@@ -136,29 +154,12 @@ it("the dry run posts the event and the parsed payload and shows the matched rul
   )!;
   expect(result.dataset.dryRunResult).toBe("match");
   // ruleIndex 1 is the second rule.
-  expect(result.textContent).toContain("2");
+  expect(result.querySelector("p")!.textContent).toBe(
+    en.t("webhooks.dryRun.match", { n: 2 }),
+  );
   expect(
     view.container.querySelector("[data-dry-run-block]")!.textContent,
   ).toBe(BLOCK);
-  view.unmount();
-});
-
-it("the dry run sends nothing for a payload that is not a JSON object", async () => {
-  const view = render(tree([hookWire()], HOOK_ID));
-  await act(async () => {});
-  const payload = view.container.querySelector<HTMLTextAreaElement>(
-    "[data-dry-run-payload]",
-  )!;
-  for (const text of ["not json", "[1,2]", "null"]) {
-    act(() => {
-      fireEvent.change(payload, { target: { value: text } });
-    });
-    await act(async () =>
-      view.container.querySelector<HTMLElement>("[data-dry-run-test]")!.click(),
-    );
-  }
-  expect(posted).toHaveLength(0);
-  expect(view.container.querySelector("[data-dry-run-result]")).toBeNull();
   view.unmount();
 });
 

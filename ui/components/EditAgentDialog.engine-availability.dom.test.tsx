@@ -1,16 +1,18 @@
 // An engine the office host cannot run (full_state.unavailableEngines; OpenCode
 // off Linux) shows as unavailable in the agent dialog, and its model list is
 // never requested. The context menu and cronjob dialog are covered in
-// engine-availability.dom.test.tsx.
+// engine-availability.dom.test.tsx. Also what a new Codex agent, or one
+// switched to Codex, is saved with.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { act, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
-const { DEFAULT_AGENT_CAPABILITIES } = await import("../../shared/types.ts");
+const { CODEX_MODELS, DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } =
+  await import("../../shared/types.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type UnavailableEngines = import("../../shared/types.ts").UnavailableEngines;
 
@@ -56,11 +58,18 @@ function agentOn(agentType: AgentInfo["agentType"]): AgentInfo {
   };
 }
 
-// Records every request; answers the few the dialogs make on open.
-function shimRequests(): string[] {
+// Records every request and each agent write's body; answers the few requests
+// the dialogs make on open.
+function shimRequests(): {
+  requests: string[];
+  writes: { method: string; body: unknown }[];
+} {
   const requests: string[] = [];
-  setApiShim(async (method, path) => {
+  const writes: { method: string; body: unknown }[] = [];
+  setApiShim(async (method, path, body) => {
     requests.push(`${method} ${path}`);
+    if (method !== "GET" && path.startsWith("/api/agents"))
+      writes.push({ method, body });
     if (path === "/api/validate/cwd") return { ok: true };
     if (path.startsWith("/api/memory"))
       return { text: "", version: "v1", size: 0, cap: 5000 };
@@ -69,7 +78,7 @@ function shimRequests(): string[] {
     if (path.startsWith("/api/backends/")) return { models: [] };
     return {};
   });
-  return requests;
+  return { requests, writes };
 }
 
 async function settle(): Promise<void> {
@@ -99,6 +108,9 @@ function engineCard(container: HTMLElement, engine: string): HTMLButtonElement {
   if (!card) throw new Error(`no ${engine} engine card`);
   return card;
 }
+
+const saveButton = (container: HTMLElement) =>
+  [...container.querySelectorAll("button")].at(-1)!;
 
 function engineOption(
   select: HTMLSelectElement,
@@ -167,33 +179,84 @@ describe("edit dialog", () => {
     }
   });
 
-  it("an existing OpenCode agent keeps its engine, skips model discovery and can still save", async () => {
-    const requests = shimRequests();
-    const agent = agentOn("opencode");
+  for (const [label, unavailable] of [
+    ["available", {}],
+    ["unavailable", NO_OPENCODE],
+  ] as const) {
+    it(`an existing OpenCode agent keeps its engine when OpenCode is ${label}, and loads models only when available`, async () => {
+      const { requests } = shimRequests();
+      const agent = agentOn("opencode");
+      const view = render(
+        onLanguage(
+          "en",
+          <EditAgentDialog onClose={() => {}} agent={agent} />,
+          stateWith(unavailable, [agent]),
+        ),
+      );
+      try {
+        await settle();
+        expect(
+          requests.filter((r) => r.includes("/api/backends/opencode/models")),
+        ).toHaveLength(unavailable === NO_OPENCODE ? 0 : 1);
+        const select = view.container.querySelector(
+          ".agent-engine-control select",
+        ) as HTMLSelectElement;
+        expect(engineOption(select, "opencode").disabled).toBe(false);
+        // OpenCode's two modes, and no other engine's.
+        const modes = [...view.container.querySelectorAll("select")].find(
+          (candidate) =>
+            [...candidate.options].some((o) => o.value === "bypassPermissions"),
+        )!;
+        expect([...modes.options].map((o) => o.value)).toStrictEqual([
+          "default",
+          "bypassPermissions",
+        ]);
+        if (unavailable === NO_OPENCODE)
+          expect(saveButton(view.container).disabled).toBe(false);
+      } finally {
+        view.unmount();
+      }
+    });
+  }
+});
+
+// Full access without approval prompts, whether the agent is new or switched.
+describe("Codex defaults", () => {
+  it("a new Codex agent is spawned with full access and no approval prompts", async () => {
+    const { writes } = shimRequests();
     const view = render(
       onLanguage(
         "en",
-        <EditAgentDialog onClose={() => {}} agent={agent} />,
-        stateWith(NO_OPENCODE, [agent]),
+        <EditAgentDialog
+          onClose={() => {}}
+          deskIndex={0}
+          roomId={room.id}
+          defaultCwd="~"
+          spawnAgentType="codex"
+        />,
+        stateWith({}, []),
       ),
     );
     try {
       await settle();
-      expect(requests.filter((r) => r.includes("/api/backends/"))).toEqual([]);
-      const select = view.container.querySelector(
-        ".agent-engine-control select",
-      ) as HTMLSelectElement;
-      expect(engineOption(select, "opencode").disabled).toBe(false);
-      const save = [...view.container.querySelectorAll("button")].at(-1)!;
-      expect(save.disabled).toBe(false);
+      await act(async () => {
+        fireEvent.click(saveButton(view.container));
+      });
+      await settle();
+      expect(writes.map((w) => w.method)).toStrictEqual(["POST"]);
+      expect(writes[0].body).toMatchObject({
+        agentType: "codex",
+        permissionMode: "never",
+        codexSandbox: "danger-full-access",
+      });
     } finally {
       view.unmount();
     }
   });
 
-  it("an available OpenCode loads its models", async () => {
-    const requests = shimRequests();
-    const agent = agentOn("opencode");
+  it("a Claude agent switched to Codex saves the seeded Codex values", async () => {
+    const { writes } = shimRequests();
+    const agent = agentOn("claude");
     const view = render(
       onLanguage(
         "en",
@@ -203,9 +266,29 @@ describe("edit dialog", () => {
     );
     try {
       await settle();
-      expect(
-        requests.filter((r) => r.includes("/api/backends/opencode/models")),
-      ).toHaveLength(1);
+      const select = view.container.querySelector(
+        ".agent-engine-control select",
+      ) as HTMLSelectElement;
+      await act(async () => {
+        fireEvent.change(select, { target: { value: "codex" } });
+      });
+      await settle();
+      await act(async () => {
+        fireEvent.click(saveButton(view.container));
+      });
+      await settle();
+      expect(writes).toStrictEqual([
+        {
+          method: "PATCH",
+          body: {
+            agentType: "codex",
+            modelFamily: CODEX_MODELS[0].value,
+            effort: DEFAULT_EFFORT,
+            permissionMode: "never",
+            codexSandbox: "danger-full-access",
+          },
+        },
+      ]);
     } finally {
       view.unmount();
     }

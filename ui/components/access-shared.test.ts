@@ -1,5 +1,6 @@
-// Pure coverage for session expiry copy and formatting. The UI has no DOM
-// harness, so SessionsTable delegates the two secondary lines to this helper.
+// The two secondary lines SessionsTable shows under a session: each label
+// with its own deadline, read in the reader's language. No DOM test seeds a
+// session, so this helper is where that pairing is checked.
 //
 // The labels and the "local" word come from the catalog and the stamp from
 // Intl (shared/i18n/time.ts). The dates are built from local components and
@@ -16,24 +17,6 @@ const SESSION = {
 };
 
 describe("sessionExpiryLines", () => {
-  it("shows both session deadlines with the approved provisional labels", () => {
-    const en = translatorFor("en");
-    expect(sessionExpiryLines(en, SESSION)).toEqual([
-      {
-        label: en.t("settings.sessions.expiryInactivity"),
-        value: en.t("settings.access.localTime", {
-          time: absoluteTime("en", SESSION.expiresAt),
-        }),
-      },
-      {
-        label: en.t("settings.sessions.expiryLatest"),
-        value: en.t("settings.access.localTime", {
-          time: absoluteTime("en", SESSION.absoluteExpiresAt),
-        }),
-      },
-    ]);
-  });
-
   it("reads the labels and the stamp in the reader's language", () => {
     const ca = translatorFor("ca");
     expect(sessionExpiryLines(ca, SESSION)).toEqual([

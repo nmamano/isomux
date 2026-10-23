@@ -208,8 +208,14 @@ it("a viewer who cannot manage the app gets no menu and no play button", async (
   list = [
     app("theirs", "stopped", { canManage: false }),
     app("live", "running", { canManage: false }),
+    app("mine", "stopped"),
   ];
   const { view, row } = await mount();
+  // The same stopped app, managed: it has both.
+  expect(row("mine")!.querySelector("[data-app-menu-button]")).not.toBeNull();
+  expect(
+    row("mine")!.querySelector('button[data-app-thumbnail="start"]'),
+  ).not.toBeNull();
   expect(row("theirs")!.querySelector("[data-app-menu-button]")).toBeNull();
   expect(row("theirs")!.querySelector("[data-app-thumbnail]")).toBeNull();
   expect(
@@ -218,7 +224,7 @@ it("a viewer who cannot manage the app gets no menu and no play button", async (
   view.unmount();
 });
 
-it("disables the menu verbs while a request is out, and shows a failure", async () => {
+it("disables the menu verbs while a request is out, then shows a failure and enables them again", async () => {
   list = [app("habits", "running")];
   let reject!: (reason: unknown) => void;
   answer = () =>
@@ -232,10 +238,15 @@ it("disables the menu verbs while a request is out, and shows a failure", async 
   await openMenu("habits");
   expect(menuItem("restart")!.getAttribute("aria-disabled")).toBe("true");
   expect(menuItem("log")!.getAttribute("aria-disabled")).toBeNull();
+  // The button toggles: this closes the menu.
+  await openMenu("habits");
+  expect(menuItem("restart")).toBeNull();
   const failure = "fixture supervisor failure";
   await act(async () =>
     reject(new ApiError(500, "supervisor_failed", failure)),
   );
   expect(view.container.textContent).toContain(failure);
+  await openMenu("habits");
+  expect(menuItem("restart")!.getAttribute("aria-disabled")).toBeNull();
   view.unmount();
 });

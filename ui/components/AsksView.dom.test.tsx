@@ -1,7 +1,8 @@
 // The Asks page (ui/components/AsksView.tsx) over a real reducer: groups by
-// agent with the longest wait first, the agent's name opens its chat, an ask
-// from an agent the client does not have stays out, and a group goes with its
-// last card.
+// agent with the longest wait first, a group goes with its last card, Tab
+// crosses groups, and a card's panel buttons open its agent's chat. The agent's
+// name opening its chat and an ask from an agent the client does not have are
+// in ui/App.inbox.dom.test.tsx; the card itself is in AsksStack.dom.test.tsx.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -27,15 +28,10 @@ const ask = (id: string, agentId: string, ageMin: number): AskEntry => ({
 });
 
 let posts: string[] = [];
-let bodies: unknown[] = [];
 beforeEach(() => {
   posts = [];
-  bodies = [];
-  setApiShim(async (method, path, body) => {
-    if (method === "POST") {
-      posts.push(path);
-      bodies.push(body);
-    }
+  setApiShim(async (method, path) => {
+    if (method === "POST") posts.push(path);
     return undefined;
   });
 });
@@ -97,22 +93,11 @@ it("groups by agent, longest wait first, cards oldest first, with the room", () 
   const header = view.container.querySelector('[data-asks-group="a2"]')!;
   expect(header.textContent).toContain("Ranger");
   expect(header.textContent).toContain("Room Two");
-});
-
-it("leaves out an ask whose agent the client does not have", () => {
-  const { view } = mount([ask("seen", "a1", 5), ask("hidden", "gone", 50)]);
-  expect(groupIds(view)).toEqual(["a1"]);
-  expect(view.container.querySelector('[data-ask="hidden"]')).toBeNull();
-});
-
-it("opens the agent's chat from its name", async () => {
-  const { view, focused } = mount([ask("q1", "a2", 5)]);
-  const name = view.container.querySelector<HTMLButtonElement>(
-    '[data-asks-agent="a2"]',
-  )!;
-  expect(name.tagName).toBe("BUTTON");
-  await act(async () => fireEvent.click(name));
-  expect(focused).toEqual(["a2"]);
+  // The name that opens the agent's chat is a real button, so the keyboard
+  // reaches it.
+  expect(header.querySelector('[data-asks-agent="a2"]')?.tagName).toBe(
+    "BUTTON",
+  );
 });
 
 it("drops a group with its last card, then shows the empty state", async () => {
@@ -133,29 +118,6 @@ it("drops a group with its last card, then shows the empty state", async () => {
   expect(posts).toEqual(["/api/asks/onlyA/reply", "/api/asks/onlyB/dismiss"]);
   expect(groupIds(view)).toEqual([]);
   expect(view.container.querySelector("[data-asks-empty]")).not.toBeNull();
-});
-
-it("fills the reply field with a tapped option, and Reply sends it", async () => {
-  const { view } = mount([
-    { ...ask("pick", "a1", 5), options: ["Yes", "No"] },
-    ask("open", "a2", 10),
-  ]);
-  const card = view.container.querySelector('[data-ask="pick"]')!;
-  const options = [
-    ...card.querySelectorAll<HTMLButtonElement>("[data-ask-option]"),
-  ];
-  expect(options.map((b) => b.textContent)).toEqual(["Yes", "No"]);
-  await act(async () => fireEvent.click(options[1]));
-  expect(posts).toEqual([]);
-  expect(card.querySelector<HTMLInputElement>("form input")!.value).toBe("No");
-  await act(async () =>
-    fireEvent.click(
-      card.querySelector<HTMLButtonElement>('button[type="submit"]')!,
-    ),
-  );
-  expect(posts).toEqual(["/api/asks/pick/reply"]);
-  expect(bodies).toEqual([{ text: "No" }]);
-  expect(groupIds(view)).toEqual(["a2"]);
 });
 
 it("moves with Tab from one agent's reply field to the next agent's, in page order", () => {

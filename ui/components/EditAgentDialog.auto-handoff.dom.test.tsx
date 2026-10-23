@@ -1,5 +1,6 @@
-// The automatic-handoff switch in the agent edit dialog: shown for an engine
-// that reports the measure, sent as autoHandoff on save, absent otherwise.
+// The usage switches in the agent edit dialog: automatic handoff and resume
+// after a usage limit. Each shows for an engine that reports what it needs,
+// and is sent on save.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -7,15 +8,45 @@ setUpDomTestFile();
 const { fireEvent } = await import("@testing-library/react");
 const { claudeAgent, renderEdit, settle, shimRequests } =
   await import("../test-support/claude-limits-fixture.tsx");
+const { AUTO_HANDOFF_DEFAULT_TOKENS } =
+  await import("../../shared/auto-handoff.ts");
 
 const toggle = (container: HTMLElement) =>
   container.querySelector<HTMLInputElement>("#agent-auto-handoff");
+const limitResumeToggle = (container: HTMLElement) =>
+  container.querySelector<HTMLInputElement>("#agent-limit-resume");
 
 async function save(container: HTMLElement) {
   fireEvent.click([...container.querySelectorAll("button")].at(-1)!);
   await settle();
   await settle();
 }
+
+describe("edit dialog usage switches", () => {
+  it("each switch shows only when the agent's engine reports what it needs", async () => {
+    for (const [autoHandoff, limitResume] of [
+      [false, true],
+      [true, false],
+    ]) {
+      shimRequests();
+      const base = claudeAgent("opus", "default", []);
+      const agent = {
+        ...base,
+        capabilities: { ...base.capabilities, autoHandoff, limitResume },
+      };
+      const { view } = renderEdit(agent, []);
+      try {
+        await settle();
+        expect({
+          autoHandoff: toggle(view.container) !== null,
+          limitResume: limitResumeToggle(view.container) !== null,
+        }).toEqual({ autoHandoff, limitResume });
+      } finally {
+        view.unmount();
+      }
+    }
+  });
+});
 
 describe("edit dialog automatic handoff switch", () => {
   it("is off for an agent without the setting, and saving it on sends autoHandoff", async () => {
@@ -32,34 +63,35 @@ describe("edit dialog automatic handoff switch", () => {
       view.unmount();
     }
   });
+});
 
-  it("shows an agent's setting and sends the switch off", async () => {
+describe("edit dialog resume-after-usage-limit switch", () => {
+  it("is on for an agent with no stored value, and saving it off sends limitResume false", async () => {
     const patches = shimRequests();
-    const agent = { ...claudeAgent("opus", "default", []), autoHandoff: true };
-    const { view } = renderEdit(agent, []);
+    const { view } = renderEdit(claudeAgent("opus", "default", []), []);
     try {
       await settle();
-      const box = toggle(view.container)!;
+      const box = limitResumeToggle(view.container)!;
       expect(box.checked).toBe(true);
       fireEvent.click(box);
       await save(view.container);
-      expect(patches).toEqual([{ autoHandoff: false }]);
+      expect(patches).toEqual([{ limitResume: false }]);
     } finally {
       view.unmount();
     }
   });
 
-  it("is hidden when the agent's engine cannot report the measure", async () => {
-    shimRequests();
-    const base = claudeAgent("opus", "default", []);
-    const agent = {
-      ...base,
-      capabilities: { ...base.capabilities, autoHandoff: false },
-    };
+  it("shows an agent's switch off and sends it on", async () => {
+    const patches = shimRequests();
+    const agent = { ...claudeAgent("opus", "default", []), limitResume: false };
     const { view } = renderEdit(agent, []);
     try {
       await settle();
-      expect(toggle(view.container)).toBeNull();
+      const box = limitResumeToggle(view.container)!;
+      expect(box.checked).toBe(false);
+      fireEvent.click(box);
+      await save(view.container);
+      expect(patches).toEqual([{ limitResume: true }]);
     } finally {
       view.unmount();
     }
@@ -97,7 +129,9 @@ describe("edit dialog automatic handoff threshold", () => {
       expect(field(view.container)).toBeNull();
       fireEvent.click(toggle(view.container)!);
       await settle();
-      expect(field(view.container)?.value).toBe("500");
+      expect(field(view.container)?.value).toBe(
+        String(AUTO_HANDOFF_DEFAULT_TOKENS / 1000),
+      );
     } finally {
       view.unmount();
     }
@@ -157,7 +191,11 @@ describe("edit dialog automatic handoff threshold", () => {
         fireEvent.change(name, { target: { value: "Renamed" } });
         typeTokens(view.container, bad);
         await save(view.container);
-        expect({ bad, patches }).toEqual({ bad, patches: [] });
+        expect({
+          bad,
+          invalid: field(view.container)?.getAttribute("aria-invalid"),
+          patches,
+        }).toEqual({ bad, invalid: "true", patches: [] });
       } finally {
         view.unmount();
       }
@@ -187,6 +225,7 @@ describe("edit dialog automatic handoff threshold", () => {
     const { view } = renderEdit(withSwitch(), []);
     try {
       await settle();
+      expect(toggle(view.container)!.checked).toBe(true);
       typeTokens(view.container, "abc");
       fireEvent.click(toggle(view.container)!);
       await save(view.container);
@@ -243,7 +282,7 @@ describe("spawn dialog automatic handoff threshold", () => {
     ["300", { autoHandoff: true, autoHandoffTokens: 300_000 }],
     ["500", { autoHandoff: true }],
   ] as const) {
-    it(`sends ${typed}k in the follow-up edit only when it is not the default`, async () => {
+    it(`sends the threshold in the follow-up edit only when it is not the default (${typed}k)`, async () => {
       const writes = shimSpawn();
       const view = renderSpawn();
       try {

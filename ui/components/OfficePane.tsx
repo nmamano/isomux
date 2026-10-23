@@ -20,11 +20,7 @@ import {
   useUnsavedChangesPrompt,
 } from "./UnsavedChangesPrompt.tsx";
 
-type ValidationStatus =
-  | { kind: "idle" }
-  | { kind: "pending" }
-  | { kind: "ok"; keyCount?: number }
-  | { kind: "error"; message: string };
+type ValidationStatus = { kind: "idle" } | { kind: "error"; message: string };
 
 // Office name, instructions and memory. Storage and Usage used to hang off buttons
 // inside this dialog; they are sibling sidebar rows now, so they are gone from
@@ -425,26 +421,7 @@ export function OfficePane({
 }
 
 function ValidationLine({ status }: { status: ValidationStatus }) {
-  const { t, tn } = useI18n();
   if (status.kind === "idle") return null;
-  if (status.kind === "pending") {
-    return (
-      <p
-        style={{ fontSize: 10, color: "var(--text-ghost)", margin: "4px 0 0" }}
-      >
-        {t("common.checking")}
-      </p>
-    );
-  }
-  if (status.kind === "ok") {
-    return (
-      <p
-        style={{ fontSize: 10, color: "var(--accent-text)", margin: "4px 0 0" }}
-      >
-        {tn("settings.office.loadedVariables", status.keyCount ?? 0)}
-      </p>
-    );
-  }
   return (
     <p style={{ fontSize: 10, color: "var(--red-text)", margin: "4px 0 0" }}>
       {status.message}

@@ -51,7 +51,7 @@ const DELIVERIES_ALL = 500;
 // then runs again, at most this many times in a row.
 const LIST_ATTEMPTS = 5;
 
-export const OUTCOME_KEY: Record<
+const OUTCOME_KEY: Record<
   WebhookDeliveryOutcome,
   Extract<MessageKey, `webhooks.outcome.${string}`>
 > = {
@@ -142,7 +142,7 @@ export function useWebhookList(active: boolean): {
 }
 
 // "Agent: name" / "Schedule: name", from what the viewer can see.
-export function useTargetLabel(): (target: WebhookTarget) => {
+function useTargetLabel(): (target: WebhookTarget) => {
   text: string;
   missing: boolean;
 } {
@@ -506,10 +506,10 @@ function WebhookDetail({
   const limit =
     focusDeliveryId !== null || showAll ? DELIVERIES_ALL : DELIVERIES_PAGE;
   // The rows, with the request they answer: a row counts as gone from the log
-  // only on the answer to the whole-log request for that focus.
+  // only on the answer to the request for that focus, which asks for the
+  // whole log.
   const [log, setLog] = useState<{
     rows: WebhookDelivery[];
-    limit: number;
     focus: string | null;
     focusSeq: number;
   } | null>(null);
@@ -526,7 +526,6 @@ function WebhookDetail({
         if (cancelled) return;
         setLog({
           rows: res.deliveries,
-          limit,
           focus: focusDeliveryId,
           focusSeq,
         });
@@ -554,8 +553,7 @@ function WebhookDetail({
     focusDeliveryId !== null &&
     log !== null &&
     log.focus === focusDeliveryId &&
-    log.focusSeq === focusSeq &&
-    log.limit === DELIVERIES_ALL;
+    log.focusSeq === focusSeq;
   const focusFound =
     focusAnswered && log.rows.some((d) => d.id === focusDeliveryId);
   useEffect(() => {
@@ -1324,7 +1322,7 @@ function EnabledDot({ enabled }: { enabled: boolean }) {
   );
 }
 
-export function BackArrow() {
+function BackArrow() {
   return (
     <svg
       aria-hidden="true"

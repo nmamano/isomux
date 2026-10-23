@@ -7,7 +7,7 @@
 
 import type { InputHTMLAttributes } from "react";
 
-export function cssMaskSupported(): boolean {
+function cssMaskSupported(): boolean {
   return (
     typeof CSS !== "undefined" &&
     typeof CSS.supports === "function" &&

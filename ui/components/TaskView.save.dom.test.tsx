@@ -1,5 +1,5 @@
-// The board's side of tasks 4243ecc0 (versioned edits) and 77460aea (backlog
-// is priority P4).
+// The detail panel's side of tasks 4243ecc0 (versioned edits) and 77460aea
+// (backlog is priority P4).
 import { afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -10,7 +10,6 @@ const { useState } = await import("react");
 const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
-const { toggleTaskFilter } = await import("../test-support/task-filters.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 
 afterEach(() => setApiShim(null));
@@ -82,13 +81,18 @@ function mount() {
   return { view, open: (id: string) => act(async () => requestTask({ id })) };
 }
 
+const statusSelect = (view: ReturnType<typeof mount>["view"]) =>
+  view.container.querySelector(
+    'select:has(option[value="in_progress"])',
+  ) as HTMLSelectElement;
+
 async function editAndSave(view: ReturnType<typeof mount>["view"]) {
   const title = await view.findByDisplayValue(editable.title);
   fireEvent.change(title, { target: { value: "Edited" } });
   await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
 }
 
-it("an edit sends the version of the task it shows, and closes once saved", async () => {
+it("an edit sends the version of the task it shows and the chosen status, and closes once saved", async () => {
   const sent: unknown[] = [];
   setApiShim(async (method, _path, body) => {
     if (method === "PATCH") sent.push(body);
@@ -96,9 +100,14 @@ it("an edit sends the version of the task it shows, and closes once saved", asyn
   });
   const { view, open } = mount();
   await open(editable.id);
+  await view.findByDisplayValue(editable.title);
+  fireEvent.change(statusSelect(view), { target: { value: "obsolete" } });
   await editAndSave(view);
   expect(sent).toHaveLength(1);
-  expect((sent[0] as { version?: string }).version).toBe(editable.version);
+  expect(sent[0]).toMatchObject({
+    version: editable.version,
+    status: "obsolete",
+  });
   expect(view.queryByDisplayValue("Edited") === null).toBe(true);
   expect(view.queryByRole("alert") === null).toBe(true);
 });
@@ -131,24 +140,6 @@ it("an edit sends the assignee only when it changed, and null when cleared", asy
   expect((sent[1] as { assignee?: unknown }).assignee).toBeNull();
 });
 
-it("the status select closes a task as obsolete", async () => {
-  const sent: unknown[] = [];
-  setApiShim(async (method, _path, body) => {
-    if (method === "PATCH") sent.push(body);
-    return {};
-  });
-  const { view, open } = mount();
-  await open(editable.id);
-  const title = await view.findByDisplayValue(editable.title);
-  const status = view.container.querySelector(
-    'select:has(option[value="in_progress"])',
-  ) as HTMLSelectElement;
-  fireEvent.change(status, { target: { value: "obsolete" } });
-  await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
-  expect(sent).toHaveLength(1);
-  expect((sent[0] as { status?: string }).status).toBe("obsolete");
-});
-
 it("a 409 keeps the panel open with the edit and says the save did not land", async () => {
   setApiShim(async (method) => {
     if (method === "PATCH") {
@@ -163,27 +154,23 @@ it("a 409 keeps the panel open with the edit and says the save did not land", as
   expect(view.getByRole("alert")).toBeDefined();
 });
 
-it("P4 replaces backlog: a priority option, no status option, and a board filter", async () => {
+// Backlog is priority P4, not a status (task 77460aea). The board filter's
+// side is in TaskView.filters.dom.test.tsx.
+it("the detail panel offers P4 as a priority and only the four statuses", async () => {
   setApiShim(async () => ({}));
   const { view, open } = mount();
-  // The default view leaves P4 unchecked, so it hides open and started P4 tasks.
-  expect(view.queryByText(shelved.title) === null).toBe(true);
-  expect(view.queryByText(startedP4.title) === null).toBe(true);
-  expect(view.getByText(editable.title)).toBeDefined();
-  await toggleTaskFilter(view.container, "priority", "P4");
-  expect(view.getByText(shelved.title)).toBeDefined();
-  expect(view.getByText(startedP4.title)).toBeDefined();
-
   await open(shelved.id);
   await view.findByDisplayValue(shelved.title);
   const priority = view.container.querySelector(
     'select:has(option[value="P0"])',
   ) as HTMLSelectElement;
   expect(priority.value).toBe("P4");
-  const status = view.container.querySelector(
-    'select:has(option[value="in_progress"])',
-  ) as HTMLSelectElement;
-  expect(status.querySelector('option[value="backlog"]')).toBeNull();
+  expect([...statusSelect(view).options].map((o) => o.value)).toStrictEqual([
+    "open",
+    "in_progress",
+    "done",
+    "obsolete",
+  ]);
 });
 
 // A save in flight belongs to the task it was sent for. The user can select

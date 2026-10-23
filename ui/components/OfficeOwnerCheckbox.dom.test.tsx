@@ -7,6 +7,8 @@ const { onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { UserSettingsView } = await import("./UserSettingsView.tsx");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const t = translatorFor("en").t;
 afterAll(() => setApiShim(null));
 
 it("the member editor saves the office-owner checkbox through the user update", async () => {
@@ -40,14 +42,14 @@ it("the member editor saves the office-owner checkbox through the user update", 
     ),
   );
   const checkbox = view.getByRole("checkbox", {
-    name: "Office owner",
+    name: t("settings.role.officeOwner"),
   }) as HTMLInputElement;
   expect(checkbox.checked).toBe(false);
   await act(async () => {
     fireEvent.click(checkbox);
   });
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: /^Save$/ }));
+    fireEvent.click(view.getByRole("button", { name: t("common.save") }));
   });
   expect(calls).toHaveLength(1);
   expect(calls[0]?.path).toBe("/api/users/Marc");

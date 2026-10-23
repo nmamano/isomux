@@ -25,18 +25,18 @@ describe("SystemPromptButton", () => {
     const view = render(<SystemPromptButton agentId="agent-1" />);
     await act(async () => {
       fireEvent.click(
-        view.getByRole("button", { name: "Show full system prompt" }),
+        view.getByRole("button", {
+          name: en["dialogs.agent.showSystemPrompt"],
+        }),
       );
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(view.getByText("Prompt body", { exact: false }) !== null).toBe(
-        true,
-      ),
+      expect(view.getByText("Prompt body", { exact: false })).toBeTruthy(),
     );
     expect(calls).toEqual(["GET /api/agents/agent-1/system-prompt"]);
     expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(
-      "Full system prompt",
+      en["dialogs.agent.systemPromptTitle"],
     );
     expect(
       view
@@ -44,19 +44,25 @@ describe("SystemPromptButton", () => {
         .getAttribute("aria-readonly"),
     ).toBe("true");
     jest.useFakeTimers();
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Copy" }));
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(copied).toBe("Prompt body\nSecond line");
-      expect(view.getByRole("button", { name: "Copied!" }) !== null).toBe(true);
-    });
-    await act(async () => jest.advanceTimersByTime(1600));
-    jest.useRealTimers();
-    expect(
-      view.getByRole("dialog").parentElement === document.body.lastElementChild,
-    ).toBe(true);
+    try {
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: en["common.copy"] }));
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(copied).toBe("Prompt body\nSecond line");
+        expect(
+          view.getByRole("button", { name: en["common.copiedNotice"] }),
+        ).toBeTruthy();
+      });
+      // The copied notice gives the button back after a moment.
+      await act(async () => jest.advanceTimersByTime(1600));
+      expect(
+        view.getByRole("button", { name: en["common.copy"] }),
+      ).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
     view.unmount();
   });
 
@@ -93,32 +99,13 @@ describe("SystemPromptButton", () => {
       en["dialogs.agent.cronjobPromptTitle"],
     );
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Copy" }));
+      fireEvent.click(view.getByRole("button", { name: en["common.copy"] }));
       await Promise.resolve();
     });
+    const heading = en["commands.isomuxCronjobSystemPrompt.firstUserMessage"];
     expect(copied).toBe(
-      "Cronjob system prompt\n\n----\nFirst user message:\n\nConfigured request",
+      `Cronjob system prompt\n\n----\n${heading}\n\nConfigured request`,
     );
-    view.unmount();
-  });
-
-  it("opens help from the log payload without an API request", async () => {
-    const calls: string[] = [];
-    setApiShim(async (method, path) => {
-      calls.push(`${method} ${path}`);
-      return {};
-    });
-    const view = render(
-      <SystemPromptButton helpContent="## Commands\n/help" />,
-    );
-    fireEvent.click(
-      view.getByRole("button", { name: en["dialogs.agent.showHelp"] }),
-    );
-    expect(calls).toEqual([]);
-    expect(view.getByRole("dialog").querySelector("h2") !== null).toBe(true);
-    expect(
-      view.getByRole("dialog").querySelector('[aria-readonly="true"]') !== null,
-    ).toBe(true);
     view.unmount();
   });
 
@@ -129,20 +116,24 @@ describe("SystemPromptButton", () => {
     const view = render(<SystemPromptButton agentId="agent-1" />);
     await act(async () => {
       fireEvent.click(
-        view.getByRole("button", { name: "Show full system prompt" }),
+        view.getByRole("button", {
+          name: en["dialogs.agent.showSystemPrompt"],
+        }),
       );
       await Promise.resolve();
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(view.getByText("Could not load the system prompt.") !== null).toBe(
-        true,
-      ),
+      expect(
+        view.getByText(en["dialogs.agent.systemPromptLoadFailed"]),
+      ).toBeTruthy(),
     );
     expect(
-      view.getByRole("button", { name: "Copy" }).hasAttribute("disabled"),
+      view
+        .getByRole("button", { name: en["common.copy"] })
+        .hasAttribute("disabled"),
     ).toBe(true);
-    fireEvent.click(view.getByRole("button", { name: "Close" }));
+    fireEvent.click(view.getByRole("button", { name: en["common.close"] }));
     expect(view.queryByRole("dialog") === null).toBe(true);
     view.unmount();
   });
@@ -152,24 +143,40 @@ describe("SystemPromptButton", () => {
     const view = render(<SystemPromptButton agentId="agent-1" />);
     await act(async () => {
       fireEvent.click(
-        view.getByRole("button", { name: "Show full system prompt" }),
+        view.getByRole("button", {
+          name: en["dialogs.agent.showSystemPrompt"],
+        }),
       );
       await Promise.resolve();
     });
-    await waitFor(() => expect(view.getByRole("dialog") !== null).toBe(true));
+    await waitFor(() => expect(view.getByRole("dialog")).toBeTruthy());
     expect(isExpandedEditorOpen()).toBe(true);
-    fireEvent.keyDown(document.body, { key: "Escape", bubbles: true });
+    // A host's own Escape handler (bubbling) never sees the key.
+    const hostKeys: string[] = [];
+    const hostListener = (event: KeyboardEvent) => hostKeys.push(event.key);
+    window.addEventListener("keydown", hostListener);
+    try {
+      fireEvent.keyDown(document.body, { key: "Escape", bubbles: true });
+    } finally {
+      window.removeEventListener("keydown", hostListener);
+    }
     expect(view.queryByRole("dialog") === null).toBe(true);
+    expect(hostKeys).toEqual([]);
     expect(isExpandedEditorOpen()).toBe(false);
     expect(
-      view.getByRole("button", { name: "Show full system prompt" }) !== null,
-    ).toBe(true);
+      view.getByRole("button", { name: en["dialogs.agent.showSystemPrompt"] }),
+    ).toBeTruthy();
     view.unmount();
   });
 });
 
 describe("system-prompt log marker", () => {
   it("renders a short help card that opens its stored modal payload", () => {
+    const calls: string[] = [];
+    setApiShim(async (method, path) => {
+      calls.push(`${method} ${path}`);
+      return {};
+    });
     const view = render(
       <LogEntryCard
         entry={{
@@ -185,49 +192,65 @@ describe("system-prompt log marker", () => {
     fireEvent.click(
       view.getByRole("button", { name: en["dialogs.agent.showHelp"] }),
     );
-    expect(view.getByRole("dialog").querySelector("h2") !== null).toBe(true);
-    view.unmount();
-  });
-
-  it("renders the short system entry as a prompt button card", async () => {
-    const view = render(
-      <LogEntryCard
-        entry={{
-          id: "entry-1",
-          agentId: "agent-1",
-          timestamp: 1,
-          kind: "system",
-          content: "Full system prompt",
-          metadata: { systemPrompt: true },
-        }}
-      />,
+    // The payload rides in the log entry: no API request.
+    expect(calls).toEqual([]);
+    expect(view.getByRole("dialog").querySelector("h2")?.textContent).toBe(
+      "Commands",
     );
-    expect(view.getByText("Full system prompt") !== null).toBe(true);
     expect(
-      view.getByRole("button", { name: "Show full system prompt" }) !== null,
-    ).toBe(true);
+      view.getByRole("dialog").querySelector('[aria-readonly="true"]'),
+    ).not.toBe(null);
     view.unmount();
-    setApiShim(null);
-    await new Promise<void>((resolve) => setImmediate(resolve));
   });
 
-  it("renders a cronjob marker with its source-specific button", async () => {
+  it("opens each marker's prompt from its own source", async () => {
+    const calls: string[] = [];
+    setApiShim(async (method, path) => {
+      calls.push(`${method} ${path}`);
+      return path.startsWith("/api/cronjobs/")
+        ? { systemPrompt: "Cronjob system prompt", firstUserMessage: "Ask" }
+        : { prompt: "Agent prompt" };
+    });
     const view = render(
-      <LogEntryCard
-        entry={{
-          id: "entry-cron",
-          agentId: "agent-1",
-          timestamp: 1,
-          kind: "system",
-          content: 'Cronjob prompt for "Night report"',
-          metadata: { systemPrompt: true, cronjobId: "cron-1" },
-        }}
-      />,
+      <>
+        <LogEntryCard
+          entry={{
+            id: "entry-1",
+            agentId: "agent-1",
+            timestamp: 1,
+            kind: "system",
+            content: "Agent marker",
+            metadata: { systemPrompt: true },
+          }}
+        />
+        <LogEntryCard
+          entry={{
+            id: "entry-cron",
+            agentId: "agent-1",
+            timestamp: 1,
+            kind: "system",
+            content: 'Cronjob prompt for "Night report"',
+            metadata: { systemPrompt: true, cronjobId: "cron-1" },
+          }}
+        />
+      </>,
     );
+    expect(view.getByText("Agent marker")).toBeTruthy();
     expect(view.getByText('Cronjob prompt for "Night report"')).toBeTruthy();
-    expect(
-      view.getByRole("button", { name: en["dialogs.agent.showCronjobPrompt"] }),
-    ).toBeTruthy();
+    for (const [name, text] of [
+      ["dialogs.agent.showSystemPrompt", "Agent prompt"],
+      ["dialogs.agent.showCronjobPrompt", "Cronjob system prompt"],
+    ] as const) {
+      fireEvent.click(view.getByRole("button", { name: en[name] }));
+      await waitFor(() =>
+        expect(view.getByText(text, { exact: false })).toBeTruthy(),
+      );
+      fireEvent.click(view.getByRole("button", { name: en["common.close"] }));
+    }
+    expect(calls).toEqual([
+      "GET /api/agents/agent-1/system-prompt",
+      "GET /api/cronjobs/cron-1/system-prompt",
+    ]);
     view.unmount();
   });
 

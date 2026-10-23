@@ -8,6 +8,7 @@ const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { DEFAULT_AGENT_CAPABILITIES } = await import("../../shared/types.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 const room = {
   id: "r1",
@@ -84,12 +85,6 @@ describe("agent form prompt preview", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      if (mode === "spawn") {
-        const active = document.activeElement;
-        expect(active?.getAttribute("data-spawn-initial-focus")).toBe(
-          "template",
-        );
-      }
       if (mode === "edit")
         await waitFor(() =>
           expect(
@@ -117,7 +112,9 @@ describe("agent form prompt preview", () => {
       });
       await act(async () => {
         fireEvent.click(
-          view.getByRole("button", { name: "Show full system prompt" }),
+          view.getByRole("button", {
+            name: translatorFor("en").t("dialogs.agent.showSystemPrompt"),
+          }),
         );
       });
       await waitFor(() =>
@@ -141,6 +138,39 @@ describe("agent form prompt preview", () => {
       view.unmount();
     });
   }
+});
+
+describe("spawn dialog focus", () => {
+  it("opens on the selected template card", async () => {
+    setApiShim(async (_method, path) =>
+      path === "/api/validate/cwd" ? { ok: true } : {},
+    );
+    const view = render(
+      onLanguage(
+        "en",
+        <EditAgentDialog
+          onClose={() => {}}
+          deskIndex={0}
+          roomId={room.id}
+          defaultCwd="~"
+          spawnAgentType="claude"
+        />,
+        { rooms: [room], agents: [], hasReceivedInitialState: true },
+      ),
+    );
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const templates = view.container.querySelector(
+        ".spawn-template-section",
+      )!;
+      expect(templates.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement?.getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      view.unmount();
+    }
+  });
 });
 
 // Task 379ae5db: the dialog writes the agent's text with the new field names,

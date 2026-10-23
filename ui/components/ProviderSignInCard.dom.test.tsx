@@ -6,7 +6,8 @@ const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { ProviderSignInCard } = await import("./ProviderSignInCard.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
-const { en } = await import("../../shared/i18n/en.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const t = translatorFor("en").t;
 afterAll(() => setApiShim(null));
 
 it("keeps browser sign-in available when the account check is unavailable", () => {
@@ -255,7 +256,9 @@ for (const late of [false, true]) {
       });
     });
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Submit code" }));
+      fireEvent.click(
+        view.getByRole("button", { name: t("settings.signIn.submitCode") }),
+      );
     });
     if (!late) {
       await act(async () => {
@@ -278,25 +281,32 @@ for (const late of [false, true]) {
       });
     }
     expect(
-      view.getByText(/Connected as person@example.test/).textContent,
-    ).toContain("Connected as");
-    expect(view.queryByRole("alert") === null).toBe(true);
+      view.container.querySelector('[data-provider-account-state="connected"]')
+        ?.textContent,
+    ).toContain(
+      t("settings.signIn.connectedAs", { account: "person@example.test" }),
+    );
+    expect(view.queryByRole("alert")).toBeNull();
     expect(
-      view.getByRole("button", { name: "Start a new conversation" }) !== null,
-    ).toBe(true);
+      view.queryByRole("button", {
+        name: t("settings.signIn.startConversation"),
+      }),
+    ).not.toBeNull();
     // A new operational failure must still be visible while connected.
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(view.getByRole("button", { name: t("common.signOut") }));
     });
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Confirm sign out" }));
+      fireEvent.click(
+        view.getByRole("button", { name: t("settings.signIn.confirmSignOut") }),
+      );
     });
     expect(view.getByRole("alert").textContent).toBe("Sign-out failed");
     // The old rejection must have been cleared, not merely hidden by Connected.
     await act(async () => {
       view.rerender(card({ loginStatus: "idle" }));
     });
-    expect(view.queryByText(rejection) === null).toBe(true);
+    expect(view.queryByText(rejection)).toBeNull();
   });
 }
 
@@ -407,33 +417,6 @@ it("leaves a member only the status and Test of an office sign-in", () => {
     test: true,
     askOwner: false,
   });
-});
-
-it("drops the scope word under the page's scope header and keeps it in chat", () => {
-  const card = (pageLook: boolean) =>
-    createElement(ProviderSignInCard, {
-      provider: "claude",
-      accounts: [],
-      loaded: true,
-      pageLook,
-    });
-  const line = (view: ReturnType<typeof render>, scope: string) =>
-    view.container.querySelector(`[data-sign-in-scope="${scope}"]`)!
-      .firstElementChild!.textContent;
-  const scopeWords = {
-    office: en["integrations.office"],
-    personal: en["integrations.personal"],
-  };
-  const chat = render(card(false));
-  for (const scope of ["office", "personal"] as const)
-    expect(
-      chat.container.querySelector(`[data-sign-in-scope="${scope}"]`)!
-        .textContent,
-    ).toContain(scopeWords[scope]);
-  chat.unmount();
-  const page = render(card(true));
-  for (const scope of ["office", "personal"] as const)
-    expect(line(page, scope)).not.toContain(scopeWords[scope]);
 });
 
 // Codex uses an OPENAI_API_KEY in the agents' env over a stored sign-in

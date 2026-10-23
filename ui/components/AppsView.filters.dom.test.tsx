@@ -79,17 +79,6 @@ it("hides other members' apps, and remembers that on this device", async () => {
   again.view.unmount();
 });
 
-it("has no Hide-stopped filter: stopped and failed apps stay listed", async () => {
-  const { view, listed } = await mount();
-  const filters = view.container.querySelectorAll("input[data-app-filter]");
-  expect(Array.from(filters, (f) => f.getAttribute("data-app-filter"))).toEqual(
-    ["onlyMine"],
-  );
-  expect(listed()).toContain("mine-stopped");
-  expect(listed()).toContain("other-failed");
-  view.unmount();
-});
-
 it("keeps the filters reachable when they hide every app", async () => {
   const { view, box, listed } = await mount();
   await act(async () => box("onlyMine")!.click());

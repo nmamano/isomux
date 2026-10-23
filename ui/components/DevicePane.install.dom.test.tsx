@@ -25,12 +25,15 @@ const DESKTOP = {
 };
 
 let undoDevice = () => {};
+let undoMedia = () => {};
 let view: ReturnType<typeof render> | undefined;
 afterEach(() => {
   view?.unmount();
   view = undefined;
   undoDevice();
   undoDevice = () => {};
+  undoMedia();
+  undoMedia = () => {};
   Reflect.deleteProperty(window, "onbeforeinstallprompt");
   window.dispatchEvent(new Event("appinstalled"));
   localStorage.clear();
@@ -39,6 +42,24 @@ afterEach(() => {
 function asChrome(device: Parameters<typeof asDevice>[0] = DESKTOP) {
   undoDevice = asDevice(device);
   (window as unknown as Record<string, unknown>).onbeforeinstallprompt = null;
+}
+
+// Chrome reports its installed window through the display mode, not
+// navigator.standalone (Safari's).
+function inInstalledWindow() {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) =>
+    query === "(display-mode: standalone)"
+      ? {
+          matches: true,
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }
+      : original.call(window, query)) as typeof window.matchMedia;
+  undoMedia = () => {
+    window.matchMedia = original;
+  };
 }
 
 function installEvent() {
@@ -88,10 +109,12 @@ it("shows the Add to Home Screen steps in iPhone Safari", () => {
 });
 
 for (const [label, setUp] of [
-  ["the iPhone Home Screen", () => (undoDevice = asDevice(IPHONE_HOME_SCREEN))],
   [
     "an installed Chrome window",
-    () => asChrome({ ...DESKTOP, standalone: true }),
+    () => {
+      asChrome();
+      inInstalledWindow();
+    },
   ],
   // Firefox: neither the event nor the iPhone steps.
   ["a browser with no install offer", () => (undoDevice = asDevice(DESKTOP))],

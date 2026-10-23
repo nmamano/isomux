@@ -9,28 +9,27 @@ setUpDomTestFile();
 const { renderToString } = await import("react-dom/server");
 const { createElement } = await import("react");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
-const { RoomDecorPicker, stagedRoomDecor } =
-  await import("./RoomDecorPicker.tsx");
+const { RoomDecorPicker } = await import("./RoomDecorPicker.tsx");
 const { initialRoomLook, pickPreset } = await import("../room-look.ts");
 const { resolveRoomDecor } = await import("../office/skins/index.tsx");
 type RoomWire = import("../../shared/types.ts").RoomWire;
 type RoomPet = import("../../shared/pets.ts").RoomPet;
+type RoomLook = import("../room-look.ts").RoomLook;
 
 function room(id: string, extra: Partial<RoomWire> = {}): RoomWire {
   return { id, name: id, prompt: null, canCloseWhenEmpty: true, ...extra };
 }
 
-function render(r: RoomWire) {
+function render(
+  r: RoomWire,
+  rooms: RoomWire[] = [r],
+  look: RoomLook = initialRoomLook(r),
+) {
   const html = renderToString(
     onLanguage(
       null,
-      createElement(RoomDecorPicker, {
-        room: r,
-        rooms: [r],
-        look: initialRoomLook(r),
-        onChange() {},
-      }),
-      { rooms: [r] },
+      createElement(RoomDecorPicker, { room: r, rooms, look, onChange() {} }),
+      { rooms },
     ),
   );
   const host = document.createElement("div");
@@ -61,14 +60,13 @@ it("draws a stored pet this build does not know the way the scene does", () => {
 it("shows the hospital picture the room will draw once saved", () => {
   const ward = room("w", { skin: "hospital" });
   const plain = room("p");
-  const rooms = [ward, plain];
-  const staged = stagedRoomDecor(
+  const staged = render(
     plain,
-    rooms,
+    [ward, plain],
     pickPreset(initialRoomLook(plain), "hospital"),
   );
   const saved = { ...plain, skin: "hospital" as const };
   const after = resolveRoomDecor(saved, [ward, saved]);
   expect(after.wallArt).toBe("chart");
-  expect(staged.wallArt).toBe(after.wallArt);
+  expect(staged("wallArt")).toBe(after.wallArt);
 });

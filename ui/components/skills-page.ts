@@ -10,7 +10,7 @@ import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 
 // The member's own skills first, built-ins last: the order of what a member
 // is most likely to open.
-export const SOURCE_ORDER: readonly SkillSource[] = [
+const SOURCE_ORDER: readonly SkillSource[] = [
   "user",
   "project",
   "plugin",
@@ -37,7 +37,7 @@ export function entryKey(entry: Pick<SkillCatalogEntry, "name" | "path">) {
   return `${entry.name}\0${entry.path}`;
 }
 
-export function matchesQuery(entry: SkillCatalogEntry, query: string) {
+function matchesQuery(entry: SkillCatalogEntry, query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (

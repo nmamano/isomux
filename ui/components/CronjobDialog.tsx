@@ -107,7 +107,7 @@ export function cronjobFormDirty(
   );
 }
 
-export function updateCronjobMachineDefaults(
+function updateCronjobMachineDefaults(
   baseline: CronjobFormSnapshot,
   modelFamily: string,
   effort?: EffortLevel,
@@ -253,12 +253,7 @@ export function CronjobDialog({
   } | null>(null);
   const openCodeModelReady =
     !isOpenCode ||
-    openCodeModelSelectionReady(
-      modelFamily,
-      modelsLoading,
-      modelsError !== null,
-      backendModels,
-    );
+    openCodeModelSelectionReady(modelFamily, modelsLoading, backendModels);
   const openCodeCatalogRejectsSelection =
     isOpenCode &&
     !!modelFamily &&
