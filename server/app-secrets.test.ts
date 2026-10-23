@@ -175,35 +175,39 @@ describe("the secrets file", () => {
   });
 });
 
-describe("envFor", () => {
-  it("gives an app the office secrets and its owner's secrets granted to this registration, and nothing else", () => {
+// After test 1, a file is compared with renderSecretsEnv of what it should
+// hold: the renderer is deterministic, and each parse spawns python3.
+describe("what an app's file holds", () => {
+  it("gives an app the office secrets and its owner's secrets granted to this registration, and nothing else", async () => {
     const t = setup({
       oauthOwned: (scope) => (scope.kind === "office" ? ["OAUTH_OWNED"] : []),
     });
-    const bot = app("bot", 1);
+    const bot = t.install(app("bot", 1));
+    const ownerless = t.install(app("ownerless", 3, null));
     const old = app("bot", 0);
     const other = app("web", 2);
-    add(t.store, OFFICE, "OFFICE_KEY", "fake-office-0001", [bot]);
+    add(t.store, OFFICE, "OFFICE_KEY", "fake-office-0001", [bot, ownerless]);
     add(t.store, OFFICE, "OAUTH_OWNED", "fake-oauth-0001", [bot]);
     add(t.store, ALICE, "ALICE_KEY", HOSTILE, [bot]);
     add(t.store, ALICE, "OLD_GRANT", "fake-old-0001", [old]);
     add(t.store, ALICE, "WEB_KEY", "fake-web-0001", [other]);
     add(t.store, ALICE, "HOST_ONLY", "fake-host-0001", [], ["api.example.com"]);
     // Bob's secret granted to Alice's app, as a hand edit would do.
-    add(t.store, BOB, "BOB_KEY", "fake-bob-0001", [bot]);
-    expect(t.appSecrets.envFor(bot)).toEqual({
-      ALICE_KEY: HOSTILE,
-      OFFICE_KEY: "fake-office-0001",
-    });
+    add(t.store, BOB, "BOB_KEY", "fake-bob-0001", [bot, ownerless]);
+    add(t.store, ALICE, "ALICE_TO_OWNERLESS", "fake-alice-0002", [ownerless]);
+    await t.appSecrets.sync();
+    expect(t.file("bot")).toBe(
+      renderSecretsEnv({ ALICE_KEY: HOSTILE, OFFICE_KEY: "fake-office-0001" }),
+    );
     // An app with no owner: office secrets only.
-    expect(t.appSecrets.envFor({ ...bot, userId: null })).toEqual({
-      OFFICE_KEY: "fake-office-0001",
-    });
+    expect(t.file("ownerless")).toBe(
+      renderSecretsEnv({ OFFICE_KEY: "fake-office-0001" }),
+    );
   });
 
-  it("drops both values of a name that two scopes give one app, and logs no value", () => {
+  it("drops both values of a name that two scopes give one app, and logs no value", async () => {
     const t = setup();
-    const bot = app("bot", 1);
+    const bot = t.install(app("bot", 1));
     // Each create is legal alone; together they clash, as a hand edit could
     // leave them. The store refuses the second, so write the office file
     // after the member file through another store with no member file.
@@ -217,9 +221,10 @@ describe("envFor", () => {
       readFileSync(join(office, "secrets", "office.json")),
       { mode: 0o600 },
     );
-    expect(t.appSecrets.envFor(bot)).toEqual({
-      OTHER: "fake-member-other-0001",
-    });
+    await t.appSecrets.sync();
+    expect(t.file("bot")).toBe(
+      renderSecretsEnv({ OTHER: "fake-member-other-0001" }),
+    );
     const logged = t.logs.join("\n");
     expect(logged).toContain("SAME");
     expect(logged).not.toContain("fake-member-same-0001");
@@ -238,7 +243,7 @@ describe("sync", () => {
     writeFileSync(appSecretsPath(t.dir, "gone"), 'GONE="fake-gone-0001"\n');
     writeFileSync(appSecretsPath(t.dir, "idle"), 'IDLE="fake-idle-0001"\n');
     await t.appSecrets.sync();
-    expect(parse(t.file("bot")!)).toEqual({ ALICE_KEY: HOSTILE });
+    expect(t.file("bot")).toBe(renderSecretsEnv({ ALICE_KEY: HOSTILE }));
     expect(statSync(appSecretsPath(t.dir, "bot")).mode & 0o777).toBe(0o600);
     expect(statSync(t.dir).mode & 0o777).toBe(0o700);
     expect(t.file("gone")).toBeNull();
@@ -268,23 +273,16 @@ describe("sync", () => {
     await t.appSecrets.sync();
     expect(t.restarts()).toEqual(["restart:running", "restart:starting"]);
     // The stopped app reads the file at its next start.
-    expect(parse(t.file("stopped")!)).toEqual({ NEW_KEY: "fake-new-0001" });
+    expect(t.file("stopped")).toBe(
+      renderSecretsEnv({ NEW_KEY: "fake-new-0001" }),
+    );
 
-    // Same bytes: no restart. A note is not in the file.
+    // Same bytes: no restart. A note is not in the file. (A rotation and a
+    // removal restart the app: routes-app-secrets.test.ts.)
     t.supervisor.calls.length = 0;
     t.store.update(ALICE, "NEW_KEY", { note: "Only a note." });
     await t.appSecrets.sync();
     expect(t.restarts()).toEqual([]);
-
-    // A rotation and a removal change the bytes.
-    t.store.rotate(ALICE, "NEW_KEY", "fake-rotated-0001");
-    await t.appSecrets.sync();
-    expect(t.restarts()).toEqual(["restart:running", "restart:starting"]);
-    t.supervisor.calls.length = 0;
-    t.store.remove(ALICE, "NEW_KEY");
-    await t.appSecrets.sync();
-    expect(t.restarts()).toEqual(["restart:running", "restart:starting"]);
-    expect(t.file("running")).toBeNull();
   });
 
   it("at boot only, regenerates a unit that does not read its file, and no other unit", async () => {
@@ -335,7 +333,7 @@ describe("sync", () => {
     add(t.store, ALICE, "KEY", HOSTILE, [broken, fine]);
     await t.appSecrets.sync();
     expect(fake.calls).toContain("restart:fine");
-    expect(parse(t.file("fine")!)).toEqual({ KEY: HOSTILE });
+    expect(t.file("fine")).toBe(renderSecretsEnv({ KEY: HOSTILE }));
     const logged = t.logs.join("\n");
     expect(logged).toContain("broken");
     expect(logged).not.toContain(HOSTILE);

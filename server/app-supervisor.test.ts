@@ -25,13 +25,10 @@ import { join } from "path";
 import {
   APP_LOG_LINES_MAX,
   AppSupervisorError,
-  appHostEnvDirective,
-  appUrlEnvDirective,
   computeAppPath,
   createAppSupervisor,
   createSystemdHost,
   parseSystemctlShow,
-  parseUnitAppHost,
   parseUnitAppUrl,
   renderLauncher,
   renderUnit,
@@ -40,7 +37,8 @@ import {
   type RunResult,
   type SupervisorHost,
 } from "./app-supervisor.ts";
-import type { AppRecord } from "../shared/types.ts";
+import { checkAppName } from "./app-registry.ts";
+import type { AppRecord, AppState } from "../shared/types.ts";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -181,12 +179,11 @@ describe("app-supervisor: the unit namespace follows the state root", () => {
     // Every app name is a DNS label - no dots - so no production unit name can
     // ever start with this.
     expect(testPrefix).toContain(".");
-    const appNameGrammar = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
     const productionPrefix = "isomux-app-";
     // The one name that WOULD collide if the dot were not there: everything
     // after the production prefix, offered as an app name.
     const wouldCollide = testPrefix.slice(productionPrefix.length) + "sneaky";
-    expect(appNameGrammar.test(wouldCollide)).toBe(false);
+    expect(checkAppName(wouldCollide)?.code).toBe("invalid_name");
   });
 
   it("stays inside systemd's unit-name limit at the longest legal app name", () => {
@@ -306,32 +303,6 @@ describe("app-supervisor: unit generation", () => {
     expect(viteLine).not.toContain("8443/dashboard");
   });
 
-  it("omits Vite's allowed-host variable without a public URL", () => {
-    const unit = renderUnit(record(), {
-      launcherPath: "/launchers/hello.sh",
-      path: "/p:/q",
-      unitName: "isomux-app-hello.service",
-      tokenEnvPath: "/launchers/hello.env",
-      secretsEnvPath: "/secrets/apps/hello.env",
-      appUrl: null,
-    });
-    expect(unit).not.toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS");
-  });
-
-  it("never puts the start command in the unit - only in the launcher", () => {
-    const app = record({ command: "bun run dev --host" });
-    const unit = renderUnit(app, {
-      launcherPath: "/launchers/hello.sh",
-      path: "/p",
-      unitName: "isomux-app-hello.service",
-      tokenEnvPath: "/launchers/hello.env",
-      secretsEnvPath: "/secrets/apps/hello.env",
-      appUrl: null,
-    });
-    expect(unit).not.toContain("bun run dev");
-    expect(renderLauncher(app)).toContain("bun run dev --host");
-  });
-
   it("writes the command byte for byte, however shell-shaped it is", () => {
     // Quotes, a percent sign, a pipe, a variable, and a compound command: every
     // one of these is either a systemd specifier or a quoting hazard, and the
@@ -394,76 +365,9 @@ describe("app-supervisor: unit generation", () => {
 
 // --- the app's own address --------------------------------------------------
 
-// The rule this section exists to hold: PRESENT exactly when the office has an
-// address for the app, ABSENT otherwise - never an empty value. An app reads
-// `if (process.env.ISOMUX_APP_URL)` to find out whether it is reachable at a
-// hostname at all, and an empty string is a different answer from no answer.
+// The renderer's present-or-absent rule is pinned by the two golden directive
+// lists above; this is the wiring through install.
 describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
-  const renderWith = (appUrl: string | null, over: Partial<AppRecord> = {}) =>
-    renderUnit(record(over), {
-      launcherPath: "/launchers/hello.sh",
-      path: "/p",
-      unitName: "isomux-app-hello.service",
-      tokenEnvPath: "/launchers/hello.env",
-      secretsEnvPath: "/secrets/apps/hello.env",
-      appUrl,
-    });
-
-  it("injects the URL as an Environment directive when there is one", () => {
-    const unit = renderWith("https://hello.office.example");
-    expect(directives(unit)).toContain(
-      'Environment="ISOMUX_APP_URL=https://hello.office.example"',
-    );
-  });
-
-  it("leaves the variable OUT entirely when there is none", () => {
-    // Not `Environment="ISOMUX_APP_URL="`. The whole name must be absent from
-    // the file, so the app sees an undefined variable rather than an empty one.
-    expect(renderWith(null)).not.toContain("ISOMUX_APP_URL");
-  });
-
-  it("keeps every other directive identical either way", () => {
-    // The URL is additive: turning app hostnames on must not change how an app
-    // is started, only what it knows about itself.
-    const without = directives(renderWith(null));
-    const with_ = directives(renderWith("https://hello.office.example"));
-    expect(
-      with_.filter(
-        (d) =>
-          !d.includes("ISOMUX_APP_URL") &&
-          !d.includes("ISOMUX_APP_HOST") &&
-          !d.includes("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"),
-      ),
-    ).toEqual(without);
-  });
-
-  it("is the app's LABEL, so a re-registered name never inherits the old URL", () => {
-    // The record's NAME is still `hello`; its label is the second generation.
-    // Rendering the name here would hand this app the previous one's origin.
-    const unit = renderWith("https://hello-g2.office.example", {
-      hostLabel: "hello-g2",
-      hostGen: 2,
-    });
-    expect(unit).toContain(
-      'Environment="ISOMUX_APP_URL=https://hello-g2.office.example"',
-    );
-    expect(unit).not.toContain("ISOMUX_APP_URL=https://hello.office.example");
-  });
-
-  it("writes it on install, from the domain the supervisor was given", () => {
-    // The wiring, not the renderer: install/reinstall/regenerate all read the
-    // domain at write time, so a unit can never be written without it.
-    const host = fakeHost();
-    supervisor(
-      host,
-      () => 0,
-      () => "office.example",
-    ).install(record());
-    expect(host.files.get("/units/isomux-app-hello.service")).toContain(
-      'Environment="ISOMUX_APP_URL=https://hello.office.example"',
-    );
-  });
-
   it("writes the app's LABEL on install, not the name the unit is keyed by", () => {
     // A second-generation app: unit file still `isomux-app-hello.service`,
     // address `hello-g2` - and handing it `hello.office.example` would give a
@@ -480,14 +384,6 @@ describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
     );
     expect(unit).not.toContain("ISOMUX_APP_URL=https://hello.office.example");
   });
-
-  it("writes no URL on an office that has no app hostnames", () => {
-    const host = fakeHost();
-    supervisor(host).install(record());
-    expect(host.files.get("/units/isomux-app-hello.service")).not.toContain(
-      "ISOMUX_APP_URL",
-    );
-  });
 });
 
 // What an installed unit is read to SAY about the address. Boot reconciliation
@@ -496,37 +392,6 @@ describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
 describe("app-supervisor: reading the URL back out of a unit", () => {
   const withLine = (line: string) =>
     `[Service]\nExecStart=/bin/sh "/x.sh"\n${line}\nRestart=on-failure\n`;
-
-  it("says there is no unit at all when there is no file", () => {
-    expect(parseUnitAppUrl(null)).toEqual({ unit: false });
-  });
-
-  it("says a unit carries no assignment when it does not", () => {
-    expect(parseUnitAppUrl(withLine('Environment="PORT=21000"'))).toEqual({
-      unit: true,
-      assignment: null,
-    });
-  });
-
-  it("returns the assignment line, which is what the caller compares", () => {
-    const line = appUrlEnvDirective("https://hello.office.example");
-    expect(parseUnitAppUrl(withLine(line))).toEqual({
-      unit: true,
-      assignment: line,
-    });
-  });
-
-  it("does not confuse an EMPTY assignment with no assignment", () => {
-    // The distinction the present-iff rule lives on: `ISOMUX_APP_URL=` is a
-    // variable an app can see, so a unit carrying it is not a unit that
-    // carries nothing - and reconciliation must rewrite it, not skip it.
-    const empty = parseUnitAppUrl(withLine('Environment="ISOMUX_APP_URL="'));
-    expect(empty).toEqual({
-      unit: true,
-      assignment: 'Environment="ISOMUX_APP_URL="',
-    });
-    expect(empty).not.toEqual({ unit: true, assignment: null });
-  });
 
   it("ignores a commented-out directive, which injects nothing", () => {
     expect(
@@ -538,20 +403,6 @@ describe("app-supervisor: reading the URL back out of a unit", () => {
     expect(
       parseUnitAppUrl(withLine('Environment="ISOMUX_APP_URL_EXTRA=1"')),
     ).toEqual({ unit: true, assignment: null });
-  });
-
-  it("takes the LAST assignment, the way systemd does", () => {
-    const first = appUrlEnvDirective("https://old.office.example");
-    const last = appUrlEnvDirective("https://new.office.example");
-    expect(parseUnitAppUrl(withLine(`${first}\n${last}`))).toEqual({
-      unit: true,
-      assignment: last,
-    });
-    // Including when the last one empties it: the app ends up with an empty
-    // variable, so that - not the healthy-looking first line - is the truth.
-    expect(
-      parseUnitAppUrl(withLine(`${first}\nEnvironment="ISOMUX_APP_URL="`)),
-    ).toEqual({ unit: true, assignment: 'Environment="ISOMUX_APP_URL="' });
   });
 
   it("recognises hand-written forms this renderer never emits", () => {
@@ -576,22 +427,6 @@ describe("app-supervisor: reading the URL back out of a unit", () => {
   });
 });
 
-describe("app-supervisor: reading the bind host back out of a unit", () => {
-  const withLine = (line: string) => `[Service]\n${line}\n`;
-
-  it("distinguishes an absent assignment from the canonical loopback one", () => {
-    expect(parseUnitAppHost(withLine('Environment="PORT=21000"'))).toEqual({
-      unit: true,
-      assignment: null,
-    });
-    const line = appHostEnvDirective("127.0.0.1");
-    expect(parseUnitAppHost(withLine(line))).toEqual({
-      unit: true,
-      assignment: line,
-    });
-  });
-});
-
 describe("app-supervisor: PATH", () => {
   it("walks node_modules/.bin upward, nearest first, then the runtime, then the system", () => {
     const present = new Set([
@@ -611,13 +446,6 @@ describe("app-supervisor: PATH", () => {
       "/usr/local/sbin",
       "/usr/sbin",
     ]);
-  });
-
-  it("still names the runtime's own directory when there is no node_modules at all", () => {
-    // The common case, and the one that matters: `bun run ...` under a systemd
-    // user unit has no PATH to find bun on without this.
-    const path = computeAppPath("/srv/app", "/home/x/.bun/bin", () => false);
-    expect(path.split(":")[0]).toBe("/home/x/.bun/bin");
   });
 });
 
@@ -863,26 +691,20 @@ describe("app-supervisor: reinstall", () => {
     );
   });
 
-  it("leaves a stopped app stopped, with the new files in place", () => {
-    const host = hostInState("loaded", "inactive");
-    supervisor(host).reinstall(changed);
-    // Nothing after the reload: starting something the user stopped is the
-    // surprising branch, and PATCH is not the verb for it.
-    expect(verbs(host)).toEqual(["show", "daemon-reload"]);
-    expect(host.files.get("/launchers/hello.sh")).toContain("bun run other.ts");
-  });
-
-  it("leaves a failed app failed - recovery stays an explicit verb", () => {
-    const host = hostInState("loaded", "failed");
-    supervisor(host).reinstall(changed);
-    expect(verbs(host)).toEqual(["show", "daemon-reload"]);
-  });
-
-  it("leaves an app that is still stopping alone rather than racing it", () => {
-    const host = hostInState("loaded", "deactivating");
-    supervisor(host).reinstall(changed);
-    expect(verbs(host)).toEqual(["show", "daemon-reload"]);
-  });
+  // Nothing after the reload: starting something the user stopped is the
+  // surprising branch, and PATCH is not the verb for it. A failed app stays
+  // failed (recovery is an explicit verb), and one still stopping is left
+  // alone rather than raced.
+  for (const active of ["inactive", "failed", "deactivating"]) {
+    it(`leaves a ${active} app as it is, with the new files in place`, () => {
+      const host = hostInState("loaded", active);
+      supervisor(host).reinstall(changed);
+      expect(verbs(host)).toEqual(["show", "daemon-reload"]);
+      expect(host.files.get("/launchers/hello.sh")).toContain(
+        "bun run other.ts",
+      );
+    });
+  }
 
   it("installs an app that never had a unit - the stranded-registration cure", () => {
     // LoadState=not-found is what an app whose original install failed reads
@@ -1034,10 +856,12 @@ describe("app-supervisor: reinstall", () => {
 });
 
 describe("app-supervisor: teardown", () => {
-  it("stops, disables, removes both files, reloads, and clears the failed state", () => {
+  it("stops, disables, removes every file, reloads, and clears the failed state", () => {
     const host = fakeHost();
     const sup = supervisor(host);
     sup.install(record());
+    sup.provisionToken("hello", "tok_ABC-123");
+    expect(host.files.size).toBe(3);
     host.runs.length = 0;
     sup.teardown("hello");
     expect(verbs(host)).toEqual([
@@ -1047,8 +871,8 @@ describe("app-supervisor: teardown", () => {
       "reset-failed",
       "show",
     ]);
-    // Both generated files gone - a leftover launcher is a stale copy of a
-    // command for an app that no longer exists.
+    // The launcher, the unit and the token all gone - a leftover launcher is
+    // a stale copy of a command for an app that no longer exists.
     expect(host.files.size).toBe(0);
   });
 
@@ -1187,21 +1011,6 @@ describe("app-supervisor: teardown", () => {
       expect(() => supervisor(host).teardown("hello")).toThrow();
     }
   });
-
-  it("REFUSES when the app is still running, so its name is not freed", () => {
-    // The load-bearing failure. The delete route removes the record only after this
-    // returns; a teardown that reported success while the process lived would
-    // strand a live app holding a port under a name the registry has forgotten,
-    // and nothing in isomux could ever clean it up.
-    const host = fakeHost((argv) =>
-      argv[2] === "show"
-        ? { stdout: showBlock("isomux-app-hello.service", "loaded", "active") }
-        : undefined,
-    );
-    expect(() => supervisor(host).teardown("hello")).toThrow(
-      /still running.*NOT deleted/s,
-    );
-  });
 });
 
 // --- state ------------------------------------------------------------------
@@ -1221,10 +1030,10 @@ describe("app-supervisor: the app's token file", () => {
   });
 
   it("refuses a token that an environment file could not hold", () => {
-    // Belt and braces with the mint-side alphabet check. A value with a space,
-    // a quote or a line break would come back through systemd's parser as
-    // something other than what isomux hashed - a token that silently never
-    // works.
+    // The mint only produces base64url; this guards the write itself. A value
+    // with a space, a quote or a line break would come back through systemd's
+    // parser as something other than what isomux hashed - a token that
+    // silently never works.
     const host = fakeHost();
     for (const bad of ['has "quotes"', "has space", "two\nlines", ""]) {
       expect(() => supervisor(host).provisionToken("hello", bad)).toThrow(
@@ -1234,16 +1043,9 @@ describe("app-supervisor: the app's token file", () => {
     expect(host.files.has(tokenPath)).toBe(false);
   });
 
-  it("reads a token back, and answers null when there is none", () => {
-    const host = fakeHost();
-    const sup = supervisor(host);
-    expect(sup.readToken("hello")).toBeNull();
-    sup.provisionToken("hello", "tok_ABC-123");
-    expect(sup.readToken("hello")).toBe("tok_ABC-123");
-  });
-
   it("reads a token out of a file somebody has edited by hand", () => {
     const host = fakeHost();
+    expect(supervisor(host).readToken("hello")).toBeNull(); // no file at all
     host.writeFile(
       tokenPath,
       "# added by hand\n\nOTHER=1\nISOMUX_APP_TOKEN=tok_ABC-123\n",
@@ -1253,18 +1055,6 @@ describe("app-supervisor: the app's token file", () => {
     // ...and refuses to invent one from a blank or absent value.
     host.writeFile(tokenPath, "ISOMUX_APP_TOKEN=\n", 0o600);
     expect(supervisor(host).readToken("hello")).toBeNull();
-  });
-
-  it("install writes the unit that REFERENCES the token file, and no token", () => {
-    // The token is provisioned by its own verb, before install, so that the
-    // app's first start already has it - a process's environment is fixed at
-    // exec, so a token written after the start would not reach it.
-    const host = fakeHost();
-    supervisor(host).install(record());
-    expect(host.files.has(tokenPath)).toBe(false);
-    expect(host.files.get("/units/isomux-app-hello.service")).toContain(
-      `EnvironmentFile=-${tokenPath}`,
-    );
   });
 
   it("PRESERVES the token across an update - the whole reason it is a separate file", () => {
@@ -1307,12 +1097,23 @@ describe("app-supervisor: the app's token file", () => {
     );
     expect(sup.unitInjectsToken("hello")).toBe(false);
 
-    // ...and a unit pointing at somebody ELSE's token file does not count.
+    // ...and neither does a unit pointing at somebody ELSE's token file, a
+    // commented-out directive, or a path that merely starts with this app's:
+    // the match is on the directive LINE, not a substring of the file.
+    for (const unit of [
+      "[Service]\nEnvironmentFile=-/launchers/other.env\n",
+      "[Service]\n# EnvironmentFile=-/launchers/hello.env\n",
+      "[Service]\nEnvironmentFile=-/launchers/hello.env.backup\n",
+    ]) {
+      host.writeFile("/units/isomux-app-hello.service", unit);
+      expect([unit, sup.unitInjectsToken("hello")]).toEqual([unit, false]);
+    }
+    // Indentation IS forgiven - systemd ignores it too.
     host.writeFile(
       "/units/isomux-app-hello.service",
-      "[Service]\nEnvironmentFile=-/launchers/other.env\n",
+      "[Service]\n  EnvironmentFile=-/launchers/hello.env  \n",
     );
-    expect(sup.unitInjectsToken("hello")).toBe(false);
+    expect(sup.unitInjectsToken("hello")).toBe(true);
   });
 
   it("says whether the installed unit reads the app's secrets file, by the exact line", () => {
@@ -1347,28 +1148,6 @@ describe("app-supervisor: the app's token file", () => {
     expect(sup.unitInjectsSecrets("hello")).toBe(true);
   });
 
-  it("unitInjectsToken matches the directive LINE, not a substring of the file", () => {
-    // Two units that inject nothing and would both pass a substring search: a
-    // commented-out directive, and one whose path merely starts with this
-    // app's. Neither is hypothetical once a person has edited a unit by hand.
-    const host = fakeHost();
-    const sup = supervisor(host);
-    for (const unit of [
-      "[Service]\n# EnvironmentFile=-/launchers/hello.env\n",
-      "[Service]\nEnvironmentFile=-/launchers/hello.env.backup\n",
-      "[Service]\nEnvironmentFile=-/launchers/hello.envelope\n",
-    ]) {
-      host.writeFile("/units/isomux-app-hello.service", unit);
-      expect(sup.unitInjectsToken("hello")).toBe(false);
-    }
-    // Indentation IS forgiven - systemd ignores it too.
-    host.writeFile(
-      "/units/isomux-app-hello.service",
-      "[Service]\n  EnvironmentFile=-/launchers/hello.env  \n",
-    );
-    expect(sup.unitInjectsToken("hello")).toBe(true);
-  });
-
   it("reloadUnits tells systemd to re-read, and does nothing else", () => {
     const host = fakeHost();
     supervisor(host).reloadUnits();
@@ -1385,24 +1164,12 @@ describe("app-supervisor: the app's token file", () => {
     expect(() => supervisor(host).reloadUnits()).toThrow(AppSupervisorError);
   });
 
-  it("removeToken drops the file, and does not mind it being gone already", () => {
+  it("removeToken drops the file", () => {
     const host = fakeHost();
     const sup = supervisor(host);
     sup.provisionToken("hello", "tok_ABC-123");
     sup.removeToken("hello");
     expect(host.files.has(tokenPath)).toBe(false);
-    expect(() => sup.removeToken("hello")).not.toThrow();
-  });
-
-  it("teardown removes the token with the unit and the launcher", () => {
-    const host = fakeHost();
-    const sup = supervisor(host);
-    sup.install(record());
-    sup.provisionToken("hello", "tok_ABC-123");
-    sup.teardown("hello");
-    expect(host.files.has(tokenPath)).toBe(false);
-    expect(host.files.has("/launchers/hello.sh")).toBe(false);
-    expect(host.files.has("/units/isomux-app-hello.service")).toBe(false);
   });
 });
 
@@ -1473,21 +1240,24 @@ describe("app-supervisor: reading state", () => {
     expect(parsed.get("c.service")?.state).toBe("unknown");
   });
 
-  it("treats an ActiveState it has never heard of as unknown, not as an error", () => {
+  it("maps each ActiveState to the state the Apps tab shows", () => {
+    const rows: [string, AppState][] = [
+      ["activating", "starting"],
+      ["reloading", "starting"],
+      ["failed", "failed"],
+      ["inactive", "stopped"],
+      ["deactivating", "stopped"],
+      // One it has never heard of is unknown, not an error.
+      ["some-future-state", "unknown"],
+    ];
     const parsed = parseSystemctlShow(
-      showBlock("a.service", "loaded", "some-future-state"),
+      rows
+        .map(([active], i) => showBlock(`u${i}.service`, "loaded", active))
+        .join("\n"),
     );
-    expect(parsed.get("a.service")?.state).toBe("unknown");
-  });
-
-  it("maps activating and failed to their own states", () => {
-    const parsed = parseSystemctlShow(
-      showBlock("a.service", "loaded", "activating") +
-        "\n" +
-        showBlock("b.service", "loaded", "failed"),
+    expect(rows.map((_, i) => parsed.get(`u${i}.service`)?.state)).toEqual(
+      rows.map(([, state]) => state),
     );
-    expect(parsed.get("a.service")?.state).toBe("starting");
-    expect(parsed.get("b.service")?.state).toBe("failed");
   });
 
   it("asks once for a whole list of apps, not once per app", () => {

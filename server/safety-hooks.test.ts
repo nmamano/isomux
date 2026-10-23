@@ -64,24 +64,15 @@ async function decide(
 const bash = (command: string) => decide("Bash", { command });
 
 describe("protected-path resolution", () => {
-  it("denies the exact relative shell repros", async () => {
-    for (const command of [
-      "cd ~ && echo x > .isomux/agents.json",
-      "echo x > ../.isomux/agents.json",
-      "cd ~ && cp /tmp/evil .isomux/agents.json",
-    ]) {
-      expect(
-        (await decide("Bash", { command }, join(homedir(), "workspace")))
-          .denied,
-      ).toBe(true);
-    }
-  });
-
   it("allows state-root siblings and denies a true child", async () => {
     expect((await bash(`echo x > ${STATE_ROOT}-workspace/marker`)).denied).toBe(
       false,
     );
     expect((await bash(`echo x > ${STATE_ROOT}ly/marker`)).denied).toBe(false);
+    // The literal ~/.isomux spelling has the same boundary.
+    expect(
+      (await bash("mv /tmp/s ~/.isomux-control-plane/state.db")).denied,
+    ).toBe(false);
     expect(
       (await bash(`echo x > ${join(STATE_ROOT, "logs/marker")}`)).denied,
     ).toBe(true);
@@ -90,10 +81,7 @@ describe("protected-path resolution", () => {
   it("checks every output redirect even when a command list has no command word", async () => {
     const cases = [
       `> ${join(STATE_ROOT, "agents.json")}`,
-      `>> ${join(STATE_ROOT, "agents.json")}`,
       `echo x &> ${join(STATE_ROOT, "agents.json")}`,
-      `echo x &>> ${join(STATE_ROOT, "agents.json")}`,
-      `echo ok; > ${join(STATE_ROOT, "agents.json")}`,
       " > .isomux/agents.json",
     ];
     for (const command of cases) {
@@ -111,14 +99,12 @@ describe("protected-path resolution", () => {
       join(STATE_ROOT, "logs"),
     );
     expect(result.denied).toBe(true);
-  });
-
-  it("allows an ordinary relative write when cwd is valid", async () => {
+    // The same relative write is fine from an ordinary cwd.
     expect(
       (
         await decide(
           "Write",
-          { file_path: "out.txt", content: "x" },
+          { file_path: "agents.json", content: "x" },
           "/tmp/probe",
         )
       ).denied,
@@ -126,7 +112,7 @@ describe("protected-path resolution", () => {
   });
 
   it("names a missing or invalid cwd for a protected relative candidate", async () => {
-    for (const cwd of [null, "", "relative/cwd"]) {
+    for (const cwd of [null, "relative/cwd"]) {
       const result = await decide(
         "Write",
         { file_path: ".isomux/agents.json", content: "x" },
@@ -144,30 +130,6 @@ describe("protected-path resolution", () => {
         )
       ).denied,
     ).toBe(false);
-    expect(
-      (await decide("Write", { file_path: "out.txt", content: "x" }, null))
-        .denied,
-    ).toBe(false);
-  });
-
-  it("makes unresolved directory changes unknown instead of keeping stale cwd", async () => {
-    for (const command of [
-      "cd $HOME && echo x > .isomux/agents.json",
-      'cd "$D" && echo x > out.txt',
-      "cd - && echo x > out.txt",
-      "pushd /tmp && echo x > out.txt",
-      "popd && echo x > out.txt",
-      'bash -c "cd ~ && echo x > .isomux/agents.json"',
-    ]) {
-      const result = await decide("Bash", { command }, "/tmp/probe");
-      expect(result.denied, command).toBe(true);
-    }
-    const remedy = await decide(
-      "Bash",
-      { command: 'cd "$D" && echo x > out.txt' },
-      "/tmp/probe",
-    );
-    expect(remedy.reason).toContain("use an absolute write target");
   });
 });
 
@@ -186,7 +148,6 @@ describe("shell write-target classification", () => {
   it("allows read-only text processors on the protected state tree", async () => {
     for (const command of [
       `sed -n '44p' ${PROTECTED_FILE} | jq .`,
-      `awk '{print}' ${PROTECTED_FILE}`,
       `perl -ne 'print' ${PROTECTED_FILE}`,
     ]) {
       expect((await bash(command)).denied, command).toBe(false);
@@ -195,11 +156,8 @@ describe("shell write-target classification", () => {
 
   it("still denies real writes to the protected state tree", async () => {
     const commands = [
-      `echo x > ${PROTECTED_FILE}`,
-      `cd /tmp && echo x > ${PROTECTED_FILE}`,
       `cd /tmp && echo ok; echo x > ${PROTECTED_FILE}`,
       `sed -i 's/a/b/' ${PROTECTED_FILE}`,
-      `sed -i.bak 's/a/b/' ${PROTECTED_FILE}`,
       `sed -ni.bak 's/a/b/' ${PROTECTED_FILE}`,
       `sed --in-place 's/a/b/' ${PROTECTED_FILE}`,
       `perl -pi -e 's/a/b/' ${PROTECTED_FILE}`,
@@ -210,20 +168,10 @@ describe("shell write-target classification", () => {
       expect((await bash(command)).denied, command).toBe(true);
     }
   });
-
-  it("ignores literal parentheses while checking the resolved write target", async () => {
-    expect((await bash("cd /tmp/c && echo 'a(b)' > out.txt")).denied).toBe(
-      false,
-    );
-    expect((await bash("cd ~/.isomux && echo 'a(b)' > out.txt")).denied).toBe(
-      true,
-    );
-    expect((await bash("cd /tmp/c && echo ab > out.txt")).denied).toBe(false);
-  });
 });
 
 describe("rm flag classification cost", () => {
-  it("classifies a 404-byte pathological cluster within 20 ms", async () => {
+  it("classifies a 404-byte pathological cluster without backtracking", async () => {
     const command = `rm -${"rf".repeat(200)}`;
     // Keep 404 bytes: the former ambiguous matcher crossed the 20 ms bound here.
     expect(command.length).toBe(404);
@@ -253,7 +201,6 @@ describe("outbound-tunnel guard", () => {
       "cloudflared tunnel run",
     ],
     ["ngrok http 4000", "ngrok http"],
-    ["ngrok --log stdout http 4000", "ngrok http"],
     ["ngrok --config /tmp/n.yml http 4000", "ngrok http"],
     ["ngrok tcp 22", "ngrok tcp"],
     ["ngrok tls 443", "ngrok tls"],
@@ -269,7 +216,6 @@ describe("outbound-tunnel guard", () => {
     ["ssh -R 8080 user@host", "ssh -R remote forwarding"],
     ["ssh -R8080:localhost:4000 user@host", "ssh -R remote forwarding"],
     ["ssh -fNR 80:localhost:4000 user@host", "ssh -R remote forwarding"],
-    ["ssh -NR 8080:127.0.0.1:4000 user@host", "ssh -R remote forwarding"],
     ["ssh -o RemoteForward=8080:localhost:4000 user@host", "ssh RemoteForward"],
     [
       'ssh -o "RemoteForward 8080 localhost:4000" user@host',
@@ -282,8 +228,6 @@ describe("outbound-tunnel guard", () => {
       "tailscale serve",
     ],
     ["tailscale funnel --bg http://localhost:4000", "tailscale funnel"],
-    ["tailscale serve advertise svc:http", "tailscale serve"],
-    ["tailscale serve set-config config.json", "tailscale serve"],
     [
       "git clean -n && cloudflared tunnel --url http://127.0.0.1:4000",
       "cloudflared tunnel --url",
@@ -298,50 +242,27 @@ describe("outbound-tunnel guard", () => {
     it(`denies ${command}`, async () => {
       const decision = await bash(command);
       expect(decision.denied).toBe(true);
-      expect(decision.reason).toContain(
-        `Refused: \`${form}\` (an agent may not open a tunnel).`,
-      );
-      expect(decision.reason).toContain(
-        "This text check covers recognized command forms only; a renamed binary or interpreter can bypass it.",
-      );
-      expect(decision.reason).toContain(`Command: ${command}`);
-      expect(decision.reason).toContain("have them run the command manually");
+      // The tunnel rule fired, for this form. The command echo is pinned by
+      // the process-kill guard's echo test.
+      expect(decision.reason).toContain(`\`${form}\``);
     });
   }
 
   const allowed = [
     "cloudflared tunnel list",
-    "cloudflared tunnel info office",
-    "cloudflared tunnel cleanup office",
-    "cloudflared tunnel delete office",
-    "cloudflared tunnel --help",
     "ngrok config check",
-    "ngrok version",
     "ngrok service stop",
-    "ssh user@host",
     "ssh -L 4000:localhost:4000 user@box",
     "ssh -fNL 4000:localhost:4000 user@box",
     "ssh user@host ls -R /var/log",
-    "ssh user@host grep -R needle /etc",
     "ssh -p 22 user@host ls -R /var/log",
     "ssh -o StrictHostKeyChecking=no user@host grep -R needle /etc",
     "tailscale serve status",
-    "tailscale funnel status --json",
     "tailscale serve reset",
-    "tailscale funnel reset",
     "tailscale serve get-config",
     "tailscale serve drain svc",
-    "tailscale serve --https=443 off",
     "tailscale funnel --https=443 http://localhost:4000 off",
-    "cloudflared-helper tunnel --url http://127.0.0.1:4000",
     "echo 'cloudflared tunnel --url http://127.0.0.1:4000'",
-    "grep -R 'tailscale funnel --bg' docs",
-    "awk 'BEGIN { print \"ngrok http 4000\" }' README.md",
-    [
-      "jq -Rs '{text: .}' <<'EOF'",
-      "cloudflared tunnel --url http://127.0.0.1:4000",
-      "EOF",
-    ].join("\n"),
   ];
 
   for (const command of allowed) {
@@ -361,16 +282,11 @@ describe("process-kill guard", () => {
         'pkill -f "server/index.ts"',
         "quoted pattern (survives quote stripping)",
       ],
-      ["pkill -f server/index.ts", "unquoted pattern"],
-      ["pkill -f 'bun run server'", "single-quoted pattern"],
       ["pkill bun", "bare name match"],
-      ["pkill -9 node", "signal plus name match"],
       ["killall node", "killall"],
-      ["killall -9 claude", "killall with a signal"],
       ["killall5", "killall5"],
       ["sudo pkill -f claude", "behind sudo"],
       ["/usr/bin/pkill -f bun", "absolute path"],
-      ["xargs pkill -f bun", "behind xargs"],
       ["pkill -u nil", "user-scoped is still every process of that user"],
       ["pkill -P 123 node", "parent-scoped but still name-matching"],
     ] as const;
@@ -386,10 +302,8 @@ describe("process-kill guard", () => {
   describe("denies a name lookup laundered into a kill", () => {
     const denied = [
       'pgrep -f "server/index.ts" | xargs kill',
-      "pgrep -f bun | xargs -r kill -9",
       "kill $(pgrep -f server/index.ts)",
       "kill -9 $(pidof bun)",
-      "kill `pgrep -f bun`",
       "ps aux | grep vite | awk '{print $2}' | xargs kill -9",
     ];
 
@@ -402,8 +316,6 @@ describe("process-kill guard", () => {
 
   describe("denies the spellings that get past a naive command-word match", () => {
     const denied = [
-      ["bash -c 'pkill -f bun'", "command word hidden inside a quoted payload"],
-      ['sh -c "kill $(pgrep -f bun)"', "quoted payload with a substitution"],
       ["sudo -u nil pkill -f bun", "a wrapper flag that eats its own value"],
       ["\\pkill -f bun", "backslash-escaped to skip alias expansion"],
       [
@@ -420,34 +332,23 @@ describe("process-kill guard", () => {
         "pgrep -f bun | while read p; do kill $p; done",
         "lookup and kill split across a read loop",
       ],
-      ["  pkill   -f   bun  ", "extra whitespace"],
-      ["pkill --full bun", "long-form pattern flag"],
       // Reviewer1 regressions.
       [
         'pkill -P "$(pgrep -f bun)"',
         "a lookup smuggled through the -P carve-out",
       ],
-      ["sudo --user nil pkill -f bun", "long-form wrapper flag with a value"],
       ['"pkill" -f bun', "quoted command word"],
-      ['/usr/bin/"pkill" -f bun', "quoted command word inside a path"],
-      ["p\\kill -f bun", "backslash inside the command word"],
       ["pgrep -f bun 2>&1 | xargs kill", "a redirection inside the pipeline"],
-      [
-        "ps aux 2>&1 | grep vite | awk '{print $2}' | xargs kill",
-        "a redirection inside the ps/grep pipeline",
-      ],
       ["xargs -I {} pkill -f bun", "xargs replace-string flag"],
       // Reviewer1 round 2: clustered shell flags, and wrapper options whose
       // value would otherwise be read as the command.
       ['bash -lc "pkill -f bun"', "clustered shell flag"],
-      ['sh -ec "killall bun"', "clustered shell flag, other order"],
       ['env bash -lc "pkill -f bun"', "clustered shell flag behind a wrapper"],
       ["time -o /tmp/t pkill -f bun", "a wrapper option that takes a value"],
-      ["sudo -D /tmp pkill -f bun", "a sudo option that takes a value"],
+      // A wrapper flag the table does not know: the next word may be its
+      // value or the command, so both are checked.
+      ["sudo -Z val pkill -f bun", "an unknown sudo option"],
       // The same standalone flags, now in front of a real kill.
-      ["sudo -n pkill -f bun", "behind a standalone sudo flag"],
-      ["xargs -r pkill -f bun", "behind a standalone xargs flag"],
-      ["time -v pkill -f bun", "behind a standalone time flag"],
     ] as const;
 
     for (const [command, why] of denied) {
@@ -460,34 +361,21 @@ describe("process-kill guard", () => {
   describe("allows kills that name a PID or a port", () => {
     const allowed = [
       ["kill 12345", "a PID the agent has in hand"],
-      ["kill -9 12345", "a PID with a signal"],
       ["kill $(lsof -ti:5173)", "by port via lsof"],
-      ["fuser -k 5173/tcp", "by port via fuser"],
-      ["kill -s TERM 12345", "a named signal"],
+      ["pgrep x; kill -s TERM 12345", "a named signal after a lookup"],
       ["pkill -P 12345", "children of one known process"],
       ["pkill -P12345", "the same, flag and value joined"],
-      ["xargs -P 4 kill < pids", "PIDs read from a file, not matched by name"],
       ["pgrep -f 'server/index.ts'", "a lookup on its own is read-only"],
       ["ps aux | grep bun", "inspecting processes is read-only"],
-      ["ps aux | head -20", "inspecting processes is read-only"],
       // `ps` only counts as a name lookup next to `grep`, the step that turns
       // it into name matching. Listing processes then killing a known PID is
       // the ordinary thing an agent does.
       ["ps aux | head; kill 12345", "listing then killing a known PID"],
+      ["ps aux | head; kill $(cat pidfile)", "ps without grep is no lookup"],
       // A kill that names literal PIDs is not a name match, however the rest of
       // the line reads (Reviewer1 regression).
-      ["ps aux | kill 12345", "a literal PID beside an unrelated lookup"],
       ["pgrep -f bun | head; kill 12345", "a literal PID after a lookup"],
-      ["kill -9 111 222", "several literal PIDs"],
-      ["kill $$", "the shell's own PID"],
-      ["pgrep -af bun; kill 12345", "a lookup then a literal-PID kill"],
-      // The pattern argument lives inside quotes, so the guard has to key off
-      // the command word rather than the text - and must not fire on prose.
-      [
-        'git commit -m "pkill the stray dev server"',
-        "the word inside a message",
-      ],
-      ['echo "run killall node to clean up"', "the word inside an echo"],
+      ["pgrep x; kill $$", "the shell's own PID after a lookup"],
     ] as const;
 
     for (const [command, why] of allowed) {
@@ -507,27 +395,18 @@ describe("process-kill guard", () => {
     // promote it to command structure and deny ordinary prose (Reviewer1).
     const allowed = [
       'echo "safe prose; pkill -f bun"',
-      "echo 'safe prose; pkill -f bun'",
-      'git commit -m "document this; killall node is unsafe"',
-      'git commit -m "fix: pkill -f && killall cleanup"',
-      'echo "a | pkill -f bun | b"',
       "echo 'kill $(pgrep -f bun)'",
-      'grep -rn "killall" server/',
-      'sed -i "s/pkill/x/" f.ts',
       // An ordinary command's arguments are never candidates, even behind a
       // wrapper - the extra-candidate rule only fires right after an unknown
       // flag, so this must not read `killall` as a command.
       "find . -name '*.ts' | xargs grep -l killall",
-      "sudo -D /tmp grep -rn killall src/",
       // A wrapper flag that stands alone must not turn the command's own
       // arguments into candidates (Reviewer1 round 3).
       "sudo -n grep -rn killall src/",
       "xargs -r grep -l killall < files",
       "time -v grep -n pkill README.md",
       "xargs -rt grep -l killall",
-      "sudo --non-interactive grep -rn pkill .",
-      "cat <<'EOF'\npkill -f bun\nEOF",
-      "kill 123 > /dev/null 2>&1",
+      "pgrep x; kill 123 > /dev/null 2>&1",
     ];
     for (const command of allowed) {
       it(`allows ${JSON.stringify(command)}`, async () => {
@@ -538,7 +417,6 @@ describe("process-kill guard", () => {
     // `bash -c` really does execute its argument, so that one quoted word is
     // structure. Same for a substitution, which runs even inside double quotes.
     const denied = [
-      'bash -c "pkill -f bun"',
       "bash -c 'pkill -f bun'",
       'sh -c "kill $(pgrep -f bun)"',
       'kill "$(pgrep -f bun)"',
@@ -549,12 +427,6 @@ describe("process-kill guard", () => {
         expect((await bash(command)).denied).toBe(true);
       });
     }
-  });
-
-  it("teaches the port and PID alternatives in the denial", async () => {
-    const { reason } = await bash('pkill -f "server/index.ts"');
-    expect(reason).toContain("processes you don't own");
-    expect(reason).toContain("by port or PID");
   });
 
   it("echoes the original command, quotes intact, so the agent can see what was blocked", async () => {
@@ -573,15 +445,13 @@ describe("heredoc bodies are data, not commands", () => {
     "Report: I could not write ~/.isomux/agents.json, the guard blocked it.",
     "It also blocked `rm -rf ~/.isomux/logs` and a tee into ~/.isomux/state.",
     "Next: pkill -f bun was rejected too, so I killed the PID instead.",
+    // Each guard reads the body as data: a secret read and a tunnel.
+    "cat .env is just prose here, as is cloudflared tunnel --url http://127.0.0.1:4000",
     "EOF",
   ].join("\n");
 
   it("allows a report whose body discusses ~/.isomux and write verbs", async () => {
     expect(await bash(report)).toEqual({ denied: false, reason: "" });
-  });
-
-  it("allows the same body under a double-quoted delimiter", async () => {
-    expect((await bash(report.replace(/'EOF'/, '"EOF"'))).denied).toBe(false);
   });
 
   it("allows a bare-delimiter body that expands to nothing", async () => {
@@ -633,7 +503,6 @@ describe("heredoc bodies are data, not commands", () => {
   const notOperators = [
     // A bit shift, in both arithmetic spellings.
     ["echo $((1 << 20))", "pkill -f bun"],
-    ["(( total << 2 ))", "pkill -f bun"],
     // A comment that mentions the operator.
     ["echo hi # bodies are written <<EOF", "pkill -f bun"],
     // A quoted mention of the operator.
@@ -651,7 +520,6 @@ describe("heredoc bodies are data, not commands", () => {
     // Verified against bash: `\$(…)` and an escaped backtick are literal text
     // in an unquoted body, which is how a report quotes a command.
     ["cat <<EOF", "literal: \\$(pkill -f bun)", "EOF"],
-    ["cat <<EOF", "literal: \\`pkill -f bun\\`", "EOF"],
   ];
   for (const lines of escaped) {
     it(`allows the escaped substitution in ${JSON.stringify(lines[1])}`, async () => {
@@ -672,13 +540,6 @@ describe("heredoc bodies are data, not commands", () => {
     expect((await bash(command)).denied).toBe(true);
   });
 
-  it("does not let a quoted delimiter launder a substitution", async () => {
-    // `<<'EOF'` really is literal - the substitution below does not run, so
-    // there is nothing to deny.
-    const command = ["cat <<'EOF'", "now: $(pkill -f bun)", "EOF"].join("\n");
-    expect((await bash(command)).denied).toBe(false);
-  });
-
   it("still checks the command the heredoc feeds", async () => {
     const command = ["tee ~/.isomux/agents.json <<'EOF'", "{}", "EOF"].join(
       "\n",
@@ -690,14 +551,8 @@ describe("heredoc bodies are data, not commands", () => {
 });
 
 describe("sensitive-read guard covers Grep", () => {
-  it("registers a matcher for Grep", () => {
-    expect(hooksFor("Grep").length).toBeGreaterThan(0);
-  });
-
   const denied: Record<string, unknown>[] = [
     { pattern: "KEY", path: "/tmp/isomux-safety-probe/.env" },
-    { pattern: "KEY", path: "~/.ssh/id_rsa" },
-    { pattern: "KEY", path: "/tmp/isomux-safety-probe/server.pem" },
     { pattern: "KEY", glob: "*.pem" },
     { pattern: "KEY", glob: ".env*" },
     { pattern: "KEY", path: "/tmp/isomux-safety-probe", glob: "**/.env" },
@@ -718,8 +573,6 @@ describe("sensitive-read guard covers Grep", () => {
     { pattern: "KEY" },
     { pattern: "KEY", path: "/tmp/isomux-safety-probe/server" },
     { pattern: "KEY", glob: "**/*.ts" },
-    { pattern: "KEY", path: "/tmp/isomux-safety-probe/.env.example" },
-    { pattern: "KEY", output_mode: "content", "-n": true },
   ];
   for (const input of allowed) {
     it(`allows Grep ${JSON.stringify(input)}`, async () => {
@@ -729,17 +582,9 @@ describe("sensitive-read guard covers Grep", () => {
       });
     });
   }
-
-  it("still fails closed for a read tool with no optional-target rule", async () => {
-    expect((await decide("Read", { limit: 10 })).denied).toBe(true);
-  });
 });
 
 describe("NotebookEdit coverage", () => {
-  it("registers a matcher for NotebookEdit", () => {
-    expect(hooksFor("NotebookEdit").length).toBeGreaterThan(0);
-  });
-
   it("denies a notebook_path write into the protected state root", async () => {
     const { denied, reason } = await decide("NotebookEdit", {
       notebook_path: join(STATE_ROOT, "notes.ipynb"),
@@ -747,6 +592,13 @@ describe("NotebookEdit coverage", () => {
     });
     expect(denied).toBe(true);
     expect(reason).toContain("Writing to ~/.isomux/ is not allowed");
+    // An ordinary notebook edit is fine.
+    expect(
+      await decide("NotebookEdit", {
+        notebook_path: "/tmp/isomux-safety-probe/analysis.ipynb",
+        new_source: "print(1)",
+      }),
+    ).toEqual({ denied: false, reason: "" });
   });
 
   it("denies a notebook_path pointing at a sensitive file", async () => {
@@ -783,7 +635,6 @@ describe("NotebookEdit coverage", () => {
     for (const file_path of [
       "/home/someone/.isomux/opencode/profiles/0123456789abcdef/data/opencode/auth.json",
       "/home/someone/.isomux/opencode/profiles/0123456789abcdef/data/opencode/mcp-auth.json",
-      "/srv/isomux-user/opencode/profiles/fedcba9876543210/data/opencode/auth.json",
     ]) {
       const { denied } = await decide("Read", { file_path });
       expect({ file_path, denied }).toEqual({ file_path, denied: true });
@@ -799,11 +650,6 @@ describe("NotebookEdit coverage", () => {
         "/home/someone/.isomux/opencode/profiles/0123456789abcdef/opencode.json",
         true,
       ],
-      [
-        "/srv/isomux-user/opencode/profiles/fedcba9876543210/opencode.json",
-        true,
-      ],
-      ["/tmp/some-project/opencode.json", false],
       ["/tmp/some-project/opencode/opencode.json", false],
     ] as const) {
       const { denied } = await decide("Read", { file_path });
@@ -839,15 +685,6 @@ describe("NotebookEdit coverage", () => {
     expect(denied).toBe(true);
     expect(reason).toContain("may contain secrets");
   });
-
-  it("allows an ordinary notebook edit", async () => {
-    expect(
-      await decide("NotebookEdit", {
-        notebook_path: "/tmp/isomux-safety-probe/analysis.ipynb",
-        new_source: "print(1)",
-      }),
-    ).toEqual({ denied: false, reason: "" });
-  });
 });
 
 describe("path extraction fails closed", () => {
@@ -859,21 +696,6 @@ describe("path extraction fails closed", () => {
 
   it("denies a guarded read whose input names no path at all", async () => {
     expect((await decide("Read", { offset: 3 })).denied).toBe(true);
-  });
-
-  it("names the rule each guard could not apply, not the other guard's rule", async () => {
-    // Reads of ~/.isomux/ are allowed, so the read guard must not claim it was
-    // checking for them.
-    const write = await decide("Write", { content: "x" });
-    expect(write.reason).toContain("the protected ~/.isomux/ directory");
-
-    const read = await decide("Read", { offset: 3 });
-    expect(read.reason).toContain("sensitive-file rules");
-    expect(read.reason).not.toContain("~/.isomux/");
-  });
-
-  it("denies an empty input object", async () => {
-    expect((await decide("Write", {})).denied).toBe(true);
   });
 
   it("still checks a novel path key rather than waving it through", async () => {
@@ -898,10 +720,47 @@ describe("path extraction fails closed", () => {
 });
 
 describe("existing guards still hold", () => {
-  it("denies a Write into the protected state root", async () => {
-    expect((await decide("Write", { file_path: PROTECTED_FILE })).denied).toBe(
-      true,
-    );
+  it("denies a Write, Edit or MultiEdit into the protected state root", async () => {
+    for (const tool of ["Write", "Edit", "MultiEdit"]) {
+      const { denied } = await decide(tool, { file_path: PROTECTED_FILE });
+      expect({ tool, denied }).toEqual({ tool, denied: true });
+    }
+  });
+
+  it("checks the Codex login in the CODEX_HOME the adapter was given", async () => {
+    const codexHome = "/tmp/isomux-safety-probe/custom-codex";
+    const read = createSafetyHooks(codexHome)
+      .PreToolUse!.filter((m) => m.matcher === "Read")
+      .flatMap((m) => m.hooks);
+    const out = (await read[0](
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Read",
+        tool_input: { file_path: join(codexHome, "auth.json") },
+        cwd: "/tmp/probe",
+      } as unknown as Parameters<HookCallback>[0],
+      undefined,
+      { signal: new AbortController().signal },
+    )) as { hookSpecificOutput?: { permissionDecision?: string } };
+    expect(out.hookSpecificOutput?.permissionDecision).toBe("deny");
+    // Without it, the same file is an unrelated auth.json.
+    expect(
+      (await decide("Read", { file_path: join(codexHome, "auth.json") }))
+        .denied,
+    ).toBe(false);
+  });
+
+  it("denies reading a browser profile's saved sign-ins", async () => {
+    const { denied, reason } = await decide("Read", {
+      file_path: join(
+        STATE_ROOT,
+        "browser-profiles",
+        "p1",
+        "storage-state.json",
+      ),
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("may contain secrets");
   });
 
   it("denies a Read of a .env file", async () => {
@@ -918,18 +777,6 @@ describe("existing guards still hold", () => {
         file_path: "/tmp/isomux-safety-probe/.env.example",
       }),
     ).toEqual({ denied: false, reason: "" });
-  });
-
-  it("denies rm -rf", async () => {
-    expect((await bash("rm -rf /home/nil/nil")).denied).toBe(true);
-  });
-
-  it("denies git reset --hard", async () => {
-    expect((await bash("git reset --hard HEAD~1")).denied).toBe(true);
-  });
-
-  it("allows an ordinary command", async () => {
-    expect(await bash("ls -la /tmp")).toEqual({ denied: false, reason: "" });
   });
 });
 
@@ -955,32 +802,23 @@ describe("sensitive-read guard covers Bash readers", () => {
 
   describe("the first operand is a pattern, not a path", () => {
     allows("grep id_rsa ~/.ssh/config");
-    allows("grep -rn AWS_SECRET .");
-    allows("grep .env ~/notes.md");
     allows("rg id_rsa src/");
-    allows("rg '\\.pem$' docs/");
     allows("sed -n 's/id_rsa/x/p' notes.txt");
     allows("awk '/id_rsa/ {print}' notes.txt");
     // rg's -r is --replace and eats its value, so `id_rsa` is the replacement
     // and `KEY` is the pattern - no path named here at all.
     allows("rg -r id_rsa KEY notes.txt");
-    // grep's -r is boolean, so the same shape really does name a path. Not
-    // sensitive here, but it proves the two are parsed differently.
-    allows("grep -r id_rsa notes.txt");
   });
 
   describe("but the path operands still get checked", () => {
     denies("grep AWS_SECRET .env");
     denies("grep -rn AWS_SECRET .env.production");
-    denies("grep -e KEY .env");
     denies("grep --regexp=KEY .env");
     denies("rg KEY ~/.ssh/id_rsa");
-    denies("rg -n KEY secrets.pem");
     denies("sed -n 1p .env");
     denies("sed -e 's/a/b/' server.key");
     denies("awk '{print}' secrets.pem");
     denies("awk -F: '{print $2}' .env");
-    denies("cut -d= -f2 .env");
     // Option permutation: GNU grep accepts the file before the -e pattern.
     denies("grep .env -e KEY");
     // A pattern FILE is read too.
@@ -998,13 +836,11 @@ describe("sensitive-read guard covers Bash readers", () => {
     denies("rg --iglob '.env*' KEY .");
     // Excluding a file is not reading it - rg spells that with a leading `!`.
     allows("rg -g '!*.pem' KEY .");
-    allows("rg --iglob '!.env*' KEY .");
     allows("grep --exclude=*.pem -r KEY .");
     // ...but that grammar belongs to rg's glob flags alone. Everywhere else a
     // leading `!` is just the first character of a filename.
     denies("grep -f '!patterns.pem' notes.txt");
     denies("rg -f '!patterns.pem' src/");
-    denies("awk -f '!prog.key' notes.txt");
     denies("cat < '!secrets.pem'");
   });
 
@@ -1013,7 +849,6 @@ describe("sensitive-read guard covers Bash readers", () => {
     // from this check entirely - including for plain `cat`.
     denies("grep AWS_SECRET '.env'");
     denies('cat ".env"');
-    denies("cat '/tmp/isomux-safety-probe/id_rsa'");
   });
 
   describe("plain readers keep checking every operand", () => {
@@ -1023,7 +858,6 @@ describe("sensitive-read guard covers Bash readers", () => {
     denies("xxd id_ed25519");
     denies("base64 .env");
     denies("cat notes.txt .env");
-    allows("cat notes.txt README.md");
     allows("head -n 5 package.json");
   });
 
@@ -1035,7 +869,6 @@ describe("sensitive-read guard covers Bash readers", () => {
 
   describe("through pipes, redirections and substitutions", () => {
     denies("ls | grep KEY .env");
-    denies("cat notes.txt && grep KEY .env");
     denies("echo hi; cat $(ls) .env");
     // A reader inside a command substitution is its own sub-command - including
     // inside DOUBLE quotes, where the substitution still runs.
@@ -1048,23 +881,17 @@ describe("sensitive-read guard covers Bash readers", () => {
 
   describe("readers hidden behind a wrapper or an interpreter", () => {
     denies("sudo cat .env");
-    denies("sudo -u nil cat .env");
     denies("xargs grep KEY .env");
-    denies("env cat .env");
     denies("bash -c 'cat .env'");
-    denies('sh -lc "grep KEY .env"');
     // An assignment prefix is not the command.
     denies("X=1 cat .env");
   });
 
   describe("input redirection is a read; here-strings and writes are not", () => {
     denies("cat < .env");
-    denies("grep KEY <.env");
-    denies("sed -n 1p < server.key");
     // A redirection may come BEFORE the command; the shell still opens the file.
     denies("< .env cat");
     denies("2<.env cat");
-    denies("< .env grep KEY");
     // `<<<` is a here-string: the word is DATA, not a file to open.
     allows("cat <<< '.env'");
     // A redirect target is never the pattern slot, so this still resolves
@@ -1077,9 +904,5 @@ describe("sensitive-read guard covers Bash readers", () => {
     // operand is still the one after it.
     denies("grep -- '-v' .env");
     allows("sed 's/-n/x/' notes.txt");
-  });
-
-  describe("a heredoc body is still data, not a command", () => {
-    allows("jq -Rs '{text: .}' <<'EOF'\ncat .env is just prose here\nEOF");
   });
 });

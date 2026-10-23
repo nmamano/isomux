@@ -92,6 +92,8 @@ export function createAppSecrets(deps: AppSecretsDeps) {
     return (name) => names.has(name);
   }
 
+  // The values `app` gets: the office secrets and its owner's secrets whose
+  // grant names this app and its creation time.
   function envFor(app: AppRecord): Record<string, string> {
     const scopes: SecretScope[] = [{ kind: "office" }];
     // A member secret goes only to an app that member owns.
@@ -230,10 +232,6 @@ export function createAppSecrets(deps: AppSecretsDeps) {
   }
 
   return {
-    // The values `app` gets: the office secrets and its owner's secrets
-    // whose grant names this app and its creation time.
-    envFor,
-
     // Converge the files on the store, restart the running apps whose file
     // changed, and prune stale grants; at boot, also regenerate a unit that
     // does not read its file. Never throws: a failure for one app is logged and the others

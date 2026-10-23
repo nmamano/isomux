@@ -3,7 +3,7 @@ import type { AppRecord } from "../shared/types.ts";
 import { appFaviconSvg } from "./app-favicon.ts";
 import { relayToApp, type RelayContext } from "./app-proxy.ts";
 
-export const WIDGET_METADATA_TIMEOUT_MS = 2000;
+const WIDGET_METADATA_TIMEOUT_MS = 2000;
 export const WIDGET_METADATA_MAX_BYTES = 512 * 1024;
 export interface WidgetMetadata {
   title: string;

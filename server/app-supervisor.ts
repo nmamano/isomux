@@ -75,28 +75,28 @@ import type { AppErrorCode, AppState } from "../shared/contract-shapes.ts";
 // 512M rather than a rounder 1G: on a 2G VPS - the common hosted size - a 1G
 // ceiling lets a single broken app take half the box before its cgroup limit
 // does anything, which is the failure the limit exists to prevent.
-export const APP_MEMORY_MAX = "512M";
+const APP_MEMORY_MAX = "512M";
 // The launcher holds agent-authored code, so it is not world-readable.
-export const APP_LAUNCHER_MODE = 0o600;
+const APP_LAUNCHER_MODE = 0o600;
 // The environment file holds the app's token in plaintext (see the token
 // section below), so it gets the same treatment.
-export const APP_TOKEN_ENV_MODE = 0o600;
+const APP_TOKEN_ENV_MODE = 0o600;
 // Created for the directory that holds those two, when isomux creates it.
-export const APP_PRIVATE_DIR_MODE = 0o700;
+const APP_PRIVATE_DIR_MODE = 0o700;
 // The variable an app reads its own isomux token out of.
-export const APP_TOKEN_ENV_VAR = "ISOMUX_APP_TOKEN";
+const APP_TOKEN_ENV_VAR = "ISOMUX_APP_TOKEN";
 // The variable an app reads its own public address out of. Injected ONLY when
 // the office has one, so `if (process.env.ISOMUX_APP_URL)` is a truthful test
 // of "am I reachable at a hostname" - an empty value would answer that
 // question wrongly on every dev box.
-export const APP_URL_ENV_VAR = "ISOMUX_APP_URL";
-export const APP_HOST_ENV_VAR = "ISOMUX_APP_HOST";
-export const APP_LOOPBACK_HOST = "127.0.0.1";
+const APP_URL_ENV_VAR = "ISOMUX_APP_URL";
+const APP_HOST_ENV_VAR = "ISOMUX_APP_HOST";
+const APP_LOOPBACK_HOST = "127.0.0.1";
 const VITE_ALLOWED_HOST_ENV_VAR = "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS";
-export const APP_CPU_QUOTA = "100%";
+const APP_CPU_QUOTA = "100%";
 // Only AUTOMATIC restarts wait; an explicit restart through the API does not.
-export const APP_RESTART_SEC = 2;
-export const APP_STOP_TIMEOUT_SEC = 10;
+const APP_RESTART_SEC = 2;
+const APP_STOP_TIMEOUT_SEC = 10;
 
 // When to stop trying. An app whose command is simply broken must come to REST
 // in `failed`, where its state says so and the restart verb can pick it back
@@ -108,14 +108,14 @@ export const APP_STOP_TIMEOUT_SEC = 10;
 // still looping past 15 restarts instead of giving up. Five attempts in a
 // minute is unambiguous, while a healthy app that crashes once in a while never
 // approaches it.
-export const APP_START_LIMIT_INTERVAL_SEC = 60;
-export const APP_START_LIMIT_BURST = 5;
+const APP_START_LIMIT_INTERVAL_SEC = 60;
+const APP_START_LIMIT_BURST = 5;
 
 // How long a systemd state read stays good. Reads are per-request and the Apps
 // tab will poll, so the alternative is a subprocess per app per render. Short
 // enough that a state change is visible on the next refresh, long enough that a
 // burst of reads costs one `systemctl show`.
-export const APP_STATE_CACHE_MS = 1500;
+const APP_STATE_CACHE_MS = 1500;
 
 export const APP_LOG_LINES_DEFAULT = 100;
 export const APP_LOG_LINES_MAX = 1000;
@@ -351,7 +351,7 @@ export function renderLauncher(app: AppRecord): string {
 // mint time), so it needs none of systemd's quoting rules - which is the point,
 // since a value systemd unquoted differently from what isomux hashed would be a
 // token that silently never works.
-export function renderTokenEnv(raw: string): string {
+function renderTokenEnv(raw: string): string {
   return `${APP_TOKEN_ENV_VAR}=${raw}\n`;
 }
 
@@ -359,7 +359,7 @@ export function renderTokenEnv(raw: string): string {
 // to it by hand (blank lines, other variables, a trailing newline or not) and
 // strict about what it returns: the first well-formed token line, or null -
 // never a partial or empty value dressed up as a token.
-export function parseTokenEnv(contents: string | null): string | null {
+function parseTokenEnv(contents: string | null): string | null {
   if (!contents) return null;
   for (const line of contents.split("\n")) {
     const trimmed = line.trim();
@@ -372,12 +372,12 @@ export function parseTokenEnv(contents: string | null): string | null {
 
 // The one place the token directive's text lives, so the renderer and the check
 // that an installed unit carries it cannot drift apart.
-export const tokenEnvDirective = (tokenEnvPath: string): string =>
+const tokenEnvDirective = (tokenEnvPath: string): string =>
   `EnvironmentFile=-${unitPathValue(tokenEnvPath, "the app's token file path")}`;
 
 // The app's secrets file (task c7007f8b), by reference, optional like the
 // token file. server/app-secrets.ts writes the file; the unit only names it.
-export const secretsEnvDirective = (secretsEnvPath: string): string =>
+const secretsEnvDirective = (secretsEnvPath: string): string =>
   `EnvironmentFile=-${unitPathValue(secretsEnvPath, "the app's secrets file path")}`;
 
 // The one place the URL directive's text lives, for the same reason as the
@@ -410,7 +410,7 @@ export const appHostEnvDirective = (host: string): string =>
 // hand-written unquoted or multi-assignment line still counts - because the
 // safe direction here is to notice an assignment and rewrite the unit
 // canonically, never to miss one and leave a wrong value live.
-export type InstalledAppEnvAssignment =
+type InstalledAppEnvAssignment =
   | { unit: false }
   | { unit: true; assignment: string | null };
 
@@ -442,7 +442,7 @@ export const parseUnitAppHost = (
 ): InstalledAppEnvAssignment =>
   parseUnitEnvAssignment(contents, APP_HOST_ENV_VAR);
 
-export interface UnitRenderOpts {
+interface UnitRenderOpts {
   launcherPath: string;
   path: string;
   unitName: string;
@@ -550,9 +550,7 @@ export const UNKNOWN_RUNTIME: AppRuntime = {
 // separated by a blank line, and the properties inside a block arrive in an
 // ARBITRARY order (measured: NRestarts before Id), so a block is read into a
 // map and identified by its own Id - never by position.
-export function parseShowBlocks(
-  stdout: string,
-): Map<string, Map<string, string>> {
+function parseShowBlocks(stdout: string): Map<string, Map<string, string>> {
   const out = new Map<string, Map<string, string>>();
   for (const block of stdout.split(/\n\s*\n/)) {
     const props = new Map<string, string>();
@@ -591,9 +589,7 @@ export function parseSystemctlShow(stdout: string): Map<string, AppRuntime> {
 // So only two answers count, and both require systemd to have said something
 // explicit: the unit is not there at all, or it is loaded and definitely at
 // rest.
-export function isProvablyNotRunning(
-  props: Map<string, string> | undefined,
-): boolean {
+function isProvablyNotRunning(props: Map<string, string> | undefined): boolean {
   if (!props) return false; // no block for this unit: not an answer
   const load = props.get("LoadState");
   if (load === "not-found") return true;
@@ -702,7 +698,7 @@ export interface AppSupervisor {
   logs(appName: string, lines: number): string[];
 }
 
-export interface AppSupervisorOptions {
+interface AppSupervisorOptions {
   host?: SupervisorHost;
   unitPrefix?: string;
   // Where the runtime running isomux lives, prepended to the app's PATH.

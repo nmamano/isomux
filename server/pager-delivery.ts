@@ -38,7 +38,7 @@ import type { Translator } from "../shared/i18n/translate.ts";
 import type { PagerStore } from "./pager-store.ts";
 import type { PagerMemberSettings } from "./pager-settings.ts";
 
-export const PAGER_SEND_TIMEOUT_MS = 10_000;
+const PAGER_SEND_TIMEOUT_MS = 10_000;
 // The least time between two sends to one member's webhook. Discord allows a
 // few requests per second per webhook; this keeps a catch-up well under it.
 export const PAGER_SEND_SPACING_MS = 2_000;
@@ -122,7 +122,7 @@ function mentions(discordUserId: string | undefined) {
 
 // The text around the title is the member's language; the title, the body
 // and the names are as the source wrote them.
-export function buildPageMessage(
+function buildPageMessage(
   entry: PagerEntry,
   kind: MessageKind,
   ctx: {
@@ -164,7 +164,7 @@ export function buildPageMessage(
   };
 }
 
-export function buildTestMessage(
+function buildTestMessage(
   t: Translator["t"],
   discordUserId?: string,
 ): DiscordMessage {

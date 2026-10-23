@@ -60,39 +60,25 @@ export interface AppUrlReconcileDeps {
 }
 
 export interface AppUrlReconcileReport {
-  checked: number;
   // Apps whose unit now declares the right address (or rightly declares none).
   converged: string[];
   // Of those, the ones that were running and were restarted into it. At most
   // once each: this pass has one opportunity per app and does not retry.
   restarted: string[];
-  // Apps with no unit file at all. Left alone deliberately - creating or
-  // starting a unit is registration's job, and the token pass ahead of this one
-  // is what repairs a missing one.
-  noUnit: string[];
   // Apps this pass could not bring up to date. Their unit still shows the old
   // address, which is what makes the next boot try again.
   failed: string[];
-  // The one unrepairable outcome: the unit was rewritten, the restart failed,
-  // and the previous unit could not be put back. The app is running on an old
-  // environment behind a unit that claims otherwise, and no later boot will
-  // notice.
-  stuck: string[];
 }
 
 export function reconcileAppUrls(
   deps: AppUrlReconcileDeps,
 ): AppUrlReconcileReport {
   const report: AppUrlReconcileReport = {
-    checked: 0,
     converged: [],
     restarted: [],
-    noUnit: [],
     failed: [],
-    stuck: [],
   };
   const apps = deps.list();
-  report.checked = apps.length;
 
   // Pass one: who disagrees, and with what. The previous bytes are kept
   // because they are the only way back if a restart fails.
@@ -110,8 +96,10 @@ export function reconcileAppUrls(
       // Both parses read the SAME file, so `unit` agrees between them by
       // construction - but only the compiler needs telling, since narrowing
       // one union says nothing about the other.
+      // An app with no unit file is left alone deliberately: creating or
+      // starting a unit is registration's job, and the token pass ahead of
+      // this one is what repairs a missing one.
       if (previous === null || !installed.unit || !installedHost.unit) {
-        report.noUnit.push(app.name);
         continue;
       }
       const url = deps.expectedUrl(app);
@@ -206,7 +194,8 @@ export function reconcileAppUrls(
       try {
         deps.restoreUnitFile(app.name, previous);
       } catch (restoreErr) {
-        report.stuck.push(app.name);
+        // The one unrepairable outcome: the app runs on an old environment
+        // behind a unit that claims otherwise.
         console.error(
           `[app-urls] "${app.name}" unit could NOT be put back: it now claims a hostname environment the running app does not have, and no later boot will notice. Restart it to fix:`,
           restoreErr,

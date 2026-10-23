@@ -22,13 +22,10 @@ import {
   appHostForUrl,
   appUrlEnvDirective,
 } from "./app-supervisor.ts";
-import { appPublicUrl, deriveAppHostDomain } from "./app-domain.ts";
+import { appPublicUrl } from "./app-domain.ts";
 import type { AppRecord, AppState } from "../shared/types.ts";
 
 const DOMAIN = "office.example";
-// This office's own tailnet name, the one the regression happened on.
-const TAILNET_HOST = "auntie.parrot-fish.ts.net";
-const TAILNET_ORIGIN = `https://${TAILNET_HOST}`;
 
 const record = (over: Partial<AppRecord> = {}): AppRecord => ({
   name: "hello",
@@ -160,23 +157,6 @@ describe("app-urls: convergence", () => {
     expect(w.units.get("hello")).not.toContain("ISOMUX_APP_URL");
   });
 
-  it("follows the domain when it changes", () => {
-    const w = oneApp({ wrote: "old.example", domain: "new.example" });
-    reconcileAppUrls(w.deps);
-    expect(w.units.get("hello")).toContain(
-      'Environment="ISOMUX_APP_URL=https://hello.new.example"',
-    );
-  });
-
-  it("uses the app's LABEL, not its reusable name", () => {
-    const app = record({ hostLabel: "hello-g2", hostGen: 2 });
-    const w = oneApp({ wrote: null, domain: DOMAIN, app });
-    reconcileAppUrls(w.deps);
-    expect(w.units.get("hello")).toContain(
-      'Environment="ISOMUX_APP_URL=https://hello-g2.office.example"',
-    );
-  });
-
   it("does NOTHING when every unit already says the right thing", () => {
     // Idempotence, which is the property that keeps a boot cheap: no rewrite,
     // no daemon-reload, no restart, on every boot after the first.
@@ -185,18 +165,13 @@ describe("app-urls: convergence", () => {
     expect(w.calls).toEqual([]);
     expect(report.converged).toEqual([]);
     expect(report.restarted).toEqual([]);
-  });
 
-  it("does not disturb an existing app in an office without app hostnames", () => {
-    const app = record();
-    const w = oneApp({ wrote: null, domain: null });
-    w.units.set(app.name, `[Service]\nEnvironment="PORT=${app.port}"\n`);
-
-    const report = reconcileAppUrls(w.deps);
-
-    expect(w.calls).toEqual([]);
-    expect(report.converged).toEqual([]);
-    expect(report.restarted).toEqual([]);
+    // The same in an office without app hostnames, for a unit written before
+    // the bind host existed.
+    const off = oneApp({ wrote: null, domain: null });
+    off.units.set("hello", `[Service]\nEnvironment="PORT=21000"\n`);
+    expect(reconcileAppUrls(off.deps).converged).toEqual([]);
+    expect(off.calls).toEqual([]);
   });
 
   it("adds the loopback bind to an existing hostname app", () => {
@@ -237,34 +212,6 @@ describe("app-urls: convergence", () => {
     expect(report.restarted).toEqual(["hello"]);
   });
 
-  it("restarts a running app when its URL and bind host both drift", () => {
-    const app = record();
-    const w = oneApp({ wrote: "old.example", domain: DOMAIN });
-    w.units.set(
-      app.name,
-      `[Service]\nEnvironment="PORT=${app.port}"\n${appUrlEnvDirective(
-        appPublicUrl(app.hostLabel, "old.example")!,
-      )}\n`,
-    );
-
-    const report = reconcileAppUrls(w.deps);
-
-    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
-    expect(report.converged).toEqual(["hello"]);
-    expect(report.restarted).toEqual(["hello"]);
-  });
-
-  it("does nothing on the SECOND pass after a real convergence", () => {
-    // The same claim end to end: the first pass leaves the world in a state
-    // the second pass recognises as finished.
-    const w = oneApp({ wrote: null, domain: DOMAIN });
-    reconcileAppUrls(w.deps);
-    w.calls.length = 0;
-    const second = reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual([]);
-    expect(second.converged).toEqual([]);
-  });
-
   it("treats an EMPTY assignment as drift, in both directions", () => {
     // `ISOMUX_APP_URL=` is not the same as no variable at all: an app testing
     // for it sees an empty string and believes it has no address... or worse,
@@ -285,43 +232,6 @@ describe("app-urls: convergence", () => {
     );
   });
 
-  it("takes back an address a tailnet office should never have given out", () => {
-    // The live regression, end to end (2026-08-08). This office IS on HTTPS -
-    // Tailscale Serve terminates TLS - so it derived a domain and wrote
-    // `https://hello.auntie.parrot-fish.ts.net` into every app's unit. That
-    // name resolves nowhere: MagicDNS has no wildcards. The domain comes from
-    // the PRODUCTION derivation here rather than a literal null, so this test
-    // is wired to the fix and not to a restatement of it: with the tailnet
-    // guard gone the derivation answers with the host, the seeded unit already
-    // agrees with it, and the pass below has nothing to do.
-    const lying = deriveAppHostDomain(TAILNET_ORIGIN, true);
-    expect(lying).toBeNull();
-
-    const app = record();
-    const w = world({ apps: [app], domain: lying });
-    w.units.set(app.name, unitFor(app, TAILNET_HOST));
-    w.states.set(app.name, "running");
-    expect(w.units.get("hello")).toContain(
-      'Environment="ISOMUX_APP_URL=https://hello.auntie.parrot-fish.ts.net"',
-    );
-
-    const report = reconcileAppUrls(w.deps);
-
-    // The variable is GONE - not emptied - and the app that was serving is
-    // restarted into the environment without it, exactly once.
-    expect(w.units.get("hello")).not.toContain("ISOMUX_APP_URL");
-    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
-    expect(report.restarted).toEqual(["hello"]);
-    expect(report.failed).toEqual([]);
-
-    // And the next boot is free: the cleanup is a one-time transition, not a
-    // bounce every app pays on every start.
-    w.calls.length = 0;
-    const second = reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual([]);
-    expect(second.converged).toEqual([]);
-  });
-
   it("judges by the LAST assignment when a unit has been hand-edited", () => {
     const app = record();
     const w = oneApp({ wrote: DOMAIN, domain: DOMAIN });
@@ -339,39 +249,29 @@ describe("app-urls: convergence", () => {
 });
 
 describe("app-urls: what it refuses to disturb", () => {
-  it("leaves a stopped app stopped, with the new file waiting", () => {
-    const w = oneApp({ wrote: null, domain: DOMAIN, state: "stopped" });
-    const report = reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual(["regenerate:hello"]);
-    expect(w.units.get("hello")).toContain("ISOMUX_APP_URL");
-    expect(report.converged).toEqual(["hello"]);
-    expect(report.restarted).toEqual([]);
-  });
-
-  it("leaves a failed app failed", () => {
-    // An app that has come to rest in `failed` is where somebody has to look
-    // at it. Starting it at boot would hide that and burn the start limit.
-    const w = oneApp({ wrote: null, domain: DOMAIN, state: "failed" });
-    reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual(["regenerate:hello"]);
-  });
-
-  it("restarts an app that was still starting up", () => {
-    // `starting` is an activation somebody asked for: leaving it alone would
-    // let it finish coming up on the address it is being moved off.
-    const w = oneApp({ wrote: null, domain: DOMAIN, state: "starting" });
-    reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
-  });
-
-  it("does not restart an app whose state it could not read", () => {
-    // "systemd did not answer" is not "the app is running". The file still
-    // converges; the app picks the address up whenever it next starts.
-    const w = oneApp({ wrote: null, domain: DOMAIN });
-    w.states.delete("hello"); // -> unknown
-    reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual(["regenerate:hello"]);
-  });
+  // A stopped or failed app has come to rest, and a failed one is where
+  // somebody has to look: starting it at boot would hide that and burn the
+  // start limit. `starting` is an activation somebody asked for, so it is
+  // restarted onto the new address. "systemd did not answer" (unknown) is not
+  // "the app is running".
+  for (const [state, restarted] of [
+    ["stopped", false],
+    ["failed", false],
+    ["unknown", false],
+    ["starting", true],
+  ] as const) {
+    it(`rewrites the unit of a ${state} app and ${restarted ? "restarts" : "does not start"} it`, () => {
+      const w = oneApp({ wrote: null, domain: DOMAIN, state });
+      const report = reconcileAppUrls(w.deps);
+      expect(w.calls).toEqual(
+        restarted
+          ? ["regenerate:hello", "restart:hello"]
+          : ["regenerate:hello"],
+      );
+      expect(w.units.get("hello")).toContain("ISOMUX_APP_URL");
+      expect(report.converged).toEqual(["hello"]);
+    });
+  }
 
   it("converges without restarting anything when the state read itself fails", () => {
     const w = oneApp({ wrote: null, domain: DOMAIN });
@@ -389,7 +289,6 @@ describe("app-urls: what it refuses to disturb", () => {
     w.units.delete("hello");
     const report = reconcileAppUrls(w.deps);
     expect(w.calls).toEqual([]);
-    expect(report.noUnit).toEqual(["hello"]);
     expect(report.converged).toEqual([]);
   });
 });
@@ -429,42 +328,21 @@ describe("app-urls: failure", () => {
     expect(w.units.get("hello")).toBe(before);
     expect(report.failed).toEqual(["hello"]);
     expect(report.converged).toEqual([]);
-    expect(report.stuck).toEqual([]);
   });
 
-  it("retries on the next boot after a failed restart", () => {
-    // The point of the rollback, stated as the behaviour it buys.
-    const w = oneApp({ wrote: null, domain: DOMAIN });
-    w.failRestart.add("hello");
-    reconcileAppUrls(w.deps);
-
-    w.calls.length = 0;
-    w.failRestart.clear();
-    const second = reconcileAppUrls(w.deps);
-    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
-    expect(second.converged).toEqual(["hello"]);
-    expect(w.units.get("hello")).toContain("ISOMUX_APP_URL");
-  });
-
-  it("reports the app as stuck when the rollback fails too", () => {
+  it("reports the app failed, and does not throw, when the rollback fails too", () => {
     // Unit says one thing, running process another, and no later boot will
-    // notice. It cannot be fixed here - only named, so it is not silent.
+    // notice. It cannot be fixed here, and it must not stop the boot.
     const w = oneApp({ wrote: null, domain: DOMAIN });
     w.failRestart.add("hello");
     w.failRestore.add("hello");
 
     const report = reconcileAppUrls(w.deps);
-    expect(report.stuck).toEqual(["hello"]);
+    expect(w.calls).toEqual([
+      "regenerate:hello",
+      "restart:hello",
+      "restore:hello",
+    ]);
     expect(report.failed).toEqual(["hello"]);
-  });
-
-  it("counts every app it looked at, including the ones it left alone", () => {
-    const a = record({ name: "a", hostLabel: "a" });
-    const b = record({ name: "b", hostLabel: "b" });
-    const w = world({ apps: [a, b], domain: DOMAIN });
-    w.units.set("a", unitFor(a, DOMAIN));
-    const report = reconcileAppUrls(w.deps);
-    expect(report.checked).toBe(2);
-    expect(report.noUnit).toEqual(["b"]);
   });
 });

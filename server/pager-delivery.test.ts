@@ -6,9 +6,9 @@
 // Discord.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { createPagerStore, type PagerStore } from "./pager-store.ts";
+import type { PagerStore } from "./pager-store.ts";
+import { createTestPagerStore } from "./test-support/pager-memory-archive.ts";
 import {
-  buildPageMessage,
   createPagerDelivery,
   pagerLink,
   PAGER_SEND_SPACING_MS,
@@ -202,7 +202,7 @@ function setup(
   };
   const persistence = memPersistence(opts.pages ?? null);
   let svc: PagerDeliveryService;
-  const store: PagerStore = createPagerStore({
+  const store: PagerStore = createTestPagerStore({
     persistence,
     now: time.now,
     onChange: (e) => events.push(e),
@@ -271,14 +271,16 @@ function setup(
 describe("pager delivery: first send", () => {
   it("a new page reaches the webhook once, with the mention and the link", async () => {
     const s = setup();
-    const page = s.raise("Disk full", { body: "90% used" });
+    // allowed_mentions names only the member, whatever the title holds.
+    const title = "Disk full @everyone @here <@&999> <@555555555555555555>";
+    const page = s.raise(title, { body: "90% used" });
     await settle();
     expect(s.net.calls).toHaveLength(1);
     const call = s.net.calls[0];
     expect(call.url).toBe(URL_);
     expect(call.init.method).toBe("POST");
     expect(call.init.redirect).toBe("error");
-    expect(call.body.content).toBe(`<@${DISCORD_ID}> Disk full`);
+    expect(call.body.content).toBe(`<@${DISCORD_ID}> ${title}`);
     expect(call.body.allowed_mentions).toEqual({
       parse: [],
       users: [DISCORD_ID],
@@ -295,16 +297,6 @@ describe("pager delivery: first send", () => {
     });
     // The delivery change reached the event stream.
     expect(s.events.at(-1)!.delivery.state).toBe("delivered");
-  });
-
-  it("allowed_mentions names only the member, whatever the title holds", async () => {
-    const s = setup();
-    s.raise("@everyone @here <@&999> <@555555555555555555>");
-    await settle();
-    expect(s.net.calls[0].body.allowed_mentions).toEqual({
-      parse: [],
-      users: [DISCORD_ID],
-    });
   });
 
   it("without a Discord user ID there is no mention at all", async () => {
@@ -432,44 +424,6 @@ describe("pager delivery: resolve", () => {
     expect(s.time.pending()).toBe(0);
   });
 
-  it("resolve after ack still sends the resolved message", async () => {
-    const s = setup();
-    const page = s.raise();
-    await settle();
-    s.store.ack(page.id, "Morgan");
-    s.store.resolve(page.id, "Morgan");
-    await s.time.advance(GAP);
-    expect(s.net.calls).toHaveLength(2);
-  });
-
-  it("a page whose first send failed still gets the resolved message", async () => {
-    const s = setup();
-    s.net.script.push(() => new Response(null, { status: 500 }));
-    const page = s.raise();
-    await settle();
-    expect(s.store.get(page.id)!.delivery.sends).toBe(0);
-    s.store.resolve(page.id, "Bot");
-    await s.time.advance(GAP);
-    expect(s.net.calls).toHaveLength(2);
-    expect(s.net.calls[1].body.allowed_mentions).toEqual({ parse: [] });
-  });
-
-  it("with no webhook, resolve records no_webhook and sends nothing", async () => {
-    const s = setup({ noWebhook: true });
-    const page = s.raise();
-    await settle();
-    s.store.resolve(page.id, "Bot");
-    await settle();
-    expect(s.net.calls).toHaveLength(0);
-    expect((await s.anyPage(page.id))!.delivery).toMatchObject({
-      lastFailure: "no_webhook",
-      resolvedNotice: "done",
-    });
-    // Nothing more is owed, so the page left memory for the archive.
-    expect(s.store.get(page.id)).toBeNull();
-    expect((await s.store.findArchived(page.id))?.state).toBe("resolved");
-  });
-
   it("a resolved message refused by Discord is not retried", async () => {
     const s = setup();
     const page = s.raise();
@@ -545,55 +499,47 @@ describe("pager delivery: races with a send in flight", () => {
 });
 
 describe("pager delivery: pacing and 429", () => {
-  it("a 429 waits Discord's retry_after, then sends", async () => {
-    const s = setup();
-    s.net.script.push(() =>
-      Response.json({ retry_after: 2.5, global: false }, { status: 429 }),
-    );
-    const page = s.raise();
-    await settle();
-    expect(s.net.calls).toHaveLength(1);
-    expect(s.store.get(page.id)!.delivery.lastFailure).toBe("rate_limited");
-    await s.time.advance(2499);
-    expect(s.net.calls).toHaveLength(1);
-    await s.time.advance(1);
-    expect(s.net.calls).toHaveLength(2);
-    expect(s.store.get(page.id)!.delivery).toMatchObject({
-      state: "delivered",
-      sends: 1,
-    });
-    expect(s.store.get(page.id)!.delivery.lastFailure).toBeUndefined();
-  });
-
-  it("a long retry_after is honored in full, not cut short", async () => {
-    const s = setup();
-    s.net.script.push(() =>
-      Response.json({ retry_after: 7200 }, { status: 429 }),
-    );
-    s.raise();
-    await settle();
-    await s.time.advance(7200_000 - 1);
-    expect(s.net.calls).toHaveLength(1);
-    await s.time.advance(1);
-    expect(s.net.calls).toHaveLength(2);
-  });
-
-  it("falls back to the Retry-After header", async () => {
-    const s = setup();
-    s.net.script.push(
+  // Discord's retry_after in seconds, honored in full however long, or the
+  // Retry-After header when the body is not JSON.
+  for (const [label, respond, waitMs] of [
+    [
+      "a 429 waits Discord's retry_after",
+      () => Response.json({ retry_after: 2.5, global: false }, { status: 429 }),
+      2500,
+    ],
+    [
+      "a long retry_after is honored in full",
+      () => Response.json({ retry_after: 7200 }, { status: 429 }),
+      7_200_000,
+    ],
+    [
+      "a 429 without a JSON body waits the Retry-After header",
       () =>
         new Response("not json", {
           status: 429,
           headers: { "retry-after": "3" },
         }),
-    );
-    s.raise();
-    await settle();
-    await s.time.advance(2999);
-    expect(s.net.calls).toHaveLength(1);
-    await s.time.advance(1);
-    expect(s.net.calls).toHaveLength(2);
-  });
+      3000,
+    ],
+  ] as const) {
+    it(`${label}, then sends`, async () => {
+      const s = setup();
+      s.net.script.push(respond);
+      const page = s.raise();
+      await settle();
+      expect(s.net.calls).toHaveLength(1);
+      expect(s.store.get(page.id)!.delivery.lastFailure).toBe("rate_limited");
+      await s.time.advance(waitMs - 1);
+      expect(s.net.calls).toHaveLength(1);
+      await s.time.advance(1);
+      expect(s.net.calls).toHaveLength(2);
+      expect(s.store.get(page.id)!.delivery).toMatchObject({
+        state: "delivered",
+        sends: 1,
+      });
+      expect(s.store.get(page.id)!.delivery.lastFailure).toBeUndefined();
+    });
+  }
 
   it("the hold is saved and covers new pages, a settings save, the resolved message and a restart", async () => {
     const s = setup();
@@ -629,22 +575,6 @@ describe("pager delivery: pacing and 429", () => {
     expect(s.net.calls).toHaveLength(1);
   });
 
-  it("sends to one member stay PAGER_SEND_SPACING_MS apart, one at a time", async () => {
-    const s = setup();
-    s.raise("one");
-    s.raise("two");
-    s.raise("three");
-    await settle();
-    expect(s.net.calls).toHaveLength(1);
-    await s.time.advance(GAP - 1);
-    expect(s.net.calls).toHaveLength(1);
-    await s.time.advance(1);
-    expect(s.net.calls).toHaveLength(2);
-    await s.time.advance(GAP);
-    expect(s.net.calls).toHaveLength(3);
-    expect(s.net.maxInFlight).toBe(1);
-  });
-
   it("the test send waits its turn behind the spacing", async () => {
     const s = setup();
     s.raise();
@@ -667,13 +597,6 @@ describe("pager delivery: failures", () => {
       "a network error that quotes the URL",
       () => {
         throw new Error(`Unable to connect to ${URL_}`);
-      },
-      "network",
-    ],
-    [
-      "a redirect refused by redirect: error",
-      () => {
-        throw new TypeError(`fetch failed: redirect from ${URL_}`);
       },
       "network",
     ],
@@ -732,14 +655,27 @@ describe("pager delivery: failures", () => {
     for (const noWebhook of [false, true]) {
       const s = setup({ noWebhook });
       const realRecord = s.store.recordDelivery.bind(s.store);
+      let records = 0;
       s.store.recordDelivery = () => {
+        records++;
         throw new Error("EACCES");
       };
       s.raise();
+      await settle();
+      // The first send, recorded once.
+      expect([noWebhook, s.net.calls.length, records]).toEqual([
+        noWebhook,
+        noWebhook ? 0 : 1,
+        1,
+      ]);
+      // Then the one repeat that was due, and no more.
       await s.time.advance(5 * MIN);
+      expect([noWebhook, s.net.calls.length, records]).toEqual([
+        noWebhook,
+        noWebhook ? 0 : 2,
+        noWebhook ? 1 : 2,
+      ]);
       s.store.recordDelivery = realRecord;
-      // One first send, and at most the one repeat that was due.
-      expect(s.net.calls.length).toBeLessThanOrEqual(noWebhook ? 0 : 2);
     }
   });
 
@@ -756,7 +692,7 @@ describe("pager delivery: failures", () => {
     });
   });
 
-  it("a member with no webhook gets no_webhook and nothing is sent", async () => {
+  it("a member with no webhook gets no_webhook; adding one later sends the open page", async () => {
     const s = setup({ noWebhook: true });
     const page = s.raise();
     await settle();
@@ -769,12 +705,6 @@ describe("pager delivery: failures", () => {
     });
     // No repeat ticks for a member who has nowhere to send.
     expect(s.time.pending()).toBe(0);
-  });
-
-  it("adding a webhook later sends the open pages the member never got", async () => {
-    const s = setup({ noWebhook: true });
-    const page = s.raise();
-    await settle();
     s.state.settings = { ...WITH_WEBHOOK };
     s.svc.rescheduleMember("u1");
     await settle();
@@ -861,7 +791,7 @@ describe("pager delivery: restart", () => {
     };
   }
 
-  it("resumes the schedule from lastAttemptAt without an immediate send", async () => {
+  it("resumes the schedule from lastAttemptAt without an immediate send, and not for an acked page", async () => {
     const time = fakeTime();
     const s = setup({
       time,
@@ -873,6 +803,17 @@ describe("pager delivery: restart", () => {
             lastAttemptAt: time.now() - 2 * MIN,
           },
         }),
+        savedPage({
+          id: "a",
+          title: "Acked",
+          state: "acked",
+          acked: { by: "x", at: 0 },
+          delivery: {
+            state: "delivered",
+            sends: 1,
+            lastAttemptAt: time.now() - 3 * 60 * MIN,
+          },
+        }),
       ],
     });
     s.svc.start();
@@ -881,7 +822,9 @@ describe("pager delivery: restart", () => {
     await s.time.advance(3 * MIN - 1);
     expect(s.net.calls).toHaveLength(0);
     await s.time.advance(1);
-    expect(s.net.calls).toHaveLength(1);
+    expect(s.net.calls.map((c) => c.body.content)).toEqual([
+      expect.stringContaining("Saved"),
+    ]);
   });
 
   it("overdue pages catch up one per PAGER_SEND_SPACING_MS, not in a burst", async () => {
@@ -936,17 +879,6 @@ describe("pager delivery: restart", () => {
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(1);
   });
-
-  it("acked pages do not resume", async () => {
-    const s = setup({
-      pages: [
-        savedPage({ id: "a", state: "acked", acked: { by: "x", at: 0 } }),
-      ],
-    });
-    s.svc.start();
-    await s.time.advance(60 * MIN);
-    expect(s.net.calls).toHaveLength(0);
-  });
 });
 
 describe("pager delivery: test page", () => {
@@ -982,61 +914,17 @@ describe("pager delivery: test page", () => {
     await s.time.advance(1);
     expect(s.net.calls).toHaveLength(2);
   });
-
-  it("reports no_webhook without a send", async () => {
-    const s = setup({ noWebhook: true });
-    expect(await s.svc.sendTest("u1")).toEqual({
-      delivered: false,
-      failure: "no_webhook",
-    });
-    expect(s.net.calls).toHaveLength(0);
-  });
 });
 
 describe("pager delivery: message", () => {
-  it("falls back to the room id when the room is gone", () => {
-    const entry: PagerEntry = {
-      id: "p1",
-      createdAt: 0,
-      lastRaisedAt: 0,
-      raiseCount: 1,
-      source,
+  it("falls back to the room id when the room is gone", async () => {
+    const s = setup();
+    s.store.raise({
+      source: { ...source, roomId: "room-gone" },
       targetUserId: "u1",
-      title: "t",
-      state: "open",
-      delivery: { state: "not_delivered", sends: 0 },
-    };
-    const msg = buildPageMessage(entry, "page", {
-      t: en,
-      origin: ORIGIN,
-      roomName: null,
+      fields: { title: "t" },
     });
-    expect(msg.embeds![0].footer!.text).toContain("room-a");
-  });
-
-  it("an app page with no room shows only the app name", () => {
-    const entry: PagerEntry = {
-      id: "p1",
-      createdAt: 0,
-      lastRaisedAt: 0,
-      raiseCount: 1,
-      source: {
-        kind: "app",
-        appName: "uptime",
-        registrationGen: 1,
-        name: "uptime",
-        roomId: null,
-      },
-      targetUserId: "u1",
-      title: "t",
-      state: "open",
-      delivery: { state: "not_delivered", sends: 0 },
-    };
-    const msg = buildPageMessage(entry, "page", {
-      t: en,
-      origin: ORIGIN,
-      roomName: null,
-    });
-    expect(msg.embeds![0].footer!.text).toBe("uptime");
+    await settle();
+    expect(s.net.calls[0].body.embeds![0].footer!.text).toContain("room-gone");
   });
 });

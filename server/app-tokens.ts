@@ -48,17 +48,9 @@ const TOKEN_BYTES = 32;
 
 // The store holds hashes, not secrets - but it is a credential file by
 // association and there is no reason for anything else on the box to read it.
-export const APP_TOKEN_FILE_MODE = 0o600;
+const APP_TOKEN_FILE_MODE = 0o600;
 // The directory holds this file next to the app registry's own state.
-export const APP_TOKEN_DIR_MODE = 0o700;
-
-// base64url's alphabet, and the reason it is asserted rather than assumed: the
-// plaintext is written into a systemd EnvironmentFile as a bare `KEY=value`
-// line, where quoting rules would apply to spaces, quotes and backslashes. A
-// token that needed quoting would be a token systemd read back differently from
-// the one isomux hashed, so a value outside this alphabet is refused rather
-// than written.
-export const APP_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/;
+const APP_TOKEN_DIR_MODE = 0o700;
 
 export class AppTokenError extends Error {
   constructor(message: string) {
@@ -126,8 +118,6 @@ export interface AppTokenStoreOptions {
   // Defaults to STATE_ROOT/apps, beside the registry's own state.
   dir?: string;
   now?: () => number;
-  // Test seam: the raw-token generator.
-  mintRaw?: () => string;
 }
 
 export function createAppTokenStore(
@@ -136,8 +126,6 @@ export function createAppTokenStore(
   const dir = resolve(options.dir ?? join(STATE_ROOT, "apps"));
   const file = join(dir, "app-tokens.json");
   const now = options.now ?? (() => Date.now());
-  const mintRaw =
-    options.mintRaw ?? (() => randomBytes(TOKEN_BYTES).toString("base64url"));
 
   // Read + validate the whole file. A MISSING file is an empty store (no app
   // has a token yet); anything present but unreadable or malformed THROWS, and
@@ -193,15 +181,10 @@ export function createAppTokenStore(
   return {
     mint(appName, userId) {
       const contents = load(); // throws on corruption: never clobber
-      const raw = mintRaw();
-      if (!APP_TOKEN_PATTERN.test(raw)) {
-        // A generator that produced something needing env-file quoting. Refused
-        // here rather than written, so what systemd reads back and what isomux
-        // hashed can never disagree.
-        throw new AppTokenError(
-          "generated app token contains characters that cannot be written to an environment file",
-        );
-      }
+      // base64url: the plaintext goes into a systemd EnvironmentFile as a bare
+      // `KEY=value` line, where a character that needed quoting would be read
+      // back as a different token from the one hashed here.
+      const raw = randomBytes(TOKEN_BYTES).toString("base64url");
       contents[appName] = { hash: hashOf(raw), userId, mintedAt: now() };
       save(contents);
       return raw;

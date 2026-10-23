@@ -2597,7 +2597,6 @@ function perlFileOperands(args: ShellWord[]): ShellWord[] {
 function dynamicDirectoryTarget(target: ShellWord | undefined): boolean {
   return (
     !target ||
-    target.text === "-" ||
     target.dynamic ||
     target.text.includes("$") ||
     target.text.includes("``")

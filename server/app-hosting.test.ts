@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-  APPS_NOT_SUPPORTED_MESSAGE,
   appHostingUnsupportedReason,
   createUnavailableAppSupervisor,
 } from "./app-hosting.ts";
@@ -12,16 +11,9 @@ import {
 import type { AppRecord } from "../shared/types.ts";
 
 const record = { name: "hello" } as AppRecord;
+const unsupported = appHostingUnsupportedReason("darwin")!;
 
 describe("app hosting on a host without systemd", () => {
-  it("is off everywhere but Linux", () => {
-    expect(appHostingUnsupportedReason("linux")).toBeNull();
-    for (const platform of ["darwin", "win32", "freebsd"] as const)
-      expect(appHostingUnsupportedReason(platform)).toBe(
-        APPS_NOT_SUPPORTED_MESSAGE,
-      );
-  });
-
   it("reports nothing installed or running and refuses to run anything", () => {
     const supervisor = createUnavailableAppSupervisor();
     expect(supervisor.states(["hello"]).size).toBe(0);
@@ -55,13 +47,13 @@ describe("app hosting on a host without systemd", () => {
 
   it("points agents at the apps topic only where apps can run", () => {
     expect(appHostingSection(null)).toContain("`apps`");
-    const off = appHostingSection(APPS_NOT_SUPPORTED_MESSAGE);
-    expect(off).toContain(APPS_NOT_SUPPORTED_MESSAGE);
+    const off = appHostingSection(unsupported);
+    expect(off).toContain(unsupported);
     expect(off).not.toContain("`apps`");
   });
 
   it("points the Claude caveat at the app section only where apps can run", () => {
     expect(appHostingClaudeCaveatTail(null)).not.toBe("");
-    expect(appHostingClaudeCaveatTail(APPS_NOT_SUPPORTED_MESSAGE)).toBe("");
+    expect(appHostingClaudeCaveatTail(unsupported)).toBe("");
   });
 });

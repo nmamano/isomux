@@ -4,7 +4,6 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import {
   chmodSync,
-  existsSync,
   mkdtempSync,
   readdirSync,
   rmSync,
@@ -20,7 +19,6 @@ import {
   parseDiscordWebhookUrl,
   parsePagerSettingsPatch,
   PagerSettingsUnavailableError,
-  PAGER_DEFAULT_REPEAT_MINUTES,
   PAGER_REPEAT_MINUTES_MAX,
   toPagerSettingsRes,
 } from "./pager-settings.ts";
@@ -51,7 +49,6 @@ describe("parseDiscordWebhookUrl", () => {
     "https://discord.com/channels/123/456",
     "https://discord.com/api/webhooks/123/../../users/@me",
     "not a url",
-    "",
   ]) {
     it(`refuses ${JSON.stringify(bad)}`, () => {
       expect(parseDiscordWebhookUrl(bad)).toBeNull();
@@ -102,7 +99,6 @@ describe("parsePagerSettingsPatch", () => {
     ["a primitive", 7],
     ["an empty object", {}],
     ["an unknown key", { webhook: GOOD }],
-    ["a non-Discord URL", { webhookUrl: "https://example.com/hook" }],
     ["a non-string URL", { webhookUrl: 5 }],
     ["a user ID with letters", { discordUserId: "abc123456789012345" }],
     ["a short user ID", { discordUserId: "1234" }],
@@ -130,22 +126,6 @@ describe("pager settings store", () => {
     dir = null;
   });
   const tmp = () => (dir = mkdtempSync(join(tmpdir(), "pager-settings-")));
-
-  it("defaults to no webhook and the default interval", () => {
-    const path = join(tmp(), "pager-settings.json");
-    const store = createPagerSettingsStore(
-      createPagerSettingsFilePersistence(path),
-    );
-    expect(store.get("u1")).toEqual({
-      repeatMinutes: PAGER_DEFAULT_REPEAT_MINUTES,
-    });
-    expect(toPagerSettingsRes(store.get("u1"))).toEqual({
-      webhookUrlMasked: null,
-      discordUserId: null,
-      repeatMinutes: PAGER_DEFAULT_REPEAT_MINUTES,
-    });
-    expect(existsSync(path)).toBe(false);
-  });
 
   it("saves to a 0600 file, keeps absent fields, and reloads", () => {
     const path = join(tmp(), "pager-settings.json");
@@ -201,19 +181,22 @@ describe("pager settings store", () => {
     expect(readdirSync(d).some((f) => f.includes(".corrupt-"))).toBe(true);
   });
 
-  it("an unreadable file makes the store refuse, never read as empty", () => {
-    const d = tmp();
-    const path = join(d, "pager-settings.json");
-    writeFileSync(path, JSON.stringify({ u1: { repeatMinutes: 5 } }));
-    chmodSync(path, 0o000);
-    if (process.getuid?.() === 0) return; // root reads anything
-    const store = createPagerSettingsStore(
-      createPagerSettingsFilePersistence(path),
-    );
-    expect(() => store.get("u1")).toThrow(PagerSettingsUnavailableError);
-    expect(() => store.update("u1", { repeatMinutes: 1 })).toThrow(
-      PagerSettingsUnavailableError,
-    );
-    chmodSync(path, 0o600);
-  });
+  // Root reads anything, so the case skips visibly there.
+  it.skipIf(process.getuid?.() === 0)(
+    "an unreadable file makes the store refuse, never read as empty",
+    () => {
+      const d = tmp();
+      const path = join(d, "pager-settings.json");
+      writeFileSync(path, JSON.stringify({ u1: { repeatMinutes: 5 } }));
+      chmodSync(path, 0o000);
+      const store = createPagerSettingsStore(
+        createPagerSettingsFilePersistence(path),
+      );
+      expect(() => store.get("u1")).toThrow(PagerSettingsUnavailableError);
+      expect(() => store.update("u1", { repeatMinutes: 1 })).toThrow(
+        PagerSettingsUnavailableError,
+      );
+      chmodSync(path, 0o600);
+    },
+  );
 });

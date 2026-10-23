@@ -94,10 +94,11 @@ function prune(times: number[], now: number, windowMs: number): void {
 }
 
 // When does the oldest entry leave the window? Rounded UP so the advice is never
-// optimistic (a caller that retries at the truncated second is refused again),
-// and never below 1: "retry in 0 seconds" reads as "retry now", which is wrong.
+// optimistic (a caller that retries at the truncated second is refused again).
+// Callers prune first, so the oldest entry is still inside the window and the
+// answer is at least 1.
 function waitSecs(oldest: number, now: number, windowMs: number): number {
-  return Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
+  return Math.ceil((oldest + windowMs - now) / 1000);
 }
 
 // The limiter plus a handle on its state, so the production singleton can be

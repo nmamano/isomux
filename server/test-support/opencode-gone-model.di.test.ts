@@ -15,7 +15,8 @@ import {
   type RoomWire,
 } from "../../shared/types.ts";
 import { createAgentManager } from "../agent-manager.ts";
-import { createPagerStore, type PagerPersistence } from "../pager-store.ts";
+import type { PagerPersistence } from "../pager-store.ts";
+import { createTestPagerStore } from "./pager-memory-archive.ts";
 import type { AgentEvent } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 
@@ -35,7 +36,7 @@ function pagerStore() {
     quarantine: () => true,
   };
   const raised: Array<"created" | "reraised"> = [];
-  const store = createPagerStore({
+  const store = createTestPagerStore({
     persistence,
     onRaised: (_entry, kind) => {
       raised.push(kind);

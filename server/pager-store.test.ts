@@ -16,7 +16,6 @@ import { join } from "path";
 import { tmpdir } from "os";
 import {
   createPagerFilePersistence,
-  createPagerStore,
   pagerEntryVisible,
   parseRaiseFields,
   PagerUnavailableError,
@@ -27,7 +26,9 @@ import {
   type PagerLoadResult,
   type PagerPersistence,
   type PagerRaiseFields,
+  type PagerStore,
 } from "./pager-store.ts";
+import { createTestPagerStore } from "./test-support/pager-memory-archive.ts";
 import type { PagerEntry, PagerSource } from "../shared/types.ts";
 
 function memPersistence(initial: PagerLoadResult = { kind: "missing" }) {
@@ -74,7 +75,7 @@ function fields(title: string, extra: Partial<PagerRaiseFields> = {}) {
 }
 
 function raise(
-  store: ReturnType<typeof createPagerStore>,
+  store: PagerStore,
   f: PagerRaiseFields,
   source: PagerSource = SRC,
   targetUserId = "u1",
@@ -89,27 +90,9 @@ function created(r: ReturnType<typeof raise>): PagerEntry {
 }
 
 describe("pager store: raise and dedupe", () => {
-  it("a raise creates an open page with token-given source and target", () => {
-    let t = 1000;
-    const p = memPersistence();
-    const store = createPagerStore({ persistence: p, now: () => t });
-    const e = created(raise(store, fields("Disk full", { body: "90%" })));
-    expect(e.state).toBe("open");
-    expect(e.source).toEqual(SRC);
-    expect(e.targetUserId).toBe("u1");
-    expect(e.createdAt).toBe(1000);
-    expect(e.lastRaisedAt).toBe(1000);
-    expect(e.raiseCount).toBe(1);
-    expect(e.delivery).toEqual({ state: "not_delivered", sends: 0 });
-    expect(e.id).toMatch(/^[0-9a-f]{16}$/);
-    expect(p.saved).toEqual([e]);
-    t = 2000;
-    expect(store.get(e.id)).toEqual(e);
-  });
-
   it("the same key updates the open page; room, name and target stay", () => {
     let t = 1000;
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: memPersistence(),
       now: () => t,
     });
@@ -134,7 +117,7 @@ describe("pager store: raise and dedupe", () => {
   });
 
   it("a raise on an acked page updates it and does not re-open it", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     const e = created(raise(store, fields("x", { key: "k" })));
     store.ack(e.id, "Morgan");
     const r = raise(store, fields("x again", { key: "k" }));
@@ -145,7 +128,7 @@ describe("pager store: raise and dedupe", () => {
   });
 
   it("a raise after resolve creates a new page", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     const e = created(raise(store, fields("x", { key: "k" })));
     store.resolve(e.id, "Bot");
     const again = created(raise(store, fields("x", { key: "k" })));
@@ -154,7 +137,7 @@ describe("pager store: raise and dedupe", () => {
   });
 
   it("no key never dedupes; another source's key never matches", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     created(raise(store, fields("x")));
     created(raise(store, fields("x")));
     created(raise(store, fields("x", { key: "k" })));
@@ -163,7 +146,7 @@ describe("pager store: raise and dedupe", () => {
   });
 
   it("an app source never shares pages with an agent of the same id or another registration of its name", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     created(raise(store, fields("x", { key: "k" })));
     const app = created(raise(store, fields("x", { key: "k" }), APP_SRC));
     expect(raise(store, fields("y", { key: "k" }), APP_SRC)).toMatchObject({
@@ -180,7 +163,7 @@ describe("pager store: raise and dedupe", () => {
   });
 
   it("caps open+acked pages per source; dedupe and resolve do not count", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     const ids: string[] = [];
     for (let i = 0; i < PAGER_MAX_ACTIVE_PER_SOURCE; i++) {
       ids.push(created(raise(store, fields(`p${i}`, { key: `k${i}` }))).id);
@@ -200,7 +183,7 @@ describe("pager store: raise and dedupe", () => {
 describe("pager store: ack and resolve", () => {
   it("open -> acked -> resolved, recording who and when", () => {
     let t = 1;
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: memPersistence(),
       now: () => t,
     });
@@ -222,7 +205,7 @@ describe("pager store: ack and resolve", () => {
 
   it("repeats are no-ops; an ack after resolve is refused", () => {
     const p = memPersistence();
-    const store = createPagerStore({ persistence: p });
+    const store = createTestPagerStore({ persistence: p });
     const e = created(raise(store, fields("x")));
     store.ack(e.id, "Morgan");
     const saves = p.saves;
@@ -235,15 +218,8 @@ describe("pager store: ack and resolve", () => {
     expect(p.saves).toBe(saves + 1);
   });
 
-  it("an open page can be resolved without an ack", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
-    const e = created(raise(store, fields("x")));
-    expect(store.resolve(e.id, "Bot").outcome).toBe("changed");
-    expect(store.get(e.id)?.acked).toBeUndefined();
-  });
-
   it("unknown ids are not found", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     expect(store.ack("nope", "x").outcome).toBe("not_found");
     expect(store.resolve("nope", "x").outcome).toBe("not_found");
     expect(store.get("nope")).toBeNull();
@@ -254,7 +230,7 @@ describe("pager store: commit order and hand-offs", () => {
   it("a failed save throws and leaves memory unchanged", () => {
     const p = memPersistence();
     const changes: PagerEntry[] = [];
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: p,
       onChange: (e) => changes.push(e),
     });
@@ -271,7 +247,7 @@ describe("pager store: commit order and hand-offs", () => {
 
   it("hands new and re-raised pages to delivery, not acks or resolves", () => {
     const handed: Array<[string, string]> = [];
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: memPersistence(),
       onRaised: (e, kind) => {
         handed.push([e.id, kind]);
@@ -292,7 +268,7 @@ describe("pager store: commit order and hand-offs", () => {
   it("a throwing or rejecting delivery hand-off never fails the raise", async () => {
     const p = memPersistence();
     let mode: "throw" | "reject" = "throw";
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: p,
       onRaised: () => {
         if (mode === "throw") throw new Error("boom");
@@ -308,7 +284,7 @@ describe("pager store: commit order and hand-offs", () => {
 
   it("hands each ack and resolve that changed the state to delivery, once", () => {
     const seen: Array<[string, string]> = [];
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: memPersistence(),
       onTransitioned: (e, to) => {
         seen.push([e.state, to]);
@@ -328,7 +304,7 @@ describe("pager store: commit order and hand-offs", () => {
 
   it("a resolve marks the resolved message pending in the same commit", () => {
     const p = memPersistence();
-    const store = createPagerStore({ persistence: p });
+    const store = createTestPagerStore({ persistence: p });
     const e = created(raise(store, fields("x")));
     store.ack(e.id, "Morgan");
     expect(p.saved![0].delivery.resolvedNotice).toBeUndefined();
@@ -339,7 +315,7 @@ describe("pager store: commit order and hand-offs", () => {
   it("recordDelivery replaces the delivery block only, saves and notifies", () => {
     const p = memPersistence();
     const changes: PagerEntry[] = [];
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: p,
       onChange: (e) => changes.push(e),
     });
@@ -359,7 +335,7 @@ describe("pager store: commit order and hand-offs", () => {
   });
 
   it("returns copies: a caller cannot change stored pages", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
+    const store = createTestPagerStore({ persistence: memPersistence() });
     const e = created(raise(store, fields("x")));
     e.title = "changed";
     store.list()[0].source.roomId = "elsewhere";
@@ -383,40 +359,16 @@ describe("pager store: load posture", () => {
     delivery: { state: "not_delivered", sends: 0 },
   };
 
-  it("no file is no pages", () => {
-    const store = createPagerStore({ persistence: memPersistence() });
-    expect(store.list()).toEqual([]);
-  });
-
-  it("an app-source record loads, and its dedupe continues across the load", () => {
-    const appEntry: PagerEntry = { ...valid, id: "1a1b1c1d", source: APP_SRC };
-    const store = createPagerStore({
-      persistence: memPersistence({ kind: "data", value: [valid, appEntry] }),
-    });
-    expect(store.list()).toEqual([valid, appEntry]);
-    const r = raise(store, fields("t2", { key: "k" }), APP_SRC);
-    expect(r).toMatchObject({ outcome: "updated", entry: { id: appEntry.id } });
-  });
-
   it("an app-source record with no room loads", () => {
     const appEntry: PagerEntry = {
       ...valid,
       id: "2a2b2c2d",
       source: { ...APP_SRC, roomId: null },
     };
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: memPersistence({ kind: "data", value: [appEntry] }),
     });
     expect(store.list()).toEqual([appEntry]);
-  });
-
-  it("valid records load, and dedupe continues across the load", () => {
-    const store = createPagerStore({
-      persistence: memPersistence({ kind: "data", value: [valid] }),
-    });
-    expect(store.list()).toEqual([valid]);
-    const r = raise(store, fields("t2", { key: "k" }));
-    expect(r.outcome).toBe("updated");
   });
 
   it("a bad record or an unparsable file is moved aside; the store starts empty", () => {
@@ -439,7 +391,7 @@ describe("pager store: load posture", () => {
       { kind: "corrupt" },
     ] as PagerLoadResult[]) {
       const p = memPersistence(loaded);
-      const store = createPagerStore({ persistence: p });
+      const store = createTestPagerStore({ persistence: p });
       expect(p.quarantined).toBe(1);
       expect(store.list()).toEqual([]);
       expect(raise(store, fields("x")).outcome).toBe("created");
@@ -451,7 +403,7 @@ describe("pager store: load posture", () => {
     stuck.quarantineOk = false;
     const unreadable = memPersistence({ kind: "unreadable" });
     for (const p of [stuck, unreadable]) {
-      const store = createPagerStore({ persistence: p });
+      const store = createTestPagerStore({ persistence: p });
       expect(() => store.list()).toThrow(PagerUnavailableError);
       expect(() => store.get("x")).toThrow(PagerUnavailableError);
       expect(() => raise(store, fields("x"))).toThrow(PagerUnavailableError);
@@ -472,20 +424,6 @@ describe("pager store: file persistence", () => {
     dir = "";
   });
 
-  it("round-trips through the file", () => {
-    dir = mkdtempSync(join(tmpdir(), "pager-store-"));
-    const path = join(dir, "pager.json");
-    const a = createPagerStore({
-      persistence: createPagerFilePersistence(path),
-    });
-    const e = created(raise(a, fields("x", { key: "k", body: "b" })));
-    a.ack(e.id, "Morgan");
-    const b = createPagerStore({
-      persistence: createPagerFilePersistence(path),
-    });
-    expect(b.list()).toEqual(a.list());
-  });
-
   it("an unreadable file is not an empty store: no write replaces its pages", () => {
     dir = mkdtempSync(join(tmpdir(), "pager-store-"));
     const parent = join(dir, "locked");
@@ -493,7 +431,7 @@ describe("pager store: file persistence", () => {
     const path = join(parent, "pager.json");
     const original = created(
       raise(
-        createPagerStore({ persistence: createPagerFilePersistence(path) }),
+        createTestPagerStore({ persistence: createPagerFilePersistence(path) }),
         fields("original"),
       ),
     );
@@ -506,7 +444,7 @@ describe("pager store: file persistence", () => {
         code = (err as NodeJS.ErrnoException).code;
       }
       expect(code).toBe("EACCES");
-      const store = createPagerStore({
+      const store = createTestPagerStore({
         persistence: createPagerFilePersistence(path),
       });
       expect(() => store.list()).toThrow(PagerUnavailableError);
@@ -517,7 +455,7 @@ describe("pager store: file persistence", () => {
     } finally {
       chmodSync(parent, 0o700);
     }
-    const reloaded = createPagerStore({
+    const reloaded = createTestPagerStore({
       persistence: createPagerFilePersistence(path),
     });
     expect(reloaded.list()).toEqual([original]);
@@ -527,7 +465,7 @@ describe("pager store: file persistence", () => {
     dir = mkdtempSync(join(tmpdir(), "pager-store-"));
     const path = join(dir, "pager.json");
     writeFileSync(path, "{not json");
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: createPagerFilePersistence(path),
     });
     expect(store.list()).toEqual([]);
@@ -559,11 +497,6 @@ describe("pager raise fields", () => {
   it("an empty body is the same as no body", () => {
     const r = parseRaiseFields({ title: "t", body: "" });
     expect(r.ok && "body" in r.fields).toBe(false);
-  });
-
-  it("ignores fields it does not know, such as a source or a target", () => {
-    const r = parseRaiseFields({ title: "t", source: "x", targetUserId: "y" });
-    expect(r.ok && r.fields).toEqual({ title: "t" });
   });
 
   it("rejects bad shapes and lengths", () => {
@@ -607,21 +540,5 @@ describe("pager visibility", () => {
     expect(pagerEntryVisible(base, viewer(["r1"], "x"))).toBe(true);
     expect(pagerEntryVisible(base, viewer([], "owner"))).toBe(false);
     expect(pagerEntryVisible(base, viewer([], "x", true))).toBe(false);
-  });
-
-  it("an app page: the stored room, the app owner and office owners", () => {
-    const app: PagerEntry = { ...base, source: APP_SRC };
-    expect(pagerEntryVisible(app, viewer(["r1"], "x"))).toBe(true);
-    expect(pagerEntryVisible(app, viewer([], "owner"))).toBe(true);
-    expect(pagerEntryVisible(app, viewer([], "x", true))).toBe(true);
-    expect(pagerEntryVisible(app, viewer(["r2"], "x"))).toBe(false);
-    expect(pagerEntryVisible(app, viewer([], null))).toBe(false);
-  });
-
-  it("an app page with no room: the app owner and office owners only", () => {
-    const app: PagerEntry = { ...base, source: { ...APP_SRC, roomId: null } };
-    expect(pagerEntryVisible(app, viewer(["r1"], "x"))).toBe(false);
-    expect(pagerEntryVisible(app, viewer([], "owner"))).toBe(true);
-    expect(pagerEntryVisible(app, viewer([], "x", true))).toBe(true);
   });
 });

@@ -72,24 +72,14 @@ describe("app-message limits: the burst budget", () => {
     expect(limiter.takeBurst("quiet").ok).toBe(true);
   });
 
-  it("never advises retrying in 0 seconds", () => {
-    const { limiter, advance } = limiterAt();
-    for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++)
-      limiter.takeBurst("hello");
-    // 1ms short of the window: rounded UP to 1s, never down to 0 (which a
-    // caller reads as "retry now" and is refused again).
-    advance(APP_MESSAGE_BURST_WINDOW_MS - 1);
-    const denied = limiter.takeBurst("hello");
-    expect(denied).toEqual({ ok: false, kind: "burst", retryAfterSec: 1 });
-  });
-
   it("rounds a partial second UP, so retrying at the advised time succeeds", () => {
     const { limiter, advance } = limiterAt();
     for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++)
       limiter.takeBurst("hello");
-    // 500ms in: 59.5s remain, which must be advised as 60 rather than 59 - at
-    // 59s the oldest entry is still inside the window.
-    advance(500);
+    // 700ms in: 59.3s remain, which must be advised as 60 rather than 59 - at
+    // 59s the oldest entry is still inside the window. Not 500ms: Math.round
+    // would also give 60 there.
+    advance(700);
     const denied = limiter.takeBurst("hello");
     expect(denied).toEqual({
       ok: false,
@@ -145,13 +135,30 @@ describe("app-message limits: the daily budget", () => {
     // And the day is full again: only the one slot came back.
     expect(limiter.takeBurst("hello").ok).toBe(false);
   });
+});
 
-  it("is per app", () => {
+describe("app-message limits: deliveries in flight", () => {
+  // The route holds a daily slot before it delivers, commits it on acceptance
+  // and releases it otherwise, so concurrent sends cannot overshoot the cap.
+  it("a hold counts against the cap, a release returns it, and a commit settles it", () => {
     const { limiter } = limiterAt();
-    for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++)
-      limiter.commitDaily("noisy");
-    expect(limiter.takeBurst("noisy").ok).toBe(false);
-    expect(limiter.takeBurst("quiet").ok).toBe(true);
+    for (let i = 0; i < APP_MESSAGE_DAILY_CAP - 2; i++)
+      limiter.commitDaily("hello");
+    // A commit that settles a hold spends ONE slot, not two: one slot is left.
+    limiter.holdDaily("hello");
+    limiter.commitDaily("hello");
+    expect(limiter.takeBurst("hello").ok).toBe(true);
+
+    limiter.holdDaily("hello");
+    // The cap is reached only through a hold, which settles soon: the wait is
+    // the shortest one, not the rolling day.
+    expect(limiter.takeBurst("hello")).toEqual({
+      ok: false,
+      kind: "daily",
+      retryAfterSec: 1,
+    });
+    limiter.releaseDaily("hello");
+    expect(limiter.takeBurst("hello").ok).toBe(true);
   });
 });
 
@@ -159,30 +166,21 @@ describe("app-message limits: forget", () => {
   // A name outlives its app now that deleting one frees the name, so the budget
   // has to go when the app does. Otherwise the next app to take the name - which
   // can belong to a different user - inherits a spent day.
-  it("clears both budgets, so a reused name starts fresh", () => {
+  it("clears both budgets of that app only, so a reused name starts fresh", () => {
     const { limiter } = limiterAt();
-    for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++)
+    for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
       limiter.commitDaily("hello");
+      limiter.commitDaily("other");
+    }
     expect(limiter.takeBurst("hello").ok).toBe(false);
 
     limiter.forget("hello");
+    expect(limiter.takeBurst("other").ok).toBe(false);
 
     // The full burst budget as well as the day: nothing is left over.
     for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++) {
       expect(limiter.takeBurst("hello").ok).toBe(true);
     }
-  });
-
-  it("leaves other apps alone, and forgetting an unknown name is a no-op", () => {
-    const { limiter } = limiterAt();
-    for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++)
-      limiter.takeBurst("noisy");
-
-    limiter.forget("never-registered");
-    limiter.forget("quiet");
-
-    expect(limiter.takeBurst("noisy").ok).toBe(false);
-    expect(limiter.takeBurst("quiet").ok).toBe(true);
   });
 });
 

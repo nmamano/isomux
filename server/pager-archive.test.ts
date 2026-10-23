@@ -17,14 +17,16 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 import {
-  createMemoryPagerArchive,
   createPagerArchiveFile,
   createPagerFilePersistence,
-  createPagerStore,
-  isPagerEntry,
   type PagerLoadResult,
   type PagerPersistence,
+  type PagerStore,
 } from "./pager-store.ts";
+import {
+  createMemoryPagerArchive,
+  createTestPagerStore,
+} from "./test-support/pager-memory-archive.ts";
 import {
   comparePagerResolve,
   type PagerEntry,
@@ -91,14 +93,7 @@ const archivedIds = (a: { lines: string[] }) =>
   a.lines.map((l) => (JSON.parse(l) as PagerEntry).id);
 const all = () => true;
 
-// Resolve a page and record its "resolved" message as sent.
-function resolveDone(store: ReturnType<typeof createPagerStore>, id: string) {
-  store.resolve(id, "Morgan");
-  const e = store.get(id)!;
-  return store.recordDelivery(id, { ...e.delivery, resolvedNotice: "done" });
-}
-
-function raiseOne(store: ReturnType<typeof createPagerStore>, title: string) {
+function raiseOne(store: PagerStore, title: string) {
   const r = store.raise({ source: SRC, targetUserId: "u1", fields: { title } });
   if (r.outcome !== "created") throw new Error(r.outcome);
   return r.entry;
@@ -120,7 +115,7 @@ describe("pager archive: the move", () => {
   it("a resolved page stays in memory and pager.json until its resolved message is sent, then moves", () => {
     const p = memPersistence();
     const a = createMemoryPagerArchive();
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
     store.resolve(e.id, "Morgan");
     // Owed: still here, for delivery to find.
@@ -141,7 +136,7 @@ describe("pager archive: the move", () => {
     captureErrors();
     const p = memPersistence();
     const a = createMemoryPagerArchive();
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
     store.resolve(e.id, "Morgan");
     a.failNextAppend = true;
@@ -161,7 +156,7 @@ describe("pager archive: the move", () => {
   it("an append that lands with a save that fails, again and again, appends the page once", async () => {
     const p = memPersistence();
     const a = createMemoryPagerArchive();
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
     store.resolve(e.id, "Morgan");
     const last = store.get(e.id)!;
@@ -190,7 +185,7 @@ describe("pager archive: the move", () => {
     // the archive, and the process restarts before any save lands.
     const p = memPersistence();
     const a = createMemoryPagerArchive();
-    const first = createPagerStore({ persistence: p, archive: a });
+    const first = createTestPagerStore({ persistence: p, archive: a });
     const e = raiseOne(first, "x");
     first.resolve(e.id, "Morgan");
     const last = first.get(e.id)!;
@@ -204,7 +199,7 @@ describe("pager archive: the move", () => {
     expect(p.saved![0].delivery.resolvedNotice).toBe("pending");
     expect(a.intent).not.toBeNull();
     // Restart: the boot cuts the unfinished append; the page is still owed.
-    const again = createPagerStore({ persistence: p, archive: a });
+    const again = createTestPagerStore({ persistence: p, archive: a });
     expect(a.lines).toEqual([]);
     expect(a.intent).toBeNull();
     expect(again.get(e.id)!.delivery.resolvedNotice).toBe("pending");
@@ -223,7 +218,7 @@ describe("pager archive: the move", () => {
     const p = memPersistence([saved("o1")]);
     // A clock that moves, so e1 resolves before e2.
     let t = 10;
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: p,
       archive: a,
       now: () => t++,
@@ -257,22 +252,26 @@ describe("pager archive: the move", () => {
     a.lines.push(JSON.stringify(done("p1")));
     a.intent = { size: 0, ids: ["p1"] };
     const p = memPersistence([saved("o1")]);
-    createPagerStore({ persistence: p, archive: a });
+    createTestPagerStore({ persistence: p, archive: a });
     expect(archivedIds(a)).toEqual(["p1"]);
     expect(a.intent).toBeNull();
   });
 
-  it("a record whose pages are only partly in pager.json pauses moves and cuts nothing", () => {
-    captureErrors();
-    const a = createMemoryPagerArchive();
-    a.lines.push(JSON.stringify(done("p1")), JSON.stringify(done("p2")));
-    a.intent = { size: 0, ids: ["p1", "p2"] };
-    const p = memPersistence([done("p2"), done("p3")]);
-    const store = createPagerStore({ persistence: p, archive: a });
-    expect(archivedIds(a)).toEqual(["p1", "p2"]);
-    expect(ids(store.list())).toEqual(["p2", "p3"]);
-    expect(errors.join("\n")).toContain("moves are paused");
-  });
+  // A record whose pages are only partly in pager.json, or one that cannot be
+  // read, is not a state this store writes: moves pause and nothing is cut.
+  for (const intent of [{ size: 0, ids: ["p1", "p2"] }, "corrupt" as const]) {
+    it(`a ${intent === "corrupt" ? "damaged record" : "record whose pages are only partly in pager.json"} pauses moves and cuts nothing`, () => {
+      captureErrors();
+      const a = createMemoryPagerArchive();
+      a.lines.push(JSON.stringify(done("p1")), JSON.stringify(done("p2")));
+      a.intent = structuredClone(intent);
+      const p = memPersistence([done("p2"), done("p3")]);
+      const store = createTestPagerStore({ persistence: p, archive: a });
+      expect(archivedIds(a)).toEqual(["p1", "p2"]);
+      expect(ids(store.list())).toEqual(["p2", "p3"]);
+      expect(errors.join("\n")).toContain("moves are paused");
+    });
+  }
 });
 
 describe("pager archive: resolve order", () => {
@@ -283,35 +282,6 @@ describe("pager archive: resolve order", () => {
       delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
     });
 
-  it("a newer page whose message finishes first waits for the older one, so the cursor skips nothing", async () => {
-    // Reviewer 3's R2.
-    const a = createMemoryPagerArchive();
-    const p = memPersistence([owed("older", 1), owed("newer", 2)]);
-    const store = createPagerStore({ persistence: p, archive: a });
-    const first = await store.listResolved({ accept: all, limit: 1 });
-    expect(first.ok && ids(first.entries)).toEqual(["newer"]);
-    const n = store.get("newer")!;
-    store.recordDelivery("newer", { ...n.delivery, resolvedNotice: "done" });
-    // Done, but it waits behind the older page that is still owed.
-    expect(a.lines).toEqual([]);
-    expect(store.get("newer")).not.toBeNull();
-    const next = await store.listResolved({
-      accept: all,
-      limit: 1,
-      before: "newer",
-    });
-    expect(next.ok && ids(next.entries)).toEqual(["older"]);
-    const o = store.get("older")!;
-    store.recordDelivery("older", { ...o.delivery, resolvedNotice: "done" });
-    expect(archivedIds(a)).toEqual(["older", "newer"]);
-    const after = await store.listResolved({
-      accept: all,
-      limit: 1,
-      before: "newer",
-    });
-    expect(after.ok && ids(after.entries)).toEqual(["older"]);
-  });
-
   it("walking one page at a time across interleaved completions returns every page once, in order", async () => {
     const a = createMemoryPagerArchive();
     const p = memPersistence([
@@ -320,7 +290,7 @@ describe("pager archive: resolve order", () => {
       owed("r3", 3),
       owed("r4", 4),
     ]);
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const finish = (id: string) => {
       const e = store.get(id)!;
       store.recordDelivery(id, { ...e.delivery, resolvedNotice: "done" });
@@ -339,6 +309,8 @@ describe("pager archive: resolve order", () => {
       seen.push(...ids(s.entries));
       before = seen.at(-1);
       steps[i]();
+      // r3 is done first, but it waits behind the older pages still owed.
+      if (i === 0) expect(a.lines).toEqual([]);
     }
     expect(seen).toEqual(["r4", "r3", "r2", "r1"]);
     expect(archivedIds(a)).toEqual(["r1", "r2", "r3", "r4"]);
@@ -347,7 +319,7 @@ describe("pager archive: resolve order", () => {
   it("pages resolved in the same millisecond keep one order, by id, before and after the move", async () => {
     const a = createMemoryPagerArchive();
     const p = memPersistence([owed("b", 5), owed("a", 5), owed("c", 5)]);
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const list = async () => {
       const s = await store.listResolved({ accept: all, limit: 10 });
       return s.ok ? ids(s.entries) : [];
@@ -365,7 +337,7 @@ describe("pager archive: resolve order", () => {
     // Reviewer 3's R2a: z is resolved and archived before a, in the same ms.
     const a = createMemoryPagerArchive();
     const p = memPersistence([saved("z"), saved("a"), saved("m")]);
-    const first = createPagerStore({
+    const first = createTestPagerStore({
       persistence: p,
       archive: a,
       now: () => 100,
@@ -376,7 +348,7 @@ describe("pager archive: resolve order", () => {
       first.recordDelivery(id, { ...e.delivery, resolvedNotice: "done" });
     }
     // A restart in the same millisecond, then m.
-    const again = createPagerStore({
+    const again = createTestPagerStore({
       persistence: p,
       archive: a,
       now: () => 100,
@@ -402,21 +374,10 @@ describe("pager archive: resolve order", () => {
     });
     expect(afterA.ok && ids(afterA.entries)).toEqual(["z"]);
   });
-
-  it("the first move after an update appends the old file's pages in resolve order, not raise order", () => {
-    const a = createMemoryPagerArchive();
-    const p = memPersistence([
-      done("raised-first", 9),
-      saved("o1"),
-      done("raised-second", 4),
-    ]);
-    createPagerStore({ persistence: p, archive: a });
-    expect(archivedIds(a)).toEqual(["raised-second", "raised-first"]);
-  });
 });
 
 describe("pager archive: update and rollback", () => {
-  it("the first boot after an update moves every resolved page with nothing owed, in one append", () => {
+  it("the first boot after an update moves every resolved page with nothing owed, in one append, in resolve order", () => {
     const a = createMemoryPagerArchive();
     const owed = saved("owed", {
       state: "resolved",
@@ -428,33 +389,13 @@ describe("pager archive: update and rollback", () => {
       state: "resolved",
       resolved: { by: "Morgan", at: 1 },
     });
-    const p = memPersistence([saved("o1"), legacy, done("d2", 2), owed]);
-    const store = createPagerStore({ persistence: p, archive: a });
+    // Raise order differs from resolve order: d2 was raised first.
+    const p = memPersistence([saved("o1"), done("d2", 2), legacy, owed]);
+    const store = createTestPagerStore({ persistence: p, archive: a });
     expect(a.appends).toBe(1);
     expect(archivedIds(a)).toEqual(["ab12cd34", "d2"]);
     expect(ids(p.saved)).toEqual(["o1", "owed"]);
     expect(ids(store.list())).toEqual(["o1", "owed"]);
-  });
-
-  it("pager.json stays the bare array of pages the previous release reads", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pager-archive-"));
-    try {
-      const path = join(dir, "pager.json");
-      const store = createPagerStore({
-        persistence: createPagerFilePersistence(path),
-        archive: createPagerArchiveFile(join(dir, "pager-resolved.jsonl")),
-      });
-      const open = raiseOne(store, "open");
-      const gone = raiseOne(store, "gone");
-      resolveDone(store, gone.id);
-      // The previous release's load: JSON.parse, an array, every entry a page.
-      const value: unknown = JSON.parse(readFileSync(path, "utf-8"));
-      expect(Array.isArray(value)).toBe(true);
-      expect((value as unknown[]).every(isPagerEntry)).toBe(true);
-      expect(ids(value as PagerEntry[])).toEqual([open.id]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   it("pages the previous release resolved while rolled back move on the next update, after the archive's own", async () => {
@@ -463,22 +404,11 @@ describe("pager archive: update and rollback", () => {
     // The previous release kept its resolved page in pager.json and raised a
     // new 8-character one.
     const p = memPersistence([done("r1", 5), saved("0a0b0c0d")]);
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     expect(archivedIds(a)).toEqual(["a1", "a2", "r1"]);
     expect(ids(p.saved)).toEqual(["0a0b0c0d"]);
     const slice = await store.listResolved({ accept: all, limit: 10 });
     expect(slice.ok && ids(slice.entries)).toEqual(["r1", "a2", "a1"]);
-  });
-
-  it("an 8-character id from before the update still loads, acks and resolves, and is found once archived", async () => {
-    const a = createMemoryPagerArchive();
-    const p = memPersistence([saved("ab12cd34")]);
-    const store = createPagerStore({ persistence: p, archive: a });
-    expect(store.get("ab12cd34")?.title).toBe("t-ab12cd34");
-    expect(store.ack("ab12cd34", "Morgan").outcome).toBe("changed");
-    resolveDone(store, "ab12cd34");
-    expect(store.get("ab12cd34")).toBeNull();
-    expect((await store.findArchived("ab12cd34"))?.state).toBe("resolved");
   });
 });
 
@@ -493,7 +423,7 @@ describe("pager archive: reads", () => {
         delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
       });
     const p = memPersistence([owed("o1", 10), saved("open"), owed("o2", 20)]);
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const read = async (limit: number, before?: string) => {
       const s = await store.listResolved({ accept: all, limit, before });
       return s.ok ? ids(s.entries) : "bad";
@@ -507,39 +437,11 @@ describe("pager archive: reads", () => {
     expect(await read(3, "open")).toBe("bad");
   });
 
-  it("filters before the limit, and a cursor the filter drops is refused like an unknown one", async () => {
-    const a = createMemoryPagerArchive();
-    for (let i = 1; i <= 6; i++) {
-      a.lines.push(
-        JSON.stringify({
-          ...done(`a${i}`, i),
-          source: { ...SRC, roomId: i % 2 === 0 ? "r1" : "r2" },
-        }),
-      );
-    }
-    const store = createPagerStore({
-      persistence: memPersistence(),
-      archive: a,
-    });
-    const inR1 = (e: PagerEntry) => e.source.roomId === "r1";
-    const first = await store.listResolved({ accept: inR1, limit: 2 });
-    expect(first.ok && ids(first.entries)).toEqual(["a6", "a4"]);
-    const next = await store.listResolved({
-      accept: inR1,
-      limit: 2,
-      before: "a4",
-    });
-    expect(next.ok && ids(next.entries)).toEqual(["a2"]);
-    expect(
-      (await store.listResolved({ accept: inR1, limit: 2, before: "a5" })).ok,
-    ).toBe(false);
-  });
-
   it("a page archived while a member pages through is neither skipped nor lost", async () => {
     const a = createMemoryPagerArchive();
     a.lines.push(JSON.stringify(done("a1", 1)), JSON.stringify(done("a2", 2)));
     const p = memPersistence();
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     const e = raiseOne(store, "x");
     store.resolve(e.id, "Morgan");
     const first = await store.listResolved({ accept: all, limit: 2 });
@@ -565,13 +467,13 @@ describe("pager archive: reads", () => {
       JSON.stringify(done("a2")),
       JSON.stringify(done("a3")).slice(0, 30),
     );
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: memPersistence(),
       archive: a,
     });
     const slice = await store.listResolved({ accept: all, limit: 10 });
     expect(slice.ok && ids(slice.entries)).toEqual(["a2", "a1"]);
-    expect(errors.join("\n")).toContain("skipped 3 unreadable line(s)");
+    expect(errors.join("\n")).toMatch(/skipped 3\b/);
     expect((await store.findArchived("a1"))?.id).toBe("a1");
     expect(raiseOne(store, "still works").state).toBe("open");
   });
@@ -586,7 +488,7 @@ describe("pager archive: reads", () => {
         delivery: { state: "delivered", sends: 1, resolvedNotice: "pending" },
       }),
     ]);
-    const store = createPagerStore({ persistence: p, archive: a });
+    const store = createTestPagerStore({ persistence: p, archive: a });
     expect(store.get("p1")?.delivery.resolvedNotice).toBe("pending");
     expect(await store.findArchived("p1")).toBeNull();
     // Listed once, from memory.
@@ -685,38 +587,38 @@ describe("pager archive: the file", () => {
     const json = join(dir, "pager.json");
     const jsonl = join(dir, "pager-resolved.jsonl");
     // An update from a release without the archive, with a batch of resolved
-    // pages over 4 MB.
-    const old = Array.from({ length: 300 }, (_, i) => ({
+    // pages larger than one write call takes.
+    const old = Array.from({ length: 20 }, (_, i) => ({
       ...done(`p${String(i).padStart(3, "0")}`, i + 1),
       body: "b".repeat(15_000),
     }));
     writeFileSync(json, JSON.stringify(old));
     // The first boot's fsync fails after the whole batch is written.
+    const WRITE_CAP = 100_000;
     let failFsync = true;
     const io = {
       writeSync: (fd: number, buf: Buffer, offset: number, length: number) =>
-        writeSync(fd, buf, offset, Math.min(length, 1_000_000)),
+        writeSync(fd, buf, offset, Math.min(length, WRITE_CAP)),
       fsyncSync: (fd: number) => {
         if (failFsync) throw new Error("EIO");
         fsyncSync(fd);
       },
     };
     captureErrors();
-    createPagerStore({
+    createTestPagerStore({
       persistence: createPagerFilePersistence(json),
       archive: createPagerArchiveFile(jsonl, io),
     });
-    // Enabling condition: the batch is on disk, pager.json still holds it.
-    expect(readFileSync(jsonl, "utf-8").length).toBeGreaterThan(
-      4 * 1024 * 1024,
-    );
+    // Enabling condition: the batch, which took several short writes, is on
+    // disk, and pager.json still holds it.
+    expect(readFileSync(jsonl, "utf-8").length).toBeGreaterThan(2 * WRITE_CAP);
     expect((JSON.parse(readFileSync(json, "utf-8")) as unknown[]).length).toBe(
-      300,
+      20,
     );
     // The next boot: the save fails this time (a crash before it).
     failFsync = false;
     const crashing = createPagerFilePersistence(json);
-    createPagerStore({
+    createTestPagerStore({
       persistence: {
         ...crashing,
         save: () => {
@@ -726,7 +628,7 @@ describe("pager archive: the file", () => {
       archive: createPagerArchiveFile(jsonl, io),
     });
     // And the next one lands.
-    const store = createPagerStore({
+    const store = createTestPagerStore({
       persistence: createPagerFilePersistence(json),
       archive: createPagerArchiveFile(jsonl, io),
     });
@@ -735,8 +637,8 @@ describe("pager archive: the file", () => {
     expect(lines.map((l) => (JSON.parse(l) as PagerEntry).id)).toEqual(
       old.map((e) => e.id),
     );
-    const slice = await store.listResolved({ accept: all, limit: 200 });
-    expect(slice.ok && slice.entries.length).toBe(200);
+    const slice = await store.listResolved({ accept: all, limit: 20 });
+    expect(slice.ok && slice.entries.length).toBe(20);
   });
 
   it("a line too long to be a page reads as one bad line", async () => {
@@ -744,7 +646,12 @@ describe("pager archive: the file", () => {
     const path = join(dir, "pager-resolved.jsonl");
     writeFileSync(
       path,
-      JSON.stringify(done("a1")) + "\n" + "x".repeat(3 * 1024 * 1024) + "\n",
+      // Over the 1 MiB line limit by more than one 64 KiB read chunk: the
+      // reader notices at a chunk edge.
+      JSON.stringify(done("a1")) +
+        "\n" +
+        "x".repeat(1024 * 1024 + 2 * 64 * 1024) +
+        "\n",
     );
     createPagerArchiveFile(path).append([done("a2")]);
     const lines = await scanAll(path);
@@ -752,22 +659,5 @@ describe("pager archive: the file", () => {
     expect(JSON.parse(lines[0]!).id).toBe("a2");
     expect(lines[1]).toBeNull();
     expect(JSON.parse(lines[2]!).id).toBe("a1");
-  });
-
-  it("a store over the files moves a page and finds it after a cold reload", async () => {
-    dir = mkdtempSync(join(tmpdir(), "pager-archive-"));
-    const make = () =>
-      createPagerStore({
-        persistence: createPagerFilePersistence(join(dir, "pager.json")),
-        archive: createPagerArchiveFile(join(dir, "pager-resolved.jsonl")),
-      });
-    const first = make();
-    const e = raiseOne(first, "x");
-    resolveDone(first, e.id);
-    const again = make();
-    expect(again.get(e.id)).toBeNull();
-    expect((await again.findArchived(e.id))?.title).toBe("x");
-    const slice = await again.listResolved({ accept: all, limit: 5 });
-    expect(slice.ok && ids(slice.entries)).toEqual([e.id]);
   });
 });

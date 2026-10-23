@@ -14,7 +14,6 @@ import {
   type PolicyContext,
   type PolicyDecision,
 } from "./safety-policy.ts";
-import { codexLoginFile } from "./backend-credential-paths.ts";
 import { handleCodexHookInput } from "./backends/codex/safety-hook.ts";
 
 const root = mkdtempSync(join(tmpdir(), "codex-home-policy-"));
@@ -41,15 +40,6 @@ const read = (path: string, context: PolicyContext = ctx): PolicyDecision =>
 const shell = (command: string, context: PolicyContext = ctx): PolicyDecision =>
   evaluateProposedAction({ kind: "shell", command }, context);
 
-describe("codexLoginFile", () => {
-  it("names auth.json in an absolute home, and nothing otherwise", () => {
-    expect(codexLoginFile(home)).toBe(login);
-    expect(codexLoginFile(` ${home} `)).toBe(login);
-    for (const value of [undefined, null, "", "  ", "my-codex", "./my-codex"])
-      expect(codexLoginFile(value)).toBeNull();
-  });
-});
-
 describe("the login in a custom CODEX_HOME", () => {
   it("is refused by direct path, relative path, $CODEX_HOME and symlink", () => {
     const cases: [string, PolicyDecision][] = [
@@ -61,6 +51,10 @@ describe("the login in a custom CODEX_HOME", () => {
       ["cat, ${CODEX_HOME}", shell("cat ${CODEX_HOME}/auth.json")],
       ["Read, symlink", read(link)],
       ["cat, symlink", shell("cat notes.json")],
+      [
+        "Read, padded CODEX_HOME",
+        read(login, { cwd: project, codexHome: ` ${home} ` }),
+      ],
     ];
     // One comparison, so a red run names every case that passed through.
     expect(cases.map(([name, d]) => [name, d.decision])).toEqual(
@@ -79,7 +73,10 @@ describe("the login in a custom CODEX_HOME", () => {
     for (const context of [
       { cwd: project },
       { cwd: project, codexHome: null },
+      { cwd: project, codexHome: "" },
+      { cwd: project, codexHome: "  " },
       { cwd: project, codexHome: "my-codex" },
+      { cwd: project, codexHome: "./my-codex" },
     ]) {
       expect(read(login, context).decision).toBe("allow");
       expect(shell(`cat ${login}`, context).decision).toBe("allow");

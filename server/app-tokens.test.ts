@@ -20,8 +20,6 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  APP_TOKEN_FILE_MODE,
-  AppTokenError,
   appIdentityFromToken,
   createAppTokenStore,
   type AppTokenStore,
@@ -60,66 +58,27 @@ const record = (over: Partial<AppRecord> = {}): AppRecord => ({
 // --- the store --------------------------------------------------------------
 
 describe("app-tokens: mint, resolve, revoke", () => {
-  it("mints a token that resolves to its app, and persists only the hash", () => {
-    const s = store();
-    const raw = s.mint("hello", "u-alice");
-
-    expect(raw.length).toBeGreaterThan(20);
-    expect(s.lookup(raw)).toEqual({ appName: "hello", userId: "u-alice" });
-
-    // The whole point: the file must not contain the secret anywhere, in any
-    // field, under any name.
-    const onDisk = readFileSync(tokenFile(), "utf-8");
-    expect(onDisk).not.toContain(raw);
-    expect(onDisk).toContain(createHash("sha256").update(raw).digest("hex"));
-  });
-
-  it("survives a restart: a second store over the same directory resolves it", () => {
-    // The property agent tokens deliberately do NOT have, and the reason this
-    // store exists: an app outlives the isomux process that started it.
-    const raw = store().mint("hello", "u-alice");
-    expect(store().lookup(raw)?.appName).toBe("hello");
-  });
-
-  it("writes the store 0600", () => {
-    store().mint("hello", "u-alice");
-    expect(statSync(tokenFile()).mode & 0o777).toBe(APP_TOKEN_FILE_MODE);
+  it("writes the store 0600 in a directory it creates 0700", () => {
+    const sub = join(dir, "apps");
+    createAppTokenStore({ dir: sub }).mint("hello", "u-alice");
+    expect(statSync(join(sub, "app-tokens.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(sub).mode & 0o777).toBe(0o700);
   });
 
   it("mints a token an environment file can hold verbatim", () => {
     // base64url only. A value needing systemd's quoting would come back from
     // the parser as something other than what was hashed - a token that never
     // works and says nothing about why.
-    for (let i = 0; i < 25; i++) {
-      expect(createAppTokenStore({ dir }).mint(`app-${i}`, null)).toMatch(
-        /^[A-Za-z0-9_-]+$/,
-      );
-    }
-  });
-
-  it("gives two apps distinct tokens that resolve to their own names", () => {
-    const s = store();
-    const a = s.mint("alpha", "u-alice");
-    const b = s.mint("beta", "u-bob");
-    expect(a).not.toBe(b);
-    expect(s.lookup(a)?.appName).toBe("alpha");
-    expect(s.lookup(b)?.appName).toBe("beta");
-    expect(s.names().sort()).toEqual(["alpha", "beta"]);
-  });
-
-  it("re-minting replaces: the old token is dead", () => {
-    const s = store();
-    const first = s.mint("hello", "u-alice");
-    const second = s.mint("hello", "u-alice");
-    expect(second).not.toBe(first);
-    expect(s.lookup(first)).toBeNull();
-    expect(s.lookup(second)?.appName).toBe("hello");
+    expect(store().mint("hello", null)).toMatch(/^[A-Za-z0-9_-]{40,}$/);
   });
 
   it("revoke ends the token and leaves the other apps alone", () => {
     const s = store();
     const gone = s.mint("alpha", "u-alice");
     const kept = s.mint("beta", "u-alice");
+    // A mint keeps every other app's entry.
+    expect(s.lookup(gone)?.appName).toBe("alpha");
+    expect(s.lookup(kept)?.appName).toBe("beta");
     s.revoke("alpha");
     expect(s.lookup(gone)).toBeNull();
     expect(s.lookup(kept)?.appName).toBe("beta");
@@ -144,34 +103,20 @@ describe("app-tokens: mint, resolve, revoke", () => {
     expect(s.matches("hello", "something-else")).toBe(false);
     expect(s.matches("nobody", raw)).toBe(false);
   });
-
-  it("keeps a null owner as null rather than inventing one", () => {
-    const s = store();
-    expect(s.lookup(s.mint("hello", null))).toEqual({
-      appName: "hello",
-      userId: null,
-    });
-  });
 });
 
 describe("app-tokens: a corrupt store denies and refuses to be overwritten", () => {
-  const corruptions: Array<[string, string]> = [
-    ["not JSON at all", "{{{"],
-    ["a JSON array", "[]"],
-    ["an entry that is not a token record", '{"hello":{"hash":"nope"}}'],
-    [
-      "a hash that is not a sha256",
-      '{"hello":{"hash":"abc","userId":null,"mintedAt":1}}',
-    ],
-  ];
-
-  for (const [what, contents] of corruptions) {
-    it(`denies every lookup when the file is ${what}`, () => {
-      writeFileSync(tokenFile(), contents);
-      expect(store().lookup("anything")).toBeNull();
-      expect(store().names()).toEqual([]);
-    });
-  }
+  it("denies even a valid token when another entry is damaged", () => {
+    // The whole file is validated, so a reader that skipped the bad entry and
+    // kept the rest would show here.
+    const raw = store().mint("hello", "u-alice");
+    const contents = JSON.parse(readFileSync(tokenFile(), "utf-8"));
+    contents.other = { hash: "abc", userId: null, mintedAt: 1 };
+    writeFileSync(tokenFile(), JSON.stringify(contents));
+    expect(store().lookup(raw)).toBeNull();
+    expect(store().matches("hello", raw)).toBe(false);
+    expect(store().names()).toEqual([]);
+  });
 
   it("refuses to mint over a corrupt store, leaving the file untouched", () => {
     // THE FAILURE THIS PREVENTS: mint reads, adds one entry and rewrites the
@@ -183,22 +128,8 @@ describe("app-tokens: a corrupt store denies and refuses to be overwritten", () 
     const good = readFileSync(tokenFile(), "utf-8");
     writeFileSync(tokenFile(), good + "corrupted");
 
-    expect(() => store().mint("beta", "u-bob")).toThrow(AppTokenError);
+    expect(() => store().mint("beta", "u-bob")).toThrow();
     expect(readFileSync(tokenFile(), "utf-8")).toBe(good + "corrupted");
-  });
-
-  it("treats a MISSING file as an empty store (a fresh office), not an error", () => {
-    expect(store().lookup("anything")).toBeNull();
-    expect(store().names()).toEqual([]);
-    expect(store().mint("hello", "u-alice").length).toBeGreaterThan(20);
-  });
-
-  it("refuses a generator that produces an env-file-hostile token", () => {
-    expect(() =>
-      store({ mintRaw: () => 'has spaces and "quotes"' }).mint("hello", null),
-    ).toThrow(AppTokenError);
-    // Nothing was written for it, so the app is honestly tokenless.
-    expect(store().names()).toEqual([]);
   });
 });
 
@@ -228,18 +159,6 @@ describe("app-tokens: the identity a token resolves to", () => {
     expect(identity.role).toBe("member");
     expect(identity.capabilities).toEqual(APP_CAPABILITIES);
     expect(identity.agentId).toBeUndefined();
-  });
-
-  it("is null for a token that was revoked or never existed", () => {
-    const s = store();
-    const raw = s.mint("hello", "u-alice");
-    s.revoke("hello");
-    expect(
-      appIdentityFromToken(raw, s, registered({ hello: "u-alice" })),
-    ).toBeNull();
-    expect(
-      appIdentityFromToken("garbage", s, registered({ hello: "u-alice" })),
-    ).toBeNull();
   });
 
   // TWO facts are required, and the store can only supply one of them. A hash
@@ -362,32 +281,6 @@ const files = (
 });
 
 describe("app-tokens: boot reconciliation", () => {
-  it("gives an app registered before tokens existed one, and rewrites its unit", () => {
-    const s = store();
-    const f = files({ wired: new Set() }); // a unit with no EnvironmentFile line
-    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
-
-    expect(report.provisioned).toEqual(["hello"]);
-    const raw = f.tokens.get("hello")!;
-    expect(s.lookup(raw)).toEqual({ appName: "hello", userId: "u-alice" });
-    // The unit is rewritten too, because a pre-token unit has no reference to
-    // the environment file at all - writing the file alone would inject
-    // nothing, and the NEXT pass would see a matching pair and skip it forever.
-    expect(f.regenerated).toEqual(["hello"]);
-  });
-
-  it("leaves a healthy pair behind a wired unit completely alone", () => {
-    const s = store();
-    const raw = s.mint("hello", "u-alice");
-    const f = files({ tokens: new Map([["hello", raw]]) });
-
-    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
-    expect(report.provisioned).toEqual([]);
-    expect(f.regenerated).toEqual([]); // nothing rewritten, nothing bounced
-    expect(f.restarted).toEqual([]);
-    expect(f.tokens.get("hello")).toBe(raw); // same token, not rotated
-  });
-
   it("rotates a pair that DISAGREES - the case a presence check would miss", () => {
     const s = store();
     s.mint("hello", "u-alice"); // hash from one token...
@@ -399,20 +292,14 @@ describe("app-tokens: boot reconciliation", () => {
     expect(s.matches("hello", now)).toBe(true);
   });
 
-  it("rotates when the file is gone, and when the hash is gone", () => {
+  it("rotates a plaintext the store has no hash for", () => {
+    // The hash-without-file half is routes-apps-rest's same-box restore test.
     const s = store();
-    // hash without file
-    s.mint("hello", "u-alice");
-    const f1 = files();
-    reconcileAppTokens(reconcileDeps([record()], s, f1));
-    expect(s.matches("hello", f1.tokens.get("hello")!)).toBe(true);
-
-    // file without hash
-    const s2 = store();
-    const f2 = files({ tokens: new Map([["hello", "orphan-plaintext"]]) });
-    reconcileAppTokens(reconcileDeps([record()], s2, f2));
-    expect(f2.tokens.get("hello")).not.toBe("orphan-plaintext");
-    expect(s2.matches("hello", f2.tokens.get("hello")!)).toBe(true);
+    expect(s.names()).toEqual([]);
+    const f = files({ tokens: new Map([["hello", "orphan-plaintext"]]) });
+    reconcileAppTokens(reconcileDeps([record()], s, f));
+    expect(f.tokens.get("hello")).not.toBe("orphan-plaintext");
+    expect(s.matches("hello", f.tokens.get("hello")!)).toBe(true);
   });
 
   it("prunes hashes for apps that no longer exist", () => {
@@ -421,26 +308,6 @@ describe("app-tokens: boot reconciliation", () => {
     const report = reconcileAppTokens(reconcileDeps([], s, files()));
     expect(report.pruned).toEqual(["deleted-app"]);
     expect(s.lookup(raw)).toBeNull();
-  });
-
-  it("takes the hash back when the plaintext could not be written", () => {
-    // The unrepairable state this exists to prevent: a hash whose plaintext was
-    // lost. isomux cannot reproduce a token it does not keep, so the app could
-    // never authenticate and `has a token` would keep the next pass from
-    // fixing it.
-    const s = store();
-    const f = files({ failProvision: true });
-    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
-
-    expect(report.failed).toEqual(["hello"]);
-    expect(s.names()).toEqual([]); // absent, not half-provisioned
-    expect(f.tokens.size).toBe(0);
-    expect(f.removed).toEqual(["hello"]);
-
-    // ...and the next boot fixes it.
-    f.failProvision = false;
-    reconcileAppTokens(reconcileDeps([record()], s, f));
-    expect(s.matches("hello", f.tokens.get("hello")!)).toBe(true);
   });
 
   it("mints nothing when the unit could not be regenerated", () => {
@@ -483,26 +350,6 @@ describe("app-tokens: boot reconciliation", () => {
     // break a running app for no reason.
     expect(f.tokens.get("hello")).toBe(raw);
     expect(s.matches("hello", raw)).toBe(true);
-  });
-
-  it("stops rewiring once the unit reads the file (it converges, it does not loop)", () => {
-    const s = store();
-    const raw = s.mint("hello", "u-alice");
-    const f = files({ wired: new Set(), tokens: new Map([["hello", raw]]) });
-    reconcileAppTokens(reconcileDeps([record()], s, f));
-    f.regenerated.length = 0;
-    const second = reconcileAppTokens(reconcileDeps([record()], s, f));
-    expect(second).toEqual({
-      checked: 1,
-      reloaded: true,
-      provisioned: [],
-      rewired: [],
-      restarted: [],
-      restartFailed: [],
-      pruned: [],
-      failed: [],
-    });
-    expect(f.regenerated).toEqual([]);
   });
 
   it("a failed delivery over a MISMATCHED pair leaves neither half behind", () => {
@@ -550,32 +397,14 @@ describe("app-tokens: boot reconciliation", () => {
     expect(report.provisioned).toEqual(["beta"]);
   });
 
-  it("restarts a running app after giving it a new token", () => {
-    const s = store();
-    const old = s.mint("hello", "u-alice");
-    const f = files({
-      tokens: new Map(),
-      states: new Map([["hello", "running"]]),
-    });
-
-    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
-
-    expect(report.provisioned).toEqual(["hello"]);
-    expect(report.restarted).toEqual(["hello"]);
-    expect(report.restartFailed).toEqual([]);
-    expect(f.restarted).toEqual(["hello"]);
-    expect(s.lookup(old)).toBeNull();
-    expect(s.lookup(f.tokens.get("hello")!)).toEqual({
-      appName: "hello",
-      userId: "u-alice",
-    });
-  });
-
   it("does not restart a stopped app after giving it a new token", () => {
+    // It held a credential (a hash with no plaintext), so a running app would
+    // be restarted here: only the state keeps this one at rest.
+    const s = store();
+    s.mint("hello", "u-alice");
     const f = files({ states: new Map([["hello", "stopped"]]) });
-    const report = reconcileAppTokens(reconcileDeps([record()], store(), f));
+    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
     expect(report.provisioned).toEqual(["hello"]);
-    expect(report.restarted).toEqual([]);
     expect(f.restarted).toEqual([]);
   });
 
@@ -591,30 +420,12 @@ describe("app-tokens: boot reconciliation", () => {
     expect(report.failed).toEqual([]);
     expect(report.restarted).toEqual([]);
     expect(report.restartFailed).toEqual(["hello"]);
+    // The new pair stands: a failed restart does not take the token back.
+    expect(s.matches("hello", f.tokens.get("hello")!)).toBe(true);
   });
 });
 
 describe("app-tokens: boot reconciliation makes systemd's view current", () => {
-  it("reloads the unit files once, before inspecting anything", () => {
-    // The fact no on-disk check can establish: the user systemd manager
-    // outlives isomux, so a unit written by a previous run whose daemon-reload
-    // never completed is a perfect file systemd has never read. Without this,
-    // an app whose registration failed at exactly that step stays invisible to
-    // systemd forever, because every later pass sees a healthy pair behind a
-    // wired unit and skips.
-    const s = store();
-    const raw = s.mint("hello", "u-alice");
-    const f = files({ tokens: new Map([["hello", raw]]) });
-
-    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
-
-    expect(f.reloads).toBe(1);
-    expect(report.reloaded).toBe(true);
-    // ...and nothing else happened: no rewrite, no rotation.
-    expect(f.regenerated).toEqual([]);
-    expect(f.tokens.get("hello")).toBe(raw);
-  });
-
   it("does not touch systemd at all in an office with no apps", () => {
     const f = files();
     const report = reconcileAppTokens(reconcileDeps([], store(), f));

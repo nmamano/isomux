@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { pagerHandlers } from "../routes/handlers/pager.ts";
 import type { RouteHandlerContext } from "../routes/executor.ts";
-import { createPagerStore } from "../pager-store.ts";
+import { createTestPagerStore } from "./pager-memory-archive.ts";
 
 describe("agent pages", () => {
   // Pager routes (opIds pager.*) through the real route table and server.
@@ -1377,7 +1377,7 @@ describe("app pages", () => {
 
   describe("app pager handler: an unowned app", () => {
     it("has nobody to page: 409, and nothing is stored", async () => {
-      const store = createPagerStore({
+      const store = createTestPagerStore({
         persistence: {
           load: () => ({ kind: "missing" }),
           save: () => {},

@@ -1,9 +1,9 @@
 // Short app links (`https://<office>/<app>`) through the real request
-// pipeline. The eligibility rule and the reserved-name inventory are owned by
+// pipeline. The reserved-name inventory is owned by
 // server/app-short-url.test.ts; the signed-in wrapper a GET serves is owned by
-// app-widget.test.ts. This file pins the office-host dispatch: which requests
-// redirect, which stay exactly as they were, and that a broken registry never
-// takes office pages down with it.
+// app-widget.test.ts. This file pins the eligibility rule and the office-host
+// dispatch: which requests redirect, which stay exactly as they were, and that
+// a broken registry never takes office pages down with it.
 //
 // Before/after comparisons use HEAD or a signed-in GET on purpose: a
 // signed-out GET meets the auth wall before anything app-specific can show,

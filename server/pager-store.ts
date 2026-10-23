@@ -373,54 +373,6 @@ export function createPagerArchiveFile(
   };
 }
 
-// An archive in memory, for tests. `lines` is the file's content, oldest
-// first (its size counts lines), and a test may push a raw line into it.
-// `tornNextAppend` models an append that wrote part of its batch, cut the
-// last line short, and then threw.
-export function createMemoryPagerArchive() {
-  const a = {
-    lines: [] as string[],
-    appends: 0,
-    failNextAppend: false,
-    tornNextAppend: false,
-    intent: null as PagerMoveIntent | null | "corrupt",
-    size: () => a.lines.length,
-    append(entries: PagerEntry[]) {
-      if (a.failNextAppend) {
-        a.failNextAppend = false;
-        throw new Error("disk full");
-      }
-      const lines = entries.map((e) => JSON.stringify(e));
-      if (a.tornNextAppend) {
-        a.tornNextAppend = false;
-        a.lines.push(...lines.slice(0, -1), lines.at(-1)!.slice(0, 20));
-        throw new Error("fsync failed");
-      }
-      a.appends++;
-      a.lines.push(...lines);
-    },
-    truncate(to: number) {
-      a.lines.length = to;
-    },
-    newestLines: () => a.lines.slice().reverse(),
-    readIntent: () => a.intent,
-    writeIntent(intent: PagerMoveIntent) {
-      a.intent = structuredClone(intent);
-    },
-    clearIntent() {
-      a.intent = null;
-    },
-    async *scan() {
-      const snapshot = a.lines.slice();
-      for (let i = snapshot.length - 1; i >= 0; i--) {
-        await Promise.resolve();
-        yield snapshot[i];
-      }
-    },
-  };
-  return a satisfies PagerArchive;
-}
-
 // The raise body, after validation. Title is trimmed; an omitted body or key
 // stays absent.
 export interface PagerRaiseFields {
@@ -480,7 +432,7 @@ export function parseRaiseFields(
 
 // One identity per source, so an agent and an app with the same id string
 // never share pages, and neither do two registrations of one app name.
-export function pagerSourceKey(source: PagerSource): string {
+function pagerSourceKey(source: PagerSource): string {
   return source.kind === "agent"
     ? `agent:${source.agentId}`
     : `app:${source.appName}:${source.registrationGen}`;
@@ -539,7 +491,7 @@ function isOptionalString(v: unknown): boolean {
 // Shape check for one persisted record. Field types only: the store does not
 // re-run the raise bounds on load, so a constant lowered later does not
 // destroy old pages.
-export function isPagerEntry(v: unknown): v is PagerEntry {
+function isPagerEntry(v: unknown): v is PagerEntry {
   if (typeof v !== "object" || v === null) return false;
   const e = v as Record<string, unknown>;
   const delivery = e.delivery as Record<string, unknown> | null | undefined;
@@ -590,8 +542,8 @@ export type PagerActResult =
 
 export interface PagerStoreDeps {
   persistence: PagerPersistence;
-  // Where resolved pages go. Omitted only by tests: an archive in memory.
-  archive?: PagerArchive;
+  // Where resolved pages go.
+  archive: PagerArchive;
   now?: () => number;
   // Every committed change, for the per-recipient event push.
   onChange?: (entry: PagerEntry) => void;
@@ -668,7 +620,7 @@ const movable = (pages: PagerEntry[]): PagerEntry[] => {
 
 export function createPagerStore(deps: PagerStoreDeps): PagerStore {
   const now = deps.now ?? (() => Date.now());
-  const archive = deps.archive ?? createMemoryPagerArchive();
+  const archive = deps.archive;
   let entries: PagerEntry[] = [];
   let available = true;
   // An intent record may be set: at boot until read, and from writing one

@@ -1,31 +1,21 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
-import ts from "typescript";
-import { appShortUrl } from "./app-short-url.ts";
-import { RESERVED_APP_NAMES, checkAppName } from "./app-registry.ts";
+import { RESERVED_APP_NAMES } from "./app-registry.ts";
 import { ALL_ROUTES } from "./routes/table.ts";
 
+// The eligibility branches (live app, deleted app, reserved name, port-only
+// office) are proved through the request pipeline in
+// test-support/app-short-url-routes.test.ts.
 describe("app short URL eligibility", () => {
-  it("uses the configured office origin only for a live, non-reserved app with a public URL", () => {
-    const origin = "https://office.example:8443";
-    const publicUrl = "https://board.office.example";
-    expect(appShortUrl({ name: "board" }, publicUrl, origin)).toBe(
-      `${origin}/board`,
-    );
-    expect(appShortUrl(null, publicUrl, origin)).toBeNull();
-    expect(appShortUrl({ name: "board" }, null, origin)).toBeNull();
-    for (const name of RESERVED_APP_NAMES) {
-      expect(appShortUrl({ name }, publicUrl, origin)).toBeNull();
-      expect(checkAppName(name)?.code).toBe("reserved_name");
-    }
-  });
-
   it("reserves every routable top-level office name, including UI paths and built assets", () => {
     const paths = ALL_ROUTES.map((route) => route.path);
-    // Runtime comparisons and path constants outside the route table. Parse
-    // literals rather than comments so a new path in any of these dispatchers
-    // fails this test until registration also reserves its name.
+    // Runtime comparisons and path constants outside the route table. The
+    // transpiler drops comments and types, so only code literals remain; a new
+    // path in any of these dispatchers fails this test until registration also
+    // reserves its name.
     // Add new dispatchers here when they declare paths outside the route table.
+    const transpiler = new Bun.Transpiler({ loader: "ts" });
+    const scanned = new Set<string>();
     for (const file of [
       "isomux-office.ts",
       "auth-middleware.ts",
@@ -34,23 +24,18 @@ describe("app short URL eligibility", () => {
       "browser-extension-session.ts",
       "../ui/routes.ts",
     ]) {
-      const source = ts.createSourceFile(
-        file,
+      const js = transpiler.transformSync(
         readFileSync(new URL(file, import.meta.url), "utf8"),
-        ts.ScriptTarget.Latest,
-        true,
       );
-      function visit(node: ts.Node) {
-        if (
-          ts.isStringLiteral(node) ||
-          ts.isNoSubstitutionTemplateLiteral(node)
-        ) {
-          if (node.text.startsWith("/")) paths.push(node.text);
-        }
-        ts.forEachChild(node, visit);
-      }
-      visit(source);
+      for (const m of js.matchAll(/(["'`])(\/[^"'`$\\\n]*)\1/g))
+        scanned.add(m[2]);
     }
+    // The scan finds literals at all: /backup (isomux-office.ts) and /inbox
+    // (ui/routes.ts) are in no route table entry.
+    const segments = [...scanned].map((path) => path.split("/")[1]);
+    expect(segments).toContain("backup");
+    expect(segments).toContain("inbox");
+    paths.push(...scanned);
     const assets = readdirSync(new URL("../ui/dist/", import.meta.url));
     expect(assets.length).toBeGreaterThan(0);
     paths.push(...assets.map((name) => `/${name}`));

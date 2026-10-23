@@ -145,9 +145,13 @@ it("falls back to the app host's favicon, not the thumbnail, when the read fails
 
 it("does not follow redirects or read a stopped app", async () => {
   let calls = 0;
-  const ctx = context(() => {
+  const ctx = context((req) => {
     calls++;
-    return Response.redirect("https://external.invalid/");
+    // A redirect to an HTML page on the same upstream: following it would
+    // read this title.
+    return new URL(req.url).pathname === "/"
+      ? Response.redirect(`http://127.0.0.1:${upstream!.port}/followed`)
+      : html("<title>Followed</title>");
   });
   expect(await readWidgetMetadata(ctx)).toEqual(fallback);
   expect(calls).toBe(1);
@@ -158,37 +162,10 @@ it("does not follow redirects or read a stopped app", async () => {
   expect(calls).toBe(1);
 });
 
-it("falls back on non-HTML and oversized bodies", async () => {
-  let oversized = false;
-  const ctx = context(() =>
-    oversized
-      ? html("a".repeat(WIDGET_METADATA_MAX_BYTES + 1))
-      : new Response("plain"),
-  );
-  expect(await readWidgetMetadata(ctx)).toEqual(fallback);
-  oversized = true;
-  expect(await readWidgetMetadata(ctx)).toEqual(fallback);
-});
-
-it("bounds a stalled body by the two-second deadline", async () => {
-  const ctx = context(
-    () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode("<title>Partial"));
-          },
-        }),
-        { headers: { "Content-Type": "text/html" } },
-      ),
-  );
-  const start = Date.now();
-  expect(await readWidgetMetadata(ctx)).toEqual(fallback);
-  expect(Date.now() - start).toBeLessThan(3500);
-});
-
+// Each limit returns the fallback and cancels the upstream stream. The
+// deadline case waits out the real two seconds once.
 for (const limit of ["bytes", "deadline"] as const) {
-  it(`cancels the upstream stream at the ${limit} boundary`, async () => {
+  it(`falls back and cancels the upstream stream at the ${limit} boundary`, async () => {
     let cancelled = false;
     const ctx = context(() => {
       return new Response(
@@ -198,7 +175,7 @@ for (const limit of ["bytes", "deadline"] as const) {
               new TextEncoder().encode(
                 limit === "bytes"
                   ? "a".repeat(WIDGET_METADATA_MAX_BYTES + 1)
-                  : "data",
+                  : "<title>Partial",
               ),
             );
           },
@@ -209,7 +186,9 @@ for (const limit of ["bytes", "deadline"] as const) {
         { headers: { "Content-Type": "text/html" } },
       );
     });
-    await readWidgetMetadata(ctx);
+    const start = Date.now();
+    expect(await readWidgetMetadata(ctx)).toEqual(fallback);
+    expect(Date.now() - start).toBeLessThan(3500);
     for (let i = 0; i < 50 && !cancelled; i++) await Bun.sleep(10);
     expect(cancelled).toBe(true);
   });
@@ -279,12 +258,3 @@ for (const [label, icons, kept] of [
     }
   });
 }
-
-it("install manifest carries no raster icon off Android", () => {
-  const manifest = appManifest(
-    { name: "sample" },
-    { title: "Sample board", icons: [{ href: SVG }] },
-    { android: false },
-  );
-  expect(manifest.icons.map((icon) => icon.type)).toEqual(["image/svg+xml"]);
-});

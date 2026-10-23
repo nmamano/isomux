@@ -88,11 +88,8 @@ export const MAX_REGISTERED_APPS = 100;
 // label.
 export const MAX_APP_NAME_LENGTH = 63;
 
-// New registrations use the name itself as their stable label, so the full DNS
-// label length is available.
-export const MAX_NEW_APP_NAME_LENGTH = MAX_APP_NAME_LENGTH;
 export const MAX_APP_COMMAND_LENGTH = 4096;
-export const MAX_APP_DESCRIPTION_LENGTH = 200;
+const MAX_APP_DESCRIPTION_LENGTH = 200;
 
 // A hostname label: lowercase alphanumerics and inner hyphens only.
 const APP_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -183,10 +180,10 @@ export function checkAppName(name: string): AppRegistryError | null {
   if (name.length === 0) {
     return new AppRegistryError("invalid_name", "name is required");
   }
-  if (name.length > MAX_NEW_APP_NAME_LENGTH) {
+  if (name.length > MAX_APP_NAME_LENGTH) {
     return new AppRegistryError(
       "invalid_name",
-      `name must be at most ${MAX_NEW_APP_NAME_LENGTH} characters because it becomes a hostname label`,
+      `name must be at most ${MAX_APP_NAME_LENGTH} characters because it becomes a hostname label`,
     );
   }
   if (!APP_NAME_PATTERN.test(name)) {
@@ -211,7 +208,7 @@ export function checkAppName(name: string): AppRegistryError | null {
 // a blank command or a relative cwd into a record that could never have been
 // registered with one.
 
-export function assertCommand(command: string): void {
+function assertCommand(command: string): void {
   // The command is stored VERBATIM (locked in the pickup). Trimming is used only
   // to decide whether it is blank; the length limit applies to what was actually
   // submitted, and what is persisted is the caller's exact string - whitespace
@@ -227,13 +224,13 @@ export function assertCommand(command: string): void {
   }
 }
 
-export function assertCwd(cwd: string): void {
+function assertCwd(cwd: string): void {
   if (!isAbsolute(cwd)) {
     throw new AppRegistryError("invalid_cwd", "cwd must be an absolute path");
   }
 }
 
-export function assertDescription(description: string): void {
+function assertDescription(description: string): void {
   if (description.length > MAX_APP_DESCRIPTION_LENGTH) {
     throw new AppRegistryError(
       "invalid_description",
@@ -271,7 +268,7 @@ export function bindProbe(port: number): boolean {
 // in between. The probe narrows that window, it does not close it - it exists
 // to skip ports already occupied by processes isomux never registered. The real
 // backstop is the app failing to start, which is visible.
-export function allocatePort(
+function allocatePort(
   used: ReadonlySet<number>,
   probe: (port: number) => boolean = bindProbe,
   min: number = APP_PORT_MIN,
@@ -311,7 +308,7 @@ export interface IssuedLabel {
 // The label an app of this name and generation gets. Generation 1 is the bare
 // name, so a first registration reads as the address the human asked for and
 // only recycled names carry a suffix.
-export function labelFor(name: string, gen: number): string {
+function labelFor(name: string, gen: number): string {
   return gen === 1 ? name : `${name}-g${gen}`;
 }
 
@@ -831,8 +828,6 @@ export interface AppRegistry {
   remove(name: string): AppRecord | null;
   // Request-time certificate gate. This is a pure live-label predicate.
   isLiveHostLabel(label: string): boolean;
-  /** Compatibility for a server rolled back while new state is on disk. */
-  admitAppCertificate(label: string): "not_live" | "already";
 }
 
 export interface AppRegistryOptions {
@@ -949,15 +944,6 @@ export function createAppRegistry(
       const latest = lineageIndexes.at(-1) ?? null;
       const label = latest?.row.label ?? input.name;
       const gen = latest?.row.gen ?? 1;
-      const foreignLabel = state.issuedLabels.find(
-        (row) => row.label === label && row.name !== input.name,
-      );
-      if (foreignLabel) {
-        throw new AppRegistryError(
-          "origin_retired",
-          `"${label}" belongs to the app lineage "${foreignLabel.name}" and cannot be adopted by "${input.name}"`,
-        );
-      }
       const registrationGen =
         latest === null
           ? 1
@@ -1163,39 +1149,25 @@ export function createAppRegistry(
       return record;
     },
 
-    // ONE synchronous critical section, snapshot to persist, with no `await`
-    // anywhere between: that is what makes the cap exact rather than
-    // approximate. Two handshakes for the same new label cannot both count the
-    // window and both stamp - the first runs to completion, the second reads
-    // the row it wrote. Splitting this into a read and a write, or making it
-    // async, breaks that; a caller awaiting something BEFORE calling it does
-    // not.
     isLiveHostLabel(label) {
       const state = snapshot();
-      // Live app first, before the budget is even read. A name nobody has
-      // registered - or one somebody used to have - must not be able to learn
-      // anything, spend anything, or write anything.
       const app = state.apps.find((a) => a.hostLabel === label);
       if (!app) return false;
       // The exact ISSUANCE, not just the label: the tuple is what the registry
-      // treats as an app's identity, and the row is where the admission is
-      // recorded. assertConsistent has already refused any file where a live
-      // app's tuple is missing, so this cannot be null on validated state - the
-      // check is here so the guarantee is LOCAL to the code that depends on it,
-      // and so a future change to that invariant fails closed here rather than
-      // stamping some other lineage's row.
+      // treats as an app's identity. assertConsistent has already refused any
+      // file where a live app's tuple is missing, so this cannot be null on
+      // validated state - the check is here so the guarantee is LOCAL to the
+      // code that depends on it, and a future change to that invariant fails
+      // closed here.
       const row = state.issuedLabels.find(
         (e) =>
           e.label === label && e.name === app.name && e.gen === app.hostGen,
       );
       if (!row) return false;
-      // Presence, not a timestamp comparison. An established label is free
-      // forever and never consults the clock, so no amount of traffic, no
-      // restart and no clock movement can take it away.
+      // Presence, not a timestamp comparison: an established label never
+      // consults the clock, so no traffic, restart or clock movement can take
+      // it away.
       return true;
-    },
-    admitAppCertificate(label) {
-      return this.isLiveHostLabel(label) ? "already" : "not_live";
     },
   };
 }

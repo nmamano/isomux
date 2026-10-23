@@ -10,7 +10,7 @@ import {
   type AppSupervisor,
 } from "./app-supervisor.ts";
 
-export const APPS_NOT_SUPPORTED_MESSAGE =
+const APPS_NOT_SUPPORTED_MESSAGE =
   "App hosting needs Linux with systemd, so it is not available on this computer.";
 
 export function appHostingUnsupportedReason(
