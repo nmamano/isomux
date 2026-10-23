@@ -118,7 +118,7 @@ export function securityHeaders(opts?: {
   const csp = [
     "default-src 'self'",
     "base-uri 'self'",
-    "connect-src 'self' ws: wss:",
+    "connect-src 'self'",
     "font-src 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
