@@ -292,9 +292,6 @@ export type RoutePrecondition =
   | "inviteOwnerOrSelf"
   // sessions.revoke: owner may revoke any session; a member only their own.
   | "sessionOwnerOrSelf"
-  // sessions.revoke / sessions.logout: refuse if it would leave the office with
-  // no owner holding an active session (shell-recovery lockout; live owner-count).
-  | "notLastOwnerLockout"
   // validate.env: the self subject is body.username (not a path param), so the
   // self/office-owner branch maps off the body, not selfUser's params.username.
   | "validateEnvBodySelfSubject"
@@ -2111,10 +2108,11 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/sessions/:sessionPrefix",
-    // Owner global / member self + not-last-owner lockout: typed preconditions.
+    // Owner global / member self: typed precondition. The not-last-owner
+    // lockout runs inside the auth mutex (server/auth.ts), not here.
     auth: cap("session:manage", authenticated),
     emits: ["session_revoked", "sessions_active_list", "session_expired"],
-    preconditions: ["sessionOwnerOrSelf", "notLastOwnerLockout"],
+    preconditions: ["sessionOwnerOrSelf"],
   }),
   defineRoute<void, NoContent>({
     opId: "sessions.logout",
@@ -2122,10 +2120,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/sessions/current",
     // Cap is `authenticated` in the spec: any identity with a current session,
-    // no specific capability. not-last-owner lockout is a typed precondition.
+    // no specific capability. The not-last-owner lockout runs inside the auth
+    // mutex (server/auth.ts).
     auth: authn(authenticated),
     emits: ["session_expired"],
-    preconditions: ["notLastOwnerLockout"],
   }),
   defineRoute<void, AccessSettings>({
     opId: "office.getAccess",

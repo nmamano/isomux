@@ -393,7 +393,7 @@ describe("executor: preconditions", () => {
       "DELETE",
       "/api/s/x",
       capAuth("session:manage"),
-      ["notLastOwnerLockout"],
+      ["sessionOwnerOrSelf"],
     );
     const deps = makeDeps(
       {
@@ -402,7 +402,7 @@ describe("executor: preconditions", () => {
           return noContent();
         },
       },
-      { notLastOwnerLockout: () => fail(409, "would_strand_office") },
+      { sessionOwnerOrSelf: () => fail(403, "forbidden") },
     );
     const res = await executeRoute(
       match(r, { sessionPrefix: "x" }),
@@ -410,8 +410,8 @@ describe("executor: preconditions", () => {
       userIdentity("owner"),
       deps,
     );
-    expect(res.status).toBe(409);
-    expect((await res.json()).error.code).toBe("would_strand_office");
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("forbidden");
     expect(ran).toBe(false);
   });
 
@@ -421,7 +421,7 @@ describe("executor: preconditions", () => {
       "DELETE",
       "/api/s/x",
       capAuth("session:manage"),
-      ["notLastOwnerLockout"],
+      ["sessionOwnerOrSelf"],
     );
     const deps = makeDeps({ "s.revoke": () => noContent() }); // no precondition registered
     let threw: unknown = null;

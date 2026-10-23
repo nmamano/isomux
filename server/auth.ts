@@ -1098,9 +1098,12 @@ export async function revokeInviteByPrefix(
   });
 }
 
+// The lockout check runs inside mutate(), so two concurrent revokes cannot
+// both pass it against the same pre-delete state. Owners see every session,
+// so its order against the prefix match leaks nothing.
 export async function revokeSessionByPrefix(
   prefix: string,
-): Promise<RevokeResult> {
+): Promise<ScopedSessionRevokeResult> {
   return mutate(() => {
     ensureLoaded();
     const matches: string[] = [];
@@ -1111,6 +1114,7 @@ export async function revokeSessionByPrefix(
     if (matches.length === 0) return "not_found";
     if (matches.length > 1) return "ambiguous";
     const hash = matches[0];
+    if (wouldRevokeLeaveOfficeUnreachable(hash)) return "would_strand_office";
     const prev = sessions!.get(hash)!;
     sessions!.delete(hash);
     try {
@@ -1125,13 +1129,19 @@ export async function revokeSessionByPrefix(
   });
 }
 
+export type LogoutResult = "ok" | "not_found" | "would_strand_office";
+
+// Same in-mutex lockout check as revokeSessionByPrefix.
 export async function logoutBySessionHash(
   sessionIdHash: string,
-): Promise<boolean> {
+): Promise<LogoutResult> {
   return mutate(() => {
     ensureLoaded();
     const prev = sessions!.get(sessionIdHash);
-    if (!prev) return false;
+    if (!prev) return "not_found";
+    if (wouldRevokeLeaveOfficeUnreachable(sessionIdHash)) {
+      return "would_strand_office";
+    }
     sessions!.delete(sessionIdHash);
     try {
       persistSessions();
@@ -1141,7 +1151,7 @@ export async function logoutBySessionHash(
     }
     forceExpireSocketsForSession(sessionIdHash);
     fireSessionsChangedHook();
-    return true;
+    return "ok";
   });
 }
 
@@ -1449,10 +1459,8 @@ export async function revokeOutstandingInviteByPrefixForUser(
   });
 }
 
-// Scoped session revoker. Extends RevokeResult with "would_strand_office"
-// for the role-race case (caller's WS opened as a member but they've
-// since been promoted to owner without reconnecting; revoking their
-// session would now leave the office unreachable).
+// Session revoke result: RevokeResult plus "would_strand_office" when the
+// revoke would leave the office with no active owner session.
 export type ScopedSessionRevokeResult = RevokeResult | "would_strand_office";
 
 // Same atomic find-check-delete pattern as the scoped invite revoker.
@@ -1530,12 +1538,13 @@ export function sessionContextFor(
 // session locks the office out (hasOwner() stays true, so the pre-claim
 // form never reappears; only shell access can restore).
 //
-// Centralized here because both revoke_session and the WS/HTTP logout
-// paths need to enforce it.
+// Centralized here because both session revoke and logout enforce it, each
+// inside its own mutate() so concurrent calls cannot both pass it.
 
 // True if revoking the given session hash would leave the office with
-// zero active owner sessions. Used by both revoke_session and logout -
+// zero active owner sessions. Used by both session revoke and logout -
 // they're the same operation from the lockout-prevention perspective.
+// Call it only inside mutate().
 export function wouldRevokeLeaveOfficeUnreachable(
   sessionIdHash: string,
 ): boolean {
@@ -1552,23 +1561,6 @@ export function wouldRevokeLeaveOfficeUnreachable(
     if (u?.role === "owner") return false; // another active owner session exists
   }
   return true;
-}
-
-// Resolve an 8-char display prefix to a session id hash. Returns null
-// when no session matches OR more than one matches (ambiguous). The
-// caller treats both as "couldn't act on this prefix"; revoke_session
-// already has the ambiguity log path, this just gives us the hash for
-// the lockout pre-check.
-export function resolveSessionHashByPrefix(prefix: string): string | null {
-  ensureLoaded();
-  let found: string | null = null;
-  for (const [hash, s] of sessions!) {
-    if (s.sessionPrefix === prefix) {
-      if (found !== null) return null; // ambiguous
-      found = hash;
-    }
-  }
-  return found;
 }
 
 // Note: wouldDeleteLeaveNoOwner() lives in users.ts.

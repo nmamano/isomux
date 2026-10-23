@@ -17,9 +17,9 @@
 // LOGOUT: DELETE /api/sessions/current ends the caller's OWN cookie session. The
 // caller's session hash is threaded in via ctx.callerSessionIdHash (from the
 // already-resolved auth result - never re-derived here). A bearer (non-cookie)
-// caller has no current session and FAILS CLOSED (403) - never a 204 no-op. The
-// HTML POST /auth/logout browser flow stays as-is; this route strangles the WS
-// logout arm. Both converge on the shared logoutBySessionHash core.
+// caller has no current session and FAILS CLOSED (403) - never a 204 no-op. This
+// route and the HTML POST /auth/logout browser flow converge on the shared
+// logoutBySessionHash core, which owns the last-owner lockout check.
 //
 // LEAF over the executor + shared types. Only the injected SessionsDeps surface.
 
@@ -44,9 +44,10 @@ export interface SessionsDeps {
   // Scoped list for the caller (record role): owner → all; member → own. Direct
   // reply only - NO fan-out (a pure read must never emit to other users).
   listScoped(identity: Identity): SessionWire[];
-  // Revoke a session by prefix (precondition sessionOwnerOrSelf + notLastOwner-
-  // Lockout already passed). On ok the seam emits session_revoked (owners) and
-  // the core op fans out sessions_active_list + session_expired.
+  // Revoke a session by prefix (precondition sessionOwnerOrSelf already
+  // passed; the seam's revoker refuses a last-owner lockout). On ok the seam
+  // emits session_revoked (owners) and the core op fans out
+  // sessions_active_list + session_expired.
   revoke(identity: Identity, sessionPrefix: string): Promise<RevokeOutcome>;
   // End the caller's OWN session. callerSessionIdHash is undefined for a bearer
   // caller → fail closed (403). On ok the core op fans out + closes the socket.

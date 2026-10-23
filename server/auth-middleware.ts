@@ -17,7 +17,6 @@ import {
   readSessionCookies,
   setCookieHeader,
   validateSession,
-  wouldRevokeLeaveOfficeUnreachable,
   type InvitePeek,
   type SessionLookup,
 } from "./auth.ts";
@@ -604,8 +603,8 @@ function renderInviteIdentityConflict(
 // POST /auth/logout - clear the cookie and revoke the session server-side.
 // Origin must match: a malicious site can otherwise sign the user out via
 // a credentialed form POST (annoying, not a data breach, but still CSRF).
-// Same lockout-prevention rule as the WS logout: refuse if this is the
-// office's last active owner session.
+// Refuses, without clearing cookies, when this is the office's last active
+// owner session (checked inside the auth mutex by logoutBySessionHash).
 export async function handleLogout(
   req: Request,
   officeName: string | null,
@@ -616,7 +615,10 @@ export async function handleLogout(
   }
   const cookies = readSessionCookies(req);
   const lookup = validateSession(cookies.selected || null);
-  if (lookup && wouldRevokeLeaveOfficeUnreachable(lookup.sessionIdHash)) {
+  const result = lookup
+    ? await logoutBySessionHash(lookup.sessionIdHash)
+    : null;
+  if (result === "would_strand_office") {
     const i18n = translatorForVisitor(req, onBox);
     return new Response(
       renderLockoutBlocked(
@@ -635,20 +637,17 @@ export async function handleLogout(
       },
     );
   }
-  if (lookup) {
-    const revoked = await logoutBySessionHash(lookup.sessionIdHash);
-    if (revoked)
-      recordAudit({
-        actor: {
-          kind: "member",
-          id: lookup.userId,
-          name: getUserById(lookup.userId)?.name ?? lookup.userId,
-        },
-        operation: "auth.logout",
-        targets: [lookup.userId],
-        fields: [],
-      });
-  }
+  if (lookup && result === "ok")
+    recordAudit({
+      actor: {
+        kind: "member",
+        id: lookup.userId,
+        name: getUserById(lookup.userId)?.name ?? lookup.userId,
+      },
+      operation: "auth.logout",
+      targets: [lookup.userId],
+      fields: [],
+    });
   // Independent Set-Cookie lines (an object literal can only carry one).
   // Clearing a name that did NOT authenticate this request is client-side
   // cleanup only - the session revoked above is the one the request actually

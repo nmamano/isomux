@@ -11,7 +11,7 @@
 //   - Non-leak revoke authz (sessionOwnerOrSelf): member foreign AND nonexistent
 //     prefix BOTH 403, identical body - paired with a positive control (the same
 //     member revoking their OWN session succeeds).
-//   - Last-owner lockout (notLastOwnerLockout): sole-owner revoke-self AND
+//   - Last-owner lockout (auth.ts mutator): sole-owner revoke-self AND
 //     logout-as-sole-owner BOTH 409 - each paired with a positive control (a 2nd
 //     owner session makes the same op 204).
 //   - Logout fails CLOSED for a bearer (no cookie session) - 403, never a no-op.

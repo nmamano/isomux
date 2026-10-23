@@ -260,7 +260,6 @@ import {
   readSessionCookies,
   registerSocket,
   sessionCookieMigrationHeaders,
-  resolveSessionHashByPrefix,
   revalidateByHash,
   revokeActiveSessionByPrefixForUserId,
   revokeInviteByPrefix,
@@ -276,7 +275,6 @@ import {
   setRoomsSnapshotProvider,
   unregisterSocket,
   validateSession,
-  wouldRevokeLeaveOfficeUnreachable,
   type MintErr,
   type RevokeResult,
   type ScopedSessionRevokeResult,
@@ -1845,11 +1843,10 @@ function emitSessionsList(): void {
   }
 }
 
-// Shared session-revoke core for BOTH transports (the REST sessions.revoke dep
-// and the legacy WS revoke_session arm). Branches owner/member off the user
-// RECORD; owner uses the unrestricted revoker (its lockout is pre-checked by the
-// caller - the REST precondition or the WS arm), member uses the scoped mutator
-// whose folded lockout returns "would_strand_office". On success emits
+// Session-revoke core for the REST sessions.revoke dep. Branches owner/member
+// off the user RECORD; owner uses the unrestricted revoker, member the scoped
+// one. Both check the last-owner lockout inside the auth mutex and return
+// "would_strand_office". On success emits
 // session_revoked (owners-only via liveEmit); sessions_active_list rides
 // fireSessionsChangedHook→emitSessionsList and session_expired + socket close
 // ride the forceExpireSocketsForSession bridge, both inside the auth core ops.
@@ -4188,7 +4185,15 @@ function buildExecutorDeps(
         if (!callerSessionIdHash) {
           return { ok: false, status: 403, code: "forbidden" };
         }
-        await logoutBySessionHash(callerSessionIdHash);
+        const result = await logoutBySessionHash(callerSessionIdHash);
+        if (result === "would_strand_office") {
+          return {
+            ok: false,
+            status: 409,
+            code: "would_strand_office",
+            message: SESSION_LOGOUT_LOCKOUT_REASON,
+          };
+        }
         return { ok: true };
       },
     }),
@@ -4207,35 +4212,6 @@ function buildExecutorDeps(
       (s) => s.sessionPrefix === ctx.params.sessionPrefix,
     );
     return owns ? null : fail(403, "forbidden");
-  });
-
-  // notLastOwnerLockout: ONE enforcer for both sessions.revoke (carries
-  // the :sessionPrefix param) and sessions.logout (/current, no param → the
-  // caller's OWN session). Refuses an op that would leave the office with zero
-  // active owner sessions (shell-recovery lockout).
-  preconditions.set("notLastOwnerLockout", (ctx) => {
-    if (ctx.params.sessionPrefix !== undefined) {
-      // revoke: only the owner GLOBAL path pre-checks lockout here. A member's
-      // lockout is folded into the atomic mutator (so "would_strand_office"
-      // only ever surfaces for a session the member actually owns - non-leak).
-      const u = ctx.identity.userId
-        ? getUserById(ctx.identity.userId)
-        : undefined;
-      if (u?.role !== "owner") return null;
-      const hash = resolveSessionHashByPrefix(ctx.params.sessionPrefix);
-      if (hash && wouldRevokeLeaveOfficeUnreachable(hash)) {
-        return fail(409, "would_strand_office", SESSION_REVOKE_LOCKOUT_REASON);
-      }
-      return null;
-    }
-    // logout: act on the caller's OWN session. Fail closed if there is none (a
-    // bearer caller) - DELETE /api/sessions/current can't identify a session.
-    const hash = ctx.callerSessionIdHash;
-    if (!hash) return fail(403, "forbidden");
-    if (wouldRevokeLeaveOfficeUnreachable(hash)) {
-      return fail(409, "would_strand_office", SESSION_LOGOUT_LOCKOUT_REASON);
-    }
-    return null;
   });
 
   // Access settings are owner-only; successful enables mint an owner invite.

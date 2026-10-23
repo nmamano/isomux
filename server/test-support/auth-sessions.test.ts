@@ -34,7 +34,6 @@ import {
   revokeInviteByPrefix,
   revokeActiveSessionByPrefixForUserId,
   revokeOutstandingInviteByPrefixForUser,
-  resolveSessionHashByPrefix,
   logoutBySessionHash,
   evictSessionsForUserId,
   wouldRevokeLeaveOfficeUnreachable,
@@ -154,14 +153,14 @@ describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
     expect(listActiveSessionsForUserId(userIdOf("Alice")).length).toBe(2);
 
     // logout closes exactly one device.
-    expect(await logoutBySessionHash(l1.sessionIdHash)).toBe(true);
+    expect(await logoutBySessionHash(l1.sessionIdHash)).toBe("ok");
     expect(s1.closed).toBe(true);
     expect(s2.closed).toBe(false);
     expect(sOwner.closed).toBe(false);
     expect(validateSession(alice1.rawSessionId)).toBeNull();
     expect(validateSession(alice2Raw)).not.toBeNull();
     // Idempotent: logging the same hash out again is a no-op, not an error.
-    expect(await logoutBySessionHash(l1.sessionIdHash)).toBe(false);
+    expect(await logoutBySessionHash(l1.sessionIdHash)).toBe("not_found");
 
     // evict takes every remaining session for that user - and nobody else's.
     expect(await evictSessionsForUserId(userIdOf("Alice"))).toBe(1);
@@ -193,6 +192,50 @@ describe("auth/sessions: lockout-prevention arithmetic", () => {
     ).toBe(true);
 
     expect(wouldRevokeLeaveOfficeUnreachable(lOwner.sessionIdHash)).toBe(true);
+  });
+});
+
+// The owner revoke and the logout are the lockout check's authority: a check
+// made before the mutex (a route precondition) lets two concurrent requests
+// both see "another owner session exists" and both delete (task 92f93320).
+describe("auth/sessions: lockout check runs inside the mutex", () => {
+  // Two owners, one session each: either may go, but not both.
+  async function twoOwners() {
+    server = await startTestServer();
+    const morgan = await server.seedOwner("Morgan");
+    const alice = await server.seedMember("Alice");
+    expect(setUserRole("Alice", "owner")).toBe(true);
+    const lMorgan = validateSession(morgan.rawSessionId)!;
+    const lAlice = validateSession(alice.rawSessionId)!;
+    // The race condition: each session alone is revocable, so a check
+    // that both requests ran before either delete would pass twice.
+    expect(wouldRevokeLeaveOfficeUnreachable(lMorgan.sessionIdHash)).toBe(
+      false,
+    );
+    expect(wouldRevokeLeaveOfficeUnreachable(lAlice.sessionIdHash)).toBe(false);
+    return { morgan, alice, lMorgan, lAlice };
+  }
+  const liveSessions = (...raws: string[]) =>
+    raws.filter((r) => validateSession(r) !== null).length;
+
+  it("two concurrent owner revokes: one succeeds, one is refused", async () => {
+    const { morgan, alice, lMorgan, lAlice } = await twoOwners();
+    const results = await Promise.all([
+      revokeSessionByPrefix(lAlice.sessionPrefix),
+      revokeSessionByPrefix(lMorgan.sessionPrefix),
+    ]);
+    expect([...results].sort()).toEqual(["ok", "would_strand_office"]);
+    expect(liveSessions(morgan.rawSessionId, alice.rawSessionId)).toBe(1);
+  });
+
+  it("two concurrent logouts: one succeeds, one is refused", async () => {
+    const { morgan, alice, lMorgan, lAlice } = await twoOwners();
+    const results = await Promise.all([
+      logoutBySessionHash(lMorgan.sessionIdHash),
+      logoutBySessionHash(lAlice.sessionIdHash),
+    ]);
+    expect([...results].sort()).toEqual(["ok", "would_strand_office"]);
+    expect(liveSessions(morgan.rawSessionId, alice.rawSessionId)).toBe(1);
   });
 });
 
@@ -336,7 +379,6 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
         .length,
     ).toBe(2);
 
-    expect(resolveSessionHashByPrefix(sharedPrefix)).toBeNull();
     expect(await revokeSessionByPrefix(sharedPrefix)).toBe("ambiguous");
     // Ambiguity is decided at the prefix level, BEFORE the scope test, so even
     // the rightful owner is refused rather than served an arbitrary one.
