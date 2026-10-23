@@ -34,8 +34,9 @@ rows. A malformed source is preserved as `tasks.json.corrupt-<timestamp>`; the
 server logs both paths and opens an empty board. An old `memory/.oplog.jsonl` is kept untouched, with no import.
 
 A malformed `agents.json` is preserved as `agents.json.corrupt-<timestamp>`;
-the server logs it and boots with one empty room. To recover, stop the service
-and move the file back over `agents.json`.
+the server logs it and boots with one empty room. To recover, stop the service,
+then repair the JSON in that file and move it back over `agents.json`, or
+restore `agents.json` from a backup.
 
 ## What the daily backup is
 
