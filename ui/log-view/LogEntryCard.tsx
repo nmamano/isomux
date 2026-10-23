@@ -26,6 +26,11 @@ import { DiffCard } from "./DiffCard.tsx";
 import { PlainTaskText, type TaskMap } from "./task-links.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
+import {
+  DownloadButton,
+  ImageLightbox,
+  type LightboxImage,
+} from "./attachment-download.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { SecretRequestCard } from "./SecretRequestCard.tsx";
 import { BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
@@ -236,42 +241,62 @@ function FileChip({
   const sizeStr = formatFileSize(att.size);
   const href = `${fileBase ?? `/api/files/${agentId}`}/${att.filename}`;
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+    <span
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
-        padding: "4px 10px",
-        borderRadius: 6,
-        background: "var(--bg-hover)",
-        border: "1px solid var(--border)",
-        color: "var(--text-secondary)",
-        fontSize: isMobile ? 13 : 11,
-        fontFamily: "var(--font-ui)",
-        textDecoration: "none",
-        cursor: "pointer",
+        gap: 4,
         maxWidth: "100%",
       }}
     >
-      <span>{icon}</span>
-      <span
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
         style={{
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "4px 10px",
+          borderRadius: 6,
+          background: "var(--bg-hover)",
+          border: "1px solid var(--border)",
+          color: "var(--text-secondary)",
+          fontSize: isMobile ? 13 : 11,
+          fontFamily: "var(--font-ui)",
+          textDecoration: "none",
+          cursor: "pointer",
+          maxWidth: "100%",
         }}
       >
-        {att.originalName}
-      </span>
-      {sizeStr && (
-        <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-          {sizeStr}
+        <span>{icon}</span>
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {att.originalName}
         </span>
-      )}
-    </a>
+        {sizeStr && (
+          <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+            {sizeStr}
+          </span>
+        )}
+      </a>
+      <DownloadButton
+        src={href}
+        name={att.originalName}
+        isMobile={isMobile}
+        style={{
+          boxSizing: "border-box",
+          background: "var(--bg-hover)",
+          border: "1px solid var(--border)",
+          color: "var(--text-secondary)",
+        }}
+      />
+    </span>
   );
 }
 
@@ -280,36 +305,17 @@ function AttachmentDisplay({
   agentId,
   fileBase,
   isMobile,
-  lightboxSrc,
-  setLightboxSrc,
   hasContent,
 }: {
   attachments: Attachment[];
   agentId: string;
   fileBase?: string;
   isMobile?: boolean;
-  lightboxSrc: string | null;
-  setLightboxSrc: (src: string | null) => void;
   hasContent?: boolean;
 }) {
-  const { t } = useI18n();
+  const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
   const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
-
-  // Intercept Escape at the capture phase so the global window-level handler in
-  // App.tsx (which navigates back to the room view) doesn't fire while the
-  // lightbox is open.
-  useEffect(() => {
-    if (!lightboxSrc) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setLightboxSrc(null);
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [lightboxSrc, setLightboxSrc]);
 
   return (
     <>
@@ -325,19 +331,30 @@ function AttachmentDisplay({
           {images.map((att) => {
             const src = `${fileBase ?? `/api/files/${agentId}`}/${att.filename}`;
             return (
-              <img
+              <div
                 key={att.filename}
-                src={src}
-                alt={att.originalName}
-                onClick={() => setLightboxSrc(src)}
-                style={{
-                  maxWidth: isMobile ? "100%" : 300,
-                  maxHeight: 200,
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  border: "1px solid var(--green-border)",
-                }}
-              />
+                style={{ position: "relative", maxWidth: "100%" }}
+              >
+                <img
+                  src={src}
+                  alt={att.originalName}
+                  onClick={() => setLightbox({ src, name: att.originalName })}
+                  style={{
+                    display: "block",
+                    maxWidth: isMobile ? "100%" : 300,
+                    maxHeight: 200,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    border: "1px solid var(--green-border)",
+                  }}
+                />
+                <DownloadButton
+                  src={src}
+                  name={att.originalName}
+                  isMobile={isMobile}
+                  style={{ position: "absolute", right: 6, bottom: 6 }}
+                />
+              </div>
             );
           })}
         </div>
@@ -362,26 +379,12 @@ function AttachmentDisplay({
           ))}
         </div>
       )}
-      {lightboxSrc && (
-        <div
-          onClick={() => setLightboxSrc(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "zoom-out",
-          }}
-        >
-          <img
-            src={lightboxSrc}
-            alt={t("cards.fileView.fullSize")}
-            style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }}
-          />
-        </div>
+      {lightbox && (
+        <ImageLightbox
+          image={lightbox}
+          isMobile={isMobile}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </>
   );
@@ -1039,7 +1042,6 @@ export function UserMessage({
 }) {
   const { t } = useI18n();
   const getText = useCallback(() => content, [content]);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const bodyId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [overflows, setOverflows] = useState(false);
@@ -1178,8 +1180,6 @@ export function UserMessage({
               agentId={agentId ?? ""}
               fileBase={fileBase}
               isMobile={isMobile}
-              lightboxSrc={lightboxSrc}
-              setLightboxSrc={setLightboxSrc}
               hasContent={!!content}
             />
           )}
@@ -1731,7 +1731,6 @@ function ToolResult({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [echoOpen, setEchoOpen] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const content = entry.content;
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
@@ -1855,8 +1854,6 @@ function ToolResult({
             attachments={entry.attachments}
             agentId={entry.agentId}
             isMobile={isMobile}
-            lightboxSrc={lightboxSrc}
-            setLightboxSrc={setLightboxSrc}
             hasContent={showText && !!content}
           />
         ))}

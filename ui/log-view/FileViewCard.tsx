@@ -1,13 +1,19 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Attachment } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { formatBytes } from "../../shared/i18n/number.ts";
+import {
+  DownloadButton,
+  ImageLightbox,
+  type LightboxImage,
+} from "./attachment-download.tsx";
 
 // Card emitted by POST /api/agents/:id/read-file and /preview-url. Images render
 // inline (clickable for lightbox); other media types render as a clickable file
 // chip via the same /api/files/<agentId>/<filename> route used by uploaded
-// attachments. `caption` (preview-url provenance: sanitized origin + pathname)
-// renders as a dim line under the attachments when provided.
+// attachments. Each image and chip has a download button. `caption`
+// (preview-url provenance: sanitized origin + pathname) renders as a dim line
+// under the attachments when provided.
 export function FileViewCard({
   attachments,
   agentId,
@@ -21,23 +27,9 @@ export function FileViewCard({
 }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
   const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
-
-  // Capture-phase Escape so the global window handler in App.tsx (which navs
-  // back to the room view) doesn't fire while the lightbox is open.
-  useEffect(() => {
-    if (!lightboxSrc) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setLightboxSrc(null);
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [lightboxSrc]);
 
   return (
     <div style={{ margin: "8px 0" }}>
@@ -46,19 +38,30 @@ export function FileViewCard({
           {images.map((att) => {
             const src = `/api/files/${agentId}/${att.filename}`;
             return (
-              <img
+              <div
                 key={att.filename}
-                src={src}
-                alt={att.originalName}
-                onClick={() => setLightboxSrc(src)}
-                style={{
-                  maxWidth: isMobile ? "100%" : 300,
-                  maxHeight: 200,
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  border: "1px solid var(--green-border)",
-                }}
-              />
+                style={{ position: "relative", maxWidth: "100%" }}
+              >
+                <img
+                  src={src}
+                  alt={att.originalName}
+                  onClick={() => setLightbox({ src, name: att.originalName })}
+                  style={{
+                    display: "block",
+                    maxWidth: isMobile ? "100%" : 300,
+                    maxHeight: 200,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    border: "1px solid var(--green-border)",
+                  }}
+                />
+                <DownloadButton
+                  src={src}
+                  name={att.originalName}
+                  isMobile={isMobile}
+                  style={{ position: "absolute", right: 6, bottom: 6 }}
+                />
+              </div>
             );
           })}
         </div>
@@ -77,40 +80,60 @@ export function FileViewCard({
             const sizeStr =
               formatBytes(i18n.language, att.size) ?? t("common.unknownSize");
             return (
-              <a
+              <span
                 key={att.filename}
-                href={src}
-                target="_blank"
-                rel="noopener noreferrer"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 6,
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  border: "1px solid var(--green-border)",
-                  background: "var(--green-bg)",
-                  color: "var(--text-secondary)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: isMobile ? 13 : 12,
-                  textDecoration: "none",
-                  cursor: "pointer",
+                  gap: 4,
                   maxWidth: "100%",
                 }}
               >
-                <span
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--green-border)",
+                    background: "var(--green-bg)",
+                    color: "var(--text-secondary)",
+                    fontFamily: "var(--font-ui)",
+                    fontSize: isMobile ? 13 : 12,
+                    textDecoration: "none",
+                    cursor: "pointer",
+                    maxWidth: "100%",
                   }}
                 >
-                  {att.originalName}
-                </span>
-                <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-                  {sizeStr}
-                </span>
-              </a>
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {att.originalName}
+                  </span>
+                  <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+                    {sizeStr}
+                  </span>
+                </a>
+                <DownloadButton
+                  src={src}
+                  name={att.originalName}
+                  isMobile={isMobile}
+                  style={{
+                    boxSizing: "border-box",
+                    background: "var(--green-bg)",
+                    border: "1px solid var(--green-border)",
+                    color: "var(--text-secondary)",
+                  }}
+                />
+              </span>
             );
           })}
         </div>
@@ -130,26 +153,12 @@ export function FileViewCard({
           {caption}
         </div>
       )}
-      {lightboxSrc && (
-        <div
-          onClick={() => setLightboxSrc(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "zoom-out",
-          }}
-        >
-          <img
-            src={lightboxSrc}
-            alt={t("cards.fileView.fullSize")}
-            style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }}
-          />
-        </div>
+      {lightbox && (
+        <ImageLightbox
+          image={lightbox}
+          isMobile={isMobile}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   );

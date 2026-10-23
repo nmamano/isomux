@@ -33,6 +33,7 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { Attachment, MembersChatMessage } from "../../../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../../../shared/types.ts";
+import { downloadHeader } from "../../mime-types.ts";
 import type {
   MembersChatPostReq,
   MembersChatEditReq,
@@ -313,11 +314,10 @@ export function membersChatHandlers(
     "membersChat.getFile": (ctx) => {
       const filePath = deps.attachmentPath(ctx.params.filename);
       if (!filePath) return fail(404, "not_found");
-      return file(
-        filePath,
-        deps.contentTypeFor(ctx.params.filename),
-        deps.untrustedFileHeaders(),
-      );
+      return file(filePath, deps.contentTypeFor(ctx.params.filename), {
+        ...deps.untrustedFileHeaders(),
+        ...downloadHeader(ctx.query, ctx.params.filename),
+      });
     },
   };
 }

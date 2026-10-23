@@ -24,6 +24,7 @@ import { savedFileAudit } from "../audit.ts";
 // No agent/room state reaches the handler.
 
 import { ok, fail, file, type RouteHandler } from "../executor.ts";
+import { downloadHeader } from "../../mime-types.ts";
 import type { Attachment } from "../../../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../../../shared/types.ts";
 
@@ -105,11 +106,10 @@ export function uploadsHandlers(
     // both the files/ dir and the legacy images/ fallback. A miss is a 404.
     const filePath = deps.getFilePath(ctx.params.id, ctx.params.filename);
     if (!filePath) return fail(404, "not_found");
-    return file(
-      filePath,
-      deps.contentTypeFor(ctx.params.filename),
-      deps.untrustedFileHeaders(),
-    );
+    return file(filePath, deps.contentTypeFor(ctx.params.filename), {
+      ...deps.untrustedFileHeaders(),
+      ...downloadHeader(ctx.query, ctx.params.filename),
+    });
   };
 
   return {

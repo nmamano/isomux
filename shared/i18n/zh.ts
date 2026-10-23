@@ -1635,6 +1635,7 @@ App 的一些原则：
   "cards.toolResult.showLess": "显示更少",
   "cards.reviewFindings.none": "没有发现问题。",
   "cards.fileView.fullSize": "原始大小",
+  "cards.fileView.download": "下载 {file}",
   "cards.fileView.earlierAttachment":
     "智能体查看了此聊天中较早附加的文件。点击显示。",
   "cards.editRequest.open": "在编辑器中打开",

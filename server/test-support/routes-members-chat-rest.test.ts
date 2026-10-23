@@ -14,6 +14,11 @@ import type {
   MembersChatPageRes,
 } from "../../shared/contract-shapes.ts";
 import { MEMBERS_CHAT_MAX_CHARS } from "../members-chat.ts";
+import {
+  DOWNLOAD_NAME_CASES,
+  expectSafeFallback,
+  readAttachmentHeader,
+} from "./attachment-header.ts";
 
 describe("members chat", () => {
   // Members chat on the unified REST surface (opIds membersChat.*), through the
@@ -435,6 +440,45 @@ describe("members chat", () => {
           })
         ).status,
       ).toBe(404);
+    });
+
+    it("?download saves under the requested name, or the server name when it is empty", async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Nil");
+      const up = await upload(
+        server,
+        owner.rawSessionId,
+        "Résumé 2026.txt",
+        "cv",
+      );
+      const { attachments } = (await up.json()) as {
+        attachments: MembersChatMessage["attachments"];
+      };
+      const serverName = attachments[0].filename;
+      expect(serverName).not.toBe("Résumé 2026.txt");
+      const path = `/api/members-chat/files/${serverName}`;
+      const asOwner = { rawSessionId: owner.rawSessionId };
+
+      const inline = await server.http(path, asOwner);
+      expect(inline.status).toBe(200);
+      expect(inline.headers.get("content-disposition")).toBeNull();
+
+      for (const c of DOWNLOAD_NAME_CASES) {
+        const res = await server.http(
+          `${path}?download=${encodeURIComponent(c.requested)}`,
+          asOwner,
+        );
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe("cv");
+        expect(res.headers.get("content-security-policy")).toMatch(
+          /(^|;\s*)sandbox allow-scripts$/,
+        );
+        expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+        const header = readAttachmentHeader(res);
+        expect(header.type).toBe("attachment");
+        expect(header.name).toBe(c.saved ?? serverName);
+        expectSafeFallback(header.fallback);
+      }
     });
   });
 

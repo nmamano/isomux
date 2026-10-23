@@ -772,7 +772,8 @@ it("draws an ask's files, then its editor card, then its command, as the chat dr
   const card = view.container.querySelector<HTMLElement>(ASK)!;
   const order = [
     ...card.querySelectorAll<HTMLElement>(
-      "img, a[href^='/api/files/'], [data-ask-edit-file], [data-ask-command]",
+      // The download buttons (attachment-download.dom.test.tsx) are not parts.
+      "img, a[href^='/api/files/']:not([download]), [data-ask-edit-file], [data-ask-command]",
     ),
   ].map((el) =>
     el.tagName === "IMG"

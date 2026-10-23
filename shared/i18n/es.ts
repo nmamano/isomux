@@ -1833,6 +1833,7 @@ Cosas que puedes hacer por él:
   "cards.toolResult.showLess": "Ver menos",
   "cards.reviewFindings.none": "Sin hallazgos.",
   "cards.fileView.fullSize": "Tamaño completo",
+  "cards.fileView.download": "Descargar {file}",
   "cards.fileView.earlierAttachment":
     "El agente ha visto un archivo adjuntado antes en este chat. Haz clic para mostrarlo.",
   "cards.editRequest.open": "Abrir en el editor",

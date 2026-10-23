@@ -178,7 +178,12 @@ describe("inbound message height", () => {
     };
     const view = render(mount([withFile]));
     expect(view.getByRole("button", { name: "Expand message" })).not.toBeNull();
-    const attachment = view.getByRole("link", { name: /report.txt/ });
+    // The chip, not its download button (a[download]) that names the same file.
+    const chips = view
+      .getAllByRole("link", { name: /report\.txt/ })
+      .filter((link) => !link.hasAttribute("download"));
+    expect(chips).toHaveLength(1);
+    const attachment = chips[0];
     act(() => attachment.focus());
     expect(document.activeElement).toBe(attachment);
     const collapse = view.getByRole("button", { name: "Collapse message" });

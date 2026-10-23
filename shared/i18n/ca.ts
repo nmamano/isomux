@@ -1838,6 +1838,7 @@ Coses que pots fer per ell:
   "cards.toolResult.showLess": "Mostra'n menys",
   "cards.reviewFindings.none": "Cap troballa.",
   "cards.fileView.fullSize": "Mida completa",
+  "cards.fileView.download": "Baixa {file}",
   "cards.fileView.earlierAttachment":
     "L'agent ha vist un fitxer adjuntat abans en aquest xat. Fes clic per mostrar-lo.",
   "cards.editRequest.open": "Obre a l'editor",

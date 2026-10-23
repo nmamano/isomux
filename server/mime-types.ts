@@ -1,5 +1,6 @@
 // Extension → MIME type lookup, shared between /api/files response headers
-// and emitAgentReadFile attachment inference. Active types (HTML, SVG, XML)
+// and emitAgentReadFile attachment inference, and the ?download header of the
+// chat file routes. Active types (HTML, SVG, XML)
 // are safe to name here because every file route serves them under
 // untrustedFileHeaders (server/auth-middleware.ts).
 
@@ -40,4 +41,41 @@ export function httpContentTypeForFilename(filename: string): string {
     return `${mime}; charset=utf-8`;
   }
   return mime;
+}
+
+// Content-Disposition for a file served with ?download=<name>: save it under
+// the name the client asks for (chat attachments keep their original name only
+// in the log entry). Control characters and path parts go; a name left empty,
+// "." or ".." falls back to the server filename. filename= is a printable-ASCII
+// fallback for old clients, filename* the exact UTF-8 name (RFC 6266).
+function attachmentDisposition(
+  requested: string,
+  serverFilename: string,
+): string {
+  const stripped = requested
+    // eslint-disable-next-line no-control-regex -- control chars are the point
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/.*[/\\]/, "");
+  const name =
+    stripped === "" || stripped === "." || stripped === ".."
+      ? serverFilename
+      : stripped;
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+// ?download=<name> (the chat's download button): save under that name.
+export function downloadHeader(
+  query: URLSearchParams,
+  serverFilename: string,
+): Record<string, string> {
+  const requested = query.get("download");
+  if (requested === null) return {};
+  return {
+    "Content-Disposition": attachmentDisposition(requested, serverFilename),
+  };
 }

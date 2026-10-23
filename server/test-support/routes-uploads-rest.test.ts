@@ -26,6 +26,11 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
+import {
+  DOWNLOAD_NAME_CASES,
+  expectSafeFallback,
+  readAttachmentHeader,
+} from "./attachment-header.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { saveFile } from "../persistence.ts";
@@ -199,6 +204,80 @@ describe("routes/uploads REST: resolver safety", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(traversal.status).toBe(404);
+  });
+});
+
+// ?download=<name> is the chat's download button: the same bytes, saved under
+// the original name the client holds (the server stores only its own name).
+describe("routes/uploads REST: ?download saves under the requested name", () => {
+  it("adds an attachment header on every file route, keeps the sandbox, and keeps the guard", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const member = await srv.seedMember("Mallory"); // allowedRooms []
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const up = await upload(
+      srv,
+      agent.id,
+      [{ name: "Résumé 2026.txt", content: "cv" }],
+      { rawSessionId: owner.rawSessionId },
+    );
+    const serverName = (
+      (await up.json()).attachments as Array<{ filename: string }>
+    )[0].filename;
+    // The empty-name cases must prove the server name, not echo the request.
+    expect(serverName).not.toBe("Résumé 2026.txt");
+    const asOwner = { rawSessionId: owner.rawSessionId };
+
+    for (const base of [
+      `/api/files/${agent.id}`,
+      `/api/images/${agent.id}`,
+      `/api/agents/${agent.id}/files`,
+    ]) {
+      const path = `${base}/${serverName}`;
+      // Without the parameter the response is today's: inline, no header.
+      const inline = await srv.http(path, asOwner);
+      expect(inline.status).toBe(200);
+      expect(inline.headers.get("content-disposition")).toBeNull();
+
+      for (const c of DOWNLOAD_NAME_CASES) {
+        const res = await srv.http(
+          `${path}?download=${encodeURIComponent(c.requested)}`,
+          asOwner,
+        );
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe("cv");
+        expectSandboxed(res);
+        expect(res.headers.get("set-cookie")).toBeNull();
+        const header = readAttachmentHeader(res);
+        expect(header.type).toBe("attachment");
+        const saved = c.saved ?? serverName;
+        expect(header.name).toBe(saved);
+        expectSafeFallback(header.fallback);
+        if (/^[\x20-\x7e]+$/.test(saved) && !/["\\]/.test(saved)) {
+          expect(header.fallback).toBe(saved);
+        }
+      }
+      // A present-but-empty parameter still asks for a download.
+      const bare = await srv.http(`${path}?download`, asOwner);
+      expect(readAttachmentHeader(bare).name).toBe(serverName);
+    }
+
+    // The parameter opens nothing: a miss is a 404, a member with no room
+    // access is a 403, as without it.
+    const missing = await srv.http(
+      `/api/agents/${agent.id}/files/missing.txt?download=a.txt`,
+      asOwner,
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("content-disposition")).toBeNull();
+    const denied = await srv.http(
+      `/api/agents/${agent.id}/files/${serverName}?download=a.txt`,
+      { rawSessionId: member.rawSessionId },
+    );
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get("content-disposition")).toBeNull();
   });
 });
 
