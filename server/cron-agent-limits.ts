@@ -8,6 +8,7 @@ import { realpathSync } from "fs";
 import { sep } from "path";
 import type { AgentInfo, CodexSandboxMode, Cronjob } from "../shared/types.ts";
 import { resolveCwd } from "./cwd-utils.ts";
+import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
 export type ScheduleLimitJob = Pick<
   Cronjob,
@@ -93,8 +94,8 @@ export function scheduleExceedsAgent(
 export function scheduleRunRefusal(
   breach: "mode" | "folder",
   agentName: string,
-): string {
+): LogMessage {
   return breach === "mode"
-    ? `${agentName}, the agent that made this schedule, has less access than the schedule needs. Give the agent more access, or change the schedule.`
-    : `This schedule runs outside the working folder of ${agentName}, the agent that made it. Change the folder of the schedule or of the agent.`;
+    ? msg("systemEntries.scheduleRun.limit.mode", { agent: agentName })
+    : msg("systemEntries.scheduleRun.limit.folder", { agent: agentName });
 }

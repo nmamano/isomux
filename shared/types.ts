@@ -1570,6 +1570,9 @@ export interface CronjobRun {
   startedAt: number;
   endedAt: number | null;
   errorReason: string | null;
+  // errorReason as a catalog message, for each reader's language. Absent
+  // when the reason is plain text, and on rows written before it existed.
+  errorReasonMessage?: LogPart[];
   promptSnapshot: string;
   agentTypeSnapshot: AgentBackendType;
   modelFamilySnapshot: CronjobModel;

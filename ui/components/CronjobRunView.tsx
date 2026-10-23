@@ -11,6 +11,7 @@ import {
 import { getDevice } from "../device-settings.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { useI18n } from "../i18n.tsx";
+import { logEntryText } from "../../shared/i18n/log-message.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
@@ -87,7 +88,8 @@ export function CronjobRunView({
     cronjobsStateSeq,
     sessionContext,
   } = useAppState();
-  const { t, language } = useI18n();
+  const i18n = useI18n();
+  const { t, language } = i18n;
   const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
@@ -623,7 +625,12 @@ export function CronjobRunView({
               <div
                 style={{ marginTop: 8, fontSize: 11, color: "var(--red-text)" }}
               >
-                {t("schedules.errorLine", { reason: run.errorReason })}
+                {t("schedules.errorLine", {
+                  reason: logEntryText(i18n, {
+                    content: run.errorReason,
+                    message: run.errorReasonMessage,
+                  }),
+                })}
               </div>
             )}
           </div>

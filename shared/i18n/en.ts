@@ -3039,6 +3039,33 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.claudeSession.missingAfterExit":
     "Cannot resume Claude session {session}…: its file was not found. Paths checked: {paths}. Use /resume to select another conversation, or start a new conversation.",
   "systemEntries.scheduleRun.resumeFailed": "Failed to resume: {error}",
+  "systemEntries.contextFull":
+    "Context is {percent}% full. Consider starting to wrap up. You can use /clear (for a new session) or /handoff (to continue this one with fresh context).",
+  "systemEntries.scheduleRun.permissionRequested":
+    "Run failed: the agent asked for permission to use a tool, and a scheduled run cannot answer.",
+  "systemEntries.scheduleRun.questionRequested":
+    "Run failed: the agent asked a question, and a scheduled run cannot answer.",
+  "systemEntries.scheduleRun.interrupted": "Run interrupted.",
+  "systemEntries.scheduleRun.failed": "Run failed.",
+  "systemEntries.scheduleRun.streamEnded":
+    "Run failed: the session ended before the turn finished.",
+  "systemEntries.scheduleRun.timedOut":
+    "Run stopped: it ran longer than {minutes} minutes.",
+  "systemEntries.scheduleRun.skippedInFlight":
+    "Skipped: the previous run of this schedule was still running.",
+  "systemEntries.scheduleRun.serverRestarted":
+    "Run stopped: the Isomux server restarted.",
+  "systemEntries.scheduleRun.sessionFailed": "Cannot start session: {error}",
+  "systemEntries.scheduleRun.startCwd.missing":
+    "Cannot start: cwd is invalid: Directory does not exist: {path}",
+  "systemEntries.scheduleRun.startCwd.notDirectory":
+    "Cannot start: cwd is invalid: Not a directory: {path}",
+  "systemEntries.scheduleRun.startCwd.inaccessible":
+    "Cannot start: cwd is invalid: Cannot access {path}: {message}",
+  "systemEntries.scheduleRun.limit.mode":
+    "{agent}, the agent that made this schedule, has less access than the schedule needs. Give the agent more access, or change the schedule.",
+  "systemEntries.scheduleRun.limit.folder":
+    "This schedule runs outside the working folder of {agent}, the agent that made it. Change the folder of the schedule or of the agent.",
   "systemEntries.claudeAuth.connected":
     "This conversation may still use the credentials it started with. Start a new conversation (`/clear`) to use the current Claude sign-in.",
   "systemEntries.claudeAuth.incomplete":

@@ -26,6 +26,7 @@ import {
 } from "../room-filter.ts";
 import { RoomFilterSelect } from "./RoomFilterSelect.tsx";
 import { useI18n } from "../i18n.tsx";
+import { logEntryText } from "../../shared/i18n/log-message.ts";
 import {
   formatDateTime,
   timeSince,
@@ -886,7 +887,8 @@ function RunsTable({
   isMobile: boolean;
   onRowClick: (r: CronjobRun) => void;
 }) {
-  const { t, language } = useI18n();
+  const i18n = useI18n();
+  const { t, language } = i18n;
   const cellPad = isMobile ? "8px 6px" : "10px 12px";
   const thStyle: React.CSSProperties = {
     padding: cellPad,
@@ -1032,7 +1034,13 @@ function RunsTable({
                   maxWidth: 0,
                 }}
               >
-                {r.errorReason || r.previewText || " - "}
+                {(r.errorReason &&
+                  logEntryText(i18n, {
+                    content: r.errorReason,
+                    message: r.errorReasonMessage,
+                  })) ||
+                  r.previewText ||
+                  " - "}
               </td>
               {!isMobile && (
                 <td

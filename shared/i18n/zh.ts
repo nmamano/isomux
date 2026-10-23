@@ -2760,6 +2760,32 @@ App 的一些原则：
   "systemEntries.claudeSession.missingAfterExit":
     "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。请使用 /resume 选择其他对话，或开始新对话。",
   "systemEntries.scheduleRun.resumeFailed": "继续失败：{error}",
+  "systemEntries.contextFull":
+    "上下文已用 {percent}%。建议开始收尾。可以使用 /clear（开始新会话）或 /handoff（以新的上下文继续当前会话）。",
+  "systemEntries.scheduleRun.permissionRequested":
+    "运行失败：智能体请求了使用工具的权限，而定时运行无法回应。",
+  "systemEntries.scheduleRun.questionRequested":
+    "运行失败：智能体提出了问题，而定时运行无法回应。",
+  "systemEntries.scheduleRun.interrupted": "运行已中断。",
+  "systemEntries.scheduleRun.failed": "运行失败。",
+  "systemEntries.scheduleRun.streamEnded": "运行失败：会话在本轮结束前已终止。",
+  "systemEntries.scheduleRun.timedOut":
+    "运行已停止：运行时间超过 {minutes} 分钟。",
+  "systemEntries.scheduleRun.skippedInFlight":
+    "已跳过：此定时任务的上一次运行仍在进行。",
+  "systemEntries.scheduleRun.serverRestarted":
+    "运行已停止：Isomux 服务器已重启。",
+  "systemEntries.scheduleRun.sessionFailed": "无法启动会话：{error}",
+  "systemEntries.scheduleRun.startCwd.missing":
+    "无法启动：cwd 无效：目录不存在：{path}",
+  "systemEntries.scheduleRun.startCwd.notDirectory":
+    "无法启动：cwd 无效：不是目录：{path}",
+  "systemEntries.scheduleRun.startCwd.inaccessible":
+    "无法启动：cwd 无效：无法访问 {path}：{message}",
+  "systemEntries.scheduleRun.limit.mode":
+    "创建此定时任务的智能体 {agent} 的访问权限少于定时任务所需。请给智能体更多访问权限，或修改定时任务。",
+  "systemEntries.scheduleRun.limit.folder":
+    "此定时任务在智能体 {agent}（创建它的智能体）的工作文件夹之外运行。请修改定时任务或智能体的文件夹。",
   "systemEntries.claudeAuth.connected":
     "此对话可能仍在使用开始时的凭据。请开始新对话（`/clear`）以使用当前 Claude 登录。",
   "systemEntries.claudeAuth.incomplete":

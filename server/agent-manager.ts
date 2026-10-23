@@ -4534,8 +4534,11 @@ export function createAgentManager(deps: ManagerDeps) {
     const pct = Math.round(snap.percentage);
     // Same copy at every band; the band machinery
     // only controls WHEN it fires (once per threshold per generation).
-    const msg = `Context is ${pct}% full. Consider starting to wrap up. You can use /clear (for a new session) or /handoff (to continue this one with fresh context).`;
-    emitEphemeralLog(managed.info.id, "system", msg);
+    emitEphemeralLog(
+      managed.info.id,
+      "system",
+      msg("systemEntries.contextFull", { percent: pct }),
+    );
   }
 
   // Fire-and-forget refresh, initiated from the (synchronous) normalized-event

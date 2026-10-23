@@ -17,6 +17,7 @@ import {
   FakeBackend,
   type FakeBackendConfig,
   type FakeSession,
+  type FakeSessionConfig,
 } from "./fake-backend.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
 import * as cronPersistence from "../cronjob-persistence.ts";
@@ -42,16 +43,20 @@ import { tmpdir } from "os";
 import {
   CATALOGS,
   translatorFor,
+  type MessageKey,
+  type ParamsFor,
   type PlainMessageKey,
 } from "../../shared/i18n/translate.ts";
-import { localizeLogParts } from "../../shared/i18n/log-message.ts";
-import { expectWorded } from "./worded.ts";
+import { localizeLogParts, msg } from "../../shared/i18n/log-message.ts";
+import { LocalizedError } from "../localized-error.ts";
+import { expectWorded, expectWordedText } from "./worded.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   CODEX_MODELS,
   MODEL_FAMILIES,
   cronjobRunStreamId,
   type AgentBackendType,
+  type CronjobRun,
   type LogEntry,
 } from "../../shared/types.ts";
 import { createCronjobManager } from "../cronjob-manager.ts";
@@ -1797,6 +1802,12 @@ describe("CronjobManager: a slot due across a restart", () => {
     const runs = after.mgr.getRunsForCronjob(id);
     expect(runs.map((r) => [r.id, r.status])).toEqual([[cut.id, "failed"]]);
     expect(runs[0].endedAt).toBe(bootAt);
+    // Its reason is worded for each reader (task ef6b1c31).
+    expectWordedText(
+      runs[0].errorReason ?? undefined,
+      runs[0].errorReasonMessage,
+      "systemEntries.scheduleRun.serverRestarted",
+    );
     expect(after.fake.createSessionCount).toBe(0);
     before.fake.sessions.forEach((s) => s.close());
   });
@@ -2080,5 +2091,349 @@ describe("CronjobManager run text in each reader's language", () => {
     } finally {
       fake.sessions.forEach((session) => session.close());
     }
+  });
+});
+
+// A run's failure reason, like its run-log lines, is stored in English
+// (errorReason, for agents, the API and older rows) and carries a message
+// each reader words in their own language (errorReasonMessage, task
+// ef6b1c31). A backend's own text stays a plain string with no message.
+describe("CronjobManager run failure reason in each reader's language", () => {
+  const cleanups: (() => void)[] = [];
+  afterEach(() => {
+    for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+  });
+
+  type Ran = {
+    mgr: ReturnType<typeof createCronjobManager>;
+    run: CronjobRun;
+    entries: LogEntry[];
+    fake: FakeBackend;
+    sched: ReturnType<typeof fakeScheduler>;
+  };
+
+  // Fire one run now and wait until it leaves "running".
+  async function endedRun(
+    session: FakeSessionConfig,
+    over: { job?: Partial<AddCronjobInput>; deps?: Partial<CronDeps> } = {},
+  ): Promise<Ran> {
+    const fake = new FakeBackend({ session });
+    const sched = fakeScheduler();
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        eventSink: sink,
+        scheduler: sched.scheduler,
+        ...over.deps,
+      }),
+    );
+    cleanups.push(() => fake.sessions.forEach((s) => s.close()));
+    const job = mgr.addCronjob({ ...intervalInput("ReasonRun"), ...over.job });
+    const started = mgr.runCronjobNow(job.id, "Nil")!;
+    await waitFor(
+      () => mgr.findRun(job.id, started.id)?.status !== "running",
+      "run ended",
+    );
+    const entries = events.flatMap((e) =>
+      e.type === "log_entry" ? [e.entry] : [],
+    );
+    return { mgr, run: mgr.findRun(job.id, started.id)!, entries, fake, sched };
+  }
+
+  function expectReason<K extends MessageKey>(
+    run: CronjobRun | null | undefined,
+    key: K,
+    ...params: ParamsFor<K>
+  ): void {
+    expect(run).toBeDefined();
+    expectWordedText(
+      run!.errorReason ?? undefined,
+      run!.errorReasonMessage,
+      key,
+      ...params,
+    );
+  }
+
+  // The run-log line that says the same thing as the reason.
+  function expectLogLine<K extends MessageKey>(
+    entries: LogEntry[],
+    key: K,
+    ...params: ParamsFor<K>
+  ): void {
+    const english = translatorFor("en").t(key, ...params);
+    expectWorded(
+      entries.find((e) => e.content === english),
+      key,
+      ...params,
+    );
+  }
+
+  const OWN = msg("systemEntries.streamError", { error: "own words" });
+
+  it("a permission request and a question fail the run with a worded reason and log line", async () => {
+    const asked = await endedRun({
+      onSend: (_t, _a, s) =>
+        s.push({
+          kind: "approval_request",
+          approvalId: "permission-1",
+          toolName: "Bash",
+          input: {},
+        }),
+    });
+    expect(asked.run.status).toBe("failed");
+    expectReason(asked.run, "systemEntries.scheduleRun.permissionRequested");
+    expectLogLine(
+      asked.entries,
+      "systemEntries.scheduleRun.permissionRequested",
+    );
+
+    const question = await endedRun({
+      onSend: (_t, _a, s) =>
+        s.push({
+          kind: "input_request",
+          inputType: "question",
+          requestId: "question-1",
+        }),
+    });
+    expect(question.run.status).toBe("failed");
+    expectReason(question.run, "systemEntries.scheduleRun.questionRequested");
+    expectLogLine(
+      question.entries,
+      "systemEntries.scheduleRun.questionRequested",
+    );
+  });
+
+  it("a turn that stops without an error says how it stopped, in the reason and the log line", async () => {
+    for (const [status, key] of [
+      ["interrupted", "systemEntries.scheduleRun.interrupted"],
+      ["failed", "systemEntries.scheduleRun.failed"],
+    ] as const) {
+      const { run, entries } = await endedRun({
+        onSend: (_t, _a, s) => s.push({ kind: "turn_completed", status }),
+      });
+      expect(run.status).toBe("failed");
+      expectReason(run, key);
+      expectLogLine(entries, key);
+    }
+  });
+
+  it("a turn error or an error event in Isomux's words keeps its message as the reason; a backend's text stays plain", async () => {
+    const turn = await endedRun({
+      onSend: (_t, _a, s) =>
+        s.push({ kind: "turn_completed", status: "failed", error: OWN }),
+    });
+    expectReason(turn.run, "systemEntries.streamError", { error: "own words" });
+
+    const event = await endedRun({
+      onSend: (_t, _a, s) => s.push({ kind: "error", message: OWN }),
+    });
+    expectReason(event.run, "systemEntries.streamError", {
+      error: "own words",
+    });
+
+    const backend = await endedRun({
+      onSend: (_t, _a, s) =>
+        s.push({ kind: "error", message: "provider overloaded" }),
+    });
+    expect(backend.run.status).toBe("failed");
+    expect(backend.run.errorReason).toBe("provider overloaded");
+    expect(backend.run.errorReasonMessage).toBeUndefined();
+  });
+
+  it("a stream that ends early or throws fails the run with a worded reason", async () => {
+    const ended = await endedRun({
+      onSend: (_t, _a, s) => s.endStream(),
+    });
+    expect(ended.run.status).toBe("failed");
+    expectReason(ended.run, "systemEntries.scheduleRun.streamEnded");
+
+    const thrown = await endedRun({
+      onSend: (_t, _a, s) => s.failStream(new Error("ECONNRESET")),
+    });
+    expect(thrown.run.status).toBe("failed");
+    expectReason(thrown.run, "systemEntries.streamError", {
+      error: "ECONNRESET",
+    });
+  });
+
+  it("a prompt send that fails logs a worded line; the reason is the error's own text, worded only when it is Isomux's", async () => {
+    const raw = await endedRun({
+      onSend: () => {
+        throw new Error("ECONNREFUSED");
+      },
+    });
+    expect(raw.run.status).toBe("failed");
+    expect(raw.run.errorReason).toBe("ECONNREFUSED");
+    expect(raw.run.errorReasonMessage).toBeUndefined();
+    expectLogLine(raw.entries, "systemEntries.scheduleRun.sendFailed", {
+      error: "ECONNREFUSED",
+    });
+
+    const own = await endedRun({
+      onSend: () => {
+        throw new LocalizedError(OWN);
+      },
+    });
+    expectReason(own.run, "systemEntries.streamError", { error: "own words" });
+  });
+
+  it("an env that cannot be built or a session that cannot start fails the run with a worded reason", async () => {
+    const env = await endedRun(
+      {},
+      {
+        deps: {
+          resolveEnv: () => {
+            throw new Error("bad env file");
+          },
+        },
+      },
+    );
+    expect(env.run.status).toBe("failed");
+    expectReason(env.run, "systemEntries.scheduleRun.envFailed", {
+      error: "bad env file",
+    });
+
+    const throwing = new FakeBackend();
+    throwing.createSession = () => {
+      throw new Error("spawn failed");
+    };
+    const session = await endedRun(
+      {},
+      { deps: { resolveBackend: () => throwing } },
+    );
+    expect(session.run.status).toBe("failed");
+    expectReason(session.run, "systemEntries.scheduleRun.sessionFailed", {
+      error: "spawn failed",
+    });
+  });
+
+  it("a cwd that is missing or is a file fails the run at its start with a worded reason, and the preview stays English", async () => {
+    const root = mkdtempSync(join(tmpdir(), "isomux-cron-reason-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const missing = join(root, "gone");
+    const file = join(root, "file");
+    writeFileSync(file, "x");
+
+    const gone = await endedRun({}, { job: { cwd: missing } });
+    expect(gone.run.status).toBe("failed");
+    expect(gone.fake.createSessionCount).toBe(0);
+    expectReason(gone.run, "systemEntries.scheduleRun.startCwd.missing", {
+      path: missing,
+    });
+    expect(gone.run.previewText).toBe(gone.run.errorReason!);
+
+    const notDir = await endedRun({}, { job: { cwd: file } });
+    expectReason(
+      notDir.run,
+      "systemEntries.scheduleRun.startCwd.notDirectory",
+      { path: file },
+    );
+  });
+
+  it("the hard timeout ends the run with a worded reason and log line", async () => {
+    const fake = new FakeBackend();
+    const sched = fakeScheduler();
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        eventSink: sink,
+        scheduler: sched.scheduler,
+      }),
+    );
+    cleanups.push(() => fake.sessions.forEach((s) => s.close()));
+    const job = mgr.addCronjob(intervalInput("ReasonTimeout"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await waitFor(() => fake.sessions.length === 1, "session live");
+    const timeout = sched.timeouts.find((t) => t.ms === 30 * 60 * 1000);
+    // The ENABLING CONDITION: the run armed a 30-minute timer and is live.
+    expect(timeout).toBeDefined();
+    expect(mgr.findRun(job.id, run.id)?.status).toBe("running");
+    timeout!.fn();
+
+    const ended = mgr.findRun(job.id, run.id);
+    expect(ended?.status).toBe("timed_out");
+    expectReason(ended, "systemEntries.scheduleRun.timedOut", { minutes: 30 });
+    expectLogLine(
+      events.flatMap((e) => (e.type === "log_entry" ? [e.entry] : [])),
+      "systemEntries.scheduleRun.timedOut",
+      { minutes: 30 },
+    );
+  });
+
+  it("a scheduled fire skipped for a run in flight, and a run its schedule's deletion ends, carry worded reasons", async () => {
+    let t = FIXED_NOW;
+    const sched = fakeScheduler();
+    const fake = new FakeBackend();
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        clock: { now: () => t },
+        scheduler: sched.scheduler,
+      }),
+    );
+    cleanups.push(() => fake.sessions.forEach((s) => s.close()));
+    const job = mgr.addCronjob(intervalInput("ReasonSkip"));
+    mgr.startCronjobScheduler();
+    const tick = sched.intervals[0].fn;
+    t = job.nextFireAt! + 1;
+    tick();
+    t = mgr.listCronjobs()[0].nextFireAt! + 1;
+    tick();
+    const runs = mgr.getRunsForCronjob(job.id);
+    const skipped = runs.find((r) => r.status === "skipped");
+    const live = runs.find((r) => r.status === "running");
+    expect(live).toBeDefined();
+    expectReason(skipped, "systemEntries.scheduleRun.skippedInFlight");
+
+    mgr.deleteCronjob(job.id);
+    expectReason(
+      mgr.findRun(job.id, live!.id),
+      "systemEntries.scheduleRun.jobDeleted",
+    );
+  });
+
+  it("a follow-up clears the worded reason while it runs, and a plain reason after it carries no message", async () => {
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        manualSend: true,
+        onSend: (_t, _a, s) => {
+          if (++sends === 1)
+            s.push({ kind: "turn_completed", status: "interrupted" });
+        },
+      },
+    });
+    const mgr = createCronjobManager(baseDeps({ resolveBackend: () => fake }));
+    cleanups.push(() => fake.sessions.forEach((s) => s.close()));
+    const job = mgr.addCronjob(intervalInput("ReasonFollowUp"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await waitFor(
+      () => mgr.findRun(job.id, run.id)?.status === "failed",
+      "first turn failed",
+    );
+    // The ENABLING CONDITION: the run carries a worded reason to clear.
+    expectReason(
+      mgr.findRun(job.id, run.id),
+      "systemEntries.scheduleRun.interrupted",
+    );
+
+    const sent = await mgr.sendRunMessage(job.id, run.id, "again", "Nil");
+    expect(sent.ok).toBe(true);
+    await waitFor(() => sends === 2, "follow-up sent");
+    const running = mgr.findRun(job.id, run.id)!;
+    expect(running.status).toBe("running");
+    expect(running.errorReason).toBeNull();
+    expect(running.errorReasonMessage).toBeUndefined();
+
+    fake.lastSession!.failSends(new Error("ECONNREFUSED"));
+    await waitFor(
+      () => mgr.findRun(job.id, run.id)?.status === "failed",
+      "follow-up failed",
+    );
+    const ended = mgr.findRun(job.id, run.id)!;
+    expect(ended.errorReason).toBe("ECONNREFUSED");
+    expect(ended.errorReasonMessage).toBeUndefined();
   });
 });

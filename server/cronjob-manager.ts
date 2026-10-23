@@ -60,12 +60,7 @@ import {
   type LogEntry,
   type Schedule,
 } from "../shared/types.ts";
-import {
-  cwdProblem,
-  validateCwd,
-  resolveCwd,
-  type CwdProblem,
-} from "./cwd-utils.ts";
+import { cwdProblem, resolveCwd, type CwdProblem } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -232,13 +227,26 @@ export interface CronjobManagerDeps {
   // whose live maker agent is ordinary and now reaches less than the job.
   // Null to start. A refusal makes a failed run, like a missing folder.
   // Omitted: no limit.
-  limitRefusal?: (job: Cronjob) => string | null;
+  limitRefusal?: (job: Cronjob) => LogText | null;
 }
 
 // Public surface of a CronjobManager instance, derived from the explicitly
 // assembled return object below. (See handoff note re: ReturnType vs a
 // hand-written interface.)
 export type CronjobManager = ReturnType<typeof createCronjobManager>;
+
+// A run's failure reason as its row stores it: errorReason is the English
+// (what agents, the API and older rows read), errorReasonMessage the parts each
+// reader words. The message key is always present, undefined for plain text:
+// updateRun spreads its patch, so an absent key would keep an old message.
+function reasonFields(
+  reason: LogText | null,
+): Pick<CronjobRun, "errorReason" | "errorReasonMessage"> {
+  if (reason === null)
+    return { errorReason: null, errorReasonMessage: undefined };
+  const { content, message } = logTextFields(reason);
+  return { errorReason: content, errorReasonMessage: message };
+}
 
 export function createCronjobManager(deps: CronjobManagerDeps) {
   const getBackend = deps.resolveBackend;
@@ -597,7 +605,11 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         active.session.close();
       } catch {}
       writeLog(active, "error", msg("systemEntries.scheduleRun.jobDeleted"));
-      finalizeRun(active, "failed", "schedule deleted");
+      finalizeRun(
+        active,
+        "failed",
+        msg("systemEntries.scheduleRun.jobDeleted"),
+      );
     }
     eventHandler({ type: "cronjob_deleted", id, cronjob: removed });
     return true;
@@ -854,7 +866,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(
           active,
           "error",
-          "Run failed because the backend requested tool permission during an unattended cron run.",
+          msg("systemEntries.scheduleRun.permissionRequested"),
         );
         break;
       }
@@ -862,7 +874,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(
           active,
           "error",
-          "Run failed because the backend requested an interactive question during an unattended cron run.",
+          msg("systemEntries.scheduleRun.questionRequested"),
         );
         break;
       }
@@ -896,7 +908,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         if (ev.status !== "completed") {
           // consumeUntilTurnCompleted adds the login hint before it
           // finalizes the run.
-          writeLog(active, "error", ev.error ?? `Run stopped: ${ev.status}.`);
+          writeLog(active, "error", ev.error ?? turnStoppedText(ev.status));
         }
         break;
       }
@@ -1106,8 +1118,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         if (activeRuns.get(active.runId) !== active) return;
         processNormalizedEvent(active, ev);
         if (ev.kind === "approval_request") {
-          const reason =
-            "Backend requested tool permission during an unattended cron run.";
+          const reason = msg("systemEntries.scheduleRun.permissionRequested");
           try {
             await active.session.approve(ev.approvalId, { kind: "deny" });
           } finally {
@@ -1120,8 +1131,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           return;
         }
         if (ev.kind === "input_request") {
-          const reason =
-            "Backend requested an interactive question during an unattended cron run.";
+          const reason = msg("systemEntries.scheduleRun.questionRequested");
           try {
             await active.session.abort();
           } finally {
@@ -1135,9 +1145,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           const errorReason =
             ev.status === "completed"
               ? null
-              : ev.error === undefined
-                ? `Run stopped: ${ev.status}`
-                : renderLogText(english, ev.error);
+              : (ev.error ?? turnStoppedText(ev.status));
           if (ev.status !== "completed") writeLoginHintIfAuthNeeded(active);
           finalizeRun(active, status, errorReason);
           return;
@@ -1145,14 +1153,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
         if (ev.kind === "error") {
           // processNormalizedEvent already wrote the error LogEntry; terminate.
           writeLoginHintIfAuthNeeded(active);
-          finalizeRun(active, "failed", renderLogText(english, ev.message));
+          finalizeRun(active, "failed", ev.message);
           return;
         }
       }
       // Stream ended without a turn_completed - should not happen with healthy
       // backends, but if it does (e.g. transport closed mid-turn), record it.
       if (activeRuns.has(active.runId)) {
-        finalizeRun(active, "failed", "stream ended before turn completed");
+        finalizeRun(
+          active,
+          "failed",
+          msg("systemEntries.scheduleRun.streamEnded"),
+        );
       }
     } catch (err) {
       if (active.killed) return; // hard timeout already handled
@@ -1165,7 +1177,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
         "error",
         msg("systemEntries.streamError", { error: errorText(err) }),
       );
-      finalizeRun(active, "failed", `Stream error: ${errMessage(err)}`);
+      finalizeRun(
+        active,
+        "failed",
+        msg("systemEntries.streamError", { error: errorText(err) }),
+      );
     }
   }
 
@@ -1188,7 +1204,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   function finalizeRun(
     active: ActiveRun,
     status: CronjobRun["status"],
-    errorReason: string | null = null,
+    errorReason: LogText | null = null,
   ) {
     // Idempotent: multiple paths can race to finalize (runConsumer's success
     // branch when stream ends, the IIFE's catch when session.send() fails, the
@@ -1233,7 +1249,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const updated = updateRun(active.jobId, active.runId, {
       status,
       endedAt: clock.now(),
-      errorReason: errorReason ?? null,
+      ...reasonFields(errorReason),
       previewText,
     });
     if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
@@ -1264,9 +1280,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // reaches more than the ordinary agent that made it fails the same way,
     // whoever starts it (task c4233bfd).
     let startable = true;
-    let startError: string | null = null;
+    let startError: LogText | null = null;
     try {
-      validateCwd(job.cwd);
+      const problem = cwdProblem(job.cwd);
+      if (problem) {
+        startable = false;
+        startError = runCwdText(problem, "start");
+      }
     } catch (err) {
       startable = false;
       startError = errMessage(err) || "Invalid cwd";
@@ -1278,6 +1298,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         startError = refusal;
       }
     }
+    const startReason = reasonFields(startError);
 
     const runId = generateCronjobRunId();
     const placeholderSessionId = `pending-${runId}`;
@@ -1290,7 +1311,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       status: startable ? "running" : "failed",
       startedAt: now,
       endedAt: startable ? null : now,
-      errorReason: startError,
+      ...startReason,
       promptSnapshot: prompt,
       agentTypeSnapshot: job.agentType,
       modelFamilySnapshot: job.modelFamily,
@@ -1300,7 +1321,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
       rootSessionId: placeholderSessionId,
       currentSessionId: placeholderSessionId,
-      previewText: startError ?? "",
+      previewText: startReason.errorReason ?? "",
       ...(triggeredBy ? { triggeredBy } : {}),
       ...(webhook ? { webhook } : {}),
     };
@@ -1332,7 +1353,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
       const updated = updateRun(jobId, runId, {
         status: "failed",
         endedAt: clock.now(),
-        errorReason: `Failed to build env: ${errMessage(err)}`,
+        ...reasonFields(
+          msg("systemEntries.scheduleRun.envFailed", { error: errorText(err) }),
+        ),
       });
       if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
       return updated ?? run;
@@ -1372,7 +1395,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
       const updated = updateRun(jobId, runId, {
         status: "failed",
         endedAt: clock.now(),
-        errorReason: `Failed to create session: ${errMessage(err)}`,
+        ...reasonFields(
+          msg("systemEntries.scheduleRun.sessionFailed", {
+            error: errorText(err),
+          }),
+        ),
       });
       if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
       return updated ?? run;
@@ -1407,12 +1434,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
       try {
         session.close();
       } catch {}
-      writeLog(
-        active,
-        "error",
-        "Cron job run exceeded 30-minute hard timeout.",
-      );
-      finalizeRun(active, "timed_out", "exceeded global run timeout");
+      writeLog(active, "error", timedOutText());
+      finalizeRun(active, "timed_out", timedOutText());
     }, HARD_TIMEOUT_MS);
 
     // Send the prompt as the first user message. session.send awaits the
@@ -1435,7 +1458,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
             try {
               session.close();
             } catch {}
-            finalizeRun(active, "failed", renderLogText(english, text));
+            finalizeRun(active, "failed", text);
             return;
           }
         }
@@ -1443,11 +1466,17 @@ How to answer questions about Isomux itself: the source lives at https://github.
       } catch (err) {
         if (active.killed) return;
         console.error(`Cronjob run ${runId} input error:`, errMessage(err));
-        writeLog(active, "error", `Failed to send prompt: ${errMessage(err)}`);
+        writeLog(
+          active,
+          "error",
+          msg("systemEntries.scheduleRun.sendFailed", {
+            error: errorText(err),
+          }),
+        );
         try {
           session.close();
         } catch {}
-        finalizeRun(active, "failed", errMessage(err));
+        finalizeRun(active, "failed", errorText(err));
       }
     })();
 
@@ -1470,7 +1499,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       status: "skipped",
       startedAt: now,
       endedAt: now,
-      errorReason: "previous scheduled run still in flight",
+      ...reasonFields(msg("systemEntries.scheduleRun.skippedInFlight")),
       promptSnapshot: job.prompt,
       agentTypeSnapshot: job.agentType,
       modelFamilySnapshot: job.modelFamily,
@@ -1676,21 +1705,23 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(
           active,
           "system",
-          `\`${result.cwd}\` is not a git repository.`,
+          msg("systemEntries.diffNotRepo", { path: result.cwd }),
         );
         break;
       case "git_error":
-        writeLog(
-          active,
-          "system",
-          `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``,
-        );
+        writeLog(active, "system", [
+          msg("systemEntries.diffFailed", { path: result.cwd }),
+          `\n\n\`\`\`\n${result.message}\n\`\`\``,
+        ]);
         break;
       case "bad_commit":
         writeLog(
           active,
           "system",
-          `Cannot diff \`${result.attempted}\`: ${result.message}.`,
+          msg("systemEntries.diffBadDir", {
+            path: result.attempted,
+            message: result.message,
+          }),
         );
         break;
       case "clean":
@@ -1698,8 +1729,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
           active,
           "system",
           commit
-            ? `\`${commit}\` introduced no file changes (empty commit?).`
-            : `Working tree clean in \`${result.cwd}\` - no uncommitted changes.`,
+            ? msg("systemEntries.diffEmptyCommit", { commit })
+            : msg("systemEntries.diffClean", { path: result.cwd }),
         );
         break;
       case "ok":
@@ -1831,7 +1862,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const updated = updateRun(run.cronjobId, run.id, {
       status: "running",
       endedAt: null,
-      errorReason: null,
+      ...reasonFields(null),
     });
     if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
     active.consumerPromise = consumeUntilTurnCompleted(active);
@@ -1841,12 +1872,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
       try {
         active.session.close();
       } catch {}
-      writeLog(
-        active,
-        "error",
-        "Cron job run exceeded 30-minute hard timeout.",
-      );
-      finalizeRun(active, "timed_out", "exceeded global run timeout");
+      writeLog(active, "error", timedOutText());
+      finalizeRun(active, "timed_out", timedOutText());
     }, HARD_TIMEOUT_MS);
     return active;
   }
@@ -2013,6 +2040,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         status: run.status,
         endedAt: run.endedAt,
         errorReason: run.errorReason,
+        errorReasonMessage: run.errorReasonMessage,
       };
       let active: ActiveRun;
       try {
@@ -2085,7 +2113,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           try {
             session.close();
           } catch {}
-          finalizeRun(active, "failed", errMessage(err));
+          finalizeRun(active, "failed", errorText(err));
         }
       })();
       // The text is in the run log; a later send failure is a turn error.
@@ -2095,13 +2123,38 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
   }
 
-  // Why a run's cwd cannot resume, for a follow-up or an edit.
+  // A turn that ended without completing and without an error of its own.
+  function turnStoppedText(status: "interrupted" | "failed"): LogMessage {
+    return status === "interrupted"
+      ? msg("systemEntries.scheduleRun.interrupted")
+      : msg("systemEntries.scheduleRun.failed");
+  }
+
+  function timedOutText(): LogMessage {
+    return msg("systemEntries.scheduleRun.timedOut", {
+      minutes: HARD_TIMEOUT_MS / 60_000,
+    });
+  }
+
+  // Why a run's cwd cannot start, resume (a follow-up) or take an edit.
   function runCwdText(
     problem: CwdProblem,
-    action: "resume" | "edit",
+    action: "start" | "resume" | "edit",
   ): LogMessage {
     const path = problem.path;
     const message = problem.message ?? "";
+    if (action === "start") {
+      if (problem.kind === "missing")
+        return msg("systemEntries.scheduleRun.startCwd.missing", { path });
+      if (problem.kind === "not_directory")
+        return msg("systemEntries.scheduleRun.startCwd.notDirectory", {
+          path,
+        });
+      return msg("systemEntries.scheduleRun.startCwd.inaccessible", {
+        path,
+        message,
+      });
+    }
     if (action === "resume") {
       if (problem.kind === "missing")
         return msg("systemEntries.scheduleRun.resumeCwd.missing", { path });
@@ -2488,12 +2541,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(
           active,
           "error",
-          `Failed to send edited message: ${errMessage(err)}`,
+          msg("systemEntries.scheduleRun.editFailed", {
+            error: errorText(err),
+          }),
         );
         try {
           session.close();
         } catch {}
-        finalizeRun(active, "failed", errMessage(err));
+        finalizeRun(active, "failed", errorText(err));
       }
     })();
   }
@@ -2559,7 +2614,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
         if (r.status === "running") {
           r.status = "failed";
           r.endedAt = now;
-          r.errorReason = "server restarted during run";
+          Object.assign(
+            r,
+            reasonFields(msg("systemEntries.scheduleRun.serverRestarted")),
+          );
           mutated = true;
         }
       }

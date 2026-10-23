@@ -3086,6 +3086,34 @@ Coses que pots fer per ell:
   "systemEntries.claudeSession.missingAfterExit":
     "No es pot reprendre la sessió de Claude {session}…: no s’ha trobat el seu fitxer. Camins comprovats: {paths}. Fes servir /resume per seleccionar una altra conversa o inicia una conversa nova.",
   "systemEntries.scheduleRun.resumeFailed": "No s'ha pogut reprendre: {error}",
+  "systemEntries.contextFull":
+    "El context és al {percent}%. Considera començar a tancar. Pots fer servir /clear (per a una sessió nova) o /handoff (per continuar aquesta amb context nou).",
+  "systemEntries.scheduleRun.permissionRequested":
+    "L'execució ha fallat: l'agent ha demanat permís per fer servir una eina i una execució programada no pot respondre.",
+  "systemEntries.scheduleRun.questionRequested":
+    "L'execució ha fallat: l'agent ha fet una pregunta i una execució programada no pot respondre.",
+  "systemEntries.scheduleRun.interrupted": "Execució interrompuda.",
+  "systemEntries.scheduleRun.failed": "L'execució ha fallat.",
+  "systemEntries.scheduleRun.streamEnded":
+    "L'execució ha fallat: la sessió ha acabat abans que acabés el torn.",
+  "systemEntries.scheduleRun.timedOut":
+    "Execució aturada: ha durat més de {minutes} minuts.",
+  "systemEntries.scheduleRun.skippedInFlight":
+    "Omesa: l'execució anterior d'aquesta programació encara estava en curs.",
+  "systemEntries.scheduleRun.serverRestarted":
+    "Execució aturada: el servidor d'Isomux s'ha reiniciat.",
+  "systemEntries.scheduleRun.sessionFailed":
+    "No es pot iniciar la sessió: {error}",
+  "systemEntries.scheduleRun.startCwd.missing":
+    "No es pot iniciar: el cwd no és vàlid: el directori no existeix: {path}",
+  "systemEntries.scheduleRun.startCwd.notDirectory":
+    "No es pot iniciar: el cwd no és vàlid: no és un directori: {path}",
+  "systemEntries.scheduleRun.startCwd.inaccessible":
+    "No es pot iniciar: el cwd no és vàlid: no es pot accedir a {path}: {message}",
+  "systemEntries.scheduleRun.limit.mode":
+    "{agent}, l'agent que ha creat aquesta programació, té menys accés del que la programació necessita. Dona més accés a l'agent o canvia la programació.",
+  "systemEntries.scheduleRun.limit.folder":
+    "Aquesta programació s'executa fora de la carpeta de treball de {agent}, l'agent que l'ha creada. Canvia la carpeta de la programació o de l'agent.",
   "systemEntries.claudeAuth.connected":
     "Aquesta conversa pot continuar fent servir les credencials amb què es va iniciar. Inicia una conversa nova (`/clear`) per fer servir la connexió actual de Claude.",
   "systemEntries.claudeAuth.incomplete":

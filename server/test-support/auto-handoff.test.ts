@@ -198,6 +198,19 @@ const got = (s: FakeSession | undefined, text: string) =>
   texts(s).some((t) => t === text || t.endsWith(`\nUser message:\n${text}`));
 const systemLines = (h: Harness) =>
   h.logs.filter((e) => e.kind === "system").map((e) => e.content);
+// Whether the member's context-fullness notice at `percent` was written: a
+// catalog message with the percent as its parameter (task ef6b1c31).
+const contextNoticeAt = (h: Harness, percent: number) =>
+  h.logs.some(
+    (e) =>
+      e.kind === "system" &&
+      (e.message ?? []).some(
+        (part) =>
+          typeof part !== "string" &&
+          part.key === "systemEntries.contextFull" &&
+          part.params?.percent === percent,
+      ),
+  );
 
 // Start a member turn and wait until the session runs it.
 async function startTurn(
@@ -355,9 +368,7 @@ describe("automatic handoff: arming", () => {
     );
     // The arming sample is past the 50 band: neither the member line nor the
     // agent's context check.
-    expect(
-      systemLines(h).some((l) => l.startsWith("Context is 51% full.")),
-    ).toBe(false);
+    expect(contextNoticeAt(h, 51)).toBe(false);
     expect(texts(old).join("\n")).not.toContain("context-check");
   });
 
@@ -398,10 +409,7 @@ describe("automatic handoff: arming", () => {
     const h = makeHarness();
     const info = await spawn(h, { autoHandoff: false });
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await waitUntil(
-      () => systemLines(h).some((l) => l.startsWith("Context is 95% full.")),
-      "member wrap-up notice",
-    );
+    await waitUntil(() => contextNoticeAt(h, 95), "member wrap-up notice");
     await atRestMeasured(h, info.id);
     // The next message runs in place, with the agent's wrap-up advice.
     const s = await startTurn(h, info.id, "next");
@@ -958,9 +966,7 @@ describe("automatic handoff: failures", () => {
       1,
     );
     // The attempt is used: the member's wrap-up notice comes back now.
-    expect(
-      systemLines(h).some((l) => l.startsWith("Context is 95% full.")),
-    ).toBe(true);
+    expect(contextNoticeAt(h, 95)).toBe(true);
   }
 
   // The conversation continues in the old session: the message that started
@@ -1127,9 +1133,7 @@ describe("automatic handoff: loop guard", () => {
     const paused = en.t("systemEntries.autoHandoff.paused");
     await waitUntil(() => systemLines(h).includes(paused), "pause line");
     // Paused: the wrap-up notice comes back on the same sample.
-    expect(
-      systemLines(h).some((l) => l.startsWith("Context is 93% full.")),
-    ).toBe(true);
+    expect(contextNoticeAt(h, 93)).toBe(true);
     // Further turns above the trigger hand off no more.
     await waitUntil(
       () => stateOf(h, info.id) === "waiting_for_response",
@@ -1175,9 +1179,7 @@ describe("automatic handoff: wrap-up notices", () => {
     await settle();
     const s = await startTurn(h, info.id, "next");
     expect(texts(s).at(-1)).not.toContain("context-check");
-    expect(
-      systemLines(h).some((l) => l.startsWith("Context is 80% full.")),
-    ).toBe(false);
+    expect(contextNoticeAt(h, 80)).toBe(false);
   });
 });
 

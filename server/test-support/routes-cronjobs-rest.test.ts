@@ -28,6 +28,11 @@ import { mintAgentToken } from "../identity/tokens.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { saveFile } from "../persistence.ts";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "fs";
+import {
+  localizeLogParts,
+  type LogMessage,
+} from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 import { join } from "path";
 
 describe("cronjob REST", () => {
@@ -1470,6 +1475,18 @@ describe("schedules an ordinary agent makes", () => {
   ];
   const REFUSED_RUN = [true, true];
   const STARTED_RUN = [false, false];
+  // A refusal is a catalog message that names the agent, worded for each
+  // reader, and errorReason is its English (task ef6b1c31). Returns its key.
+  function wordedRefusalKey(run: CronjobRun, agentName: string): string {
+    const parts = run.errorReasonMessage;
+    expect(parts).toBeDefined();
+    const english = localizeLogParts(translatorFor("en"), parts);
+    expect(english).toBe(run.errorReason);
+    const catalan = localizeLogParts(translatorFor("ca"), parts);
+    expect(catalan).toContain(agentName);
+    expect(catalan).not.toBe(english);
+    return (parts![0] as LogMessage).key;
+  }
 
   it("an ordinary agent creates, reads, edits, runs and deletes its own schedule", async () => {
     const { srv, roomA, aliceId, bot, home } = await office();
@@ -1804,18 +1821,19 @@ describe("schedules an ordinary agent makes", () => {
     // cwd is unchanged, the folder it names is not.
     rmSync(sub, { recursive: true });
     symlinkSync(outside, sub);
-    expect(refusedAtStart(await memberRun(srv, asAlice, inSub.id))).toEqual(
-      REFUSED_RUN,
-    );
+    const folderRun = await memberRun(srv, asAlice, inSub.id);
+    expect(refusedAtStart(folderRun)).toEqual(REFUSED_RUN);
+    const folderKey = wordedRefusalKey(folderRun, bot.info.name);
 
     // Alice lowers the agent: a member's Run now and a webhook run of its
     // full-access job are refused at the start.
     await srv.agentManager.editAgent(bot.info.id, {
       permissionMode: "default",
     });
-    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
-      REFUSED_RUN,
-    );
+    const modeRun = await memberRun(srv, asAlice, job.id);
+    expect(refusedAtStart(modeRun)).toEqual(REFUSED_RUN);
+    // Two causes, two messages.
+    expect(wordedRefusalKey(modeRun, bot.info.name)).not.toBe(folderKey);
     expect(refusedAtStart(webhookRun(job.id))).toEqual(REFUSED_RUN);
 
     // Made privileged, the agent's cron:manage wins and the job runs.

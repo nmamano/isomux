@@ -38,10 +38,14 @@ import { claudeProjectDir } from "../cwd-utils.ts";
 import { loadLog } from "../persistence.ts";
 import { STATE_ROOT } from "../config.ts";
 import { getUserByName, updateUserById } from "../users.ts";
-import { localizeLogParts } from "../../shared/i18n/log-message.ts";
+import {
+  localizeLogParts,
+  type LogMessage,
+} from "../../shared/i18n/log-message.ts";
+import { expectWorded } from "./worded.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { formatNumber } from "../../shared/i18n/number.ts";
-import type { AgentInfo, RoomWire } from "../../shared/types.ts";
+import type { AgentInfo, LogEntry, RoomWire } from "../../shared/types.ts";
 import type { ContextUsage } from "../backends/types.ts";
 import type { AgentContextUsageResp } from "../../shared/contract-shapes.ts";
 
@@ -226,6 +230,16 @@ async function spawnAgent(
 }
 
 // The member-facing ephemeral chat notices (task 0b12423b) in the agent's log.
+// The notice is a catalog message, so each reader sees it in their own
+// language (task ef6b1c31); the percent is its parameter.
+const CONTEXT_FULL = "systemEntries.contextFull";
+function contextFullPart(e: LogEntry): LogMessage | undefined {
+  return e.message?.find(
+    (part): part is LogMessage =>
+      typeof part !== "string" && part.key === CONTEXT_FULL,
+  );
+}
+const noticePercent = (e: LogEntry) => contextFullPart(e)?.params?.percent;
 function uiNotices(
   mgr: ReturnType<typeof createAgentManager>,
   agentId: string,
@@ -236,7 +250,7 @@ function uiNotices(
       (e) =>
         e.kind === "system" &&
         e.ephemeral === true &&
-        e.content.startsWith("Context is"),
+        contextFullPart(e) !== undefined,
     );
 }
 
@@ -1144,7 +1158,7 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
         } else {
           expect(sent).toContain("[context check: 87% full");
           expect(notices).toHaveLength(1);
-          expect(notices[0].content).toContain("87%");
+          expectWorded(notices[0], CONTEXT_FULL, { percent: 87 });
         }
       }
     } finally {
@@ -1180,7 +1194,7 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
         WAIT_MS,
         "50-band notice",
       );
-      expect(uiNotices(mgr, info.id)[0].content).toContain("52%");
+      expect(noticePercent(uiNotices(mgr, info.id)[0])).toBe(52);
 
       // Same band again: no re-fire. Nudge the raw value (same rounded band)
       // and wait on it, so the assertion provably runs after the third turn's
@@ -1205,7 +1219,7 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
         WAIT_MS,
         "75-band notice",
       );
-      expect(uiNotices(mgr, info.id)[1].content).toContain("87%");
+      expect(noticePercent(uiNotices(mgr, info.id)[1])).toBe(87);
       // Same nudge-the-value pattern as the third sample above.
       pct = 87.2;
       await diRunTurn(mgr, info.id, "five");
@@ -1221,7 +1235,7 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
       const persisted = loadLog(info.id, sessionId);
       expect(
         persisted.some(
-          (e) => e.kind === "system" && e.content.startsWith("Context is"),
+          (e) => e.kind === "system" && contextFullPart(e) !== undefined,
         ),
       ).toBe(false);
     } finally {
@@ -1243,7 +1257,7 @@ describe("context-fullness: member-facing ephemeral chat notice (task 0b12423b)"
       );
       const notices = uiNotices(mgr, info.id);
       expect(notices).toHaveLength(1);
-      expect(notices[0].content).toContain("87%");
+      expect(noticePercent(notices[0])).toBe(87);
       // Both bands consumed: another committed sample stays silent. Nudged
       // value instead of a sampledAtMs-advance wait - same-millisecond
       // commits made the strict > unsatisfiable (CI flake, 2026-08-02).

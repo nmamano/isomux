@@ -3079,6 +3079,34 @@ Cosas que puedes hacer por él:
   "systemEntries.claudeSession.missingAfterExit":
     "No se puede reanudar la sesión de Claude {session}…: no se encontró su archivo. Rutas comprobadas: {paths}. Usa /resume para seleccionar otra conversación o inicia una conversación nueva.",
   "systemEntries.scheduleRun.resumeFailed": "No se pudo retomar: {error}",
+  "systemEntries.contextFull":
+    "El contexto está al {percent}%. Considera empezar a cerrar. Puedes usar /clear (para una sesión nueva) o /handoff (para continuar esta con contexto nuevo).",
+  "systemEntries.scheduleRun.permissionRequested":
+    "La ejecución falló: el agente pidió permiso para usar una herramienta y una ejecución programada no puede responder.",
+  "systemEntries.scheduleRun.questionRequested":
+    "La ejecución falló: el agente hizo una pregunta y una ejecución programada no puede responder.",
+  "systemEntries.scheduleRun.interrupted": "Ejecución interrumpida.",
+  "systemEntries.scheduleRun.failed": "La ejecución falló.",
+  "systemEntries.scheduleRun.streamEnded":
+    "La ejecución falló: la sesión terminó antes de acabar el turno.",
+  "systemEntries.scheduleRun.timedOut":
+    "Ejecución detenida: duró más de {minutes} minutos.",
+  "systemEntries.scheduleRun.skippedInFlight":
+    "Omitida: la ejecución anterior de esta programación seguía en curso.",
+  "systemEntries.scheduleRun.serverRestarted":
+    "Ejecución detenida: el servidor de Isomux se reinició.",
+  "systemEntries.scheduleRun.sessionFailed":
+    "No se puede iniciar la sesión: {error}",
+  "systemEntries.scheduleRun.startCwd.missing":
+    "No se puede iniciar: el cwd no es válido: el directorio no existe: {path}",
+  "systemEntries.scheduleRun.startCwd.notDirectory":
+    "No se puede iniciar: el cwd no es válido: no es un directorio: {path}",
+  "systemEntries.scheduleRun.startCwd.inaccessible":
+    "No se puede iniciar: el cwd no es válido: no se puede acceder a {path}: {message}",
+  "systemEntries.scheduleRun.limit.mode":
+    "{agent}, el agente que creó esta programación, tiene menos acceso del que la programación necesita. Da más acceso al agente o cambia la programación.",
+  "systemEntries.scheduleRun.limit.folder":
+    "Esta programación se ejecuta fuera de la carpeta de trabajo de {agent}, el agente que la creó. Cambia la carpeta de la programación o del agente.",
   "systemEntries.claudeAuth.connected":
     "Esta conversación puede seguir usando las credenciales con las que se inició. Inicia una conversación nueva (`/clear`) para usar la conexión actual de Claude.",
   "systemEntries.claudeAuth.incomplete":
