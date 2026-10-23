@@ -7,6 +7,7 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { reloadBrowser } from "../reload-browser.ts";
 import { ownUiBuild, showUiBuildNotice } from "../ui-build.ts";
+import { NoticeCloseButton } from "./NoticeCloseButton.tsx";
 
 export function UiBuildNotice(): React.ReactElement | null {
   const { serverUiBuild, uiBuildDismissed, connected } = useAppState();
@@ -57,34 +58,9 @@ export function UiBuildNotice(): React.ReactElement | null {
       >
         {t("update.screen.reload")}
       </button>
-      <button
+      <NoticeCloseButton
         onClick={() => dispatch({ type: "ui_build_dismiss" })}
-        aria-label={t("common.dismiss")}
-        title={t("common.dismiss")}
-        style={{
-          width: 24,
-          height: 24,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 0,
-          borderRadius: "50%",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-          <path
-            d="M1 1l8 8M9 1l-8 8"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+      />
     </div>
   );
 }

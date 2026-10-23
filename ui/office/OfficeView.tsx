@@ -90,7 +90,11 @@ import {
   useInstallMode,
 } from "../components/OfficeInstallNotice.tsx";
 import { InstallIcon } from "../components/install-icons.tsx";
-import { openOfficeInstallSteps, promptInstall } from "../app-install.ts";
+import {
+  openOfficeInstallSteps,
+  promptInstall,
+  readInstallEnv,
+} from "../app-install.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -524,9 +528,9 @@ export function OfficeView({
           },
         ]
       : []),
-    // The phone's permanent Install as app; on a computer it sits in
-    // Settings > Device label.
-    ...(isMobile && install
+    // The phone's permanent Install as app; on a computer, even in a narrow
+    // window, it sits only in Settings > Device label.
+    ...(isMobile && install && readInstallEnv().handheld
       ? [
           {
             id: "install",

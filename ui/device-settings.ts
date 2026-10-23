@@ -111,9 +111,10 @@ export function setAppFilter(filter: AppFilter, on: boolean): void {
   } catch {}
 }
 
-// Whether this device has shown the office's "Install as app" notice
-// (OfficeInstallNotice). It shows once per device.
-const KEY_INSTALL_NOTICE_SEEN = "isomux-install-notice-seen";
+// Whether the member closed the office's "Install as app" notice
+// (OfficeInstallNotice) or installed from it on this device. It shows until
+// then.
+const KEY_INSTALL_NOTICE_SEEN = "isomux-install-notice-dismissed";
 
 export function officeInstallNoticeSeen(): boolean {
   try {

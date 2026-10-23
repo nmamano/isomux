@@ -5,7 +5,7 @@
 // dialog. iOS has no such event: no page can install itself there, so the
 // page shows the Share > Add to Home Screen steps instead.
 
-import { isIos, readPushEnv } from "./push-subscription.ts";
+import { isIos, readPushEnv, type PushEnv } from "./push-subscription.ts";
 import { safariHref, type SafariEnv } from "./safari-link.ts";
 
 // The hash the Apps page adds to the short link: the page opens its install
@@ -18,6 +18,8 @@ export interface InstallEnv {
   standalone: boolean;
   // The browser has the beforeinstallprompt event (Chromium).
   promptSupported: boolean;
+  // A phone or tablet (isHandheld).
+  handheld: boolean;
 }
 
 export type InstallMode = "prompt" | "ios-steps" | null;
@@ -31,13 +33,30 @@ export interface BeforeInstallPromptEvent extends Event {
 export function readInstallEnv(): InstallEnv {
   // A pure test file has no window: it reads as a browser that cannot install.
   if (typeof window === "undefined")
-    return { ios: false, standalone: false, promptSupported: false };
+    return {
+      ios: false,
+      standalone: false,
+      promptSupported: false,
+      handheld: false,
+    };
   const env = readPushEnv();
   return {
     ios: isIos(env),
     standalone: env.standalone,
     promptSupported: "onbeforeinstallprompt" in window,
+    handheld: isHandheld(
+      env,
+      window.matchMedia?.("(pointer: coarse)").matches === true,
+    ),
   };
+}
+
+// A phone or tablet, whatever the window width. coarsePointer is the PRIMARY
+// pointer, (pointer: coarse), never any-pointer: a touchscreen laptop stays a
+// computer. It is not redundant with the user agent: Chrome on a large
+// Android tablet sends a desktop one by default.
+export function isHandheld(env: PushEnv, coarsePointer: boolean): boolean {
+  return isIos(env) || /Android/.test(env.userAgent) || coarsePointer;
 }
 
 // What the page's Install button does here, given whether an event is held.
@@ -110,15 +129,15 @@ export async function promptInstall(): Promise<
   }
 }
 
-// Whether the office shows its one-time "Install as app" notice: in a phone
-// browser that can install the office, on a device that has not seen it.
+// Whether the office shows its "Install as app" notice: in a phone or tablet
+// browser that can install the office, until the member closes it or
+// installs from it.
 export function showOfficeInstallNotice(
   env: InstallEnv,
   held: boolean,
-  isMobile: boolean,
   seen: boolean,
 ): boolean {
-  return isMobile && !seen && installMode(env, held) !== null;
+  return env.handheld && !seen && installMode(env, held) !== null;
 }
 
 let stepsOpen = false;

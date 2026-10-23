@@ -1,10 +1,9 @@
-// Install the office as an app (ui/app-install.ts): a one-time notice on a
-// phone browser that can install it, and the entry in Settings > Device
-// label.
+// Install the office as an app (ui/app-install.ts): a notice on a phone or
+// tablet browser that can install it, until the member closes it or installs
+// from it, and the entry in Settings > Device label.
 // Neither shows in an installed window.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
   closeOfficeInstallSteps,
@@ -25,6 +24,7 @@ import {
 import { sectionHeader } from "./access-shared.tsx";
 import { dialogSaveBtn } from "./dialog-styles.ts";
 import { ShareIcon } from "./install-icons.tsx";
+import { NoticeCloseButton } from "./NoticeCloseButton.tsx";
 
 // A server render has no held prompt and no open steps.
 const serverSnapshot = () => false;
@@ -43,7 +43,6 @@ export function useInstallMode(): InstallMode {
 }
 
 export function OfficeInstallNotice(): React.ReactElement | null {
-  const { isMobile } = useAppState();
   const { t } = useI18n();
   const held = useHeldInstallPrompt();
   const env = readInstallEnv();
@@ -53,21 +52,21 @@ export function OfficeInstallNotice(): React.ReactElement | null {
     officeInstallStepsOpen,
     serverSnapshot,
   );
-  // Read once: the flag this notice writes must not hide it on this visit.
-  const [seen] = useState(officeInstallNoticeSeen);
-  const [dismissed, setDismissed] = useState(false);
+  const [seen, setSeen] = useState(officeInstallNoticeSeen);
   const show =
     (mode === "ios-steps" && stepsOpen) ||
-    (!dismissed && showOfficeInstallNotice(env, held, isMobile, seen));
-  useEffect(() => {
-    if (show) markOfficeInstallNoticeSeen();
-  }, [show]);
+    showOfficeInstallNotice(env, held, seen);
   // Steps the phone menu opened do not outlive the office view.
   useEffect(() => closeOfficeInstallSteps, []);
   if (!show || !mode) return null;
 
+  // Only an explicit close or install puts the notice away for good.
+  const markSeen = () => {
+    markOfficeInstallNoticeSeen();
+    setSeen(true);
+  };
   const close = () => {
-    setDismissed(true);
+    markSeen();
     closeOfficeInstallSteps();
   };
   return (
@@ -100,7 +99,10 @@ export function OfficeInstallNotice(): React.ReactElement | null {
         <>
           <span>{t("officeInstall.notice")}</span>
           <button
-            onClick={() => void promptInstall()}
+            onClick={() => {
+              markSeen();
+              void promptInstall();
+            }}
             style={{
               padding: "4px 12px",
               borderRadius: 999,
@@ -124,35 +126,7 @@ export function OfficeInstallNotice(): React.ReactElement | null {
           <span>{t("officeInstall.noticeSteps")}</span>
         </>
       )}
-      <button
-        data-office-install-dismiss=""
-        onClick={close}
-        aria-label={t("common.dismiss")}
-        title={t("common.dismiss")}
-        style={{
-          width: 24,
-          height: 24,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 0,
-          borderRadius: "50%",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-          <path
-            d="M1 1l8 8M9 1l-8 8"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+      <NoticeCloseButton data-office-install-dismiss="" onClick={close} />
     </div>
   );
 }
