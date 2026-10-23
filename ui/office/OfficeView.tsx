@@ -26,7 +26,13 @@ import {
   type TurnSide,
 } from "./room-turn.ts";
 import { SceneDecorationContext } from "./scene-decoration.tsx";
-import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
+import {
+  useAppState,
+  useDispatch,
+  useTheme,
+  useFeatures,
+  useRoomList,
+} from "../store.tsx";
 import { inboxTabFor, useInboxCounts, type InboxTab } from "../inbox.ts";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
@@ -265,7 +271,9 @@ export function OfficeView({
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
-  const roomCount = rooms.length;
+  // The doors, their drop zones and the ghosts walk the room tabs, the tab
+  // bar's own list (task 8070f62b); lookups by id use the full list.
+  const { tabs } = useRoomList();
   // Employee of the Minute for the lobby plaque: the last agent to act,
   // office-wide, with a hold so a streaming agent's restamps do not swap the
   // face every second (ui/office/lobby/employee.ts).
@@ -296,10 +304,9 @@ export function OfficeView({
   const lobbyStar = starAgent
     ? { name: starAgent.name, outfit: starAgent.outfit }
     : null;
-  const roomNames = rooms.map((r) => r.name);
-  // Dense index of the selected room within the visible projection. Drives
-  // positional door nav (prev/next neighbour); -1 when nothing is selected.
-  const currentRoomIndex = rooms.findIndex((r) => r.id === currentRoomId);
+  // Index of the selected room among the tabs. Drives positional door nav
+  // (prev/next neighbour); -1 when nothing is selected.
+  const currentRoomIndex = tabs.findIndex((r) => r.id === currentRoomId);
   const dispatch = useDispatch();
   // A wall door between two rooms turns the room (the Room switch animation
   // device setting); tabs and the lobby doors switch with no animation.
@@ -393,7 +400,9 @@ export function OfficeView({
   );
 
   // A room with its back room setting off has no back screen (task b16f1e6a).
-  const currentHasBackRoom = hasBackRoom(rooms[currentRoomIndex]);
+  const currentHasBackRoom = hasBackRoom(
+    rooms.find((r) => r.id === currentRoomId),
+  );
   const showBackRoom =
     !!backRoomOpen && !lobbyOpen && !!currentRoomId && currentHasBackRoom;
   // Expose viewport controls to parent for keyboard shortcuts (0, +, -). Skip
@@ -457,7 +466,7 @@ export function OfficeView({
     presences,
     roomAgents,
     lobbyOpen ? LOBBY_ROOM_ID : currentRoomId,
-    rooms,
+    tabs,
     sessionContext?.connectionId ?? null,
     LEFT_DOOR_COORD,
     RIGHT_DOOR_COORD,
@@ -834,13 +843,13 @@ export function OfficeView({
                       /* eslint-enable react-hooks/refs */
                     }
                     rightDoor={
-                      rooms[0]
+                      tabs[0]
                         ? {
-                            label: rooms[0].name,
+                            label: tabs[0].name,
                             onClick: () =>
                               dispatch({
                                 type: "set_current_room",
-                                roomId: rooms[0].id,
+                                roomId: tabs[0].id,
                               }),
                           }
                         : newRoomDoor
@@ -877,12 +886,12 @@ export function OfficeView({
                         currentRoomIndex > 0
                           ? {
                               label:
-                                roomNames[currentRoomIndex - 1] ??
+                                tabs[currentRoomIndex - 1]?.name ??
                                 t("common.roomFallback", {
                                   number: currentRoomIndex,
                                 }),
                               onClick: () =>
-                                doorGo("left", rooms[currentRoomIndex - 1].id),
+                                doorGo("left", tabs[currentRoomIndex - 1].id),
                               dragOver: leftDoorDragOver,
                               reject: leftDoorReject,
                               passCount: leftDoorUses,
@@ -901,20 +910,20 @@ export function OfficeView({
                       }
                       rightDoor={
                         currentRoomIndex >= 0 &&
-                        currentRoomIndex < roomCount - 1
+                        currentRoomIndex < tabs.length - 1
                           ? {
                               label:
-                                roomNames[currentRoomIndex + 1] ??
+                                tabs[currentRoomIndex + 1]?.name ??
                                 t("common.roomFallback", {
                                   number: currentRoomIndex + 2,
                                 }),
                               onClick: () =>
-                                doorGo("right", rooms[currentRoomIndex + 1].id),
+                                doorGo("right", tabs[currentRoomIndex + 1].id),
                               dragOver: rightDoorDragOver,
                               reject: rightDoorReject,
                               passCount: rightDoorUses,
                             }
-                          : currentRoomIndex === roomCount - 1
+                          : currentRoomIndex === tabs.length - 1
                             ? newRoomDoor
                             : null
                       }
@@ -928,7 +937,7 @@ export function OfficeView({
                         // handler to suppress clicks during pan-drag.
                         // eslint-disable-next-line react-hooks/refs
                         onClick={viewport.wrapClick(() =>
-                          doorGo("left", rooms[currentRoomIndex - 1].id),
+                          doorGo("left", tabs[currentRoomIndex - 1].id),
                         )}
                         onDragOverChange={(over) => setLeftDoorDragOver(over)}
                         onDrop={(deskIndex) => {
@@ -940,7 +949,7 @@ export function OfficeView({
                             setTimeout(() => setLeftDoorReject(false), 400);
                             return false;
                           }
-                          const targetRoomId = rooms[currentRoomIndex - 1]?.id;
+                          const targetRoomId = tabs[currentRoomIndex - 1]?.id;
                           if (!targetRoomId || roomIsFull(targetRoomId)) {
                             setLeftDoorReject(true);
                             setTimeout(() => setLeftDoorReject(false), 400);
@@ -954,13 +963,13 @@ export function OfficeView({
                       />
                     )}
                     {currentRoomIndex >= 0 &&
-                      currentRoomIndex < roomCount - 1 && (
+                      currentRoomIndex < tabs.length - 1 && (
                         <DoorDropZone
                           side="right"
                           // viewport.wrapClick: same stable-callback pattern as left door.
                           // eslint-disable-next-line react-hooks/refs
                           onClick={viewport.wrapClick(() =>
-                            doorGo("right", rooms[currentRoomIndex + 1].id),
+                            doorGo("right", tabs[currentRoomIndex + 1].id),
                           )}
                           onDragOverChange={(over) =>
                             setRightDoorDragOver(over)
@@ -974,8 +983,7 @@ export function OfficeView({
                               setTimeout(() => setRightDoorReject(false), 400);
                               return false;
                             }
-                            const targetRoomId =
-                              rooms[currentRoomIndex + 1]?.id;
+                            const targetRoomId = tabs[currentRoomIndex + 1]?.id;
                             if (!targetRoomId || roomIsFull(targetRoomId)) {
                               setRightDoorReject(true);
                               setTimeout(() => setRightDoorReject(false), 400);

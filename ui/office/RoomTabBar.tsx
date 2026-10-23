@@ -1,7 +1,6 @@
 import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
-import { ordinaryRooms } from "../../shared/types.ts";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState, useDispatch, useRoomList } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type {
   TuckedRoomsReq,
@@ -15,13 +14,7 @@ import {
 import type { PresenceInfo } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import {
-  applyRoomOrder,
-  roomsInOrder,
-  usePendingView,
-} from "./pending-view.ts";
 import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
-import { selfTuckedRooms, tabBarRooms } from "./room-cycle.ts";
 import { TuckedRoomsChip } from "./TuckedRoomsChip.tsx";
 import { useDraggedDesk } from "./useDeskDrag.ts";
 import { getDraggedDesk } from "./drag-state.ts";
@@ -46,12 +39,6 @@ const MINI_GHOST_OVERLAP = -6;
 const GHOST_STICK_OUT = 14;
 
 export { roomActivityDotColor };
-
-function sameRoomSet(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((id) => set.has(id));
-}
 
 // Edge affordance for an overflowing tab bar: a gradient fade signals
 // "more rooms this way" on both platforms; on desktop a chevron button
@@ -196,38 +183,25 @@ export function RoomTabBar({
   const {
     agents,
     currentRoomId,
-    rooms: allRooms,
     needsAttention,
     presences,
     totalOnlineUsers,
     sessionContext,
     isMobile,
     lobbyOpen,
-    users,
   } = useAppState();
   const { t } = useI18n();
   const mobileLobby = isMobile && lobbyOpen;
   const selfConnectionId = sessionContext?.connectionId ?? null;
-  const serverRooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
-  // A drop moves the tabs at once; the server's full_state confirms the order.
-  const [pendingOrder, writeOrder] = usePendingView(serverRooms, roomsInOrder);
-  const rooms = useMemo(
-    () =>
-      pendingOrder ? applyRoomOrder(serverRooms, pendingOrder) : serverRooms,
-    [serverRooms, pendingOrder],
-  );
-  // Tucked rooms come from the member's own record. A tuck or untuck shows
-  // at once; the record the server sends back confirms it.
-  const selfId = sessionContext?.userId ?? null;
-  const serverTucked = useMemo(
-    () => selfTuckedRooms(users.values(), selfId),
-    [users, selfId],
-  );
-  const [pendingTucked, writeTucked] = usePendingView(
-    serverTucked,
-    sameRoomSet,
-  );
-  const tucked = pendingTucked ?? serverTucked;
+  // The room list the doors and swipes read too. A drop or a tuck shows at
+  // once; the server's state confirms it (ui/office/room-list.tsx).
+  const {
+    rooms,
+    tucked,
+    tabs: tabRooms,
+    writeOrder,
+    writeTucked,
+  } = useRoomList();
   const tuckedSet = useMemo(() => new Set(tucked), [tucked]);
   // The bar holds the shown rooms that are not tucked; the chip, the rest.
   const barRooms = useMemo(
@@ -237,10 +211,6 @@ export function RoomTabBar({
   const tuckedRooms = useMemo(
     () => rooms.filter((r) => tuckedSet.has(r.id)),
     [rooms, tuckedSet],
-  );
-  const tabRooms = useMemo(
-    () => tabBarRooms(rooms, tucked, currentRoomId, lobbyOpen),
-    [rooms, tucked, currentRoomId, lobbyOpen],
   );
   const activeTucked = tabRooms.find((r) => tuckedSet.has(r.id)) ?? null;
   const dispatch = useDispatch();

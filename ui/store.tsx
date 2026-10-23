@@ -19,9 +19,17 @@ import {
   useRef,
   useState,
   useCallback,
+  useMemo,
   type ReactNode,
   type Dispatch,
 } from "react";
+import {
+  deriveRoomList,
+  RoomListCtx,
+  RoomListProvider,
+  type RoomList,
+} from "./office/room-list.tsx";
+import { selfTuckedRooms } from "./office/room-cycle.ts";
 import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
 import {
   ATTENTION_STATES,
@@ -1923,13 +1931,61 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   return (
     <StateCtx.Provider value={state}>
-      <DispatchCtx.Provider value={dispatch}>{children}</DispatchCtx.Provider>
+      <DispatchCtx.Provider value={dispatch}>
+        <RoomListProvider
+          allRooms={state.rooms}
+          users={state.users}
+          selfId={state.sessionContext?.userId ?? null}
+          currentRoomId={state.currentRoomId}
+          lobbyOpen={state.lobbyOpen}
+        >
+          {children}
+        </RoomListProvider>
+      </DispatchCtx.Provider>
     </StateCtx.Provider>
   );
 }
 
 export function useAppState() {
   return useContext(StateCtx);
+}
+
+// The member's room list (ui/office/room-list.tsx). A tree with no
+// StoreProvider (a fixed-state fixture) has no writes in flight: it gets the
+// same list from the state alone, and a write only sends.
+const sendOnly = (_value: string[], send: () => Promise<unknown>) => {
+  send().catch(() => {});
+};
+export function useRoomList(): RoomList {
+  const provided = useContext(RoomListCtx);
+  const state = useContext(StateCtx);
+  const selfId = state.sessionContext?.userId ?? null;
+  const fallback = useMemo<RoomList | null>(
+    () =>
+      provided
+        ? null
+        : {
+            ...deriveRoomList(
+              ordinaryRooms(state.rooms),
+              selfTuckedRooms(state.users.values(), selfId),
+              null,
+              null,
+              state.currentRoomId,
+              state.lobbyOpen,
+            ),
+            writeOrder: sendOnly,
+            writeTucked: sendOnly,
+          },
+    [
+      provided,
+      state.rooms,
+      state.users,
+      selfId,
+      state.currentRoomId,
+      state.lobbyOpen,
+    ],
+  );
+  return provided ?? fallback!;
 }
 
 export function useDispatch() {
