@@ -14,8 +14,9 @@
 //     route caps).
 //   - The legacy /api/upload + /api/files + /api/images keep their old paths -
 //     no collision - and apply the room check too (a miss and a denial are the
-//     same 404). A killed agent's files follow its last room, or office owners
-//     once that room is gone; cronjob-run files follow the job's visibility.
+//     same 404). A killed agent's files follow its last room, or an office
+//     owner's reach (never a scheduled run's) once that room is gone;
+//     cronjob-run files follow the job's visibility.
 //   - Every file response carries the sandbox headers, so an opened HTML or
 //     SVG file runs in an opaque origin, not as office content, and a private
 //     cache header, so no shared cache stores it.
@@ -31,7 +32,11 @@ import {
   expectSafeFallback,
   readAttachmentHeader,
 } from "./attachment-header.ts";
-import { getAgentTokenRaw } from "../identity/tokens.ts";
+import {
+  getAgentTokenRaw,
+  mintAgentToken,
+  mintRunToken,
+} from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { saveFile } from "../persistence.ts";
 import { saveRuns } from "../cronjob-persistence.ts";
@@ -456,14 +461,20 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
 });
 
 describe("routes/uploads REST: a killed agent's files follow its last room", () => {
-  it("a member with the room's grant reads them and one without does not; once the room is gone, only office owners do", async () => {
+  it("a member with the room's grant reads them and one without does not; once the room is gone, only an office owner's reach does", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
     const granted = await srv.seedMember("Grace");
     const other = await srv.seedMember("Mallory"); // allowedRooms []
     const roomId = srv.agentManager.createRoom("Lab");
     const agent = await spawnAgent(srv, "Worker", roomId);
+    const ownersAgent = await spawnAgent(
+      srv,
+      "Helper",
+      srv.agentManager.createRoom("Ops"),
+    );
     updateUserById(getUserByName("Grace")!.id, { allowedRooms: [roomId] });
     const att = saveFile(agent.id, Buffer.from("k"), "text/plain", "k.txt")!;
     await srv.agentManager.kill(agent.id);
@@ -485,6 +496,23 @@ describe("routes/uploads REST: a killed agent's files follow its last room", () 
     });
     expect(ownerRead.status).toBe(200);
     expect(await ownerRead.text()).toBe("k");
+    const byOwnersAgent = await srv.http(path, {
+      headers: {
+        Authorization: `Bearer ${mintAgentToken(ownersAgent.id, ownerId)}`,
+      },
+    });
+    expect(byOwnersAgent.status).toBe(200);
+    expect(await byOwnersAgent.text()).toBe("k");
+
+    // A scheduled run carries its creator's userId, but a run never has an
+    // office owner's reach. A live token gets 403, not 401.
+    const byOwnersRun = await srv.http(path, {
+      headers: {
+        Authorization: `Bearer ${mintRunToken("job-1", "run-1", ownerId)}`,
+      },
+    });
+    expect(byOwnersRun.status).toBe(403);
+    expect((await byOwnersRun.json()).error.code).toBe("forbidden");
   });
 });
 

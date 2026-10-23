@@ -197,9 +197,10 @@ export const agentDirectoryReader: Guard = (ctx) => {
 };
 
 // Chat attachments of `:id` (GET /api/files, /api/images). A live agent's
-// files follow its room. A killed agent's follow the room it was last in, and
-// office owners' only once that room is gone. A `cronrun-<runId>` stream
-// follows its job's visibility. Anything else denies, the same as no access.
+// files follow its room. A killed agent's follow the room it was last in and,
+// once that room is gone, an office owner's reach (hasOfficeOwnerReach, so not
+// a cron run). A `cronrun-<runId>` stream follows its job's visibility.
+// Anything else denies, the same as no access.
 export const agentFilesRead: Guard = ({ identity, params, deps }) => {
   // As in requiresRoomAccess: an ownerless app's userId is its owner's.
   if (identity.scope === "app" && !actsForAgent(identity)) return FORBIDDEN;
@@ -214,9 +215,7 @@ export const agentFilesRead: Guard = ({ identity, params, deps }) => {
     if (deps.roomExists(killedRoomId)) {
       return deps.hasRoomAccess(identity, killedRoomId) ? ALLOW : FORBIDDEN;
     }
-    return identity.userId !== null && deps.isOfficeOwnerUserId(identity.userId)
-      ? ALLOW
-      : FORBIDDEN;
+    return hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
   }
   return deps.cronRunVisibleTo(identity, streamId) ? ALLOW : FORBIDDEN;
 };
