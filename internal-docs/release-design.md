@@ -138,7 +138,10 @@ The first update that carries this ran an older installed updater that only
 warned. On a system box with apt, the target's deps-only mode switches Bun on
 that update, but that update's rollback runs the old code on the new Bun.
 User-kind and no-apt boxes, where the old updater skips deps-only, switch on
-the update after.
+the update after. Exercised on a system box 2026-10-23 (task 92184d96): from
+v2026.10.17.2 (Bun 1.4.2), an update switched to Bun 1.4.4, a later failed
+update that pinned Bun 1.4.2 rolled back to the previous code on Bun 1.4.4,
+and a failed first update came back healthy on the old code and Bun 1.4.4.
 
 Cadence: on demand, when hosted boxes need something.
 
