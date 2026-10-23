@@ -40,7 +40,7 @@ import type {
   OfficeWire,
   TaskItem,
   PagerEntry,
-  AskEntry,
+  AskMemberWire,
   AppListWire,
   CronjobListWire,
   CronjobRun,
@@ -217,7 +217,7 @@ export interface EventPayloads {
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
   pager_upserted: { entry: PagerEntry };
-  ask_upserted: { entry: AskEntry };
+  ask_upserted: { entry: AskMemberWire };
   ask_removed: { id: string };
   // Webhooks: per-recipient, like cronjobs: the hook owner, office owners and
   // members of the hook's room. Never the secret. See

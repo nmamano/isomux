@@ -49,7 +49,7 @@ import type {
   TaskItem,
   AppListWire,
   PagerEntry,
-  AskEntry,
+  AskMemberWire,
   OfficeSettings,
   OfficeWire,
   RoomWire,
@@ -232,7 +232,7 @@ export interface AppState {
   // (internal-docs/asks-design.md). useAsksSync reads
   // GET /api/asks on every hydrationEpoch; ask_upserted and
   // ask_removed keep it live. App-level: the desk dots read it.
-  asks: AskEntry[];
+  asks: AskMemberWire[];
   // Bumped by every delta; a snapshot issued before one is refused and read
   // again, as for the pager.
   asksRevision: number;
@@ -479,8 +479,8 @@ type Action =
   | { type: "pager_refetch" }
   | { type: "pager_upserted"; entry: PagerEntry }
   // CLIENT-LOCAL (not a ServerMessage): useAsksSync's snapshot.
-  | { type: "asks_loaded"; entries: AskEntry[]; revision: number }
-  | { type: "ask_upserted"; entry: AskEntry }
+  | { type: "asks_loaded"; entries: AskMemberWire[]; revision: number }
+  | { type: "ask_upserted"; entry: AskMemberWire }
   | { type: "ask_removed"; id: string }
   // CLIENT-LOCAL (not a ServerMessage): the webhook list fetch. Refused, like
   // apps_loaded, when a delta landed while it was in flight.
@@ -557,7 +557,7 @@ function withoutAskDraft(
 
 function keepAskDrafts(
   drafts: Map<string, string>,
-  open: readonly AskEntry[],
+  open: readonly AskMemberWire[],
 ): Map<string, string> {
   const ids = new Set(open.map((e) => e.id));
   if ([...drafts.keys()].every((id) => ids.has(id))) return drafts;

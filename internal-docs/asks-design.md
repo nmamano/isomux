@@ -27,6 +27,8 @@ Create and edit take optional chat affordances (task dc79ace0): `commands`, `edi
 
 The member answers on `/api/asks/:id/reply` and `/dismiss` (`agent:converse` or `api:send-message`, `memberScope`). One function, `askVisibleTo` in `server/asks.ts`, decides who sees and answers an ask, from live state: the target member, or every office owner for an office secret request, and only while that member can reach the agent's room. `GET /api/asks`, the `ask_*` push, the answer routes and the secret request routes all call it. On the ask routes anyone it refuses gets the 404 of an unknown id; on a secret request's save and decline routes, 403 `forbidden`.
 
+The entry stores the agent's session when it opened the ask, for the reply note. No route or push sends it: `askMemberWire` in `server/asks.ts` drops it from the agent routes, `GET /api/asks` and `ask_upserted` (task 26dd1857).
+
 ## The answer
 
 A reply or a dismiss goes through `agentManager.sendMessage`, the path a typed member message takes, with `opts.ask` (`sendMemberMessage` in `server/isomux-office.ts` wraps it for the chat, API-token and ask sends). So it wakes or resumes the agent the same way and is refused only where a typed message is, with the same status and code. The ask closes once the message is accepted, which means its echo is durable or it is in the queue; a refused message leaves it open, and a failure after acceptance (a wake or backend error) closes it, as a typed message leaves the composer. Two differences from a typed message:

@@ -86,6 +86,7 @@ import {
   type PagerStore,
 } from "./pager-store.ts";
 import {
+  askMemberWire,
   askVisibleTo,
   AsksUnavailableError,
   createAskFilePersistence,
@@ -6749,7 +6750,10 @@ function pushAskChange(change: AskChange) {
       continue;
     }
     if (!askVisibleTo(entry, userId, askAudience)) continue;
-    officeSend(ws, JSON.stringify({ type: "ask_upserted", entry }));
+    officeSend(
+      ws,
+      JSON.stringify({ type: "ask_upserted", entry: askMemberWire(entry) }),
+    );
   }
 }
 

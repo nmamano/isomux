@@ -31,7 +31,7 @@ import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
-import type { AskEntry } from "../../shared/types.ts";
+import type { AskMemberWire } from "../../shared/types.ts";
 import type {
   AskDismissReq,
   AskReplyReq,
@@ -65,7 +65,7 @@ function tabToReplyField(e: KeyboardEvent<HTMLInputElement>) {
 }
 
 // The reply field's starting value. A mark that names no option is ignored.
-function replyDefault(entry: AskEntry, done: string): string {
+function replyDefault(entry: AskMemberWire, done: string): string {
   if (!entry.options?.length) return done;
   return entry.recommended !== undefined &&
     entry.options.includes(entry.recommended)
@@ -80,7 +80,7 @@ export function AskCard({
   isMobile,
   onFocusAgent,
 }: {
-  entry: AskEntry;
+  entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
 }) {
@@ -117,7 +117,7 @@ function AskAffordances({
   isMobile,
   onFocusAgent,
 }: {
-  entry: AskEntry;
+  entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
 }) {
@@ -172,7 +172,7 @@ function ReplyAskCard({
   isMobile,
   onFocusAgent,
 }: {
-  entry: AskEntry;
+  entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
 }) {

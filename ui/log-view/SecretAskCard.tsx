@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 
-import type { AskEntry, SecretAskRequest } from "../../shared/types.ts";
+import type { AskMemberWire, SecretAskRequest } from "../../shared/types.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useDispatch } from "../store.tsx";
@@ -31,7 +31,7 @@ export function SecretAskCard({
   secret,
   isMobile,
 }: {
-  entry: AskEntry;
+  entry: AskMemberWire;
   secret: SecretAskRequest;
   isMobile: boolean;
 }) {

@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import { useAppState } from "./store.tsx";
 import { openPagesFor } from "./pager-sync.ts";
 import { visibleAsks } from "./asks-sync.ts";
-import type { AskEntry, PagerEntry } from "../shared/types.ts";
+import type { AskMemberWire, PagerEntry } from "../shared/types.ts";
 
 /** An Inbox tab is the page it shows. */
 export type InboxTab = "pager" | "asks";
@@ -19,7 +19,7 @@ export interface InboxCounts {
 /** The open items per tab. The bar's badge is their sum. */
 export function inboxCounts(
   pager: readonly PagerEntry[],
-  asks: readonly AskEntry[],
+  asks: readonly AskMemberWire[],
   agents: readonly { id: string }[],
   userId: string | null,
 ): InboxCounts {

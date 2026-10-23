@@ -81,7 +81,7 @@ import type {
   UserRole,
   MembersChatMessage,
   PagerEntry,
-  AskEntry,
+  AskMemberWire,
   WebhookDelivery,
   WebhookWire,
 } from "../shared/types.ts";
@@ -1141,9 +1141,9 @@ const demoApps: (AppWire & { canManage: true })[] = demoAppFixtures.map(
 // opening: short prompts and a long one, so the stack shows its clamp and,
 // on a desktop, its maximum height. Built on the first list so they can
 // name the viewer.
-let demoAsks: AskEntry[] | null = null;
+let demoAsks: AskMemberWire[] | null = null;
 
-function demoAskEntries(): AskEntry[] {
+function demoAskEntries(): AskMemberWire[] {
   if (demoAsks) return demoAsks;
   const now = Date.now();
   const member = sessionContext?.userId ?? "demo-user";

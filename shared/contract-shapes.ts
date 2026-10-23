@@ -32,7 +32,7 @@ import type {
   WebhookScheme,
   WebhookTarget,
   PagerDeliveryFailure,
-  AskEntry,
+  AskMemberWire,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -805,9 +805,9 @@ export interface AskDismissReq {
   text?: string;
   device?: string;
 }
-// What an agent reads back: the stored entry plus the target's username.
+// What an agent reads back: the member wire plus the target's username.
 // member is null for an office secret request, which is for every owner.
-export type AskAgentWire = AskEntry & { member: string | null };
+export type AskAgentWire = AskMemberWire & { member: string | null };
 
 export interface ApiTokenInboxSendRes {
   messageId: string;

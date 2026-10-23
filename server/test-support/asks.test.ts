@@ -21,6 +21,7 @@ import { askReplyNote } from "../asks.ts";
 import {
   ASK_DISMISSED_TEXT,
   type AskEntry,
+  type AskMemberWire,
   type AgentInfo,
 } from "../../shared/types.ts";
 import type { AskAgentWire } from "../../shared/contract-shapes.ts";
@@ -1193,6 +1194,62 @@ describe("the member's answer", () => {
     const sent = await reply(later.id, "after the clear");
     expect(sent).toContain(opener);
     expect(sent).toContain("Answered after a clear?");
+  });
+
+  it("keeps the opening session off the member's list and pushes", async () => {
+    const w = await world();
+    const start = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/messages`,
+      w.as(w.other.id),
+      { text: "start a session" },
+    );
+    expect(start.status).toBe(200);
+    await waitUntil(
+      () => w.srv.agentManager.getCurrentSessionId(w.asker.id) !== null,
+      "first session",
+    );
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const pushes = () =>
+      (ws.messages as { type?: string; entry: AskMemberWire }[]).filter(
+        (m) => m.type === "ask_upserted",
+      );
+
+    // The store keeps the session, so each surface below has one to leak.
+    const storedSession = (id: string) =>
+      (
+        JSON.parse(
+          readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+        ) as AskEntry[]
+      ).find((e) => e.id === id)?.sessionId;
+
+    const created = await open(w, "Which session opened me?");
+    expect(storedSession(created.id)).toBeString();
+
+    await waitUntil(() => pushes().length === 1, "push on create");
+    expect(pushes()[0].entry.id).toBe(created.id);
+    expect("sessionId" in pushes()[0].entry).toBe(false);
+
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    const entries = listed.body as AskMemberWire[];
+    expect(entries.map((e) => e.id)).toEqual([created.id]);
+    expect("sessionId" in entries[0]).toBe(false);
+
+    const edited = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${created.id}`,
+      w.as(w.asker.id),
+      { text: "Which session edited me?" },
+    );
+    expect(edited.status).toBe(200);
+    expect(storedSession(created.id)).toBeString();
+    await waitUntil(() => pushes().length === 2, "push on edit");
+    expect(pushes()[1].entry.prompt).toBe("Which session edited me?");
+    expect("sessionId" in pushes()[1].entry).toBe(false);
   });
 });
 

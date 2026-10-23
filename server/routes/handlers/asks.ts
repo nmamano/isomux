@@ -37,6 +37,7 @@ import type { AskReadFileCopy } from "../../agent-manager.ts";
 import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
+  askMemberWire,
   askVisibleTo,
   AsksUnavailableError,
   ASK_AFFORDANCE_KEYS,
@@ -153,9 +154,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // cannot send the message twice.
   const delivering = new Set<string>();
 
-  // The opening session stays server-side: it is for the reply note only.
-  const wire = ({ sessionId: _session, ...entry }: AskEntry): AskAgentWire => ({
-    ...entry,
+  const wire = (entry: AskEntry): AskAgentWire => ({
+    ...askMemberWire(entry),
     // An office secret request is for every owner and names no member.
     member:
       entry.memberUserId === undefined
@@ -523,7 +523,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return ok(
         store
           .listAll()
-          .filter((entry) => askVisibleTo(entry, userId, audience)),
+          .filter((entry) => askVisibleTo(entry, userId, audience))
+          .map(askMemberWire),
       );
     }),
 

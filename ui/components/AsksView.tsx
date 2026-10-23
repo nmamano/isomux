@@ -10,16 +10,16 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { asksFor, visibleAsks } from "../asks-sync.ts";
 import { AskCard } from "../log-view/AskCard.tsx";
-import type { AgentInfo, AskEntry } from "../../shared/types.ts";
+import type { AgentInfo, AskMemberWire } from "../../shared/types.ts";
 
 interface AskGroup {
   agent: AgentInfo;
-  entries: AskEntry[];
+  entries: AskMemberWire[];
 }
 
 /** The open asks per agent: cards oldest first, groups by their oldest ask. */
 export function askGroups(
-  asks: readonly AskEntry[],
+  asks: readonly AskMemberWire[],
   agents: readonly AgentInfo[],
 ): AskGroup[] {
   const shown = visibleAsks(asks, agents);

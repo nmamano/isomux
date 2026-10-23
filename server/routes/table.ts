@@ -106,7 +106,7 @@ import type {
   LogEntry,
   UpdateStatusWire,
   MembersChatMessage,
-  AskEntry,
+  AskMemberWire,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -936,7 +936,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["ask_removed"],
   }),
-  defineRoute<void, AskEntry[]>({
+  defineRoute<void, AskMemberWire[]>({
     opId: "asks.list",
     method: "GET",
     path: "/api/asks",

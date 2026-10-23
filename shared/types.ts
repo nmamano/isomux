@@ -1296,6 +1296,9 @@ export interface AskEntry {
   sessionId?: string;
 }
 
+// An ask as a route or push sends it: the opening session stays server-side.
+export type AskMemberWire = Omit<AskEntry, "sessionId">;
+
 // The member message text of a bare dismiss. The chat shows it translated
 // from the entry's metadata; the agent reads these words.
 export const ASK_DISMISSED_TEXT = "Dismissed";
@@ -2411,7 +2414,7 @@ export type ServerMessage =
   // An ask addressed to the recipient was created or edited. Only the
   // target member receives it; the UI reads GET /api/asks after each
   // reconnect.
-  | { type: "ask_upserted"; entry: AskEntry }
+  | { type: "ask_upserted"; entry: AskMemberWire }
   // An ask addressed to the recipient closed (reply, dismiss, delete).
   | { type: "ask_removed"; id: string }
   // Webhooks: only the hook owner and office owners receive these.

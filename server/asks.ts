@@ -21,6 +21,7 @@ import { errMessage } from "../shared/errors.ts";
 import {
   generateAskId,
   type AskEntry,
+  type AskMemberWire,
   type AskRef,
   type Attachment,
   type FilePayload,
@@ -462,6 +463,14 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       return gone.length;
     },
   };
+}
+
+// The entry without its opening session, which is for the reply note only.
+export function askMemberWire({
+  sessionId: _session,
+  ...entry
+}: AskEntry): AskMemberWire {
+  return entry;
 }
 
 // The bracket the agent reads before the member's words. The reply can reach a
