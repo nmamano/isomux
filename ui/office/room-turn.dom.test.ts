@@ -7,9 +7,6 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { beginRoomTurn, finishRoomTurn, cancelRoomTurn } =
   await import("./room-turn.ts");
-const { createElement } = await import("react");
-const { act, render } = await import("@testing-library/react");
-const { LobbyScene } = await import("./lobby/LobbyScene.tsx");
 
 const realRaf = globalThis.requestAnimationFrame;
 const realCaf = globalThis.cancelAnimationFrame;
@@ -110,9 +107,9 @@ describe("a wall-door turn", () => {
   });
 
   it("drops a turn whose room never opened, so a later switch does not turn", () => {
-    for (const other of ["elsewhere", "lobby", null]) {
+    for (const other of ["elsewhere", null]) {
       beginRoomTurn(content, "right", "next");
-      finishRoomTurn(other); // another room or the lobby committed instead
+      finishRoomTurn(other); // another room, or the lobby, committed instead
       flush();
       expect(clones()).toHaveLength(0);
       finishRoomTurn("next"); // e.g. a tab click to that room later
@@ -145,87 +142,5 @@ describe("a wall-door turn", () => {
     finishRoomTurn("next");
     flush();
     expect(clones()).toHaveLength(0);
-  });
-});
-
-// The lobby turns like a room (task 8f71e886), so each of its layers must
-// move as the plane it is drawn on: wall art with its wall, flat floor items
-// with the floor, upright props and the receptionist as standing sprites.
-describe("a lobby turn", () => {
-  const OFFICE = "Turn test office";
-  function turnLobby() {
-    const view = render(
-      createElement(LobbyScene, {
-        rooms: [{ id: "r1", name: "r1" }],
-        officeName: OFFICE,
-        mode: "dark",
-        placements: [
-          { family: "directory", variant: "board", a: 4, b: 0, wall: "right" },
-          { family: "lamp", variant: "arc", a: 5, b: 3 },
-        ],
-        receptionistAt: { a: 5, b: 5 },
-        receptionist: createElement("g", { "data-test-receptionist": "" }),
-      }),
-      { container: content },
-    );
-    act(() => {
-      beginRoomTurn(content, "left", "r1");
-      finishRoomTurn("r1");
-    });
-    flush();
-    flush(300); // mid-turn
-    return view;
-  }
-  // The scene layer (a direct child of a snapshot) that holds `selector`.
-  function layersHolding(selector: string) {
-    const out: HTMLElement[] = [];
-    for (const clone of clones())
-      for (const layer of Array.from(clone.children) as HTMLElement[])
-        if (layer.matches(selector) || layer.querySelector(selector))
-          out.push(layer);
-    return out;
-  }
-  // The wall art draws the office name; nothing else in this scene does.
-  const wallArt = () =>
-    clones()
-      .flatMap((clone) => Array.from(clone.children) as HTMLElement[])
-      .filter((layer) => layer.textContent?.includes(OFFICE));
-
-  it("moves the wall art with its wall, split at the back corner", () => {
-    const view = turnLobby();
-    // Two snapshots, each with one copy per wall plane.
-    const layers = wallArt();
-    expect(layers).toHaveLength(4);
-    for (const layer of layers) {
-      expect(layer.style.transform).toStartWith("matrix(");
-      expect(layer.style.clipPath).toStartWith("polygon(");
-    }
-    view.unmount();
-  });
-
-  it("moves a lamp's light pool with the floor, in one piece", () => {
-    const view = turnLobby();
-    const layers = layersHolding('[fill^="url(#lobby-lamp-pool"]');
-    expect(layers).toHaveLength(2); // one per snapshot: the floor is not split
-    for (const layer of layers) {
-      expect(layer.style.transform).toStartWith("matrix(");
-      expect(layer.style.clipPath).toBe("");
-      // The wall art is not on this layer.
-      expect(layer.textContent?.includes(OFFICE)).toBe(false);
-    }
-    view.unmount();
-  });
-
-  it("keeps the receptionist upright: its layer is not mapped as a plane", () => {
-    const view = turnLobby();
-    const layers = layersHolding("[data-test-receptionist]");
-    expect(layers).toHaveLength(2);
-    for (const layer of layers) {
-      expect(layer).toBeInstanceOf(SVGSVGElement);
-      expect(layer.style.transform).toBe("");
-      expect(layer.style.clipPath).toBe("");
-      expect(layer.querySelector('[fill^="url(#lobby-lamp-pool"]')).toBeNull();
-    }
-    view.unmount();
   });
 });

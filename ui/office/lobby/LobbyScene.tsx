@@ -256,7 +256,6 @@ function LobbyWalls({
       height={SCENE_H}
       viewBox={VB}
       overflow="visible"
-      data-turn="walls"
     >
       <defs>
         <linearGradient id="lobby-wall-left" x1="0" y1="0" x2="0" y2="1">
@@ -492,7 +491,6 @@ function LobbyFloor({ c }: { c: LobbyColors }) {
       viewBox={VB}
       overflow="visible"
       aria-hidden="true"
-      data-turn="floor"
     >
       <Planks c={c} />
       <Slabs c={c} />
@@ -628,15 +626,6 @@ function placementDepth(p: Placement): number {
   return p.a + p.b + (p.z ?? 0);
 }
 
-const LAYER = {
-  style: SVG_STYLE,
-  width: SCENE_W,
-  height: SCENE_H,
-  viewBox: VB,
-  overflow: "visible",
-  "aria-hidden": true,
-} as const;
-
 export function LobbyProps({
   placements,
   variants,
@@ -667,170 +656,169 @@ export function LobbyProps({
   const floor = resolved
     .filter(({ p, v }) => !v.wall && p.family !== "rug")
     .sort((x, y) => placementDepth(x.p) - placementDepth(y.p));
-  // Three layers in paint order, so the room turn (ui/office/room-turn.ts)
-  // moves the wall art with its wall and the flat light with the floor.
   return (
-    <>
-      <svg {...LAYER} data-turn="walls">
-        {walls.map(({ p, v }, i) => {
-          const C = v.Component;
-          const wall = p.wall ?? "left";
-          const { x, y } = wall === "left" ? floorXY(p.b, 0) : floorXY(0, p.a);
+    <svg
+      style={SVG_STYLE}
+      width={SCENE_W}
+      height={SCENE_H}
+      viewBox={VB}
+      overflow="visible"
+      aria-hidden="true"
+    >
+      <ShadowDefs dark={mode === "dark"} />
+      <PropDefs />
+      <defs>
+        <radialGradient id="lobby-fire-glow">
+          <stop offset="0" stopColor="#ff9a3c" stopOpacity="0.30" />
+          <stop offset="0.5" stopColor="#ff8a2a" stopOpacity="0.10" />
+          <stop offset="1" stopColor="#ff8a2a" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="lobby-lamp-pool">
+          <stop offset="0" stopColor="#ffe9a8" stopOpacity="0.32" />
+          <stop offset="0.55" stopColor="#ffe9a8" stopOpacity="0.10" />
+          <stop offset="1" stopColor="#ffe9a8" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {walls.map(({ p, v }, i) => {
+        const C = v.Component;
+        const wall = p.wall ?? "left";
+        const { x, y } = wall === "left" ? floorXY(p.b, 0) : floorXY(0, p.a);
+        return (
+          <g
+            key={`w${i}`}
+            transform={`translate(${x} ${y - (p.h ?? 60)}) scale(${PROP_SCALE * (p.scale ?? 1)})`}
+          >
+            <C
+              rooms={rooms}
+              officeName={officeName}
+              wall={wall}
+              star={star}
+              back="far"
+            />
+          </g>
+        );
+      })}
+      {/* Light: a warm wall glow and hearth glow behind each fireplace, and a
+          pool on the floor under each lamp. Dark mode only, like the office's
+          lamp-glow, so daylight scenes stay flat and clean. */}
+      {floor
+        .filter(({ p }) => p.family === "fireplace")
+        .map(({ p }, i) => {
+          const { x, y } = floorXY(p.b, p.a);
           return (
-            <g
-              key={`w${i}`}
-              transform={`translate(${x} ${y - (p.h ?? 60)}) scale(${PROP_SCALE * (p.scale ?? 1)})`}
-            >
-              <C
-                rooms={rooms}
-                officeName={officeName}
-                wall={wall}
-                star={star}
-                back="far"
+            <g key={`fg${i}`} className="lobby-dark-only" aria-hidden="true">
+              <ellipse
+                cx={x}
+                cy={y - 60}
+                rx={150}
+                ry={120}
+                fill="url(#lobby-fire-glow)"
+              />
+              <ellipse
+                cx={x - 40}
+                cy={y + 24}
+                rx={110}
+                ry={55}
+                fill="url(#lobby-fire-glow)"
+                opacity="0.8"
               />
             </g>
           );
         })}
-      </svg>
-      <svg {...LAYER} data-turn="floor">
-        {/* Light: a warm wall glow and hearth glow behind each fireplace, and a
-            pool on the floor under each lamp. Dark mode only, like the office's
-            lamp-glow, so daylight scenes stay flat and clean. */}
-        {floor
-          .filter(({ p }) => p.family === "fireplace")
-          .map(({ p }, i) => {
-            const { x, y } = floorXY(p.b, p.a);
-            return (
-              <g key={`fg${i}`} className="lobby-dark-only" aria-hidden="true">
-                <ellipse
-                  cx={x}
-                  cy={y - 60}
-                  rx={150}
-                  ry={120}
-                  fill="url(#lobby-fire-glow)"
-                />
-                <ellipse
-                  cx={x - 40}
-                  cy={y + 24}
-                  rx={110}
-                  ry={55}
-                  fill="url(#lobby-fire-glow)"
-                  opacity="0.8"
-                />
-              </g>
-            );
-          })}
-        {rugs.map(({ p, v }, i) => {
+      {rugs.map(({ p, v }, i) => {
+        const C = v.Component;
+        const { x, y } = floorXY(p.b, p.a);
+        const s = PROP_SCALE * (p.scale ?? 1);
+        return (
+          <g key={`r${i}`} transform={`translate(${x} ${y}) scale(${s})`}>
+            <C
+              rooms={rooms}
+              officeName={officeName}
+              wall="left"
+              star={star}
+              back="far"
+            />
+          </g>
+        );
+      })}
+      {floor
+        .filter(({ p }) => p.family === "lamp")
+        .map(({ p }, i) => {
+          const { x, y } = floorXY(p.b, p.a);
+          return (
+            <ellipse
+              key={`lp${i}`}
+              className="lamp-glow"
+              cx={x - (p.variant === "arc" ? 55 : 0)}
+              cy={y + 6}
+              rx={96}
+              ry={48}
+              fill="url(#lobby-lamp-pool)"
+              aria-hidden="true"
+            />
+          );
+        })}
+      {[
+        ...floor.map(({ p, v }, i) => {
           const C = v.Component;
           const { x, y } = floorXY(p.b, p.a);
+          // A facing is a mirror plus which side of the piece the viewer sees.
+          // `flip` stays as the plain mirror for props that have no back.
+          const facing = p.facing;
+          const facings = variantFacings(v);
+          const mirrored =
+            facing === "SW" || facing === "NW" || (!facing && p.flip);
+          const flip = mirrored && facings > 1;
+          // Only a prop with a drawn back can be turned around. The others
+          // keep their one face whatever the placement asks for.
+          const back =
+            facings === 4 && (facing === "NE" || facing === "NW")
+              ? "near"
+              : "far";
           const s = PROP_SCALE * (p.scale ?? 1);
-          return (
-            <g key={`r${i}`} transform={`translate(${x} ${y}) scale(${s})`}>
-              <C
-                rooms={rooms}
-                officeName={officeName}
-                wall="left"
-                star={star}
-                back="far"
-              />
-            </g>
-          );
-        })}
-        {floor
-          .filter(({ p }) => p.family === "lamp")
-          .map(({ p }, i) => {
-            const { x, y } = floorXY(p.b, p.a);
-            return (
-              <ellipse
-                key={`lp${i}`}
-                className="lamp-glow"
-                cx={x - (p.variant === "arc" ? 55 : 0)}
-                cy={y + 6}
-                rx={96}
-                ry={48}
-                fill="url(#lobby-lamp-pool)"
-                aria-hidden="true"
-              />
-            );
-          })}
-      </svg>
-      <svg {...LAYER}>
-        <ShadowDefs dark={mode === "dark"} />
-        <PropDefs />
-        <defs>
-          <radialGradient id="lobby-fire-glow">
-            <stop offset="0" stopColor="#ff9a3c" stopOpacity="0.30" />
-            <stop offset="0.5" stopColor="#ff8a2a" stopOpacity="0.10" />
-            <stop offset="1" stopColor="#ff8a2a" stopOpacity="0" />
-          </radialGradient>
-          <radialGradient id="lobby-lamp-pool">
-            <stop offset="0" stopColor="#ffe9a8" stopOpacity="0.32" />
-            <stop offset="0.55" stopColor="#ffe9a8" stopOpacity="0.10" />
-            <stop offset="1" stopColor="#ffe9a8" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        {[
-          ...floor.map(({ p, v }, i) => {
-            const C = v.Component;
-            const { x, y } = floorXY(p.b, p.a);
-            // A facing is a mirror plus which side of the piece the viewer sees.
-            // `flip` stays as the plain mirror for props that have no back.
-            const facing = p.facing;
-            const facings = variantFacings(v);
-            const mirrored =
-              facing === "SW" || facing === "NW" || (!facing && p.flip);
-            const flip = mirrored && facings > 1;
-            // Only a prop with a drawn back can be turned around. The others
-            // keep their one face whatever the placement asks for.
-            const back =
-              facings === 4 && (facing === "NE" || facing === "NW")
-                ? "near"
-                : "far";
-            const s = PROP_SCALE * (p.scale ?? 1);
-            return {
-              depth: placementDepth(p),
-              node: (
-                <g
-                  key={`f${i}`}
-                  transform={`translate(${x} ${y}) scale(${flip ? -s : s} ${s})`}
-                >
-                  {v.shadow && (
-                    <ContactShadow rx={v.shadow.rx} ry={v.shadow.ry} />
-                  )}
-                  <C
-                    rooms={rooms}
-                    officeName={officeName}
-                    wall="left"
-                    star={star}
-                    back={back}
-                  />
-                </g>
-              ),
-            };
-          }),
-          // The receptionist is one more floor item: same painter's order, so a
-          // counter in front of it covers its legs.
-          ...(receptionist
-            ? [
-                {
-                  depth: receptionist.a + receptionist.b,
-                  node: (
-                    <g
-                      key="receptionist"
-                      transform={`translate(${floorXY(receptionist.b, receptionist.a).x} ${floorXY(receptionist.b, receptionist.a).y})`}
-                    >
-                      <ContactShadow rx={14} ry={7} />
-                      {receptionist.node}
-                    </g>
-                  ),
-                },
-              ]
-            : []),
-        ]
-          .sort((x, y) => x.depth - y.depth)
-          .map((item) => item.node)}
-      </svg>
-    </>
+          return {
+            depth: placementDepth(p),
+            node: (
+              <g
+                key={`f${i}`}
+                transform={`translate(${x} ${y}) scale(${flip ? -s : s} ${s})`}
+              >
+                {v.shadow && (
+                  <ContactShadow rx={v.shadow.rx} ry={v.shadow.ry} />
+                )}
+                <C
+                  rooms={rooms}
+                  officeName={officeName}
+                  wall="left"
+                  star={star}
+                  back={back}
+                />
+              </g>
+            ),
+          };
+        }),
+        // The receptionist is one more floor item: same painter's order, so a
+        // counter in front of it covers its legs.
+        ...(receptionist
+          ? [
+              {
+                depth: receptionist.a + receptionist.b,
+                node: (
+                  <g
+                    key="receptionist"
+                    transform={`translate(${floorXY(receptionist.b, receptionist.a).x} ${floorXY(receptionist.b, receptionist.a).y})`}
+                  >
+                    <ContactShadow rx={14} ry={7} />
+                    {receptionist.node}
+                  </g>
+                ),
+              },
+            ]
+          : []),
+      ]
+        .sort((x, y) => x.depth - y.depth)
+        .map((item) => item.node)}
+    </svg>
   );
 }
 

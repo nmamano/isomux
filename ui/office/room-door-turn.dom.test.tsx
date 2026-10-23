@@ -1,7 +1,7 @@
 // The room turn is wired to the wall doors only (task fee198a0): a door to
 // the next room starts it, a switch from elsewhere (a tab) never does, and
-// leaving the office mid-turn removes it. The door between the lobby and the
-// first room turns too, both ways (task 8f71e886).
+// leaving the office mid-turn removes it. The doors between the lobby and the
+// first room switch with no turn (task e2c7f30c).
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -20,9 +20,12 @@ const snapshots = (root: HTMLElement) =>
   [...root.querySelectorAll('[inert][aria-hidden="true"]')].filter(
     (el) => !el.parentElement?.closest("[inert]"),
   ).length;
+// The live door, never its inert copy in a snapshot.
 const door = (root: HTMLElement, label: string) => {
-  const node = root.querySelector(`svg g[aria-label="${label}"]`);
-  expect(node).not.toBeNull();
+  const node = [...root.querySelectorAll(`svg g[aria-label="${label}"]`)].find(
+    (g) => !g.closest("[inert]"),
+  );
+  expect(node).toBeDefined();
   return node!;
 };
 
@@ -46,30 +49,40 @@ it("a wall door turns the room, and a tab switch does not", async () => {
   view.unmount();
 });
 
-it("the lobby door turns into the first room, and its door turns back", async () => {
+it("the lobby doors switch with no turn, both ways", async () => {
   const view = mount([room("first"), room("second")]);
   await act(async () =>
     fixture.dispatch({ type: "set_lobby_open", open: true }),
   );
-  expect(snapshots(view.container)).toBe(0);
   await act(async () => fireEvent.click(door(view.container, "first")));
   await act(nextFrame);
   expect(fixture.snapshot.lobbyOpen).toBe(false);
   expect(fixture.snapshot.currentRoomId).toBe("first");
-  expect(snapshots(view.container)).toBe(2);
+  expect(snapshots(view.container)).toBe(0);
 
   await act(async () =>
     fireEvent.click(door(view.container, en["common.lobby"])),
   );
   await act(nextFrame);
   expect(fixture.snapshot.lobbyOpen).toBe(true);
-  expect(snapshots(view.container)).toBe(2);
-  // Leaving the lobby by a tab mid-turn is a plain switch.
+  expect(snapshots(view.container)).toBe(0);
+  view.unmount();
+});
+
+it("the Lobby door ends a running turn into the first room", async () => {
+  const view = mount([room("first"), room("second")]);
   await act(async () =>
     fixture.dispatch({ type: "set_current_room", roomId: "second" }),
   );
+  await act(async () => fireEvent.click(door(view.container, "first")));
   await act(nextFrame);
-  expect(fixture.snapshot.lobbyOpen).toBe(false);
+  expect(fixture.snapshot.currentRoomId).toBe("first");
+  expect(snapshots(view.container)).toBe(2);
+  await act(async () =>
+    fireEvent.click(door(view.container, en["common.lobby"])),
+  );
+  await act(nextFrame);
+  expect(fixture.snapshot.lobbyOpen).toBe(true);
   expect(snapshots(view.container)).toBe(0);
   view.unmount();
 });

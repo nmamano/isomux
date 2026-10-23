@@ -1,6 +1,5 @@
-// The room turn when a member walks through a wall door between two rooms,
-// or between the lobby and the first room. It lasts TURN_MS; a member who
-// asks for reduced motion gets a plain switch.
+// The room turn when a member walks through a wall door between two rooms.
+// It lasts TURN_MS; a member who asks for reduced motion gets a plain switch.
 //
 // At the click the old room is snapshotted (a DOM clone), the room switch
 // dispatches at once, and after React commits the new room is snapshotted
@@ -269,8 +268,7 @@ export function cancelRoomTurn(): void {
   running = null;
 }
 
-/** Call from a door click, BEFORE the switch dispatches. targetRoomId is
- * LOBBY_ROOM_ID for the lobby door. */
+/** Call from a door click, BEFORE the switch dispatches. */
 export function beginRoomTurn(
   content: HTMLElement | null,
   side: TurnSide,
@@ -286,8 +284,8 @@ export function beginRoomTurn(
   };
 }
 
-/** Call from a layout effect on every room change; roomId is LOBBY_ROOM_ID
- * when the lobby is open, null when no room is selected. A change to any room but the door's target (a tab, the
+/** Call from a layout effect on every room change; roomId is null when the
+ * lobby is open. A change to any room but the door's target (a tab, the
  * lobby) is a plain switch: it ends the turn and starts none. */
 export function finishRoomTurn(roomId: string | null) {
   const job = pending;
