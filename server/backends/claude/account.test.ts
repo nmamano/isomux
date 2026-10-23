@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { ClaudeAccountClient } from "./account.ts";
 
 describe("ClaudeAccountClient", () => {
-  it("launches the CLI with vendor telemetry and error reporting off", async () => {
+  it("launches the CLI with vendor telemetry, error reporting and MCP servers off", async () => {
     const env = { DISABLE_TELEMETRY: "", KEEP_ME: "yes" };
     let received: unknown;
     const client = new ClaudeAccountClient(env, (options) => {
@@ -15,8 +15,11 @@ describe("ClaudeAccountClient", () => {
       };
     });
     await client.start();
+    // Task c52bd005: a probe sends no prompt, so a claude.ai connector it
+    // starts is network and OAuth work for nothing.
     expect(received).toMatchObject({
       options: {
+        strictMcpConfig: true,
         settings: {
           autoMemoryEnabled: false,
           env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },

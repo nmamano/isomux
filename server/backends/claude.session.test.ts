@@ -21,6 +21,7 @@ import {
   CLAUDE_MEMORY_OFF_SETTINGS,
   ClaudeSession,
   createClaudeBackend,
+  oneShotQueryOptions,
   sessionOptsToV1,
   toolBoundaryHooks,
   type SdkClient,
@@ -1051,6 +1052,37 @@ describe("createClaudeBackend.oneShotPrompt", () => {
     expect(call.model).not.toBe("haiku");
     expect(call.model.length).toBeGreaterThan(0);
     expect(call.pathToClaudeCodeExecutable.length).toBeGreaterThan(0);
+  });
+
+  // Task c52bd005: with no strict MCP config the CLI loads the member's
+  // claude.ai connectors as full tool schemas (tools: [] also removes
+  // ToolSearch), about 36k input tokens on each topic or summary call.
+  it("builds a one-shot query with no MCP servers, tools or setting sources", async () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    const env = { FOO: "bar" };
+    await backend.oneShotPrompt("Summarize", {
+      modelFamily: "haiku",
+      systemPrompt: "sys",
+      env,
+    });
+    const { prompt, ...call } = fake.oneShotCalls[0];
+    expect(prompt).toBe("Summarize");
+    expect(call.settings).toBeDefined();
+    const options = oneShotQueryOptions(call);
+    expect(options.strictMcpConfig).toBe(true);
+    expect(options.mcpServers).toBeUndefined();
+    expect(options.tools).toEqual([]);
+    expect(options.settingSources).toEqual([]);
+    expect(options).toMatchObject({
+      model: call.model,
+      pathToClaudeCodeExecutable: call.pathToClaudeCodeExecutable,
+      systemPrompt: "sys",
+      settings: call.settings,
+      env,
+      thinking: { type: "disabled" },
+      cwd: "/tmp",
+    });
   });
 
   it("propagates errors from sdkClient.oneShotPrompt", async () => {

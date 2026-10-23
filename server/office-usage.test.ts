@@ -197,15 +197,18 @@ const weekly = (usedPercent: number): ProbeResult => ({
 });
 
 describe("claudeOfficeProbe", () => {
-  it("launches the CLI with vendor telemetry and error reporting off", () => {
+  it("launches the CLI with vendor telemetry, error reporting and MCP servers off", () => {
     const env = { DISABLE_TELEMETRY: "", KEEP_ME: "yes" };
     let received: unknown;
     const probe = claudeOfficeProbe(env, (params) => {
       received = params;
       return {};
     });
+    // Task c52bd005: a probe sends no prompt, so a claude.ai connector it
+    // starts is network and OAuth work for nothing.
     expect(received).toMatchObject({
       options: {
+        strictMcpConfig: true,
         settings: {
           autoMemoryEnabled: false,
           env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },

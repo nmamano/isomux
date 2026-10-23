@@ -850,6 +850,32 @@ export function wrapV1Query(
   };
 }
 
+// One-shot text completion: no tools, no thinking, no filesystem context and
+// no MCP servers. tools: [] also drops ToolSearch, so without
+// strictMcpConfig the claude.ai connectors that finish connecting before the
+// request load as full schemas (about +36k input tokens on sonnet,
+// measured 2026-10-22).
+export function oneShotQueryOptions({
+  model,
+  pathToClaudeCodeExecutable,
+  systemPrompt,
+  settings,
+  env,
+}: Omit<SdkOneShotOptions, "prompt">): Options {
+  return {
+    model,
+    pathToClaudeCodeExecutable,
+    tools: [],
+    thinking: { type: "disabled" },
+    settingSources: [],
+    strictMcpConfig: true,
+    cwd: "/tmp",
+    ...(systemPrompt ? { systemPrompt } : {}),
+    ...(settings ? { settings } : {}),
+    ...(env ? { env } : {}),
+  };
+}
+
 export const realV1SdkClient: SdkClient = {
   createSession(opts, mcp) {
     const input = makePushableInput<SDKUserMessage>();
@@ -875,30 +901,10 @@ export const realV1SdkClient: SdkClient = {
     });
     return wrapV1Query(q, input, abortController, registerMcpServers(q, mcp));
   },
-  async oneShotPrompt({
-    prompt,
-    model,
-    pathToClaudeCodeExecutable,
-    systemPrompt,
-    settings,
-    env,
-  }) {
-    // One-shot text completion: no tools, no thinking, no filesystem context.
-    // V1's typed Options means no more `as any` cast for tools/thinking/
-    // settingSources/systemPrompt.
+  async oneShotPrompt({ prompt, ...opts }) {
     const q = query({
       prompt,
-      options: withAgentSpawn({
-        model,
-        pathToClaudeCodeExecutable,
-        tools: [],
-        thinking: { type: "disabled" },
-        settingSources: [],
-        cwd: "/tmp",
-        ...(systemPrompt ? { systemPrompt } : {}),
-        ...(settings ? { settings } : {}),
-        ...(env ? { env } : {}),
-      }),
+      options: withAgentSpawn(oneShotQueryOptions(opts)),
     });
     let result: SDKResultMessage | null = null;
     for await (const msg of q) {
@@ -1063,7 +1069,7 @@ export class ClaudeSession implements BackendSession {
   private async feedSDKMessages() {
     try {
       // The conversation iterable is a single stream across all turns; the
-      // SDK adapter (V2 or V1) handles turn boundaries internally. We just
+      // SDK adapter handles turn boundaries internally. We just
       // translate each message into NormalizedEvents and enqueue them. On
       // throw - typically subprocess exit, mid-stream abort, or transport
       // failure - if we initiated the close, exit quietly; otherwise emit a
@@ -2154,8 +2160,8 @@ export function createClaudeBackend(
       // a planning system prompt + adaptive thinking, which produced
       // 200+-token outputs, ~10s+ latency, and a 20%-ish rate of the model
       // roleplaying as an agent attempting the conversation's task. The
-      // adapter (V2 or V1) sets tools:[] / thinking:disabled / settingSources:
-      // [] / cwd:"/tmp" to keep this a pure single-turn label task.
+      // adapter sets tools:[] / thinking:disabled / settingSources:[] /
+      // strictMcpConfig / cwd:"/tmp" to keep this a pure single-turn label task.
       const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
       const model = claudeModelForEnvironment(opts.modelFamily, env);
       return sdkClient.oneShotPrompt({

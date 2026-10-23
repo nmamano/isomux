@@ -147,6 +147,7 @@ export function claudeOfficeProbe(
       cwd: tmpdir(),
       env,
       settingSources: [],
+      strictMcpConfig: true,
       settings: CLAUDE_LAUNCH_SETTINGS,
       pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
       abortController,

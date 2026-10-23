@@ -66,6 +66,7 @@ export class ClaudeAccountClient {
         cwd: tmpdir(),
         env: this.env,
         settingSources: [],
+        strictMcpConfig: true,
         settings: CLAUDE_LAUNCH_SETTINGS,
         pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
         abortController,
