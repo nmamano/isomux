@@ -854,10 +854,10 @@ const OWN_PID_VARIABLE =
 const OTHER_EXPANSION =
   /\$\{[^}]*\}|\$\(\)|``|\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?!-])/g;
 const ENVIRON_REASON =
-  `another process's environment can hold other agents' office tokens ` +
+  `Refused: another process's environment can hold other agents' office tokens ` +
   `and secrets. Read your own at /proc/self/environ.`;
 const PROC_SEARCH_REASON =
-  `a recursive search of / or /proc reads other processes' environments, ` +
+  `Refused: a recursive search of / or /proc reads other processes' environments, ` +
   `which can hold other agents' office tokens and secrets.`;
 
 /** The first `{a,b}` group of a word: its bounds and its alternatives. */
@@ -2958,7 +2958,7 @@ function checkBashSafety(
 
   const environWord = bashForeignEnvironWord(command, cwd);
   if (environWord !== null || bashPrintsEnvironments(command))
-    return denyMessage(`Refused: ${ENVIRON_REASON}`, command);
+    return denyMessage(ENVIRON_REASON, command);
 
   const procSearch = bashProcSearchRoot(command, cwd);
   if (procSearch !== null) return denyProcSearch(procSearch, "Bash");
