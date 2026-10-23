@@ -1,5 +1,5 @@
 ---
-description: What the Isomux installer does, its parameters, app hostnames, memory limits, and the proxy and domain options of each deployment.
+description: What the Isomux installer does, its parameters, app hostnames, memory needs and limits, and the proxy and domain options of each deployment.
 ---
 
 # Hosting reference
@@ -65,6 +65,19 @@ Certificates are obtained per app the first time it is opened. Two things follow
 - Deleting an app stops new certificates immediately, but TLS may keep terminating from Caddy's warm cache until its next cold load.
 
 A tailnet office (`*.ts.net`) keeps port links: Tailscale has no wildcard names, so app hostnames can't resolve there.
+
+## How much memory an office needs
+
+Memory grows with the agents that run at the same time and with what they run. A Claude Code or Codex agent keeps its own process while it works and for 2 hours after its last turn; after that it uses no memory until its next message. The OpenCode agents of one member share one OpenCode server.
+
+| Engine      | Idle agent   | Busy agent |
+| ----------- | ------------ | ---------- |
+| Claude Code | 195-253 MB   | 314-421 MB |
+| Codex       | about 120 MB | 136-158 MB |
+
+An idle OpenCode server uses 250-310 MB, and sixteen light OpenCode agents together peaked at 0.9-2.5 GiB. Add about 260 MB for the office server and about 1 GB for the operating system. We measured these on our own offices: the busy numbers before 2026-08-20, the rest from 2026-10-11 to 2026-10-23.
+
+What the agents run costs more than the agents. A large build can take 3 GB (an Isomux build did), and tests and browsers add up the same way. Several builds at once is the usual way an office runs out of memory: an 8 GB box ran 10 or more agents most of the time, but not several builds at once.
 
 ## Running out of memory
 

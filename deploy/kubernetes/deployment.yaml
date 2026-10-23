@@ -81,6 +81,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
+          # 4Gi is a default, not a minimum: see docs/hosting/kubernetes.md.
           resources:
             requests:
               cpu: "1"

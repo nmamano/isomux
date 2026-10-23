@@ -106,6 +106,35 @@ create:
   DaemonSet with a patch. Copy the file again on each update; it now also
   covers the Codex agents' sandbox.
 
+The office pod requests and is limited to 4 GiB of memory and 1 to 2 CPUs.
+4 GiB is a default for a few agents at once, not a minimum. The limit is a hard
+cap: when the office crosses it, Kubernetes kills the whole office container
+and restarts it, which stops every agent. For many agents at once or large
+builds, raise it (see
+[how much memory an office needs](hosting-reference.md#how-much-memory-an-office-needs))
+and keep the request equal to the limit. Nodes with 8 GiB fit the default; a
+request larger than the free memory of every labeled node leaves the pod
+`Pending`. To raise it, add this entry to the `patches` list:
+
+```yaml
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: isomux
+      namespace: isomux
+    spec:
+      template:
+        spec:
+          containers:
+            - name: office
+              resources:
+                requests:
+                  memory: 6Gi
+                limits:
+                  memory: 6Gi
+```
+
 ## 3. Start the office
 
 From the directory with your `kustomization.yaml`:
