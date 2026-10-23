@@ -10,6 +10,7 @@ import { inspect } from "node:util";
 import { credentialValues, redactLogText } from "../../report";
 import type { SupportedLanguageCode } from "./i18n/languages";
 import { translatorFor } from "./i18n/translate";
+import { SUPPORT_EMAIL } from "./support-email";
 import { SIGNIN_LINK_TTL_MS } from "./signin-link.server";
 
 export const SIGNIN_MAIL_FROM = "Isomux <signin@isomux.com>";
@@ -25,11 +26,6 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
-
-/** Ours, and the same in every language. The sign-in mails and the account
- * route bodies read it; components/office-view.tsx keeps its own copy for the
- * client bundle. */
-export const SUPPORT_EMAIL = "llc@isomux.com";
 
 export async function sendSignInMail(
   mail: { to: string; link: string; language: SupportedLanguageCode },

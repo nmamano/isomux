@@ -17,6 +17,7 @@ import {
 import { checkTrustedOrigin } from "./services.server";
 import { normalizeEmail, type SignInTokens } from "./signin-link.server";
 import type { SendResult } from "./signin-mail.server";
+import { SUPPORT_EMAIL } from "./support-email";
 
 export interface SignInLinkDeps {
   /** AUTH_RESEND_KEY; absent means the route answers 503. */
@@ -65,7 +66,8 @@ export async function handleSignInLinkRequest(
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   const { apiKey, tokens } = deps;
-  if (!apiKey || !tokens) return text(t("signIn.emailUnavailable"), 503);
+  if (!apiKey || !tokens)
+    return text(t("signIn.emailUnavailable", { support: SUPPORT_EMAIL }), 503);
   const now = deps.now?.() ?? Date.now();
   const limited = limitRequest(deps.ipLimiter, request, now);
   if (limited) return limited;

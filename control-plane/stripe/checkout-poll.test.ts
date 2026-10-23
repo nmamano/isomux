@@ -31,6 +31,7 @@ import { applyEvent, applyPolledCheckout } from "./reconcile.ts";
 import type { ReadResult, StripeObjectReader } from "./reader.ts";
 import { continueSignup } from "../web/lib/services.server.ts";
 import { translatorFor } from "../web/lib/i18n/translate.ts";
+import { SUPPORT_EMAIL } from "../web/lib/support-email.ts";
 import type {
   InvoiceSnapshot,
   SessionSnapshot,
@@ -305,6 +306,7 @@ describe("pending ordinary Checkout polling", () => {
         const reason = "reason" in result ? result.reason : "";
         const refusal = translatorFor(language).t(
           "errors.checkoutReservedConfiguration",
+          { support: SUPPORT_EMAIL },
         );
         expect(reason).toStartWith(`${refusal} `);
         const reference = /PAY-[0-9A-F]{10}/.exec(reason)?.[0];

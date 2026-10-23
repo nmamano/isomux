@@ -2,6 +2,7 @@ import type { SupportedLanguageCode } from "./i18n/languages";
 import { translatorFor, type PlainMessageKey } from "./i18n/translate";
 import { inspect } from "node:util";
 import { redactLogText } from "../../report";
+import { SUPPORT_EMAIL } from "./support-email";
 
 export type CustomerFailureKind = "configuration" | "transient";
 
@@ -31,15 +32,25 @@ function referenceCode(): string {
  * NOT: it is the handle a customer pastes to support and support greps for, and
  * it stays byte-identical in every language.
  */
-function friendlyKey(
+function friendlySentence(
+  language: SupportedLanguageCode,
   kind: CustomerFailureKind,
   surface: CustomerFailureSurface,
-): PlainMessageKey {
+): string {
+  const { t } = translatorFor(language);
+  // A configuration failure is ours, so it names where to write.
   if (kind === "configuration") {
-    return surface === "checkout_reserved"
-      ? "errors.checkoutReservedConfiguration"
-      : "errors.paymentsConfiguration";
+    return t(
+      surface === "checkout_reserved"
+        ? "errors.checkoutReservedConfiguration"
+        : "errors.paymentsConfiguration",
+      { support: SUPPORT_EMAIL },
+    );
   }
+  return t(transientKey(surface));
+}
+
+function transientKey(surface: CustomerFailureSurface): PlainMessageKey {
   switch (surface) {
     case "checkout_reserved":
       return "errors.checkoutReservedTransient";
@@ -74,7 +85,7 @@ export function customerFailure(
     ),
   );
   const { t } = translatorFor(language);
-  return `${t(friendlyKey(kind, surface))} ${t("errors.reference", { reference })}`;
+  return `${friendlySentence(language, kind, surface)} ${t("errors.reference", { reference })}`;
 }
 
 /**

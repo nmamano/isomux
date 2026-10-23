@@ -39,7 +39,8 @@ export const en = {
   "signIn.emailSent":
     "We sent a sign-in link to {email}. It works once, for {minutes} minutes.",
   "signIn.emailInvalid": "Enter one email address.",
-  "signIn.emailUnavailable": "Email sign-in is not available.",
+  "signIn.emailUnavailable":
+    "Email sign-in is down on our side. Try again later, or write to {support}.",
   "signIn.emailFailed": "We could not send the email. Try again later.",
   "signIn.linkFailed":
     "That sign-in link has expired or was already used. Ask for a new one.",
@@ -214,10 +215,12 @@ export const en = {
   "office.invite.asking": "Asking for an invite...",
   "office.invite.failed": "We could not prepare an invite. Try asking again.",
   "office.invite.waiting": "Preparing your invite. This takes a few seconds.",
-  "office.invite.gone": "that invite is no longer available",
+  "office.invite.gone":
+    "That invite is no longer available. Ask for a new one.",
   "office.invite.slow":
-    "preparing your invite is taking longer than expected. Try asking again.",
-  "office.invite.askFailed": "we could not ask for an invite just now.",
+    "Preparing your invite is taking longer than expected. Try asking again.",
+  "office.invite.askFailed":
+    "We could not ask for an invite just now. Try again in a moment.",
   "office.invite.linkNote":
     "Open this from the browser profile where you'll use the office (not incognito). It works once and is gone after five minutes; if you miss it, ask for a new one. You can add your other devices later from inside the office.",
 
@@ -239,8 +242,8 @@ export const en = {
   "office.handoff.removing": "Removing temporary access...",
   "office.handoff.pending":
     "Your request was received. We are removing our temporary access now.",
-  "office.handoff.failedLower": "we could not remove our access just now.",
-  "office.handoff.failed": "We could not remove our access just now.",
+  "office.handoff.failed":
+    "We could not remove our access just now. Try again in a moment.",
 
   "office.revocation.heading": "Access removal",
   "office.revocation.done":
@@ -269,8 +272,8 @@ export const en = {
   "office.restart": "Restart my server",
   "office.restarting": "Restarting...",
   "office.action.restartServer": "restart your server",
-  "office.action.failedLower": "we could not {action} just now.",
-  "office.action.failed": "We could not {action} just now.",
+  "office.action.failed":
+    "We could not {action} just now. Try again in a moment.",
 
   "office.planHeading": "Your plan",
   "office.plan.waitingForPayment": "waiting for payment to be confirmed",
@@ -313,9 +316,8 @@ export const en = {
   "office.cancel.caveat":
     "Cancelling keeps your office running until the end of the period you have paid for.",
   "office.cancel.cancel": "Cancel my office",
-  "office.cancel.planFailedLower": "we could not change your plan just now.",
-  "office.cancel.planFailed": "We could not change your plan just now.",
-  "office.reinstate.failedLower": "we could not open reinstatement payment.",
+  "office.cancel.planFailed":
+    "We could not change your plan just now. Try again in a moment.",
   "office.reinstate.return": "Return to payment",
   "office.reinstate.reinstate": "Reinstate this office",
   "office.refundNotice":
@@ -326,8 +328,9 @@ export const en = {
   // support handle, not copy: it stays byte-identical in every language.
   "errors.reference": "Reference: {reference}.",
   "errors.checkoutReservedConfiguration":
-    "We could not open a payment page. Your name is reserved.",
-  "errors.paymentsConfiguration": "Payments are not available right now.",
+    "Payments are down on our side. Your name is reserved, so try again later, or write to {support}.",
+  "errors.paymentsConfiguration":
+    "Payments are down on our side. Try again later, or write to {support}.",
   "errors.checkoutReservedTransient":
     "We could not open a payment page just now. Your name is reserved, so try again in a moment.",
   "errors.reinstatementTransient":

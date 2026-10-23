@@ -58,20 +58,20 @@ export type RefusalCode =
  * someone to try again later would be false comfort.
  */
 export const REFUSAL_WORDS: Record<RefusalCode, string> = {
-  not_yours: "we could not find that office.",
-  no_box: "your server has not been ordered yet.",
+  not_yours: "We could not find that office.",
+  no_box: "Your server has not been ordered yet.",
   window_not_started:
     "Hosted Isomux Provisioning does not have a key to your server yet, so it cannot create an invite.",
   window_gone:
     "Hosted Isomux Provisioning no longer has a key to your server, so it cannot create a new invite. Contact support if you cannot get in.",
   window_unknown:
     "Hosted Isomux Provisioning cannot confirm whether it still has a key to your server, so it will not create an invite. This office is already with a person.",
-  not_live: "your office is not serving yet.",
+  not_live: "Your office is not serving yet.",
   mint_in_progress:
-    "an invite is already being prepared. Try again in a moment.",
-  revocation_in_progress: "we are already removing our access.",
+    "An invite is already being prepared. Try again in a moment.",
+  revocation_in_progress: "We are already removing our access.",
   already_revoked: "Hosted Isomux Provisioning has already removed its access.",
-  restart_in_progress: "a restart is already running.",
+  restart_in_progress: "A restart is already running.",
   cancellation_suspended:
     "This office cannot be restarted. Your office dashboard shows the options available now.",
 };

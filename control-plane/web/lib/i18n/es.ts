@@ -39,7 +39,7 @@ export const es: Catalog = {
     "Hemos enviado un enlace de inicio de sesión a {email}. Funciona una vez, durante {minutes} minutos.",
   "signIn.emailInvalid": "Escribe una dirección de correo electrónico.",
   "signIn.emailUnavailable":
-    "El inicio de sesión por correo no está disponible.",
+    "El inicio de sesión por correo no funciona por un problema nuestro. Inténtalo más tarde o escribe a {support}.",
   "signIn.emailFailed":
     "No hemos podido enviar el correo. Vuelve a intentarlo más tarde.",
   "signIn.linkFailed":
@@ -212,11 +212,11 @@ export const es: Catalog = {
   "office.invite.failed":
     "No hemos podido preparar una invitación. Vuelve a pedirla.",
   "office.invite.waiting": "Preparando tu invitación. Tarda unos segundos.",
-  "office.invite.gone": "esa invitación ya no está disponible",
+  "office.invite.gone": "Esa invitación ya no está disponible. Pide una nueva.",
   "office.invite.slow":
-    "preparar tu invitación está tardando más de lo esperado. Vuelve a pedirla.",
+    "Preparar tu invitación está tardando más de lo esperado. Vuelve a pedirla.",
   "office.invite.askFailed":
-    "no hemos podido pedir una invitación ahora mismo.",
+    "No hemos podido pedir una invitación ahora mismo. Vuelve a intentarlo en un momento.",
   "office.invite.linkNote":
     "Ábrelo desde el perfil del navegador donde vayas a usar la oficina (no en incógnito). Funciona una vez y desaparece a los cinco minutos; si lo pierdes, pide otro. Puedes añadir tus otros dispositivos más tarde desde dentro de la oficina.",
 
@@ -239,10 +239,8 @@ export const es: Catalog = {
   "office.handoff.removing": "Retirando el acceso temporal...",
   "office.handoff.pending":
     "Hemos recibido tu solicitud. Estamos retirando nuestro acceso temporal.",
-  "office.handoff.failedLower":
-    "no hemos podido retirar nuestro acceso ahora mismo.",
   "office.handoff.failed":
-    "No hemos podido retirar nuestro acceso ahora mismo.",
+    "No hemos podido retirar nuestro acceso ahora mismo. Vuelve a intentarlo en un momento.",
 
   "office.revocation.heading": "Retirada del acceso",
   "office.revocation.done":
@@ -272,8 +270,8 @@ export const es: Catalog = {
   "office.restart": "Reiniciar mi servidor",
   "office.restarting": "Reiniciando...",
   "office.action.restartServer": "reiniciar tu servidor",
-  "office.action.failedLower": "no hemos podido {action} ahora mismo.",
-  "office.action.failed": "No hemos podido {action} ahora mismo.",
+  "office.action.failed":
+    "No hemos podido {action} ahora mismo. Vuelve a intentarlo en un momento.",
 
   "office.planHeading": "Tu plan",
   "office.plan.waitingForPayment": "esperando la confirmación del pago",
@@ -316,11 +314,8 @@ export const es: Catalog = {
   "office.cancel.caveat":
     "Cancelar mantiene tu oficina en marcha hasta el final del periodo que has pagado.",
   "office.cancel.cancel": "Cancelar mi oficina",
-  "office.cancel.planFailedLower":
-    "no hemos podido cambiar tu plan ahora mismo.",
-  "office.cancel.planFailed": "No hemos podido cambiar tu plan ahora mismo.",
-  "office.reinstate.failedLower":
-    "no hemos podido abrir el pago de reactivación.",
+  "office.cancel.planFailed":
+    "No hemos podido cambiar tu plan ahora mismo. Vuelve a intentarlo en un momento.",
   "office.reinstate.return": "Volver al pago",
   "office.reinstate.reinstate": "Reactivar esta oficina",
   "office.refundNotice":
@@ -328,8 +323,9 @@ export const es: Catalog = {
 
   "errors.reference": "Referencia: {reference}.",
   "errors.checkoutReservedConfiguration":
-    "No hemos podido abrir una página de pago. Tu nombre está reservado.",
-  "errors.paymentsConfiguration": "Los pagos no están disponibles ahora mismo.",
+    "Los pagos no funcionan por un problema nuestro. Tu nombre está reservado, así que inténtalo más tarde o escribe a {support}.",
+  "errors.paymentsConfiguration":
+    "Los pagos no funcionan por un problema nuestro. Inténtalo más tarde o escribe a {support}.",
   "errors.checkoutReservedTransient":
     "No hemos podido abrir una página de pago ahora mismo. Tu nombre está reservado, así que vuelve a intentarlo en un momento.",
   "errors.reinstatementTransient":

@@ -13,7 +13,9 @@ import {
   type SignInLinkDeps,
 } from "./signin-link-request.server";
 import { createSignInTokens } from "./signin-link.server";
-import { LANGUAGE_COOKIE } from "./i18n/languages";
+import { LANGUAGE_COOKIE, SUPPORTED_LANGUAGES } from "./i18n/languages";
+import { translatorFor } from "./i18n/translate";
+import { SUPPORT_EMAIL } from "./support-email";
 
 const ORIGIN = "https://hosted.example.com";
 const CONTAINER = "http://localhost:3000";
@@ -124,14 +126,34 @@ describe("a request that is refused", () => {
     expect(mails.length).toBe(0);
   });
 
-  test("without a mail key the route is unavailable and sends nothing", async () => {
-    const { deps, mails } = harness({ apiKey: undefined });
-    const response = await handleSignInLinkRequest(
-      post({ email: "a@example.com" }),
-      deps,
-    );
-    expect(response.status).toBe(503);
-    expect(mails.length).toBe(0);
+  test("without a mail key or a signing secret the route is unavailable, sends nothing, and names support in the visitor's language", async () => {
+    for (const missing of [{ apiKey: undefined }, { tokens: undefined }]) {
+      const { deps, mails } = harness(missing);
+      for (const { code } of SUPPORTED_LANGUAGES) {
+        const response = await handleSignInLinkRequest(
+          post(
+            { email: "a@example.com" },
+            { cookie: `${LANGUAGE_COOKIE}=${code}` },
+          ),
+          deps,
+        );
+        const body = await response.text();
+        const label = [Object.keys(missing)[0], code];
+        expect([...label, response.status]).toEqual([...label, 503]);
+        // The body is the visitor's language, and says where to write.
+        expect([...label, body]).toEqual([
+          ...label,
+          translatorFor(code).t("signIn.emailUnavailable", {
+            support: SUPPORT_EMAIL,
+          }),
+        ]);
+        expect([...label, body.includes(SUPPORT_EMAIL)]).toEqual([
+          ...label,
+          true,
+        ]);
+      }
+      expect(mails.length).toBe(0);
+    }
   });
 
   test("a body that is not one address is a 400 and sends nothing", async () => {

@@ -149,6 +149,13 @@ describe("the access window gates minting", () => {
     expect(REFUSAL_WORDS.window_gone).toContain("Contact support");
   });
 
+  test("every refusal is a whole sentence, because the office page shows it as sent", () => {
+    for (const [code, words] of Object.entries(REFUSAL_WORDS)) {
+      expect([code, /^(?!\p{Ll})\p{L}/u.test(words)]).toEqual([code, true]);
+      expect([code, /[.!?]$/.test(words)]).toEqual([code, true]);
+    }
+  });
+
   test("a refused mint is audited as the customer's, and opens nothing", async () => {
     const b = await bed({ linked: false });
     await requestInvite(b.store, {

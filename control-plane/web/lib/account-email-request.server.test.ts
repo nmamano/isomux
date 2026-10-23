@@ -21,7 +21,7 @@ import {
   type EmailChangeClaims,
   type LinkTokens,
 } from "./signin-link.server";
-import { SUPPORT_EMAIL } from "./signin-mail.server";
+import { SUPPORT_EMAIL } from "./support-email";
 
 const ORIGIN = "https://hosted.example.com";
 const CONTAINER = "http://localhost:3000";

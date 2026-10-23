@@ -8,6 +8,7 @@ import type { SupportedLanguageCode } from "../lib/i18n/languages";
 import { webTranslatorFor, type WebTranslator } from "../lib/i18n/rich";
 import { keyFrom, type PlainMessageKey } from "../lib/i18n/translate";
 import { en } from "../lib/i18n/en";
+import { SUPPORT_EMAIL } from "../lib/support-email";
 
 /** Fast while the office is being built, slow once it is serving. The server
  * side of this is a read of rows already in the database, so the cost of the
@@ -37,9 +38,6 @@ const COLLECT_TIMEOUT_MS = 120_000;
  * afterwards it renders the machine's own `retentionEnd`.
  */
 const GRACE_DAYS = 7;
-
-/** Ours, and the same in every language. */
-const SUPPORT_EMAIL = "llc@isomux.com";
 
 /**
  * The control plane's ids, mapped to catalog keys.
@@ -518,19 +516,32 @@ export function OfficeView({
     void (async () => {
       const deadline = Date.now() + COLLECT_TIMEOUT_MS;
       for (;;) {
-        const { data } = await postJson("/api/invite/reveal", {
+        // A fetch that rejects (the network dropped) is one missed poll, not
+        // an answer: the loop keeps asking until the deadline.
+        const data = await postJson("/api/invite/reveal", {
           instanceId,
           operationId,
-        });
+        }).then(
+          (response) => response.data,
+          () => null,
+        );
         if (cancelled) return;
-        if (data.status === "ready" && typeof data.url === "string") {
+        if (data?.status === "ready" && typeof data.url === "string") {
           setInvite({ phase: "shown", url: data.url });
           return;
         }
-        if (data.status !== "not_ready") {
+        if (data && data.status !== "not_ready") {
+          // The status is the protocol value; the seam's reason is English
+          // prose for logs, so this branch never shows it.
           setInvite({
             phase: "problem",
-            message: reasonOf(data, i18n.t("office.invite.gone")),
+            message: i18n.t(
+              data.status === "expired_or_lost"
+                ? "office.invite.gone"
+                : data.status === "window_closed"
+                  ? "office.invite.closed"
+                  : "office.invite.failed",
+            ),
           });
           return;
         }
@@ -554,7 +565,17 @@ export function OfficeView({
 
   const askForInvite = async (): Promise<void> => {
     setInvite({ phase: "asking" });
-    const { data, status } = await postJson("/api/invite", { instanceId });
+    let response: Awaited<ReturnType<typeof postJson>>;
+    try {
+      response = await postJson("/api/invite", { instanceId });
+    } catch {
+      setInvite({
+        phase: "problem",
+        message: i18n.t("office.invite.askFailed"),
+      });
+      return;
+    }
+    const { data, status } = response;
     if (status !== 200 || data.ok !== true) {
       setInvite({
         phase: "problem",
@@ -583,9 +604,7 @@ export function OfficeView({
       const { data, status } = await postJson(path, { instanceId });
       if (status === 200 && data.ok === true) return;
       setBilling(null);
-      setBillingProblem(
-        reasonOf(data, i18n.t("office.cancel.planFailedLower")),
-      );
+      setBillingProblem(reasonOf(data, i18n.t("office.cancel.planFailed")));
     } catch {
       setBilling(null);
       setBillingProblem(i18n.t("office.cancel.planFailed"));
@@ -594,12 +613,18 @@ export function OfficeView({
 
   const reinstate = async (): Promise<void> => {
     setBillingProblem(null);
-    const { data, status } = await postJson("/api/reinstate", { instanceId });
-    if (status === 200 && typeof data.checkoutUrl === "string") {
-      window.location.assign(data.checkoutUrl);
-      return;
+    try {
+      const { data, status } = await postJson("/api/reinstate", { instanceId });
+      if (status === 200 && typeof data.checkoutUrl === "string") {
+        window.location.assign(data.checkoutUrl);
+        return;
+      }
+      setBillingProblem(
+        reasonOf(data, i18n.t("errors.reinstatementTransient")),
+      );
+    } catch {
+      setBillingProblem(i18n.t("errors.reinstatementTransient"));
     }
-    setBillingProblem(reasonOf(data, i18n.t("office.reinstate.failedLower")));
   };
 
   const act = async (path: string, action: string): Promise<boolean> => {
@@ -607,9 +632,7 @@ export function OfficeView({
     try {
       const { data, status } = await postJson(path, { instanceId });
       if (status === 200 && data.ok === true) return true;
-      setAction(
-        reasonOf(data, i18n.t("office.action.failedLower", { action })),
-      );
+      setAction(reasonOf(data, i18n.t("office.action.failed", { action })));
       return false;
     } catch {
       setAction(i18n.t("office.action.failed", { action }));
@@ -626,7 +649,7 @@ export function OfficeView({
       // revocation row. A failure must stay beside the control that caused it.
       if (status === 200 && data.ok === true) return;
       setHandoffPending(false);
-      setHandoffProblem(reasonOf(data, i18n.t("office.handoff.failedLower")));
+      setHandoffProblem(reasonOf(data, i18n.t("office.handoff.failed")));
     } catch {
       setHandoffPending(false);
       setHandoffProblem(i18n.t("office.handoff.failed"));

@@ -36,7 +36,8 @@ export const ca: Catalog = {
   "signIn.emailSent":
     "Hem enviat un enllaç d'inici de sessió a {email}. Funciona una vegada, durant {minutes} minuts.",
   "signIn.emailInvalid": "Escriu una adreça de correu electrònic.",
-  "signIn.emailUnavailable": "L'inici de sessió per correu no està disponible.",
+  "signIn.emailUnavailable":
+    "L'inici de sessió per correu no funciona per un problema nostre. Torna-ho a provar més tard o escriu a {support}.",
   "signIn.emailFailed":
     "No hem pogut enviar el correu. Torna-ho a provar més tard.",
   "signIn.linkFailed":
@@ -210,10 +211,12 @@ export const ca: Catalog = {
   "office.invite.failed":
     "No hem pogut preparar una invitació. Torna-la a demanar.",
   "office.invite.waiting": "Preparant la teva invitació. Triga uns segons.",
-  "office.invite.gone": "aquesta invitació ja no està disponible",
+  "office.invite.gone":
+    "Aquesta invitació ja no està disponible. Demana'n una de nova.",
   "office.invite.slow":
-    "preparar la teva invitació triga més del que esperàvem. Torna-la a demanar.",
-  "office.invite.askFailed": "no hem pogut demanar una invitació ara mateix.",
+    "Preparar la teva invitació triga més del que esperàvem. Torna-la a demanar.",
+  "office.invite.askFailed":
+    "No hem pogut demanar una invitació ara mateix. Torna-ho a provar d'aquí a un moment.",
   "office.invite.linkNote":
     "Obre'l des del perfil del navegador on faràs servir l'oficina (no en incògnit). Funciona un cop i desapareix al cap de cinc minuts; si el perds, demana'n un altre. Pots afegir els teus altres dispositius més tard des de dins de l'oficina.",
 
@@ -236,9 +239,8 @@ export const ca: Catalog = {
   "office.handoff.removing": "Retirant l'accés temporal...",
   "office.handoff.pending":
     "Hem rebut la teva sol·licitud. Estem retirant el nostre accés temporal.",
-  "office.handoff.failedLower":
-    "no hem pogut retirar el nostre accés ara mateix.",
-  "office.handoff.failed": "No hem pogut retirar el nostre accés ara mateix.",
+  "office.handoff.failed":
+    "No hem pogut retirar el nostre accés ara mateix. Torna-ho a provar d'aquí a un moment.",
 
   "office.revocation.heading": "Retirada de l'accés",
   "office.revocation.done":
@@ -268,8 +270,8 @@ export const ca: Catalog = {
   "office.restart": "Reinicia el meu servidor",
   "office.restarting": "Reiniciant...",
   "office.action.restartServer": "reiniciar el teu servidor",
-  "office.action.failedLower": "no hem pogut {action} ara mateix.",
-  "office.action.failed": "No hem pogut {action} ara mateix.",
+  "office.action.failed":
+    "No hem pogut {action} ara mateix. Torna-ho a provar d'aquí a un moment.",
 
   "office.planHeading": "El teu pla",
   "office.plan.waitingForPayment": "esperant la confirmació del pagament",
@@ -312,11 +314,8 @@ export const ca: Catalog = {
   "office.cancel.caveat":
     "Cancel·lar manté la teva oficina en marxa fins al final del període que has pagat.",
   "office.cancel.cancel": "Cancel·la la meva oficina",
-  "office.cancel.planFailedLower":
-    "no hem pogut canviar el teu pla ara mateix.",
-  "office.cancel.planFailed": "No hem pogut canviar el teu pla ara mateix.",
-  "office.reinstate.failedLower":
-    "no hem pogut obrir el pagament de reactivació.",
+  "office.cancel.planFailed":
+    "No hem pogut canviar el teu pla ara mateix. Torna-ho a provar d'aquí a un moment.",
   "office.reinstate.return": "Torna al pagament",
   "office.reinstate.reinstate": "Reactiva aquesta oficina",
   "office.refundNotice":
@@ -324,9 +323,9 @@ export const ca: Catalog = {
 
   "errors.reference": "Referència: {reference}.",
   "errors.checkoutReservedConfiguration":
-    "No hem pogut obrir una pàgina de pagament. El teu nom està reservat.",
+    "Els pagaments no funcionen per un problema nostre. El teu nom està reservat, així que torna-ho a provar més tard o escriu a {support}.",
   "errors.paymentsConfiguration":
-    "Els pagaments no estan disponibles ara mateix.",
+    "Els pagaments no funcionen per un problema nostre. Torna-ho a provar més tard o escriu a {support}.",
   "errors.checkoutReservedTransient":
     "No hem pogut obrir una pàgina de pagament ara mateix. El teu nom està reservat, així que torna-ho a provar d'aquí a un moment.",
   "errors.reinstatementTransient":

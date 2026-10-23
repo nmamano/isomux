@@ -1,16 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { signUpOffice } from "./web/lib/services.server";
+import { translatorFor } from "./web/lib/i18n/translate";
+import { SUPPORT_EMAIL } from "./web/lib/support-email";
 
 const CUSTOMER_KEY =
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH";
 
 // A configuration refusal is deliberately opaque to the customer: one fixed
-// sentence plus a reference code that finds the real detail in the server
-// log. Which tier maps to which Stripe price is pinned where it is decided,
+// sentence that names support, plus a reference code that finds the real
+// detail in the server log. Which tier maps to which Stripe price is pinned where it is decided,
 // in plans.test.ts ("explicit Entry pricing wins and the legacy price never
 // sells Poweruser").
-const OPAQUE_REFUSAL =
-  /^Payments are not available right now\. Reference: PAY-[0-9A-F]{10}\.$/;
+const OPAQUE_SENTENCE = translatorFor("en").t("errors.paymentsConfiguration", {
+  support: SUPPORT_EMAIL,
+});
 
 afterEach(() => {
   delete process.env.CONTROL_PLANE_PRICE_ID;
@@ -31,7 +34,11 @@ async function attempt(plan: string) {
 
 function expectOpaqueRefusal(result: Awaited<ReturnType<typeof attempt>>) {
   expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.reason).toMatch(OPAQUE_REFUSAL);
+  if (!result.ok) {
+    expect(result.reason).toContain(SUPPORT_EMAIL);
+    expect(result.reason).toStartWith(`${OPAQUE_SENTENCE} `);
+    expect(result.reason).toMatch(/PAY-[0-9A-F]{10}\.$/);
+  }
 }
 
 describe("signup price configuration before reservation", () => {

@@ -21,7 +21,8 @@ import {
   type EmailChangeClaims,
   type LinkTokens,
 } from "./signin-link.server";
-import { SUPPORT_EMAIL, type SendResult } from "./signin-mail.server";
+import type { SendResult } from "./signin-mail.server";
+import { SUPPORT_EMAIL } from "./support-email";
 import type { EmailChangeOutcome, EmailChangeRefusal } from "../../signup";
 import type { CustomerEmailResult } from "../../stripe/customer-email";
 

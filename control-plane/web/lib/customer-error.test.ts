@@ -1,6 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { customerReason } from "../../signup.ts";
-import { customerFailure, safeCustomerReason } from "./customer-error.ts";
+import {
+  customerFailure,
+  safeCustomerReason,
+  type CustomerFailureSurface,
+} from "./customer-error.ts";
+import { SUPPORTED_LANGUAGES } from "./i18n/languages.ts";
+import { translatorFor } from "./i18n/translate.ts";
+import { SUPPORT_EMAIL } from "./support-email.ts";
+
+const SURFACES: CustomerFailureSurface[] = [
+  "checkout_reserved",
+  "payments",
+  "reinstatement",
+  "billing_change",
+  "billing_change_ambiguous",
+];
+
+/** The reference sentence a failure must end with, in that language. */
+function referenceSentence(
+  language: (typeof SUPPORTED_LANGUAGES)[number]["code"],
+  reference: string,
+): string {
+  return ` ${translatorFor(language).t("errors.reference", { reference })}`;
+}
 
 describe("customer payment failures", () => {
   test("server detail removes credentials before the log receives it", () => {
@@ -32,15 +55,36 @@ describe("customer payment failures", () => {
       log: (...args: unknown[]) => logged.push(args),
     });
 
-    expect(shown).toBe(
-      "Payments are not available right now. Reference: PAY-0123456789.",
+    expect(shown).toContain(SUPPORT_EMAIL);
+    expect(shown.endsWith(referenceSentence("en", "PAY-0123456789"))).toBe(
+      true,
     );
     expect(shown).not.toContain("acct_private");
     expect(shown).not.toContain("dashboard.stripe.com");
     expect(logged).toEqual([["[customer-error PAY-0123456789]", raw]]);
   });
 
-  test("offers a retry only for a transient failure and keeps the reservation fact", () => {
+  test("a configuration failure is ours: in every language and on every surface it names support, then the reference", () => {
+    for (const { code } of SUPPORTED_LANGUAGES) {
+      for (const surface of SURFACES) {
+        const shown = customerFailure(code, "configuration", surface, "x", {
+          newReference: () => "PAY-0123456789",
+          log: () => {},
+        });
+        const label = [code, surface];
+        expect([...label, shown.includes(SUPPORT_EMAIL)]).toEqual([
+          ...label,
+          true,
+        ]);
+        expect([
+          ...label,
+          shown.endsWith(referenceSentence(code, "PAY-0123456789")),
+        ]).toEqual([...label, true]);
+      }
+    }
+  });
+
+  test("a transient failure keeps its own sentence, and the reservation fact", () => {
     const configuration = customerFailure(
       "en",
       "configuration",
@@ -56,10 +100,9 @@ describe("customer payment failures", () => {
       { newReference: () => "PAY-BBBBBBBBBB", log: () => {} },
     );
 
-    expect(configuration).toBe(
-      "We could not open a payment page. Your name is reserved. Reference: PAY-AAAAAAAAAA.",
+    expect(configuration).not.toBe(
+      transient.replace("PAY-BBBBBBBBBB", "PAY-AAAAAAAAAA"),
     );
-    expect(configuration).not.toContain("try again");
     expect(transient).toBe(
       "We could not open a payment page just now. Your name is reserved, so try again in a moment. Reference: PAY-BBBBBBBBBB.",
     );
@@ -75,12 +118,14 @@ describe("customer payment failures", () => {
   });
 
   test("makes an empty safe refusal opaque and traceable", () => {
-    expect(
-      safeCustomerReason("en", " ", {
-        newReference: () => "PAY-3F0A9C21B7",
-        log: () => {},
-      }),
-    ).toBe("Payments are not available right now. Reference: PAY-3F0A9C21B7.");
+    const shown = safeCustomerReason("en", " ", {
+      newReference: () => "PAY-3F0A9C21B7",
+      log: () => {},
+    });
+    expect(shown).toContain(SUPPORT_EMAIL);
+    expect(shown.endsWith(referenceSentence("en", "PAY-3F0A9C21B7"))).toBe(
+      true,
+    );
   });
 
   test("makes an unknown coupon-provider refusal opaque and traceable", () => {
@@ -95,9 +140,7 @@ describe("customer payment failures", () => {
           log: () => {},
         });
 
-    expect(shown).toBe(
-      "We could not open a payment page. Your name is reserved. Reference: PAY-3F0A9C21B7.",
-    );
+    expect(shown).toContain(SUPPORT_EMAIL);
     expect(shown).not.toContain("acct_");
     expect(shown).not.toContain("dashboard.stripe.com");
     expect(shown).toContain("PAY-3F0A9C21B7");
@@ -111,6 +154,7 @@ describe("customer payment failures", () => {
       "No hemos podido contactar con nuestro proveedor de pagos ahora mismo. " +
         "Vuelve a intentarlo en un momento. Referencia: PAY-0123456789.",
     );
+    const { t } = translatorFor("ca");
     expect(
       customerFailure(
         "ca",
@@ -120,8 +164,8 @@ describe("customer payment failures", () => {
         reference,
       ),
     ).toBe(
-      "No hem pogut obrir una pàgina de pagament. El teu nom està reservat. " +
-        "Referència: PAY-0123456789.",
+      `${t("errors.checkoutReservedConfiguration", { support: SUPPORT_EMAIL })}` +
+        referenceSentence("ca", "PAY-0123456789"),
     );
   });
 

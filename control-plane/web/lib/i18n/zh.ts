@@ -23,7 +23,8 @@ export const zh: Catalog = {
   "signIn.emailSent":
     "我们已向 {email} 发送登录链接。该链接只能使用一次，{minutes} 分钟内有效。",
   "signIn.emailInvalid": "请输入一个电子邮箱地址。",
-  "signIn.emailUnavailable": "邮件登录暂不可用。",
+  "signIn.emailUnavailable":
+    "由于我们这边的问题，邮件登录暂时无法使用。请稍后再试，或写信至 {support}。",
   "signIn.emailFailed": "无法发送邮件。请稍后重试。",
   "signIn.linkFailed": "该登录链接已过期或已被使用。请重新获取。",
   "signIn.linkHeading": "登录",
@@ -161,9 +162,9 @@ export const zh: Catalog = {
   "office.invite.asking": "正在请求邀请…",
   "office.invite.failed": "无法准备邀请。请再次请求。",
   "office.invite.waiting": "正在准备邀请。这需要几秒钟。",
-  "office.invite.gone": "该邀请已不可用",
+  "office.invite.gone": "该邀请已不可用。请重新请求。",
   "office.invite.slow": "准备邀请的时间超过预期。请再次请求。",
-  "office.invite.askFailed": "暂时无法请求邀请。",
+  "office.invite.askFailed": "暂时无法请求邀请。请稍后重试。",
   "office.invite.linkNote":
     "请在将用于办公室的浏览器配置档案中打开（不要使用无痕模式）。链接只能使用一次，并在五分钟后失效；如果错过，请请求新链接。之后可以在办公室内添加其他设备。",
   "office.signIn.shownOnce":
@@ -178,8 +179,7 @@ export const zh: Catalog = {
   "office.handoff.remove": "移除 Hosted Isomux Provisioning 访问权限",
   "office.handoff.removing": "正在移除临时访问权限…",
   "office.handoff.pending": "已收到请求。我们正在移除临时访问权限。",
-  "office.handoff.failedLower": "暂时无法移除我们的访问权限。",
-  "office.handoff.failed": "暂时无法移除我们的访问权限。",
+  "office.handoff.failed": "暂时无法移除我们的访问权限。请稍后重试。",
   "office.revocation.heading": "移除访问权限",
   "office.revocation.done":
     "Hosted Isomux Provisioning 已不再持有服务器密钥。我们尝试使用该密钥重新连接并被拒绝，由此确认了这一点。",
@@ -205,8 +205,7 @@ export const zh: Catalog = {
   "office.restart": "重启我的服务器",
   "office.restarting": "正在重启…",
   "office.action.restartServer": "重启服务器",
-  "office.action.failedLower": "暂时无法{action}。",
-  "office.action.failed": "暂时无法{action}。",
+  "office.action.failed": "暂时无法{action}。请稍后重试。",
   "office.planHeading": "你的套餐",
   "office.plan.waitingForPayment": "正在等待付款确认",
   "office.plan.noCharge": "，不收费",
@@ -245,16 +244,16 @@ export const zh: Catalog = {
     "保留办公室意味着订阅将于 {date} 续订，并继续正常计费。",
   "office.cancel.caveat": "取消后，办公室会继续运行至已付款期限结束。",
   "office.cancel.cancel": "取消我的办公室",
-  "office.cancel.planFailedLower": "暂时无法更改套餐。",
-  "office.cancel.planFailed": "暂时无法更改套餐。",
-  "office.reinstate.failedLower": "无法打开恢复付款页面。",
+  "office.cancel.planFailed": "暂时无法更改套餐。请稍后重试。",
   "office.reinstate.return": "返回付款",
   "office.reinstate.reinstate": "恢复此办公室",
   "office.refundNotice":
     "首次付款后 7 天内，可发送邮件至 {address} 申请全额退款。如果退款，我们不会为日后恢复而保留服务器数据 14 天。",
   "errors.reference": "参考编号：{reference}。",
-  "errors.checkoutReservedConfiguration": "无法打开付款页面。名称已保留。",
-  "errors.paymentsConfiguration": "付款功能目前不可用。",
+  "errors.checkoutReservedConfiguration":
+    "由于我们这边的问题，付款功能暂时无法使用。名称已保留，请稍后再试，或写信至 {support}。",
+  "errors.paymentsConfiguration":
+    "由于我们这边的问题，付款功能暂时无法使用。请稍后再试，或写信至 {support}。",
   "errors.checkoutReservedTransient":
     "暂时无法打开付款页面。名称已保留，请稍后重试。",
   "errors.reinstatementTransient": "暂时无法打开恢复付款页面。请稍后重试。",
