@@ -21,6 +21,7 @@ import {
   type EmailChangeClaims,
   type LinkTokens,
 } from "./signin-link.server";
+import { SUPPORT_EMAIL } from "./signin-mail.server";
 
 const ORIGIN = "https://hosted.example.com";
 const CONTAINER = "http://localhost:3000";
@@ -34,6 +35,12 @@ beforeEach(() => {
   // Read per request by the real origin check.
   process.env.AUTH_URL = ORIGIN;
 });
+
+// The customer cannot fix a route the deployment left unconfigured, so the
+// refusal must give them somewhere to go.
+function expectSupportNamed(body: string): void {
+  expect(body).toContain(SUPPORT_EMAIL);
+}
 
 function wide(): Limiter {
   return createLimiter({ limit: 1000, windowMs: 600_000, maxKeys: 100 });
@@ -147,7 +154,7 @@ describe("asking for an email change", () => {
     expect(mails.length).toBe(0);
   });
 
-  test("without the mail key or the token secret the route is unavailable", async () => {
+  test("without the mail key or the token secret the route is unavailable, and says whom to write to", async () => {
     for (const over of [{ apiKey: undefined }, { tokens: null }]) {
       const { deps, mails } = requestHarness(over);
       const response = await handleEmailChangeRequest(
@@ -155,6 +162,7 @@ describe("asking for an email change", () => {
         deps,
       );
       expect(response.status).toBe(503);
+      expectSupportNamed(await response.text());
       expect(mails.length).toBe(0);
     }
   });
@@ -533,6 +541,17 @@ describe("confirming an email change", () => {
     expect(response.status).toBe(403);
     expect(r.events).toEqual([]);
     expect(tokens.check(token).ok).toBe(true);
+  });
+
+  test("without the token secret the route is unavailable, says whom to write to, and touches nothing", async () => {
+    const { deps, r, link } = confirmHarness({ tokens: null });
+    const response = await handleEmailChangeConfirm(
+      confirm({ token: link() }),
+      deps,
+    );
+    expect(response.status).toBe(503);
+    expectSupportNamed(await response.text());
+    expect(r.events).toEqual([]);
   });
 
   test("one client past its quota is refused", async () => {

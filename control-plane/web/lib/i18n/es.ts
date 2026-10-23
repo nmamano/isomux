@@ -62,7 +62,8 @@ export const es: Catalog = {
     "Hemos enviado un enlace a {email}. Ábrelo en {minutes} minutos para confirmar.",
   "account.changeEmailUnchanged": "Este ya es tu correo.",
   "account.changeEmailTaken": "Otra cuenta usa este correo.",
-  "account.changeEmailUnavailable": "El cambio de correo no está disponible.",
+  "account.changeEmailUnavailable":
+    "El cambio de correo no funciona por un problema nuestro. Inténtalo más tarde o escribe a {support}.",
   "account.googleHeading": "Inicio de sesión con Google",
   "account.googleOn": "También puedes iniciar sesión con Google.",
   "account.googleRemove": "Quitar el inicio de sesión con Google",

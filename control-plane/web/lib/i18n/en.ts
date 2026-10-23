@@ -62,7 +62,8 @@ export const en = {
     "We sent a link to {email}. Open it within {minutes} minutes to confirm.",
   "account.changeEmailUnchanged": "This is already your email.",
   "account.changeEmailTaken": "Another account uses this email.",
-  "account.changeEmailUnavailable": "Email change is not available.",
+  "account.changeEmailUnavailable":
+    "Email change is down on our side. Try again later, or write to {support}.",
   "account.googleHeading": "Google sign-in",
   "account.googleOn": "You can also sign in with Google.",
   "account.googleRemove": "Remove Google sign-in",

@@ -21,7 +21,7 @@ import {
   type EmailChangeClaims,
   type LinkTokens,
 } from "./signin-link.server";
-import type { SendResult } from "./signin-mail.server";
+import { SUPPORT_EMAIL, type SendResult } from "./signin-mail.server";
 import type { EmailChangeOutcome, EmailChangeRefusal } from "../../signup";
 import type { CustomerEmailResult } from "../../stripe/customer-email";
 
@@ -104,7 +104,10 @@ export async function handleEmailChangeRequest(
   const { t } = translatorFor(language);
   const { apiKey, tokens } = deps;
   if (!apiKey || !tokens) {
-    return text(t("account.changeEmailUnavailable"), 503);
+    return text(
+      t("account.changeEmailUnavailable", { support: SUPPORT_EMAIL }),
+      503,
+    );
   }
   const accountId = await deps.accountId();
   if (!accountId) return new Response(null, { status: 401 });
@@ -186,7 +189,11 @@ export async function handleEmailChangeConfirm(
   const limited = limitRequest(deps.ipLimiter, request, now);
   if (limited) return limited;
   const { tokens } = deps;
-  if (!tokens) return text(t("account.changeEmailUnavailable"), 503);
+  if (!tokens)
+    return text(
+      t("account.changeEmailUnavailable", { support: SUPPORT_EMAIL }),
+      503,
+    );
 
   // A refused link is a bare 400 or 404: the page words it, with a way to ask
   // for a new one.

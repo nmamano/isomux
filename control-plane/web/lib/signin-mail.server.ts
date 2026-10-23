@@ -26,8 +26,10 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Ours, and the same in every language (components/office-view.tsx). */
-const SUPPORT_EMAIL = "llc@isomux.com";
+/** Ours, and the same in every language. The sign-in mails and the account
+ * route bodies read it; components/office-view.tsx keeps its own copy for the
+ * client bundle. */
+export const SUPPORT_EMAIL = "llc@isomux.com";
 
 export async function sendSignInMail(
   mail: { to: string; link: string; language: SupportedLanguageCode },

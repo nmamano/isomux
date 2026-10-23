@@ -42,7 +42,8 @@ export const zh: Catalog = {
     "我们已向 {email} 发送链接。请在 {minutes} 分钟内打开以确认。",
   "account.changeEmailUnchanged": "这已经是你的电子邮箱。",
   "account.changeEmailTaken": "另一个账户正在使用此电子邮箱。",
-  "account.changeEmailUnavailable": "暂不支持更改电子邮箱。",
+  "account.changeEmailUnavailable":
+    "由于我们这边的问题，暂时无法更改电子邮箱。请稍后再试，或写信至 {support}。",
   "account.googleHeading": "Google 登录",
   "account.googleOn": "你也可以使用 Google 登录。",
   "account.googleRemove": "移除 Google 登录",

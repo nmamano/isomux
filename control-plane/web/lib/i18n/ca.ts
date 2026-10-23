@@ -60,7 +60,8 @@ export const ca: Catalog = {
     "Hem enviat un enllaç a {email}. Obre'l en {minutes} minuts per confirmar.",
   "account.changeEmailUnchanged": "Aquest ja és el teu correu.",
   "account.changeEmailTaken": "Un altre compte fa servir aquest correu.",
-  "account.changeEmailUnavailable": "El canvi de correu no està disponible.",
+  "account.changeEmailUnavailable":
+    "El canvi de correu no funciona per un problema nostre. Torna-ho a provar més tard o escriu a {support}.",
   "account.googleHeading": "Inici de sessió amb Google",
   "account.googleOn": "També pots iniciar sessió amb Google.",
   "account.googleRemove": "Treu l'inici de sessió amb Google",
