@@ -124,11 +124,11 @@ export type OpenCodeServerProbe =
   | "silent";
 
 export function openCodeModelUnavailableFailure(model: string): string {
-  return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model.`;
+  return `OpenCode cannot use model \`${model}\`: the provider refused this model.`;
 }
 
 export function openCodeModelGoneFailure(model: string): string {
-  return `OpenCode no longer lists model \`${model}\`. Pick another model.`;
+  return `OpenCode no longer lists model \`${model}\`.`;
 }
 
 export const OPENCODE_EFFORT_CATALOG_UNAVAILABLE =
