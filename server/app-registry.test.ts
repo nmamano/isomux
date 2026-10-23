@@ -480,28 +480,51 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     expect(make().register(registerInput("hello")).hostLabel).toBe("hello");
   });
 
-  it("keeps and reuses a generated label that a rollback already issued", () => {
+  it("keeps and reuses the last label a rollback issued, in issuance order", () => {
     const reg = make();
     reg.register(registerInput("hello"));
     reg.remove("hello");
     const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
-    raw.issuedLabels.push({
-      label: "hello-g2",
-      name: "hello",
-      gen: 2,
-      issuedAt: 2,
-    });
+    // Ten generations, so issuance order (hello-g9 before hello-g10) is not
+    // the lexical order of the labels. The lineage address is the LAST row
+    // issued, which only the order of the ledger records.
+    for (let gen = 2; gen <= 10; gen++) {
+      raw.issuedLabels.push({
+        label: labelFor("hello", gen),
+        name: "hello",
+        gen,
+        issuedAt: gen,
+      });
+    }
     writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    const issued = raw.issuedLabels.map((row: { label: string }) => row.label);
 
     const adopted = make().register(registerInput("hello"));
-    expect([adopted.hostLabel, adopted.hostGen]).toEqual(["hello-g2", 2]);
-    expect(appRegistrationGeneration(adopted)).toBe(3);
-    expect(ledgerOnDisk().map((row: { label: string }) => row.label)).toEqual([
-      "hello",
-      "hello-g2",
-    ]);
+    expect([adopted.hostLabel, adopted.hostGen]).toEqual(["hello-g10", 10]);
+    expect(appRegistrationGeneration(adopted)).toBe(11);
+    expect(ledgerOnDisk().map((row: { label: string }) => row.label)).toEqual(
+      issued,
+    );
     make().remove("hello");
-    expect(make().register(registerInput("hello")).hostLabel).toBe("hello-g2");
+    expect(make().register(registerInput("hello")).hostLabel).toBe("hello-g10");
+    expect(ledgerOnDisk().map((row: { label: string }) => row.label)).toEqual(
+      issued,
+    );
+  });
+
+  it("refuses to give an identity to a record the registry did not make", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    reg.remove("hello");
+    const live = reg.register(registerInput("hello"));
+    expect(appRegistrationGeneration(live)).toBe(2);
+    // A copy has the same label and generation as the live app, but not its
+    // registration. Falling back to hostGen would give it identity 1: the
+    // deleted app's, so the deleted app's sessions would match it.
+    const copy = { ...live };
+    expect(copy.hostGen).toBe(1);
+    expect(() => appRegistrationGeneration(copy)).toThrow(/hello/);
+    expect(appRegistrationGeneration(reg.get("hello")!)).toBe(2);
   });
 
   it("never lowers identity when a rollback adds a later public label", () => {

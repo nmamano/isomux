@@ -315,16 +315,6 @@ export function labelFor(name: string, gen: number): string {
   return gen === 1 ? name : `${name}-g${gen}`;
 }
 
-// The next unissued label for a name. The LEDGER decides, not the live apps: a
-// label whose app was deleted years ago is still spoken for, because the
-// browsers that talked to it are what the generation counter exists to protect.
-//
-// The walk terminates on the DNS ceiling rather than on an invented generation
-// cap (there is no product limit here to pick). Length is checked BEFORE the
-// ledger, so an over-long candidate is never proposed and never returned - the
-// only way past the check is a name that has genuinely been recycled ~100
-// times, and the honest answer there is "use a different name".
-
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -370,9 +360,20 @@ function withRegistrationGeneration<T extends object>(
   return app;
 }
 
-/** Server-held incarnation identity. It is intentionally absent from AppWire. */
+/**
+ * Server-held incarnation identity. It is intentionally absent from AppWire.
+ * Only records the registry returned carry it. A copy (a spread, an AppWire)
+ * throws instead of falling back to hostGen: after a name is reused, hostGen is
+ * the deleted app's identity, and its sessions and credentials would match.
+ */
 export function appRegistrationGeneration(app: AppRecord): number {
-  return registrationGenerations.get(app) ?? app.hostGen;
+  const generation = registrationGenerations.get(app);
+  if (generation === undefined) {
+    throw new Error(
+      `app "${app.name}" has no registration generation: the record did not come from the app registry`,
+    );
+  }
+  return generation;
 }
 
 export function _testSetAppRegistrationGeneration(
@@ -388,6 +389,13 @@ export function _testSetAppRegistrationGeneration(
 // does not know about, and the next registration would hand that origin out
 // again. One file is one atomic write, so the records and the ledger can never
 // disagree.
+//
+// ORDER IS LOAD-BEARING. issuedLabels is in issuance order, and the last row
+// for a name is that lineage's address (register reads it with at(-1),
+// assertConsistent with reverse().find). register appends a row only for a new
+// lineage and otherwise patches registrationGen on the last row in place;
+// update and remove never touch the ledger. Never sort, dedupe or rebuild it:
+// a sort by label puts `foo-g10` before `foo-g2`.
 interface AppsFile {
   apps: PersistedApp[];
   issuedLabels: IssuedLabel[];
@@ -690,6 +698,7 @@ function assertConsistent(state: RegistryState, where: string): void {
     if (!issuedTuples.has(tupleKey(app.hostLabel, app.name, app.hostGen))) {
       bad(`"${app.hostLabel}" is in use by "${app.name}" but never issued`);
     }
+    // The last row is the lineage address (issuance order; see AppsFile).
     const latest = [...state.issuedLabels]
       .reverse()
       .find((row) => row.name === app.name);
@@ -930,9 +939,10 @@ export function createAppRegistry(
         portMin,
         portMax,
       );
-      // The most recently ISSUED label is the stable lineage address. This
-      // includes a label an old rolled-back server issued while no app was
-      // live; adopting it preserves the URL browsers actually saw.
+      // The most recently ISSUED label - the last row, in issuance order (see
+      // AppsFile) - is the stable lineage address. This includes a label an
+      // old rolled-back server issued while no app was live; adopting it
+      // preserves the URL browsers actually saw.
       const lineageIndexes = state.issuedLabels
         .map((row, index) => ({ row, index }))
         .filter(({ row }) => row.name === input.name);

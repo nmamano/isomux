@@ -7,6 +7,7 @@ import {
 } from "./app-widget-metadata.ts";
 import type { RelayContext } from "./app-proxy.ts";
 import { appFavicon, appFaviconSvg } from "./app-favicon.ts";
+import { _testSetAppRegistrationGeneration } from "./app-registry.ts";
 
 let upstream: ReturnType<typeof Bun.serve> | undefined;
 afterEach(async () => {
@@ -25,6 +26,7 @@ function context(
     port: upstream.port,
     thumbnailUpdatedAt: 12,
   } as RelayContext["app"];
+  _testSetAppRegistrationGeneration(app, 1);
   return {
     app,
     host: "sample.office.example",

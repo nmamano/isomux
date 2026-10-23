@@ -197,8 +197,10 @@ function startUpstream(): Upstream {
   };
 }
 
+// A literal record, so it carries the registration generation the registry
+// would have given it (the server-held identity is never read off the record).
 function appRecord(port: number, over: Partial<AppRecord> = {}): AppRecord {
-  return {
+  const record: AppRecord = {
     name: "hello",
     hostLabel: "hello",
     hostGen: 1,
@@ -212,6 +214,8 @@ function appRecord(port: number, over: Partial<AppRecord> = {}): AppRecord {
     createdAt: 1,
     ...over,
   };
+  _testSetAppRegistrationGeneration(record, record.hostGen);
+  return record;
 }
 
 // The relay under test, with a supervisor that says what the test wants it to
