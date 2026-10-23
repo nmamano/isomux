@@ -208,6 +208,7 @@ import {
   pruneStaleRoomRefs,
   updateUserById,
   deleteUser,
+  deleteUserById,
   wouldDeleteLeaveNoOwner,
   setOnUserAccessChanged,
   type UserAccessChange,
@@ -257,7 +258,9 @@ import {
   logoutBySessionHash,
   mintInvite,
   noteSessionDeviceByHash,
+  ownerRemovalWouldStrandOffice,
   readSessionCookies,
+  removeOwnerUnlessStranding,
   registerSocket,
   sessionCookieMigrationHeaders,
   revalidateByHash,
@@ -1801,6 +1804,9 @@ async function revokeInviteForUserRecord(
 const SESSION_REVOKE_LOCKOUT_REASON =
   "Refused: this is the last active owner session in the office. Mint an " +
   "additional invite for an owner first, accept it on another device, then retry.";
+const OWNER_REMOVAL_LOCKOUT_REASON =
+  "No other office owner is signed in, so no owner could sign in again from " +
+  "a browser. Have another owner sign in first, then retry.";
 const SESSION_LOGOUT_LOCKOUT_REASON =
   "You're the only owner with an active session. Signing out would lock the " +
   "office out of in-browser recovery. Mint an additional invite for yourself " +
@@ -4558,19 +4564,6 @@ function buildExecutorDeps(
           };
         }
         if (
-          changes.memberPrompt !== undefined &&
-          changes.memberPromptVersion !== versionOf(target.memberPrompt ?? "")
-        ) {
-          return {
-            ok: false,
-            status: 409,
-            code: "version_conflict",
-            error:
-              "the member's special instructions changed since your read; re-read and retry",
-            version: versionOf(target.memberPrompt ?? ""),
-          };
-        }
-        if (
           changes.role !== undefined &&
           getUserById(identity.userId ?? "")?.role !== "owner"
         ) {
@@ -4581,6 +4574,7 @@ function buildExecutorDeps(
             error: "Only an office owner can change roles.",
           };
         }
+        // Before the session lockout check, so a sole owner gets this answer.
         if (changes.role === "member" && wouldDeleteLeaveNoOwner(target.id)) {
           return {
             ok: false,
@@ -4589,56 +4583,121 @@ function buildExecutorDeps(
             error: "The office must have at least one office owner.",
           };
         }
-        const roleChanged =
-          changes.role !== undefined && changes.role !== target.role;
-        const appAudienceBefore = roleChanged
-          ? snapshotAppVisibility(() => true)
-          : null;
-        const webhookAudienceBefore = roleChanged
-          ? snapshotWebhookAudience(() => true)
-          : null;
-        const accessible = accessibleRoomIdsFor({
-          ...target,
-          role: changes.role ?? target.role,
-        });
-        // Record fields ONLY - allowedRooms/notif/default are NOT in
-        // UserUpdateReq (access → users.setAccess; view prefs → view.*). Resolve
-        // by id so a rename can't strand the write.
-        const reclamped = roleChanged
-          ? clampViewFields(accessible, target, {})
-          : null;
-        const result = updateUserById(target.id, {
-          role: changes.role,
-          ...(reclamped
-            ? {
-                notifRooms: reclamped.notifRooms,
-                pushRooms: reclamped.pushRooms,
-              }
-            : {}),
-          name: changes.name,
-          memberPrompt: changes.memberPrompt,
-          avatarColor: changes.avatarColor,
-          avatarVariant: changes.avatarVariant,
-        });
-        if (!result.ok) {
-          const taken = /already exists/i.test(result.error);
+        // The checks, the snapshots and the write, on the record as it is
+        // when they run. A demote of an owner runs them in one auth mutex link
+        // with the session lockout check, after an await, so they read the
+        // record again there.
+        const write = () => {
+          const pre = getUserById(target.id);
+          if (!pre) {
+            return {
+              ok: false as const,
+              status: 404 as const,
+              code: "not_found",
+              error: `User ${username} not found`,
+            };
+          }
+          if (
+            changes.memberPrompt !== undefined &&
+            changes.memberPromptVersion !== versionOf(pre.memberPrompt ?? "")
+          ) {
+            return {
+              ok: false as const,
+              status: 409 as const,
+              code: "version_conflict",
+              error:
+                "the member's special instructions changed since your read; re-read and retry",
+              version: versionOf(pre.memberPrompt ?? ""),
+            };
+          }
+          if (changes.role === "member" && wouldDeleteLeaveNoOwner(pre.id)) {
+            return {
+              ok: false as const,
+              status: 409 as const,
+              code: "last_owner",
+              error: "The office must have at least one office owner.",
+            };
+          }
+          const roleChanged =
+            changes.role !== undefined && changes.role !== pre.role;
+          const appAudienceBefore = roleChanged
+            ? snapshotAppVisibility(() => true)
+            : null;
+          const webhookAudienceBefore = roleChanged
+            ? snapshotWebhookAudience(() => true)
+            : null;
+          const accessible = accessibleRoomIdsFor({
+            ...pre,
+            role: changes.role ?? pre.role,
+          });
+          // Record fields ONLY - allowedRooms/notif/default are NOT in
+          // UserUpdateReq (access → users.setAccess; view prefs → view.*).
+          // Resolve by id so a rename can't strand the write.
+          const reclamped = roleChanged
+            ? clampViewFields(accessible, pre, {})
+            : null;
+          const result = updateUserById(pre.id, {
+            role: changes.role,
+            ...(reclamped
+              ? {
+                  notifRooms: reclamped.notifRooms,
+                  pushRooms: reclamped.pushRooms,
+                }
+              : {}),
+            name: changes.name,
+            memberPrompt: changes.memberPrompt,
+            avatarColor: changes.avatarColor,
+            avatarVariant: changes.avatarVariant,
+          });
+          if (!result.ok) {
+            const taken = /already exists/i.test(result.error);
+            return {
+              ok: false as const,
+              status: taken ? (409 as const) : (400 as const),
+              code: taken ? "name_taken" : "invalid_request",
+              error: result.error,
+            };
+          }
+          return {
+            ok: true as const,
+            user: result.user,
+            pre,
+            roleChanged,
+            accessible,
+            appAudienceBefore,
+            webhookAudienceBefore,
+          };
+        };
+        const written =
+          changes.role === "member" && target.role === "owner"
+            ? await removeOwnerUnlessStranding(target.id, write)
+            : write();
+        if (written === "would_strand_office") {
           return {
             ok: false,
-            status: taken ? 409 : 400,
-            code: taken ? "name_taken" : "invalid_request",
-            error: result.error,
+            status: 409,
+            code: "would_strand_office",
+            error: OWNER_REMOVAL_LOCKOUT_REASON,
           };
         }
+        if (!written.ok) return written;
+        const {
+          user,
+          pre,
+          roleChanged,
+          accessible,
+          appAudienceBefore,
+          webhookAudienceBefore,
+        } = written;
         // An agent's answer has no user record, so createdResource cannot
         // find the id: every caller's row names the member by id here.
-        noteAuditTarget(result.user.id);
+        noteAuditTarget(user.id);
         if (changes.memberPrompt !== undefined)
-          notePromptContent(result.user.memberPrompt);
+          notePromptContent(user.memberPrompt);
         // A role change already re-projected the subject's sockets (session,
         // owner room list, rooms, board, cronjobs) through the users.ts access
         // hook inside updateUserById.
-        const renamed =
-          username.toLowerCase() !== result.user.name.toLowerCase();
+        const renamed = username.toLowerCase() !== user.name.toLowerCase();
         // Condition the PUBLIC refresh on an actual public-field delta.
         // users.update can touch PUBLIC fields or PRIVATE-only ones. UserPublicWire
         // is id|name|role|avatarColor|avatarVariant|createdAt, and of those this
@@ -4648,25 +4707,25 @@ function buildExecutorDeps(
         // changed - the leak setAccess avoids. Mirror setAccess: owners always get
         // the full record via the owners-only admin event and the subject via its
         // own self event; the all-audience public channels fire ONLY when a public
-        // field actually changed. (`target` is the pre-image: updateUserById writes
-        // a new record, it does not mutate the object getUser returned.)
+        // field actually changed. (`pre` is the pre-image: updateUserById writes a
+        // new record, it does not mutate the object getUserById returned.)
         const publicChanged =
           roleChanged ||
-          result.user.name !== target.name ||
-          result.user.avatarColor !== target.avatarColor ||
-          result.user.avatarVariant !== target.avatarVariant;
+          user.name !== pre.name ||
+          user.avatarColor !== pre.avatarColor ||
+          user.avatarVariant !== pre.avatarVariant;
         if (publicChanged) {
-          emitUserUpdated(result.user, renamed ? username : undefined);
+          emitUserUpdated(user, renamed ? username : undefined);
           emitUsersList();
         } else {
-          emitPrivateUserRecord(result.user);
+          emitPrivateUserRecord(user);
         }
         const presenceTouched = refreshPresenceForUser(
-          result.user.id,
+          user.id,
           {
-            name: result.user.name,
-            avatarColor: result.user.avatarColor,
-            avatarVariant: result.user.avatarVariant,
+            name: user.name,
+            avatarColor: user.avatarColor,
+            avatarVariant: user.avatarVariant,
           },
           roleChanged ? accessible : undefined,
         );
@@ -4677,7 +4736,7 @@ function buildExecutorDeps(
           }
         }
         if (presenceTouched || roleChanged) pushPresenceListToEachWs();
-        return { ok: true, user: result.user };
+        return { ok: true, user };
       },
       setAccess: async ({ username, allowedRooms }) => {
         const target = getUser(username);
@@ -4754,20 +4813,31 @@ function buildExecutorDeps(
                   ),
             )
           : new Map<string, AppVisibilityFacts>();
-        // Re-check the lockout invariant atomically (the precondition is TOCTOU-
-        // prone). owner!=self is enforced by userDeleteNotSelfOwner upstream.
-        if (target && wouldDeleteLeaveNoOwner(target.id)) {
-          return {
-            ok: false,
-            status: 409,
-            code: "would_strand_office",
-            error:
-              "This is the last owner record. Promote another user to owner first, then retry.",
-          };
+        const lastOwnerRecord = {
+          ok: false as const,
+          status: 409 as const,
+          code: "would_strand_office",
+          error:
+            "This is the last owner record. Promote another user to owner first, then retry.",
+        };
+        const lastOwnerSession = {
+          ok: false as const,
+          status: 409 as const,
+          code: "would_strand_office",
+          error: OWNER_REMOVAL_LOCKOUT_REASON,
+        };
+        // Both lockout checks before any side effect, so a refused delete
+        // moves nothing. They run again with the record removal below: the
+        // awaits between can let a sign-out or another delete land.
+        // owner!=self is enforced by userDeleteNotSelfOwner upstream.
+        if (target && wouldDeleteLeaveNoOwner(target.id))
+          return lastOwnerRecord;
+        if (target && (await ownerRemovalWouldStrandOffice(target.id))) {
+          return lastOwnerSession;
         }
         // The member's agents, live and killed, pass to the oldest office
         // owner with the apps, schedules and webhooks they made (Nil,
-        // 2026-10-20). After the 409 above, so a refused delete moves
+        // 2026-10-20). After the 409s above, so a refused delete moves
         // nothing; before the record goes, so the sessions' manager stamps
         // still find the member's name. The caller can be the member.
         if (target) {
@@ -4792,10 +4862,25 @@ function buildExecutorDeps(
           removeManagedUserEnv(target.id);
           webPushStore.removeMember(target.id);
         }
-        // Idempotent: deleteUser is a no-op for an unknown username; the
-        // users_list broadcast still fires so a watcher sees the target absent.
-        deleteUser(username);
-        emitUsersList();
+        // The lockout checks again, in one auth mutex link with the removal.
+        // A refusal here leaves the member with the steps above done, like
+        // a failed delete: their follow-ups still run, the removal's do not.
+        let refusal: typeof lastOwnerRecord | null = null;
+        if (target) {
+          const removed = await removeOwnerUnlessStranding(target.id, () => {
+            if (wouldDeleteLeaveNoOwner(target.id)) return lastOwnerRecord;
+            deleteUserById(target.id);
+            return null;
+          });
+          refusal =
+            removed === "would_strand_office" ? lastOwnerSession : removed;
+        } else {
+          // Idempotent: deleteUser is a no-op for an unknown username; the
+          // users_list broadcast still fires so a watcher sees the target
+          // absent.
+          deleteUser(username);
+        }
+        if (!refusal) emitUsersList();
         if (target) {
           // The proxy drops the secrets. The member's agents passed to the
           // heir above, so none of them still carries the member's.
@@ -4805,11 +4890,13 @@ function buildExecutorDeps(
             console.error("[secrets] the proxy did not take a change");
           }
           agentManager.refreshLimitedClaudeFamilies(target.id);
-          await evictSessionsForUserId(target.id);
-          if ((await revokeInvitesForUser(target)) > 0) emitInvitesList();
+          if (!refusal) {
+            await evictSessionsForUserId(target.id);
+            if ((await revokeInvitesForUser(target)) > 0) emitInvitesList();
+          }
         }
         announceAppAudienceChanges(appAudienceBefore);
-        return { ok: true };
+        return refusal ?? { ok: true };
       },
       attributionFor,
     }),

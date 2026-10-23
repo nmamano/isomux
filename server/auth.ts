@@ -1538,8 +1538,9 @@ export function sessionContextFor(
 // session locks the office out (hasOwner() stays true, so the pre-claim
 // form never reappears; only shell access can restore).
 //
-// Centralized here because both session revoke and logout enforce it, each
-// inside its own mutate() so concurrent calls cannot both pass it.
+// Centralized here because session revoke, logout, and the demote and
+// delete of an owner enforce it, each inside its own mutate() so concurrent
+// calls cannot both pass it.
 
 // True if revoking the given session hash would leave the office with
 // zero active owner sessions. Used by both session revoke and logout -
@@ -1561,6 +1562,47 @@ export function wouldRevokeLeaveOfficeUnreachable(
     if (u?.role === "owner") return false; // another active owner session exists
   }
   return true;
+}
+
+// True if taking the owner role from this user (demote or delete) would
+// leave the office with zero active owner sessions: the user is an owner
+// with an active session, and no other owner has one. An office where no
+// owner is signed in is already unreachable, so a user with no session
+// returns false. Call it only inside mutate().
+export function wouldRemovingOwnerStrandOffice(userId: string): boolean {
+  ensureLoaded();
+  if (getUserById(userId)?.role !== "owner") return false;
+  const now = Date.now();
+  let targetSignedIn = false;
+  for (const s of sessions!.values()) {
+    if (s.expiresAt < now || s.absoluteExpiresAt < now) continue;
+    if (s.userId === userId) targetSignedIn = true;
+    else if (getUserById(s.userId)?.role === "owner") return false;
+  }
+  return targetSignedIn;
+}
+
+// The same check read through the mutex, for a refusal before any side
+// effect. A later removeOwnerUnlessStranding checks again with the write.
+export async function ownerRemovalWouldStrandOffice(
+  userId: string,
+): Promise<boolean> {
+  return mutate(() => wouldRemovingOwnerStrandOffice(userId));
+}
+
+// Runs the check and `apply` (the record write) in one mutate() link, so a
+// concurrent logout or session revoke sees either the owner before the write
+// or the user after it. `apply` must be synchronous and must not wait on the
+// mutex.
+export async function removeOwnerUnlessStranding<T>(
+  userId: string,
+  apply: () => T,
+): Promise<T | "would_strand_office"> {
+  return mutate(() =>
+    wouldRemovingOwnerStrandOffice(userId)
+      ? ("would_strand_office" as const)
+      : apply(),
+  );
 }
 
 // Note: wouldDeleteLeaveNoOwner() lives in users.ts.

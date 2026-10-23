@@ -84,8 +84,9 @@ export interface UsersDeps {
     allowedRooms: string[];
   }): Promise<UserOutcome>;
   // Delete (selfOrOwner + the two delete preconditions already passed). Re-checks
-  // the not-last-owner invariant atomically (TOCTOU), then deletes + evicts the
-  // target's sessions + emits users_list. Missing target is an idempotent no-op.
+  // the not-last-owner record rule and the owner-session lockout with the
+  // record removal (TOCTOU), then deletes + evicts the target's sessions +
+  // emits users_list. Missing target is an idempotent no-op.
   // actor: the caller's display name, for the chat line of each agent the
   // member managed (they pass to the oldest office owner).
   delete(input: { username: string; actor: string }): Promise<DeleteOutcome>;
