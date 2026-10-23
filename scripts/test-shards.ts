@@ -84,6 +84,7 @@ export const DOCS_BUILD_FILES = [
   "scripts/hosting-docs.test.ts",
   "scripts/indexnow.test.ts",
   "scripts/site-i18n-check.test.ts",
+  "scripts/use-cases-docs.test.ts",
 ];
 
 /** The files of each process, the DOM process first: it is the longest. */

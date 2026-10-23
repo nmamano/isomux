@@ -189,8 +189,6 @@ describe("isomux.com agent readiness", () => {
     "site/ai-instructions.html",
     "site/contact.html",
     "site/compare.html",
-    "site/use-cases/parallel-agents.html",
-    "site/use-cases/phone.html",
   ]) {
     it(`links ${file} from the sitemap, llms.txt, and every site footer`, async () => {
       const page = await Bun.file(file).text();

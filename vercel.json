@@ -46,6 +46,21 @@
       "permanent": true
     },
     {
+      "source": "/use-cases",
+      "destination": "/docs/use-cases",
+      "permanent": true
+    },
+    {
+      "source": "/use-cases/parallel-agents",
+      "destination": "/docs/use-cases-parallel-agents",
+      "permanent": true
+    },
+    {
+      "source": "/use-cases/phone",
+      "destination": "/docs/use-cases-phone",
+      "permanent": true
+    },
+    {
       "source": "/terms",
       "destination": "/hosted-terms",
       "permanent": true

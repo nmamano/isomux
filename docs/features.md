@@ -26,12 +26,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API. Task details show who changed each field and its old and new values.
 - **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set office, room and agent instructions, manage schedules, post in members chat, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
-
-### Several agents on one project
-
-- **One room per project** - the room's instructions reach every agent in it; the lead sits at a front desk and its workers in the back room.
-- **A lead that drives its workers** - a [privileged](#agent-coordination) lead spawns and instructs its workers, each on its own engine and model, so you talk mostly to the lead.
-- **Hand-offs go by message** - the lead sends a worker its spec and the worker reports back when it is done.
+- **[Several agents on one project](use-cases/one-project.md)** - a lead and its workers share one room.
 
 ### Prompts, skills, and commands
 

@@ -13,8 +13,10 @@
 ## Compare and use cases
 
 - [Compare](https://isomux.com/compare): Isomux beside other agent harnesses and multi-agent tools: license, agents, where it runs, phone access, and shared conversations
-- [Run many coding agents at once](https://isomux.com/use-cases/parallel-agents): Run Claude Code, Codex and OpenCode agents side by side and keep track of them
-- [Agents on your phone](https://isomux.com/use-cases/phone): Check on and talk to your agents from a phone
+- [Use cases](https://isomux.com/docs/use-cases): What people use Isomux for
+- [Run many coding agents at once](https://isomux.com/docs/use-cases-parallel-agents): Run Claude Code, Codex and OpenCode agents side by side and keep track of them
+- [Agents on your phone](https://isomux.com/docs/use-cases-phone): Check on and talk to your agents from a phone
+- [Several agents on one project](https://isomux.com/docs/use-cases-one-project): A lead agent and its workers in one room
 
 ## Company
 

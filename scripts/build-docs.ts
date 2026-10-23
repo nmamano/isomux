@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-// Builds docs site from docs/*.md to site/docs/*.html.
+// Builds docs site from docs/*.md (and the section pages in docs/<section>/)
+// to site/docs/*.html.
 // Renders trusted repo-owned markdown only. If outside contributions to docs/
 // are ever accepted, add HTML sanitization (e.g. DOMPurify) at the parse step.
 
@@ -11,14 +12,13 @@ import {
   existsSync,
   rmSync,
 } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { marked } from "marked";
 import {
   HOSTING_GUIDES,
   hostingBody,
   hostingNavigation,
   hostingNavigationMarkdown,
-  hostingUrl,
   HOSTING_LEGACY_LINKS,
   type HostingId,
 } from "./hosting-docs.ts";
@@ -49,8 +49,6 @@ export const STATIC_PATHS = [
   "/demo",
   "/about",
   "/compare",
-  "/use-cases/parallel-agents",
-  "/use-cases/phone",
   "/enterprise",
   "/ai-instructions",
   "/contact",
@@ -82,12 +80,16 @@ type DocPage = {
   // shared chatbot widget can pass it to /api/chat as page-specific context.
   raw: string;
   hostingId?: HostingId;
+  // The section index a page sits under in the sidebar. A page with a parent
+  // has no previous or next card.
+  parent?: string;
 };
 
 // Sub-pages are ordered explicitly; anything not listed sorts after by title.
 // The landing page (`features`) is always first.
 const NAV_ORDER = [
   "features",
+  "use-cases",
   "hosting",
   "how-it-works",
   "access-and-invites",
@@ -96,8 +98,14 @@ const NAV_ORDER = [
   "data-retention",
 ];
 
+// Sections whose pages live in docs/<section>/<name>.md, built at
+// /docs/<section>-<name> under the docs/<section>.md index.
+const SECTIONS = ["use-cases"];
+const SECTION_PREFIX = `(?:(?:${SECTIONS.join("|")})/)?`;
+
+// `filename` is a path under docs/: "features.md" or "use-cases/phone.md".
 function slugify(filename: string): string {
-  const slug = basename(filename, ".md");
+  const slug = filename.replace(/\.md$/, "").replace("/", "-");
   return slug === "self-hosted" ? "hosting" : slug;
 }
 
@@ -147,16 +155,21 @@ function parseFrontmatter(src: string): { fm: Frontmatter; body: string } {
 // The GitHub matcher is pinned to `nmamano/isomux` so links to forks or other
 // repos that happen to share the name stay external. Update if the canonical
 // repo location changes.
+const GITHUB_DOC_LINK = new RegExp(
+  `^https?://github\\.com/nmamano/isomux/blob/[^/]+/docs/(${SECTION_PREFIX}[\\w-]+)\\.md(#.*)?$`,
+);
+// `../` is the form a page in a section folder uses for a top-level page.
+const LOCAL_DOC_LINK = new RegExp(
+  `^(?:\\.\\.?/)?(?:docs/)?(${SECTION_PREFIX}[\\w-]+)\\.md(#.*)?$`,
+);
 function rewriteMdLink(href: string): string {
-  const gh = href.match(
-    /^https?:\/\/github\.com\/nmamano\/isomux\/blob\/[^/]+\/docs\/([\w-]+)\.md(#.*)?$/,
-  );
+  const gh = href.match(GITHUB_DOC_LINK);
   if (gh) {
     const slug = slugify(gh[1]);
     const anchor = gh[2] || "";
     return slug === LANDING_SLUG ? `/docs${anchor}` : `/docs/${slug}${anchor}`;
   }
-  const local = href.match(/^(?:\.\/)?(?:docs\/)?([\w-]+)\.md(#.*)?$/);
+  const local = href.match(LOCAL_DOC_LINK);
   if (local) {
     const slug = slugify(local[1]);
     const anchor = local[2] || "";
@@ -257,6 +270,7 @@ function loadPage(filename: string): DocPage {
   const navIdx = NAV_ORDER.indexOf(slug);
   const order = fm.order ?? (navIdx >= 0 ? navIdx : NAV_ORDER.length + 100);
   const legacy = LEGACY_LINKS[slug];
+  const section = filename.includes("/") ? filename.split("/")[0] : undefined;
   return {
     slug,
     title,
@@ -266,6 +280,7 @@ function loadPage(filename: string): DocPage {
     html: legacy ? html + legacyLinksHtml(legacy) : html,
     toc,
     raw: legacy ? body + legacyLinksMarkdown(legacy) : body,
+    parent: section,
   };
 }
 
@@ -297,7 +312,13 @@ export const HOSTING_REFERENCE_LEGACY_LINKS: Record<string, string> = {
   "provider-api-keys": "/docs/llm-providers#use-your-own-provider-account",
 };
 
+// Sections that moved off the features page (task 30666e83).
+export const FEATURES_LEGACY_LINKS: Record<string, string> = {
+  "several-agents-on-one-project": "/docs/use-cases-one-project",
+};
+
 export const LEGACY_LINKS: Record<string, Record<string, string>> = {
+  [LANDING_SLUG]: FEATURES_LEGACY_LINKS,
   hosting: HOSTING_LEGACY_LINKS,
   "access-and-invites": ACCESS_LEGACY_LINKS,
   "hosting-reference": HOSTING_REFERENCE_LEGACY_LINKS,
@@ -651,6 +672,9 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
 }
 .content th { background: var(--bg-surface); }
 .content img { max-width: 100%; border-radius: 6px; margin: 12px 0; }
+.content .shots { display: flex; flex-wrap: wrap; gap: 16px; margin: 8px 0 16px; }
+.content .shots img { border: 1px solid var(--border); border-radius: 8px; height: auto; margin: 0; }
+.content .shots.phone img { width: 260px; }
 .content hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
 
 .anchor-link {
@@ -791,20 +815,18 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
 `;
 
 function renderSidebar(pages: DocPage[], currentSlug: string): string {
+  const link = (p: DocPage) => {
+    const isCurrent = p.slug === currentSlug;
+    return `<a class="${isCurrent ? "active" : ""}" href="${pageUrl(p)}"${isCurrent ? ' aria-current="page"' : ""}>${escapeHtml(p.navTitle)}</a>`;
+  };
   const items = pages
+    .filter((p) => !p.parent)
     .map((p) => {
-      const url = pageUrl(p);
-      const cls = p.slug === currentSlug ? "active" : "";
-      const current = p.slug === currentSlug ? ' aria-current="page"' : "";
-      const subpages =
-        p.slug === "hosting"
-          ? `<ul class="sidebar-subpages">${HOSTING_GUIDES.map((guide) => {
-              const slug = `hosting-${guide.id}`;
-              const guideCurrent = slug === currentSlug;
-              return `<li><a class="${guideCurrent ? "active" : ""}" href="${hostingUrl(guide.id)}"${guideCurrent ? ' aria-current="page"' : ""}>${escapeHtml(guide.label)}</a></li>`;
-            }).join("")}</ul>`
-          : "";
-      return `<li><a class="${cls}" href="${url}"${current}>${escapeHtml(p.navTitle)}</a>${subpages}</li>`;
+      const children = pages.filter((c) => c.parent === p.slug);
+      const subpages = children.length
+        ? `<ul class="sidebar-subpages">${children.map((c) => `<li>${link(c)}</li>`).join("")}</ul>`
+        : "";
+      return `<li>${link(p)}${subpages}</li>`;
     })
     .join("");
   return `<aside class="sidebar">
@@ -1010,8 +1032,15 @@ export function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   mkdirSync(MARKDOWN_OUT_DIR, { recursive: true });
 
-  const files = readdirSync(SRC_DIR).filter((f) => f.endsWith(".md"));
-  const navigationPages = files.map(loadPage).sort((a, b) => {
+  const files = [
+    ...readdirSync(SRC_DIR).filter((f) => f.endsWith(".md")),
+    ...SECTIONS.flatMap((section) =>
+      readdirSync(join(SRC_DIR, section))
+        .filter((f) => f.endsWith(".md"))
+        .map((f) => `${section}/${f}`),
+    ),
+  ];
+  const sourcePages = files.map(loadPage).sort((a, b) => {
     if (a.order !== b.order) return a.order - b.order;
     return a.title.localeCompare(b.title);
   });
@@ -1021,6 +1050,7 @@ export function main() {
     return {
       slug: `hosting-${guide.id}`,
       hostingId: guide.id,
+      parent: "hosting",
       title: deriveTitle(raw, guide.id),
       navTitle: guide.label,
       description: guide.description,
@@ -1030,11 +1060,34 @@ export function main() {
       raw,
     };
   });
-  const pages = [...navigationPages, ...guidePages];
+  const pages = [...sourcePages, ...guidePages];
+  const navigationPages = pages.filter((p) => !p.parent);
   if (!pages.some((p) => p.slug === LANDING_SLUG)) {
     throw new Error(
       `Landing slug "${LANDING_SLUG}" not found in docs/ - every build needs ${LANDING_SLUG}.md.`,
     );
+  }
+  for (const page of pages) {
+    if (pages.filter((p) => p.slug === page.slug).length > 1)
+      throw new Error(`Two docs pages build to ${pageUrl(page)}.`);
+    const index = pages.find((p) => p.slug === page.parent);
+    if (page.parent && !index)
+      throw new Error(`${pageUrl(page)} has no ${page.parent} index page.`);
+    if (
+      index &&
+      !rewriteMarkdownLinks(index.raw).includes(`](${pageUrl(page)})`)
+    )
+      throw new Error(`${pageUrl(index)} does not link ${pageUrl(page)}.`);
+    // A source link the build cannot place (a sibling link inside a section
+    // folder, a `../` link from a top-level page) rewrites to a missing page.
+    for (const [, href] of rewriteMarkdownLinks(page.raw).matchAll(
+      /\]\((\/docs[^)\s#]*)/g,
+    )) {
+      if (!pages.some((p) => pageUrl(p) === href))
+        throw new Error(
+          `${pageUrl(page)} links ${href}, which no page builds.`,
+        );
+    }
   }
 
   writeFileSync(join(OUT_DIR, "_styles.css"), STYLES.trim() + "\n");
@@ -1046,7 +1099,7 @@ export function main() {
       navIndex >= 0 && navIndex < navigationPages.length - 1
         ? navigationPages[navIndex + 1]
         : null;
-    const html = renderDocPage(pages[i], navigationPages, prev, next);
+    const html = renderDocPage(pages[i], pages, prev, next);
     if (pages[i].slug === LANDING_SLUG) {
       // The landing page lives at `/docs/` (not `/docs/<slug>/`).
       writeFileSync(join(OUT_DIR, "index.html"), html);

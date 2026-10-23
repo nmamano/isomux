@@ -35,8 +35,15 @@ describe("complete hosting guides", () => {
       const sidebar = window.document.querySelector(
         '.sidebar nav[aria-label="Documentation"]',
       )!;
+      const hosting = Array.from(
+        sidebar.querySelectorAll(":scope > ul > li"),
+      ).find(
+        (li) =>
+          li.querySelector(":scope > a")?.getAttribute("href") ===
+          "/docs/hosting",
+      )!;
       expect(
-        Array.from(sidebar.querySelectorAll(".sidebar-subpages a"), (link) =>
+        Array.from(hosting.querySelectorAll(".sidebar-subpages a"), (link) =>
           link.getAttribute("href"),
         ),
       ).toEqual(HOSTING_GUIDES.map((guide) => hostingUrl(guide.id)));
@@ -250,7 +257,9 @@ describe("complete hosting guides", () => {
 describe("legacy fragment maps", () => {
   it("send every old fragment to an existing section, and list them only in the agent Markdown", async () => {
     for (const [slug, links] of Object.entries(LEGACY_LINKS)) {
-      const page = parse(htmlAt(`/docs/${slug}`));
+      // The features page is the docs landing, built at /docs.
+      const path = slug === "features" ? "/docs" : `/docs/${slug}`;
+      const page = parse(htmlAt(path));
       const doc = page.document;
       const ids = Array.from(doc.querySelectorAll("[id]"), (e) => e.id);
       expect(new Set(ids).size, slug).toBe(ids.length);
@@ -260,10 +269,7 @@ describe("legacy fragment maps", () => {
       expect(
         doc.querySelector('script[src="/legacy-links.js"]'),
       ).not.toBeNull();
-      const markdown = readFileSync(
-        `site/_agent/docs/${slug}/index.md`,
-        "utf8",
-      );
+      const markdown = readFileSync(`site/_agent${path}/index.md`, "utf8");
       for (const [id, href] of Object.entries(links)) {
         // No visible list: the old fragment names no element on the page.
         expect(doc.getElementById(id), id).toBeNull();
