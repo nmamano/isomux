@@ -2394,7 +2394,7 @@ const DEMO_SKILLS: Array<
     description:
       "Continue an unfinished task on a fresh session from a short brief.",
     path: "/opt/isomux/skills/isomux-handoff/SKILL.md",
-    body: "# Handoff\n\nWrite a short brief of what is left. When the member approves it, start a fresh session on that brief.",
+    body: "# Handoff\n\nWrite a short brief of what is left and start a fresh session on that brief.",
   },
   {
     name: "wrap-session",

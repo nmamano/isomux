@@ -2778,6 +2778,7 @@ Coses que pots fer per ell:
   "choices.permission.denyByMessage":
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
+  "systemEntries.handedOff": "Traspassat a una sessió nova.",
   "systemEntries.managerChanged":
     "{actor} ha fet responsable {member}. Conversa nova iniciada.",
   "systemEntries.autoHandoff.writingTokens":

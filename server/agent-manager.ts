@@ -10561,7 +10561,9 @@ export function createAgentManager(deps: ManagerDeps) {
           "system",
           opts?.autoHandoff
             ? autoHandoffLine(opts.autoHandoff, "done")
-            : (opts?.notice ?? msg("systemEntries.newConversation")),
+            : opts?.handoff
+              ? msg("systemEntries.handedOff")
+              : (opts?.notice ?? msg("systemEntries.newConversation")),
         );
       if (!opts?.handoff) addQueueCarriedLine(agentId, managed, carried);
       // The menu leaves the old process's plugin list now; the next process

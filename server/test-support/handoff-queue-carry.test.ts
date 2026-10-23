@@ -19,6 +19,7 @@ import {
 } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
+import { expectWorded } from "./worded.ts";
 import {
   FakeBackend,
   FakeSession,
@@ -264,6 +265,23 @@ describe("handoff carries the queue to the fresh session", () => {
     const fresh = await freshSession(fake, info.id, old);
     expect(fresh.sent[0].text).toContain(BRIEF);
     expect(old.sent.some((m) => m.text.includes(BRIEF))).toBe(false);
+  });
+
+  // Task 985261de: the fresh chat says it was handed off, as the automatic
+  // handoff's does, not that a new conversation started.
+  it("the fresh chat's one system line says the session was handed off", async () => {
+    const fake = fakeBackend();
+    const { mgr } = makeManager(fake);
+    const info = await spawn(mgr);
+    // The skill posts from inside the agent's turn, with a message queued.
+    const old = await startTurn(mgr, fake, info.id);
+    queueWhileBusy(mgr, info.id, "CARRIED-ONE");
+
+    expect((await mgr.handoff(info.id, BRIEF)).ok).toBe(true);
+    await freshSession(fake, info.id, old);
+    const system = mgr.getAgentLogs(info.id).filter((e) => e.kind === "system");
+    expect(system).toHaveLength(1);
+    expectWorded(system[0], "systemEntries.handedOff");
   });
 
   it("a tool-boundary item the old session claimed but did not finish is carried too", async () => {

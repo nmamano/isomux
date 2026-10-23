@@ -13,7 +13,7 @@ A per-agent switch, off by default. When it is on and a completed turn leaves th
 - It sits with the other per-agent settings: `AgentInfo`, `PersistedAgent` and the `EditAgentReq` pick. The persisted field is optional, written only when on and read as `?? false`, so old state files load with no migration. Spawn takes no such field; the spawn dialog switches it on with an edit right after the spawn.
 - **A per-agent token value `autoHandoffTokens`, default 500k (task 758f361c, 2026-10-20).** The field under the switch, "Hand off at N k tokens", shows only while the switch is on. It replaces 500k in the trigger (section 2). It follows the switch through `AgentInfo`, `PersistedAgent`, the agent history and the `EditAgentReq` pick, and is written only off the default. The PATCH takes an integer from 50k to 10M (`shared/auto-handoff.ts`), else 422: below 50k a fresh session opens above the trigger, and the loop guard (section 6) pauses every later conversation. The dialog works in thousands and sends the value only when the member changed it.
 - No room or office default.
-- Off by default, because the mode skips the member-approval step of `/handoff` (`skills/isomux-handoff/SKILL.md`, step 2) and clears the chat (section 5).
+- Off by default, because the mode clears the chat when no one asked for a handoff (section 5).
 - The switch shows only where the engine supports the mode, through `AgentCapabilities.autoHandoff`. Claude, Codex and OpenCode set it; the OpenCode tracer does not.
 
 ## 2. Trigger and measurement

@@ -2773,6 +2773,7 @@ Cosas que puedes hacer por él:
   "choices.permission.denyByMessage":
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
+  "systemEntries.handedOff": "Traspasado a una sesión nueva.",
   "systemEntries.managerChanged":
     "{actor} hizo responsable a {member}. Conversación nueva iniciada.",
   "systemEntries.autoHandoff.writingTokens":

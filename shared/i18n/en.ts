@@ -2741,6 +2741,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // actor - a backend event or a route call produced them - so they are worded
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
   "systemEntries.newConversation": "New conversation started.",
+  "systemEntries.handedOff": "Handed off to a fresh session.",
   "systemEntries.managerChanged":
     "{actor} made {member} the manager. New conversation started.",
   "systemEntries.autoHandoff.writingTokens":

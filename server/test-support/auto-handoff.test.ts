@@ -332,10 +332,12 @@ describe("automatic handoff: arming", () => {
       expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
       expect(h.fake.sessions).toHaveLength(2);
       expect(texts(fresh).some(isBriefPrompt)).toBe(false);
-      // The fresh chat starts with that line, not "New conversation started."
+      // The fresh chat starts with that line, not the line of a new
+      // conversation or of a manual handoff.
       expect(systemLines(h)).not.toContain(
         en.t("systemEntries.newConversation"),
       );
+      expect(systemLines(h)).not.toContain(en.t("systemEntries.handedOff"));
     });
   }
 

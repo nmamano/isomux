@@ -2495,6 +2495,7 @@ App 的一些原则：
   "choices.permission.denyByMessage":
     "也可以输入其他消息，以该消息作为拒绝理由。",
   "systemEntries.newConversation": "新对话已开始。",
+  "systemEntries.handedOff": "已交接到新会话。",
   "systemEntries.managerChanged":
     "{actor} 将 {member} 设为负责人。新对话已开始。",
   "systemEntries.autoHandoff.writingTokens":
