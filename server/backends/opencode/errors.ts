@@ -59,10 +59,6 @@ export function openCodeErrorMessage(
   const message = error.message ?? "";
   if (error.name === "ContextOverflowError")
     return "The conversation is too long for this model.";
-  // A missing key is the transport's call (task 10a09ec8): a free model's
-  // refusal can arrive as this error too.
-  if (error.name === "ProviderAuthError")
-    return "OpenCode could not complete this turn.";
   if (error.statusCode === 429)
     return "The provider rate limit was reached (HTTP 429).";
   if (

@@ -123,8 +123,15 @@ export type OpenCodeServerProbe =
   | "refused"
   | "silent";
 
-export function openCodeModelUnavailableFailure(model: string): string {
-  return `OpenCode cannot use model \`${model}\`: the provider refused this model.`;
+// providerExplains: the provider's own line follows, so this one does not
+// repeat that the provider refused.
+export function openCodeModelUnavailableFailure(
+  model: string,
+  providerExplains = false,
+): string {
+  return providerExplains
+    ? `OpenCode cannot use model \`${model}\`.`
+    : `OpenCode cannot use model \`${model}\`: the provider refused this model.`;
 }
 
 export function openCodeModelGoneFailure(model: string): string {
@@ -1999,17 +2006,21 @@ export class OpenCodeTransport {
     // A model of a connected provider fixes the turn.
     if (failure === "provider_not_connected")
       return {
-        error: withWords(openCodeModelUnavailableFailure(this.model)),
+        error: withWords(
+          openCodeModelUnavailableFailure(this.model, words !== null),
+        ),
         authNeeded: false,
         pickModel: true,
       };
-    return {
-      error:
-        words === null
-          ? openCodeErrorMessage(error)
-          : openCodeProviderLine(provider, words),
-      authNeeded: false,
-    };
+    // Without OpenCode's words, another model is the fix that needs no
+    // config.
+    if (words === null)
+      return {
+        error: `OpenCode could not sign in to the provider of model \`${this.model}\`.`,
+        authNeeded: false,
+        pickModel: true,
+      };
+    return { error: openCodeProviderLine(provider, words), authNeeded: false };
   }
 
   private async needsOpenCodeKey(provider: string): Promise<boolean> {

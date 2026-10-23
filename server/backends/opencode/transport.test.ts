@@ -1269,6 +1269,10 @@ describe("OpenCode permission event integration", () => {
       error: openCodeModelUnavailableFailure("provider/model"),
       pickModel: true,
     });
+    // No words follow, so the line keeps its cause (task 81b290d6).
+    expect(openCodeModelUnavailableFailure("provider/model")).not.toBe(
+      openCodeModelUnavailableFailure("provider/model", true),
+    );
   });
 
   // Task 10a09ec8: the sign-in line and its OPENCODE_API_KEY guidance only
@@ -1498,14 +1502,38 @@ describe("OpenCode permission event integration", () => {
       );
     });
 
-    it("keeps OpenCode's no-words copy for a refusal that needs no key", async () => {
-      const model = "opencode/free-model";
-      const auth = await noSignIn(providerAuth(), { model });
-      expect(auth.error).toBe(openCodeErrorMessage({ name: "UnknownError" }));
-      const http = await noSignIn(unauthorized(), { model });
-      expect(http.error).toBe(
-        openCodeErrorMessage({ name: "APIError", statusCode: 401 }),
+    // Task 81b290d6: with no words from OpenCode, the line gives the next
+    // step. A retry fails again; another model fixes the turn.
+    it("offers the picker for a refusal that needs no key and has no words", async () => {
+      for (const server of [
+        { model: "opencode/free-model" },
+        { model: "anthropic/claude" },
+        // A key the provider rejects.
+        { model: "opencode/paid-model", launchVariables: key },
+      ]) {
+        const lines = new Set<string>();
+        for (const errorFrame of [providerAuth(), unauthorized()]) {
+          const result = await noSignIn(errorFrame, server);
+          const end = result.events.at(-1) as Extract<
+            NormalizedEvent,
+            { kind: "turn_completed" }
+          >;
+          expect(end.pickModel, `picker for ${server.model}`).toBe(true);
+          expect(end.goneModel).toBeUndefined();
+          expect(result.error).toContain(`\`${server.model}\``);
+          lines.add(result.error);
+        }
+        expect(lines.size, "one line for both error shapes").toBe(1);
+      }
+      // OpenCode's words say why: no picker.
+      const words = await noSignIn(
+        providerAuth(keyMissing),
+        { model: "opencode/free-model" },
+        keyMissing,
       );
+      expect(
+        (words.events.at(-1) as { pickModel?: true }).pickModel,
+      ).toBeUndefined();
     });
 
     it("classifies model-not-found by the model's provider and the server's key", async () => {
@@ -1529,7 +1557,15 @@ describe("OpenCode permission event integration", () => {
         { model: other, provider: catalog(["opencode"]) },
         modelNotFound(other),
       );
-      expect(result.error).toContain(openCodeModelUnavailableFailure(other));
+      // OpenCode's words follow, so the first line does not state the cause
+      // again (task 81b290d6).
+      const [first, ...rest] = result.error.split("\n");
+      expect(first).toBe(openCodeModelUnavailableFailure(other, true));
+      expect(first).not.toBe(openCodeModelUnavailableFailure(other));
+      expect(first).toContain(`\`${other}\``);
+      expect(rest.join("\n")).toBe(
+        english(providerRefusal("anthropic", modelNotFound(other))),
+      );
       // A provider that is not connected is no proof the model is gone, but
       // a connected provider's model fixes the turn (task 73951c9f).
       const end = result.events.at(-1) as Extract<

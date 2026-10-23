@@ -847,9 +847,10 @@ model is of `opencode` or `opencode-go`, the server process started without
 that key, and the kept catalog does not list the model as free (task
 10a09ec8). Only then does the transport send `auth_needed`. Otherwise the
 member reads OpenCode's message as the provider's words, under the "model
-unavailable" line for a provider that is not connected. A 403 is a provider
-refusal. The gone-model line, the not-connected line and a 403 without the
-provider's words offer the model picker; the sign-in line does not.
+unavailable" line for a provider that is not connected; with no message, a
+sign-in line that names the model. A 403 is a provider refusal. The gone-model
+line, the not-connected line, that sign-in line and a 403 without the
+provider's words offer the model picker; the `auth_needed` line does not.
 
 Isomux does not keep a copy of the server's output below `STATE_ROOT`.
 OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in
