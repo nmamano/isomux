@@ -1,12 +1,12 @@
 // The icons of "Install as app" (ui/app-install.ts).
 
-export function InstallIcon() {
+export function InstallIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 16 16"
-      width="16"
-      height="16"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.6"
@@ -35,6 +35,24 @@ export function ShareIcon() {
     >
       <path d="M8 1.75v8.5M5.25 4.5 8 1.75l2.75 2.75" />
       <path d="M5.5 6.75H4.25c-.69 0-1.25.56-1.25 1.25v5c0 .69.56 1.25 1.25 1.25h7.5c.69 0 1.25-.56 1.25-1.25V8c0-.69-.56-1.25-1.25-1.25H10.5" />
+    </svg>
+  );
+}
+
+// The install popover's close control.
+export function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+    >
+      <path d="M4 4l8 8M12 4l-8 8" />
     </svg>
   );
 }

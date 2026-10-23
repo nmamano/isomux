@@ -1,9 +1,14 @@
-// Install as app on the short-link page (task 8a07aa4e). Chrome offers a real
-// install: the page holds beforeinstallprompt and its dock button calls
-// prompt(). iPhone Safari has no such event, so the button shows the Share >
-// Add to Home Screen steps. The Apps page links here with #install, which
-// opens the steps (or, on Chrome, the install offer once the event arrives).
-// prompt() needs a click, so on Chrome the offer holds its own button.
+// Install as app on the short-link page (tasks 8a07aa4e, 1260608a). Chrome
+// offers a real install: the page holds beforeinstallprompt and the install
+// entry calls prompt(). iOS Safari has no such event, so the entry shows the
+// Share > Add to Home Screen steps. The entry sits beside "Open app
+// directly": in the chat panel's header when there is a chat, in the dock
+// when there is none, and nowhere on a phone with a chat, which has neither.
+// The Apps page links here with #install, which opens the steps (or, on
+// Chrome, the install offer once the event arrives) in a popover with its own
+// close control. prompt() needs a click, so on Chrome the offer holds its own
+// button. Only one install surface shows at a time: opening or closing the
+// panel closes them all.
 //
 // The iPhone Home Screen window has no Back control: there the phone's Chat
 // launcher leaves for Safari instead of taking the app's window to the office.
@@ -11,7 +16,8 @@
 import { afterAll, afterEach, beforeAll, expect, it, mock } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
-const { render, fireEvent, act } = await import("@testing-library/react");
+const { render, fireEvent, act, within } =
+  await import("@testing-library/react");
 const { AppWidgetPage } = await import("./AppWidgetPage.tsx");
 const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
@@ -33,6 +39,14 @@ const agent = {
   queue: [],
 } as unknown as import("../shared/types.ts").AgentInfo;
 const IPHONE_SAFARI = { ...IPHONE_HOME_SCREEN, standalone: false };
+// iPad Safari at desktop width: it reports a Mac with touch points.
+const IPAD_SAFARI = {
+  userAgent:
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+  platform: "MacIntel",
+  maxTouchPoints: 5,
+  standalone: false,
+};
 
 const settings = (
   window as unknown as {
@@ -98,57 +112,191 @@ async function mount({
     );
   });
   const container = view!.container;
+  const panel = () => view!.queryByRole("dialog", { hidden: true });
+  const launcher = () =>
+    container.querySelector<HTMLElement>(".app-widget-launcher");
   return {
     container,
     dock: () => container.querySelector<HTMLElement>(".app-widget-dock"),
+    panel,
+    header: () => panel()?.querySelector<HTMLElement>("header") ?? null,
+    launcher,
+    toggleChat: async () => {
+      await act(async () => {
+        fireEvent.click(launcher()!);
+      });
+    },
+    // The visible install entry.
     install: () =>
       view!.queryByRole("button", { name: en["appWidget.install"] }),
+    // Every install entry in the DOM, shown or not.
+    entries: () =>
+      view!.queryAllByRole("button", {
+        name: en["appWidget.install"],
+        hidden: true,
+      }),
     popover: () =>
       container.querySelector<HTMLElement>("[data-app-install-popover]"),
+    // Every place that shows the Add to Home Screen steps.
+    steps: () => view!.queryAllByText(en["appWidget.installSteps"]),
   };
 }
 
-it("shows no install button where the browser cannot install", async () => {
+function directLinkIn(region: HTMLElement) {
+  return region.querySelector('a[href^="https://hello.office.example"]');
+}
+
+function closeControl(popover: HTMLElement) {
+  return within(popover).getByRole("button", { name: en["common.close"] });
+}
+
+it("shows no install entry where the browser cannot install", async () => {
   // happy-dom is neither Chromium nor iOS.
   const page = await mount({ chat: true });
-  expect(page.dock()).not.toBeNull();
-  expect(page.install()).toBeNull();
+  await page.toggleChat();
+  expect(page.panel()).not.toBeNull();
+  expect(page.entries()).toHaveLength(0);
   expect(page.popover()).toBeNull();
 });
 
 for (const ending of ["accepted", "dismissed", "appinstalled"] as const) {
-  it(`installs with the held event from the dock and then hides the button (${ending})`, async () => {
+  it(`installs with the held event from the chat header and then hides the entry (${ending})`, async () => {
     asChrome();
     const page = await mount({ chat: true });
     // Chrome decides when the event comes, often after the page renders.
-    expect(page.install()).toBeNull();
+    expect(page.entries()).toHaveLength(0);
     const { event, prompt } = installEvent(
       ending === "dismissed" ? "dismissed" : "accepted",
     );
     await act(async () => {
       window.dispatchEvent(event);
     });
+    // Not beside the chat launcher.
+    expect(page.entries()).toHaveLength(1);
+    expect(page.dock()!.contains(page.entries()[0])).toBe(false);
+    await page.toggleChat();
     const button = page.install();
     expect(button).not.toBeNull();
-    expect(page.dock()!.contains(button)).toBe(true);
+    // Beside "Open app directly", in the panel's header.
+    const header = page.header()!;
+    expect(directLinkIn(header)).not.toBeNull();
+    expect(header.contains(button)).toBe(true);
     await act(async () => {
       if (ending === "appinstalled")
         window.dispatchEvent(new Event("appinstalled"));
       else fireEvent.click(button!);
     });
     expect(prompt).toHaveBeenCalledTimes(ending === "appinstalled" ? 0 : 1);
-    // A used event cannot prompt again, and an installed app needs no button.
+    // A used event cannot prompt again, and an installed app needs no entry.
     expect(heldInstallPrompt()).toBeNull();
-    expect(page.install()).toBeNull();
+    expect(page.entries()).toHaveLength(0);
   });
 }
 
-it("shows the Add to Home Screen steps from the dock in iPhone Safari", async () => {
-  undoDevice = asDevice(IPHONE_SAFARI);
+it("shows the Add to Home Screen steps inside the chat panel from its header on a wide iPad", async () => {
+  undoDevice = asDevice(IPAD_SAFARI);
   const page = await mount({ chat: true });
+  expect(page.entries()).toHaveLength(1);
+  expect(page.dock()!.contains(page.entries()[0])).toBe(false);
+  await page.toggleChat();
+  const button = page.install();
+  expect(button).not.toBeNull();
+  expect(page.header()!.contains(button)).toBe(true);
+  expect(button!.getAttribute("aria-expanded")).toBe("false");
+  expect(page.steps()).toHaveLength(0);
+  fireEvent.click(button!);
+  expect(button!.getAttribute("aria-expanded")).toBe("true");
+  const id = button!.getAttribute("aria-controls");
+  expect(id).not.toBeNull();
+  const steps = document.getElementById(id!);
+  expect(steps).not.toBeNull();
+  expect(page.panel()!.contains(steps)).toBe(true);
+  expect(page.popover()).toBeNull();
+  expect(page.steps()).toHaveLength(1);
+  // The Share icon is drawn, not a glyph: iOS draws glyphs as emoji.
+  expect(steps!.querySelector("svg")).not.toBeNull();
+  fireEvent.click(button!);
+  expect(button!.getAttribute("aria-expanded")).toBe("false");
+  expect(page.steps()).toHaveLength(0);
+});
+
+// One install surface at a time: the panel covers the popover, and steps
+// left open in a closed panel must not come back as a popover.
+for (const browser of ["iPad Safari", "Chrome"] as const) {
+  it(`opening or closing the chat panel closes the ${INSTALL_HASH} offer for good (${browser})`, async () => {
+    if (browser === "Chrome") asChrome();
+    else undoDevice = asDevice(IPAD_SAFARI);
+    window.history.replaceState(null, "", `/hello/${INSTALL_HASH}`);
+    const page = await mount({ chat: true });
+    if (browser === "Chrome")
+      await act(async () => {
+        window.dispatchEvent(installEvent().event);
+      });
+    expect(page.popover()).not.toBeNull();
+    // Not also in the closed panel.
+    expect(page.steps()).toHaveLength(browser === "Chrome" ? 0 : 1);
+    await page.toggleChat();
+    expect(page.panel()!.style.display).not.toBe("none");
+    expect(page.popover()).toBeNull();
+    expect(page.steps()).toHaveLength(0);
+    const button = page.install()!;
+    expect(button).not.toBeNull();
+    if (browser === "Chrome") {
+      fireEvent.keyDown(page.panel()!, { key: "Escape" });
+      expect(page.panel()!.style.display).toBe("none");
+      expect(page.popover()).toBeNull();
+      return;
+    }
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    // Steps opened in the panel, then the panel closed: by Escape, then by
+    // the launcher.
+    for (const closeBy of ["Escape", "launcher"] as const) {
+      fireEvent.click(page.install()!);
+      expect(page.steps()).toHaveLength(1);
+      if (closeBy === "Escape")
+        fireEvent.keyDown(page.panel()!, { key: "Escape" });
+      else await page.toggleChat();
+      expect(page.panel()!.style.display).toBe("none");
+      expect(page.popover()).toBeNull();
+      expect(page.steps()).toHaveLength(0);
+      await page.toggleChat();
+      expect(page.install()!.getAttribute("aria-expanded")).toBe("false");
+      expect(page.steps()).toHaveLength(0);
+    }
+  });
+}
+
+for (const browser of ["iPhone Safari", "Chrome"] as const) {
+  it(`has no install entry on a phone with a chat, and ${INSTALL_HASH} opens an offer that its close control closes (${browser})`, async () => {
+    if (browser === "Chrome") asChrome();
+    else undoDevice = asDevice(IPHONE_SAFARI);
+    window.history.replaceState(null, "", `/hello/${INSTALL_HASH}`);
+    const page = await mount({ chat: true, isMobile: true });
+    const { event, prompt } = installEvent();
+    if (browser === "Chrome")
+      await act(async () => {
+        window.dispatchEvent(event);
+      });
+    expect(page.launcher()).not.toBeNull();
+    expect(page.entries()).toHaveLength(0);
+    const popover = page.popover();
+    expect(popover).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(closeControl(popover!));
+    });
+    expect(page.popover()).toBeNull();
+    expect(prompt).toHaveBeenCalledTimes(0);
+    expect(page.entries()).toHaveLength(0);
+  });
+}
+
+it("shows the Add to Home Screen steps from the dock, beside the direct link, without a chat in iPhone Safari", async () => {
+  undoDevice = asDevice(IPHONE_SAFARI);
+  const page = await mount();
   const button = page.install();
   expect(button).not.toBeNull();
   expect(page.dock()!.contains(button)).toBe(true);
+  expect(directLinkIn(page.dock()!)).not.toBeNull();
   expect(button!.getAttribute("aria-expanded")).toBe("false");
   expect(page.popover()).toBeNull();
   fireEvent.click(button!);
@@ -157,29 +305,35 @@ it("shows the Add to Home Screen steps from the dock in iPhone Safari", async ()
   expect(popover).not.toBeNull();
   expect(popover!.id).not.toBe("");
   expect(button!.getAttribute("aria-controls")).toBe(popover!.id);
-  expect(popover!.textContent.trim()).not.toBe("");
+  expect(page.steps()).toHaveLength(1);
   // The Share icon is drawn, not a glyph: iOS draws glyphs as emoji.
   expect(popover!.querySelector("svg")).not.toBeNull();
   fireEvent.click(button!);
   expect(button!.getAttribute("aria-expanded")).toBe("false");
   expect(page.popover()).toBeNull();
+  // The close control closes it as the entry does.
+  fireEvent.click(button!);
+  fireEvent.click(closeControl(page.popover()!));
+  expect(page.popover()).toBeNull();
+  expect(button!.getAttribute("aria-expanded")).toBe("false");
 });
 
-for (const [label, device, chat] of [
-  ["with a chat", IPHONE_SAFARI, true],
-  // Without a chat the dock still shows, for the install button.
-  ["without a chat", IPHONE_SAFARI, false],
+for (const [label, chat] of [
+  ["on a phone with a chat", true],
+  // Without a chat the dock still shows, for the install entry.
+  ["without a chat", false],
 ] as const) {
   it(`opens the steps for ${INSTALL_HASH} at load in iPhone Safari (${label}) and drops the hash`, async () => {
-    undoDevice = asDevice(device);
+    undoDevice = asDevice(IPHONE_SAFARI);
     window.history.replaceState(
       null,
       "",
       `/hello/?view=details${INSTALL_HASH}`,
     );
-    const page = await mount({ chat });
+    const page = await mount({ chat, isMobile: chat });
     expect(page.popover()).not.toBeNull();
-    expect(page.install()!.getAttribute("aria-expanded")).toBe("true");
+    if (chat) expect(page.entries()).toHaveLength(0);
+    else expect(page.install()!.getAttribute("aria-expanded")).toBe("true");
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/hello/");
     expect(window.location.search).toBe("?view=details");
@@ -202,23 +356,27 @@ it(`waits for the event on Chrome before it opens the offer for ${INSTALL_HASH},
   });
   const popover = page.popover();
   expect(popover).not.toBeNull();
-  const offer = popover!.querySelector("button");
-  expect(offer).not.toBeNull();
+  const offer = within(popover!).getByRole("button", {
+    name: (name) => name !== en["common.close"],
+  });
   await act(async () => {
-    fireEvent.click(offer!);
+    fireEvent.click(offer);
   });
   expect(prompt).toHaveBeenCalledTimes(1);
   expect(page.popover()).toBeNull();
-  expect(page.install()).toBeNull();
+  expect(page.entries()).toHaveLength(0);
 });
 
-it("does not open the Chrome offer when the event comes without the hash", async () => {
+it("does not open the Chrome offer when the event comes without the hash, and keeps the entry in the dock without a chat", async () => {
   asChrome();
   const page = await mount();
   await act(async () => {
     window.dispatchEvent(installEvent().event);
   });
-  expect(page.install()).not.toBeNull();
+  const button = page.install();
+  expect(button).not.toBeNull();
+  expect(page.dock()!.contains(button)).toBe(true);
+  expect(directLinkIn(page.dock()!)).not.toBeNull();
   expect(page.popover()).toBeNull();
 });
 

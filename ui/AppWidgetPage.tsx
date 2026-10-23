@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import type { AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
@@ -30,7 +31,11 @@ import {
   readInstallEnv,
   subscribeInstallPrompt,
 } from "./app-install.ts";
-import { InstallIcon, ShareIcon } from "./components/install-icons.tsx";
+import {
+  CloseIcon,
+  InstallIcon,
+  ShareIcon,
+} from "./components/install-icons.tsx";
 import {
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
@@ -55,10 +60,16 @@ const WIDGET_CSS = `
 .app-widget-dock-direct:hover { color:var(--text-primary); }
 .app-widget .app-widget-dock-install { padding:0; }
 .app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
-.app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:280px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; flex-direction:column; gap:10px; }
-.app-widget-install p { margin:0; display:flex; align-items:center; gap:8px; }
-.app-widget-install svg { flex-shrink:0; color:var(--accent-text); }
+.app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:280px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
+.app-widget-install > :first-child { flex:1; }
+.app-widget-install p,.app-widget-steps { margin:0; display:flex; align-items:center; gap:8px; }
+.app-widget-install p svg,.app-widget-steps svg { flex-shrink:0; color:var(--accent-text); }
+.app-widget .app-widget-install-close { display:flex; padding:4px; border:0; background:none; color:var(--text-secondary); }
+.app-widget-install-close:hover { color:var(--text-primary); }
+.app-widget-steps { padding:9px 14px; font-size:13px; border-bottom:1px solid var(--border); }
+.app-widget-header-links { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
 .app-widget .app-widget-direct { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+.app-widget button.app-widget-direct { padding:0; border:0; border-radius:0; background:none; text-decoration:underline; }
 .app-widget-direct:hover { color:var(--text-primary); }
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
 .app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
@@ -103,6 +114,9 @@ export function AppWidgetPage({
   const [unavailable, setUnavailable] = useState(false);
   const [open, setOpen] = useState(false);
   // The Apps page links here with INSTALL_HASH: open the install popover.
+  // One flag per install mode serves both surfaces: the popover, or the steps
+  // in the open chat panel. Opening or closing the panel clears them, so only
+  // one surface shows at a time.
   const [installAsked, setInstallAsked] = useState(
     () => window.location.hash === INSTALL_HASH,
   );
@@ -256,8 +270,16 @@ export function AppWidgetPage({
   }
   const unread = !open && !!readMark.latest && latest !== readMark.latest;
 
+  const closeInstall = () => {
+    setStepsOpen(false);
+    setInstallAsked(false);
+  };
+  const toggleChat = (next: boolean) => {
+    setOpen(next);
+    closeInstall();
+  };
   const close = () => {
-    setOpen(false);
+    toggleChat(false);
     launcher.current?.focus();
   };
   const directHref = appUrl
@@ -265,8 +287,11 @@ export function AppWidgetPage({
     : null;
   const chatReady = !!target && !!agent;
   // With a chat, only the open panel's header holds the direct link; with no
-  // chat, the dock does.
+  // chat, the dock does. The install entry sits beside it, so a phone with a
+  // chat (no panel) has none: the Apps page's #install still opens the offer.
   const dockDirect = !chatReady && directHref;
+  const dockInstall = !chatReady && install;
+  const headerInstall = chatReady && install;
   // On Chrome the popover waits for the event: prompt() needs it, and an
   // offer with nothing to click would be a dead end.
   const installOpen =
@@ -275,6 +300,16 @@ export function AppWidgetPage({
     setInstallAsked(false);
     void promptInstall();
   };
+  const toggleInstall = () => {
+    if (install === "prompt") runInstall();
+    else setStepsOpen(!stepsOpen);
+  };
+  const installSteps = (
+    <>
+      <ShareIcon />
+      {t("appWidget.installSteps")}
+    </>
+  );
   // The iPhone Home Screen window has no Back control: the phone's Chat
   // leaves for Safari instead of taking the app's window to the office.
   const safariChat =
@@ -333,17 +368,14 @@ export function AppWidgetPage({
           {t("appWidget.unavailable")}
         </p>
       )}
-      {installOpen && (
+      {installOpen && !open && (
         <div
           id="app-widget-install"
           className="app-widget-install"
           data-app-install-popover=""
         >
           {install === "ios-steps" ? (
-            <p>
-              <ShareIcon />
-              {t("appWidget.installSteps")}
-            </p>
+            <p>{installSteps}</p>
           ) : (
             <button type="button" onClick={runInstall}>
               {t("appWidget.installConfirm", {
@@ -351,11 +383,20 @@ export function AppWidgetPage({
               })}
             </button>
           )}
+          <button
+            type="button"
+            className="app-widget-install-close"
+            aria-label={t("common.close")}
+            title={t("common.close")}
+            onClick={closeInstall}
+          >
+            <CloseIcon />
+          </button>
         </div>
       )}
-      {(dockDirect || chatReady || install) && (
+      {(dockDirect || chatReady || dockInstall) && (
         <div className="app-widget-dock">
-          {install && (
+          {dockInstall && (
             <button
               type="button"
               className="app-widget-dock-direct app-widget-dock-install"
@@ -367,10 +408,7 @@ export function AppWidgetPage({
                   ? "app-widget-install"
                   : undefined
               }
-              onClick={() => {
-                if (install === "prompt") runInstall();
-                else setStepsOpen(!stepsOpen);
-              }}
+              onClick={toggleInstall}
             >
               <InstallIcon />
             </button>
@@ -411,7 +449,7 @@ export function AppWidgetPage({
                   onOpenOffice?.(agent);
                   return;
                 }
-                setOpen(!open);
+                toggleChat(!open);
                 setReadMark({ agent: target?.agentId, latest });
               }}
             >
@@ -442,6 +480,39 @@ export function AppWidgetPage({
                 connected={state.connected}
                 open={open}
                 directHref={directHref}
+                installEntry={
+                  headerInstall && (
+                    <button
+                      type="button"
+                      className="app-widget-direct"
+                      aria-expanded={
+                        install === "ios-steps" ? installOpen : undefined
+                      }
+                      aria-controls={
+                        install === "ios-steps" && installOpen
+                          ? "app-widget-install-steps"
+                          : undefined
+                      }
+                      onClick={toggleInstall}
+                    >
+                      <InstallIcon size={13} />
+                      {t("appWidget.install")}
+                    </button>
+                  )
+                }
+                installSteps={
+                  headerInstall &&
+                  install === "ios-steps" &&
+                  installOpen &&
+                  open && (
+                    <p
+                      id="app-widget-install-steps"
+                      className="app-widget-steps"
+                    >
+                      {installSteps}
+                    </p>
+                  )
+                }
                 onRecheck={() => {
                   void refresh();
                 }}
@@ -508,6 +579,8 @@ export function WidgetChat({
   connected,
   open,
   directHref,
+  installEntry,
+  installSteps,
   onRecheck,
   stateChangedAt,
 }: {
@@ -517,6 +590,9 @@ export function WidgetChat({
   connected: boolean;
   open: boolean;
   directHref?: string | null;
+  // "Install as app", beside the direct link, and the steps it opens.
+  installEntry?: ReactNode;
+  installSteps?: ReactNode;
   onRecheck: () => void;
   stateChangedAt?: number;
 }) {
@@ -732,18 +808,24 @@ export function WidgetChat({
             ),
           })}
         </h1>
-        {directHref && (
-          <a
-            className="app-widget-direct"
-            href={directHref}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <OpenIcon />
-            {t("appWidget.direct")}
-          </a>
+        {(directHref || installEntry) && (
+          <div className="app-widget-header-links">
+            {directHref && (
+              <a
+                className="app-widget-direct"
+                href={directHref}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <OpenIcon />
+                {t("appWidget.direct")}
+              </a>
+            )}
+            {installEntry}
+          </div>
         )}
       </header>
+      {installSteps}
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
       <div
         className="app-widget-log"
