@@ -67,8 +67,8 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.
 - Desk monitors **glow based on agent state** (green / purple / red).
 - Status light with **escalating hung-agent warnings**: amber at 2 min, red at 5 min.
-- **Activity badge** on desk when an agent needs attention.
-- **Sound notification** when an agent finishes and the browser tab is unfocused.
+- **Unread badge** on desk when an agent answers your message.
+- **Sound notification** when an agent answers your message and the browser tab is unfocused.
 - **Kaomoji face in the browser tab** for the agent you have open: `(-_-)zz` idle, `~(o_o)~` working, `(^_^)ﾉ` waiting for you.
 - Auto-generated **conversation topic** below nametag.
 - **Drag agents between desks or rooms** to rearrange, or onto the trap door to move them to the back room.
@@ -174,7 +174,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
-- **Device notifications**: pages and finished turns can also show as notifications on your phone or browser.
+- **Device notifications**: pages and agents' answers to your messages can also show as notifications on your phone or browser.
 
 ## Safety
 

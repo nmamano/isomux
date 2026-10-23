@@ -361,8 +361,8 @@ export function DeskUnit({
             </span>
           )}
           {/* Parked on a two-step prompt. Distinct from the
-              unread badge: unread means "someone spoke to it", this means "it
-              asked YOU something and is waiting". Amber rather than purple so
+              unread badge: unread means "it answered your message", this means
+              "it asked YOU something and is waiting". Amber rather than purple so
               the two never read as the same signal at a glance. */}
           {agent.pendingPrompt && (
             <span

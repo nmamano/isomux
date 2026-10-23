@@ -465,7 +465,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.accessHint":
     "Access: rooms this member can see and act in (office-owner managed).",
   "settings.profile.viewHint":
-    "Displayed: which of your accessible rooms appear in your own view. Notifications: sound when an agent in that room finishes. Push: a notification on your devices when an agent in that room finishes. A room must be displayed to notify.",
+    "Displayed: which of your accessible rooms appear in your own view. Notifications: sound when an agent in that room answers your message. Push: a notification on your devices when an agent in that room answers your message. A room must be displayed to notify.",
   "settings.profile.roomColumn": "Room",
   "settings.profile.accessColumn": "Access",
   "settings.profile.displayedColumn": "Displayed",

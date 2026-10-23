@@ -464,7 +464,13 @@ describe("web push delivery: repeat and resolve", () => {
 });
 
 describe("web push delivery: turn ends", () => {
-  const bot = { id: "agent-1", name: "Bot", roomId: "room-a" };
+  // Morgan started the turn.
+  const bot = {
+    id: "agent-1",
+    name: "Bot",
+    roomId: "room-a",
+    memberIds: ["u-morgan"],
+  };
   const audience = { "room-a": ["u-morgan"], [LOBBY_ROOM_ID]: ["u-morgan"] };
   // The one member: can see room-a and has it in their push rooms. The
   // sound's notification rooms are empty: a turn-end push does not read them.
@@ -482,7 +488,7 @@ describe("web push delivery: turn ends", () => {
     return { ...ctx, dev };
   }
 
-  it("goes to a member who can see the room and has it in their push rooms", async () => {
+  it("goes to a member who started the turn, can see the room and has it in their push rooms", async () => {
     const { calls, service, time, dev } = await oneDevice(base);
     service.onTurnEnd(bot);
     await time.advance(0);
@@ -493,6 +499,33 @@ describe("web push delivery: turn ends", () => {
     expect(payload.tag).toBe("turn-end:agent-1");
     expect(payload.url).toBe("/");
     expect(payload.renotify).toBe(true);
+  });
+
+  it("goes only to the members who started the turn, not to the rest of the audience", async () => {
+    // Morgan and Mia both see room-a and push it; each has one device.
+    const ctx = await setup({
+      pushRooms: { "u-morgan": ["room-a"], "u-mia": ["room-a"] },
+      audience: { "room-a": ["u-morgan", "u-mia"] },
+      notifRooms: { "u-morgan": [], "u-mia": [] },
+    });
+    const morganDev = await browserDevice(1);
+    const miaDev = await browserDevice(2);
+    await ctx.store.upsert("u-morgan", morganDev.input);
+    await ctx.store.upsert("u-mia", miaDev.input);
+    const sentTo = async (memberIds: string[]) => {
+      ctx.calls.length = 0;
+      ctx.service.onTurnEnd({ ...bot, memberIds });
+      await ctx.time.advance(0);
+      return ctx.calls.map((c) => c.url).sort();
+    };
+    expect(await sentTo(["u-morgan"])).toEqual([morganDev.input.endpoint]);
+    expect(await sentTo(["u-mia"])).toEqual([miaDev.input.endpoint]);
+    // A batch that held both members' messages belongs to both.
+    expect(await sentTo(["u-morgan", "u-mia"])).toEqual(
+      [morganDev.input.endpoint, miaDev.input.endpoint].sort(),
+    );
+    // A turn no member started (an agent, app, schedule or webhook).
+    expect(await sentTo([])).toEqual([]);
   });
 
   it("skips a room out of the push rooms, a member who cannot see it or is gone, no room, and the lobby", async () => {
@@ -507,7 +540,8 @@ describe("web push delivery: turn ends", () => {
       ["member gone", { ...base, pushRooms: { "u-morgan": null } }, bot],
       ["agent with no room", base, { ...bot, roomId: null }],
       [
-        // Lead ruling: even with the lobby in the push rooms.
+        // Lead ruling: even with the lobby in the push rooms, and for the
+        // member's own lobby turn.
         "lobby",
         { ...base, pushRooms: { "u-morgan": ["room-a", LOBBY_ROOM_ID] } },
         { ...bot, roomId: LOBBY_ROOM_ID },

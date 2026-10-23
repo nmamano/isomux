@@ -1,5 +1,6 @@
-// When an agent's turn ends, for the turn-end sound (ui/store.tsx) and the
-// turn-end push (server/web-push-delivery.ts).
+// When an agent's turn ends and whom it notifies, for the Unread badge and
+// turn-end sound (ui/store.tsx) and the turn-end push
+// (server/web-push-delivery.ts).
 
 import type { AgentState } from "./types.ts";
 
@@ -23,16 +24,13 @@ export function endsTurn(
   );
 }
 
-// The turn ends that sound the turn-end sound and send the turn-end push:
-// the turn had human input, so traffic between agents stays quiet. `prev`
+// The members a turn end notifies (Unread badge, turn-end sound, turn-end
+// push): the members who started the turn, when the change ends it. `prev`
 // is the agent before the change.
-export function turnEndNotifies(
-  prev: { state: string; turnHadHumanInput?: boolean } | undefined,
+export function turnEndMembers(
+  prev: { state: string; turnMemberIds?: readonly string[] } | undefined,
   next: string | undefined,
-): boolean {
-  return (
-    prev !== undefined &&
-    prev.turnHadHumanInput === true &&
-    endsTurn(prev.state, next)
-  );
+): readonly string[] {
+  if (prev === undefined || !endsTurn(prev.state, next)) return [];
+  return prev.turnMemberIds ?? [];
 }

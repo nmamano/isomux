@@ -453,7 +453,7 @@ Coses que pots fer per ell:
   "settings.profile.accessHint":
     "Accés: sales que aquest membre pot veure i on pot actuar (ho gestiona el propietari de l'oficina).",
   "settings.profile.viewHint":
-    "Mostrades: quines de les teves sales accessibles apareixen a la teva vista. Notificacions: so quan un agent d'aquella sala acaba. Push: una notificació als teus dispositius quan un agent d'aquella sala acaba. Una sala ha d'estar mostrada per notificar.",
+    "Mostrades: quines de les teves sales accessibles apareixen a la teva vista. Notificacions: so quan un agent d'aquella sala respon al teu missatge. Push: una notificació als teus dispositius quan un agent d'aquella sala respon al teu missatge. Una sala ha d'estar mostrada per notificar.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Accés",
   "settings.profile.displayedColumn": "Mostrada",

@@ -659,6 +659,9 @@ export interface QueuedMessage {
   // (server/limit-resume.ts). The sender is the receiver; `text` is the whole
   // agent-facing message, and the chat shows a system line instead of it.
   limitResume?: boolean;
+  // With limitResume: the members of the turn the usage limit stopped, so
+  // the resumed turn is still theirs.
+  limitResumeMemberIds?: string[];
   attachments?: Attachment[];
   queuedAt: number;
 }
@@ -864,11 +867,11 @@ export interface AgentInfo {
   // lockstep wherever the session is closed/installed). Carried on the wire for
   // future presentation; v1 renders no badge. Absent/false on live agents.
   dormant?: boolean;
-  // True iff the current (or most-recent) turn started by processing a human
-  // message. The UI gates the turn-end notification sound on this so an
-  // agent-only turn (one agent messages another, the receiver answers and
-  // idles) stays silent.
-  turnHadHumanInput: boolean;
+  // The user ids of the members whose messages started the current (or
+  // most recent) turn; empty for a turn an agent, app, schedule or webhook
+  // started. Its end sets the Unread badge, sound and push for these members
+  // only (shared/turn-end.ts).
+  turnMemberIds: string[];
   // Which two-step prompt the agent is parked on, or null/absent when it is not
   // parked. A parked agent sits at state
   // `waiting_for_response` - the same state as one that has simply finished a

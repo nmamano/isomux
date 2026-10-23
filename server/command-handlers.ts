@@ -204,7 +204,7 @@ interface HandlerDeps {
   ) => void;
   updateState: (agentId: string, state: AgentState) => void;
   updateAgent: (agentId: string, changes: Partial<AgentInfo>) => OfficeEvent[];
-  beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
+  beginTurn: (agentId: string, opts: { memberIds: string[] }) => void;
   openChoiceInteraction: (
     agentId: string,
     kind: AgentChoiceInteractionKind,
@@ -1451,10 +1451,11 @@ export function createCommandHandling(deps: HandlerDeps) {
     const prefix = formatPrefix({ username, device });
     const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
     try {
+      const typerId = getUserByName(username)?.id;
       await runAgentTurn({
         managed,
         sdkText: prefixedSkillPrompt,
-        humanInput: true,
+        memberIds: typerId ? [typerId] : [],
         usageCapped: directInputCapped(username),
         usageCapUsername: username,
       });

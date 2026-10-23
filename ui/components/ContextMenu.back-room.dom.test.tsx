@@ -45,7 +45,7 @@ const agent: AgentInfo = {
   manager: "Tester",
   queue: [],
   sessionSwapping: false,
-  turnHadHumanInput: false,
+  turnMemberIds: [],
 };
 
 const room = (backRoom?: boolean): RoomWire => ({

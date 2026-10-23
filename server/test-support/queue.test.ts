@@ -4,7 +4,7 @@
 // orchestrator/transport: how messages addressed to a busy agent are queued,
 // coalesced into one backend prompt on the next idle transition (sender prefixes
 // + the busy note), the dedupe/cap/reject contracts on the agent-to-agent HTTP
-// entry point, the sendNow and steer flags, and the turnHadHumanInput
+// entry point, the sendNow and steer flags, and the turnMemberIds
 // notification gate. Queue reads and cancels: queue-read-retract.test.ts.
 // Conversation changes that carry the queue: handoff-queue-carry.test.ts.
 //
@@ -15,7 +15,7 @@
 // injected FakeSession (`fakeBackend.sessionForAgent(id).sent`). In-memory state
 // is read via `agentManager` (note: getAgent().queue is always empty by design -
 // the live queue is spliced in only by getAllAgents(), which is what full_state
-// uses; turnHadHumanInput IS on info).
+// uses; turnMemberIds IS on info).
 //
 // Busy control: a non-auto-completing FakeBackend whose onSend pushes a single
 // `assistant_text` (-> state "thinking") without a turn_completed, so the agent
@@ -47,6 +47,7 @@ import {
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
 import { MEMBER_INTERRUPT_NOTE } from "../agent-manager.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 
 let server: TestServer | null = null;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -801,23 +802,26 @@ function logEntriesFor(sock: TestSocket, agentId: string): LogEntry[] {
 }
 
 // True if the socket received an agent_updated for this agent whose changes
-// carry turnHadHumanInput === value (the notification-gate WIRE signal - the UI
-// reads this off the wire to gate the turn-end sound, not the manager state).
-function sawTurnFlag(
+// carry exactly these turnMemberIds, in any order (the notification-gate WIRE
+// signal: the UI reads it off the wire for the Unread badge and the sound,
+// not the manager state).
+function sawTurnMembers(
   sock: TestSocket,
   agentId: string,
-  value: boolean,
+  ids: string[],
 ): boolean {
+  const want = JSON.stringify([...ids].sort());
   return sock.messages.some((m) => {
     const u = m as {
       type?: string;
       agentId?: string;
-      changes?: { turnHadHumanInput?: boolean };
+      changes?: { turnMemberIds?: string[] };
     };
     return (
       u.type === "agent_updated" &&
       u.agentId === agentId &&
-      u.changes?.turnHadHumanInput === value
+      u.changes?.turnMemberIds !== undefined &&
+      JSON.stringify([...u.changes.turnMemberIds].sort()) === want
     );
   });
 }
@@ -978,19 +982,21 @@ describe("queue: coalescing (Phase 1.4a)", () => {
   });
 });
 
-describe("queue: notifications / turnHadHumanInput (Phase 1.4a)", () => {
-  it("isolates each flip: agent-only baseline false -> mixed flush true -> agent-only flush false", async () => {
+describe("queue: notifications / turnMemberIds (task 10d7ead6)", () => {
+  it("a flushed batch belongs to the members whose messages are in it, never to agents or schedules", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Morgan");
+    const mia = await server.seedMember("Mia");
     const room = server.agentManager.getRooms()[0];
+    const morganId = getUserByName("Morgan")!.id;
+    const miaId = getUserByName("Mia")!.id;
+    updateUserById(miaId, { allowedRooms: [room.id] });
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
     const sock = await server.connectWs(owner.rawSessionId);
     await sock.waitFor("full_state");
 
-    // --- baseline: an AGENT-only kickoff turn leaves turnHadHumanInput false,
-    // so the false->true flip below is isolated (not pre-satisfied by a human
-    // kickoff). beginTurn stamps the flag at turn START from items.some(user).
+    // --- baseline: an AGENT-only kickoff turn has no members. ---
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     await waitUntil(
       () => stateOf(server!, recv.id) === "thinking",
@@ -998,46 +1004,71 @@ describe("queue: notifications / turnHadHumanInput (Phase 1.4a)", () => {
       "busy",
     );
     const session = server.fakeBackend.sessionForAgent(recv.id)!;
-    // Ensure the kickoff reached the backend (pendingTurn installed) before the
-    // later completeTurn - beginTurn flips state to "thinking" before send.
     await waitUntil(() => session.sent.length === 1, 2000, "kickoff sent");
-    expect(agentOf(server, recv.id).turnHadHumanInput).toBe(false);
+    expect(agentOf(server, recv.id).turnMemberIds).toEqual([]);
 
-    // --- mixed human + agent flush -> flips false to true ---
-    await sendHuman(server, owner.rawSessionId, recv.id, "human");
-    await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
-    await postAgentMessage(server, recv.id, sender.id, "agent");
-    await waitUntil(() => queueOf(server!, recv.id).length === 2, 2000, "q=2");
-    session.completeTurn();
-    await waitUntil(() => session.sent.length === 2, 2000, "mixed flush");
-    // Assert the WIRE signal (the UI gates the sound on this), then the state.
-    await waitUntil(
-      () => sawTurnFlag(sock, recv.id, true),
-      2000,
-      "wire turnHadHumanInput=true",
-    );
-    expect(agentOf(server, recv.id).turnHadHumanInput).toBe(true);
+    // Queue `queue` behind the running turn, end it, and wait for the batch
+    // to reach the backend and its members to reach the wire.
+    let sent = 1;
+    const flush = async (
+      label: string,
+      queue: (() => Promise<unknown>)[],
+      want: string[],
+    ) => {
+      for (const [i, q] of queue.entries()) {
+        await q();
+        await waitUntil(
+          () => queueOf(server!, recv.id).length === i + 1,
+          2000,
+          `${label}: q=${i + 1}`,
+        );
+      }
+      session.completeTurn();
+      sent += 1;
+      await waitUntil(() => session.sent.length === sent, 2000, label);
+      await waitUntil(
+        () => sawTurnMembers(sock, recv.id, want),
+        2000,
+        `${label}: wire turnMemberIds`,
+      );
+      expect([
+        label,
+        [...agentOf(server!, recv.id).turnMemberIds].sort(),
+      ]).toEqual([label, [...want].sort()]);
+      await waitUntil(
+        () => stateOf(server!, recv.id) === "thinking",
+        2000,
+        `${label}: busy`,
+      );
+    };
+    const fromMorgan = (text: string) => () =>
+      sendHuman(server!, owner.rawSessionId, recv.id, text);
+    const fromMia = (text: string) => () =>
+      sendHuman(server!, mia.rawSessionId, recv.id, text);
+    const fromAgent = (text: string) => () =>
+      postAgentMessage(server!, recv.id, sender.id, text);
+    const fromSchedule = (text: string) => async () => {
+      const res = server!.agentManager.enqueueMessage(recv.id, {
+        sender: { kind: "cronjob", cronjobId: "c1", cronjobName: "Nightly" },
+        text,
+      });
+      if (!res.ok) throw new Error(`enqueue -> ${res.status}`);
+    };
 
-    // --- agent-only flush -> flips true back to false ---
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "thinking",
-      2000,
-      "busy2",
+    // Each step flips the members, so no step is pre-satisfied.
+    await flush(
+      "two members and an agent",
+      [fromMorgan("m1"), fromMia("mi1"), fromAgent("a1")],
+      [morganId, miaId],
     );
-    await postAgentMessage(server, recv.id, sender.id, "agent-only");
-    await waitUntil(
-      () => queueOf(server!, recv.id).length === 1,
-      2000,
-      "q=1 again",
+    await flush(
+      "one member and an agent",
+      [fromMorgan("m2"), fromAgent("a2")],
+      [morganId],
     );
-    session.completeTurn();
-    await waitUntil(() => session.sent.length === 3, 2000, "agent-only flush");
-    await waitUntil(
-      () => sawTurnFlag(sock, recv.id, false),
-      2000,
-      "wire turnHadHumanInput=false",
-    );
-    expect(agentOf(server, recv.id).turnHadHumanInput).toBe(false);
+    await flush("a schedule", [fromSchedule("s1")], []);
+    await flush("the other member", [fromMia("mi2")], [miaId]);
+    await flush("an agent", [fromAgent("a3")], []);
   });
 });
 

@@ -1,10 +1,12 @@
 // The turn-end push through the real server (tasks 1eda8af8, 0c3fa26f): a
 // turn that a member started and the agent finished pushes to the devices of
-// members who ticked the room's Devices box, the same turns that sound the
-// browser's turn-end sound.
+// that member when they ticked the room's Devices box, the same turns that
+// sound the browser's turn-end sound (task 10d7ead6: only the member who
+// started the turn).
 //
-// Pins: a member's message whose turn ends pushes once to a member with the
-// room in their push rooms; a turn started by another agent, nothing; a member
+// Pins: a member's message whose turn ends pushes once to that member with the
+// room in their push rooms, and not to another member who sees and pushes the
+// room; a turn started by another agent, nothing; a member
 // who cannot see the room gets nothing even with the room in a stale
 // pushRooms; the rooms save through PUT /api/me/view/push-rooms. A later
 // member turn is the fence: a push that should not happen would land before
@@ -162,7 +164,8 @@ describe("turn-end push", () => {
   });
 
   it("a turn another agent started pushes nothing", async () => {
-    const { bot, spawn, http, pushed, stateOf, memberTurn } = await office();
+    const { srv, bot, spawn, http, pushed, stateOf, memberTurn } =
+      await office();
     const sender = await spawn("Sender");
     const res = await http(
       `/api/agents/${bot.id}/messages`,
@@ -171,13 +174,58 @@ describe("turn-end push", () => {
       getAgentTokenRaw(sender.id)!,
     );
     expect(res.status).toBeLessThan(300);
-    // The agent-started turn ran: its human-input flag is false.
+    // The agent-started turn ran to its end, with no members.
     await waitUntil(
       () =>
         stateOf(bot.id) === "waiting_for_response" &&
-        server!.agentManager.getAgent(bot.id)?.turnHadHumanInput === false,
+        srv.fakeBackend.sessionForAgent(bot.id)?.sent.length === 1,
     );
+    expect(srv.agentManager.getAgent(bot.id)?.turnMemberIds).toEqual([]);
     await memberTurn("hello");
     expect(pushed).toEqual([ENDPOINT]);
+  });
+
+  it("a member's turn pushes to that member only, not to another member who sees and pushes the room", async () => {
+    const { srv, bot, pushed, stateOf, memberTurn, roomA } = await office();
+    const mia = await srv.seedMember("Mia");
+    const miaId = getUserByName("Mia")!.id;
+    updateUserById(miaId, { allowedRooms: [roomA] });
+    const miaHttp = (path: string, method: string, body: unknown) =>
+      srv.http(path, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        rawSessionId: mia.rawSessionId,
+        body: JSON.stringify(body),
+      });
+    const miaEndpoint = "https://web.push.apple.com/mia-phone";
+    expect(
+      (
+        await miaHttp(`/api/users/${mia.username}/push-devices`, "POST", {
+          endpoint: miaEndpoint,
+          keys: { p256dh: P256DH, auth: AUTH },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await miaHttp("/api/me/view/push-rooms", "PUT", { pushRooms: [roomA] }))
+        .status,
+    ).toBe(204);
+    expect(getUserByName("Mia")!.pushRooms).toContain(roomA);
+
+    // Morgan's turn: Morgan's phone only.
+    await memberTurn("hello");
+    // Mia's turn: Mia's phone only. Morgan's next turn is the fence for a
+    // push to Morgan that should not happen.
+    const before = pushed.length;
+    const res = await miaHttp(`/api/agents/${bot.id}/messages`, "POST", {
+      text: "from mia",
+    });
+    expect(res.status).toBeLessThan(300);
+    await waitUntil(
+      () =>
+        pushed.length > before && stateOf(bot.id) === "waiting_for_response",
+    );
+    await memberTurn("again");
+    expect(pushed).toEqual([ENDPOINT, miaEndpoint, ENDPOINT]);
   });
 });

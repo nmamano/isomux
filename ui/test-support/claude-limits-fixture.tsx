@@ -55,7 +55,7 @@ export function claudeAgent(
     manager: "Member",
     queue: [],
     sessionSwapping: false,
-    turnHadHumanInput: false,
+    turnMemberIds: [],
   };
 }
 

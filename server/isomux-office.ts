@@ -1010,7 +1010,7 @@ function createManagers(startOpts: StartServerOpts): void {
             id: a.id,
             name: a.name,
             roomId: a.roomId ?? null,
-            turnHadHumanInput: a.turnHadHumanInput,
+            turnMemberIds: a.turnMemberIds,
           }
         : null;
     },

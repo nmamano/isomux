@@ -14,7 +14,7 @@ import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
-import { createMember } from "../users.ts";
+import { createMember, getUserByName } from "../users.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
@@ -1236,5 +1236,44 @@ describe("automatic handoff: the settings survive a restart", () => {
     expect(mgr.getAgent("custom")?.autoHandoff).toBe(true);
     expect(mgr.getAgent("custom")?.autoHandoffTokens).toBe(300_000);
     expect(mgr.getAgent("legacy")?.autoHandoff ?? false).toBe(false);
+  });
+});
+
+describe("automatic handoff: whose turn the brief turn is", () => {
+  it("no member's, even when a member's message starts it (task 10d7ead6)", async () => {
+    // The user store outlives the state dir reset in a multi-file run.
+    const morgan =
+      getUserByName("Morgan")?.id ??
+      (() => {
+        const created = createMember("Morgan", { role: "member" });
+        if (!created.ok) throw new Error(created.error);
+        return created.user.id;
+      })();
+    const h = makeHarness();
+    const info = await spawn(h);
+    // The crossing turn is Morgan's, so a brief turn that keeps the last
+    // turn's members, or takes the waiting message's, fails.
+    void h.mgr.sendMessage(info.id, "work", "Morgan");
+    await waitUntil(
+      () =>
+        stateOf(h, info.id) === "thinking" &&
+        sent(h.fake.sessionForAgent(info.id), "] work"),
+      "Morgan's crossing turn running",
+    );
+    const old = h.fake.sessionForAgent(info.id)!;
+    h.measure.now = ctx(190_000, 200_000);
+    old.completeTurn({ text: "done" });
+    await atRestMeasured(h, info.id);
+    expect(h.mgr.getAgent(info.id)?.turnMemberIds).toEqual([morgan]);
+
+    let during: string[] | undefined;
+    h.brief.answer = (s) => {
+      during = [...(h.mgr.getAgent(info.id)?.turnMemberIds ?? [])];
+      s.completeTurn({ text: BRIEF });
+    };
+    void h.mgr.sendMessage(info.id, NEXT, "Morgan");
+    await freshSession(h, info.id, old);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expect(during).toEqual([]);
   });
 });

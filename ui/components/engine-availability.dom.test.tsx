@@ -54,7 +54,7 @@ function agentOn(agentType: AgentInfo["agentType"]): AgentInfo {
     manager: "Tester",
     queue: [],
     sessionSwapping: false,
-    turnHadHumanInput: false,
+    turnMemberIds: [],
   };
 }
 

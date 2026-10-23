@@ -44,7 +44,7 @@ const agent: AgentInfo = {
   manager: "Tester",
   queue: [],
   sessionSwapping: false,
-  turnHadHumanInput: false,
+  turnMemberIds: [],
 };
 
 describe("agent form prompt preview", () => {

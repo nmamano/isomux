@@ -14,6 +14,7 @@ import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
+import { createMember, getUserByName } from "../users.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
   handoffBriefPrompt,
@@ -640,5 +641,49 @@ describe("/handoff failures: no switch, and the conversation continues", () => {
     // The phase is gone: an agent's message is not held for a handoff.
     h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "AGENT-MSG" });
     await waitUntil(() => sent(old, "AGENT-MSG"), "agent message delivered");
+  });
+});
+
+describe("/handoff: whose turn the brief turn is", () => {
+  // The user store outlives the state dir reset in a multi-file run.
+  function memberId(name: string): string {
+    const known = getUserByName(name);
+    if (known) return known.id;
+    const created = createMember(name, { role: "member" });
+    if (!created.ok) throw new Error(created.error);
+    return created.user.id;
+  }
+
+  it("the brief turn of a member's /handoff is that member's turn (task 10d7ead6)", async () => {
+    const morgan = memberId("Morgan");
+    const riley = memberId("Riley");
+    const h = makeHarness();
+    const info = await spawn(h);
+    // The turn before is another member's, so neither [] nor the last
+    // turn's members passes.
+    void h.mgr.sendMessage(info.id, "work", "Riley");
+    await waitUntil(
+      () =>
+        stateOf(h, info.id) === "thinking" &&
+        sent(h.fake.sessionForAgent(info.id), "] work"),
+      "Riley's turn running",
+    );
+    const old = h.fake.sessionForAgent(info.id)!;
+    old.completeTurn({ text: "done" });
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest after Riley's turn",
+    );
+    expect(h.mgr.getAgent(info.id)?.turnMemberIds).toEqual([riley]);
+
+    let during: string[] | undefined;
+    h.brief.answer = (s) => {
+      during = [...(h.mgr.getAgent(info.id)?.turnMemberIds ?? [])];
+      s.completeTurn({ text: BRIEF });
+    };
+    void h.mgr.sendMessage(info.id, "/handoff", "Morgan");
+    await freshSession(h, info.id, old);
+    expect(texts(old).filter(isManualBrief)).toHaveLength(1);
+    expect(during).toEqual([morgan]);
   });
 });

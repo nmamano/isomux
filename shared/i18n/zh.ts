@@ -433,7 +433,7 @@ App 的一些原则：
   "settings.profile.accessHint":
     "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",
   "settings.profile.viewHint":
-    "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体完成任务时播放声音。推送：房间中的智能体完成任务时向你的设备发送通知。房间必须显示才能发出通知。",
+    "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体回复你的消息时播放声音。推送：房间中的智能体回复你的消息时向你的设备发送通知。房间必须显示才能发出通知。",
   "settings.profile.roomColumn": "房间",
   "settings.profile.accessColumn": "访问权限",
   "settings.profile.displayedColumn": "显示",

@@ -20,6 +20,7 @@ import { createAgentManager, type LimitResumeClock } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import { loadAgents } from "../persistence.ts";
+import { createMember, getUserByName } from "../users.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import {
   LIMIT_RESUME_BOOT_DELAY_MS,
@@ -183,8 +184,9 @@ async function limitedTurn(
   id: string,
   resetsAtMs: number,
   engine: "claude" | "codex" = "claude",
+  username?: string,
 ): Promise<FakeSession> {
-  void h.mgr.sendMessage(id, "work");
+  void h.mgr.sendMessage(id, "work", username);
   await waitUntil(
     () =>
       stateOf(h, id) === "thinking" &&
@@ -254,6 +256,33 @@ describe("resume after a usage limit", () => {
       expect(resumesSent(h)).toBe(1);
     });
   }
+});
+
+// Task 10d7ead6: the resume finishes the member's request, so its turn end is
+// still theirs (Unread badge, sound, push). The ids live only in memory: after
+// a restart the resume has none.
+describe("resume after a usage limit: whose turn it is", () => {
+  it("the resumed turn keeps the members of the turn the limit stopped", async () => {
+    // The user store outlives the state dir reset in a multi-file run, so an
+    // earlier file may have made Morgan already.
+    const morganId = (() => {
+      const known = getUserByName("Morgan");
+      if (known) return known.id;
+      const created = createMember("Morgan", { role: "owner" });
+      if (!created.ok) throw new Error(created.error);
+      return created.user.id;
+    })();
+    const h = makeHarness();
+    const info = await spawn(h);
+    const reset = h.clock.now() + HOUR;
+    await limitedTurn(h, info.id, reset, "claude", "Morgan");
+    // The stopped turn is Morgan's.
+    expect(h.mgr.getAgent(info.id)?.turnMemberIds).toEqual([morganId]);
+    await toResume(h, reset);
+    await waitUntil(() => resumesSent(h) === 1, "resume sent");
+    await waitUntil(() => stateOf(h, info.id) === "thinking", "resume runs");
+    expect(h.mgr.getAgent(info.id)?.turnMemberIds).toEqual([morganId]);
+  });
 });
 
 describe("resume after a usage limit: loop guard", () => {

@@ -1617,3 +1617,75 @@ describe("reducer: ask reply drafts", () => {
     expect(s.askDrafts.get("k1")).toBe("not yet");
   });
 });
+
+// Unread badge and turn-end sound (task 10d7ead6, Nil 2026-10-23): only for a
+// turn this member started, from any device. Another member's turn, an
+// agent's, an app's or a schedule's turn sets neither. The per-room sound
+// switch and the lobby rule sit after the trigger (shared/notif-rooms.ts).
+describe("reducer: Unread badge and turn-end sound", () => {
+  const A = "agent-1";
+  const ME = "u-me";
+  const before = (
+    turnMemberIds: string[],
+    over: Partial<AppState> = {},
+  ): AppState => ({
+    ...initialState,
+    agents: [
+      { id: A, state: "thinking", roomId: "r1", turnMemberIds } as AgentInfo,
+    ],
+    sessionContext: {
+      userId: ME,
+      username: "Me",
+    } as AppState["sessionContext"],
+    ...over,
+  });
+  const end = (s: AppState, state: AgentState = "waiting_for_response") => {
+    const after = reducer(s, {
+      type: "agent_updated",
+      agentId: A,
+      changes: { state },
+    });
+    return {
+      unread: after.needsAttention.has(A),
+      sound: after.soundTrigger.seq - s.soundTrigger.seq,
+    };
+  };
+
+  it("a turn I started sets Unread and sounds, whatever state it ends in", () => {
+    for (const state of ["waiting_for_response", "idle", "error"] as const) {
+      expect([state, end(before([ME]), state)]).toEqual([
+        state,
+        { unread: true, sound: 1 },
+      ]);
+    }
+    // A batch that held my message and another member's is mine too.
+    expect(end(before(["u-other", ME]))).toEqual({ unread: true, sound: 1 });
+  });
+
+  it("another member's turn, or one no member started, sets neither", () => {
+    expect(end(before(["u-other"]))).toEqual({ unread: false, sound: 0 });
+    // An agent, app, schedule or webhook started the turn.
+    expect(end(before([]))).toEqual({ unread: false, sound: 0 });
+  });
+
+  it("no Unread on the agent I am looking at, but the sound still plays", () => {
+    expect(end(before([ME], { focusedAgentId: A }))).toEqual({
+      unread: false,
+      sound: 1,
+    });
+  });
+
+  it("before session_context arrives, nothing is mine", () => {
+    expect(end(before([ME], { sessionContext: null }))).toEqual({
+      unread: false,
+      sound: 0,
+    });
+  });
+
+  it("a step inside the turn sets neither", () => {
+    expect(end(before([ME]), "tool_executing")).toEqual({
+      unread: false,
+      sound: 0,
+    });
+  });
+});

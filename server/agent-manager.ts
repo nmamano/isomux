@@ -1293,7 +1293,7 @@ export function createAgentManager(deps: ManagerDeps) {
     "sessionSwapping",
     // Flips twice per topic generation; a restart starts with no generation.
     "topicGenerating",
-    "turnHadHumanInput",
+    "turnMemberIds",
     // In-memory context-fullness snapshot (not in PersistedAgent). Broadcast at
     // every turn boundary + Codex usage_update, so persisting on each would
     // rewrite agents.json needlessly.
@@ -2631,7 +2631,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(p.limitResume === false ? { limitResume: false } : {}),
       queue: [],
       sessionSwapping: false,
-      turnHadHumanInput: false,
+      turnMemberIds: [],
       // Dormant iff lazy-restored (no subprocess). Eager paths install a session
       // below, which clears it (already false here, so installSession no-ops).
       dormant: !!opts.lazy,
@@ -3338,13 +3338,36 @@ export function createAgentManager(deps: ManagerDeps) {
     eventHandler(event);
   }
 
-  // Turn-start primitive. Stamps the per-turn "did a human originate this turn"
-  // flag and then transitions the agent into "thinking", in that order. The UI
-  // reads turnHadHumanInput at the moment of the working→attention transition
-  // to decide whether to fire the turn-end notification sound, so the flag must
-  // land before the state event. Every place that begins a new turn (flushQueue,
-  // sendMessage echo paths, editMessage, executeSkill) goes through here.
-  function beginTurn(agentId: string, opts: { humanInput: boolean }) {
+  // The member who sent a message, as turnMemberIds: [] when the name maps
+  // to no member.
+  function memberIdsOf(username: string | undefined): string[] {
+    const id = getUserByName(username)?.id;
+    return id ? [id] : [];
+  }
+
+  // The members a queue batch's turn belongs to: each member who sent an
+  // item, and the members of the turn a usage limit stopped, for its resume.
+  function queueMemberIds(items: readonly QueuedMessage[]): string[] {
+    const ids = new Set<string>();
+    for (const m of items) {
+      if (m.sender.kind === "user")
+        for (const id of memberIdsOf(m.sender.username)) ids.add(id);
+      // Loaded from message-queues.json, so checked.
+      if (m.limitResume && Array.isArray(m.limitResumeMemberIds))
+        for (const id of m.limitResumeMemberIds)
+          if (typeof id === "string") ids.add(id);
+    }
+    return [...ids];
+  }
+
+  // Turn-start primitive. Stamps the members who started the turn
+  // (turnMemberIds) and then transitions the agent into "thinking", in that
+  // order. The UI and the push read turnMemberIds at the moment of the
+  // working→attention transition to decide who the turn end notifies, so the
+  // stamp must land before the state event. Every place that begins a new turn
+  // (flushQueue, sendMessage echo paths, editMessage, executeSkill) goes
+  // through here.
+  function beginTurn(agentId: string, opts: { memberIds: string[] }) {
     const managed = agents.get(agentId);
     if (!managed) return;
     stopConnectorRereads(agentId);
@@ -3352,9 +3375,13 @@ export function createAgentManager(deps: ManagerDeps) {
     managed.authNeededThisTurn = false;
     // A usage limit stop belongs to the turn that reported it.
     managed.limitStopResetsAtMs = null;
-    if (managed.info.turnHadHumanInput !== opts.humanInput) {
+    const current = managed.info.turnMemberIds;
+    if (
+      current.length !== opts.memberIds.length ||
+      current.some((id, i) => id !== opts.memberIds[i])
+    ) {
       for (const event of officeState.updateAgent(agentId, {
-        turnHadHumanInput: opts.humanInput,
+        turnMemberIds: opts.memberIds,
       }))
         emit(event);
     }
@@ -7791,6 +7818,8 @@ export function createAgentManager(deps: ManagerDeps) {
       ask?: AskRef;
       // QueuedMessage.limitResume.
       limitResume?: boolean;
+      // QueuedMessage.limitResumeMemberIds.
+      limitResumeMemberIds?: string[];
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -7857,6 +7886,9 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
       ...(msg.limitResume ? { limitResume: true } : {}),
+      ...(msg.limitResumeMemberIds?.length
+        ? { limitResumeMemberIds: msg.limitResumeMemberIds }
+        : {}),
       ...(msg.ask ? { ask: msg.ask } : {}),
       ...(msg.resend?.echoed ? { echoed: true } : {}),
       ...(boundarySteer ? { steer: true } : {}),
@@ -8240,10 +8272,9 @@ export function createAgentManager(deps: ManagerDeps) {
           managed,
           sdkText: prompt,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
-          // Cron jobs are machine traffic, like agents and apps, so their
-          // completed turns stay silent. Only a human member starts a chimeable
-          // turn here.
-          humanInput: items.some((m) => m.sender.kind === "user"),
+          // The batch belongs to every member in it. Agents, apps, cron jobs
+          // and webhooks are machine traffic and add nobody.
+          memberIds: queueMemberIds(items),
           nativeCommand: native,
           onSendAccepted: () => {
             // Send accepted by the backend. Finalize: write per-message log
@@ -8891,7 +8922,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // system_init backfill writes it; a crash in that window loses it
       // (Isomux PM ruling, task 51de8814).
       accept();
-      beginTurn(agentId, { humanInput: true });
+      beginTurn(agentId, { memberIds: memberIdsOf(username) });
       maybeFillTopic(agentId, managed);
     }
     // If an abort is mid-handoff, wait for it to install the replacement session.
@@ -9554,7 +9585,7 @@ export function createAgentManager(deps: ManagerDeps) {
         return;
       }
       accept();
-      beginTurn(agentId, { humanInput: true });
+      beginTurn(agentId, { memberIds: memberIdsOf(username) });
 
       maybeFillTopic(agentId, managed);
     }
@@ -9570,7 +9601,7 @@ export function createAgentManager(deps: ManagerDeps) {
         managed,
         sdkText: prefixedText,
         attachments,
-        humanInput: true,
+        memberIds: memberIdsOf(username),
         usageCapped: directInputCapped(username),
         usageCapUsername: username,
         nativeCommand,
@@ -10886,6 +10917,11 @@ export function createAgentManager(deps: ManagerDeps) {
       },
       text: LIMIT_RESUME_TEXT,
       limitResume: true,
+      // The resume continues the stopped turn, so it stays that turn's
+      // members': no turn ran since (a busy state drops the resume).
+      // turnMemberIds is not persisted, so a resume that fires after a
+      // restart has none.
+      limitResumeMemberIds: [...managed.info.turnMemberIds],
     });
     if (!result.ok)
       console.warn(
@@ -10923,14 +10959,14 @@ export function createAgentManager(deps: ManagerDeps) {
           ? {
               managed,
               sdkText: manualBriefText(phase.manual),
-              humanInput: true,
+              memberIds: memberIdsOf(phase.manual.username),
               usageCapped: directInputCapped(phase.manual.username),
               usageCapUsername: phase.manual.username,
             }
           : {
               managed,
               sdkText: autoHandoffBriefPrompt(phase),
-              humanInput: false,
+              memberIds: [],
               usageCapped: true,
             },
       );
@@ -11921,7 +11957,7 @@ export function createAgentManager(deps: ManagerDeps) {
           managed,
           sdkText: prefixedNew,
           attachments: targetEntry.attachments,
-          humanInput: true,
+          memberIds: memberIdsOf(username),
           usageCapped: directInputCapped(username),
           usageCapUsername: username,
         });

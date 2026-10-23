@@ -324,7 +324,7 @@ export class OfficeState {
       privileged: false,
       queue: [],
       sessionSwapping: false,
-      turnHadHumanInput: false,
+      turnMemberIds: [],
     };
 
     this.agents.set(id, agent);

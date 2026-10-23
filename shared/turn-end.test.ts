@@ -1,34 +1,39 @@
-// The one turn-end rule for the sound and the push (shared/turn-end.ts).
-// Each condition gets a flip case.
+// The one turn-end rule for the Unread badge, the sound and the push
+// (shared/turn-end.ts): the members who started the turn, when the change
+// ends it. Each condition gets a flip case.
 
 import { describe, it, expect } from "bun:test";
-import { endsTurn, turnEndNotifies } from "./turn-end.ts";
+import { endsTurn, turnEndMembers } from "./turn-end.ts";
 
-describe("turnEndNotifies", () => {
-  const prev = { state: "thinking", turnHadHumanInput: true };
+describe("turnEndMembers", () => {
+  const prev = { state: "thinking", turnMemberIds: ["u-a", "u-b"] };
 
-  it("is true for a working agent that stops in a turn a person started", () => {
+  it("is the turn's members when a working agent stops", () => {
     for (const next of ["idle", "error", "waiting_for_response"]) {
-      expect(turnEndNotifies(prev, next)).toBe(true);
+      expect([next, turnEndMembers(prev, next)]).toEqual([
+        next,
+        ["u-a", "u-b"],
+      ]);
     }
+    expect(
+      turnEndMembers({ ...prev, state: "tool_executing" }, "idle"),
+    ).toEqual(["u-a", "u-b"]);
   });
 
-  it("flips on each condition", () => {
+  it("is empty when one condition flips", () => {
     // The agent was not working.
-    expect(turnEndNotifies({ ...prev, state: "idle" }, "idle")).toBe(false);
+    expect(turnEndMembers({ ...prev, state: "idle" }, "idle")).toEqual([]);
     // It does not stop.
-    expect(turnEndNotifies(prev, "tool_executing")).toBe(false);
-    // No person started the turn.
-    expect(turnEndNotifies({ ...prev, turnHadHumanInput: false }, "idle")).toBe(
-      false,
-    );
-    expect(turnEndNotifies({ state: "thinking" }, "idle")).toBe(false);
+    expect(turnEndMembers(prev, "tool_executing")).toEqual([]);
+    // No member started the turn: an agent, app, schedule or webhook did.
+    expect(turnEndMembers({ ...prev, turnMemberIds: [] }, "idle")).toEqual([]);
+    expect(turnEndMembers({ state: "thinking" }, "idle")).toEqual([]);
     // No agent before, or no new state.
-    expect(turnEndNotifies(undefined, "idle")).toBe(false);
-    expect(turnEndNotifies(prev, undefined)).toBe(false);
+    expect(turnEndMembers(undefined, "idle")).toEqual([]);
+    expect(turnEndMembers(prev, undefined)).toEqual([]);
   });
 
-  it("endsTurn ignores the human input", () => {
+  it("endsTurn ignores who started the turn", () => {
     expect(endsTurn("thinking", "idle")).toBe(true);
     expect(endsTurn(undefined, "idle")).toBe(false);
   });

@@ -16,7 +16,7 @@
 // the settings and the member turns it on again.
 //
 // Turn ends (onTurnEnd): a member also gets a push when an agent they can see
-// ends a turn that had human input, in a room on the member's pushRooms (read
+// ends a turn that member started, in a room on the member's pushRooms (read
 // at each send; the Devices column in the room settings, independent of the
 // sound's notifRooms). These are the turn ends that sound the browser's
 // turn-end sound (shared/turn-end.ts). Not for the lobby: any
@@ -84,8 +84,13 @@ export interface WebPushDeliveryDeps {
 export interface WebPushDeliveryService {
   onRaised(entry: PagerEntry, kind: "created" | "reraised"): void;
   onTransitioned(entry: PagerEntry, to: "acked" | "resolved"): void;
-  // An agent ended a turn that had human input.
-  onTurnEnd(agent: { id: string; name: string; roomId: string | null }): void;
+  // An agent ended a turn that the members in memberIds started.
+  onTurnEnd(agent: {
+    id: string;
+    name: string;
+    roomId: string | null;
+    memberIds: readonly string[];
+  }): void;
   start(): void;
   // The member changed their repeat interval: re-arm their open pages.
   rescheduleMember(userId: string): void;
@@ -377,8 +382,10 @@ export function createWebPushDelivery(
         const roomId = agent.roomId;
         if (stopped || roomId === null) return;
         if (deps.isLobby(roomId)) return;
-        for (const userId of deps.roomAudience(roomId)) {
-          if (!turnEndOn(userId, roomId)) continue;
+        const audience = deps.roomAudience(roomId);
+        for (const userId of agent.memberIds) {
+          if (!audience.includes(userId) || !turnEndOn(userId, roomId))
+            continue;
           track(sendTurnEnd(userId, agent, roomId));
         }
       });

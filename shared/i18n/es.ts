@@ -453,7 +453,7 @@ Cosas que puedes hacer por él:
   "settings.profile.accessHint":
     "Acceso: salas que este miembro puede ver y en las que puede actuar (lo gestiona el propietario de la oficina).",
   "settings.profile.viewHint":
-    "Mostradas: cuáles de tus salas accesibles aparecen en tu vista. Notificaciones: sonido cuando un agente de esa sala termina. Push: una notificación en tus dispositivos cuando un agente de esa sala termina. Una sala debe estar mostrada para notificar.",
+    "Mostradas: cuáles de tus salas accesibles aparecen en tu vista. Notificaciones: sonido cuando un agente de esa sala responde a tu mensaje. Push: una notificación en tus dispositivos cuando un agente de esa sala responde a tu mensaje. Una sala debe estar mostrada para notificar.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Acceso",
   "settings.profile.displayedColumn": "Mostrada",

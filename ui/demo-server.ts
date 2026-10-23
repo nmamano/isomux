@@ -679,7 +679,7 @@ function seedOffice() {
       manager: null,
       queue: [],
       sessionSwapping: false,
-      turnHadHumanInput: false,
+      turnMemberIds: [],
       subscriptionUsage: backend.subscription ? demoSubscriptionUsage() : null,
       contextUsage: demoContextUsage(char.desk, char.modelFamily),
     });
@@ -719,7 +719,7 @@ function seedOffice() {
       manager: null,
       queue: [],
       sessionSwapping: false,
-      turnHadHumanInput: false,
+      turnMemberIds: [],
       subscriptionUsage: null,
       contextUsage: demoContextUsage(0, modelFamily),
     });

@@ -36,7 +36,9 @@ export interface RunAgentTurnOpts {
   /** Outgoing text with sender prefix already applied. */
   sdkText: string;
   attachments?: Attachment[];
-  humanInput: boolean;
+  /** The user ids of the members whose messages start this turn
+   *  (AgentInfo.turnMemberIds); empty for machine traffic. */
+  memberIds: string[];
   /** Called synchronously after session.send resolves. Use this for "log only
    *  on send-accepted" patterns - flushQueue uses it to write user_message
    *  entries and drain its queue once the backend accepts the prompt. */
@@ -59,7 +61,7 @@ export interface RunAgentTurnOpts {
 // module-private state. Rather than re-export and pull this module into a cycle,
 // we wire them in once at boot.
 type AgentTurnDeps = {
-  beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
+  beginTurn: (agentId: string, opts: { memberIds: string[] }) => void;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
   /** The display name of the agent's engine when it is known to be signed
    *  out, else null. See BackendSignedOutError. */
@@ -96,7 +98,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     );
   }
 
-  const { managed, sdkText, attachments, humanInput, onSendAccepted } = opts;
+  const { managed, sdkText, attachments, memberIds, onSendAccepted } = opts;
   const agentId = managed.info.id;
 
   // 1. Claim the turn lifecycle immediately. Concurrent ingress (sendMessage,
@@ -108,7 +110,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // sendMessage's existing early-echo beginTurn at the top of the function
   // remains harmless when runAgentTurn re-enters from the bottom of the
   // same call.
-  deps.beginTurn(agentId, { humanInput });
+  deps.beginTurn(agentId, { memberIds });
 
   // A signed-out engine can only fail at its provider: Codex retries five
   // times per attempt and then reports a raw 401. Stop before the send.

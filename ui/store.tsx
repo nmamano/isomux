@@ -34,7 +34,7 @@ import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
 import {
   ATTENTION_STATES,
   endsTurn,
-  turnEndNotifies,
+  turnEndMembers,
 } from "../shared/turn-end.ts";
 import type {
   AgentInfo,
@@ -869,27 +869,25 @@ export function reducer(state: AppState, action: Action): AppState {
           workingSince.delete(action.agentId);
         }
       }
-      // Mark as needing attention if state changed to an attention state
-      // and the user is not currently viewing this agent
+      // A turn end may set Unread and sound the turn-end sound.
       if (action.changes.state && ATTENTION_STATES.has(action.changes.state)) {
         const prevAgent = state.agents.find((a) => a.id === action.agentId);
         const wasWorking =
           prevAgent && endsTurn(prevAgent.state, action.changes.state);
         let soundTrigger = state.soundTrigger;
         if (wasWorking) {
-          // Sound: only fire when the turn that's ending originated from a
-          // human message. Pure agent-to-agent traffic (one agent pings
-          // another, the receiver answers and idles) stays silent - see
-          // turnHadHumanInput on the server side.
-          if (turnEndNotifies(prevAgent, action.changes.state)) {
+          // Unread badge and sound: only for a turn this member started, so
+          // traffic between agents and other members' turns stay quiet. The
+          // badge also needs the member not to be viewing the agent.
+          const selfId = state.sessionContext?.userId ?? null;
+          const mine =
+            selfId !== null &&
+            turnEndMembers(prevAgent, action.changes.state).includes(selfId);
+          if (mine) {
             const roomId = prevAgent.roomId;
             soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
-          }
-          // Badge: only when not viewing this agent. Set regardless of input
-          // source - the dot is a "this agent stopped, you might want to
-          // look" cue, distinct from the audible nudge.
-          if (state.focusedAgentId !== action.agentId) {
-            needsAttention.add(action.agentId);
+            if (state.focusedAgentId !== action.agentId)
+              needsAttention.add(action.agentId);
           }
         }
         return {
