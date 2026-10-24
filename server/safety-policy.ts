@@ -854,10 +854,10 @@ const OWN_PID_VARIABLE =
 const OTHER_EXPANSION =
   /\$\{[^}]*\}|\$\(\)|``|\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?!-])/g;
 const ENVIRON_REASON =
-  `Refused: another process's environment can hold other agents' office tokens ` +
+  `Another process's environment can hold other agents' office tokens ` +
   `and secrets. Read your own at /proc/self/environ.`;
 const PROC_SEARCH_REASON =
-  `Refused: a recursive search of / or /proc reads other processes' environments, ` +
+  `A recursive search of / or /proc reads other processes' environments, ` +
   `which can hold other agents' office tokens and secrets.`;
 
 /** The first `{a,b}` group of a word: its bounds and its alternatives. */
@@ -2932,7 +2932,7 @@ function checkBashSafety(
 
   if (usesAdminSocket(command)) {
     return denyMessage(
-      `Refused: the isomux admin socket mints owner sign-in links, and an ` +
+      `The isomux admin socket mints owner sign-in links, and an ` +
         `agent may not use it. This text check covers recognized command ` +
         `forms only.`,
       command,
@@ -2942,7 +2942,7 @@ function checkBashSafety(
   const tunnel = checkOutboundTunnel(command);
   if (tunnel) {
     return denyMessage(
-      `Refused: \`${tunnel.form}\` (an agent may not open a tunnel). ` +
+      `An agent may not open a tunnel (\`${tunnel.form}\`). ` +
         `This text check covers recognized command forms only; a renamed binary ` +
         `or interpreter can bypass it.`,
       command,
