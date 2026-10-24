@@ -1,9 +1,6 @@
 // The restart, at the provider.
 
 import { afterEach, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { rebootHandler } from "./reboot.ts";
 import { type AssetRow } from "./store.ts";
 import {
@@ -15,13 +12,8 @@ import { RemoteBudget, type HandlerContext } from "./tick.ts";
 import { RemoteTimeoutError } from "./ssh.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 
-const temps: string[] = [];
-
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
@@ -31,8 +23,6 @@ interface Bed {
 }
 
 async function bed(withAsset: boolean): Promise<Bed> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-reboot-"));
-  temps.push(dir);
   const store = await openTestStore();
   const instance = await store.createInstance({
     id: "inst-1",
@@ -213,19 +203,14 @@ test("a throw is rethrown for the ticker, and audited as ambiguous", async () =>
       throw new RemoteTimeoutError("killed");
     },
   });
+  // The ticker reads this flag to decide what a killed child means. A reboot
+  // that timed out may well have been applied, and repeating it would restart
+  // somebody's office a second time.
+  expect(handler.timeoutIsRetryable).toBe(false);
   expect(handler.run(b.ctx)).rejects.toThrow("killed");
   // The call was ISSUED. "failed" would be a claim that nothing happened.
   expect(b.audits).toEqual([
     "reboot:started:provider 203474835",
     "reboot:ambiguous:killed",
   ]);
-});
-
-test("a timeout is never retryable: a restart is a mutation", async () => {
-  // The ticker reads this flag to decide what a killed child means. A reboot
-  // that timed out may well have been applied, and repeating it would restart
-  // somebody's office a second time.
-  expect(rebootHandler({ reboot: async () => {} }).timeoutIsRetryable).toBe(
-    false,
-  );
 });

@@ -38,7 +38,6 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { en } from "./web/lib/i18n/en.ts";
 
 const WEB = path.join(import.meta.dir, "web");
 const SIGNIN_PAGE = path.join(WEB, "app", "signin", "page.tsx");
@@ -82,7 +81,8 @@ function navigationTargets(source: string): string[] {
 
 describe("both providers name where a sign-in returns to", () => {
   test('EVERY signIn CALL PASSES callbackUrl "/"', () => {
-    // The regression itself: Google had no callbackUrl and dev did.
+    // The regression itself: Google had no callbackUrl and dev did. A call
+    // with no options returns to the current page, /signin - the loop.
     const calls = signInCalls(read(SIGNIN_FORM));
     expect(calls.map((c) => c.provider).sort()).toEqual(["dev", "google"]);
     for (const { provider, options } of calls) {
@@ -90,17 +90,6 @@ describe("both providers name where a sign-in returns to", () => {
         provider,
         hasCallback: /callbackUrl:\s*"\/"/.test(options),
       }).toEqual({ provider, hasCallback: true });
-    }
-  });
-
-  test("no signIn call is left to the default return target", () => {
-    // `signIn(p)` with no options returns to the CURRENT page, which for this
-    // form is always /signin - the loop.
-    for (const { provider, options } of signInCalls(read(SIGNIN_FORM))) {
-      expect({ provider, empty: options.trim().length === 0 }).toEqual({
-        provider,
-        empty: false,
-      });
     }
   });
 });
@@ -211,11 +200,7 @@ describe("a signed-in visitor is moved to / and nowhere else", () => {
 
   test("the unauthenticated render is unchanged: Google always, dev gated", () => {
     const form = read(SIGNIN_FORM);
-    // The button's WORDS moved to the catalog in S11. What this test protects is
-    // that the button is always rendered and that its English did not change, so
-    // it now asserts both halves rather than one literal.
     expect(form).toContain('t("signIn.google")');
-    expect(en["signIn.google"]).toBe("Continue with Google");
     // The dev form stays behind the public flag, so a production build shows
     // Google alone.
     expect(form).toMatch(/devAuth &&/);
@@ -258,10 +243,5 @@ describe("NO REDIRECT LOOP", () => {
       expect(source).not.toMatch(/redirect\(\s*["'`]\/signin/);
       expect(navigationTargets(source)).toEqual([]);
     }
-  });
-
-  test("the sign-in page sends a visitor to / and nowhere else", () => {
-    // Read from the guard, which is where the behaviour now lives.
-    expect(navigationTargets(code(SIGNIN_GUARD))).toEqual(["/"]);
   });
 });

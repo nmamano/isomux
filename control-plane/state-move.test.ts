@@ -211,20 +211,17 @@ describe("the export refuses", () => {
     expect(out.stderr).not.toContain("run-revoked");
   });
 
-  test.each(["prepared", "reinstall_requested", "first_contact_done"])(
-    "while a run is %s",
-    (state) => {
-      const f = fixture();
-      f.clear();
-      write(
-        path.join(f.root, "runs", "run-other.json"),
-        f.run("run-other", state),
-      );
-      const out = runExport(f.data);
-      expect(out.code).toBe(1);
-      expect(out.stderr).toContain("run-other");
-    },
-  );
+  test("while a run is only prepared", () => {
+    const f = fixture();
+    f.clear();
+    write(
+      path.join(f.root, "runs", "run-other.json"),
+      f.run("run-other", "prepared"),
+    );
+    const out = runExport(f.data);
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain("run-other");
+  });
 
   test("while a run record is unreadable", () => {
     const f = fixture();
@@ -419,12 +416,16 @@ describe("the round trip", () => {
 });
 
 describe("the import refuses, and writes nothing", () => {
+  // One export serves every case: each one only reads it.
+  let cached: { doc: StateExport; text: string } | null = null;
   function exported(): { doc: StateExport; text: string } {
+    if (cached) return cached;
     const f = fixture();
     f.clear();
     const out = runExport(f.data);
     expect(out.code).toBe(0);
-    return { doc: JSON.parse(out.stdout) as StateExport, text: out.stdout };
+    cached = { doc: JSON.parse(out.stdout) as StateExport, text: out.stdout };
+    return cached;
   }
 
   test.each<[string, (d: Record<string, unknown>) => void]>([

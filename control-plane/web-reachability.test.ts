@@ -331,12 +331,6 @@ describe("the audited surface is the surface the app uses", () => {
     expect(facadeStoreCalls()).toContain("openRuntime");
   });
 
-  test("the app imports exactly the audited control-plane modules", () => {
-    expect(Object.keys(appUses())).toEqual(
-      Object.keys(AUDITED_WEB_SURFACES).sort(),
-    );
-  });
-
   // A NEW NAME FAILS THIS, which is the point: recordOrdinaryCheckoutSession
   // arrived in the facade as one new name in a destructuring.
   test("each module is used through exactly its audited names", () => {

@@ -19,11 +19,8 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { PROVISIONER_GRANTS, type TableGrant } from "./roles.ts";
 import {
-  migrateCertificateContactColumns,
-  migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
-  migratePendingCheckoutColumns,
   migrateWelcomeMailsTable,
 } from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
@@ -78,6 +75,17 @@ async function bootstrappedAndRole(
   return { ownerDsn, roleDsn, schema: schemaOf(ownerDsn) };
 }
 
+/** "opened", or the refusal's message. A store that opens is closed. */
+async function openOrRefusal(dsn: string): Promise<string> {
+  return await Store.openRuntime(dsn).then(
+    async (store) => {
+      await store.close();
+      return "opened";
+    },
+    (err: Error) => err.message,
+  );
+}
+
 /**
  * The provisioner's matrix MINUS `stripe_events`, so the no-privilege case has
  * a table to stand on.
@@ -95,12 +103,6 @@ const GRANTS_WITHOUT_STRIPE_EVENTS = PROVISIONER_GRANTS.filter(
 );
 
 suite("the schema check reads the catalog, not the privilege view", () => {
-  test("a least-privileged role opens a database that is actually current", async () => {
-    const { roleDsn } = await bootstrappedAndRole();
-    const store = await Store.openRuntime(roleDsn);
-    await store.close();
-  });
-
   test("a least-privileged role refuses the legacy account uniqueness constraint", async () => {
     const { ownerDsn, roleDsn } = await bootstrappedAndRole();
     const owner = new pg.Pool({ connectionString: ownerDsn, max: 1 });
@@ -193,55 +195,32 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     );
   });
 
-  test("a missing column on a GRANTED table refuses", async () => {
+  // One schema, each column renamed away and back: the check reads names, so a
+  // renamed column is a missing one. owner-migrations.test.ts owns the repair.
+  test("each pinned column refuses by name when it is missing", async () => {
     const { roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `alter table ${quoteIdentifier(schema)}.operations drop column absolute_flagged`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /operations has no absolute_flagged column/,
-    );
-  });
-
-  test("the owner migration repairs the customer SSH carriage columns", async () => {
-    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `alter table ${quoteIdentifier(schema)}.instances drop column customer_ssh_key`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /instances has no customer_ssh_key column/,
-    );
-    await migrateCustomerSshKeyColumns(ownerDsn);
-    const store = await Store.openRuntime(roleDsn);
-    await store.close();
-  });
-
-  test("runtime refuses certificate-contact columns until the owner migration", async () => {
-    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `alter table ${quoteIdentifier(schema)}.instances drop column certificate_contact_next_check_at`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /instances has no certificate_contact_next_check_at column/,
-    );
-    await migrateCertificateContactColumns(ownerDsn);
-    await migrateCertificateContactColumns(ownerDsn);
-    const store = await Store.openRuntime(roleDsn);
-    await store.close();
-  });
-
-  test("runtime refuses pending Checkout columns until the owner migration", async () => {
-    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `alter table ${quoteIdentifier(schema)}.name_reservations drop column checkout_session_id`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /name_reservations has no checkout_session_id column/,
-    );
-    await migratePendingCheckoutColumns(ownerDsn);
-    await migratePendingCheckoutColumns(ownerDsn);
-    const store = await Store.openRuntime(roleDsn);
-    await store.close();
+    for (const [table, column] of [
+      ["operations", "absolute_flagged"],
+      ["accounts", "is_operator"],
+      ["instances", "customer_ssh_key"],
+      ["instances", "certificate_contact_next_check_at"],
+      ["name_reservations", "checkout_session_id"],
+      ["subscriptions", "ended_at"],
+      ["subscriptions", "canceled_at"],
+      ["subscriptions", "cancellation_reason"],
+      ["subscriptions", "cancellation_policy"],
+    ]) {
+      const t = `${quoteIdentifier(schema)}.${table}`;
+      await admin.query(`alter table ${t} rename column ${column} to gone`);
+      const refusal = await openOrRefusal(roleDsn);
+      await admin.query(`alter table ${t} rename column gone to ${column}`);
+      expect([column, refusal]).toEqual([
+        column,
+        expect.stringContaining(`${table} has no ${column} column`),
+      ]);
+    }
+    // Every rename was undone, so the same schema opens again.
+    expect(await openOrRefusal(roleDsn)).toBe("opened");
   });
 
   test("runtime refuses a missing welcome series table until the owner migration", async () => {
@@ -256,24 +235,6 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     expect(refusal).toContain("has no welcome_mails table");
     await migrateWelcomeMailsTable(ownerDsn);
     await migrateWelcomeMailsTable(ownerDsn);
-    const store = await Store.openRuntime(roleDsn);
-    await store.close();
-  });
-
-  test("runtime refuses cancellation schema before the owner migration", async () => {
-    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `drop index ${quoteIdentifier(schema)}.provider_assets_provider_id_unique`,
-    );
-    await admin.query(
-      `alter table ${quoteIdentifier(schema)}.subscriptions drop column cancellation_policy`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /subscriptions has no cancellation_policy column/,
-    );
-    await migrateHostedCancellationPolicy(ownerDsn, {
-      cutover: 1_786_579_200_000,
-    });
     const store = await Store.openRuntime(roleDsn);
     await store.close();
   });
@@ -299,51 +260,24 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     expect(result.rows[0]?.value).toBe("111");
   });
 
-  // THE ONE THE FIRST FIX STILL MISSED. `name_reservations` has no entry in the
-  // required-COLUMN list, so a check whose table set came from that list never
-  // asked about it - and it is the very table the 2026-08-12 incident was
-  // about: the provisioner would boot cleanly and fail on the first invite.
-  // Existence is asked of the whole product roster for this reason.
-  test("a table with no version column of its own must still be there", async () => {
-    const { roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `drop table ${quoteIdentifier(schema)}.name_reservations cascade`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /has no name_reservations table/,
-    );
-  });
-
   // Every table in the roster, one at a time: a roster entry that is never
-  // asked about is the defect above wearing a different table's name.
+  // asked about is a boot that works and a first use that fails - the shape of
+  // the 2026-08-12 incident, on `name_reservations`, a table with no required
+  // column of its own. A missing table used to pass for everyone: it answers
+  // zero columns exactly as an unprivileged one does.
   test("every table in the product roster is asked about", async () => {
-    for (const table of PRODUCT_TABLES) {
-      const { roleDsn, schema } = await bootstrappedAndRole();
-      await admin.query(
-        `drop table ${quoteIdentifier(schema)}.${quoteIdentifier(table)} cascade`,
-      );
-      const refusal = await Store.openRuntime(roleDsn).then(
-        () => "opened",
-        (err: Error) => err.message,
-      );
-      expect([table, refusal.includes(`has no ${table} table`)]).toEqual([
-        table,
-        true,
-      ]);
-      await releaseTestStores();
-    }
-  }, 60_000);
-
-  // A MISSING TABLE USED TO PASS, for everyone: it answers zero columns exactly
-  // as an unprivileged one does, and the old guard read that as "not ours".
-  test("a required table that is not there refuses", async () => {
     const { roleDsn, schema } = await bootstrappedAndRole();
-    await admin.query(
-      `drop table ${quoteIdentifier(schema)}.subscriptions cascade`,
-    );
-    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
-      /has no subscriptions table/,
-    );
+    const q = quoteIdentifier(schema);
+    for (const table of PRODUCT_TABLES) {
+      await admin.query(`alter table ${q}.${table} rename to gone`);
+      const refusal = await openOrRefusal(roleDsn);
+      await admin.query(`alter table ${q}.gone rename to ${table}`);
+      expect([table, refusal]).toEqual([
+        table,
+        expect.stringContaining(`has no ${table} table`),
+      ]);
+    }
+    expect(await openOrRefusal(roleDsn)).toBe("opened");
   });
 
   // A VIEW IS NOT A TABLE. Something carrying the right name and the right
@@ -364,7 +298,7 @@ suite("the schema check reads the catalog, not the privilege view", () => {
 
   // The check runs on the runtime path, which may write NOTHING - not a table,
   // not an index, not the audit seed.
-  test("the check writes nothing on the way through", async () => {
+  test("a least-privileged role opens a current database, and the check writes nothing", async () => {
     const { roleDsn, schema } = await bootstrappedAndRole();
     const before = await admin.query<{ n: string }>(
       "select count(*)::text as n from pg_class c join pg_namespace n " +

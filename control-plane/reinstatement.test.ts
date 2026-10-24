@@ -201,20 +201,12 @@ describe("retained-office reinstatement", () => {
     ).toMatchObject({ ok: false, code: "no_customer_access" });
   });
 
-  test("any deletion row and the exact boundary refuse before Checkout", async () => {
+  // The exact boundary is "a retention period that has ended" below.
+  test("any deletion row refuses before Checkout", async () => {
     const f = await fixture();
     const closed = (await f.store.sqlGet<SubscriptionRow>(
       "select * from subscriptions where id='sub-old'",
     ))!;
-    f.c.set(ENDED + RETENTION_MS);
-    expect(
-      await checkReinstatementEligibility(f.store, {
-        reservation: f.reservation.reservation,
-        closed,
-        now: f.c.now(),
-      }),
-    ).toMatchObject({ ok: false, code: "too_late" });
-    f.c.set(ENDED + 1);
     await f.store.enqueue({
       id: "ever-existed",
       instance_id: f.instanceId,

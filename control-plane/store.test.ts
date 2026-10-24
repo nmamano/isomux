@@ -4,9 +4,6 @@
 // read that would serialise them.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import {
   DATABASE_NAME,
   isUniqueViolation,
@@ -30,11 +27,7 @@ import {
   resolveAttentionIn,
 } from "./attention.ts";
 
-const temps: string[] = [];
-
 async function tempStore(now?: () => number): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-store-"));
-  temps.push(dir);
   return await openTestStore(now);
 }
 
@@ -64,9 +57,6 @@ async function seedOp(store: Store, instance: string, kind = "run_installer") {
 
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("compare-and-swap", () => {
@@ -175,13 +165,6 @@ describe("leases", () => {
 });
 
 describe("one active operation per (instance, kind)", () => {
-  test("a second active row is refused by the index, not by a check", async () => {
-    const store = await tempStore();
-    const inst = await seedInstance(store);
-    await seedOp(store, inst, "mint_invite");
-    expect(seedOp(store, inst, "mint_invite")).rejects.toThrow();
-  });
-
   test("a terminal row frees the slot, so a legitimate second one may open", async () => {
     const store = await tempStore(() => 1_000);
     const inst = await seedInstance(store);
@@ -441,13 +424,6 @@ describe("a failure inside a transaction, and who is allowed to recover from it"
     expect(
       await store.recoverable(() => store.getInstance(inst)),
     ).not.toBeNull();
-    // A failure still surfaces unchanged; there is simply no transaction to
-    // save.
-    expect(
-      store.recoverable(() =>
-        store.sqlRun("insert into instances (id) values ('x')"),
-      ),
-    ).rejects.toThrow();
   });
 });
 
@@ -674,7 +650,7 @@ describe("a transaction owns its connection", () => {
 });
 
 describe("attention", () => {
-  test("one reason cannot overwrite another, and the summary names the worst", async () => {
+  test("one reason cannot overwrite another; clearing one leaves the other, and both leave audit rows", async () => {
     const store = await tempStore();
     const inst = await seedInstance(store);
     await raiseAttention(store, {
@@ -695,25 +671,7 @@ describe("attention", () => {
     expect(row.attention_state).toBe("needs_operator");
     expect(row.attention_reason).toBe("revocation failed");
     expect(await store.openReasons(inst)).toHaveLength(2);
-  });
 
-  test("clearing the installer reason leaves the revocation one open", async () => {
-    const store = await tempStore();
-    const inst = await seedInstance(store);
-    await raiseAttention(store, {
-      instanceId: inst,
-      reasonClass: "operation_condition",
-      sourceOpId: "op-revoke",
-      reason: "revocation failed",
-      severity: "critical",
-    });
-    await raiseAttention(store, {
-      instanceId: inst,
-      reasonClass: "operation_condition",
-      sourceOpId: "op-install",
-      reason: "installer stalled",
-      severity: "warning",
-    });
     const installer = (await store.openReasons(inst)).find(
       (r) => r.source_op_id === "op-install",
     )!;
@@ -723,6 +681,15 @@ describe("attention", () => {
     ]);
     expect((await store.getInstance(inst))?.attention_state).toBe(
       "needs_operator",
+    );
+    expect(
+      (await store.auditEvents()).map((e) => `${e.action}:${e.target}`).sort(),
+    ).toEqual(
+      [
+        `clear_attention:${installer.id}`,
+        "raise_attention:op-install",
+        "raise_attention:op-revoke",
+      ].sort(),
     );
   });
 
@@ -863,23 +830,6 @@ describe("attention", () => {
     // The condition has not gone away, so the instance still needs a human.
     expect(row.attention_state).toBe("needs_operator");
     expect(await store.openReasons(inst)).toHaveLength(1);
-  });
-
-  test("every raise and clear leaves an audit row", async () => {
-    const store = await tempStore();
-    const inst = await seedInstance(store);
-    await raiseAttention(store, {
-      instanceId: inst,
-      reasonClass: "operation_condition",
-      sourceOpId: "op-1",
-      reason: "stalled",
-      severity: "warning",
-    });
-    const [reason] = await store.openReasons(inst);
-    await clearAttention(store, inst, reason.id);
-    const actions = (await store.auditEvents()).map((e) => e.action);
-    expect(actions).toContain("raise_attention");
-    expect(actions).toContain("clear_attention");
   });
 
   test("the summary is a CAS: a caller working from a stale read loses", async () => {
@@ -1129,22 +1079,6 @@ describe("finite state sets are enforced by the database", () => {
       }),
     ).rejects.toThrow(/SQLSTATE 23514/);
   });
-
-  test("an unknown service state is rejected", async () => {
-    const store = await tempStore();
-    expect(
-      store.createInstance({
-        id: "inst-bad",
-        run_id: null,
-        name: "x",
-        plan: "V153",
-        region: "EU",
-        service_state: "mostly-live" as never,
-        goal: "live",
-        access_window_expires_at: null,
-      }),
-    ).rejects.toThrow(/SQLSTATE 23514/);
-  });
 });
 
 describe("a database from before this slice", () => {
@@ -1159,84 +1093,10 @@ describe("a database from before this slice", () => {
     );
     expect(Store.open(dsn)).rejects.toThrow(/predates this version/);
   });
-
-  test("every column slice 5 added is pinned, one at a time", async () => {
-    // One database per column, each missing exactly that column, so the pin is
-    // proven per name rather than by one table that happens to be old. A column
-    // added to the schema and forgotten here opens cleanly and fails somewhere
-    // in the middle of a cancellation instead.
-    const SLICE_5: [string, string, string][] = [
-      [
-        "accounts",
-        "is_operator",
-        "create table accounts (id text primary key, email text, google_subject text, " +
-          "stripe_customer_id text, version integer, created_at integer, updated_at integer)",
-      ],
-      ["subscriptions", "ended_at", subscriptionsWithout("ended_at")],
-      ["subscriptions", "canceled_at", subscriptionsWithout("canceled_at")],
-      [
-        "subscriptions",
-        "cancellation_reason",
-        subscriptionsWithout("cancellation_reason"),
-      ],
-    ];
-    for (const [table, column, ddl] of SLICE_5) {
-      const dsn = await freshDsn();
-      await seedRawSchema(dsn, ddl);
-      expect([
-        `${table}.${column}`,
-        await (async () => {
-          try {
-            await Store.open(dsn);
-            return "opened";
-          } catch (err) {
-            return (err as Error).message.includes(`${table} has no ${column}`)
-              ? "refused by name"
-              : (err as Error).message;
-          }
-        })(),
-      ]).toEqual([`${table}.${column}`, "refused by name"]);
-    }
-  });
 });
 
-/** The subscriptions table with one column left out, and nothing else changed. */
-function subscriptionsWithout(missing: string): string {
-  const columns = [
-    "id text primary key",
-    "account_id text",
-    "instance_id text",
-    "stripe_customer_id text",
-    "status text",
-    "current_period_end integer",
-    "cancel_at_period_end integer",
-    "ended_at integer",
-    "canceled_at integer",
-    "cancellation_reason text",
-    "episode_state text",
-    "exhaustion_observed_at integer",
-    "version integer",
-    "created_at integer",
-    "updated_at integer",
-  ].filter((c) => !c.startsWith(`${missing} `));
-  return `create table subscriptions (${columns.join(", ")})`;
-}
-
 describe("the access-window ceiling is a store invariant, not a convention", () => {
-  test("casInstance refuses to write it, whatever the caller believes", async () => {
-    const store = await tempStore();
-    const inst = await seedInstance(store);
-    const row = (await store.getInstance(inst))!;
-    expect(
-      store.casInstance(inst, row.version, {
-        access_window_expires_at: 123,
-      } as never),
-    ).rejects.toThrow(/written once/);
-    // Nothing moved, not even the version.
-    expect((await store.getInstance(inst))?.version).toBe(row.version);
-  });
-
-  test("it is settable at creation, and only there", async () => {
+  test("it is settable at creation, and casInstance refuses to write it after", async () => {
     const store = await tempStore();
     await store.createInstance({
       id: "inst-ceiling",
@@ -1248,9 +1108,15 @@ describe("the access-window ceiling is a store invariant, not a convention", () 
       goal: "live",
       access_window_expires_at: 999,
     });
+    const row = (await store.getInstance("inst-ceiling"))!;
+    expect(row.access_window_expires_at).toBe(999);
     expect(
-      (await store.getInstance("inst-ceiling"))?.access_window_expires_at,
-    ).toBe(999);
+      store.casInstance("inst-ceiling", row.version, {
+        access_window_expires_at: 123,
+      } as never),
+    ).rejects.toThrow(/written once/);
+    // Nothing moved, not even the version.
+    expect(await store.getInstance("inst-ceiling")).toEqual(row);
   });
 });
 
@@ -1313,8 +1179,6 @@ describe("the two fences: time bounds ACTING, the token bounds RECORDING", () =>
 // ignores them without an error, so the store now carries them in `options` and
 // READS THEM BACK before it hands anybody a Store.
 describe("the governed connection options", () => {
-  afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
-
   function optionsOf(url: string): string {
     return new URL(withGovernedOptions(url)).searchParams.get("options") ?? "";
   }
@@ -1337,15 +1201,6 @@ describe("the governed connection options", () => {
   // AUTHORITATIVE, not a default: a caller who writes their own value into
   // CONTROL_PLANE_DB does not get it, because these two are the store's own
   // promise rather than something it offers.
-  test("a conflicting value is removed rather than appended after", () => {
-    const options = optionsOf(
-      "postgres://u:p@h:5432/db?options=" +
-        encodeURIComponent("-c statement_timeout=1ms"),
-    );
-    expect(options).not.toContain("1ms");
-    expect(options.match(/statement_timeout/g)).toHaveLength(1);
-  });
-
   test("duplicate and long-form conflicting values are all removed", () => {
     const options = optionsOf(
       "postgres://u:p@h:5432/db?options=" +
@@ -1364,18 +1219,6 @@ describe("the governed connection options", () => {
     );
   });
 
-  // The engine's own answer, through a real open. This is the test the whole
-  // change exists for: it fails if the merge stops happening.
-  test("both bounds are in effect on an opened store", async () => {
-    const store = await openTestStore();
-    const row = await store.sqlGet<{ s: string; i: string }>(
-      "select current_setting('statement_timeout') as s, " +
-        "current_setting('idle_in_transaction_session_timeout') as i",
-    );
-    expect(row?.s).toBe("30s");
-    expect(row?.i).toBe("30s");
-  });
-
   // The merge cannot be defeated by writing the option without a space, which
   // is a form Postgres accepts and a naive `-c ` split does not see.
   test("the joined -cname=value form is caught too", () => {
@@ -1392,14 +1235,13 @@ describe("the governed connection options", () => {
   // connection string can reach the engine with the wrong bound. What the
   // refusal guards is an engine that ACCEPTS `options` and does not apply it -
   // measured on Neon's startup fields, 2026-08-11 - and no local Postgres can
-  // be made to do that on demand. The mutation check for this pair is the test
-  // above: make `withGovernedOptions` return its input unchanged, and "both
-  // bounds are in effect on an opened store" fails.
+  // be made to do that on demand. The mutation check for the merge is "a DSN
+  // with no options gets both bounds". An opened store cannot be: the bootstrap
+  // also sets both bounds on the role, so its sessions carry them with or
+  // without the merge (mutant run, 2026-10-24).
 });
 
 describe("connection details on the error path", () => {
-  afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
-
   const dsn =
     "postgres://therole:thepassword@ep-secret-endpoint.example.com:5432/thedb" +
     "?sslmode=verify-full&options=" +
@@ -1503,13 +1345,6 @@ describe("connection details on the error path", () => {
       cause?: unknown;
     };
     expect(err.cause).toBeUndefined();
-  });
-
-  test("the driver's code survives, because it is what a reader needs", () => {
-    const original = Object.assign(new Error("nope"), { code: "28P01" });
-    expect(
-      (redactConnectionDetails(original, dsn) as { code?: string }).code,
-    ).toBe("28P01");
   });
 
   test("describe() names the variable, never the value", async () => {

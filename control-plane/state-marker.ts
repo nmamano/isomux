@@ -64,7 +64,7 @@ export interface MarkerIo {
   replace(root: string, file: string, contents: string): void;
 }
 
-export const realMarkerIo: MarkerIo = {
+const realMarkerIo: MarkerIo = {
   read(file) {
     try {
       return fs.readFileSync(file, "utf8");

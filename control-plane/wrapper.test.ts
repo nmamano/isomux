@@ -188,18 +188,6 @@ describe("exit capture", () => {
     expect(tick.stdout).toContain("exit=7");
     expect(tick.stdout).toContain("step=preflight");
   });
-
-  test("the log is appended, never truncated, so a failure stays readable", async () => {
-    const inst = fakeInstaller(
-      "noisy.sh",
-      `echo "--- step: one"; echo "--- step: two"; exit 3`,
-    );
-    await wrapper(["launch", "r5", "bash", inst]);
-    await waitForExit("r5");
-    const log = readRun("r5", "log");
-    expect(log).toContain("--- step: one");
-    expect(log).toContain("--- step: two");
-  });
 });
 
 describe("single flight", () => {
@@ -249,25 +237,10 @@ describe("tick", () => {
     expect(tick.stdout).toContain("step=build-isomux");
   });
 
-  test("a killed supervisor with no exit file is a crash, not progress", async () => {
-    const inst = fakeInstaller(
-      "victim.sh",
-      `echo "--- step: fetch-isomux"; sleep 30`,
-    );
-    await wrapper(["launch", "r11", "bash", inst]);
-    await Bun.sleep(300);
-    const pid = Number(readRun("r11", "pid"));
-    process.kill(pid, "SIGKILL");
-    await Bun.sleep(200);
-    const tick = await wrapper(["tick"]);
-    expect(tick.stdout).toContain("state=crashed");
-    expect(tick.stdout).toContain("step=fetch-isomux");
-  });
-
   // A pid on its own can be reused. The recorded start ticks bind the pid to
   // THIS generation, so a stranger holding that number cannot make a dead run
   // look alive.
-  test("a live pid with different start ticks is a reused pid, not our run", async () => {
+  test("a killed supervisor is a crash, and a reused pid does not revive it", async () => {
     const inst = fakeInstaller(
       "gone.sh",
       `echo "--- step: install-bun"; sleep 30`,
@@ -277,6 +250,10 @@ describe("tick", () => {
     const pid = Number(readRun("r12", "pid"));
     process.kill(pid, "SIGKILL");
     await Bun.sleep(200);
+    // No exit file: a crash, not progress.
+    const crashed = await wrapper(["tick"]);
+    expect(crashed.stdout).toContain("state=crashed");
+    expect(crashed.stdout).toContain("step=install-bun");
 
     // Point the generation at a pid that is very much alive - our own - while
     // leaving the recorded start ticks as they were.

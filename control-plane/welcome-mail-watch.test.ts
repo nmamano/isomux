@@ -233,50 +233,57 @@ describe("skip and end", () => {
     ["payment past due", { sub: { status: "past_due" } }],
     ["office suspended", { state: "suspended" }],
   ];
-  for (const [label, opts] of SKIPS) {
-    test(`skipped, and the series goes on: ${label}`, async () => {
-      const store = await openTestStore(() => T0);
-      await account(store, "acct-s", "s@example.com");
-      await office(store, "inst-s", "acct-s", opts);
-      await store.recordFirstLive("inst-s", T0);
-      const { sent, send } = sender();
-      expect(
-        await watchWelcomeMail(store, {
-          apiKey: "k",
-          send,
-          postalAddress: POSTAL,
-        }),
-      ).toBe(0);
-      expect(sent).toEqual([]);
-      expect(await store.getWelcomeMail("inst-s")).toMatchObject({
-        next_step: 1,
-        next_due_at: T0 + WELCOME_MAIL_OFFSETS_MS[1],
-      });
-      expect(await audits(store, "inst-s")).toHaveLength(1);
-    });
-  }
-
   const ENDS: [string, Parameters<typeof office>[3]][] = [
     ["office deprovisioned", { state: "deprovisioned" }],
     ["subscription ended", { sub: { ended_at: T0 - 1, canceled_at: T0 - 2 } }],
     ["no subscription", { sub: null }],
   ];
-  for (const [label, opts] of ENDS) {
-    test(`the series ends: ${label}`, async () => {
-      const store = await openTestStore(() => T0);
-      await account(store, "acct-e", "e@example.com");
-      await office(store, "inst-e", "acct-e", opts);
-      await store.recordFirstLive("inst-e", T0);
-      const { sent, send } = sender();
-      await watchWelcomeMail(store, {
-        apiKey: "k",
-        send,
-        postalAddress: POSTAL,
-      });
-      expect(sent).toEqual([]);
-      expect((await store.getWelcomeMail("inst-e"))?.next_due_at).toBeNull();
+  // One pass over one office per case, each under its own account.
+  async function onePass(cases: [string, Parameters<typeof office>[3]][]) {
+    const store = await openTestStore(() => T0);
+    for (const [n, [, opts]] of cases.entries()) {
+      await account(store, `acct-${n}`, `${n}@example.com`);
+      await office(store, `inst-${n}`, `acct-${n}`, opts);
+      await store.recordFirstLive(`inst-${n}`, T0);
+    }
+    const { sent, send } = sender();
+    const handled = await watchWelcomeMail(store, {
+      apiKey: "k",
+      send,
+      postalAddress: POSTAL,
     });
+    return { store, sent, handled };
   }
+
+  test("each skip reason sends nothing, and the series goes on", async () => {
+    const { store, sent, handled } = await onePass(SKIPS);
+    expect(handled).toBe(0);
+    expect(sent).toEqual([]);
+    for (const [n, [label]] of SKIPS.entries()) {
+      expect([label, await store.getWelcomeMail(`inst-${n}`)]).toEqual([
+        label,
+        expect.objectContaining({
+          next_step: 1,
+          next_due_at: T0 + WELCOME_MAIL_OFFSETS_MS[1],
+        }),
+      ]);
+      expect([label, (await audits(store, `inst-${n}`)).length]).toEqual([
+        label,
+        1,
+      ]);
+    }
+  });
+
+  test("each end reason sends nothing, and the series is over", async () => {
+    const { store, sent } = await onePass(ENDS);
+    expect(sent).toEqual([]);
+    for (const [n, [label]] of ENDS.entries()) {
+      expect([
+        label,
+        (await store.getWelcomeMail(`inst-${n}`))?.next_due_at,
+      ]).toEqual([label, null]);
+    }
+  });
 
   test("a step more than 48 hours late is skipped; one within the window goes out", async () => {
     const c = clock(T0 + WELCOME_MAIL_STALE_MS + 1);

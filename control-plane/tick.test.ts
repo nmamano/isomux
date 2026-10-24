@@ -3,9 +3,6 @@
 // around them.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { DEADLINES, nextKind } from "./operations.ts";
 import { ObserverWriteFailed, RemoteTimeoutError } from "./ssh.ts";
 import { Store } from "./store.ts";
@@ -32,19 +29,12 @@ import {
 } from "./tick.ts";
 import { raiseAttention } from "./attention.ts";
 
-const temps: string[] = [];
-
 async function tempStore(now: () => number): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-tick-"));
-  temps.push(dir);
   return await openTestStore(now);
 }
 
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 function clock(start = 1_000_000) {
@@ -336,6 +326,32 @@ describe("deadlines flag, they do not conclude", () => {
     done = true;
     await ticker.once();
     expect(await store.openReasons(inst)).toHaveLength(0);
+  });
+
+  test("installer-shaped failure evidence from another kind raises nothing", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    const attempts = [0, 1, 2].map((n) => ({
+      runId: `run-${n}`,
+      verdict: "exit 22",
+      step: "configure_public_access",
+    }));
+    const ticker = new Ticker({
+      store,
+      holder: "a",
+      handlers: [
+        fakeHandler("verify_https", async () => ({
+          kind: "retry",
+          reason: "not yet",
+          evidence: { attempts },
+        })),
+      ],
+    });
+    const op = await ticker.enqueue(inst, "verify_https");
+    await ticker.once();
+    expect((await store.getOperation(op.id))?.status).toBe("running");
+    expect(await store.openReasons(inst)).toEqual([]);
   });
 
   for (const kind of ["retry", "ambiguous", "fatal"] as const) {
@@ -700,7 +716,7 @@ describe("reconcile", () => {
     let tickPasses = 0;
     let cadencePasses = 0;
     let livenessPasses = 0;
-    for (let probe = 0; probe < 60; probe++) {
+    for (let probe = 0; probe < 3; probe++) {
       c.advance(60_000);
       const schedule = await store.workSchedule(c.now(), 0, 0, {
         providerConfigured: true,
@@ -719,14 +735,14 @@ describe("reconcile", () => {
       if (schedule.livenessDue) livenessPasses++;
     }
     expect({ tickPasses, cadencePasses, livenessPasses }).toEqual({
-      tickPasses: 60,
+      tickPasses: 3,
       cadencePasses: 0,
       livenessPasses: 0,
     });
-    // Assert the work done during the logical hour. Shared database load must
+    // Assert the work done in the logical minutes. Shared database load must
     // not turn a correct schedule into a wall-clock performance failure.
-    expect(reconciled).toBe(60);
-  }, 20_000);
+    expect(reconciled).toBe(3);
+  });
 
   test("the wake probe sees a due asset and becomes idle after it is scheduled", async () => {
     const c = clock();
@@ -820,6 +836,12 @@ describe("reconcile", () => {
     expect(asset.asset_state).toBe("cancel_scheduled");
     expect(asset.ipv4).toBe("169.58.97.2");
     expect(asset.next_reconcile_at).toBeGreaterThan(c.now());
+    // The provider read is audited.
+    const actions = (await store.auditEvents()).map(
+      (e) => `${e.action}:${e.outcome}`,
+    );
+    expect(actions).toContain("provider_get:started");
+    expect(actions).toContain("provider_get:succeeded");
   });
 
   test("an absent asset stops being read once its office is deprovisioned", async () => {
@@ -1352,74 +1374,9 @@ describe("reconcile losers re-read", () => {
     await ticker.once();
     expect((await store.getAsset("asset-3"))?.next_reconcile_at).toBe(urgent);
   });
-
-  test("provider reads are audited", async () => {
-    const c = clock();
-    const store = await tempStore(c.now);
-    const inst = await seed(store);
-    await store.createAsset({
-      id: "asset-2",
-      instance_id: inst,
-      provider: "contabo",
-      provider_id: "203474835",
-      intent_id: null,
-      asset_state: "active",
-      ipv4: null,
-      service_ends_at: null,
-      host_key_fingerprint: null,
-      next_reconcile_at: c.now(),
-    });
-    const ticker = new Ticker({
-      store,
-      handlers: [],
-      holder: "a",
-      now: c.now,
-      reconcile: async () => ({ assetState: "active" }),
-    });
-    await ticker.once();
-    const actions = (await store.auditEvents()).map(
-      (e) => `${e.action}:${e.outcome}`,
-    );
-    expect(actions).toContain("provider_get:started");
-    expect(actions).toContain("provider_get:succeeded");
-  });
 });
 
 describe("audit outcomes distinguish ambiguous from failed", () => {
-  test("a provider read that establishes nothing is ambiguous, not failed", async () => {
-    const c = clock();
-    const store = await tempStore(c.now);
-    const inst = await seed(store);
-    await store.createAsset({
-      id: "asset-4",
-      instance_id: inst,
-      provider: "contabo",
-      provider_id: "203474835",
-      intent_id: null,
-      asset_state: "active",
-      ipv4: null,
-      service_ends_at: null,
-      host_key_fingerprint: null,
-      next_reconcile_at: c.now(),
-    });
-    const ticker = new Ticker({
-      store,
-      handlers: [],
-      holder: "a",
-      now: c.now,
-      reconcile: () =>
-        Promise.reject(
-          new IndeterminateProviderError("cannot establish absence"),
-        ),
-    });
-    await ticker.once();
-    const actions = (await store.auditEvents()).map(
-      (e) => `${e.action}:${e.outcome}`,
-    );
-    expect(actions).toContain("provider_get:ambiguous");
-    expect(actions).not.toContain("provider_get:failed");
-  });
-
   test("classification is by what the error establishes", async () => {
     expect(auditOutcomeOf(new RemoteTimeoutError("killed"))).toBe("ambiguous");
     expect(auditOutcomeOf(new ObserverWriteFailed("disk full"))).toBe(

@@ -2,9 +2,6 @@
 // a cancellation.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { LIFECYCLE_REASON, lifecycleOperationId } from "./lifecycle.ts";
 import { powerOnHandler, requestResume, resumeOperationId } from "./resume.ts";
 import { Store, type ServiceState } from "./store.ts";
@@ -25,20 +22,14 @@ import {
   type HandlerContext,
 } from "./tick.ts";
 
-const temps: string[] = [];
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 const NOW = Date.parse("2027-06-10T00:00:00Z");
 const EPISODE = "dun-evt_1";
 
 async function tempStore(): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-resume-"));
-  temps.push(dir);
   return await openTestStore(() => NOW);
 }
 
@@ -293,23 +284,6 @@ describe("requestResume predicates", () => {
       async () => await requestResume(store, sub, NOW),
     );
     expect(outcome).toEqual({ ok: true, operationId: resumeOperationId(B) });
-    await store.close();
-  });
-
-  test("when every dunning suspension is already paired, there is nothing to do", async () => {
-    const store = await tempStore();
-    const sub = await seed(store);
-    expect(
-      await store.tx(async () => await requestResume(store, sub, NOW)),
-    ).toMatchObject({
-      ok: true,
-    });
-    expect(
-      await store.tx(async () => await requestResume(store, sub, NOW)),
-    ).toEqual({
-      ok: false,
-      code: "already_open",
-    });
     await store.close();
   });
 

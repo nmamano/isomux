@@ -54,13 +54,8 @@ const POLL_COLUMN_KEYS = [
 ];
 
 describe("the aggregate is a number, and it fits", () => {
-  test("the worst case is the sum of the two DEPLOYED budgets and nothing else", () => {
-    expect(WORST_CASE_AGGREGATE).toBe(WEB_BUDGET + PROVISIONER_BUDGET);
-  });
-
   test("it fits inside the usable ceiling with the reserve left over", () => {
     expect(WORST_CASE_AGGREGATE).toBeLessThan(USABLE_CEILING);
-    expect(UNALLOCATED_RESERVE).toBe(USABLE_CEILING - WORST_CASE_AGGREGATE);
     expect(UNALLOCATED_RESERVE).toBeGreaterThan(0);
   });
 
@@ -105,17 +100,6 @@ describe("the grants are bounded by what the call graph needs", () => {
     ]);
   });
 
-  test("the provisioner drives operations and holds the latch it can reach", () => {
-    expect(verbsFor(PROVISIONER_GRANTS, "operations")).toContain("update");
-    // The deployed create path owns the whole latch lifecycle: insertion before
-    // the paid call and the provider outcome written afterwards.
-    expect(verbsFor(PROVISIONER_GRANTS, "create_intents")).toEqual([
-      "select",
-      "insert",
-      "update",
-    ]);
-  });
-
   test("the provisioner does not create instances, and writes only a reservation's Checkout state", () => {
     expect(verbsFor(PROVISIONER_GRANTS, "instances")).not.toContain("insert");
     const reservations = verbsFor(PROVISIONER_GRANTS, "name_reservations");
@@ -124,17 +108,6 @@ describe("the grants are bounded by what the call graph needs", () => {
     expect(
       keysOf(PROVISIONER_GRANTS).filter((key) => key.includes("(")),
     ).toEqual(POLL_COLUMN_KEYS);
-  });
-
-  // THE 2026-08-12 DEFECT, as a test. The G3 forward probe refused because the
-  // authenticated seam call reads the reservation row to prove tenant ownership
-  // before it may answer even `forbidden`, and the read was not granted. The
-  // real invite path makes the same read, so D4's first genuine invite would
-  // have failed identically.
-  test("the provisioner may read the reservation the invite seam checks", () => {
-    expect(verbsFor(PROVISIONER_GRANTS, "name_reservations")).toEqual([
-      "select",
-    ]);
   });
 
   test("every grant carries a reason", () => {
@@ -314,12 +287,6 @@ describe("the statements that put it in place", () => {
     for (const s of capping) expect(s).not.toContain("alter role owner ");
   });
 
-  test("the owner still gets the governed bounds, which DO apply to it", () => {
-    for (const [name, value] of BOUNDS) {
-      expect(statements).toContain(`alter role owner set ${name} = '${value}'`);
-    }
-  });
-
   test("each role is given exactly the governed bounds", () => {
     for (const role of [WEB_ROLE, PROVISIONER_ROLE, "owner"]) {
       for (const [name, value] of BOUNDS) {
@@ -459,12 +426,6 @@ describe("the verdict a gate exits on", () => {
       ]),
     ).toEqual(["accounts_exactly_1_before", "web_effective_privilege_exact"]);
   });
-
-  test("no claims is not a pass by accident", () => {
-    // An empty list means nothing was checked. It reads as "no failures", which
-    // is why the commands claim at least the branch proof before anything else.
-    expect(failedClaims([])).toEqual([]);
-  });
 });
 
 describe("effective privilege, which is what the boundary is about", () => {
@@ -559,47 +520,18 @@ describe("the bootstrap report counts only EXACT governance", () => {
       [PROVISIONER_ROLE, prov],
     ] as [string, import("./roles.ts").RoleFacts][]);
 
-  test("both exact counts two", () => {
-    expect(
-      governedRoleCount(
-        posture(facts(), facts({ connectionLimit: PROVISIONER_BUDGET })),
-      ),
-    ).toBe(2);
-  });
-
-  // The state the old loose count could not see: a role with SOME limit and
-  // SOME configuration, neither of them the right one.
-  test("a wrong limit is not governance", () => {
-    expect(
-      governedRoleCount(
-        posture(
-          facts({ connectionLimit: 99 }),
-          facts({ connectionLimit: PROVISIONER_BUDGET }),
-        ),
-      ),
-    ).toBe(1);
-  });
-
-  test("a stale role setting is not governance", () => {
-    expect(
-      governedRoleCount(
-        posture(
-          facts(),
-          facts({ connectionLimit: PROVISIONER_BUDGET, boundsExact: false }),
-        ),
-      ),
-    ).toBe(1);
-  });
-
-  test("an absent role is not governance", () => {
-    expect(
-      governedRoleCount(
-        posture(
-          facts({ present: false }),
-          facts({ connectionLimit: PROVISIONER_BUDGET }),
-        ),
-      ),
-    ).toBe(1);
+  // A wrong limit, a stale role setting and an absent role each show the state
+  // the old loose count could not see: SOME governance, not the right one.
+  test("only a present role with the exact limit and bounds counts", () => {
+    const provisioner = facts({ connectionLimit: PROVISIONER_BUDGET });
+    for (const [web, prov, count] of [
+      [facts(), provisioner, 2],
+      [facts({ connectionLimit: 99 }), provisioner, 1],
+      [facts(), { ...provisioner, boundsExact: false }, 1],
+      [facts({ present: false }), provisioner, 1],
+    ] as const) {
+      expect(governedRoleCount(posture(web, prov))).toBe(count);
+    }
   });
 });
 

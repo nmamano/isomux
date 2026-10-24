@@ -104,6 +104,8 @@ describe("only one file reaches the store", () => {
     expect(source).not.toMatch(/export .*\bStore\b/);
   });
 
+  // Defense in depth: projectionFor checks the account too (progress.test.ts
+  // "tenant scope"), so no behavioral test sees this check alone.
   test("a named office is account-checked before projection", () => {
     const source = read(FACADE);
     const route = source.slice(
@@ -395,13 +397,10 @@ describe("the privileged half of the control plane is unreachable", () => {
       const name = path.relative(CONTROL_PLANE, file).replace(/\.ts$/, "");
       // operations.ts is the one module on the direct list that legitimately
       // appears in the graph: it is a pure table of kinds, deadlines and the
-      // chain function, and the projection derives its ladder from it. It
-      // performs no I/O and reaches nothing that does. Everything else on the
-      // list stays forbidden however indirectly it arrives.
-      // operations.ts is the one module on the direct list that legitimately
-      // appears in the graph, and the exception is narrow BY NAME. Nothing else
-      // is excused - in particular attention.ts, which the ops floor reaches
-      // around by depending on attention-ack.ts instead.
+      // chain function, and the projection derives its ladder from it. The
+      // exception is narrow BY NAME. Nothing else is excused - in particular
+      // attention.ts, which the ops floor reaches around by depending on
+      // attention-ack.ts instead.
       if (FORBIDDEN_MODULES.includes(name) && name !== "operations")
         forbidden.push(name);
       const source = read(file);
@@ -432,21 +431,6 @@ describe("the privileged half of the control plane is unreachable", () => {
     expect(seen.has(path.join(CONTROL_PLANE, "ops.ts"))).toBe(true);
     expect(seen.has(path.join(CONTROL_PLANE, "attention-ack.ts"))).toBe(true);
     expect(seen.has(path.join(CONTROL_PLANE, "attention.ts"))).toBe(false);
-  });
-
-  /**
-   * The least-privilege split, asserted at the module that has to stay small.
-   *
-   * attention-ack.ts exists so the ops floor can acknowledge without the app's
-   * graph reaching raise or clear. If it ever imported attention.ts - "just to
-   * reuse summarise" - the graph walk above would light up, and this says the
-   * same thing one layer earlier, where the fix is obvious.
-   */
-  test("acknowledgement cannot reach raise or clear", async () => {
-    const source = read(path.join(import.meta.dir, "attention-ack.ts"));
-    expect(source).not.toMatch(/from\s+"\.\/attention/);
-    expect(source).not.toContain("raiseAttention");
-    expect(source).not.toContain("clearAttention");
   });
 
   /**

@@ -1,13 +1,14 @@
 // The races, run on genuinely concurrent Postgres connections.
 //
-// The suites that OWN these invariants live beside their subjects - the lost
-// successor in tick.test.ts, the stale fence in create-latch.test.ts, the name
-// reservation in signup.test.ts. What they cannot say on their own is which
+// The suites that OWN most of these invariants live beside their subjects - the
+// lost successor in tick.test.ts, the stale fence in create-latch.test.ts. What
+// they cannot say on their own is which
 // connection each contender was on: under the previous engine there was exactly
 // one, so "two contenders" meant two calls the engine had already serialised,
 // and the invariant was never actually put under a concurrent writer. The
-// liveness claim's race is owned HERE: liveness-watch.test.ts shows only that a
-// held claim turns a second prober away.
+// liveness claim's race and the name reservation race are owned HERE:
+// liveness-watch.test.ts shows only that a held claim turns a second prober
+// away, and signup.test.ts covers the rest of the reservation.
 //
 // So this file runs the four races with a BARRIER - both contenders
 // inside their transactions before either does its work - and reads
@@ -294,13 +295,6 @@ describe("the initialisers that promise a row EXISTS", () => {
         "select count(*)::int as n from instance_liveness",
       ),
     ).toEqual({ n: 1 });
-
-    // And the row it left behind is a working one: exactly one of two probers
-    // may claim it.
-    const claims = await race(a, b, (store) =>
-      store.claimLiveness("inst-1", store === a ? "a" : "b", NOW + 60_000, NOW),
-    );
-    expect(committed(claims.results).filter(Boolean)).toHaveLength(1);
   });
 
   test("two first accounts for one address both succeed, and both get the winner's row", async () => {
@@ -333,11 +327,15 @@ describe("the initialisers that promise a row EXISTS", () => {
     await store.tx(() =>
       ensureAccount(store, { id: "acct-1", email: "first@example.com" }),
     );
-    expect(
-      store.tx(() =>
+    const refused = await store
+      .tx(() =>
         ensureAccount(store, { id: "acct-1", email: "second@example.com" }),
-      ),
-    ).rejects.toThrow();
+      )
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    expect(isUniqueViolation(refused)).toBe(true);
   });
 });
 

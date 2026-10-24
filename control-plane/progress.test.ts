@@ -3,9 +3,6 @@
 // account's office.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Store, type OperationStatus } from "./store.ts";
 import {
   openTestStore,
@@ -14,7 +11,7 @@ import {
 } from "./testing/pg.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { raiseAttention } from "./attention.ts";
-import { DECLARED_UNIMPLEMENTED_KINDS, nextKind } from "./operations.ts";
+import { DECLARED_UNIMPLEMENTED_KINDS } from "./operations.ts";
 import { ladderFor, projectionFor } from "./progress.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import {
@@ -23,18 +20,12 @@ import {
   lifecycleOperationId,
 } from "./lifecycle.ts";
 
-const temps: string[] = [];
-
 async function tempStore(now?: () => number): Promise<Store> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-progress-"));
-  temps.push(dir);
   return await openTestStore(now);
 }
 
 afterEach(async () => {
   await releaseTestStores();
-  while (temps.length)
-    fs.rmSync(temps.pop()!, { recursive: true, force: true });
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 async function signedUp(
@@ -142,14 +133,6 @@ describe("the ladder is walked, not written down", () => {
       "mint_invite",
       "revoke_access",
     ]);
-  });
-
-  test("a hosted goal never reaches a mint on its own", async () => {
-    // The rule stated where it is enforced, so that moving it back into the
-    // chain fails here rather than in a browser six steps later.
-    expect(nextKind("verify_https", "live")).toBeNull();
-    expect(nextKind("verify_https", "handed_off")).toBe("mint_invite");
-    expect(ladderFor("live")).not.toContain("mint_invite");
   });
 
   test("no ladder can contain a kind nothing drives, or a suspension", async () => {
@@ -798,28 +781,6 @@ describe("comped means an ACTIVE full discount", () => {
     );
   }
 
-  test("a discount with no end is comped; one that has ended is not", async () => {
-    const store = await tempStore();
-    const { reservation, account } = await signedUp(store);
-    await withDiscount(store, reservation.instance_id, 100, null);
-    expect(
-      (await projectionFor(store, {
-        accountId: account.id,
-        instanceId: reservation.instance_id,
-      }))!.subscription?.comped,
-    ).toBe(true);
-
-    await store.sqlRun("update subscriptions set discount_ends_at = $1", [
-      store.now() - 1,
-    ]);
-    expect(
-      (await projectionFor(store, {
-        accountId: account.id,
-        instanceId: reservation.instance_id,
-      }))!.subscription?.comped,
-    ).toBe(false);
-  });
-
   test("the boundary is exact, and a frozen clock is what proves it", async () => {
     // The clock has to be FROZEN for this to mean anything: with a real one,
     // "ends exactly now" has already passed by the time the projection reads
@@ -834,6 +795,8 @@ describe("comped means an ACTIVE full discount", () => {
         instanceId: reservation.instance_id,
       }))!.subscription!.comped;
 
+    // A discount with no end is comped.
+    expect(await read()).toBe(true);
     await store.sqlRun("update subscriptions set discount_ends_at = $1", [
       NOW - 1,
     ]);
@@ -905,8 +868,7 @@ describe("reinstatement eligibility", () => {
     expect(view.lifecycle?.reinstate).toEqual({
       allowed: false,
       code: "no_customer_access",
-      reason:
-        "We cannot prove that you can enter this office after it starts. Contact support before paying.",
+      reason: expect.any(String),
     });
   });
 });

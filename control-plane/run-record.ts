@@ -65,7 +65,7 @@ export interface PreparedRunRecord {
 
 export type AnyRunRecord = RunRecord | PreparedRunRecord;
 
-export function runFile(dir: string, runId: string): string {
+function runFile(dir: string, runId: string): string {
   return path.join(dir, `${runId}.json`);
 }
 
@@ -124,7 +124,7 @@ export type ResumeAction =
  * would wipe a machine that may already be carrying the key we hold, and
  * minting a second key would strand the first one on it with no ceiling.
  */
-export function resumeAction(rec: RunRecord): ResumeAction {
+function resumeAction(rec: RunRecord): ResumeAction {
   switch (rec.state) {
     case "reinstall_requested":
       return "wait_for_ssh";

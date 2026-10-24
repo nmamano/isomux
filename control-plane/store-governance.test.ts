@@ -146,74 +146,53 @@ suite("a managed session takes its bounds from the role, or refuses", () => {
     await store.close();
   });
 
-  test("refuses when one of the two is missing from the role", async () => {
+  // THE ONE THAT MATTERS is the last row: a reverted ALTER ROLE, with a
+  // connection string that still asks for both bounds the old way. The session
+  // would report them correctly, and the deployment would look healthy while
+  // the guarantee that every session inherits them had quietly stopped being
+  // true.
+  test("refuses a role that does not carry exactly the governed pair", async () => {
     const dsn = await testDsn();
     schemas.push(schemaOf(dsn));
     await (await Store.open(dsn)).close();
-    const asRole = await roleDsn({
-      dsn,
-      config: ["statement_timeout=30s"],
-      managed: true,
-    });
-    expect(Store.openRuntime(asRole)).rejects.toThrow(/does not carry exactly/);
-  });
-
-  test("refuses a value that is not the one this build guarantees", async () => {
-    const dsn = await testDsn();
-    schemas.push(schemaOf(dsn));
-    await (await Store.open(dsn)).close();
-    const asRole = await roleDsn({
-      dsn,
-      config: [
-        "statement_timeout=45s",
-        "idle_in_transaction_session_timeout=30s",
+    for (const [config, extraOptions] of [
+      // One of the two is missing.
+      [["statement_timeout=30s"], undefined],
+      // A value that is not the one this build guarantees.
+      [
+        ["statement_timeout=45s", "idle_in_transaction_session_timeout=30s"],
+        undefined,
       ],
-      managed: true,
-    });
-    expect(Store.openRuntime(asRole)).rejects.toThrow(/does not carry exactly/);
-  });
-
-  test("refuses an EXTRA entry, because the posture is a set and not a floor", async () => {
-    const dsn = await testDsn();
-    schemas.push(schemaOf(dsn));
-    await (await Store.open(dsn)).close();
-    const asRole = await roleDsn({
-      dsn,
-      config: [...GOVERNED, "lock_timeout=5s"],
-      managed: true,
-    });
-    expect(Store.openRuntime(asRole)).rejects.toThrow(/does not carry exactly/);
-  });
-
-  // THE ONE THAT MATTERS. A reverted ALTER ROLE, with a connection string that
-  // still asks for both bounds the old way: the session would report them
-  // correctly, and the deployment would look healthy while the guarantee that
-  // every session inherits them had quietly stopped being true.
-  test("refuses a reverted role even when the DSN itself asks for the bounds", async () => {
-    const dsn = await testDsn();
-    schemas.push(schemaOf(dsn));
-    await (await Store.open(dsn)).close();
-    const asRole = await roleDsn({
-      dsn,
-      config: [],
-      managed: true,
-      extraOptions:
+      // An extra entry: the posture is a set, not a floor.
+      [[...GOVERNED, "lock_timeout=5s"], undefined],
+      // A reverted role, while the DSN asks for both bounds.
+      [
+        [],
         "-c statement_timeout=30s -c idle_in_transaction_session_timeout=30s",
-    });
-    expect(Store.openRuntime(asRole)).rejects.toThrow(/does not carry exactly/);
+      ],
+    ] as const) {
+      const asRole = await roleDsn({
+        dsn,
+        config: [...config],
+        managed: true,
+        extraOptions,
+      });
+      const refusal = await Store.openRuntime(asRole).then(
+        async (store) => {
+          await store.close();
+          return "opened";
+        },
+        (err: Error) => err.message,
+      );
+      expect([config, refusal]).toEqual([
+        config,
+        expect.stringMatching(/does not carry exactly/),
+      ]);
+    }
   });
 });
 
 suite("an unmanaged session keeps the mechanism it always had", () => {
-  test("opens against a database with no role configuration at all", async () => {
-    const store = await Store.open(await testDsn());
-    const bound = await store.sqlGet<{ v: string }>(
-      "select current_setting('statement_timeout') as v",
-    );
-    expect(bound?.v).toBe("30s");
-    await store.close();
-  });
-
   test("a role with no configuration still gets bounded sessions", async () => {
     const dsn = await testDsn();
     schemas.push(schemaOf(dsn));
@@ -229,14 +208,9 @@ suite("an unmanaged session keeps the mechanism it always had", () => {
 });
 
 suite("a runtime open reads the database and does not build it", () => {
-  test("refuses a database that was never bootstrapped", async () => {
+  test("refuses a database that was never bootstrapped, and creates no table", async () => {
     const dsn = await freshDsn();
-    expect(Store.openRuntime(dsn)).rejects.toThrow();
-  });
-
-  test("creates no table on a schema that has none", async () => {
-    const dsn = await freshDsn();
-    await Store.openRuntime(dsn).catch(() => {});
+    expect(Store.openRuntime(dsn)).rejects.toThrow(/has no \w+ table/);
     const schema = schemaOf(dsn);
     const tables = await admin.query<{ n: string }>(
       "select count(*)::text as n from pg_tables where schemaname = $1",

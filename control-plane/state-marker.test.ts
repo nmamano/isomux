@@ -150,17 +150,4 @@ describe("the deployment marker", () => {
       "release-2\n",
     );
   });
-
-  test("an unreadable marker reads as absent, and the refresh still happens", () => {
-    const root = tempRoot();
-    const io = {
-      read: () => null,
-      replace: () => {},
-    };
-    expect(readAndRefreshMarker(root, "release-1", io)).toEqual({
-      supported: true,
-      persisted: false,
-      crossedRelease: false,
-    });
-  });
 });

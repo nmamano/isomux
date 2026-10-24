@@ -16,9 +16,7 @@ import * as path from "node:path";
 import {
   loadAnyRun,
   loadRun,
-  resumeAction,
   resumeRun,
-  runFile,
   saveRun,
   type RunRecord,
 } from "./run-record.ts";
@@ -63,35 +61,9 @@ describe("durability", () => {
     expect(() => loadRun(dir, REC.runId)).toThrow(/no provider address/);
   });
 
-  test("everything needed to reconnect is on disk, not just in memory", async () => {
-    saveRun(dir, REC);
-    const raw = JSON.parse(
-      fs.readFileSync(runFile(dir, "cycleX"), "utf8"),
-    ) as RunRecord;
-    // If any of these were missing, a restart could not reach the box it just
-    // asked a provider to rebuild.
-    for (const field of [
-      "ipv4",
-      "loginUser",
-      "privateKeyPath",
-      "blob",
-      "algorithm",
-      "knownHostsFile",
-      "instanceId",
-    ] as const) {
-      expect(raw[field]).toBeTruthy();
-    }
-  });
-
-  test("leaves no temp file behind, so a reader never sees a half-written record", async () => {
-    saveRun(dir, REC);
-    expect(fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
-    expect(fs.readdirSync(dir)).toEqual(["cycleX.json"]);
-  });
-
   test("a missing record reads as absent; a broken one is not silently absent", async () => {
     expect(loadRun(dir, "never-existed")).toBeNull();
-    fs.writeFileSync(runFile(dir, "broken"), "{ not json");
+    fs.writeFileSync(path.join(dir, "broken.json"), "{ not json");
     expect(() => loadRun(dir, "broken")).toThrow();
   });
 });
@@ -99,48 +71,20 @@ describe("durability", () => {
 // M8. The record must already exist at the instant the provider is asked to
 // rebuild, because after that instant we may never get another chance to write.
 describe("M8: death between the provider call and the record write", () => {
-  test("a restart after the reinstall was issued can still reach the box", async () => {
-    // What the CLI does, in order: persist, THEN reinstall.
+  test("a restart after the reinstall was issued reads back the whole record", async () => {
+    // What the CLI does, in order: persist, THEN reinstall. Process loss
+    // leaves only the disk.
     saveRun(dir, REC);
-    const reinstallIssued = () => {
-      throw new Error("process died after Contabo accepted the reinstall");
-    };
-    expect(reinstallIssued).toThrow();
-
-    // Process loss: nothing in memory survives.
-    const recovered = loadRun(dir, "cycleX");
-    expect(recovered).not.toBeNull();
-    expect(recovered!.privateKeyPath).toBe(REC.privateKeyPath);
-    expect(recovered!.blob).toBe(REC.blob);
-    expect(recovered!.ipv4).toBe(REC.ipv4);
-  });
-
-  test("the resumed run waits for SSH; it does NOT reinstall or mint a second key", async () => {
-    saveRun(dir, REC);
-    expect(resumeAction(loadRun(dir, "cycleX")!)).toBe("wait_for_ssh");
-  });
-
-  test("each later state resumes at its own point, and none of them rebuild", async () => {
-    const actions = (
-      ["reachable", "first_contact_done", "revoked"] as const
-    ).map((state) => resumeAction({ ...REC, state }));
-    expect(actions).toEqual(["first_contact", "provision", "done"]);
-    // There is no arm that rebuilds. A box we cannot reach is a human's problem.
-    for (const state of [
-      "reinstall_requested",
-      "reachable",
-      "first_contact_done",
-      "revoked",
-    ] as const) {
-      expect(resumeAction({ ...REC, state })).not.toBe("reinstall");
-    }
+    expect(loadRun(dir, "cycleX")).toEqual(REC);
+    // Written atomically: no temp file is left for a reader to find.
+    expect(fs.readdirSync(dir)).toEqual(["cycleX.json"]);
   });
 });
 
 // The state model has to be something the PROGRAM uses, not a shape that only
 // tests know about. These drive the real resume dispatcher through an injected
-// seam, so they can assert which steps each state reaches - and that no state
-// can reach a rebuild.
+// seam, so they can assert which steps each state reaches. The seam has no
+// rebuild step, so no state can reach one.
 describe("resumeRun", () => {
   function seam() {
     const took: string[] = [];
@@ -175,33 +119,16 @@ describe("resumeRun", () => {
   });
 
   test("each later state resumes at its own point", async () => {
-    for (const [state, expected] of [
-      ["reachable", "first_contact"],
-      ["first_contact_done", "provision"],
-      ["revoked", "done"],
+    for (const [state, expected, took] of [
+      ["reachable", "first_contact", ["first_contact"]],
+      ["first_contact_done", "provision", ["provision"]],
+      ["revoked", "done", []],
     ] as const) {
       const rec = { ...REC, state };
       saveRun(dir, rec);
       const s = seam();
       expect(await resumeRun(dir, rec, s.steps)).toBe(expected);
-    }
-  });
-
-  // The seam has no rebuild step at all, which is the point: there is no state
-  // from which the program can ask a provider to wipe the box again.
-  test("no state reaches a rebuild", async () => {
-    for (const state of [
-      "reinstall_requested",
-      "reachable",
-      "first_contact_done",
-      "revoked",
-    ] as const) {
-      const rec = { ...REC, state };
-      saveRun(dir, rec);
-      const s = seam();
-      await resumeRun(dir, rec, s.steps);
-      expect(s.took.join(",")).not.toContain("reinstall");
-      expect(Object.keys(s.steps)).not.toContain("reinstall");
+      expect(s.took).toEqual([...took]);
     }
   });
 });

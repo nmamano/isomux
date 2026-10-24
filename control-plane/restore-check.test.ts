@@ -100,17 +100,11 @@ describe("the restore check", () => {
     expect(await attnumOf(source, "accounts", "kept")).toBe(
       (await attnumOf(copy, "accounts", "kept")) + 1,
     );
+    // The target's own identity does not count as a difference.
+    await writeDatabaseIdentity(copy, "target-identity-0001");
     const a = await fingerprint(source);
     expect(a.tables.accounts.rows).toBe(1);
     expect(compareFingerprints(a, await fingerprint(copy))).toEqual([]);
-  });
-
-  test("the target's own identity does not count as a difference", async () => {
-    const { source, copy } = await sourceAndCopy();
-    await writeDatabaseIdentity(copy, "target-identity-0001");
-    expect(
-      compareFingerprints(await fingerprint(source), await fingerprint(copy)),
-    ).toEqual([]);
   });
 
   test("a changed row, a missing row and a changed column are each named", async () => {

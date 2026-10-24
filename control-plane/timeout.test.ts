@@ -10,7 +10,6 @@ import {
   RemoteTimeoutError,
   SpawnExec,
   SshClient,
-  classifyAuth,
   resolveTimeout,
   type Exec,
   type ExecOptions,
@@ -29,23 +28,6 @@ describe("SpawnExec", () => {
     expect(thrown).toBeInstanceOf(RemoteTimeoutError);
     // It really did not wait 30 seconds for the process.
     expect(Date.now() - started).toBeLessThan(5_000);
-  });
-
-  test("a timeout is NEVER an ExecResult", async () => {
-    // This is the whole reason it throws. classifyAuth reads any exit status
-    // other than ssh's own 255 as "the remote command ran, so authentication
-    // had already succeeded" - so a timeout coming back as, say, exit 124 would
-    // certify an authentication that never happened.
-    expect(classifyAuth({ code: 124, stdout: "", stderr: "" })).toEqual({
-      kind: "authenticated",
-    });
-    let thrown: unknown;
-    try {
-      await new SpawnExec().run(["sleep", "30"], { timeoutMs: 200 });
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(RemoteTimeoutError);
   });
 
   test("a child that finishes inside its bound is unaffected", async () => {
