@@ -150,7 +150,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Browsable run history**: every run is preserved as a transcript.
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any schedule, independent of its timing.
-- **Agents can make schedules** too, in Bypass mode (Claude, OpenCode) or Never ask (Codex), since a schedule runs with nobody present. A schedule that an agent makes cannot have more access than the agent. Other agents ask you to create the schedule on the Schedules tab.
+- **Agents can make schedules** too, in Bypass mode (Never ask for Codex).
 - **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Automations page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet.
 - **Agent alerts** - a schedule can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
