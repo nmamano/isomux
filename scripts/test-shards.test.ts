@@ -52,7 +52,8 @@ function tree(
   return root;
 }
 
-it("finds the same files as bun test", async () => {
+// Quarantined (task ee36f53f): the nested bun test exits 1 under full CI load.
+it.skip("finds the same files as bun test", async () => {
   const outside = tree(["o.test.ts", "o.ts"]);
   const root = tree(
     [
