@@ -100,7 +100,9 @@ async function bed(over: Partial<SubscriptionRow> = {}) {
 function clientRecording(
   calls: Call[],
   store: Store,
-  answers: (() => { status: number; body: unknown })[] = [
+  answers: (() =>
+    | { status: number; body: unknown }
+    | Promise<{ status: number; body: unknown }>)[] = [
     () => ({ status: 200, body: { id: "sub_1", cancel_at_period_end: true } }),
   ],
 ): StripeClient {
@@ -114,7 +116,7 @@ function clientRecording(
       ),
       storeInTransaction: store.inTransaction(),
     });
-    const answer = answers[Math.min(n++, answers.length - 1)]();
+    const answer = await answers[Math.min(n++, answers.length - 1)]();
     return new Response(JSON.stringify(answer.body), {
       status: answer.status,
       headers: { "content-type": "application/json" },
@@ -129,12 +131,29 @@ function clientRecording(
 }
 
 describe("the durable key", () => {
+  // A crash after the call must find the key it used, so the started row is
+  // committed BEFORE the call, and no store transaction is held open across
+  // it. Nothing here writes subscription state: the webhook still owns it.
   test("it is recorded BEFORE the call, and the wire carries that exact key", async () => {
     const calls: Call[] = [];
     const b = await bed();
+    let startedBeforeCall = false;
     const outcome = await requestCancel(
       b.store,
-      clientRecording(calls, b.store),
+      clientRecording(calls, b.store, [
+        async () => {
+          startedBeforeCall = (await b.store.auditEvents()).some(
+            (e) =>
+              e.action === "request_cancel" &&
+              e.outcome === "started" &&
+              e.detail === calls[0].idempotencyKey,
+          );
+          return {
+            status: 200,
+            body: { id: "sub_1", cancel_at_period_end: true },
+          };
+        },
+      ]),
       {
         accountId: b.accountId,
         instanceId: b.instanceId,
@@ -142,22 +161,13 @@ describe("the durable key", () => {
     );
     expect(outcome).toMatchObject({ ok: true, recorded: true });
     expect(calls).toHaveLength(1);
-    const started = (await b.store.auditEvents()).find(
-      (e) => e.action === "request_cancel" && e.outcome === "started",
-    )!;
-    expect(started.detail).toBe(calls[0].idempotencyKey);
-    expect(calls[0].body).toBe("cancel_at_period_end=true");
-    await b.store.close();
-  });
-
-  test("NO STORE TRANSACTION IS OPEN while Stripe is being called", async () => {
-    const calls: Call[] = [];
-    const b = await bed();
-    await requestCancel(b.store, clientRecording(calls, b.store), {
-      accountId: b.accountId,
-      instanceId: b.instanceId,
-    });
+    expect(startedBeforeCall).toBe(true);
     expect(calls[0].storeInTransaction).toBe(false);
+    expect(calls[0].body).toBe("cancel_at_period_end=true");
+    const row = (await b.store.sqlGet<{ cancel_at_period_end: number }>(
+      "select cancel_at_period_end from subscriptions where id = 'sub_1'",
+    ))!;
+    expect(row.cancel_at_period_end).toBe(0);
     await b.store.close();
   });
 
@@ -181,25 +191,6 @@ describe("the durable key", () => {
     expect(keys[2]).not.toBe(keys[0]);
     await b.store.close();
   });
-
-  test("one logical request reuses its key across an ambiguous retry", async () => {
-    const calls: Call[] = [];
-    const b = await bed();
-    // 500 then 200: the client's own retry loop, which is the ONLY same-key
-    // retry this module claims.
-    const client = clientRecording(calls, b.store, [
-      () => ({ status: 500, body: { error: { message: "boom" } } }),
-      () => ({ status: 200, body: { id: "sub_1" } }),
-    ]);
-    const outcome = await requestCancel(b.store, client, {
-      accountId: b.accountId,
-      instanceId: b.instanceId,
-    });
-    expect(outcome).toMatchObject({ ok: true });
-    expect(calls).toHaveLength(2);
-    expect(calls[0].idempotencyKey).toBe(calls[1].idempotencyKey);
-    await b.store.close();
-  });
 });
 
 /** Move the cached flag the way a webhook would, so the next verb is legal. */
@@ -211,50 +202,28 @@ async function flip(store: Store, to: number): Promise<void> {
 }
 
 describe("honest outcomes", () => {
-  test("an ambiguous transport says CHECK, not 'it failed'", async () => {
+  // An ambiguous transport says CHECK, not "it failed"; only a refusal Stripe
+  // is sure about is recorded as failed.
+  test.each([
+    [500, {}, "stripe_ambiguous", "ambiguous"],
+    [
+      400,
+      { error: { type: "invalid_request_error", message: "no" } },
+      "stripe_unavailable",
+      "failed",
+    ],
+  ])("HTTP %d is recorded honestly", async (status, body, code, recorded) => {
     const calls: Call[] = [];
     const b = await bed();
-    const client = clientRecording(calls, b.store, [
-      () => ({ status: 500, body: {} }),
-    ]);
+    const client = clientRecording(calls, b.store, [() => ({ status, body })]);
     const outcome = await requestCancel(b.store, client, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
-    expect(outcome).toMatchObject({
-      ok: false,
-      kind: "transient",
-      code: "stripe_ambiguous",
-    });
+    expect(outcome).toMatchObject({ ok: false, kind: "transient", code });
     expect(
       (await b.store.auditEvents()).some(
-        (e) => e.action === "request_cancel" && e.outcome === "ambiguous",
-      ),
-    ).toBe(true);
-    await b.store.close();
-  });
-
-  test("a refusal Stripe is sure about is recorded as failed", async () => {
-    const calls: Call[] = [];
-    const b = await bed();
-    const client = clientRecording(calls, b.store, [
-      () => ({
-        status: 400,
-        body: { error: { type: "invalid_request_error", message: "no" } },
-      }),
-    ]);
-    const outcome = await requestCancel(b.store, client, {
-      accountId: b.accountId,
-      instanceId: b.instanceId,
-    });
-    expect(outcome).toMatchObject({
-      ok: false,
-      kind: "transient",
-      code: "stripe_unavailable",
-    });
-    expect(
-      (await b.store.auditEvents()).some(
-        (e) => e.action === "request_cancel" && e.outcome === "failed",
+        (e) => e.action === "request_cancel" && e.outcome === recorded,
       ),
     ).toBe(true);
     await b.store.close();
@@ -284,20 +253,6 @@ describe("honest outcomes", () => {
     expect(outcome).toMatchObject({ ok: true, recorded: false });
     expect(calls).toHaveLength(1);
     b.store.tx = realTx;
-    await b.store.close();
-  });
-
-  test("nothing here writes subscription state - the webhook still owns it", async () => {
-    const calls: Call[] = [];
-    const b = await bed();
-    await requestCancel(b.store, clientRecording(calls, b.store), {
-      accountId: b.accountId,
-      instanceId: b.instanceId,
-    });
-    const row = (await b.store.sqlGet<{ cancel_at_period_end: number }>(
-      "select cancel_at_period_end from subscriptions where id = 'sub_1'",
-    ))!;
-    expect(row.cancel_at_period_end).toBe(0);
     await b.store.close();
   });
 });

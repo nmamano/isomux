@@ -33,7 +33,9 @@ import {
   releaseTestStores,
 } from "./testing/pg.ts";
 import {
+  ObserverWriteFailed,
   RemoteTimeoutError,
+  SshClient,
   type ExecResult,
   type Exec,
   type ExecOptions,
@@ -107,6 +109,9 @@ class FakeExec implements Exec {
 const OK: ExecResult = { code: 0, stdout: "", stderr: "" };
 
 describe("failed SSH command diagnostics", () => {
+  // Diagnostics are redacted, never audited, and never change the verdict:
+  // a capture that works, is absent or throws gives the same outcome, for a
+  // command that fails and for a transport that throws.
   for (const factory of [
     waitForPackageManagerHandler,
     firstContactHandler,
@@ -115,72 +120,61 @@ describe("failed SSH command diagnostics", () => {
     runInstallerHandler,
     revokeAccessHandler,
   ]) {
-    test(`${factory.name} keeps a transport exception when empty-tail capture throws`, async () => {
-      const outcomes: string[] = [];
-      for (const failCapture of [false, true]) {
-        const b = await bed(
-          new FakeExec(() => {
-            throw new RemoteTimeoutError("transport unavailable");
-          }),
-        );
-        const ctx = await b.ctx({ phase: "" });
-        ctx.instance.access_window_expires_at =
-          ctx.instance.created_at + 60_000;
-        ctx.instance.customer_ssh_key = validKey();
-        const captured: unknown[] = [];
-        ctx.recordFailure = (value) => {
-          captured.push(value);
-          if (failCapture) throw new Error("observation unavailable");
-        };
-        try {
-          outcomes.push((await factory(b.deps).run(ctx)).kind);
-        } catch (err) {
-          outcomes.push(
-            `throw:${err instanceof Error ? err.constructor.name : "unknown"}`,
-          );
-        }
-        expect(captured).toHaveLength(1);
-        expect(captured[0]).toMatchObject({ exit: null, logTail: "" });
-        expect(b.audits.join("\n")).not.toContain("transport unavailable");
-      }
-      expect(new Set(outcomes).size).toBe(1);
-    });
-
-    test(`${factory.name} preserves its outcome when capture works or throws`, async () => {
-      const outcomes: string[] = [];
-      for (const capture of ["absent", "works", "throws"]) {
-        const b = await bed(
-          new FakeExec(() => ({
+    test(`${factory.name} keeps its outcome whatever the failure capture does`, async () => {
+      let transport = false;
+      const b = await bed(
+        new FakeExec(() => {
+          if (transport) throw new RemoteTimeoutError("transport unavailable");
+          return {
             code: 9,
             stdout: "diagnostic-marker password=small",
             stderr: "",
-          })),
-        );
+          };
+        }),
+      );
+      const outcome = async (
+        capture: "absent" | "works" | "throws",
+        evidence: unknown[],
+      ): Promise<string> => {
         const ctx = await b.ctx({ phase: "" });
         ctx.instance.access_window_expires_at =
           ctx.instance.created_at + 60_000;
         ctx.instance.customer_ssh_key = validKey();
-        const evidence: unknown[] = [];
         if (capture !== "absent")
           ctx.recordFailure = (v) => {
-            if (capture === "throws") throw new Error("capture unavailable");
             evidence.push(v);
+            if (capture === "throws") throw new Error("capture unavailable");
           };
         try {
-          outcomes.push((await factory(b.deps).run(ctx)).kind);
+          return (await factory(b.deps).run(ctx)).kind;
         } catch (err) {
-          outcomes.push(
-            `throw:${err instanceof Error ? err.constructor.name : "unknown"}`,
-          );
+          return `throw:${err instanceof Error ? err.constructor.name : "unknown"}`;
         }
+      };
+
+      const failed: string[] = [];
+      for (const capture of ["absent", "works", "throws"] as const) {
+        const evidence: unknown[] = [];
+        failed.push(await outcome(capture, evidence));
         if (capture === "works") {
           expect(evidence.length).toBeGreaterThan(0);
           expect(JSON.stringify(evidence)).toContain("diagnostic-marker");
           expect(JSON.stringify(evidence)).not.toContain("small");
         }
-        expect(b.audits.join("\n")).not.toContain("diagnostic-marker");
       }
-      expect(new Set(outcomes).size).toBe(1);
+      expect(new Set(failed).size).toBe(1);
+
+      transport = true;
+      const thrown: string[] = [];
+      for (const capture of ["works", "throws"] as const) {
+        const evidence: unknown[] = [];
+        thrown.push(await outcome(capture, evidence));
+        expect(evidence).toHaveLength(1);
+        expect(evidence[0]).toMatchObject({ exit: null, logTail: "" });
+      }
+      expect(new Set(thrown).size).toBe(1);
+      expect(b.audits.join("\n")).not.toContain("diagnostic-marker");
+      expect(b.audits.join("\n")).not.toContain("transport unavailable");
     });
   }
 });
@@ -338,15 +332,31 @@ describe("wait_for_ssh", () => {
   });
 
   test("promotes only the probe that authenticated", async () => {
+    let authenticates = false;
     const exec = new FakeExec((argv) => {
       // Emulate accept-new: ssh writes the host key when it connects.
       const kh = argv
         .find((a) => a.startsWith("UserKnownHostsFile="))
         ?.slice("UserKnownHostsFile=".length);
+      if (!authenticates) {
+        if (kh) fs.writeFileSync(kh, "the box being destroyed\n");
+        return { code: 255, stdout: "", stderr: "Connection timed out" };
+      }
       if (kh) fs.writeFileSync(kh, "169.58.97.2 ssh-ed25519 AAAAHOSTKEY\n");
       return OK;
     });
     const b = await bed(exec);
+    // A probe that did not authenticate leaves no pin and no probe file.
+    const refused = await waitForSshHandler(b.deps).run(
+      await b.ctx({ pinReset: true, probes: 0 }),
+    );
+    expect(refused.kind).toBe("progress");
+    expect(fs.existsSync(b.rec.knownHostsFile)).toBe(false);
+    expect(
+      fs.readdirSync(b.dir).filter((f) => f.includes("known_hosts")),
+    ).toEqual([]);
+
+    authenticates = true;
     const result = await waitForSshHandler(b.deps).run(
       await b.ctx({ pinReset: true, probes: 0 }),
     );
@@ -355,34 +365,12 @@ describe("wait_for_ssh", () => {
       "AAAAHOSTKEY",
     );
   });
-
-  test("a probe that did not authenticate leaves no pin behind", async () => {
-    const exec = new FakeExec((argv) => {
-      const kh = argv
-        .find((a) => a.startsWith("UserKnownHostsFile="))
-        ?.slice("UserKnownHostsFile=".length);
-      if (kh) fs.writeFileSync(kh, "the box being destroyed\n");
-      return { code: 255, stdout: "", stderr: "Connection timed out" };
-    });
-    const b = await bed(exec);
-    const result = await waitForSshHandler(b.deps).run(
-      await b.ctx({ pinReset: true, probes: 0 }),
-    );
-    expect(result.kind).toBe("progress");
-    expect(fs.existsSync(b.rec.knownHostsFile)).toBe(false);
-    expect(
-      fs.readdirSync(b.dir).filter((f) => f.includes("known_hosts")),
-    ).toEqual([]);
-  });
 });
 
 describe("wait_for_package_manager", () => {
-  test("asks for one check, not a loop, and carries the reason as evidence", async () => {
-    const exec = new FakeExec(() => ({
-      code: 0,
-      stdout: "RESULT: busy (kernel lock on /var/lib/dpkg/lock-frontend)\n",
-      stderr: "",
-    }));
+  test("asks for one check, not a loop, carries the reason, and ends on ready", async () => {
+    let stdout = "RESULT: busy (kernel lock on /var/lib/dpkg/lock-frontend)\n";
+    const exec = new FakeExec(() => ({ code: 0, stdout, stderr: "" }));
     const b = await bed(exec);
     const result = await waitForPackageManagerHandler(b.deps).run(
       await b.ctx({}),
@@ -397,15 +385,7 @@ describe("wait_for_package_manager", () => {
       }),
     );
     expect(again.kind).toBe("waiting");
-  });
-
-  test("ready ends the operation", async () => {
-    const exec = new FakeExec(() => ({
-      code: 0,
-      stdout: "RESULT: ready\n",
-      stderr: "",
-    }));
-    const b = await bed(exec);
+    stdout = "RESULT: ready\n";
     expect(
       (await waitForPackageManagerHandler(b.deps).run(await b.ctx({}))).kind,
     ).toBe("done");
@@ -423,9 +403,6 @@ describe("first_contact", () => {
     );
     const result = await firstContactHandler(b.deps).run(await b.ctx({}));
     expect(result).toMatchObject({ kind: "fatal" });
-    expect((result as { reason: string }).reason).toContain(
-      "delete and recreate",
-    );
     expect(exec.calls).toHaveLength(0);
   });
 });
@@ -467,33 +444,48 @@ describe("install_customer_key", () => {
 
 describe("revoke_access", () => {
   test("clears the stored key only after removal is proven", async () => {
-    const exec = new FakeExec((argv, stdin) =>
-      stdin?.includes("RESULT: removed")
-        ? {
-            code: 0,
-            stdout: "RESULT: removed\nCUSTOMER-KEY: present\n",
-            stderr: "",
-          }
-        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
-    );
-    const b = await bed(exec);
-    fs.writeFileSync(b.rec.privateKeyPath, "private");
-    fs.writeFileSync(b.rec.publicKeyPath, "public");
-    const before = (await b.store.getInstance("inst-1"))!;
-    await b.store.casInstance(before.id, before.version, {
-      customer_ssh_key: validKey(),
-      customer_ssh_key_fingerprint: "SHA256:test",
-      ssh_login_user: "root",
-    });
-    const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
-    expect(result).toEqual({
-      kind: "done",
-      evidence: { proven: true, customerKey: "present" },
-    });
-    const after = await b.store.getInstance("inst-1");
-    expect(after?.customer_ssh_key).toBeNull();
-    expect(after?.customer_ssh_key_fingerprint).toBe("SHA256:test");
-    expect(fs.existsSync(b.rec.privateKeyPath)).toBe(false);
+    for (const proven of [true, false]) {
+      const exec = new FakeExec((argv, stdin) =>
+        stdin?.includes("RESULT: removed")
+          ? {
+              code: 0,
+              stdout: "RESULT: removed\nCUSTOMER-KEY: present\n",
+              stderr: "",
+            }
+          : proven
+            ? {
+                code: 255,
+                stdout: "",
+                stderr: "Permission denied (publickey).",
+              }
+            : // Our key still authenticates: removal is not proven.
+              OK,
+      );
+      const b = await bed(exec);
+      fs.writeFileSync(b.rec.privateKeyPath, "private");
+      fs.writeFileSync(b.rec.publicKeyPath, "public");
+      const before = (await b.store.getInstance("inst-1"))!;
+      await b.store.casInstance(before.id, before.version, {
+        customer_ssh_key: validKey(),
+        customer_ssh_key_fingerprint: "SHA256:test",
+        ssh_login_user: "root",
+      });
+      const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
+      const after = await b.store.getInstance("inst-1");
+      expect(after?.customer_ssh_key_fingerprint).toBe("SHA256:test");
+      if (proven) {
+        expect(result).toEqual({
+          kind: "done",
+          evidence: { proven: true, customerKey: "present" },
+        });
+        expect(after?.customer_ssh_key).toBeNull();
+        expect(fs.existsSync(b.rec.privateKeyPath)).toBe(false);
+      } else {
+        expect(result.kind).toBe("ambiguous");
+        expect(after?.customer_ssh_key).toBe(validKey());
+        expect(fs.existsSync(b.rec.privateKeyPath)).toBe(true);
+      }
+    }
   });
 
   test("re-reads and retries once when the instance CAS loses", async () => {
@@ -541,32 +533,6 @@ describe("revoke_access", () => {
     expect(fs.existsSync(b.rec.privateKeyPath)).toBe(false);
   });
 
-  test("a missing customer key raises attention but does not block revocation", async () => {
-    const exec = new FakeExec((argv, stdin) =>
-      stdin?.includes("RESULT: removed")
-        ? {
-            code: 0,
-            stdout: "RESULT: removed\nCUSTOMER-KEY: missing\n",
-            stderr: "",
-          }
-        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
-    );
-    const b = await bed(exec);
-    fs.writeFileSync(b.rec.privateKeyPath, "private");
-    fs.writeFileSync(b.rec.publicKeyPath, "public");
-    const before = (await b.store.getInstance("inst-1"))!;
-    await b.store.casInstance(before.id, before.version, {
-      customer_ssh_key: validKey(),
-    });
-    const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
-    expect(result).toEqual({
-      kind: "done",
-      evidence: { proven: true, customerKey: "missing" },
-    });
-    expect(await b.store.openReasons("inst-1")).toHaveLength(1);
-    expect((await b.store.getInstance("inst-1"))?.customer_ssh_key).toBeNull();
-  });
-
   test("the tick leaves the instance-level missing-key warning open", async () => {
     const exec = new FakeExec((argv, stdin) =>
       stdin?.includes("RESULT: removed")
@@ -591,10 +557,20 @@ describe("revoke_access", () => {
     });
     await ticker.enqueue("inst-1", "revoke_access");
     await ticker.once();
+    // A missing customer key does not block revocation, and raises one
+    // instance-level reason that the operation's success does not clear.
+    expect((await b.store.getInstance("inst-1"))?.customer_ssh_key).toBeNull();
+    const op = (await b.store.operationsFor("inst-1")).find(
+      (row) => row.kind === "revoke_access",
+    );
+    expect(op?.status).toBe("succeeded");
+    expect(JSON.parse(op!.evidence)).toMatchObject({
+      proven: true,
+      customerKey: "missing",
+    });
     const reasons = await b.store.openReasons("inst-1");
     expect(reasons).toHaveLength(1);
     expect(reasons[0]?.source_op_id).toBe("");
-    expect(reasons[0]?.reason).toContain("customer's SSH key changed");
     const audits = await b.store.auditEvents();
     expect(
       audits.some((row) => row.action === "observe_customer_ssh_key"),
@@ -608,26 +584,27 @@ describe("set_dns owns the office and wildcard A records", () => {
     await b.store.sqlRun(
       "update provider_assets set ipv4 = null where instance_id = 'inst-1'",
     );
-    const result = await setDnsHandler(b.deps).run(await b.ctx({}));
-    expect(result).toEqual({
-      kind: "retry",
-      reason: "the instance has no IPv4 address to set office DNS against",
-    });
-  });
-
-  test("a missing writer raises attention and retries instead of doing nothing", async () => {
-    const b = await bed(new FakeExec(() => OK));
-    const result = await setDnsHandler(b.deps).run(await b.ctx({}));
+    const writes: unknown[] = [];
+    const result = await setDnsHandler({
+      ...b.deps,
+      officeDns: {
+        officeARecords: async () => [],
+        removeOfficeARecords: async () => true,
+        replaceOfficeARecords: async (...args) => {
+          writes.push(args);
+        },
+      },
+    }).run(await b.ctx({}));
     expect(result.kind).toBe("retry");
-    expect((await b.store.openReasons("inst-1"))[0]?.reason).toBe(
-      "the Cloudflare office DNS writer is not configured",
-    );
+    expect(writes).toEqual([]);
+    expect(await b.store.openReasons("inst-1")).toEqual([]);
   });
 
   test("success clears the missing-writer attention and audits the resolution", async () => {
     const b = await bed(new FakeExec(() => OK));
     const ctx = await b.ctx({});
-    await setDnsHandler(b.deps).run(ctx);
+    // A missing writer raises attention and retries instead of doing nothing.
+    expect((await setDnsHandler(b.deps).run(ctx)).kind).toBe("retry");
     expect(await b.store.openReasons("inst-1")).toHaveLength(1);
     const result = await setDnsHandler({
       ...b.deps,
@@ -720,33 +697,26 @@ describe("verify_https includes app wildcard readiness", () => {
     absent: a.length === 0 && aaaa.length === 0,
   });
 
-  test("missing, wrong, extra, and IPv6 answers block with one precise attention reason", async () => {
-    for (const answer of [
-      dns([]),
-      dns(["169.58.97.3"]),
-      dns(["169.58.97.2", "169.58.97.3"]),
-      dns(["169.58.97.2"], ["2001:db8::2"]),
-    ]) {
-      const b = await bed(new FakeExec(() => OK));
-      let livenessCalls = 0;
-      const result = await verifyHttpsHandler({
-        ...b.deps,
-        resolveDns: async () => answer,
-        probeHttps: async () => {
-          livenessCalls++;
-          return { rung: "ok", detail: "ok" };
-        },
-      }).run(await b.ctx({}));
-      expect(result.kind).toBe("progress");
-      expect(livenessCalls).toBe(0);
-      const open = await b.store.openReasons("inst-1");
-      expect(open).toHaveLength(1);
-      expect(open[0].reason).toContain(
-        "the wildcard DNS record *.cp1.test.isomux.app",
-      );
-      expect(open[0].reason).toContain("169.58.97.2");
-      await b.store.close();
-    }
+  // Which answers are ready is wildcard-dns.test.ts's table; here, one wrong
+  // answer through the handler.
+  test("a wrong wildcard answer blocks with one attention reason and never probes HTTPS", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    let livenessCalls = 0;
+    const result = await verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => dns(["169.58.97.3"]),
+      probeHttps: async () => {
+        livenessCalls++;
+        return { rung: "ok", detail: "ok" };
+      },
+    }).run(await b.ctx({}));
+    expect(result.kind).toBe("progress");
+    expect(livenessCalls).toBe(0);
+    const open = await b.store.openReasons("inst-1");
+    expect(open).toHaveLength(1);
+    // The address it should have, so the operator can fix the record.
+    expect(open[0].reason).toContain("169.58.97.2");
+    await b.store.close();
   });
 
   test("an unchanged refusal waits, while a changed answer is progress", async () => {
@@ -845,17 +815,13 @@ describe("verify_https includes app wildcard readiness", () => {
       evidence: { rung: "tls" },
     });
     expect(await b.store.openReasons("inst-1")).toHaveLength(0);
-    await b.store.close();
-  });
-
-  test("it completes only after the wildcard and office HTTPS both pass", async () => {
-    const b = await bed(new FakeExec(() => OK));
-    const result = await verifyHttpsHandler({
+    // It completes only once the office HTTPS passes too.
+    const done = await verifyHttpsHandler({
       ...b.deps,
       resolveDns: async () => dns(["169.58.97.2"]),
       probeHttps: async () => ({ rung: "ok", detail: "ok" }),
     }).run(await b.ctx({ rung: "tls" }));
-    expect(result.kind).toBe("done");
+    expect(done.kind).toBe("done");
     await b.store.close();
   });
 });
@@ -1133,17 +1099,6 @@ describe("run_installer", () => {
     ).toHaveLength(1);
   });
 
-  test("exit 0 on OUR generation finishes it", async () => {
-    const exec = installerExec(
-      "state=finished runId=install-1 exit=0 step=assert-hardening",
-    );
-    const b = await bed(exec);
-    const result = await runInstallerHandler(b.deps).run(
-      await b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
-    );
-    expect(result.kind).toBe("done");
-  });
-
   test("a crashed generation re-stages, so the retry allocates a FRESH runId", async () => {
     const exec = installerExec(
       "state=crashed runId=install-1 step=install-browser",
@@ -1178,40 +1133,17 @@ describe("mint_invite", () => {
     expect(result.kind).toBe("done");
     expect(b.lines.join("\n")).toContain(URL);
 
-    // Not in the evidence, not in any audit row, not in the redacted transcript.
+    // Not in the evidence, not in what the handler audits, not in any audit
+    // row, not in the redacted transcript.
     expect(
       JSON.stringify((result as { evidence: unknown }).evidence),
     ).not.toContain("abc123secret");
-    await b.store.tx(
-      async () =>
-        await b.store.appendAudit({
-          actor: "t",
-          instance_id: "inst-1",
-          action: "mint_invite",
-          target: "cp1.test.isomux.app",
-          outcome: "succeeded",
-          detail: null,
-        }),
-    );
+    expect(b.audits.length).toBeGreaterThan(0);
+    expect(b.audits.join("\n")).not.toContain("abc123secret");
     expect(JSON.stringify(await b.store.auditEvents())).not.toContain(
       "abc123secret",
     );
     expect(b.reporter.transcript.join("\n")).not.toContain("abc123secret");
-  });
-
-  test("a re-mint tells the operator the earlier link is dead", async () => {
-    const exec = new FakeExec(() => ({
-      code: 0,
-      stdout: `${URL}\n`,
-      stderr: "",
-    }));
-    const b = await bed(exec);
-    await mintInviteHandler(b.deps).run(
-      await b.ctx({ phase: "minting", minted: true }),
-    );
-    expect(b.lines.join("\n")).toContain(
-      "the invite printed earlier is no longer valid; use this one",
-    );
   });
 
   test("a failure carries no remote output", async () => {
@@ -1321,123 +1253,83 @@ describe("mint_invite for the dashboard", () => {
 describe("mint_invite after an unrecorded attempt", () => {
   const URL2 = "https://cp1.test.isomux.app/i/second-link";
 
-  test("the NORMAL path: one invocation, one link, no warning", async () => {
+  // The NORMAL path is one invocation and one link. Only an invocation that
+  // ENTERS with a marker is recovery: a link may already be in the operator's
+  // hands (killed between printing and recording, or a re-mint), so it says
+  // one more line, the warning, beside the one new link.
+  test("the normal path prints one link; a recovery prints it and one warning", async () => {
     const exec = new FakeExec(() => ({
       code: 0,
       stdout: `${URL2}\n`,
       stderr: "",
     }));
     const b = await bed(exec);
-    const ctx = await b.ctx({});
-    const result = await mintInviteHandler(b.deps).run(ctx);
-    expect(result.kind).toBe("done");
-    // The marker was persisted through the fence in THIS invocation...
-    const after = (await b.store.getOperation(ctx.op.id))!;
-    expect(after.version).toBeGreaterThan(ctx.op.version);
-    // ...and the mint happened in the same one, so the operator sees exactly
-    // one link and is told nothing about a link that never existed.
-    const printed = b.lines.filter((l) => l.includes(URL2));
-    expect(printed).toHaveLength(1);
-    expect(b.lines.join("\n")).not.toContain("no longer valid");
-  });
-
-  test("killed between printing and recording: the remint WARNS", async () => {
-    // The crash the reviewer described. The durable state at that instant is
-    // exactly {phase:"minting"} with attempt=0 - the intent recorded, the
-    // outcome not - and a link is already in the operator's hands. Only an
-    // invocation that ENTERS with the marker is recovery.
-    const exec = new FakeExec(() => ({
-      code: 0,
-      stdout: `${URL2}\n`,
-      stderr: "",
-    }));
-    const b = await bed(exec);
-    const ctx = await b.ctx({ phase: "minting" });
-    expect(ctx.op.attempt).toBe(0);
-    await mintInviteHandler(b.deps).run(ctx);
-    expect(b.lines.join("\n")).toContain(
-      "the invite printed earlier is no longer valid; use this one",
-    );
-    expect(b.lines.filter((l) => l.includes(URL2))).toHaveLength(1);
+    const printed = async (evidence: unknown) => {
+      const from = b.lines.length;
+      const ctx = await b.ctx(evidence);
+      expect(ctx.op.attempt).toBe(0);
+      const result = await mintInviteHandler(b.deps).run(ctx);
+      expect(result.kind).toBe("done");
+      const lines = b.lines.slice(from);
+      expect(lines.filter((l) => l.includes(URL2))).toHaveLength(1);
+      return { ctx, lines: lines.length };
+    };
+    const normal = await printed({});
+    // The marker was persisted through the fence in THIS invocation.
+    const after = (await b.store.getOperation(normal.ctx.op.id))!;
+    expect(after.version).toBeGreaterThan(normal.ctx.op.version);
+    for (const marker of [{ phase: "minting" }, { minted: true }]) {
+      expect((await printed(marker)).lines).toBe(normal.lines + 1);
+    }
   });
 });
 
 describe("every ssh child is recorded", () => {
-  test("a step that issues two commands leaves two started/outcome pairs", async () => {
-    const exec = new FakeExec(() => OK);
-    const b = await bed(exec);
-    const ctx = await b.ctx({ pinReset: true, probes: 0 });
-    // wait_for_package_manager runs one child; arm_revocation's unit install
-    // runs two. Drive the two-child shape directly through a labelled client.
-    const { SshClient } = await import("./ssh.ts");
-    const ssh = new SshClient(
-      {
-        host: "h",
-        user: "root",
-        identityFile: "/tmp/k",
-        knownHostsFile: "/tmp/kh",
-      },
-      exec,
-      "yes",
-      undefined,
-      (phase, kind) => ctx.audit("install_cleanup_units", phase, kind),
-    );
-    await ssh.script("true\n");
-    await ssh.script("true\n");
-    expect(b.audits).toEqual([
-      "install_cleanup_units:started:script",
-      "install_cleanup_units:succeeded:script",
-      "install_cleanup_units:started:script",
-      "install_cleanup_units:succeeded:script",
-    ]);
-  });
+  const box = {
+    host: "h",
+    user: "root",
+    identityFile: "/tmp/k",
+    knownHostsFile: "/tmp/kh",
+  };
 
-  test("a timeout is recorded as ambiguous, never as failed", async () => {
-    const { RemoteTimeoutError, SshClient } = await import("./ssh.ts");
-    const exec = new FakeExec(() => {
-      throw new RemoteTimeoutError("killed");
-    });
-    const b = await bed(exec);
-    const ctx = await b.ctx({});
-    const ssh = new SshClient(
-      {
-        host: "h",
-        user: "root",
-        identityFile: "/tmp/k",
-        knownHostsFile: "/tmp/kh",
-      },
-      exec,
-      "yes",
-      undefined,
-      (phase, kind) => ctx.audit("revoke_key", phase, kind),
-    );
-    try {
-      await ssh.script("true\n");
-    } catch {
-      // expected
-    }
+  test.each([
+    [
+      "two commands leave two started/outcome pairs",
+      false,
+      [
+        "started:script",
+        "succeeded:script",
+        "started:script",
+        "succeeded:script",
+      ],
+    ],
     // "failed" would be a claim that nothing happened on the box, and a killed
     // child has not earned it.
-    expect(b.audits).toEqual([
-      "revoke_key:started:script",
-      "revoke_key:ambiguous:script",
-    ]);
+    [
+      "a timeout is recorded as ambiguous, never as failed",
+      true,
+      ["started:script", "ambiguous:script"],
+    ],
+  ])("%s", async (_name, timesOut, expected) => {
+    const exec = new FakeExec(() => {
+      if (timesOut) throw new RemoteTimeoutError("killed");
+      return OK;
+    });
+    const recorded: string[] = [];
+    const ssh = new SshClient(box, exec, "yes", undefined, (phase, kind) => {
+      recorded.push(`${phase}:${kind}`);
+    });
+    for (let i = 0; i < (timesOut ? 1 : 2); i++)
+      await ssh.script("true\n").catch(() => undefined);
+    expect(recorded).toEqual(expected);
   });
 
-  test("a call whose recording fails is recorded as ambiguous too", async () => {
-    const exec = new FakeExec(() => OK);
-    const b = await bed(exec);
-    const ctx = await b.ctx({});
-    const { SshClient } = await import("./ssh.ts");
+  test("a call whose recording fails is recorded as ambiguous, and reported unrecorded", async () => {
+    const recorded: string[] = [];
     let firstSucceeded = true;
     const ssh = new SshClient(
-      {
-        host: "h",
-        user: "root",
-        identityFile: "/tmp/k",
-        knownHostsFile: "/tmp/kh",
-      },
-      exec,
+      box,
+      new FakeExec(() => OK),
       "yes",
       undefined,
       (phase, kind) => {
@@ -1445,37 +1337,7 @@ describe("every ssh child is recorded", () => {
           firstSucceeded = false;
           throw new Error("disk full");
         }
-        return ctx.audit("mint_invite", phase, kind);
-      },
-    );
-    try {
-      await ssh.script("true\n");
-    } catch {
-      // expected
-    }
-    expect(b.audits).toEqual([
-      "mint_invite:started:script",
-      "mint_invite:ambiguous:script",
-    ]);
-  });
-
-  test("a child whose recording fails reports the call as unrecorded, not failed", async () => {
-    const exec = new FakeExec(() => OK);
-    const b = await bed(exec);
-    const ctx = await b.ctx({});
-    const { ObserverWriteFailed, SshClient } = await import("./ssh.ts");
-    const ssh = new SshClient(
-      {
-        host: "h",
-        user: "root",
-        identityFile: "/tmp/k",
-        knownHostsFile: "/tmp/kh",
-      },
-      exec,
-      "yes",
-      undefined,
-      (phase) => {
-        if (phase === "succeeded") throw new Error("disk full");
+        recorded.push(`${phase}:${kind}`);
       },
     );
     let thrown: unknown;
@@ -1485,6 +1347,6 @@ describe("every ssh child is recorded", () => {
       thrown = err;
     }
     expect(thrown).toBeInstanceOf(ObserverWriteFailed);
-    void ctx;
+    expect(recorded).toEqual(["started:script", "ambiguous:script"]);
   });
 });

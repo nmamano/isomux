@@ -101,6 +101,11 @@ describe("the operator flag", () => {
       actor: "cli:test",
     });
     expect(outcome).toMatchObject({ ok: false });
+    expect(
+      await store.sqlGet(
+        "select id from accounts where lower(email) = 'nobody@example.test'",
+      ),
+    ).toBeNull();
     await store.close();
   });
 });
@@ -108,12 +113,17 @@ describe("the operator flag", () => {
 describe("every ops service gates on the column itself", () => {
   test("a non-operator gets the same answer a missing office gets", async () => {
     const store = await tempStore();
-    const { plain } = await seed(store);
+    const { plain, operator } = await seed(store);
     // Null, not a refusal object: a 403 would confirm the floor exists and that
-    // this account is not on it.
-    expect(await opsFloor(store, plain)).toBeNull();
-    expect(await opsInstance(store, plain, "inst-1")).toBeNull();
-    expect(await acknowledgeInstance(store, plain, "inst-1")).toBeNull();
+    // this account is not on it. An unknown account id is not an operator.
+    for (const caller of [plain, "acct-nonexistent"]) {
+      expect(await opsFloor(store, caller)).toBeNull();
+      expect(await opsInstance(store, caller, "inst-1")).toBeNull();
+      expect(await acknowledgeInstance(store, caller, "inst-1")).toBeNull();
+    }
+    // The pairing: an office that does not exist is null even for an operator.
+    expect(await opsInstance(store, operator, "inst-nope")).toBeNull();
+    expect(await acknowledgeInstance(store, operator, "inst-nope")).toBeNull();
     await store.close();
   });
 
@@ -222,13 +232,6 @@ describe("every ops service gates on the column itself", () => {
     expect(await isOperator(store, operator)).toBe(false);
     await store.close();
   });
-
-  test("an unknown account id is not an operator", async () => {
-    const store = await tempStore();
-    await seed(store);
-    expect(await opsFloor(store, "acct-nonexistent")).toBeNull();
-    await store.close();
-  });
 });
 
 describe("what the floor shows", () => {
@@ -334,20 +337,14 @@ describe("what the floor shows", () => {
     expect(view.audit.every((e) => e.instance_id === "inst-1")).toBe(true);
     await store.close();
   });
-
-  test("an office that does not exist is null even for an operator", async () => {
-    const store = await tempStore();
-    const { operator } = await seed(store);
-    expect(await opsInstance(store, operator, "inst-nope")).toBeNull();
-    expect(await acknowledgeInstance(store, operator, "inst-nope")).toBeNull();
-    await store.close();
-  });
 });
 
 describe("acknowledging", () => {
   test("it marks the reasons, writes audit, and does NOT clear them", async () => {
     const store = await tempStore();
     const { operator } = await seed(store);
+    // Acknowledging nothing says so rather than pretending.
+    expect(await acknowledgeInstance(store, operator, "inst-1")).toBe(0);
     await raiseAttention(store, {
       instanceId: "inst-1",
       reasonClass: "absolute_deadline",
@@ -373,13 +370,6 @@ describe("acknowledging", () => {
           e.actor === `account:${operator}`,
       ),
     ).toBe(true);
-    await store.close();
-  });
-
-  test("acknowledging nothing says so rather than pretending", async () => {
-    const store = await tempStore();
-    const { operator } = await seed(store);
-    expect(await acknowledgeInstance(store, operator, "inst-1")).toBe(0);
     await store.close();
   });
 });

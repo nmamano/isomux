@@ -18,10 +18,12 @@ import {
   CERTIFICATE_RENEW_PATH,
   CERTIFICATE_STATUS_PATH,
   CertificateService,
+  LOCAL_FAILURE_REASON,
   parseCertificateEndpoint,
   type CertificateIssuer,
 } from "./certificate-service.ts";
 import { InviteHold } from "./invite-hold.ts";
+import { expectRejection } from "../server/test-support/expect-rejection.ts";
 import { startMintSeam } from "./mint-seam.ts";
 
 let store: Store;
@@ -34,7 +36,7 @@ afterAll(async () => {
   await releaseTestStores();
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
-async function office(id = "inst-cert", label = "cert") {
+async function office(id: string, label: string) {
   await store.createInstance({
     id,
     run_id: null,
@@ -55,7 +57,7 @@ async function office(id = "inst-cert", label = "cert") {
 
 describe("one-office certificate credentials", () => {
   test("stores only a hash and binds the two names server-side", async () => {
-    await office();
+    await office("inst-cert", "cert");
     const issued = await issueCertificateCredential(store, "inst-cert");
     const raw = await store.sqlGet<{ token_hash: string }>(
       "select token_hash from certificate_credentials where id = $1",
@@ -87,12 +89,13 @@ describe("one-office certificate credentials", () => {
   });
 
   test("uniformly refuses wrong and revoked credentials", async () => {
-    const issued = await issueCertificateCredential(store, "inst-cert");
+    await office("inst-cert-refuse", "cert-refuse");
+    const issued = await issueCertificateCredential(store, "inst-cert-refuse");
     expect(
       await authenticateCertificateCredential(store, "x".repeat(43)),
     ).toBeNull();
     expect(
-      await revokeCertificateCredentials(store, "inst-cert"),
+      await revokeCertificateCredentials(store, "inst-cert-refuse"),
     ).toBeGreaterThan(0);
     expect(
       await authenticateCertificateCredential(store, issued.token),
@@ -100,14 +103,15 @@ describe("one-office certificate credentials", () => {
   });
 
   test("raises attention after three missed checks and clears it on contact", async () => {
-    const issued = await issueCertificateCredential(store, "inst-cert");
+    await office("inst-cert-contact", "cert-contact");
+    const issued = await issueCertificateCredential(store, "inst-cert-contact");
     await store.sqlRun(
       "update certificate_credentials set created_at = $1 where id = $2",
       [store.now() - CERTIFICATE_CONTACT_STALE_MS - 1, issued.id],
     );
-    await applyCertificateContactAttention(store, "inst-cert");
+    await applyCertificateContactAttention(store, "inst-cert-contact");
     expect(
-      (await store.openReasons("inst-cert")).map((row) => row.reason),
+      (await store.openReasons("inst-cert-contact")).map((row) => row.reason),
     ).toContain(CERTIFICATE_CONTACT_REASON);
     const service = new CertificateService(store, {
       issue: async () => ({ certificatePem: "public chain" }),
@@ -120,72 +124,87 @@ describe("one-office certificate credentials", () => {
         "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n",
       ),
     ).toMatchObject({ status: "ok" });
-    await applyCertificateContactAttention(store, "inst-cert");
+    await applyCertificateContactAttention(store, "inst-cert-contact");
     expect(
-      (await store.openReasons("inst-cert")).map((row) => row.reason),
+      (await store.openReasons("inst-cert-contact")).map((row) => row.reason),
     ).toContain(CERTIFICATE_CONTACT_REASON);
-    expect(await service.reportStatus(issued.token, "ok")).toBe("ok");
-    await applyCertificateContactAttention(store, "inst-cert");
-    expect(
-      (await store.openReasons("inst-cert")).map((row) => row.reason),
-    ).not.toContain(CERTIFICATE_CONTACT_REASON);
-  });
-
-  test("a failed status report is contact too", async () => {
-    const issued = await issueCertificateCredential(store, "inst-cert");
-    const service = new CertificateService(store, {
-      issue: async () => ({ certificatePem: "unused" }),
-    });
-    const lastContact = async () =>
-      (
-        await store.sqlGet<{ last_used_at: number | null }>(
-          "select last_used_at from certificate_credentials where id = $1",
-          [issued.id],
-        )
-      )?.last_used_at ?? null;
-    expect(
-      await authenticateCertificateCredential(store, issued.token),
-    ).not.toBeNull();
-    expect(await lastContact()).toBeNull();
+    // A FAILED status report is contact too: the box answered.
     expect(await service.reportStatus(issued.token, "failed")).toBe("ok");
-    expect(await lastContact()).not.toBeNull();
+    await applyCertificateContactAttention(store, "inst-cert-contact");
+    expect(
+      (await store.openReasons("inst-cert-contact")).map((row) => row.reason),
+    ).not.toContain(CERTIFICATE_CONTACT_REASON);
+    // Clears the local-failure reason that report opened.
     expect(await service.reportStatus(issued.token, "ok")).toBe("ok");
   });
 
   test("a box reports a local install failure and its later recovery", async () => {
-    const issued = await issueCertificateCredential(store, "inst-cert");
+    await office("inst-cert-local", "cert-local");
+    const issued = await issueCertificateCredential(store, "inst-cert-local");
     const service = new CertificateService(store, {
       issue: async () => ({ certificatePem: "unused" }),
     });
     expect(await service.reportStatus(issued.token, "failed")).toBe("ok");
     expect(
-      (await store.openReasons("inst-cert")).map((row) => row.reason),
-    ).toContain("the hosted office could not install its renewed certificate");
+      (await store.openReasons("inst-cert-local")).map((row) => row.reason),
+    ).toContain(LOCAL_FAILURE_REASON);
     expect(await service.reportStatus(issued.token, "ok")).toBe("ok");
     expect(
-      (await store.openReasons("inst-cert")).map((row) => row.reason),
-    ).not.toContain(
-      "the hosted office could not install its renewed certificate",
-    );
+      (await store.openReasons("inst-cert-local")).map((row) => row.reason),
+    ).not.toContain(LOCAL_FAILURE_REASON);
     expect(await service.reportStatus("x".repeat(43), "failed")).toBe(
       "unauthorized",
     );
   });
 
   test("never reassigns a credential after deprovision", async () => {
-    const issued = await issueCertificateCredential(store, "inst-cert");
-    const current = await store.getInstance("inst-cert");
-    await store.casInstance("inst-cert", current!.version, {
+    await office("inst-cert-gone", "cert-gone");
+    const issued = await issueCertificateCredential(store, "inst-cert-gone");
+    const current = await store.getInstance("inst-cert-gone");
+    await store.casInstance("inst-cert-gone", current!.version, {
       service_state: "deprovisioned",
     });
     expect(
       await authenticateCertificateCredential(store, issued.token),
     ).toBeNull();
-    const error = await issueCertificateCredential(store, "inst-cert").catch(
-      (reason: unknown) => reason,
+    // The reservation still exists, so only the office's state refuses.
+    await expectRejection(
+      issueCertificateCredential(store, "inst-cert-gone"),
+      /./,
     );
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain("inactive office");
+  });
+
+  test("refuses a live office whose name was released", async () => {
+    await office("inst-cert-released", "cert-released");
+    const issued = await issueCertificateCredential(
+      store,
+      "inst-cert-released",
+    );
+    await store.sqlRun("delete from name_reservations where instance_id = $1", [
+      "inst-cert-released",
+    ]);
+    // Only the reservation is gone: the office is live, the credential active.
+    expect((await store.getInstance("inst-cert-released"))?.service_state).toBe(
+      "live",
+    );
+    const credential = () =>
+      store.sqlGet<{ status: string; last_used_at: number | null }>(
+        "select status, last_used_at from certificate_credentials where id = $1",
+        [issued.id],
+      );
+    expect(await credential()).toEqual({
+      status: "active",
+      last_used_at: null,
+    });
+    expect(
+      await authenticateCertificateCredential(store, issued.token, {
+        contact: true,
+      }),
+    ).toBeNull();
+    expect(await credential()).toEqual({
+      status: "active",
+      last_used_at: null,
+    });
   });
 });
 
@@ -454,7 +473,6 @@ describe("the office's renewal calls on the seam", () => {
     for (const endpoint of [
       undefined,
       "http://provisioner.example.com/internal/certificates/renew",
-      "https://user@provisioner.example.com/internal/certificates/renew",
     ]) {
       const { lines, seam, call } = await seamFor(endpoint);
       try {

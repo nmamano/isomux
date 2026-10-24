@@ -10,7 +10,7 @@ export const MAX_CSR_BYTES = 32 * 1024;
 /** Set by the certificate forwarder, retired with the Fly app. */
 export const CERTIFICATE_FORWARDED_HEADER = "isomux-forwarded";
 const FAILURE_REASON = "the hosted office certificate could not be renewed";
-const LOCAL_FAILURE_REASON =
+export const LOCAL_FAILURE_REASON =
   "the hosted office could not install its renewed certificate";
 const MAX_CAUSE_CHARS = 2000;
 

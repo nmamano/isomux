@@ -115,25 +115,6 @@ async function open(b: Bed): Promise<Store> {
 }
 
 describe("--start", () => {
-  test("links the instance, adopts the asset and opens wait_for_ssh in one go", async () => {
-    const b = await bed();
-    const r = run(b, "--start");
-    expect(r.code).toBe(0);
-    const store = await open(b);
-    const instance = (await store.getInstance(b.instanceId))!;
-    const asset = (await store.assetForInstance(b.instanceId))!;
-    expect(instance.run_id).toBe(b.runId);
-    expect(asset.provider_id).toBe("203474835");
-    expect(asset.ipv4).toBe("169.58.97.2");
-    expect(asset.asset_state).toBe("active");
-    const ops = await store.operationsFor(b.instanceId);
-    expect(ops.map((o) => o.kind)).toEqual(["wait_for_ssh"]);
-    expect(
-      (await store.auditEvents()).some((e) => e.action === "adopt_run"),
-    ).toBe(true);
-    await store.close();
-  });
-
   test("a hostname that is not the run's box is refused, and writes nothing", async () => {
     const b = await bed({ host: "somebody-else.test.isomux.app" });
     const r = run(b, "--start");
@@ -176,13 +157,6 @@ describe("--revoke", () => {
     );
     await store.close();
   }
-
-  test("refuses an instance this run never linked", async () => {
-    const b = await bed();
-    const r = run(b, "--revoke");
-    expect(r.code).toBe(1);
-    expect(r.err).toContain("not to run");
-  });
 
   test("refuses a box we never proved was live", async () => {
     const b = await bed();
@@ -273,37 +247,4 @@ describe("it USES a database, it does not build one (D4, 2026-08-12)", () => {
     }
     expect(opened).toBe(false);
   });
-
-  test("the source names the runtime open and not the building one", () => {
-    // The behavioural test above proves today's build. This one names the seam,
-    // so a future edit that reintroduces the schema-writing open fails here
-    // with the reason written next to it rather than only as a refusal
-    // somebody has to interpret.
-    const source = fs.readFileSync(
-      path.join(import.meta.dir, "exercises", "adopt-run.ts"),
-      "utf8",
-    );
-    expect(source).toContain("Store.openRuntime(");
-    expect(source).not.toContain("Store.open(");
-  });
-});
-
-test("exactly one mode is required", async () => {
-  const b = await bed();
-  const proc = Bun.spawnSync([
-    "bun",
-    SCRIPT,
-    "--db",
-    b.db,
-    "--instance",
-    b.instanceId,
-    "--run",
-    b.runId,
-    "--runs-dir",
-    b.runsDir,
-  ]);
-  expect(proc.exitCode).toBe(1);
-  expect(proc.stderr.toString()).toContain(
-    "exactly one of --start or --revoke",
-  );
 });

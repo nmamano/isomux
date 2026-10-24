@@ -118,7 +118,7 @@ start without one: a missing ceiling stops the run at every layer.
 
 There is no create command. The adapter can create a box and the tests exercise
 that path, but no flag reaches it: creating one is latched durably by
-`intents.ts` and is a thing a human does on purpose.
+`create-latch.ts` and is a thing a human does on purpose.
 
 `run`'s two deployment flags default to the operator's shape and are set by the
 Compose file, not by a person: `--bind` moves the invite seam off loopback
@@ -175,19 +175,20 @@ support cases" - a support-correlation id. `POST /v1/compute/instances`
 documents no idempotency, retry-safety or deduplication mechanism at all.
 
 **Create is never replayed.** An ambiguous create - timeout, 5xx, dropped
-connection - is resolved by `find`/list only. `intents.ts` latches this
-durably: the pre-call record is written and fsynced _before_ the call and
-already means "the paid call may have happened; create is permanently forbidden
-for this intent", so death at any instruction boundary fails safe.
+connection - is resolved by `find`/list only. `create-latch.ts` latches this
+durably: the intent row is committed _before_ the call and already means "the
+paid call may have happened; create is permanently forbidden for this intent",
+so death at any instruction boundary fails safe.
 
 Three properties make that latch worth trusting:
 
-- **It fails closed.** Only "this file does not exist" reads as absent. A
-  permission error or corrupt JSON throws, because an unreadable journal is not
-  a licence to buy another box.
-- **The filesystem arbitrates.** Reservation is an exclusive create (`O_EXCL`),
-  not a read followed by a write - two workers can both observe "absent" in the
-  same instant and both pass a check-then-act.
+- **It fails closed.** A record in the legacy file journal (`intents.ts`, now
+  read only) vetoes the create, and only "this file does not exist" reads as
+  absent. A permission error or corrupt JSON throws, because an unreadable
+  journal is not a licence to buy another box.
+- **The database arbitrates.** The latch is an INSERT whose primary key refuses
+  a second one, not a read followed by a write - two workers can both observe
+  "absent" in the same instant and both pass a check-then-act.
 - **There is one seam.** `CreateCoordinator` is the only thing that may spend
   money: it reserves, then calls, then records. `ProviderAdapter.create` exists
   to satisfy the portable interface and must not be called directly.
@@ -1668,11 +1669,11 @@ Four consequences worth stating, because each one was a decision:
   is invoked interactively with the redacted-transcript contract.
 
 `invite-persistence.test.ts` is the check that this holds: it drives a real mint
-against a fake box and then searches the database FILE'S BYTES (and its `-wal`,
-where a fresh value lands first), every evidence and audit value, the reporter's
-output and its transcript. It carries a positive control - a test that
-deliberately persists the URL and requires the same scan to catch it - because a
-search that has never matched anything is not evidence.
+against a fake box and then searches every SQL statement submitted, every table
+row, every evidence and audit value, the reporter's output and its transcript.
+It carries positive controls - the URL deliberately persisted, and once written
+and rolled back, and the same scan must catch both - because a search that has
+never matched anything is not evidence.
 
 ### The seam, and what it is allowed to be
 

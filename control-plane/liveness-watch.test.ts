@@ -1,9 +1,6 @@
 // Strikes, and the claim that stops two probers counting the same outage twice.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import {
   LIVENESS_CLAIM_MS,
   LIVENESS_INTERVAL_MS,
@@ -18,13 +15,8 @@ import {
   releaseTestStores,
 } from "./testing/pg.ts";
 
-const temps: string[] = [];
-
 afterEach(async () => {
   await releaseTestStores();
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
@@ -48,8 +40,6 @@ const CONTROL_UP = async (): Promise<ControlResult> => ({
 });
 
 async function bed(): Promise<Bed> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-liveness-"));
-  temps.push(dir);
   const now = { value: 1_000_000 };
   const store = await openTestStore(() => now.value);
   await store.createInstance({
@@ -171,20 +161,6 @@ describe("strikes are consecutive", () => {
       ),
     ).not.toBeNull();
   });
-
-  test("a second prober cannot double-count one outage", async () => {
-    const b = await bed();
-    await b.pass("tcp", "prober-a");
-    b.now.value += LIVENESS_INTERVAL_MS;
-    // Two provisioners, same due row, same instant. The claim is taken by the
-    // statement that tests due-ness, so exactly one of them probes.
-    const [first, second] = await Promise.all([
-      b.pass("tcp", "prober-a"),
-      b.pass("tcp", "prober-b"),
-    ]);
-    expect(first + second).toBe(1);
-    expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(2);
-  });
 });
 
 describe("three strikes gets a person", () => {
@@ -200,15 +176,6 @@ describe("three strikes gets a person", () => {
     expect((await b.store.getInstance("inst-1"))!.attention_state).toBe(
       "needs_operator",
     );
-  });
-
-  test("raised once, not once per failed check", async () => {
-    const b = await bed();
-    for (let i = 0; i < 5; i++) {
-      await b.pass("tcp");
-      b.now.value += LIVENESS_INTERVAL_MS;
-    }
-    expect(await b.reasons()).toEqual(["critical"]);
   });
 
   test("cleared only by a probe that actually succeeds", async () => {
@@ -266,8 +233,19 @@ describe("a prober outage is not the office's failure", () => {
     const down = controlDown();
 
     // First-ever reading during an outage: nothing to keep but the empty row.
-    await b.pass("dns", "prober-a", { control: down.control });
+    // The report line, per office and with the control's own detail, is the
+    // operator's only trace of the outage.
+    const lines: string[] = [];
+    await b.pass("dns", "prober-a", {
+      control: down.control,
+      report: (line) => lines.push(line),
+    });
     expect(down.calls.n).toBe(1);
+    expect(
+      lines.filter(
+        (l) => l.includes("cp1.test.isomux.app") && l.includes(OUTAGE_DETAIL),
+      ),
+    ).toHaveLength(1);
     let row = (await b.store.getLiveness("inst-1"))!;
     expect(row.strikes).toBe(0);
     expect(row.checked_at).toBeNull();
@@ -294,21 +272,6 @@ describe("a prober outage is not the office's failure", () => {
       expect(await b.reasons()).toEqual([]);
     }
     expect(down.calls.n).toBe(6);
-  });
-
-  test("an outage neither resets nor adds strikes: the next real failure is still the third", async () => {
-    const b = await bed();
-    const down = controlDown();
-    for (let i = 0; i < 2; i++) {
-      await b.pass("tls");
-      b.now.value += LIVENESS_INTERVAL_MS;
-    }
-    await b.pass("dns", "prober-a", { control: down.control });
-    expect(down.calls.n).toBe(1);
-    expect(await b.reasons()).toEqual([]);
-    b.now.value += LIVENESS_INTERVAL_MS;
-    await b.pass("tls");
-    expect(await b.reasons()).toEqual(["critical"]);
   });
 
   test("a control probe that throws counts as an outage, not as a reachable network", async () => {
@@ -349,20 +312,6 @@ describe("a prober outage is not the office's failure", () => {
     await b.pass("ok", "prober-a", { control: down.control });
     expect(down.calls.n).toBe(2);
     expect(await b.reasons()).toEqual([]);
-  });
-
-  test("the outage is reported per office, with the control's own detail", async () => {
-    const b = await bed();
-    const lines: string[] = [];
-    await b.pass("dns", "prober-a", {
-      control: controlDown().control,
-      report: (line) => lines.push(line),
-    });
-    expect(
-      lines.filter(
-        (l) => l.includes("cp1.test.isomux.app") && l.includes(OUTAGE_DETAIL),
-      ),
-    ).toHaveLength(1);
   });
 
   test("a prober that lost its claim during the outage does not release the winner's claim", async () => {

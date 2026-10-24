@@ -1,14 +1,15 @@
 // The races, run on genuinely concurrent Postgres connections.
 //
-// The suites that OWN these invariants live beside their subjects - the liveness
-// claim in liveness-watch.test.ts, the lost successor in tick.test.ts, the stale
-// fence in create-latch.test.ts, the name reservation in signup.test.ts - and
-// they are unchanged. What they cannot say on their own is which connection each
-// contender was on: under the previous engine there was exactly one, so "two
-// contenders" meant two calls the engine had already serialised, and the
-// invariant was never actually put under a concurrent writer.
+// The suites that OWN these invariants live beside their subjects - the lost
+// successor in tick.test.ts, the stale fence in create-latch.test.ts, the name
+// reservation in signup.test.ts. What they cannot say on their own is which
+// connection each contender was on: under the previous engine there was exactly
+// one, so "two contenders" meant two calls the engine had already serialised,
+// and the invariant was never actually put under a concurrent writer. The
+// liveness claim's race is owned HERE: liveness-watch.test.ts shows only that a
+// held claim turns a second prober away.
 //
-// So this file re-runs the same four races with a BARRIER - both contenders
+// So this file runs the four races with a BARRIER - both contenders
 // inside their transactions before either does its work - and reads
 // `pg_backend_pid()` from inside those transactions. The assertions are the same
 // invariants; what is added is the evidence that two Postgres backends were

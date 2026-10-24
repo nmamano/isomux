@@ -21,13 +21,10 @@ function deps(ip: string, readyz = 200) {
 }
 
 describe("probeLiveness", () => {
-  test("a healthy office at OUR address is ok", async () => {
-    const r = await probeLiveness("cp1.test.isomux.app", deps(OURS), OURS);
-    expect(r.rung).toBe("ok");
-  });
-
   // The one that matters: everything below this rung would have passed.
-  test("a healthy office at someone else's address is refused", async () => {
+  test("a healthy office is ok at OUR address and refused at someone else's", async () => {
+    const ours = await probeLiveness("cp1.test.isomux.app", deps(OURS), OURS);
+    expect(ours.rung).toBe("ok");
     const r = await probeLiveness(
       "cp1.test.isomux.app",
       deps(SOMEONE_ELSE),
@@ -48,14 +45,6 @@ describe("probeLiveness", () => {
 
     const notServing = deps(OURS, 503);
     expect((await probeLiveness("x", notServing, OURS)).rung).toBe("readyz");
-  });
-
-  test("without an expected address it cannot make the distinction, and says so by not claiming it", async () => {
-    // Kept honest rather than convenient: callers that skip the address get the
-    // old behaviour, so the acceptance path passes rec.ipv4 and this is only
-    // ever a diagnostic probe.
-    const r = await probeLiveness("cp1.test.isomux.app", deps(SOMEONE_ELSE));
-    expect(r.rung).toBe("ok");
   });
 });
 

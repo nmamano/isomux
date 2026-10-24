@@ -241,7 +241,7 @@ export const MIN_SEAM_TOKEN_LENGTH = 32;
  * Comparing lengths leaks the length of a credential the caller already had to
  * present, which is not the secret.
  */
-export function tokenMatches(presented: string, expected: string): boolean {
+function tokenMatches(presented: string, expected: string): boolean {
   const a = Buffer.from(presented);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;

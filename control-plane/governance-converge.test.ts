@@ -19,14 +19,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
 import {
-  applyGovernance,
+  applyGrantMatrix,
+  applyRolePosture,
   convergeMatrix,
   convergeIsExact,
 } from "./bootstrap.ts";
+import { Store } from "./store.ts";
 import {
   PROVISIONER_ROLE,
   WEB_ROLE,
-  boundsAreExact,
   grantKeys,
   matrixSql,
   residueIsInert,
@@ -36,7 +37,6 @@ import {
   type MatrixRow,
   type RolePosture,
 } from "./roles.ts";
-import { GOVERNED_SETTINGS, Store } from "./store.ts";
 import {
   LOCAL_DATABASE_URL,
   PG_DROP_DATABASE_HOOK_TIMEOUT_MS,
@@ -191,11 +191,14 @@ afterAll(async () => {
 
 /** A schema-ready database governed and deployed as the Hosted VPS is: the
  * catalog carrying exactly the current matrix, both runtime roles able to log
- * in, and a live session open as each. */
+ * in, and a live session open as each. The two governance phases of
+ * bootstrapDatabase, without its owner migrations (Store.open's schema already
+ * holds what they add) or its report. */
 async function asDeployed(): Promise<string> {
   const dsn = await scratchDatabase();
+  await applyRolePosture(dsn, TEST_CURRENT);
   await (await Store.open(dsn)).close();
-  await applyGovernance(dsn, TEST_CURRENT);
+  await applyGrantMatrix(dsn, TEST_CURRENT);
   const password = crypto.randomUUID().replace(/-/g, "");
   for (const role of [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]) {
     await ask(dsn, `alter role ${role} login password '${password}'`);
@@ -290,44 +293,22 @@ async function roleState(dsn: string) {
   );
 }
 
-suite("each case governs an owner of its own", () => {
-  // As in governance-apply.test.ts: the bounds land on the owner cluster-wide,
-  // so the owner must be this case's, not the shared connection user.
-  test(
-    "the owner is a superuser of this case, not the shared connection user",
-    () =>
-      serial(async () => {
-        const dsn = await asDeployed();
-        const [owner] = await ask<{
-          name: string;
-          superuser: boolean;
-          ownsDatabase: boolean;
-          config: string[] | null;
-        }>(
-          dsn,
-          "select r.rolname as name, r.rolsuper as superuser, " +
-            'd.datdba = r.oid as "ownsDatabase", r.rolconfig as config ' +
-            "from pg_roles r, pg_database d " +
-            "where r.rolname = current_user and d.datname = current_database()",
-        );
-        expect(boundsAreExact(owner.config ?? [], GOVERNED_SETTINGS)).toBe(
-          true,
-        );
-        expect(owner.name).not.toBe(new URL(LOCAL_DATABASE_URL).username);
-        expect(owner.superuser).toBe(true);
-        expect(owner.ownsDatabase).toBe(true);
-        await closeRuntimes(dsn);
-      }),
-    60_000,
-  );
-});
-
 suite("converging the matrix on a deployed database", () => {
   test(
     "a catalog that already carries the matrix is not written",
     () =>
       serial(async () => {
         const dsn = await asDeployed();
+        // Each case runs as an owner of its own (testing/case-owner.ts), never
+        // as the shared connection user that other processes also govern.
+        const [caseOwner] = await ask<{ name: string; ownsDatabase: boolean }>(
+          dsn,
+          'select r.rolname as name, d.datdba = r.oid as "ownsDatabase" ' +
+            "from pg_roles r, pg_database d " +
+            "where r.rolname = current_user and d.datname = current_database()",
+        );
+        expect(caseOwner.name).not.toBe(new URL(LOCAL_DATABASE_URL).username);
+        expect(caseOwner.ownsDatabase).toBe(true);
         expect(await matrixOf(dsn)).toEqual(matrixFor(TEST_CURRENT));
         const versions = await catalogRowVersions(dsn);
         expect(versions.length).toBeGreaterThan(10);

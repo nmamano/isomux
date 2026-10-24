@@ -25,8 +25,10 @@ const FIXTURE = [
   `ssh-ed25519 ${OURS}EXTRA someone-elses-longer-key`,
   // The blob appears in the COMMENT, which anyone can choose.
   `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIanotherkey ${OURS}`,
+  // The comment even names a whole key field.
+  `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIthirdkey note ssh-ed25519 ${OURS}`,
   // Ours, carrying options with spaces inside quotes.
-  `expiry-time="20260809140000Z",no-agent-forwarding ssh-ed25519 ${OURS} isomux-cp`,
+  `command="echo a b",expiry-time="20260809140000Z",no-agent-forwarding ssh-ed25519 ${OURS} isomux-cp`,
   // The blob as a SUFFIX of a longer key. Not ours.
   `ssh-ed25519 PREFIX${OURS} yet-another`,
 ].join("\n");
@@ -68,42 +70,37 @@ function runComposed(
 }
 
 describe("the TypeScript reader", () => {
-  test("finds the blob past options that contain spaces", async () => {
-    expect(
-      blobOf(`expiry-time="20260809140000Z" ssh-ed25519 ${OURS} isomux-cp`),
-    ).toBe(OURS);
-  });
-  test("does not confuse a longer key that contains ours", async () => {
-    expect(blobOf(`ssh-ed25519 ${OURS}EXTRA c`)).not.toBe(OURS);
-  });
-  test("does not read a blob out of a comment", async () => {
-    expect(blobOf(`ssh-ed25519 AAAAother ${OURS}`)).toBe("AAAAother");
-  });
-  test("returns null for a line with no key", async () => {
-    expect(blobOf("# just a comment")).toBeNull();
+  test("reads the key field, past quoted options, and never a longer key or a comment", () => {
+    const lines = FIXTURE.split("\n");
+    expect(lines.map(blobOf)).toEqual([
+      "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey",
+      `${OURS}EXTRA`,
+      "AAAAC3NzaC1lZDI1NTE5AAAAIanotherkey",
+      "AAAAC3NzaC1lZDI1NTE5AAAAIthirdkey",
+      OURS,
+      // Not a key field at all: a key starts with AAAA.
+      null,
+    ]);
   });
 });
 
 describe("revoke-key.sh removes exactly one line", () => {
-  test("keeps the customer key and proves it is still present", () => {
-    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey";
-    const res = runComposed(
-      ["authorizedKeys", "revokeKey"],
-      [akFile, OURS, customer],
-    );
-    expect(res.stdout).toContain("RESULT: removed");
-    expect(fs.readFileSync(akFile, "utf8")).toContain(customer);
+  test("reports whether the customer key is still present, and never blocks revocation", () => {
+    for (const [customer, line] of [
+      ["AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey", "CUSTOMER-KEY: present"],
+      ["AAAAnotpresent", "CUSTOMER-KEY: missing"],
+    ]) {
+      fs.writeFileSync(akFile, `${FIXTURE}\n`, { mode: 0o600 });
+      const res = runComposed(
+        ["authorizedKeys", "revokeKey"],
+        [akFile, OURS, customer],
+      );
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain("RESULT: removed");
+      expect(res.stdout).toContain(line);
+    }
   });
 
-  test("reports a missing customer key without blocking revocation", () => {
-    const res = runComposed(
-      ["authorizedKeys", "revokeKey"],
-      [akFile, OURS, "AAAAnotpresent"],
-    );
-    expect(res.code).toBe(0);
-    expect(res.stdout).toContain("RESULT: removed");
-    expect(res.stdout).toContain("CUSTOMER-KEY: missing");
-  });
   test("takes ours and leaves every impostor byte-for-byte", async () => {
     const before = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
     const res = runComposed(["authorizedKeys", "revokeKey"], [akFile, OURS]);
@@ -169,11 +166,16 @@ describe("install-customer-key.sh", () => {
   });
 
   test("refuses a customer key that is our provisioning key", () => {
+    const before = fs.readFileSync(akFile, "utf8");
     const res = runComposed(
       ["authorizedKeys", "installCustomerKey"],
       [akFile, "ssh-ed25519", OURS, OURS],
     );
     expect(res.code).not.toBe(0);
+    expect(res.stdout).toContain(
+      "RESULT: customer-key-matches-provisioning-key",
+    );
+    expect(fs.readFileSync(akFile, "utf8")).toBe(before);
   });
 });
 
@@ -190,6 +192,12 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
     expect(ours[0]).toContain('expiry-time="20260810060000Z"');
     // Nothing else acquired an expiry.
     expect(lines.filter((l) => l.includes("expiry-time"))).toHaveLength(1);
+    // The read-back reports our line and only ours.
+    const readback = res.stdout
+      .split("\n")
+      .filter((l) => l.startsWith("READBACK: "));
+    expect(readback).toHaveLength(1);
+    expect(blobOf(readback[0].slice("READBACK: ".length))).toBe(OURS);
   });
 
   test("refuses when our key is not on the box", async () => {
@@ -200,65 +208,68 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
     expect(res.code).not.toBe(0);
     expect(res.stdout).toContain("key-not-present");
   });
-
-  test("the read-back reports our line and only ours", async () => {
-    const res = runComposed(
-      ["authorizedKeys", "rewriteKey"],
-      [akFile, "ssh-ed25519", OURS, "20260810060000Z"],
-    );
-    const readback = res.stdout
-      .split("\n")
-      .filter((l) => l.startsWith("READBACK: "));
-    expect(readback).toHaveLength(1);
-    expect(blobOf(readback[0].slice("READBACK: ".length))).toBe(OURS);
-  });
 });
 
 describe("the cleanup backstop refuses to claim success it did not achieve", () => {
   const CLEANUP: RuntimeRepoFile[] = ["authorizedKeys", "cleanup"];
+  // As root, chmod does not stop the script, and the host paths it names are
+  // real: the script runs only with them pointed into the temp dir.
+  const asRoot = process.getuid?.() === 0;
 
-  test("fails, and stays installed, when the file cannot be replaced", async () => {
-    // A read-only directory: mktemp and the rename inside it cannot work, so
-    // the removal cannot happen. The script must fail rather than write a
-    // success record - the unit deletes this script and the timer on success,
-    // so a false success would remove enforcement AND evidence.
-    fs.chmodSync(keyDir, 0o500);
-    const res = runComposed(CLEANUP, [akFile, OURS]);
-    fs.chmodSync(keyDir, 0o700);
-    expect(res.code).not.toBe(0);
-    expect(fs.existsSync("/var/lib/isomux-access-record.json")).toBe(false);
-    // Our key is still there, which is exactly why it had to fail.
-    const lines = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
-    expect(lines.filter((l) => blobOf(l) === OURS)).toHaveLength(1);
-  });
-
-  test("removes our key and keeps the customer key byte-identical", () => {
-    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey";
-    const before = fs
-      .readFileSync(akFile, "utf8")
-      .split("\n")
-      .find((line) => line.includes(customer));
+  /** The cleanup script with its host paths moved into the temp dir. */
+  function cleanupScript(): { script: string; record: string } {
     const record = path.join(dir, "access-record.json");
     const runRoot = path.join(dir, "run-root");
     const wrapper = path.join(dir, "wrapper");
     fs.mkdirSync(runRoot);
     fs.writeFileSync(wrapper, "wrapper");
-    const original = composeRemoteScript(CLEANUP);
-    const body = original
-      .replace("RECORD=/var/lib/isomux-access-record.json", `RECORD=${record}`)
-      .replace("RUN_ROOT=/var/lib/isomux-cp", `RUN_ROOT=${runRoot}`)
-      .replace("WRAPPER=/usr/local/sbin/isomux-cp-run", `WRAPPER=${wrapper}`);
-    expect(body).not.toBe(original);
-    const script = path.join(dir, "cleanup-customer.sh");
+    let body = composeRemoteScript(CLEANUP);
+    for (const [anchor, local] of [
+      ["RECORD=/var/lib/isomux-access-record.json", `RECORD=${record}`],
+      ["RUN_ROOT=/var/lib/isomux-cp", `RUN_ROOT=${runRoot}`],
+      ["WRAPPER=/usr/local/sbin/isomux-cp-run", `WRAPPER=${wrapper}`],
+    ]) {
+      expect(body).toContain(anchor);
+      body = body.replace(anchor, local);
+    }
+    const script = path.join(dir, "cleanup.sh");
     fs.writeFileSync(script, body, { mode: 0o755 });
+    return { script, record };
+  }
+
+  test.skipIf(asRoot)(
+    "fails, and stays installed, when the file cannot be replaced",
+    () => {
+      // A read-only directory: mktemp and the rename inside it cannot work, so
+      // the removal cannot happen. The script must fail rather than write a
+      // success record - the unit deletes this script and the timer on
+      // success, so a false success would remove enforcement AND evidence.
+      const { script, record } = cleanupScript();
+      fs.chmodSync(keyDir, 0o500);
+      const proc = Bun.spawnSync(["bash", script, akFile, OURS]);
+      fs.chmodSync(keyDir, 0o700);
+      expect(proc.exitCode).not.toBe(0);
+      expect(fs.existsSync(record)).toBe(false);
+      // Our key is still there, which is exactly why it had to fail.
+      const lines = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
+      expect(lines.filter((l) => blobOf(l) === OURS)).toHaveLength(1);
+    },
+  );
+
+  test("removes our key and keeps the customer key byte-identical", () => {
+    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey";
+    const customerLine = () =>
+      fs
+        .readFileSync(akFile, "utf8")
+        .split("\n")
+        .find((line) => line.includes(customer));
+    const before = customerLine();
+    const { script, record } = cleanupScript();
     const proc = Bun.spawnSync(["bash", script, akFile, OURS, customer]);
     expect(proc.exitCode).toBe(0);
-    const after = fs
-      .readFileSync(akFile, "utf8")
-      .split("\n")
-      .find((line) => line.includes(customer));
-    expect(after).toBe(before);
-    expect(fs.existsSync(record)).toBe(true);
+    expect(customerLine()).toBe(before);
+    const lines = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
+    expect(lines.filter((l) => blobOf(l) === OURS)).toHaveLength(0);
     expect(fs.readFileSync(record, "utf8")).toContain(
       '"customerKey": "present"',
     );

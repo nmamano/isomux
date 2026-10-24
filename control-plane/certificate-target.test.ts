@@ -52,17 +52,22 @@ describe("certificate test rails", () => {
   });
 
   test("a live exercise is staging-only", () => {
+    const staging = {
+      kind: "staging" as const,
+      caDirectory: LETS_ENCRYPT_STAGING,
+      cloudflareBaseUrl: CLOUDFLARE_PRODUCTION_API,
+      zoneId: "staging-exercise-zone",
+      productionZoneId: "prod-zone",
+    };
+    expect(() => assertCertificateTarget(staging, {})).not.toThrow();
     expect(() =>
       assertCertificateTarget(
-        {
-          kind: "staging",
-          caDirectory: LETS_ENCRYPT_STAGING,
-          cloudflareBaseUrl: CLOUDFLARE_PRODUCTION_API,
-          zoneId: "staging-exercise-zone",
-          productionZoneId: "prod-zone",
-        },
+        { ...staging, caDirectory: "https://acme.example/directory" },
         {},
       ),
-    ).not.toThrow();
+    ).toThrow();
+    expect(() =>
+      assertCertificateTarget({ ...staging, zoneId: "prod-zone" }, {}),
+    ).toThrow();
   });
 });

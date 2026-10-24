@@ -72,7 +72,8 @@ export async function driveTicks(
     reporter: Pick<Reporter, "line" | "problem">;
     capabilities: ScheduleCapabilities;
     wake?: DriveWake;
-    watch?: () => Promise<void>;
+    /** The monitoring passes, run in order when liveness is due. */
+    watch?: readonly CadencePass[];
     cadence?: CadencePass;
     /** Called after each successful schedule read. */
     onTick?: () => void;
@@ -149,12 +150,16 @@ export async function driveTicks(
           }
         }
         if (schedule.livenessDue && opts.watch) {
-          try {
-            await opts.watch();
-          } catch (err) {
-            opts.reporter.problem(
-              `monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
+          // Each pass has its own guard, so a pass that fails cannot suppress
+          // the passes after it.
+          for (const pass of opts.watch) {
+            try {
+              await pass.run();
+            } catch (err) {
+              opts.reporter.problem(
+                `${pass.failureLabel}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
         }
         await announce();

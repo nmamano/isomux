@@ -23,9 +23,7 @@ function loopback(raw: string): boolean {
   }
 }
 
-export function automatedTestProcess(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+function automatedTestProcess(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === "test" || env.BUN_ENV === "test";
 }
 

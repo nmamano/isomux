@@ -35,6 +35,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { boxHandlers } from "./handlers.ts";
 import { InviteHold } from "./invite-hold.ts";
+import { expectRejection } from "../server/test-support/expect-rejection.ts";
 import { Reporter, type Sink } from "./report.ts";
 import { requestInvite } from "./requests.ts";
 import { saveRun, type RunRecord } from "./run-record.ts";
@@ -147,7 +148,7 @@ interface Bed extends Surfaces {
   opId: string;
 }
 
-async function bed(opts: { deliver?: boolean } = {}): Promise<Bed> {
+async function bed(): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-invite-persist-"));
   temps.push(dir);
   const store = await openTestStore();
@@ -218,7 +219,7 @@ async function bed(opts: { deliver?: boolean } = {}): Promise<Bed> {
       reporter,
       runsDir: dir,
       keysDir: dir,
-      ...(opts.deliver === false ? {} : { deliver: hold }),
+      deliver: hold,
     }),
     report: (l) => lines.push(l),
   });
@@ -252,35 +253,11 @@ describe("a dashboard mint leaves no trace", () => {
     expect((await b.store.getOperation(b.opId))!.status).toBe("succeeded");
 
     expect(await scan(b)).toEqual([]);
-  });
 
-  test("and it is gone from memory once collected", async () => {
-    const b = await bed();
-    await b.ticker.once();
-    b.hold.take(b.opId, b.instanceId);
-    expect(b.hold.size()).toBe(0);
-    expect(b.hold.take(b.opId, b.instanceId).found).toBe(false);
-  });
-
-  test("without a delivery channel, nothing is minted to leave a trace of", async () => {
-    const b = await bed({ deliver: false });
-    await b.ticker.once();
-    expect((await b.store.getOperation(b.opId))!.status).toBe("failed");
-    expect(b.hold.size()).toBe(0);
-    expect(await scan(b)).toEqual([]);
-  });
-});
-
-describe("the scan would catch a leak", () => {
-  test("a URL written to evidence or an audit row is found in both", async () => {
-    // THE POSITIVE CONTROL. Without this, the test above is a search whose
+    // THE POSITIVE CONTROL. Without it, the scan above is a search whose
     // sensitivity nobody has checked - and a scanner that never matches
-    // anything passes every run.
-    const b = await bed();
-    await b.ticker.once();
-    b.hold.take(b.opId, b.instanceId);
-    expect(await scan(b)).toEqual([]);
-
+    // anything passes every run. A URL written to evidence, to an audit row
+    // and to the operator's output is found in each.
     const op = (await b.store.getOperation(b.opId))!;
     const leased = (await b.store.tryLease(
       op.id,
@@ -304,6 +281,7 @@ describe("the scan would catch a leak", () => {
           detail: INVITE_URL,
         }),
     );
+    b.reporter.line(`OWNER INVITE: ${INVITE_URL}`);
     const hits = await scan(b);
     expect(hits).toContain("evidence mint_invite: sentinel");
     expect(hits).toContain("audit: sentinel");
@@ -313,9 +291,12 @@ describe("the scan would catch a leak", () => {
       hits.some((h) => h.startsWith("table ") && h.endsWith("sentinel")),
     ).toBe(true);
     expect(hits).toContain("submitted sql: sentinel");
+    expect(hits).toContain("output: sentinel");
   });
+});
 
-  test("and it would catch one that was written and then ROLLED BACK", async () => {
+describe("the scan would catch a leak", () => {
+  test("a URL written and then ROLLED BACK is caught anyway", async () => {
     // The case the row scan cannot see, and the reason there are two nets. A
     // credential handed to the database and then undone was still handed to the
     // database - and the previous engine caught that class only by accident,
@@ -326,9 +307,7 @@ describe("the scan would catch a leak", () => {
     const clean = await scan(b);
     expect(clean).toEqual([]);
 
-    // Not awaited, matching every other rejects assertion here: awaiting one
-    // trips await-thenable under the bun test types.
-    expect(
+    await expectRejection(
       b.store.tx(async () => {
         await b.store.appendAudit({
           actor: "leak",
@@ -340,7 +319,8 @@ describe("the scan would catch a leak", () => {
         });
         throw new Error("and then the transaction failed");
       }),
-    ).rejects.toThrow(/and then the transaction failed/);
+      /and then the transaction failed/,
+    );
 
     const hits = await scan(b);
     // No live row holds it...
@@ -348,15 +328,5 @@ describe("the scan would catch a leak", () => {
     expect(hits).not.toContain("audit: sentinel");
     // ...and it is caught anyway.
     expect(hits).toContain("submitted sql: sentinel");
-  });
-
-  test("and it would catch one printed to the operator's output", async () => {
-    const b = await bed();
-    b.reporter.line(`OWNER INVITE: ${INVITE_URL}`);
-    const hits = await scan(b);
-    expect(hits).toContain("output: sentinel");
-    // The transcript redacts URL shapes, which is slice 1's contract - so the
-    // live output is the surface that catches this, and it does.
-    expect(hits).not.toContain("transcript: sentinel");
   });
 });

@@ -16,6 +16,7 @@ import {
   migrateLegacyIntents,
 } from "./create-latch.ts";
 import { IntentJournal } from "./intents.ts";
+import { expectRejection } from "../server/test-support/expect-rejection.ts";
 import { createInstanceHandler } from "./handlers.ts";
 import { Reporter } from "./report.ts";
 import { Store, type Fence } from "./store.ts";
@@ -138,13 +139,6 @@ describe("the latch", () => {
     expect(await b.store.listIntents()).toHaveLength(1);
   });
 
-  test("arming writes the intent and the operation evidence in ONE transaction", async () => {
-    const b = await bed();
-    const { armed } = await new CreateLatch(b.store).armOnce(REQ, b.fence);
-    expect((await b.store.getIntent("intent-1"))?.state).toBe("intended");
-    expect(JSON.parse(armed.evidence).phase).toBe(CREATE_ARMED_PHASE);
-  });
-
   test("a stale fence rolls the intent back, so nothing is latched and nothing was sent", async () => {
     const b = await bed();
     const stale: Fence = { ...b.fence, version: b.fence.version - 1 };
@@ -212,15 +206,49 @@ describe("the latch", () => {
 
   test("two contenders on one pre-read: one winner row, one call, no partial loser", async () => {
     const b = await bed();
+    // The second contender holds its OWN operation, so its fence is valid and
+    // only the intent's primary key can refuse it. One fence shared by both
+    // would let the operation's version check pick the winner instead.
+    await b.store.createInstance({
+      id: "inst-2",
+      run_id: null,
+      name: "cp2.test.isomux.app",
+      plan: "V153",
+      region: "EU",
+      service_state: "provisioning",
+      goal: "live",
+      access_window_expires_at: null,
+    });
+    const op2 = await b.store.enqueue({
+      id: "op-create-2",
+      instance_id: "inst-2",
+      kind: "create_instance",
+      inactivity_deadline_at: b.store.now() + 900_000,
+      absolute_deadline_at: b.store.now() + 900_000,
+    });
+    const leased2 = (await b.store.tryLease(
+      op2.id,
+      op2.version,
+      "holder-b",
+      b.store.now() + 60_000,
+      b.store.now(),
+    ))!;
+    const fence2: Fence = {
+      id: op2.id,
+      version: leased2.version,
+      holder: "holder-b",
+    };
     const adapter = fakeAdapter();
     const latch = new CreateLatch(b.store);
     const coordinator = new CreateCoordinator(adapter, latch, b.store);
     // ONE pre-read shared by both contenders, no serialising read between them.
     const results = await Promise.allSettled([
       coordinator.armAndCreate(REQ, b.fence),
-      coordinator.armAndCreate(REQ, b.fence),
+      coordinator.armAndCreate(REQ, fence2),
     ]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const lost = results.find((r) => r.status === "rejected");
+    expect((lost as PromiseRejectedResult).reason).toBeInstanceOf(LatchRefused);
     expect(adapter.calls.filter((c) => c === "create")).toHaveLength(1);
     const intents = await b.store.listIntents();
     expect(intents).toHaveLength(1);
@@ -248,35 +276,70 @@ describe("the permit", () => {
   });
 });
 
+/** A slice-1 journal record, as the old writer left it on disk. */
+function legacyRecord(dir: string, intentId: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, `${intentId}.json`),
+    JSON.stringify({
+      intentId,
+      state: "intended",
+      latchedAt: 1,
+      plan: "V153",
+      region: "EU",
+    }),
+    { mode: 0o600 },
+  );
+}
+
 describe("the legacy journal can only veto", () => {
   test("a journal record forbids the create even with an empty database", async () => {
     const b = await bed();
     const journalDir = path.join(b.dir, "intents");
-    const journal = new IntentJournal(journalDir);
-    journal.reserve("intent-1", { plan: "V153", region: "EU" });
-    const latch = new CreateLatch(b.store, journal);
+    legacyRecord(journalDir, "intent-1");
+    const latch = new CreateLatch(b.store, new IntentJournal(journalDir));
     expect(latch.armOnce(REQ, b.fence)).rejects.toThrow(LatchRefused);
     expect(await b.store.getIntent("intent-1")).toBeNull();
   });
 
-  test("an unreadable journal record throws rather than reading as absent", async () => {
-    const b = await bed();
-    const journalDir = path.join(b.dir, "intents");
-    fs.mkdirSync(journalDir, { recursive: true });
-    fs.writeFileSync(path.join(journalDir, "intent-1.json"), "{not json");
-    const latch = new CreateLatch(b.store, new IntentJournal(journalDir));
-    expect(latch.armOnce(REQ, b.fence)).rejects.toThrow();
-    expect(await b.store.getIntent("intent-1")).toBeNull();
-  });
+  // A corrupt record and one the process cannot read (EACCES) both refuse:
+  // an unreadable journal is not evidence that no call was made.
+  test.each([["corrupt"], ["unreadable"]])(
+    "a %s journal record throws rather than reading as absent",
+    async (kind) => {
+      const b = await bed();
+      const journalDir = path.join(b.dir, "intents");
+      fs.mkdirSync(journalDir, { recursive: true });
+      const file = path.join(journalDir, "intent-1.json");
+      if (kind === "corrupt") fs.writeFileSync(file, "{not json");
+      else {
+        legacyRecord(journalDir, "intent-1");
+        fs.chmodSync(file, 0o000);
+      }
+      const latch = new CreateLatch(b.store, new IntentJournal(journalDir));
+      try {
+        await expectRejection(latch.armOnce(REQ, b.fence), /intent-1/);
+      } finally {
+        fs.chmodSync(file, 0o600);
+      }
+      expect(await b.store.getIntent("intent-1")).toBeNull();
+      // The same latch arms an intent with no record: the refusal was this
+      // record's, not the latch's.
+      await latch.armOnce({ ...REQ, intentId: "intent-2" }, b.fence);
+      expect((await b.store.getIntent("intent-2"))?.state).toBe("intended");
+    },
+  );
 });
 
 describe("legacy migration", () => {
-  test("imports a readable record", async () => {
+  test("imports a readable record, and never deletes or rewrites it", async () => {
     const b = await bed();
     const dir = path.join(b.dir, "intents");
-    new IntentJournal(dir).reserve("old-1", { plan: "V153", region: "EU" });
+    legacyRecord(dir, "old-1");
+    const before = fs.readFileSync(path.join(dir, "old-1.json"), "utf8");
     expect(await migrateLegacyIntents(b.store, dir)).toBe(1);
     expect((await b.store.getIntent("old-1"))?.state).toBe("intended");
+    expect(fs.readFileSync(path.join(dir, "old-1.json"), "utf8")).toBe(before);
   });
 
   test("a corrupt record still forbids, using the id from the filename", async () => {
@@ -306,15 +369,6 @@ describe("legacy migration", () => {
     expect(row?.reason).toMatch(/not recognised/);
     // And a non-string plan does not travel into the row either.
     expect(row?.plan).toBe("unknown");
-  });
-
-  test("migration never deletes or rewrites the legacy evidence", async () => {
-    const b = await bed();
-    const dir = path.join(b.dir, "intents");
-    new IntentJournal(dir).reserve("old-3", { plan: "V153", region: "EU" });
-    const before = fs.readFileSync(path.join(dir, "old-3.json"), "utf8");
-    await migrateLegacyIntents(b.store, dir);
-    expect(fs.readFileSync(path.join(dir, "old-3.json"), "utf8")).toBe(before);
   });
 
   test("a directory that cannot be enumerated refuses to open the store", async () => {
@@ -442,7 +496,9 @@ describe("restart after a real crash", () => {
     await child.exited;
 
     // Everything below comes from the file. Nothing carries the capability.
-    const store = await openTestStoreOn(dbPath);
+    // The clock runs ahead of the dead holder's one-second lease, so the
+    // restarted ticker may adopt the row without waiting it out.
+    const store = await openTestStoreOn(dbPath, () => Date.now() + 2_000);
     expect((await store.getIntent("intent-1"))?.state).toBe("intended");
     expect(JSON.parse((await store.getOperation(b.opId))!.evidence).phase).toBe(
       CREATE_ARMED_PHASE,
@@ -450,6 +506,7 @@ describe("restart after a real crash", () => {
 
     const adapter = fakeAdapter({
       create(): Promise<CreateOutcome> {
+        adapter.calls.push("create");
         throw new Error("a restart reached create; the latch did not hold");
       },
     });
@@ -473,8 +530,6 @@ describe("restart after a real crash", () => {
       holder: "restarted",
     });
 
-    // Wait out the dead holder's lease, then tick repeatedly.
-    await Bun.sleep(1200);
     for (let i = 0; i < 4; i++) await ticker.once();
 
     expect(adapter.calls).not.toContain("create");
@@ -501,6 +556,7 @@ describe("the armed phase is defence in depth, and it is pinned", () => {
 
     const adapter = fakeAdapter({
       create(): Promise<CreateOutcome> {
+        adapter.calls.push("create");
         throw new Error("reached create with an armed operation");
       },
     });
@@ -604,10 +660,8 @@ describe("adoption never certifies a box it cannot name", () => {
     expect(op.status).toBe("ambiguous");
     expect((await b.store.assetForInstance("inst-1"))?.provider_id).toBe("111");
     expect(
-      (await b.store.openReasons("inst-1")).some((r) =>
-        /refusing to replace/.test(r.reason),
-      ),
-    ).toBe(true);
+      (await b.store.openReasons("inst-1")).map((r) => r.source_op_id),
+    ).toEqual([b.opId]);
   });
 
   test("a held provider ID commits create evidence and persists attention", async () => {
@@ -663,13 +717,12 @@ describe("adoption never certifies a box it cannot name", () => {
     expect((await b.store.getIntent(REQ.intentId))?.state).toBe("created");
     expect((await b.store.getOperation(b.opId))?.status).toBe("ambiguous");
     expect(await b.store.assetForInstance(b.instanceId)).toBeNull();
+    // The office that holds the provider id is the one a person must look at,
+    // and the reason is the instance's own (no source operation), so it
+    // persists past this operation.
     expect(
-      (await b.store.openReasons("inst-held")).some((reason) =>
-        reason.reason.includes(
-          "provider asset 999 was refused adoption by instance inst-1",
-        ),
-      ),
-    ).toBe(true);
+      (await b.store.openReasons("inst-held")).map((r) => r.source_op_id),
+    ).toEqual([""]);
   });
 });
 

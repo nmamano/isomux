@@ -27,13 +27,14 @@ import {
   assertIdentifier,
   boundsAreExact,
   failedClaims,
-  governanceStatements,
   grantKeys,
   grantMatrixStatements,
   governedRoleCount,
   judgeEffective,
   readRolePosture,
   residueIsInert,
+  rolePostureStatements,
+  type Bound,
   type RolePosture,
   type TableGrant,
 } from "./roles.ts";
@@ -258,8 +259,20 @@ describe("the web matrix is exactly what the web app reaches", () => {
   });
 });
 
+/** Both phases' statements, in the order bootstrapDatabase runs them. */
+function bothPhases(args: {
+  ownerRole: string;
+  bounds: readonly Bound[];
+  roster?: readonly RolePosture[];
+}): string[] {
+  return [
+    ...rolePostureStatements(args),
+    ...grantMatrixStatements(args.roster),
+  ];
+}
+
 describe("the statements that put it in place", () => {
-  const statements = governanceStatements({
+  const statements = bothPhases({
     ownerRole: "owner",
     bounds: BOUNDS,
   });
@@ -348,7 +361,7 @@ describe("the statements that put it in place", () => {
   test("it refuses to build a statement around a name it cannot recognise", () => {
     expect(() => assertIdentifier('web"; drop role x --')).toThrow();
     expect(() =>
-      governanceStatements({
+      bothPhases({
         ownerRole: "owner",
         bounds: [["statement_timeout", "30s'; drop role x --"]],
       }),
@@ -365,7 +378,7 @@ describe("the statements that put it in place", () => {
       [role("cp_one")],
       [role("cp_one"), role("cp_two"), role("cp_three")],
     ]) {
-      const built = governanceStatements({
+      const built = bothPhases({
         ownerRole: "owner",
         bounds: BOUNDS,
         roster,
@@ -387,7 +400,7 @@ describe("the statements that put it in place", () => {
   // governing nothing.
   test("it refuses an empty roster", () => {
     expect(() =>
-      governanceStatements({ ownerRole: "owner", bounds: BOUNDS, roster: [] }),
+      bothPhases({ ownerRole: "owner", bounds: BOUNDS, roster: [] }),
     ).toThrow();
   });
 

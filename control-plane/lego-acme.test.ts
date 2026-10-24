@@ -26,29 +26,6 @@ function makeCsr(root: string, commonName: string, sans: string): string {
     "req",
     "-new",
     "-newkey",
-    "rsa:2048",
-    "-nodes",
-    "-subj",
-    `/CN=${commonName}`,
-    "-addext",
-    `subjectAltName=${sans}`,
-    "-keyout",
-    key,
-    "-out",
-    csr,
-  ]);
-  if (made.exitCode !== 0) throw new Error(made.stderr.toString());
-  return readFileSync(csr, "utf8");
-}
-
-function makeEcCsr(root: string, commonName: string, sans: string): string {
-  const key = join(root, `${commonName}.key`);
-  const csr = join(root, `${commonName}.csr`);
-  const made = Bun.spawnSync([
-    "openssl",
-    "req",
-    "-new",
-    "-newkey",
     "ec",
     "-pkeyopt",
     "ec_paramgen_curve:P-256",
@@ -218,13 +195,13 @@ describe("the narrow lego adapter", () => {
     const newDir = join(dir, "new");
     mkdirSync(oldDir);
     mkdirSync(newDir);
-    makeEcCsr(
+    makeCsr(
       oldDir,
       "office.example",
       "DNS:office.example,DNS:*.office.example",
     );
     const oldCert = signCsr(oldDir, "office.example", join(oldDir, "cert.pem"));
-    const csrPem = makeEcCsr(
+    const csrPem = makeCsr(
       newDir,
       "office.example",
       "DNS:office.example,DNS:*.office.example",
@@ -275,13 +252,13 @@ describe("the narrow lego adapter", () => {
     const newDir = join(dir, "new");
     mkdirSync(oldDir);
     mkdirSync(newDir);
-    makeEcCsr(
+    makeCsr(
       oldDir,
       "office.example",
       "DNS:office.example,DNS:*.office.example",
     );
     const oldCert = signCsr(oldDir, "office.example", join(oldDir, "cert.pem"));
-    const csrPem = makeEcCsr(
+    const csrPem = makeCsr(
       newDir,
       "office.example",
       "DNS:office.example,DNS:*.office.example",
@@ -417,7 +394,7 @@ describe("the narrow lego adapter", () => {
     expect(legoCalls).toBe(0);
   });
 
-  test("refuses a CSR that asks for any other name before lego runs", async () => {
+  test("refuses a CSR whose common name is another name, before lego runs", async () => {
     dir = mkdtempSync(join(tmpdir(), "isomux-lego-"));
     let calls = 0;
     const run: CommandRunner = async (argv, env) => {
@@ -442,7 +419,12 @@ describe("the narrow lego adapter", () => {
       {
         instanceId: "office-1",
         names: ["office.example", "*.office.example"],
-        csrPem: makeCsr(dir, "other.example", "DNS:other.example"),
+        // The SANs match: only the common name asks for another name.
+        csrPem: makeCsr(
+          dir,
+          "victim.example",
+          "DNS:office.example,DNS:*.office.example",
+        ),
       },
     ).catch((reason: unknown) => reason);
     expect((failed as Error).message).toContain("do not match");
@@ -463,7 +445,9 @@ describe("the narrow lego adapter", () => {
       "req",
       "-new",
       "-newkey",
-      "rsa:2048",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:P-256",
       "-nodes",
       "-keyout",
       key,
@@ -538,27 +522,6 @@ describe("a failed lego run in the operator log", () => {
       `_acme-challenge.office.example. value ${OPAQUE}`,
     "",
   ].join("\n");
-
-  test("keeps the last lines on one line, and no secret", () => {
-    const detail = legoFailureDetail(stderr, [CF_TOKEN, ENV_SECRET]);
-    // eslint-disable-next-line no-control-regex
-    expect(detail).not.toMatch(/[\x00-\x1f]/);
-    for (const marker of MARKERS.slice(0, -5))
-      expect(detail).not.toContain(`msg=${marker} `);
-    for (const marker of MARKERS.slice(-5))
-      expect(detail).toContain(`msg=${marker} `);
-    expect(detail.indexOf(`msg=${MARKERS[5]}`)).toBeGreaterThan(
-      detail.indexOf(`msg=${MARKERS[4]}`),
-    );
-    for (const secret of SECRETS) expect(detail).not.toContain(secret);
-    expect(detail).not.toContain("PRIVATE KEY-----\n");
-    // What the operator needs survives the redaction.
-    expect(detail).toContain("inst-b9d2782a-26ab-4125-bcc2-83ef9aa40b07");
-    expect(detail).toContain(
-      "https://acme-staging-v02.api.letsencrypt.org/acme/authz/123/456",
-    );
-    expect(detail).toContain("_acme-challenge.office.example.");
-  });
 
   test("removes a known value however short, and no part of an overlapping one", () => {
     expect(legoFailureDetail("failure echo abc!xy", ["abc!xy"])).not.toContain(
@@ -657,8 +620,22 @@ describe("a failed lego run in the operator log", () => {
       },
     ).catch((reason: unknown) => reason);
     const message = (failed as Error).message;
-    expect(message).toContain(`msg=${MARKERS[5]} `);
+    // eslint-disable-next-line no-control-regex
+    expect(message).not.toMatch(/[\x00-\x1f]/);
+    // The last five lines, in order, and no earlier one.
     expect(message).not.toContain(`msg=${MARKERS[0]} `);
+    for (const marker of MARKERS.slice(1))
+      expect(message).toContain(`msg=${marker} `);
+    expect(message.indexOf(`msg=${MARKERS[5]}`)).toBeGreaterThan(
+      message.indexOf(`msg=${MARKERS[4]}`),
+    );
     for (const secret of SECRETS) expect(message).not.toContain(secret);
+    expect(message).not.toContain("PRIVATE KEY-----\n");
+    // What the operator needs survives the redaction.
+    expect(message).toContain("inst-b9d2782a-26ab-4125-bcc2-83ef9aa40b07");
+    expect(message).toContain(
+      "https://acme-staging-v02.api.letsencrypt.org/acme/authz/123/456",
+    );
+    expect(message).toContain("_acme-challenge.office.example.");
   });
 });

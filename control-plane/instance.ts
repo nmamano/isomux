@@ -37,10 +37,6 @@ export interface EnsureInstanceArgs {
   rec: RunRecord;
   goal: Goal;
   expiresAt?: Date;
-  /** Provider id and address come from the run record; the asset row is created
-   * with the instance on first use. */
-  createAsset?: boolean;
-  now?: () => number;
 }
 
 /**
@@ -65,7 +61,9 @@ export async function ensureInstance(
   args: EnsureInstanceArgs,
 ): Promise<string> {
   const { store, rec, goal, expiresAt } = args;
-  const now = args.now ?? (() => Date.now());
+  // The store's clock: it also stamps created_at, which the ceiling checks
+  // below compare against.
+  const now = () => store.now();
   const id = `inst-${rec.runId}`;
   let existing = await store.getInstance(id);
   if (
@@ -97,9 +95,8 @@ export async function ensureInstance(
           goal,
           access_window_expires_at: expiresAt ? expiresAt.getTime() : null,
         });
-        if (args.createAsset !== false) {
-          await createAssetFor(store, rec, id, now());
-        }
+        // Provider id and address come from the run record.
+        await createAssetFor(store, rec, id, now());
       });
       return id;
     } catch (err) {
@@ -114,7 +111,7 @@ export async function ensureInstance(
   // Repair rather than assume: a row created by an older build, or by a crash
   // between the two inserts before they shared a transaction, can be missing its
   // provider axis. Restart is where that gets noticed.
-  if (args.createAsset !== false && !(await store.assetForInstance(id))) {
+  if (!(await store.assetForInstance(id))) {
     await store.tx(() => createAssetFor(store, rec, id, now()));
   }
 

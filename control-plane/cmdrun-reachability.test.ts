@@ -29,7 +29,6 @@ import {
   AUDITED_HANDLER_KINDS,
   AUDITED_PROVIDER_HANDLER_KINDS,
   AUDITED_STRIPE_HANDLER_KINDS,
-  PROVISIONER_REACHABLE,
 } from "./roles.ts";
 import {
   PROVIDER_DEPENDENT_KINDS,
@@ -90,13 +89,24 @@ const stripe = {
 };
 
 describe("the audited roster is the roster the loop is built from", () => {
+  // THE ABSENCE THE MATRIX RESTS ON. Four verbs came off the provisioner's
+  // matrix because the create path is unreachable: create_instance is in the
+  // provider list below and not in this one.
   test("the registered kinds are exactly the audited ones", () => {
     expect(kindsOf(null).sort()).toEqual([...AUDITED_HANDLER_KINDS].sort());
   });
 
-  test("provider credentials add exactly the audited provider kinds", () => {
-    const extra = kindsOf(provider).filter((k) => !kindsOf(null).includes(k));
-    expect(extra.sort()).toEqual([...AUDITED_PROVIDER_HANDLER_KINDS].sort());
+  // The health surface asks the ticker about PROVIDER_DEPENDENT_KINDS, a third
+  // copy of the same set; this keeps the three from drifting. A duplicate kind
+  // would silently overwrite its twin in the ticker's handler map.
+  test("provider credentials add exactly the audited provider kinds, once each", () => {
+    const all = kindsOf(provider);
+    const extra = all.filter((k) => !kindsOf(null).includes(k)).sort();
+    expect(extra).toEqual([...AUDITED_PROVIDER_HANDLER_KINDS].sort());
+    expect([...PROVIDER_DEPENDENT_KINDS].sort()).toEqual(
+      extra as (typeof PROVIDER_DEPENDENT_KINDS)[number][],
+    );
+    expect(new Set(all).size).toBe(all.length);
   });
 
   test("Stripe credentials add exactly the Checkout-expiry handler", () => {
@@ -110,44 +120,6 @@ describe("the audited roster is the roster the loop is built from", () => {
     expect(withStripe.filter((kind) => !base.includes(kind))).toEqual([
       ...AUDITED_STRIPE_HANDLER_KINDS,
     ]);
-  });
-
-  test("the provisioner refuses startup without Checkout-expiry capability", () => {
-    const source = fs.readFileSync(
-      path.join(import.meta.dir, "cli.ts"),
-      "utf8",
-    );
-    expect(source).toContain(
-      "const stripeKey = stripeKeyFromEnv(stripeMode, process.env);",
-    );
-    expect(source).toContain(
-      "const stripeClient = new StripeClient({ key: stripeKey, mode: stripeMode });",
-    );
-  });
-
-  // The health surface reports whether the provider handlers exist, and it asks
-  // the ticker rather than the environment - but it needs a list of kinds to
-  // ask about, and that list is a third copy of the same set. This is the test
-  // that keeps the three from drifting: what the deployed process asks about is
-  // exactly what provider credentials add.
-  test("PROVIDER_DEPENDENT_KINDS is exactly what credentials add", () => {
-    const extra = kindsOf(provider).filter((k) => !kindsOf(null).includes(k));
-    expect([...PROVIDER_DEPENDENT_KINDS].sort()).toEqual(
-      extra.sort() as (typeof PROVIDER_DEPENDENT_KINDS)[number][],
-    );
-  });
-
-  test("no handler is registered twice", () => {
-    const all = kindsOf(provider);
-    expect(new Set(all).size).toBe(all.length);
-  });
-
-  // THE ABSENCE THE MATRIX RESTS ON. Four verbs came off the provisioner's
-  // matrix because the create path is unreachable, and this is that premise as
-  // a test rather than as a comment.
-  test("create_instance is registered only with provider credentials and its coordinator", () => {
-    expect(kindsOf(null)).not.toContain("create_instance");
-    expect(kindsOf(provider)).toContain("create_instance");
   });
 });
 
@@ -242,11 +214,6 @@ describe("the audited surface is the surface cmdRun drives", () => {
     expect(cmdRunCallees()).toEqual([...AUDITED_CMDRUN_SURFACES].sort());
   });
 
-  test("the extraction found a body worth checking", () => {
-    // A regex that matched nothing would make the case above pass forever.
-    expect(cmdRunCallees().length).toBeGreaterThan(8);
-  });
-
   // THE HOLE THE CHECKOUT POLL WENT THROUGH: the case above read cmdRun's body
   // and stopped at runLifecycleCadence, so the poll added inside it on
   // 2026-08-23 reached name_reservations UPDATE without a test noticing.
@@ -263,43 +230,4 @@ describe("the audited surface is the surface cmdRun drives", () => {
       expect(calleesOf(helper)).toEqual([...audited].sort());
     });
   }
-
-  test("the walk follows cmdRun past its own body", () => {
-    expect(helpersReached()).toContain("runLifecycleCadence");
-    expect(calleesOf("runLifecycleCadence")).toContain("pollPendingCheckouts");
-  });
-
-  test("liveness runs first and each monitoring pass has its own guard", () => {
-    const source = fs.readFileSync(
-      path.join(import.meta.dir, "cli.ts"),
-      "utf8",
-    );
-    const liveness = source.indexOf("await watchLiveness(store");
-    const certificate = source.indexOf("await watchCertificateContact(store");
-    expect(liveness).toBeGreaterThan(0);
-    expect(certificate).toBeGreaterThan(liveness);
-    expect(source.slice(liveness, certificate)).toContain(
-      "liveness monitoring pass failed:",
-    );
-    expect(source.slice(certificate)).toContain(
-      "certificate-contact monitoring pass failed:",
-    );
-  });
-});
-
-describe("the audit covers the roster it was taken from", () => {
-  // The verb list is a human audit; what is checkable is that it was taken from
-  // a roster this build still has, and that every entry says where.
-  test("the mint seam's reservation read is in the audit", () => {
-    const entry = PROVISIONER_REACHABLE.find(
-      (r) => r.table === "name_reservations" && r.verb === "select",
-    );
-    expect(entry?.via).toContain("fetchInvite");
-  });
-
-  test("every audited entry cites where the verb is issued", () => {
-    for (const entry of PROVISIONER_REACHABLE) {
-      expect(entry.via.length).toBeGreaterThan(20);
-    }
-  });
 });

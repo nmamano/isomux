@@ -31,7 +31,7 @@ export function formatExpiry(when: Date): string {
 }
 
 /** systemd OnCalendar wants a different rendering of the same instant. */
-export function formatOnCalendar(when: Date): string {
+function formatOnCalendar(when: Date): string {
   const p = (n: number, w = 2) => String(n).padStart(w, "0");
   return (
     `${p(when.getUTCFullYear(), 4)}-${p(when.getUTCMonth() + 1)}-${p(when.getUTCDate())} ` +
@@ -39,7 +39,7 @@ export function formatOnCalendar(when: Date): string {
   );
 }
 
-export function authorizedKeysPathFor(user: string): string {
+function authorizedKeysPathFor(user: string): string {
   return user === "root"
     ? "/root/.ssh/authorized_keys"
     : `/home/${user}/.ssh/authorized_keys`;
@@ -484,7 +484,7 @@ export function onCalendarFromExpiry(expiry: string): string {
 }
 
 export type LaunchOutcome =
-  | { kind: "confirmed"; runId: string }
+  | { kind: "confirmed" }
   | { kind: "failed"; reason: string }
   /**
    * The box already has this generation, so the launch we were unsure about did
@@ -503,7 +503,7 @@ export function parseLaunch(result: {
 }): LaunchOutcome {
   const out = result.stdout.trim();
   if (out.startsWith("CONFIRMED")) {
-    return { kind: "confirmed", runId: out.split(/\s+/)[1] ?? "" };
+    return { kind: "confirmed" };
   }
   if (out.startsWith("FAILED") && /already exists/.test(out)) {
     return { kind: "already-exists", reason: out };

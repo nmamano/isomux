@@ -38,7 +38,6 @@ import {
   type RolePosture,
   boundsAreExact,
   effectivePrivilegeSql,
-  governanceStatements,
   grantMatrixStatements,
   judgeEffective,
   judgeMatrix,
@@ -483,24 +482,20 @@ async function ownerState(
 }
 
 /**
- * Refuse before mutating if anything about the ground is not what we think.
+ * Refuse before mutating if a role name is not ours to take.
  *
- * TWO QUESTIONS, and both are about names this build does not own exclusively.
  * `cp_web` and `cp_provisioner` are CLUSTER-GLOBAL in production, so a role
  * that is already there might be a previous run's inert residue or might be
  * somebody else's live identity - and `create if absent` followed by
- * `reset all` cannot tell the difference. And a privilege held by PUBLIC is a
- * privilege every role has, so a matrix that reads only direct grants can be
- * exact while the boundary it describes is not.
+ * `reset all` cannot tell the difference.
  *
- * Neither is repaired here. A live same-named role and a PUBLIC grant on a
- * product table are both states somebody has to look at, and quietly
- * overwriting them is how a posture change becomes an incident.
+ * It is not repaired here. A live same-named role is a state somebody has to
+ * look at, and quietly overwriting it is how a posture change becomes an
+ * incident.
  */
 async function preflight(
   pool: pg.Pool,
   dsn: string,
-  schemaExists: boolean,
   roster: readonly RolePosture[] = runtimeRoles(),
 ): Promise<void> {
   let identities: RoleIdentity[];
@@ -527,27 +522,6 @@ async function preflight(
       );
     }
   }
-  if (!schemaExists) return;
-  // PUBLIC, over every product table and every verb. Read, never written: the
-  // public ACL is not this build's to edit.
-  let held: number;
-  try {
-    const rows = await pool.query<EffectiveRow>(effectivePrivilegeSql(), [
-      ["public"],
-      [...EXPECTED_TABLES],
-      [...ALL_VERBS],
-    ]);
-    held = rows.rows.filter((row) => row.allowed).length;
-  } catch (err) {
-    throw redactConnectionDetails(err, dsn);
-  }
-  if (held > 0) {
-    throw new Error(
-      "refusing to govern: PUBLIC holds privileges on this build's tables, so " +
-        "every role would have them whatever the matrix grants. This build " +
-        "does not edit the public ACL - resolve it by hand first.",
-    );
-  }
 }
 
 /**
@@ -568,7 +542,7 @@ export async function applyRolePosture(
 ): Promise<number> {
   const pool = await openPool(dsn);
   try {
-    await preflight(pool, dsn, false, roster);
+    await preflight(pool, dsn, roster);
     const { owner, config } = await ownerState(pool, dsn);
     if (!ownerConfigIsAcceptable(config, GOVERNED_SETTINGS)) {
       throw new Error(
@@ -612,54 +586,13 @@ export async function applyGrantMatrix(
 }
 
 /**
- * Both phases at once, for a database that already carries its schema.
- *
- * ONE TRANSACTION, because nothing has to happen between them here and a
- * production migration that can land halfway is not a gated reversible step.
- */
-export async function applyGovernance(
-  dsn: string,
-  roster: readonly RolePosture[] = runtimeRoles(),
-): Promise<{ statements: number; roles: number }> {
-  const pool = await openPool(dsn);
-  try {
-    await preflight(pool, dsn, true, roster);
-    const { owner, config } = await ownerState(pool, dsn);
-    if (!ownerConfigIsAcceptable(config, GOVERNED_SETTINGS)) {
-      throw new Error(
-        "refusing to govern: the owner role already carries configuration this " +
-          "build did not put there, and converging it would erase settings " +
-          "nobody here can account for. Resolve the role's configuration by " +
-          "hand first.",
-      );
-    }
-    const statements = await inTransaction(
-      pool,
-      dsn,
-      governanceStatements({
-        ownerRole: owner,
-        bounds: GOVERNED_SETTINGS,
-        roster,
-      }),
-    );
-    const roles = await pool.query<{ n: string }>(
-      "select count(*)::text as n from pg_roles where rolconnlimit <> -1 " +
-        "and rolconfig is not null",
-    );
-    return { statements, roles: Number(roles.rows[0]?.n ?? 0) };
-  } finally {
-    await pool.end().catch(() => {});
-  }
-}
-
-/**
  * CONVERGE THE RUNTIME GRANTS OF A DEPLOYED DATABASE TO THIS BUILD'S MATRIX, in
  * one transaction. deploy.sh runs it on every redeploy, after the owner
  * migrations, through `cli.ts regovern`.
  *
- * IT IS NOT `applyGovernance`. That one is written for a database this build
- * has not governed yet: it requires the owner to carry NOTHING, and a deployed
- * owner carries the governed pair, while its runtime roles can log in.
+ * IT IS NOT `bootstrapDatabase`. That one is written for a database this
+ * build has not governed yet: it requires the owner to carry NOTHING, and a
+ * deployed owner carries the governed pair, while its runtime roles can log in.
  *
  * ANY BEFORE-MATRIX IS ACCEPTED, and the destination is exact. Two matrix
  * changes between deploys, a reverted change, a deploy of an older commit and a

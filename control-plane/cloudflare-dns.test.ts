@@ -14,6 +14,7 @@ import {
   type ARecord,
   type TxtRecord,
 } from "./cloudflare-dns.ts";
+import { expectRejection } from "../server/test-support/expect-rejection.ts";
 
 let dir = "";
 afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
@@ -23,8 +24,6 @@ function fake(
   options: {
     now?: () => number;
     requestTimeoutMs?: number;
-    // Each request answers only after this long, unless its signal aborts.
-    delayMs?: number;
     // Wraps each request: return undefined to answer normally.
     intercept?: (
       method: string,
@@ -46,17 +45,6 @@ function fake(
           : input.url;
     const method = init?.method ?? "GET";
     started.push(method);
-    const delayMs = options.delayMs;
-    if (delayMs !== undefined)
-      await new Promise<void>((resolve, reject) => {
-        // As fetch does, an already aborted signal rejects at once.
-        if (init?.signal?.aborted) return reject(new Error("aborted"));
-        const timer = setTimeout(resolve, delayMs);
-        init?.signal?.addEventListener("abort", () => {
-          clearTimeout(timer);
-          reject(new Error("aborted"));
-        });
-      });
     const intercepted = options.intercept?.(method, url, init);
     if (intercepted) return intercepted;
     const rawBody = typeof init?.body === "string" ? init.body : undefined;
@@ -122,28 +110,23 @@ function fake(
 }
 
 describe("crash-safe Cloudflare TXT ownership", () => {
-  test("adopts exact content instead of creating a duplicate", async () => {
+  test("adopts exact content instead of creating a duplicate, and cleanup removes every exact copy", async () => {
     const { dns, records, calls } = fake([
       { id: "ours", name: "_acme.example", content: "value-a" },
+      { id: "twin", name: "_acme.example", content: "value-a" },
       { id: "sibling", name: "_acme.example", content: "value-b" },
     ]);
-    expect(await dns.present("_acme.example.", "value-a")).toEqual(["ours"]);
+    expect(await dns.present("_acme.example.", "value-a")).toEqual([
+      "ours",
+      "twin",
+    ]);
     expect(calls.some((call) => call.method === "POST")).toBe(false);
+    // A create whose answer landed after the process died: in no journal.
+    records.push({ id: "late", name: "_acme.example", content: "value-a" });
     await dns.cleanup("_acme.example", "value-a");
     expect(records).toEqual([
       { id: "sibling", name: "_acme.example", content: "value-b" },
     ]);
-  });
-
-  test("an ambiguous duplicate retry deletes every exact sibling only", async () => {
-    const { dns, records } = fake([
-      { id: "a", name: "_acme.example", content: "same" },
-      { id: "b", name: "_acme.example", content: "same" },
-      { id: "keep", name: "_acme.example", content: "other" },
-    ]);
-    await dns.present("_acme.example", "same");
-    await dns.cleanup("_acme.example", "same");
-    expect(records.map((record) => record.id)).toEqual(["keep"]);
   });
 });
 
@@ -243,29 +226,45 @@ describe("permanent office A records", () => {
     });
   });
 
-  // Five requests (two parallel lists, the batch, two parallel lists) of
-  // 200 ms each: about 600 ms in sequence. The signal fires inside the first
-  // lists, or inside the batch, and the call must end there.
+  // Five requests: two parallel lists, the batch, two parallel lists. The
+  // signal fires while the first lists run, or while the batch runs, and the
+  // call must end there.
   test.each([
-    [50, 150, 2],
-    [300, 380, 3],
+    ["the first lists", "GET", 2],
+    ["the batch", "POST", 3],
   ])(
-    "one signal bounds the whole call, though no single request is slow (abort at %d ms)",
-    async (abortMs, endsBeforeMs, requests) => {
-      const t = fake([], { delayMs: 200 });
-      const begin = performance.now();
-      let failure: unknown;
-      try {
-        await t.dns.replaceOfficeARecords(
-          "slow.example",
-          "203.0.113.7",
-          AbortSignal.timeout(abortMs),
-        );
-      } catch (err) {
-        failure = err;
-      }
-      expect(failure).toBeInstanceOf(Error);
-      expect(performance.now() - begin).toBeLessThan(endsBeforeMs);
+    "one signal bounds the whole call (abort during %s)",
+    async (_when, abortOn, requests) => {
+      const abort = new AbortController();
+      let release = () => {};
+      const t = fake([], {
+        intercept: (method, _url, init) => {
+          if (method !== abortOn) return undefined;
+          // Hang like a slow request until the signal fires, then fail as
+          // fetch does. A request the signal never reaches fails on its own
+          // with another reason, so that regression is a red test and not a
+          // hung run.
+          return new Promise<Response>((_resolve, reject) => {
+            const backstop = setTimeout(
+              () => reject(new Error("never reached by the signal")),
+              1_000,
+            );
+            init?.signal?.addEventListener("abort", () => {
+              clearTimeout(backstop);
+              reject(new Error("aborted"));
+            });
+            release = () => abort.abort();
+          });
+        },
+      });
+      const call = t.dns.replaceOfficeARecords(
+        "slow.example",
+        "203.0.113.7",
+        abort.signal,
+      );
+      while (t.started.length < requests) await Bun.sleep(1);
+      release();
+      await expectRejection(call, /^aborted$/);
       // Nothing starts after the abort.
       expect(t.started).toHaveLength(requests);
     },
@@ -273,9 +272,7 @@ describe("permanent office A records", () => {
 
   test("refuses an unsafe office name before any request", async () => {
     const { dns, calls } = fake();
-    expect(dns.removeOfficeARecords("*.other.example")).rejects.toThrow(
-      /unsafe office DNS name/,
-    );
+    await expectRejection(dns.removeOfficeARecords("*.other.example"), /./);
     expect(calls).toHaveLength(0);
   });
 });

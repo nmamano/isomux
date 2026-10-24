@@ -18,7 +18,6 @@ import {
 } from "./boot.ts";
 import pg from "pg";
 import { writeDatabaseIdentity } from "./bootstrap.ts";
-import { IntentJournal } from "./intents.ts";
 import { HEALTH_PATH } from "./mint-seam.ts";
 import { PROVISIONER_GRANTS, WEB_GRANTS, type TableGrant } from "./roles.ts";
 import { Store } from "./store.ts";
@@ -133,35 +132,28 @@ suite("the database identity proof", () => {
     expect(failure).toContain("can write");
   });
 
+  // The proof does not depend on the tier, only the write probe does: the web
+  // role's pass and refusal on a wrong identity are web-store-lifetime.test.ts's.
+  test("the identity the deployment names is proved", async () => {
+    const { ownerDsn, roleDsn } = await bed(PROVISIONER_GRANTS);
+    await writeDatabaseIdentity(ownerDsn, IDENTITY);
+    const store = await runtimeStore(roleDsn);
+    expect(await proveDatabaseIdentity(store, IDENTITY)).toBe(true);
+  });
+
+  test("a database with no identity row REFUSES", async () => {
+    const { roleDsn } = await bed(PROVISIONER_GRANTS);
+    const store = await runtimeStore(roleDsn);
+    const failure = await refusalOf(proveDatabaseIdentity(store, IDENTITY));
+    expect(failure).toContain("refusing to start");
+    expect(failure).toContain("no identity row");
+  });
+
   for (const [tier, grants] of [
     ["provisioner", PROVISIONER_GRANTS],
     ["web", WEB_GRANTS],
   ] as const) {
     describe(`as the ${tier} role`, () => {
-      test("the identity the deployment names is proved", async () => {
-        const { ownerDsn, roleDsn } = await bed(grants);
-        await writeDatabaseIdentity(ownerDsn, IDENTITY);
-        const store = await runtimeStore(roleDsn);
-        expect(await proveDatabaseIdentity(store, IDENTITY)).toBe(true);
-      });
-
-      test("a database with no identity row REFUSES", async () => {
-        const { roleDsn } = await bed(grants);
-        const store = await runtimeStore(roleDsn);
-        const failure = await refusalOf(proveDatabaseIdentity(store, IDENTITY));
-        expect(failure).toContain("refusing to start");
-        expect(failure).toContain("no identity row");
-      });
-
-      test("a database carrying a different identity REFUSES", async () => {
-        const { ownerDsn, roleDsn } = await bed(grants);
-        await writeDatabaseIdentity(ownerDsn, OTHER_IDENTITY);
-        const store = await runtimeStore(roleDsn);
-        const failure = await refusalOf(proveDatabaseIdentity(store, IDENTITY));
-        expect(failure).toContain("refusing to start");
-        expect(failure).toContain("not the one this deployment names");
-      });
-
       test("the role cannot write the identity row, by any route", async () => {
         const { ownerDsn, roleDsn } = await bed(grants);
         await writeDatabaseIdentity(ownerDsn, IDENTITY);
@@ -236,12 +228,13 @@ suite("the database identity proof", () => {
     });
   }
 
-  test("the refusal names neither identity nor any connection detail", async () => {
+  test("a different identity REFUSES, naming neither identity nor any connection detail", async () => {
     const { ownerDsn, roleDsn } = await bed(PROVISIONER_GRANTS);
     await writeDatabaseIdentity(ownerDsn, OTHER_IDENTITY);
     const store = await runtimeStore(roleDsn);
     const message = await refusalOf(proveDatabaseIdentity(store, IDENTITY));
     expect(message).toContain("refusing to start");
+    expect(message).toContain("not the one this deployment names");
     for (const detail of [IDENTITY, OTHER_IDENTITY, "isomux", "5433"]) {
       expect(message).not.toContain(detail);
     }
@@ -323,9 +316,18 @@ const LEGACY_INTENT = "legacy-boot-1";
 function homeWithLegacyIntent(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "cp-boot-"));
   temps.push(home);
-  new IntentJournal(
-    path.join(home, ".isomux-control-plane", "intents"),
-  ).reserve(LEGACY_INTENT, { plan: "V153", region: "EU" });
+  const dir = path.join(home, ".isomux-control-plane", "intents");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, `${LEGACY_INTENT}.json`),
+    JSON.stringify({
+      intentId: LEGACY_INTENT,
+      state: "intended",
+      latchedAt: 1,
+      plan: "V153",
+      region: "EU",
+    }),
+  );
   return home;
 }
 
@@ -379,6 +381,10 @@ suite("the provisioner's run, booted against a real runtime role", () => {
           bounds_governed: true,
           database_reachable: true,
           tick_recent: true,
+          // The release identity reaches the report (none is baked here).
+          release_source: { known: false },
+          release_payload: { known: false },
+          release_deployment: { known: false },
         },
         stderr: "",
       },

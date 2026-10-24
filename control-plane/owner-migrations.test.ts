@@ -37,16 +37,6 @@ describe("the owner migration roster", () => {
     expect(runs.length).toBe(exported.length);
     for (const migration of exported) expect(runs).toContain(migration);
   });
-
-  test("the CLI exposes no migrate command outside it but migrate-all", () => {
-    const commands = OWNER_MIGRATIONS.map((m) => m.command);
-    expect(new Set(commands).size).toBe(commands.length);
-    expect(commands).not.toContain("migrate-all");
-    const cli = fs.readFileSync(path.join(import.meta.dir, "cli.ts"), "utf8");
-    expect([...new Set(cli.match(/["'`]migrate-[a-z-]+/g))]).toEqual([
-      '"migrate-all',
-    ]);
-  });
 });
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;

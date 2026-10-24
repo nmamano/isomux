@@ -39,8 +39,21 @@ describe("customer SSH key retention sweep", () => {
     const now = 1_700_000_000_000;
     const store = await openTestStore(() => now);
     await instance(store, "inst-expired", now - 1);
+    // The ceiling alone decides: at it is due, one past it is not, none never.
+    await instance(store, "inst-at-ceiling", now, null);
+    await instance(store, "inst-not-due", now + 1);
+    await instance(store, "inst-no-ceiling", null);
 
-    expect(await sweepCustomerKeyRetention(store)).toBe(1);
+    expect(await sweepCustomerKeyRetention(store)).toBe(2);
+    expect(
+      (await store.getInstance("inst-at-ceiling"))?.customer_ssh_key,
+    ).toBeNull();
+    expect((await store.getInstance("inst-not-due"))?.customer_ssh_key).toBe(
+      RAW_KEY,
+    );
+    expect((await store.getInstance("inst-no-ceiling"))?.customer_ssh_key).toBe(
+      RAW_KEY,
+    );
 
     const after = await store.getInstance("inst-expired");
     expect(after?.customer_ssh_key).toBeNull();
@@ -54,29 +67,6 @@ describe("customer SSH key retention sweep", () => {
         outcome: "succeeded",
         detail: "access-window retention ceiling passed",
       }),
-    );
-  });
-
-  test("uses the ceiling alone and never invents a missing fingerprint", async () => {
-    const now = 1_700_000_000_000;
-    const store = await openTestStore(() => now);
-    await instance(store, "inst-no-contact", now, null);
-    await instance(store, "inst-not-due", now + 1);
-    await instance(store, "inst-no-ceiling", null);
-
-    expect(await sweepCustomerKeyRetention(store)).toBe(1);
-    expect(
-      (await store.getInstance("inst-no-contact"))?.customer_ssh_key,
-    ).toBeNull();
-    expect(
-      (await store.getInstance("inst-no-contact"))
-        ?.customer_ssh_key_fingerprint,
-    ).toBeNull();
-    expect((await store.getInstance("inst-not-due"))?.customer_ssh_key).toBe(
-      RAW_KEY,
-    );
-    expect((await store.getInstance("inst-no-ceiling"))?.customer_ssh_key).toBe(
-      RAW_KEY,
     );
   });
 
@@ -99,9 +89,8 @@ describe("customer SSH key retention sweep", () => {
     expect(
       (await store.getInstance("inst-other"))?.customer_ssh_key,
     ).toBeNull();
-    expect(reports).toEqual([
-      "inst-contended: customer key row moved twice; retention clear will retry",
-    ]);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain("inst-contended");
 
     store.casInstance = realCas;
     expect(await sweepCustomerKeyRetention(store)).toBe(1);

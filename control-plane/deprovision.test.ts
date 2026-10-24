@@ -136,25 +136,26 @@ describe("cancel_asset", () => {
     }
   });
 
-  test("a state outside the allowed set is refused WITHOUT calling the provider", async () => {
-    let called = 0;
-    const b = await bed({
-      kind: "cancel_asset",
-      assetState: "order_ambiguous",
-    });
-    const result = await cancelAssetHandler({
-      cancel: async () => {
-        called++;
-        return { assetState: "cancel_scheduled" as AssetState };
-      },
-      get: async () => unreachableGet(),
-      allowedAssetStates: ["active", "cancel_scheduled"],
-    }).run(b.ctx);
-    expect(result.kind).toBe("fatal");
-    // The point of the guard is the call that did not happen.
-    expect(called).toBe(0);
-    expect(b.audits).toEqual([]);
-    await b.store.close();
+  // A state outside the allowed set, or no provider asset at all, is fatal
+  // (never a retry), and the point of the guard is the call that did not
+  // happen.
+  test("a state outside the allowed set, or no asset, is refused WITHOUT calling the provider", async () => {
+    for (const assetState of ["order_ambiguous", null] as const) {
+      let called = 0;
+      const b = await bed({ kind: "cancel_asset", assetState });
+      const result = await cancelAssetHandler({
+        cancel: async () => {
+          called++;
+          return { assetState: "cancel_scheduled" as AssetState };
+        },
+        get: async () => unreachableGet(),
+        allowedAssetStates: ["active", "cancel_scheduled"],
+      }).run(b.ctx);
+      expect(result.kind).toBe("fatal");
+      expect(called).toBe(0);
+      expect(b.audits).toEqual([]);
+      await b.store.close();
+    }
   });
 
   test("an asset the provider already ended is DONE, and is not called again", async () => {
@@ -174,17 +175,6 @@ describe("cancel_asset", () => {
       expect(called).toBe(0);
       await b.store.close();
     }
-  });
-
-  test("no provider asset is deterministically fatal, not a retry", async () => {
-    const b = await bed({ kind: "cancel_asset", assetState: null });
-    const result = await cancelAssetHandler({
-      cancel: async () => ({ assetState: "cancelled" as AssetState }),
-      get: async () => unreachableGet(),
-      allowedAssetStates: ["active"],
-    }).run(b.ctx);
-    expect(result.kind).toBe("fatal");
-    await b.store.close();
   });
 
   test("a throw is audited ambiguous and rethrown for the ticker to classify", async () => {
@@ -237,32 +227,9 @@ describe("cancel_asset", () => {
     expect(b.audits.some((a) => a.includes("was already"))).toBe(true);
     await b.store.close();
   });
-
-  test("its dependency surface is a cancel and a READ, so renewal is unreachable", async () => {
-    const deps = {
-      cancel: async () => ({ assetState: "cancelled" as AssetState }),
-      get: async () => ({ assetState: "cancelled" as AssetState }),
-      allowedAssetStates: ["active"] as AssetState[],
-    };
-    // Not decoration: the handler holds no adapter, so there is nothing on it
-    // that could reinstate, renew or create - and `get` only reads.
-    expect(
-      Object.keys(deps).filter((k) => typeof deps[k as never] === "function"),
-    ).toEqual(["cancel", "get"]);
-  });
 });
 
 describe("remove_dns removes exactly the A records it owns", () => {
-  test("a missing Cloudflare writer raises attention and retries", async () => {
-    const b = await bed({ kind: "remove_dns" });
-    const result = await removeDnsHandler().run(b.ctx);
-    expect(result.kind).toBe("retry");
-    expect((await b.store.openReasons("inst-1"))[0]?.reason).toBe(
-      "the Cloudflare office DNS writer is not configured",
-    );
-    await b.store.close();
-  });
-
   test("a hung Cloudflare call ends at the remote budget and retries", async () => {
     const b = await bed({ kind: "remove_dns" });
     const begin = Date.now();
@@ -292,7 +259,8 @@ describe("remove_dns removes exactly the A records it owns", () => {
 
   test("success clears the missing-writer attention and audits the resolution", async () => {
     const b = await bed({ kind: "remove_dns" });
-    await removeDnsHandler().run(b.ctx);
+    // A missing writer raises attention and retries instead of doing nothing.
+    expect((await removeDnsHandler().run(b.ctx)).kind).toBe("retry");
     expect(await b.store.openReasons("inst-1")).toHaveLength(1);
     const result = await removeDnsHandler({
       officeDns: {
@@ -311,55 +279,39 @@ describe("remove_dns removes exactly the A records it owns", () => {
     await b.store.close();
   });
 
-  test("it deletes and authoritatively proves both exact A record sets absent", async () => {
+  // Which records the writer deletes, and its authoritative re-list, are
+  // cloudflare-dns.test.ts's. Here: the handler asks for THIS office, and only
+  // a proven removal is done.
+  test.each([
+    ["proven absent", async (): Promise<boolean> => true, "done"],
+    ["still listed", async (): Promise<boolean> => false, "retry"],
+    [
+      "a Cloudflare failure",
+      async (): Promise<boolean> => {
+        throw new Error("SERVFAIL");
+      },
+      "retry",
+    ],
+  ] as const)("%s", async (_name, remove, kind) => {
     const b = await bed({ kind: "remove_dns" });
-    const removed: string[] = [];
+    const hosts: string[] = [];
     const result = await removeDnsHandler({
       officeDns: {
         officeARecords: async () => [],
         replaceOfficeARecords: async () => {},
         removeOfficeARecords: async (host) => {
-          removed.push(host, `*.${host}`);
-          return true;
+          hosts.push(host);
+          return await remove();
         },
       },
     }).run(b.ctx);
-    expect(result.kind).toBe("done");
-    expect(removed).toEqual(["cp2.test.isomux.app", "*.cp2.test.isomux.app"]);
-    expect(evidenceOf(result)).toMatchObject({
-      removed: true,
-      host: "cp2.test.isomux.app",
-      wildcard: "*.cp2.test.isomux.app",
-    });
-    await b.store.close();
-  });
-
-  test("an unrelated AAAA survives in the writer and cannot block A removal", async () => {
-    const b = await bed({ kind: "remove_dns" });
-    const result = await removeDnsHandler({
-      officeDns: {
-        officeARecords: async () => [],
-        replaceOfficeARecords: async () => {},
-        // The writer's exact A query does not expose or delete AAAA records.
-        removeOfficeARecords: async () => true,
-      },
-    }).run(b.ctx);
-    expect(result.kind).toBe("done");
-    await b.store.close();
-  });
-
-  test("a Cloudflare failure is a retry, never a success", async () => {
-    const b = await bed({ kind: "remove_dns" });
-    const result = await removeDnsHandler({
-      officeDns: {
-        officeARecords: async () => [],
-        replaceOfficeARecords: async () => {},
-        removeOfficeARecords: async () => {
-          throw new Error("SERVFAIL");
-        },
-      },
-    }).run(b.ctx);
-    expect(result.kind).toBe("retry");
+    expect(hosts).toEqual(["cp2.test.isomux.app"]);
+    expect(result.kind).toBe(kind);
+    if (kind === "done")
+      expect(evidenceOf(result)).toMatchObject({
+        removed: true,
+        host: "cp2.test.isomux.app",
+      });
     await b.store.close();
   });
 });

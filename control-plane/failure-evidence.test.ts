@@ -3,7 +3,13 @@ import {
   failureEvidence,
   repeatedInstallerFailure,
 } from "./failure-evidence.ts";
-import { Reporter, redactLogText } from "./report.ts";
+import {
+  INVITE_REDACTION,
+  KEY_REDACTION,
+  Reporter,
+  SECRET_REDACTION,
+  redactLogText,
+} from "./report.ts";
 
 const token = "a".repeat(43);
 const invite = "https://office.test/i/short-secret";
@@ -32,10 +38,12 @@ test("failure tail redacts before clipping and strips terminal controls", () => 
   expect(evidence.logTail).toContain("HTTP 403");
   expect(evidence.logTail).not.toMatch(/\[31m|\[0m/);
   expect(evidence.exit).toBe(22);
-  const longSecret = "lowercase".repeat(300);
+  // Spaces keep the secret out of the long-token shape, so only redacting the
+  // whole value before the 512-byte line clip removes it.
+  const longSecret = "low case. ".repeat(300);
   expect(
     failureEvidence("step", 1, `prefix ${longSecret}`, [longSecret]).logTail,
-  ).not.toContain("lowercase");
+  ).not.toContain("low case");
 });
 
 test("failure tail bounds UTF-8 lines and total bytes, keeping the newest lines", () => {
@@ -69,15 +77,18 @@ describe("repeated installer failure predicate", () => {
       verdict: "exit 22",
       step: "configure_public_access",
     }));
-  test("two runs do not raise; three do", () => {
+  test("two runs do not raise; three do, also with an empty step", () => {
     expect(repeatedInstallerFailure({ attempts: attempts(2) })).toBe(false);
     expect(repeatedInstallerFailure({ attempts: attempts() })).toBe(true);
+    expect(
+      repeatedInstallerFailure({
+        attempts: attempts().map((a) => ({ ...a, step: "" })),
+      }),
+    ).toBe(true);
   });
   for (const [name, patch] of Object.entries({
     "different step": { step: "download" },
     "different exit": { verdict: "exit 1" },
-    crash: { verdict: "crashed" },
-    success: { verdict: "exit 0" },
     "duplicate generation": { runId: "run-0" },
   })) {
     test(`${name} breaks the three-run window`, () => {
@@ -86,13 +97,6 @@ describe("repeated installer failure predicate", () => {
       expect(repeatedInstallerFailure({ attempts: a })).toBe(false);
     });
   }
-  test("an empty step counts", () => {
-    expect(
-      repeatedInstallerFailure({
-        attempts: attempts().map((a) => ({ ...a, step: "" })),
-      }),
-    ).toBe(true);
-  });
   test("three crashes or three successes never count as nonzero exits", () => {
     for (const verdict of ["crashed", "exit 0", "exit NaN", "exit -1"]) {
       expect(
@@ -113,10 +117,14 @@ test("durable reporter redacts line, problem and invite at the write", () => {
   reporter.line(`${pem}\n${invite}\nBearer small-token`);
   reporter.problem("password=short");
   reporter.invite(invite);
+  expect(lines).toHaveLength(3);
+  expect(lines[0]).toContain(KEY_REDACTION);
+  expect(lines[0]).toContain(INVITE_REDACTION);
+  expect(lines[2]).toBe(`OWNER INVITE: ${INVITE_REDACTION}`);
   expect(lines.join("\n")).not.toMatch(
     /private material|short|small-token|short-secret/,
   );
-  expect(
-    redactLogText("diagnostic hidden-value", ["hidden-value"]),
-  ).not.toContain("hidden-value");
+  expect(redactLogText("diagnostic hidden-value", ["hidden-value"])).toBe(
+    `diagnostic ${SECRET_REDACTION}`,
+  );
 });

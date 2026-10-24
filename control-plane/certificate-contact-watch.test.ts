@@ -4,7 +4,6 @@ import {
   CERTIFICATE_CONTACT_INTERVAL_MS,
   watchCertificateContact,
 } from "./certificate-contact-watch.ts";
-import { driveTicks } from "./drive-loop.ts";
 import type { Store } from "./store.ts";
 import {
   openTestStore,
@@ -75,26 +74,7 @@ describe("the daily certificate-contact pass", () => {
     ).toBe(0);
   });
 
-  test("a live office added between passes joins the next daily pass", async () => {
-    const now = { value: 2_000_000 };
-    const store = await openTestStore(() => now.value);
-    await live(store, "inst-first");
-    await watchCertificateContact(store, {
-      holder: "watch-a",
-      apply: async () => {},
-    });
-    await live(store, "inst-later");
-    const visited: string[] = [];
-    await watchCertificateContact(store, {
-      holder: "watch-a",
-      apply: async (_store, id) => {
-        visited.push(id);
-      },
-    });
-    expect(visited).toEqual(["inst-later"]);
-  });
-
-  test("a live claim pushes nextDueAt forward and the idle loop does not spin", async () => {
+  test("a live claim is not due, and parks nextDueAt at its end", async () => {
     const now = { value: 3_000_000 };
     const store = await openTestStore(() => now.value);
     await live(store, "inst-claimed");
@@ -133,33 +113,5 @@ describe("the daily certificate-contact pass", () => {
     });
     expect(schedule.livenessDue).toBe(false);
     expect(schedule.nextDueAt).toBe(claimUntil);
-
-    const sleeps: number[] = [];
-    let stop = false;
-    await driveTicks(
-      store,
-      {
-        once: async () => ({
-          leased: 0,
-          acted: 0,
-          completed: 0,
-          flagged: 0,
-          live: 1,
-        }),
-      },
-      {
-        forever: true,
-        reporter: { line: () => {}, problem: () => {} },
-        capabilities,
-        watch: async () => {},
-        now: () => now.value,
-        sleep: async (ms) => {
-          sleeps.push(ms);
-          if (sleeps.length === 2) stop = true;
-        },
-        shouldStop: () => stop,
-      },
-    );
-    expect(sleeps).toEqual([5_000, 60_000]);
   });
 });

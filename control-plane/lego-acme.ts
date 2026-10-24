@@ -33,7 +33,6 @@ export interface LegoAdapterOptions {
   root: string;
   target: CertificateTarget;
   email: string;
-  legoPath?: string;
   dnsHookPath: string;
   run: CommandRunner;
   cloudflareToken: string;
@@ -262,7 +261,7 @@ export async function obtainCertificateWithLego(
   const csrKeyHash = await csrPublicKeyHash(opts.run, csrPath);
 
   const legoArgv = [
-    opts.legoPath ?? "/usr/local/bin/lego",
+    "/usr/local/bin/lego",
     "run",
     "--path",
     opts.root,

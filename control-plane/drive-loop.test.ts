@@ -48,7 +48,10 @@ describe("the provisioner's combined cadence", () => {
       scheduledStore([idle({ cadenceDue: true })]),
       {
         once: async () => {
-          events.push("operation:start", "operation:end");
+          events.push("operation:start");
+          // Yield, so a lifecycle pass started alongside would land here.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          events.push("operation:end");
           return summary(0);
         },
       },
@@ -129,9 +132,14 @@ describe("the provisioner's combined cadence", () => {
         forever: false,
         reporter: { line: () => {}, problem: () => {} },
         capabilities,
-        watch: async () => {
-          events.push("liveness");
-        },
+        watch: [
+          {
+            failureLabel: "liveness",
+            run: async () => {
+              events.push("liveness");
+            },
+          },
+        ],
         cadence: {
           failureLabel: "cadence",
           run: async () => {
@@ -144,6 +152,37 @@ describe("the provisioner's combined cadence", () => {
     // The first tick is the established forever:false drain pass. Liveness can
     // then run without dragging cadence or another operation pass with it.
     expect(events).toEqual(["tick", "cadence", "liveness", "tick"]);
+  });
+
+  test("a monitoring pass that fails is reported and does not suppress the next", async () => {
+    const events: string[] = [];
+    const problems: string[] = [];
+    await driveTicks(
+      scheduledStore([idle({ livenessDue: true })]),
+      { once: async () => summary(0) },
+      {
+        forever: false,
+        reporter: { line: () => {}, problem: (line) => problems.push(line) },
+        capabilities,
+        watch: [
+          {
+            failureLabel: "first",
+            run: async () => {
+              events.push("first");
+              throw new Error("down");
+            },
+          },
+          {
+            failureLabel: "second",
+            run: async () => {
+              events.push("second");
+            },
+          },
+        ],
+      },
+    );
+    expect(events).toEqual(["first", "second"]);
+    expect(problems).toEqual(["first: down"]);
   });
 
   test("each idle interval is one schedule read that refreshes health", async () => {
@@ -178,11 +217,13 @@ describe("the provisioner's combined cadence", () => {
     const wake = new DriveWake();
     let ticks = 0;
     let stopped = false;
+    const sleeps: number[] = [];
     await driveTicks(
-      scheduledStore([idle(), idle(), idle()]),
+      scheduledStore([idle()]),
       {
         once: async () => {
           ticks++;
+          // A wake that arrives DURING a pass must bring another pass.
           if (ticks === 2) wake.signal();
           if (ticks === 3) stopped = true;
           return summary(1);
@@ -193,13 +234,18 @@ describe("the provisioner's combined cadence", () => {
         reporter: { line: () => {}, problem: () => {} },
         capabilities,
         wake,
-        sleep: async () => {
-          wake.signal();
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          // The one idle wait is cut short by a wake.
+          if (ms === 60_000 && ticks === 1) wake.signal();
+          if (sleeps.length > 10) stopped = true;
         },
         shouldStop: () => stopped,
       },
     );
     expect(ticks).toBe(3);
+    // Tick 3 came from the wake raised during tick 2, with no idle wait.
+    expect(sleeps.filter((ms) => ms === 60_000)).toHaveLength(1);
   });
 
   test("a stale due timestamp is still bounded by the five-second floor", async () => {
@@ -215,12 +261,14 @@ describe("the provisioner's combined cadence", () => {
         now: () => 0,
         sleep: async (ms) => {
           sleeps.push(ms);
-          stopped = true;
+          // The first sleep is the floor after the startup pass; the second
+          // is the idle wait on the stale timestamp.
+          if (sleeps.length === 2) stopped = true;
         },
         shouldStop: () => stopped,
       },
     );
-    expect(sleeps).toEqual([5_000]);
+    expect(sleeps).toEqual([5_000, 5_000]);
   });
 
   test("a due class that cannot clear itself still waits five seconds", async () => {

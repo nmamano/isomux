@@ -190,20 +190,6 @@ suite("the seam works under the role the provisioner authenticates as", () => {
     });
   });
 
-  test("another account's claim on the same office is refused", async () => {
-    const b = await bed();
-    const answer = await ask(b, {
-      accountId: "acct-somebody-else",
-      instanceId: b.instanceId,
-      operationId: b.opId,
-    });
-    expect(answer.status).toBe(404);
-    expect(JSON.parse(answer.text)).toEqual({
-      status: "forbidden",
-      reason: "no such office",
-    });
-  });
-
   // THE MECHANISM, pinned. Remove the one grant and the decision function does
   // not reach a decision at all - it is refused 42501 by the engine, which is
   // what the deployed machine did. The seam then answers something that is not

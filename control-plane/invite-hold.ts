@@ -37,10 +37,7 @@ export type TakeResult =
 export class InviteHold {
   private readonly entries = new Map<string, Entry>();
 
-  constructor(
-    private readonly now: () => number = () => Date.now(),
-    private readonly ttlMs: number = INVITE_HOLD_MS,
-  ) {}
+  constructor(private readonly now: () => number = () => Date.now()) {}
 
   /**
    * Hold a freshly minted URL for the operation that produced it.
@@ -54,11 +51,11 @@ export class InviteHold {
     for (const [key, entry] of this.entries) {
       if (entry.instanceId === instanceId) this.remove(key);
     }
-    const expiresAt = this.now() + this.ttlMs;
+    const expiresAt = this.now() + INVITE_HOLD_MS;
     // SCHEDULED expiry, so an uncollected link does not sit in memory until
     // somebody happens to ask. unref'd because a pending invite must never be
     // the reason a process refuses to exit.
-    const timer = setTimeout(() => this.remove(operationId), this.ttlMs);
+    const timer = setTimeout(() => this.remove(operationId), INVITE_HOLD_MS);
     (timer as { unref?: () => void }).unref?.();
     this.entries.set(operationId, { instanceId, url, expiresAt, timer });
   }

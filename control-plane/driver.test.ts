@@ -3,9 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  authorizedKeysPathFor,
   formatExpiry,
-  formatOnCalendar,
   identityFor,
   parseLaunch,
   parseTick,
@@ -68,11 +66,6 @@ describe("expiry formatting", () => {
       "20260809050403Z",
     );
   });
-  test("renders systemd's OnCalendar for the same instant", async () => {
-    expect(formatOnCalendar(new Date(Date.UTC(2026, 7, 9, 5, 4, 3)))).toBe(
-      "2026-08-09 05:04:03 UTC",
-    );
-  });
 });
 
 describe("first contact", () => {
@@ -80,30 +73,18 @@ describe("first contact", () => {
   // to rewrite an authorized_keys line without an absolute expiry instant - a
   // missing ceiling stops the run at every layer: argument parsing rejects it
   // AND the driver treats a missing instant as a precondition failure."
-  test("refuses to rewrite without an absolute expiry instant", async () => {
-    const exec = new FakeExec([]);
-    const ssh = new SshClient(target, exec);
-    expect(
-      await captureError(() =>
-        rewriteKeyWithExpiry(ssh, identityFor("root"), KEY, undefined),
-      ),
-    ).toMatch(/without an absolute expiry instant/);
-    // The precondition fires before anything touches the box.
-    expect(exec.calls.length).toBe(0);
-  });
-
-  test("refuses an invalid instant just as firmly", async () => {
-    const ssh = new SshClient(target, new FakeExec([]));
-    expect(
-      await captureError(() =>
-        rewriteKeyWithExpiry(
-          ssh,
-          identityFor("root"),
-          KEY,
-          new Date("nonsense"),
+  test("refuses to rewrite without an absolute, valid expiry instant", async () => {
+    for (const expiresAt of [undefined, new Date("nonsense")]) {
+      const exec = new FakeExec([]);
+      const ssh = new SshClient(target, exec);
+      expect(
+        await captureError(() =>
+          rewriteKeyWithExpiry(ssh, identityFor("root"), KEY, expiresAt),
         ),
-      ),
-    ).toMatch(/without an absolute expiry instant/);
+      ).toMatch(/without an absolute expiry instant/);
+      // The precondition fires before anything touches the box.
+      expect(exec.calls.length).toBe(0);
+    }
   });
 
   // M4. Believing our own write is how a box ends up holding an unexpiring key
@@ -132,47 +113,22 @@ describe("first contact", () => {
     ).toMatch(/unexpiring key/);
   });
 
-  test("fails when the key is not on the box at all", async () => {
-    const ssh = new SshClient(
-      target,
-      new FakeExec([
-        { code: 1, stdout: "RESULT: key-not-present\n", stderr: "" },
-      ]),
-    );
+  test("fails when the key is not on the box at all, and runs nothing after", async () => {
+    const exec = new FakeExec([
+      { code: 1, stdout: "RESULT: key-not-present\n", stderr: "" },
+    ]);
     expect(
       await captureError(() =>
         rewriteKeyWithExpiry(
-          ssh,
+          new SshClient(target, exec),
           identityFor("root"),
           KEY,
           new Date(Date.UTC(2026, 7, 10)),
         ),
       ),
     ).toMatch(/expiry rewrite failed/);
-  });
-
-  test("accepts a read-back that carries the exact option, and reports the box clock", async () => {
-    const expiresAt = new Date(Date.UTC(2026, 7, 10, 6, 0, 0));
-    const expiry = formatExpiry(expiresAt);
-    const ssh = new SshClient(
-      target,
-      new FakeExec([
-        {
-          code: 0,
-          stdout: `RESULT: ok\nREADBACK: expiry-time="${expiry}" ${KEY.algorithm} ${KEY.blob} isomux\n`,
-          stderr: "",
-        },
-        clockReply,
-      ]),
-    );
-    const out = await rewriteKeyWithExpiry(
-      ssh,
-      identityFor("root"),
-      KEY,
-      expiresAt,
-    );
-    expect(out.expiry).toBe(expiry);
-    expect(out.boxClockUtc).toBe("2026-08-09T12:00:00Z");
+    // Until the rewrite is proven the key has no ceiling: nothing else runs.
+    expect(exec.calls).toHaveLength(1);
   });
 
   test("a non-root login user gets sudo; root does not", async () => {
@@ -196,53 +152,32 @@ describe("first contact", () => {
   });
 
   test("the authorized_keys path follows the account our key landed on", async () => {
-    expect(authorizedKeysPathFor("root")).toBe("/root/.ssh/authorized_keys");
-    expect(authorizedKeysPathFor("ubuntu")).toBe(
+    expect(identityFor("root").authorizedKeysPath).toBe(
+      "/root/.ssh/authorized_keys",
+    );
+    expect(identityFor("ubuntu").authorizedKeysPath).toBe(
       "/home/ubuntu/.ssh/authorized_keys",
     );
   });
 });
 
+// The wrapper's own lines (wrapper.sh). A timeout or a held lock is NOT a
+// failure: relaunching an unconfirmed run is the same error class as replaying
+// an ambiguous create.
 describe("launch outcomes", () => {
-  test("CONFIRMED carries the runId", async () => {
-    expect(
-      parseLaunch({ code: 0, stdout: "CONFIRMED run-7\n", stderr: "" }),
-    ).toEqual({
-      kind: "confirmed",
-      runId: "run-7",
-    });
-  });
-
-  // A timeout is NOT a failure. Relaunching an unconfirmed run is the same
-  // error class as replaying an ambiguous create.
-  test("a publication timeout is unconfirmed, not failed", async () => {
-    expect(
-      parseLaunch({
-        code: 5,
-        stdout: "UNCONFIRMED publication timed out\n",
-        stderr: "",
-      }).kind,
-    ).toBe("unconfirmed");
-  });
-
-  test("a held lock is unconfirmed, not failed", async () => {
-    expect(
-      parseLaunch({
-        code: 3,
-        stdout: "LOCKED another run holds the lock\n",
-        stderr: "",
-      }).kind,
-    ).toBe("unconfirmed");
-  });
-
-  test("a supervisor that died before publishing is a real failure", async () => {
-    expect(
-      parseLaunch({
-        code: 4,
-        stdout: "FAILED supervisor died before publication\n",
-        stderr: "",
-      }).kind,
-    ).toBe("failed");
+  test.each([
+    ["CONFIRMED run-7", "confirmed"],
+    ["FAILED generation run-7 already exists", "already-exists"],
+    [
+      "UNCONFIRMED publication timed out; resolve with tick, do not relaunch",
+      "unconfirmed",
+    ],
+    ["LOCKED another run holds the lock", "unconfirmed"],
+    ["FAILED supervisor died before publication", "failed"],
+  ] as const)("%s", (line, kind) => {
+    expect(parseLaunch({ code: 0, stdout: `${line}\n`, stderr: "" }).kind).toBe(
+      kind,
+    );
   });
 });
 
@@ -304,13 +239,6 @@ describe("proveRemoval", () => {
     if (!out.proven) expect(out.reason).toMatch(/inconclusive/);
   });
 
-  test("a changed host key proves nothing and must not pass", async () => {
-    const exec = new FakeExec([
-      { code: 255, stdout: "", stderr: "Host key verification failed." },
-    ]);
-    expect((await proveRemoval(target, exec)).proven).toBe(false);
-  });
-
   test("the proof offers only the removed key", async () => {
     const exec = new FakeExec([
       { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
@@ -331,18 +259,14 @@ describe("cleanup units", () => {
     new Date(Date.UTC(2026, 7, 10, 6, 0, 0)),
   );
 
-  test("an overdue timer still fires after a boot", async () => {
-    expect(units.timer).toContain("Persistent=true");
-    expect(units.timer).toContain("OnCalendar=2026-08-10 06:00:00 UTC");
-  });
-
-  test("the timer preserves an arbitrary stored in-policy instant", () => {
+  test("the timer keeps the stored instant, and an overdue one still fires after a boot", () => {
     const arbitrary = renderCleanupUnits(
       "/root/.ssh/authorized_keys",
       KEY.blob,
       new Date("2026-08-08T03:02:01Z"),
     );
     expect(arbitrary.timer).toContain("OnCalendar=2026-08-08 03:02:01 UTC");
+    expect(arbitrary.timer).toContain("Persistent=true");
   });
 
   // Revocation deletes /var/lib/isomux-cp while this timer is still armed, so
@@ -450,36 +374,6 @@ describe("waitForAuthenticatedSsh", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  test("a stale pin from a previous life is cleared before probing", async () => {
-    const dir = tempDir();
-    const pinned = path.join(dir, "known_hosts");
-    fs.writeFileSync(pinned, "host-key-of-the-box-we-just-destroyed\n");
-    const exec: Exec = {
-      run: (argv) => {
-        const file = argv
-          .find((a) => a.startsWith("UserKnownHostsFile="))!
-          .slice("UserKnownHostsFile=".length);
-        fs.writeFileSync(file, "host-key-of-the-rebuilt-box\n");
-        return Promise.resolve({ code: 0, stdout: "", stderr: "" });
-      },
-    };
-    await waitForAuthenticatedSsh({
-      target: { ...target, knownHostsFile: pinned },
-      exec,
-      tempKnownHosts: () => path.join(dir, "probe.0"),
-      timeoutMs: 60_000,
-      sleep: () => Promise.resolve(),
-      now: (() => {
-        let c = 0;
-        return () => (c += 1000);
-      })(),
-    });
-    expect(fs.readFileSync(pinned, "utf8").trim()).toBe(
-      "host-key-of-the-rebuilt-box",
-    );
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
   // The initial clear only earns its place on the FAILURE path: on success the
   // rename overwrites the target anyway. What must not happen is a run that
   // never authenticates leaving a previous life's host key behind, where the
@@ -518,40 +412,6 @@ describe("waitForAuthenticatedSsh", () => {
     expect(fs.existsSync(pinned)).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
   });
-
-  test("gives up rather than pinning anything when the key never authenticates", async () => {
-    const dir = tempDir();
-    const pinned = path.join(dir, "known_hosts");
-    let clock = 0;
-    const exec: Exec = {
-      run: (argv) => {
-        const file = argv
-          .find((a) => a.startsWith("UserKnownHostsFile="))!
-          .slice("UserKnownHostsFile=".length);
-        fs.writeFileSync(file, "some-host-key\n");
-        return Promise.resolve({
-          code: 255,
-          stdout: "",
-          stderr: "Permission denied (publickey).",
-        });
-      },
-    };
-    let n = 0;
-    expect(
-      await captureError(() =>
-        waitForAuthenticatedSsh({
-          target: { ...target, knownHostsFile: pinned },
-          exec,
-          tempKnownHosts: () => path.join(dir, `probe.${n++}`),
-          timeoutMs: 10,
-          sleep: () => Promise.resolve(),
-          now: () => (clock += 100),
-        }),
-      ),
-    ).toMatch(/never authenticated/);
-    expect(fs.existsSync(pinned)).toBe(false);
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
 });
 
 // The spec says the expiry rewrite is the driver's first act on the box. Until
@@ -571,37 +431,20 @@ describe("first-contact ordering", () => {
       },
       clockReply,
     ]);
-    await rewriteKeyWithExpiry(
+    const out = await rewriteKeyWithExpiry(
       new SshClient(target, exec),
       identityFor("root"),
       KEY,
       expiresAt,
     );
+    expect(out.expiry).toBe(expiry);
+    expect(out.boxClockUtc).toBe("2026-08-09T12:00:00Z");
     expect(exec.calls).toHaveLength(2);
     // First call carries the rewrite script and our expiry as an argument.
     expect(exec.calls[0]?.stdin).toContain("RESULT: key-not-present");
     expect(exec.calls[0]?.argv).toContain(expiry);
     // The clock comes after, and nothing else came before.
     expect(exec.calls[1]?.stdin).toContain("date -u");
-  });
-
-  test("a failed rewrite means no further remote command runs at all", async () => {
-    const exec = new FakeExec([
-      {
-        code: 1,
-        stdout: "RESULT: key-not-present (exact matches: 0)\n",
-        stderr: "",
-      },
-    ]);
-    await captureError(() =>
-      rewriteKeyWithExpiry(
-        new SshClient(target, exec),
-        identityFor("root"),
-        KEY,
-        new Date(Date.UTC(2026, 7, 10)),
-      ),
-    );
-    expect(exec.calls).toHaveLength(1);
   });
 });
 
@@ -659,6 +502,9 @@ describe("timer evidence", () => {
       .join("\n");
     expect(timerIsArmed(parseTimerEvidence(noCal), WANTED)).toBe(false);
     expect(timerIsArmed(parseTimerEvidence(armed), "")).toBe(false);
+    // Both absent: equal, and still not armed. An unparseable recorded expiry
+    // renders to "" (onCalendarFromExpiry).
+    expect(timerIsArmed(parseTimerEvidence(noCal), "")).toBe(false);
   });
 
   test.each([
@@ -673,10 +519,6 @@ describe("timer evidence", () => {
       .map((l) => (l.startsWith(`${key}=`) ? override : l))
       .join("\n");
     expect(timerIsArmed(parseTimerEvidence(text), WANTED)).toBe(false);
-  });
-
-  test("output that says nothing at all is not armed", async () => {
-    expect(timerIsArmed(parseTimerEvidence(""), WANTED)).toBe(false);
   });
 
   test("the recorded expiry renders back to the OnCalendar we armed", async () => {

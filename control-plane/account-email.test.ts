@@ -203,17 +203,20 @@ describe("an address that cannot become the account's", () => {
     // can refuse the second account at one inbox.
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
-    let inserted!: () => void;
-    const insertedSignal = new Promise<void>((r) => (inserted = r));
+    let inserted!: (pid: number) => void;
+    const insertedSignal = new Promise<number>((r) => (inserted = r));
     const holder = store.tx(async () => {
       await ensureAccount(store, {
         id: "acct-racer",
         email: "racer@example.com",
       });
-      inserted();
+      const self = await store.sqlGet<{ pid: number }>(
+        "select pg_backend_pid() as pid",
+      );
+      inserted(self!.pid);
       await gate;
     });
-    await insertedSignal;
+    const holderPid = await insertedSignal;
 
     // Mixed case on purpose: only a lowercased write meets the index. Settled
     // into a value at once, so that a failure cannot surface while the other
@@ -228,10 +231,12 @@ describe("an address that cannot become the account's", () => {
     let waited = false;
     try {
       for (let i = 0; i < 60 && !waited; i++) {
+        // Blocked by THIS holder: the database is shared with other test
+        // files, and their lock waits must not count.
         const row = await store.sqlGet<{ n: string }>(
           "select count(*)::text as n from pg_stat_activity " +
-            "where datname = current_database() and wait_event_type = 'Lock' " +
-            "and query ilike '%accounts%'",
+            "where $1 = any(pg_blocking_pids(pid))",
+          [holderPid],
         );
         waited = row?.n !== "0";
         if (!waited) await Bun.sleep(50);

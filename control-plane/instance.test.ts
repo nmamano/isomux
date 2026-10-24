@@ -13,6 +13,7 @@ import { CeilingIsImmutable, ensureInstance } from "./instance.ts";
 import { Store, type OperationStatus } from "./store.ts";
 import {
   openTestStore,
+  openTestStoreOn,
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
@@ -78,16 +79,15 @@ const T2 = new Date("2026-08-09T23:00:00Z");
 
 describe("the ceiling", () => {
   test("a new instance cannot originate a window over seven days", async () => {
-    const store = await tempStore();
-    const rec = record();
     const now = Date.parse("2026-08-01T00:00:00Z");
+    const store = await tempStore(() => now);
+    const rec = record();
     expect(
       ensureInstance({
         store,
         rec,
         goal: "live",
         expiresAt: new Date(now + 7 * 24 * 60 * 60 * 1000 + 1),
-        now: () => now,
       }),
     ).rejects.toThrow(/cannot exceed seven days/);
     expect(await store.getInstance("inst-run-1")).toBeNull();
@@ -117,8 +117,6 @@ describe("the ceiling", () => {
         rec,
         goal: "live",
         expiresAt: legacy,
-        createAsset: false,
-        now: () => now,
       }),
     ).rejects.toThrow(/delete and recreate/);
     expect(
@@ -126,60 +124,30 @@ describe("the ceiling", () => {
     ).toBe(legacy.getTime());
   });
 
-  test("is written once, with the row, and never again", async () => {
+  // Written once, with the row, and never again: before anything has touched
+  // the box (the check-then-act version allowed this window, and a second
+  // process could be rewriting the key inside it), and whatever first contact
+  // did. "running" is the crash boundary: no expiry on the run record and no
+  // succeeded operation, yet the box already carries T1 in an authorized_keys
+  // option and a systemd timer. Opening first_contact does not bump the
+  // instance version, which is why the old code could still write T2 here.
+  test.each([
+    ["no first contact", null],
+    ["first contact succeeded", "succeeded"],
+    ["first contact running", "running"],
+    ["first contact ambiguous", "ambiguous"],
+    ["first contact failed", "failed"],
+  ] as const)("the ceiling is immutable: %s", async (_name, status) => {
     const store = await tempStore();
     const rec = record();
     await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    // Even before anything has touched the box. The check-then-act version
-    // allowed this window, and a second process could be rewriting the key
-    // inside it.
+    if (status) await firstContact(store, status);
     expect(
       ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
     ).rejects.toThrow(CeilingIsImmutable);
     expect(
       (await store.getInstance("inst-run-1"))?.access_window_expires_at,
     ).toBe(T1.getTime());
-  });
-
-  test("is immutable once first contact SUCCEEDED", async () => {
-    const store = await tempStore();
-    const rec = record({ expiry: "20260809190000Z" });
-    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    await firstContact(store, "succeeded");
-    expect(
-      ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).rejects.toThrow(CeilingIsImmutable);
-    expect(
-      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
-    ).toBe(T1.getTime());
-  });
-
-  test("is immutable after the crash boundary: running, and nothing written down", async () => {
-    const store = await tempStore();
-    // No `expiry` on the run record and no succeeded operation - the process
-    // died between acting on the box and recording it. The box is nonetheless
-    // carrying T1 in an authorized_keys option and a systemd timer.
-    const rec = record();
-    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    await firstContact(store, "running");
-    expect(
-      ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).rejects.toThrow(CeilingIsImmutable);
-    expect(
-      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
-    ).toBe(T1.getTime());
-  });
-
-  test("an ambiguous or failed first contact counts too", async () => {
-    for (const status of ["ambiguous", "failed"] as OperationStatus[]) {
-      const store = await tempStore();
-      const rec = record();
-      await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-      await firstContact(store, status);
-      expect(
-        ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-      ).rejects.toThrow(CeilingIsImmutable);
-    }
   });
 
   test("re-running with the SAME window is fine, armed or not", async () => {
@@ -196,42 +164,42 @@ describe("the ceiling", () => {
 describe("the interleaving the check-then-act version allowed", () => {
   test("two contenders from ONE pre-read cannot end up with two ceilings", async () => {
     const store = await tempStore();
+    // A second process: its own store on the same database.
+    const other = await openTestStoreOn(store.url);
     const rec = record();
     // Both processes look, both see no instance and no first_contact, and
     // neither yields to the other before writing. No pre-read here serialises
-    // them: the row's creation is what arbitrates.
+    // them: the row's creation is what arbitrates, and the loser re-reads.
     expect(await store.getInstance("inst-run-1")).toBeNull();
-    const outcomes: string[] = [];
-    for (const when of [T1, T2]) {
-      try {
-        await ensureInstance({ store, rec, goal: "live", expiresAt: when });
-        outcomes.push("wrote");
-      } catch (err) {
-        outcomes.push(err instanceof CeilingIsImmutable ? "refused" : "other");
-      }
-    }
-    expect(outcomes.filter((o) => o === "wrote")).toHaveLength(1);
-    expect(outcomes).toContain("refused");
+    const outcomes = await Promise.all(
+      (
+        [
+          [store, T1],
+          [other, T2],
+        ] as const
+      ).map(async ([s, when]) => {
+        try {
+          await ensureInstance({
+            store: s,
+            rec,
+            goal: "live",
+            expiresAt: when,
+          });
+          return { result: "wrote", when };
+        } catch (err) {
+          return {
+            result: err instanceof CeilingIsImmutable ? "refused" : String(err),
+            when,
+          };
+        }
+      }),
+    );
+    expect(outcomes.map((o) => o.result).sort()).toEqual(["refused", "wrote"]);
     // And the ceiling is the winner's, whichever of them won.
-    const ceiling = (await store.getInstance("inst-run-1"))
-      ?.access_window_expires_at;
-    expect(ceiling).toBe(T1.getTime());
-  });
-
-  test("a contender that arrives while first_contact is being opened is still refused", async () => {
-    const store = await tempStore();
-    const rec = record();
-    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    // The other process opens first_contact and starts rewriting the box. That
-    // does NOT bump the instance version, which is exactly why the old code
-    // could still be talked into writing T2 here.
-    await firstContact(store, "running");
-    expect(
-      ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).rejects.toThrow(CeilingIsImmutable);
+    const winner = outcomes.find((o) => o.result === "wrote")!;
     expect(
       (await store.getInstance("inst-run-1"))?.access_window_expires_at,
-    ).toBe(T1.getTime());
+    ).toBe(winner.when.getTime());
   });
 });
 
@@ -263,12 +231,15 @@ describe("the instance and its provider axis are created together", () => {
     const store = await tempStore();
     const rec = record();
     // The shape an older build could leave behind: instance, no asset.
-    await ensureInstance({
-      store,
-      rec,
+    await store.createInstance({
+      id: "inst-run-1",
+      run_id: rec.runId,
+      name: rec.host,
+      plan: "V153",
+      region: "EU",
+      service_state: "provisioning",
       goal: "live",
-      expiresAt: T1,
-      createAsset: false,
+      access_window_expires_at: T1.getTime(),
     });
     expect(await store.assetForInstance("inst-run-1")).toBeNull();
     await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });

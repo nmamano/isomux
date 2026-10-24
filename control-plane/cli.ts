@@ -934,46 +934,44 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           ? 0
           : consecutiveCadenceFailures + 1;
       },
-      watch: async () => {
-        // Both checks inherit the existing livenessConfigured gate. Liveness
-        // runs first and each pass has its own guard, so a certificate failure
-        // cannot suppress outage probes and a probe failure cannot suppress
-        // the daily certificate sweep. A certificate-only due time also pays
-        // the liveness row bookkeeping once that day; its claims prevent an
-        // extra network probe.
-        try {
-          await watchLiveness(store, {
-            holder: running.holder,
-            report: (line) => reporter.line(line),
-          });
-        } catch (err) {
-          reporter.problem(
-            `liveness monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-        try {
-          await watchCertificateContact(store, {
-            holder: running.holder,
-            report: (line) => reporter.line(line),
-          });
-        } catch (err) {
-          reporter.problem(
-            `certificate-contact monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-        if (welcomeMail) {
-          try {
-            await watchWelcomeMail(store, {
-              apiKey: process.env[WELCOME_MAIL_KEY_ENV]!,
+      // The passes inherit the existing livenessConfigured gate, and each one
+      // has its own guard: a certificate failure cannot suppress outage probes
+      // and a probe failure cannot suppress the daily certificate sweep. A
+      // certificate-only due time also pays the liveness row bookkeeping once
+      // that day; its claims prevent an extra network probe.
+      watch: [
+        {
+          failureLabel: "liveness monitoring pass failed",
+          run: async () => {
+            await watchLiveness(store, {
+              holder: running.holder,
               report: (line) => reporter.line(line),
             });
-          } catch (err) {
-            reporter.problem(
-              `welcome mail pass failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-      },
+          },
+        },
+        {
+          failureLabel: "certificate-contact monitoring pass failed",
+          run: async () => {
+            await watchCertificateContact(store, {
+              holder: running.holder,
+              report: (line) => reporter.line(line),
+            });
+          },
+        },
+        ...(welcomeMail
+          ? [
+              {
+                failureLabel: "welcome mail pass failed",
+                run: async () => {
+                  await watchWelcomeMail(store, {
+                    apiKey: process.env[WELCOME_MAIL_KEY_ENV]!,
+                    report: (line) => reporter.line(line),
+                  });
+                },
+              },
+            ]
+          : []),
+      ],
     });
   } finally {
     await seam?.stop();

@@ -32,7 +32,7 @@ import {
   type ReinstatementAttemptRow,
 } from "./reinstatement.ts";
 
-export const LIFECYCLE_TICK_ACTOR = "lifecycle-tick";
+const LIFECYCLE_TICK_ACTOR = "lifecycle-tick";
 
 export interface LifecycleTickSummary {
   examined: number;

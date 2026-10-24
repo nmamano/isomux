@@ -350,11 +350,8 @@ describe("the round trip", () => {
     const journal = new IntentJournal(path.join(root, "intents"));
     expect(journal.read("intent-created")?.providerId).toBe("100200");
     expect(
-      journal
-        .pending()
-        .map((r) => r.intentId)
-        .sort(),
-    ).toEqual(["intent-corrupt", "intent-latched"]);
+      ["intent-corrupt", "intent-latched"].map((id) => journal.read(id)?.state),
+    ).toEqual(["ambiguous", "intended"]);
     expect(
       fs
         .readFileSync(path.join(root, "audit.jsonl"), "utf8")

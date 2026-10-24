@@ -12,7 +12,6 @@ import { InviteHold } from "./invite-hold.ts";
 import {
   fetchInvite,
   startMintSeam,
-  tokenMatches,
   HEALTH_PATH,
   MIN_SEAM_TOKEN_LENGTH,
   readReleaseIdentity,
@@ -169,7 +168,12 @@ describe("the fetch verb", () => {
       ...b.req,
       accountId: other.id,
     });
+    const stranger = await fetchInvite(b.store, b.hold, {
+      ...b.req,
+      accountId: "acct-nobody",
+    });
     expect(result.status).toBe("forbidden");
+    expect(result).toEqual(stranger);
     // The entry is untouched, so a foreign probe cannot burn somebody's link.
     expect(b.hold.size()).toBe(1);
   });
@@ -204,11 +208,7 @@ describe("the window closes between mint and fetch", () => {
     });
     expect(b.hold.size()).toBe(0);
     expect(JSON.stringify(result)).not.toContain("seamsecret");
-  });
-
-  test("and a later fetch still refuses rather than reporting a loss", async () => {
-    const b = await bed({ revoked: true });
-    await fetchInvite(b.store, b.hold, b.req);
+    // And a later fetch still refuses rather than reporting a loss.
     expect((await fetchInvite(b.store, b.hold, b.req)).status).toBe(
       "window_closed",
     );
@@ -216,14 +216,6 @@ describe("the window closes between mint and fetch", () => {
 });
 
 describe("the credential", () => {
-  test("a wrong or shorter token never matches", async () => {
-    const token = "a".repeat(40);
-    expect(tokenMatches(token, token)).toBe(true);
-    expect(tokenMatches("a".repeat(39), token)).toBe(false);
-    expect(tokenMatches(`${token}b`, token)).toBe(false);
-    expect(tokenMatches("", token)).toBe(false);
-  });
-
   test("the seam refuses to start without a real one", async () => {
     const b = await bed();
     const start = (token: string) =>
@@ -252,12 +244,15 @@ describe("over HTTP", () => {
       expect(anonymous.status).toBe(401);
       expect(await anonymous.text()).not.toContain("seamsecret");
 
-      const wrong = await fetch(base, {
-        method: "POST",
-        headers: { authorization: `Bearer ${"x".repeat(40)}` },
-        body,
-      });
-      expect(wrong.status).toBe(401);
+      // A wrong token, a prefix of the right one, and the right one extended.
+      for (const bad of ["x".repeat(40), token.slice(0, 39), `${token}b`]) {
+        const wrong = await fetch(base, {
+          method: "POST",
+          headers: { authorization: `Bearer ${bad}` },
+          body,
+        });
+        expect(wrong.status).toBe(401);
+      }
       // The link is still there: an unauthenticated caller cannot burn it.
       expect(b.hold.size()).toBe(1);
 
@@ -286,11 +281,6 @@ describe("over HTTP", () => {
   });
 
   test("the baked release identity is exact or explicitly unknown", () => {
-    const cliSource = fs.readFileSync(
-      path.join(import.meta.dir, "cli.ts"),
-      "utf8",
-    );
-    expect(cliSource).toContain("...deps.releaseIdentity");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-identity-"));
     temps.push(dir);
     const file = path.join(dir, "release-identity.json");
