@@ -14,6 +14,8 @@ A schedule belongs to a room, whose members see it with its runs and transcripts
 
 Create with `POST /api/cronjobs` and `{name,schedule,prompt,cwd,modelFamily,effort,permissionMode,roomId?}`. Without `roomId` the job takes your room; `roomId:""` means no room. Run now with `POST /api/cronjobs/:id/runs`, which returns `{runId}`. Change with `PATCH /api/cronjobs/:id` (for example `{enabled:false}`); delete with `DELETE /api/cronjobs/:id`. Read jobs, run lists, and run transcripts with the GET routes below.
 
+`schedule` is `{type:"daily",hour,minute}`, `{type:"weekly",weekday,hour,minute}` (weekday 0 is Sunday), `{type:"interval",minutes}` (at least 5) or `{type:"none"}`. Times are in the server's time zone.
+
 Safe example: `GET /api/cronjobs`.
 
 ## Route contract

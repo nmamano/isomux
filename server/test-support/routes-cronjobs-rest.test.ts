@@ -278,6 +278,139 @@ describe("cronjob REST", () => {
     });
   });
 
+  describe("routes/cron REST: schedule shape (task 2bc8c847)", () => {
+    // Each bad schedule has one fault, and the 422 names that field. Before
+    // the fix the manager floored a missing value to NaN (stored as null) and
+    // clamped an out-of-range one, both with a 2xx.
+    const BAD: Array<[unknown, RegExp]> = [
+      // An agent's guess at the shape (task 11e311db live check).
+      [{ type: "daily", time: "09:00" }, /\b(hour|minute)\b/],
+      [{ type: "daily", minute: 0 }, /\bhour\b/],
+      [{ type: "daily", hour: null, minute: 0 }, /\bhour\b/],
+      [{ type: "daily", hour: 9 }, /\bminute\b/],
+      [{ type: "daily", hour: 9.5, minute: 0 }, /\bhour\b/],
+      [{ type: "daily", hour: "9", minute: 0 }, /\bhour\b/],
+      [{ type: "daily", hour: 24, minute: 0 }, /\bhour\b/],
+      [{ type: "daily", hour: -1, minute: 0 }, /\bhour\b/],
+      [{ type: "daily", hour: 9, minute: 60 }, /\bminute\b/],
+      [{ type: "weekly", hour: 9, minute: 0 }, /\bweekday\b/],
+      [{ type: "weekly", weekday: 7, hour: 9, minute: 0 }, /\bweekday\b/],
+      [{ type: "weekly", weekday: 1.5, hour: 9, minute: 0 }, /\bweekday\b/],
+      [{ type: "weekly", weekday: 1, minute: 0 }, /\bhour\b/],
+      [{ type: "weekly", weekday: 1, hour: 9, minute: 60 }, /\bminute\b/],
+      [{ type: "interval" }, /\bminutes\b/],
+      [{ type: "interval", minutes: 4 }, /\bminutes\b/],
+      [{ type: "interval", minutes: 7.5 }, /\bminutes\b/],
+      [{ type: "interval", minutes: "60" }, /\bminutes\b/],
+      [{ type: "hourly", minutes: 60 }, /\btype\b/],
+      [{ minutes: 60 }, /\btype\b/],
+      [null, /\bschedule\b/],
+      ["daily", /\bschedule\b/],
+    ];
+    // Boundaries and one of each type: stored exactly as sent, extra keys
+    // dropped.
+    const GOOD: Array<[unknown, Cronjob["schedule"]]> = [
+      [
+        { type: "daily", hour: 0, minute: 0 },
+        { type: "daily", hour: 0, minute: 0 },
+      ],
+      [
+        { type: "daily", hour: 23, minute: 59, time: "23:59" },
+        { type: "daily", hour: 23, minute: 59 },
+      ],
+      [
+        { type: "weekly", weekday: 0, hour: 9, minute: 30 },
+        { type: "weekly", weekday: 0, hour: 9, minute: 30 },
+      ],
+      [
+        { type: "weekly", weekday: 6, hour: 23, minute: 59 },
+        { type: "weekly", weekday: 6, hour: 23, minute: 59 },
+      ],
+      [
+        { type: "interval", minutes: 5 },
+        { type: "interval", minutes: 5 },
+      ],
+      [{ type: "none" }, { type: "none" }],
+    ];
+
+    function expectNamed(r: Res, field: RegExp, label: string) {
+      expect([label, r.status]).toEqual([label, 422]);
+      const error = (r.body as { error?: { code?: string; message?: string } })
+        .error;
+      expect([label, error?.code]).toEqual([label, "invalid_request"]);
+      expect([label, error?.message ?? ""]).toEqual([
+        label,
+        expect.stringMatching(field),
+      ]);
+    }
+
+    it("POST refuses a schedule with a missing, non-integer or out-of-range field, naming it, and stores nothing", async () => {
+      const srv = await startTestServer();
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      for (const [schedule, field] of BAD) {
+        const r = await api(srv, "/api/cronjobs", {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+          body: createBody({ schedule: schedule as Cronjob["schedule"] }),
+        });
+        expectNamed(r, field, JSON.stringify(schedule));
+      }
+      expect(srv.cronjobManager.listCronjobs()).toHaveLength(0);
+    });
+
+    it("PATCH refuses the same schedules and leaves the stored one as it was", async () => {
+      const srv = await startTestServer();
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      const job = seedJob(srv, "Morgan");
+      for (const [schedule, field] of BAD) {
+        const r = await api(srv, `/api/cronjobs/${job.id}`, {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: { schedule },
+        });
+        expectNamed(r, field, JSON.stringify(schedule));
+      }
+      expect(jobById(srv, job.id)?.schedule).toEqual({
+        type: "interval",
+        minutes: 60,
+      });
+    });
+
+    it("POST and PATCH store each valid shape as sent", async () => {
+      const srv = await startTestServer();
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      const job = seedJob(srv, "Morgan");
+      for (const [schedule, stored] of GOOD) {
+        const label = JSON.stringify(schedule);
+        const created = await api(srv, "/api/cronjobs", {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+          body: createBody({ schedule: schedule as Cronjob["schedule"] }),
+        });
+        expect([label, created.status]).toEqual([label, 201]);
+        const id = (created.body as Cronjob).id;
+        expect([label, jobById(srv, id)?.schedule]).toEqual([label, stored]);
+        const patched = await api(srv, `/api/cronjobs/${job.id}`, {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: { schedule },
+        });
+        expect([label, patched.status]).toEqual([label, 200]);
+        expect([label, jobById(srv, job.id)?.schedule]).toEqual([
+          label,
+          stored,
+        ]);
+      }
+    });
+
+    function jobById(srv: TestServer, id: string): Cronjob | undefined {
+      return srv.cronjobManager.listCronjobs().find((j) => j.id === id);
+    }
+  });
+
   describe("routes/cron REST: ownership tightening", () => {
     it("PATCH /api/cronjobs/:id changes the engine and dependent settings together", async () => {
       const srv = await startTestServer();

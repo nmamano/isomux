@@ -1469,6 +1469,9 @@ export type AppListWire = (AppWire & { canManage?: true }) | AppViewerWire;
 // no persistent identity. Each scheduled fire creates a fresh session whose
 // transcript becomes a "run" row.
 
+// The shortest interval schedule, in minutes.
+export const MIN_INTERVAL_MINUTES = 5;
+
 export type Schedule =
   | { type: "daily"; hour: number; minute: number }
   | {

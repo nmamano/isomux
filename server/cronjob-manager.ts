@@ -51,6 +51,7 @@ import {
   generateCronjobRunId,
   cronjobRunStreamId,
   humanizeSchedule,
+  MIN_INTERVAL_MINUTES,
   type AgentBackendType,
   type Attachment,
   type CodexSandboxMode,
@@ -304,7 +305,6 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
 
   const HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
   const TICK_INTERVAL_MS = 60 * 1000;
-  const MIN_INTERVAL_MINUTES = 5;
 
   // Event sink (instance-scoped). isomux-office.ts overrides via onCronjobEvent() after
   // construction; deps.eventSink lets tests capture emitted events.

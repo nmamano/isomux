@@ -42,11 +42,12 @@ import {
 } from "../../cron-agent-limits.ts";
 import type { RunSendResult } from "../../internal-types.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
-import type {
-  Cronjob,
-  CronjobListWire,
-  CronjobRun,
-  LogEntry,
+import {
+  MIN_INTERVAL_MINUTES,
+  type Cronjob,
+  type CronjobListWire,
+  type CronjobRun,
+  type LogEntry,
 } from "../../../shared/types.ts";
 import type {
   CronCreateReq,
@@ -181,6 +182,37 @@ function roomIdFromBody(
   return { ok: false, response: fail(404, "not_found") };
 }
 
+// Why a schedule in a request body is not one of the four shapes, naming the
+// field; null when it is. Extra keys are ignored. Out-of-range and non-integer
+// values are refused, not clamped, so what is stored is what was sent.
+function scheduleError(schedule: unknown): string | null {
+  if (typeof schedule !== "object" || schedule === null) {
+    return "schedule must be an object";
+  }
+  const s = schedule as Record<string, unknown>;
+  const intIn = (field: string, min: number, max: number): string | null => {
+    const v = s[field];
+    if (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max)
+      return null;
+    return max === Infinity
+      ? `schedule.${field} must be an integer of at least ${min}`
+      : `schedule.${field} must be an integer from ${min} to ${max}`;
+  };
+  const time = () => intIn("hour", 0, 23) ?? intIn("minute", 0, 59);
+  switch (s.type) {
+    case "none":
+      return null;
+    case "interval":
+      return intIn("minutes", MIN_INTERVAL_MINUTES, Infinity);
+    case "daily":
+      return time();
+    case "weekly":
+      return intIn("weekday", 0, 6) ?? time();
+    default:
+      return 'schedule.type must be "daily", "weekly", "interval" or "none"';
+  }
+}
+
 // An ordinary agent's limits on a schedule it made (task c4233bfd): the
 // refusal when the job, as it would be, reaches more than the agent's current
 // mode or folder, or when a request sets a room other than the agent's own.
@@ -258,6 +290,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
           "schedule and modelFamily are required",
         );
       }
+      const shapeErr = scheduleError(body.schedule);
+      if (shapeErr) return fail(422, "invalid_request", shapeErr);
       if (body.effort === undefined || body.permissionMode === undefined) {
         return fail(
           400,
@@ -320,6 +354,10 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       // route guard. Re-validate cwd if it's being changed (the now-retired WS
       // arm did the same).
       const body = (ctx.body ?? {}) as CronUpdateReq;
+      if (body.schedule !== undefined) {
+        const shapeErr = scheduleError(body.schedule);
+        if (shapeErr) return fail(422, "invalid_request", shapeErr);
+      }
       const room = roomIdFromBody(body, ctx.identity, deps);
       if (!room.ok) return room.response;
       if (body.cwd !== undefined) {

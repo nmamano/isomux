@@ -12,6 +12,7 @@ import {
   familyPickerLabel,
   claudeFamilySupportsMaxEffort,
   familyDisplayLabel,
+  MIN_INTERVAL_MINUTES,
   type AgentBackendType,
   type BackendModelWire,
   type CodexSandboxMode,
@@ -437,7 +438,10 @@ export function CronjobDialog({
   function buildSchedule(): Schedule {
     const hour = clamp(parseIntOr(hourStr, 0), 0, 23);
     const minute = clamp(parseIntOr(minuteStr, 0), 0, 59);
-    const intervalMinutes = Math.max(5, parseIntOr(intervalStr, 5));
+    const intervalMinutes = Math.max(
+      MIN_INTERVAL_MINUTES,
+      parseIntOr(intervalStr, MIN_INTERVAL_MINUTES),
+    );
     if (scheduleType === "daily") return { type: "daily", hour, minute };
     if (scheduleType === "weekly")
       return { type: "weekly", weekday, hour, minute };
