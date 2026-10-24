@@ -200,11 +200,16 @@ export function runSearchInChild(
       });
     }, opts.hardTimeoutMs ?? HARD_TIMEOUT_MS);
 
+    // An answer read from the child's output is sent only after the child
+    // exits and its slot is free, so a caller that searches again at once is
+    // not refused by its own finished search (task ea7baaa5: stdout ends
+    // before the exit is observed). An answer the parent makes by killing the
+    // child is sent at once, and the slot stays held until the exit.
     // Bounded by construction: the child writes one envelope whose size is
     // capped by `limit` and the per-snippet cap.
-    void new Response(proc.stdout)
-      .text()
-      .then((out) => {
+    void Promise.all([new Response(proc.stdout).text(), proc.exited])
+      .then(([out]) => {
+        release(admission);
         if (killed) return; // already answered with the 504
         let data:
           | { ok: true; result: SearchResult }
@@ -233,7 +238,9 @@ export function runSearchInChild(
           });
         }
       })
-      .catch((err: unknown) => {
+      .catch(async (err: unknown) => {
+        await proc.exited.catch(() => {});
+        release(admission);
         if (killed) return;
         console.error("[log-search] could not read child output:", err);
         settle({

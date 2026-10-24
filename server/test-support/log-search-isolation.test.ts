@@ -286,4 +286,58 @@ describe("log search: process isolation", () => {
     if (!overflow.ok) expect(overflow.code).toBe("search_busy");
     await Promise.all(held);
   }, 30_000);
+
+  // An answer read from the child's output reaches the caller only after the
+  // child has exited, so the caller's slot is already free when it has the
+  // answer. Otherwise a caller that searches again at once gets a false 429.
+  it("frees a caller's slot before it answers, so the next search in sequence is admitted", async () => {
+    let child: Bun.Subprocess<"pipe", "pipe", "inherit"> | undefined;
+    const first = await runSearchInChild(
+      "caller:sequence",
+      AGENT,
+      query("q=needle"),
+      {
+        spawnChild: (childPath) =>
+          (child = Bun.spawn([process.execPath, "run", childPath], {
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "inherit",
+          })),
+      },
+    );
+    expect(first.ok).toBe(true);
+    // The slot is held while the child lives, so the answer waits for the exit.
+    expect(child!.exitCode).not.toBeNull();
+    const second = await runSearchInChild(
+      "caller:sequence",
+      AGENT,
+      query("q=needle"),
+    );
+    expect(second).toMatchObject({ ok: true });
+  }, 30_000);
+
+  it("frees a caller's slot before it answers a failed search, so the next search is admitted", async () => {
+    let child: Bun.Subprocess<"pipe", "pipe", "inherit"> | undefined;
+    const failed = await runSearchInChild(
+      "caller:after-failure",
+      AGENT,
+      query("q=needle"),
+      {
+        // A child that writes output the parent cannot read, then exits.
+        spawnChild: () =>
+          (child = Bun.spawn(
+            [process.execPath, "-e", "process.stdout.write('not json')"],
+            { stdin: "pipe", stdout: "pipe", stderr: "inherit" },
+          )),
+      },
+    );
+    expect(failed).toMatchObject({ ok: false, code: "search_failed" });
+    expect(child!.exitCode).not.toBeNull();
+    const next = await runSearchInChild(
+      "caller:after-failure",
+      AGENT,
+      query("q=needle"),
+    );
+    expect(next).toMatchObject({ ok: true });
+  }, 30_000);
 });

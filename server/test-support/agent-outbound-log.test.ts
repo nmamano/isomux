@@ -148,9 +148,7 @@ async function searchHits(
 }
 
 describe("an agent's send to another agent, in the sender's log", () => {
-  // Quarantined (task ea7baaa5): the logs search answered 429 on GitHub Build
-  // for 5fdb7c89, green on the rerun of the same commit. Restore it with the fix.
-  it.skip("is recorded once with the text and recipient, and found by the default-tier search only", async () => {
+  it("is recorded once with the text and recipient, and found by the default-tier search only", async () => {
     const w = await setup();
     const text = "Approved: QUINCE-7 is ready for the merge.";
     const sent = await agentSend(w, w.receiver.id, { text });
