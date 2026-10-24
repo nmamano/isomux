@@ -52,8 +52,7 @@ function tree(
   return root;
 }
 
-// Quarantined (task ee36f53f): the nested bun test exits 1 under full CI load.
-it.skip("finds the same files as bun test", async () => {
+it("finds the same files as bun test", async () => {
   const outside = tree(["o.test.ts", "o.ts"]);
   const root = tree(
     [
@@ -91,9 +90,14 @@ it.skip("finds the same files as bun test", async () => {
   const report = join(root, "report.xml");
   const bun = Bun.spawn(
     ["bun", "test", "--reporter=junit", `--reporter-outfile=${report}`],
-    { cwd: root, stdout: "ignore", stderr: "ignore" },
+    { cwd: root, stdout: "pipe", stderr: "pipe" },
   );
-  expect(await bun.exited).toBe(0);
+  const [code, out, err] = await Promise.all([
+    bun.exited,
+    new Response(bun.stdout).text(),
+    new Response(bun.stderr).text(),
+  ]);
+  expect(code, `bun test exited ${code}:\n${out}${err}`).toBe(0);
   // Bun names a linked file by its target, so compare real paths.
   const fromBun = [
     ...readFileSync(report, "utf8").matchAll(/<testsuite name="([^"]+)"/g),
