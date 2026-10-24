@@ -3001,12 +3001,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.scheduleRun.resumeNoInit":
     "Cannot resume: the original run never reached backend init.",
   "systemEntries.scheduleRun.resumeCwd.missing":
-    "Cannot resume: cwd is invalid: Directory does not exist: {path}",
+    "Cannot resume: the folder {path} does not exist.",
   "systemEntries.scheduleRun.resumeCwd.notDirectory":
-    "Cannot resume: cwd is invalid: Not a directory: {path}",
+    "Cannot resume: {path} is not a folder.",
   "systemEntries.scheduleRun.resumeCwd.inaccessible":
-    "Cannot resume: cwd is invalid: Cannot access {path}: {message}",
-  "systemEntries.scheduleRun.envFailed": "Cannot build env: {error}",
+    "Cannot resume: no access to the folder {path} ({message}).",
+  "systemEntries.scheduleRun.envFailed":
+    "Cannot load the variables and secrets from the Integrations page: {error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "Cannot resume this OpenCode run because its schedule was deleted and its shared environment profile can no longer be resolved.",
   "systemEntries.scheduleRun.jobDeleted":
@@ -3018,11 +3019,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.scheduleRun.editNoInit":
     "Cannot edit: the original run never reached backend init.",
   "systemEntries.scheduleRun.editCwd.missing":
-    "Cannot edit: cwd is invalid: Directory does not exist: {path}",
+    "Cannot edit: the folder {path} does not exist.",
   "systemEntries.scheduleRun.editCwd.notDirectory":
-    "Cannot edit: cwd is invalid: Not a directory: {path}",
+    "Cannot edit: {path} is not a folder.",
   "systemEntries.scheduleRun.editCwd.inaccessible":
-    "Cannot edit: cwd is invalid: Cannot access {path}: {message}",
+    "Cannot edit: no access to the folder {path} ({message}).",
   "systemEntries.scheduleRun.editFailed": "Cannot edit: {error}",
   "systemEntries.scheduleRun.editMessageNotFound":
     "Cannot edit: message not found.",
@@ -3059,11 +3060,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Run stopped: the Isomux server restarted.",
   "systemEntries.scheduleRun.sessionFailed": "Cannot start session: {error}",
   "systemEntries.scheduleRun.startCwd.missing":
-    "Cannot start: cwd is invalid: Directory does not exist: {path}",
+    "Cannot start: the folder {path} does not exist.",
   "systemEntries.scheduleRun.startCwd.notDirectory":
-    "Cannot start: cwd is invalid: Not a directory: {path}",
+    "Cannot start: {path} is not a folder.",
   "systemEntries.scheduleRun.startCwd.inaccessible":
-    "Cannot start: cwd is invalid: Cannot access {path}: {message}",
+    "Cannot start: no access to the folder {path} ({message}).",
   "systemEntries.scheduleRun.limit.modeBypass":
     "This schedule runs only while {agent}, the agent that made it, is in Bypass mode, since a schedule runs with nobody present. Put {agent} in that mode, or delete the schedule and create it again yourself.",
   "systemEntries.scheduleRun.limit.modeCodexFull":

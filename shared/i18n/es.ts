@@ -3036,13 +3036,13 @@ Cosas que puedes hacer por él:
   "systemEntries.scheduleRun.resumeNoInit":
     "No se puede retomar: la ejecución original nunca llegó a iniciar el motor.",
   "systemEntries.scheduleRun.resumeCwd.missing":
-    "No se puede retomar: el cwd no es válido: el directorio no existe: {path}",
+    "No se puede retomar: la carpeta {path} no existe.",
   "systemEntries.scheduleRun.resumeCwd.notDirectory":
-    "No se puede retomar: el cwd no es válido: no es un directorio: {path}",
+    "No se puede retomar: {path} no es una carpeta.",
   "systemEntries.scheduleRun.resumeCwd.inaccessible":
-    "No se puede retomar: el cwd no es válido: no se puede acceder a {path}: {message}",
+    "No se puede retomar: sin acceso a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.envFailed":
-    "No se pudo preparar el entorno: {error}",
+    "No se pudieron cargar las variables y los secretos de la página Integraciones: {error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "No se puede retomar esta ejecución de OpenCode porque su programación se eliminó y ya no se puede resolver su perfil de entorno compartido.",
   "systemEntries.scheduleRun.jobDeleted":
@@ -3055,11 +3055,11 @@ Cosas que puedes hacer por él:
   "systemEntries.scheduleRun.editNoInit":
     "No se puede editar: la ejecución original nunca llegó a iniciar el motor.",
   "systemEntries.scheduleRun.editCwd.missing":
-    "No se puede editar: el cwd no es válido: el directorio no existe: {path}",
+    "No se puede editar: la carpeta {path} no existe.",
   "systemEntries.scheduleRun.editCwd.notDirectory":
-    "No se puede editar: el cwd no es válido: no es un directorio: {path}",
+    "No se puede editar: {path} no es una carpeta.",
   "systemEntries.scheduleRun.editCwd.inaccessible":
-    "No se puede editar: el cwd no es válido: no se puede acceder a {path}: {message}",
+    "No se puede editar: sin acceso a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.editFailed": "No se puede editar: {error}",
   "systemEntries.scheduleRun.editMessageNotFound":
     "No se puede editar: no se encontró el mensaje.",
@@ -3098,11 +3098,11 @@ Cosas que puedes hacer por él:
   "systemEntries.scheduleRun.sessionFailed":
     "No se puede iniciar la sesión: {error}",
   "systemEntries.scheduleRun.startCwd.missing":
-    "No se puede iniciar: el cwd no es válido: el directorio no existe: {path}",
+    "No se puede iniciar: la carpeta {path} no existe.",
   "systemEntries.scheduleRun.startCwd.notDirectory":
-    "No se puede iniciar: el cwd no es válido: no es un directorio: {path}",
+    "No se puede iniciar: {path} no es una carpeta.",
   "systemEntries.scheduleRun.startCwd.inaccessible":
-    "No se puede iniciar: el cwd no es válido: no se puede acceder a {path}: {message}",
+    "No se puede iniciar: sin acceso a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.limit.modeBypass":
     "Esta programación solo se ejecuta mientras {agent}, el agente que la creó, está en el modo Omitir permisos, porque una programación se ejecuta sin nadie presente. Pon {agent} en ese modo, o elimina la programación y vuelve a crearla tú.",
   "systemEntries.scheduleRun.limit.modeCodexFull":

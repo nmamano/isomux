@@ -3043,13 +3043,13 @@ Coses que pots fer per ell:
   "systemEntries.scheduleRun.resumeNoInit":
     "No es pot reprendre: l'execució original mai no va arribar a iniciar el motor.",
   "systemEntries.scheduleRun.resumeCwd.missing":
-    "No es pot reprendre: el cwd no és vàlid: el directori no existeix: {path}",
+    "No es pot reprendre: la carpeta {path} no existeix.",
   "systemEntries.scheduleRun.resumeCwd.notDirectory":
-    "No es pot reprendre: el cwd no és vàlid: no és un directori: {path}",
+    "No es pot reprendre: {path} no és una carpeta.",
   "systemEntries.scheduleRun.resumeCwd.inaccessible":
-    "No es pot reprendre: el cwd no és vàlid: no es pot accedir a {path}: {message}",
+    "No es pot reprendre: sense accés a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.envFailed":
-    "No s'ha pogut preparar l'entorn: {error}",
+    "No s'han pogut carregar les variables i els secrets de la pàgina Integracions: {error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "No es pot reprendre aquesta execució d'OpenCode perquè la seva programació es va eliminar i ja no es pot resoldre el seu perfil d'entorn compartit.",
   "systemEntries.scheduleRun.jobDeleted":
@@ -3062,11 +3062,11 @@ Coses que pots fer per ell:
   "systemEntries.scheduleRun.editNoInit":
     "No es pot editar: l'execució original mai no va arribar a iniciar el motor.",
   "systemEntries.scheduleRun.editCwd.missing":
-    "No es pot editar: el cwd no és vàlid: el directori no existeix: {path}",
+    "No es pot editar: la carpeta {path} no existeix.",
   "systemEntries.scheduleRun.editCwd.notDirectory":
-    "No es pot editar: el cwd no és vàlid: no és un directori: {path}",
+    "No es pot editar: {path} no és una carpeta.",
   "systemEntries.scheduleRun.editCwd.inaccessible":
-    "No es pot editar: el cwd no és vàlid: no es pot accedir a {path}: {message}",
+    "No es pot editar: sense accés a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.editFailed": "No es pot editar: {error}",
   "systemEntries.scheduleRun.editMessageNotFound":
     "No es pot editar: no s'ha trobat el missatge.",
@@ -3105,11 +3105,11 @@ Coses que pots fer per ell:
   "systemEntries.scheduleRun.sessionFailed":
     "No es pot iniciar la sessió: {error}",
   "systemEntries.scheduleRun.startCwd.missing":
-    "No es pot iniciar: el cwd no és vàlid: el directori no existeix: {path}",
+    "No es pot iniciar: la carpeta {path} no existeix.",
   "systemEntries.scheduleRun.startCwd.notDirectory":
-    "No es pot iniciar: el cwd no és vàlid: no és un directori: {path}",
+    "No es pot iniciar: {path} no és una carpeta.",
   "systemEntries.scheduleRun.startCwd.inaccessible":
-    "No es pot iniciar: el cwd no és vàlid: no es pot accedir a {path}: {message}",
+    "No es pot iniciar: sense accés a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.limit.modeBypass":
     "Aquesta programació només s'executa mentre {agent}, l'agent que l'ha creada, és en el mode Ometre els permisos, perquè una programació s'executa sense ningú present. Posa {agent} en aquest mode, o elimina la programació i torna-la a crear tu.",
   "systemEntries.scheduleRun.limit.modeCodexFull":

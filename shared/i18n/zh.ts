@@ -2722,12 +2722,13 @@ App 的一些原则：
   "systemEntries.scheduleRun.resumeNoInit":
     "无法继续：原始运行从未完成引擎初始化。",
   "systemEntries.scheduleRun.resumeCwd.missing":
-    "无法继续：cwd 无效：目录不存在：{path}",
+    "无法继续：文件夹 {path} 不存在。",
   "systemEntries.scheduleRun.resumeCwd.notDirectory":
-    "无法继续：cwd 无效：不是目录：{path}",
+    "无法继续：{path} 不是文件夹。",
   "systemEntries.scheduleRun.resumeCwd.inaccessible":
-    "无法继续：cwd 无效：无法访问 {path}：{message}",
-  "systemEntries.scheduleRun.envFailed": "无法构建环境：{error}",
+    "无法继续：无权访问文件夹 {path}（{message}）。",
+  "systemEntries.scheduleRun.envFailed":
+    "无法加载「集成」页面的变量和密钥：{error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "无法继续此 OpenCode 运行：其定时任务已删除，共享环境配置文件也无法再解析。",
   "systemEntries.scheduleRun.jobDeleted": "运行已停止：定时任务已删除。",
@@ -2738,11 +2739,11 @@ App 的一些原则：
   "systemEntries.scheduleRun.editNoInit":
     "无法编辑：原始运行从未完成引擎初始化。",
   "systemEntries.scheduleRun.editCwd.missing":
-    "无法编辑：cwd 无效：目录不存在：{path}",
+    "无法编辑：文件夹 {path} 不存在。",
   "systemEntries.scheduleRun.editCwd.notDirectory":
-    "无法编辑：cwd 无效：不是目录：{path}",
+    "无法编辑：{path} 不是文件夹。",
   "systemEntries.scheduleRun.editCwd.inaccessible":
-    "无法编辑：cwd 无效：无法访问 {path}：{message}",
+    "无法编辑：无权访问文件夹 {path}（{message}）。",
   "systemEntries.scheduleRun.editFailed": "无法编辑：{error}",
   "systemEntries.scheduleRun.editMessageNotFound": "无法编辑：未找到消息。",
   "systemEntries.scheduleRun.loadMessagesFailed": "加载会话消息失败：{error}",
@@ -2776,11 +2777,11 @@ App 的一些原则：
     "运行已停止：Isomux 服务器已重启。",
   "systemEntries.scheduleRun.sessionFailed": "无法启动会话：{error}",
   "systemEntries.scheduleRun.startCwd.missing":
-    "无法启动：cwd 无效：目录不存在：{path}",
+    "无法启动：文件夹 {path} 不存在。",
   "systemEntries.scheduleRun.startCwd.notDirectory":
-    "无法启动：cwd 无效：不是目录：{path}",
+    "无法启动：{path} 不是文件夹。",
   "systemEntries.scheduleRun.startCwd.inaccessible":
-    "无法启动：cwd 无效：无法访问 {path}：{message}",
+    "无法启动：无权访问文件夹 {path}（{message}）。",
   "systemEntries.scheduleRun.limit.modeBypass":
     "只有当创建此定时任务的智能体 {agent} 处于“跳过”模式时，此定时任务才会运行，因为定时任务在无人在场时运行。请将 {agent} 设为该模式，或删除此定时任务后自行重新创建。",
   "systemEntries.scheduleRun.limit.modeCodexFull":
