@@ -131,7 +131,11 @@ describe("the office variables save only what they read", () => {
     expect(office.querySelector('[role="alert"]')).not.toBeNull();
     expect(office.querySelector("[data-integrations-add]")).toBeNull();
     expect(office.querySelector("[data-env-edit]")).toBeNull();
-    expect(fake.requests("PUT", "/api/office/env")).toHaveLength(0);
+    expect(
+      fake.calls.filter(
+        (c) => c.method !== "GET" && c.path.startsWith("/api/office/env"),
+      ),
+    ).toHaveLength(0);
   });
 
   // The Add row stands in while the read is out, so the card keeps its

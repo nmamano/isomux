@@ -6,10 +6,9 @@
 // Who sees what (Lead, 2026-10-13, option B): a member edits their own
 // values; an owner edits the office's; an owner sees a member's names and
 // notes only, never the values, and replaces or removes one variable at a
-// time. The personal cards save one variable per request
-// (PUT/DELETE <user>/env/<name>), so no save can drop a value the page never
-// read. The office card has no per-variable route and saves its whole map,
-// which the owner has read in full: nothing on a card can save until its read
+// time. Every card saves one variable per request (PUT/DELETE .../env/<name>),
+// so no save can drop a value the page never read or undo a change made
+// elsewhere after the page loaded. Nothing on a card can save until its read
 // has succeeded.
 
 import { useEffect, useState } from "react";
@@ -163,20 +162,6 @@ export function VariablesSection({
     next: { value: string; note: string } | null,
     from?: string,
   ): Promise<void> {
-    if (target.kind === "office") {
-      // The whole map, from the values this owner read in full.
-      const all = (variables ?? []).filter(
-        (v) => v.name !== name && v.name !== from,
-      );
-      if (next) all.push({ name, value: next.value, note: next.note });
-      await apiFetch("PUT", `${base}/env`, {
-        values: Object.fromEntries(all.map((v) => [v.name, v.value ?? ""])),
-        notes: Object.fromEntries(
-          all.filter((v) => v.note.trim()).map((v) => [v.name, v.note.trim()]),
-        ),
-      });
-      return;
-    }
     const path = (n: string) => `${base}/env/${encodeURIComponent(n)}`;
     if (!next) {
       await apiFetch("DELETE", path(name));

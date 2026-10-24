@@ -1,7 +1,7 @@
 // The Variables tab for the member's own card and the owner's office card
 // (ported from the Settings ManagedEnvEditor and ConnectionNotes tests):
-// values masked until Show, one variable per request on a personal card, and
-// a whole-map save on the office card that keeps every other value and note.
+// values masked until Show, and one variable per request on both cards, so a
+// save never undoes a change made elsewhere after the page loaded.
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -117,30 +117,77 @@ it("masks your values until Show, and saves one variable at a time", async () =>
   off();
 });
 
-it("saves the office's whole map with every other value and note kept", async () => {
-  fake.scope("office").values = { A: "1", B: "2" };
-  fake.scope("office").notes = { A: "first line\nsecond line" };
+// Task ab26a507: another owner, a token or an agent changes the office
+// variables after this page loaded; a save here touches only its own name.
+it("saves one office variable at a time, so a change made elsewhere survives", async () => {
+  const office = fake.scope("office");
+  office.values = { A: "1", B: "2", C: "3", D: "4" };
+  office.notes = { A: "first line\nsecond line" };
   const view = await mount({ kind: "office" });
+  const writes = () =>
+    fake.calls
+      .filter((c) => c.method !== "GET" && c.path.startsWith("/api/office/"))
+      .map((c) => `${c.method} ${c.path}`);
+  const elsewhere = (values: Record<string, string>, notes: object) => {
+    office.values = values;
+    office.notes = notes as Record<string, string>;
+  };
+
+  // Edit: B changed and C went elsewhere after the load.
+  elsewhere(
+    { A: "1", B: "theirs", D: "4" },
+    { A: "first line\nsecond line", B: "their note" },
+  );
   await click(
-    view.container.querySelector('[data-env-entry="B"] [data-env-edit]'),
+    view.container.querySelector('[data-env-entry="A"] [data-env-edit]'),
+  );
+  await type(
+    view.container.querySelector(
+      "[data-env-edit-panel] [data-env-value-input]",
+    ),
+    "1b",
   );
   await type(
     view.container.querySelector("[data-env-edit-panel] textarea"),
-    " use for B ",
+    " use for A ",
   );
   await click(view.container.querySelector("[data-panel-save]"));
-  expect(fake.requests("PUT", "/api/office/env")[0].body).toEqual({
-    values: { A: "1", B: "2" },
-    notes: { A: "first line\nsecond line", B: "use for B" },
+  expect(office.values).toEqual({ A: "1b", B: "theirs", D: "4" });
+  expect(office.notes).toEqual({ A: "use for A", B: "their note" });
+  expect(fake.requests("PUT", "/api/office/env/A")[0]?.body).toEqual({
+    value: "1b",
+    note: "use for A",
   });
+
+  // Remove: B changed again after the reload.
+  elsewhere({ ...office.values, B: "again" }, office.notes);
   await click(
     view.container.querySelector('[data-env-entry="A"] [data-env-remove]'),
   );
   await click(view.container.querySelector("[data-panel-save]"));
-  expect(fake.requests("PUT", "/api/office/env")[1].body).toEqual({
-    values: { B: "2" },
-    notes: { B: "use for B" },
-  });
+  expect(office.values).toEqual({ B: "again", D: "4" });
+  expect(office.notes).toEqual({ B: "their note" });
+
+  // Rename: the new name first, then the old one goes; B changed again.
+  elsewhere({ ...office.values, B: "third" }, office.notes);
+  await click(
+    view.container.querySelector('[data-env-entry="D"] [data-env-edit]'),
+  );
+  await type(
+    view.container.querySelector("[data-env-edit-panel] [data-env-name]"),
+    "E",
+  );
+  await click(view.container.querySelector("[data-panel-save]"));
+  expect(office.values).toEqual({ B: "third", E: "4" });
+  expect(office.notes).toEqual({ B: "their note" });
+
+  // One request per name, never the whole map.
+  expect(writes()).toEqual([
+    "PUT /api/office/env/A",
+    "DELETE /api/office/env/A",
+    "PUT /api/office/env/E",
+    "DELETE /api/office/env/D",
+  ]);
 });
 
 it("flags a key-like name, except the model API keys that belong here", async () => {

@@ -243,7 +243,7 @@ export class IntegrationsFake {
       }
     }
     const envOne = rest.match(/^\/env\/([^/]+)$/);
-    if (envOne && who !== "office") {
+    if (envOne) {
       if (!mayWrite) this.forbidden();
       const name = decodeURIComponent(envOne[1]);
       if (method === "PUT") {

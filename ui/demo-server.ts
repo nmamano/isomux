@@ -324,6 +324,32 @@ function saveDemoEnv(key: string, body: unknown): Record<string, string> {
   return values;
 }
 
+// One variable set (PUT) or removed (DELETE) in the map under `key`, as
+// userEnv.set/remove and officeEnv.set/remove do. Returns the new values.
+function saveDemoEnvOne(
+  key: string,
+  current: Record<string, string>,
+  method: "PUT" | "DELETE",
+  name: string,
+  body: unknown,
+): Record<string, string> {
+  const values = { ...current };
+  const notes = { ...(demoEnvNotes[key] ?? {}) };
+  if (method === "DELETE") {
+    if (!(name in values)) throw new ApiError(404, "not_found", "Not found");
+    delete values[name];
+    delete notes[name];
+  } else {
+    const b = (body ?? {}) as { value?: unknown; note?: unknown };
+    if (typeof b.value !== "string")
+      throw new ApiError(400, "invalid_env", "the value is not valid");
+    values[name] = b.value;
+    if (typeof b.note === "string" && b.note.trim()) notes[name] = b.note;
+    else delete notes[name];
+  }
+  return saveDemoEnv(key, { values, notes });
+}
+
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
 // The landing demo keeps both rooms in the default office look.
 export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
@@ -2902,9 +2928,6 @@ export async function demoApi(
         values: demoManagedOfficeEnv,
         notes: demoEnvNotes.office ?? {},
       };
-    case "PUT /api/office/env":
-      demoManagedOfficeEnv = saveDemoEnv("office", body);
-      return undefined;
     // officeEnv.names - every member reads the office's names and notes.
     case "GET /api/office/env/names":
       return {
@@ -3542,22 +3565,30 @@ export async function demoApi(
     const existing = users.get(uname.toLowerCase());
     if (!existing)
       throw new ApiError(404, "not_found", `User ${uname} not found`);
-    const name = decodeURIComponent(userEnvOneMatch[2]);
-    const values = { ...(demoManagedEnv[existing.id] ?? {}) };
-    const notes = { ...(demoEnvNotes[existing.id] ?? {}) };
-    if (method === "DELETE") {
-      if (!(name in values)) throw new ApiError(404, "not_found", "Not found");
-      delete values[name];
-      delete notes[name];
-    } else {
-      const b = (body ?? {}) as { value?: unknown; note?: unknown };
-      if (typeof b.value !== "string")
-        throw new ApiError(400, "invalid_env", "the value is not valid");
-      values[name] = b.value;
-      if (typeof b.note === "string" && b.note.trim()) notes[name] = b.note;
-      else delete notes[name];
-    }
-    demoManagedEnv[existing.id] = saveDemoEnv(existing.id, { values, notes });
+    demoManagedEnv[existing.id] = saveDemoEnvOne(
+      existing.id,
+      demoManagedEnv[existing.id] ?? {},
+      method,
+      decodeURIComponent(userEnvOneMatch[2]),
+      body,
+    );
+    return undefined;
+  }
+  // officeEnv.set / officeEnv.remove - the office card saves one variable at
+  // a time too.
+  const officeEnvOneMatch = pathname.match(/^\/api\/office\/env\/([^/]+)$/);
+  if (
+    officeEnvOneMatch &&
+    officeEnvOneMatch[1] !== "names" &&
+    (method === "PUT" || method === "DELETE")
+  ) {
+    demoManagedOfficeEnv = saveDemoEnvOne(
+      "office",
+      demoManagedOfficeEnv,
+      method,
+      decodeURIComponent(officeEnvOneMatch[1]),
+      body,
+    );
     return undefined;
   }
   // userEnv.names - the office owner's name-only read of another user's managed

@@ -124,9 +124,10 @@ not a failure: it admits with no fallback and has no status line.
 **Invalidation.** The reader's key is the office account directory plus a hash
 of the env the reader runs with, so a changed office variable (an API key, a
 cloud switch) is a different account even in the same directory. Office
-sign-in, sign-out and a write of the office variables (`PUT /api/office/env`)
-also bump a generation in the reader and in the cap's recent answers, and
-clear the cached and the last good reading. An
+sign-in, sign-out and any write of the office variables (`PUT /api/office/env`
+or `PUT`/`DELETE /api/office/env/:name`) also bump a generation in the
+reader and in the cap's recent answers, and clear the cached and the last
+good reading. An
 answer counts only if its key and generation still hold when it arrives: a
 probe that an invalidation overtook is neither cached nor returned, and its
 caller reads again. The cap's admission does the same with its own
