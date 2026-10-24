@@ -87,8 +87,12 @@ ${emitThemesCss()}
     font-family: var(--font-mono); font-size: 12px;
     background: var(--bg-code); padding: 1px 5px; border-radius: 4px; color: var(--text-dim);
   }
+  /* The box of a code block is drawn by its wrapper, and the pre scrolls
+     inside it, short of a right column that holds the copy button, so the
+     button never covers code at any scroll position. */
   .code-block-wrapper {
-    position: relative; margin: 8px 0;
+    position: relative; margin: 8px 0; overflow: hidden;
+    background: var(--bg-code-block); border-radius: 8px; border: 1px solid var(--border-subtle);
   }
   /* A chat bubble floats its date and buttons top right (BubbleCorner in
      ui/log-view/LogEntryCard.tsx). A box that scrolls is a block formatting
@@ -100,6 +104,9 @@ ${emitThemesCss()}
     background: var(--bg-code-block); border-radius: 8px; padding: 10px 14px;
     margin: 0; overflow-x: auto; border: 1px solid var(--border-subtle);
     position: relative;
+  }
+  .code-block-wrapper > pre {
+    background: transparent; border: 0; border-radius: 0; margin-right: 36px; padding-right: 0;
   }
   .md-content pre code {
     background: transparent; padding: 0; font-size: 12px; line-height: 1.5; color: var(--text-dim);
@@ -208,7 +215,8 @@ ${emitThemesCss()}
 
   /* Mobile: ensure code blocks don't overflow horizontally */
   @media (max-width: 767px) {
-    .md-content pre { max-width: calc(100vw - 48px); }
+    .md-content pre, .code-block-wrapper { max-width: calc(100vw - 48px); }
+    .code-block-wrapper > pre { max-width: none; }
     .md-content .table-wrapper { max-width: calc(100vw - 48px); }
     .md-content code { word-break: break-all; }
     .md-content pre code { word-break: normal; }

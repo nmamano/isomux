@@ -46,12 +46,14 @@ import {
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
 
+// The generic button and link rules style the widget's own controls. They
+// skip the chat log, so the transcript looks as it does in the office.
 const WIDGET_CSS = `
 .app-widget { position:fixed; inset:0; background:var(--bg-base); color:var(--text-primary); font-family:var(--font-ui); }
 .app-widget-frame { border:0; width:100%; height:100%; display:block; }
-.app-widget button,.app-widget a { font:inherit; }
-.app-widget button { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
-.app-widget button:disabled { cursor:default; opacity:.55; }
+.app-widget button:where(:not(.app-widget-log *)),.app-widget a:where(:not(.app-widget-log *)) { font:inherit; }
+.app-widget button:where(:not(.app-widget-log *)) { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
+.app-widget button:where(:not(.app-widget-log *)):disabled { cursor:default; opacity:.55; }
 .app-widget-dock { display:flex; gap:8px; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; }
 .app-widget-dock > * { border-radius:9px; box-shadow:0 3px 18px #0004; }
 .app-widget-launcher { display:flex; align-items:center; gap:8px; }
