@@ -36,6 +36,10 @@ function httpsUrl(value: unknown): string {
 export class ClaudeAccountClient {
   private readonly abortController = new AbortController();
   private oauthState: string | null = null;
+  // The CLI answers the callback and the wait from one sign-in flow, the wait
+  // first. Its caller then closes this client, which cuts off the callback's
+  // reply: after a finished flow, that lost reply is not a rejection.
+  private completed = false;
   private closeQuery: (() => void) | null = null;
   private seam: Required<
     Pick<
@@ -146,6 +150,7 @@ export class ClaudeAccountClient {
     try {
       await this.required().claudeOAuthCallback(code, state);
     } catch {
+      if (this.completed) return;
       // The SDK surfaces the provider's raw HTTP error (e.g. "Request
       // failed with status code 400") - useless to the person pasting.
       throw new Error(
@@ -154,8 +159,10 @@ export class ClaudeAccountClient {
     }
   }
 
-  waitForCompletion(): Promise<unknown> {
-    return this.required().claudeOAuthWaitForCompletion();
+  async waitForCompletion(): Promise<unknown> {
+    const result = await this.required().claudeOAuthWaitForCompletion();
+    this.completed = true;
+    return result;
   }
 
   async close(): Promise<void> {

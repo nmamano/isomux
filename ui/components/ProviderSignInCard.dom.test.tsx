@@ -310,6 +310,104 @@ for (const late of [false, true]) {
   });
 }
 
+// A sign-out or cancel can push the not-connected account before its POST
+// returns: the Sign in button is back while the action still runs. It must
+// name that action, never "Signing in…" (task 5b0f2234).
+it("names a running sign-out on the Sign in button that the push brings back", async () => {
+  let finishSignOut!: () => void;
+  const signedOut = {
+    provider: "claude" as const,
+    scope: "office" as const,
+    accountStatus: "not_connected" as const,
+    loginStatus: "idle" as const,
+    canBrowserLogin: true,
+  };
+  setApiShim(async (_method, path) => {
+    if (path.endsWith("/disconnect"))
+      return new Promise((resolveSignOut) => {
+        finishSignOut = () => resolveSignOut({ accounts: [signedOut] });
+      });
+    throw new Error(`unexpected ${path}`);
+  });
+  const card = (account: object) =>
+    createElement(ProviderSignInCard, {
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+      pageLook: true,
+      accounts: [account as typeof signedOut],
+    });
+  const view = render(
+    card({
+      ...signedOut,
+      accountStatus: "connected",
+      accountLabel: "office@example.test",
+    }),
+  );
+  await act(async () => {
+    fireEvent.click(view.container.querySelector("[data-provider-sign-out]")!);
+  });
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: t("settings.signIn.confirmSignOut") }),
+    );
+  });
+  await act(async () => view.rerender(card(signedOut)));
+  const button = () =>
+    view.container.querySelector<HTMLButtonElement>(
+      "[data-start-provider-login]",
+    )!;
+  expect(button().textContent).toBe(t("settings.signIn.signingOut"));
+  expect(button().disabled).toBe(true);
+
+  await act(async () => finishSignOut());
+  expect(button().textContent).toBe(t("settings.signIn.signIn"));
+  expect(button().disabled).toBe(false);
+});
+
+it("does not say signing in while a cancel the push already ended still runs", async () => {
+  let finishCancel!: () => void;
+  const idle = {
+    provider: "claude" as const,
+    scope: "office" as const,
+    accountStatus: "not_connected" as const,
+    loginStatus: "idle" as const,
+    canBrowserLogin: true,
+  };
+  setApiShim(async (_method, path) => {
+    if (path.endsWith("/cancel"))
+      return new Promise((resolveCancel) => {
+        finishCancel = () => resolveCancel({ canceled: true });
+      });
+    if (path.endsWith("/refresh")) return { accounts: [idle] };
+    throw new Error(`unexpected ${path}`);
+  });
+  const card = (account: object) =>
+    createElement(ProviderSignInCard, {
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+      accounts: [account as typeof idle],
+    });
+  const view = render(card({ ...idle, loginStatus: "waiting_external" }));
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: t("settings.signIn.cancelSignIn") }),
+    );
+  });
+  await act(async () => view.rerender(card(idle)));
+  const button = () =>
+    view.container.querySelector<HTMLButtonElement>(
+      "[data-start-provider-login]",
+    )!;
+  expect(button().textContent).toBe(t("settings.signIn.signIn"));
+  expect(button().disabled).toBe(true);
+
+  await act(async () => finishCancel());
+  expect(button().textContent).toBe(t("settings.signIn.signIn"));
+  expect(button().disabled).toBe(false);
+});
+
 it("leaves a member only the status and Test of an office sign-in", () => {
   const account = (
     scope: "office" | "personal",

@@ -194,7 +194,12 @@ function ProviderScopeConnection({
 }) {
   const i18n = useI18n();
   const { t, rich } = i18n;
-  const [pending, setPending] = useState(false);
+  // The action that runs: the server's push can end it on screen (a
+  // sign-out shows the Sign in button) before its own request returns.
+  const [running, setRunning] = useState<
+    "signIn" | "submit" | "cancel" | "signOut" | null
+  >(null);
+  const pending = running !== null;
   const [error, setError] = useState<string | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
@@ -306,7 +311,7 @@ function ProviderScopeConnection({
 
   async function connect(method: "browser" | "device") {
     const popup = window.open("about:blank", "_blank");
-    setPending(true);
+    setRunning("signIn");
     setSignInError(null);
     setDeviceCode(null);
     setCodeCopied(false);
@@ -344,12 +349,12 @@ function ProviderScopeConnection({
             : t("settings.signIn.startFailed", { provider: title }),
       );
     } finally {
-      setPending(false);
+      setRunning(null);
     }
   }
 
   async function submitClaudeCode() {
-    setPending(true);
+    setRunning("submit");
     setSignInError(null);
     try {
       await apiFetch("POST", "/api/me/provider-accounts/claude/callback", {
@@ -366,12 +371,12 @@ function ProviderScopeConnection({
           : t("settings.signIn.submitFailed"),
       );
     } finally {
-      setPending(false);
+      setRunning(null);
     }
   }
 
   async function cancel() {
-    setPending(true);
+    setRunning("cancel");
     setError(null);
     try {
       await apiFetch("POST", `/api/me/provider-accounts/${provider}/cancel`, {
@@ -388,12 +393,12 @@ function ProviderScopeConnection({
           : t("settings.signIn.cancelFailed"),
       );
     } finally {
-      setPending(false);
+      setRunning(null);
     }
   }
 
   async function disconnect() {
-    setPending(true);
+    setRunning("signOut");
     setError(null);
     try {
       const result = await apiFetch<ProviderAccountsWire>(
@@ -410,7 +415,7 @@ function ProviderScopeConnection({
           : t("settings.signIn.signOutFailed", { provider: title }),
       );
     } finally {
-      setPending(false);
+      setRunning(null);
     }
   }
 
@@ -477,7 +482,11 @@ function ProviderScopeConnection({
         }
         disabled={pending}
       >
-        {pending ? t("settings.signIn.signingIn") : t("settings.signIn.signIn")}
+        {running === "signIn"
+          ? t("settings.signIn.signingIn")
+          : running === "signOut"
+            ? t("settings.signIn.signingOut")
+            : t("settings.signIn.signIn")}
       </button>
       <p style={{ ...hint, margin: 0, flex: 1, minWidth: 180 }}>
         {provider === "codex"

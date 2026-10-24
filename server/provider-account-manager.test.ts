@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
+import { ClaudeAccountClient } from "./backends/claude/account.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import { writeManagedUserEnv, removeManagedUserEnv } from "./user-env.ts";
 
@@ -961,6 +962,127 @@ describe("ProviderAccountManager", () => {
       error: undefined,
     });
   });
+
+  // The Claude CLI answers claude_oauth_wait_for_completion and
+  // claude_oauth_callback from one OAuth flow, in the order they were sent,
+  // one reply per line. finish() sent the wait at login start, so its reply
+  // lands first and finish() closes the client while the callback reply is
+  // still in flight; the SDK then rejects the callback ("Query closed before
+  // response received"). Nil saw that as a rejected code after a good
+  // sign-in (task 5b0f2234).
+  for (const accepted of [true, false]) {
+    it(`answers a Claude code ${accepted ? "accepted" : "refused"} by the flow ${accepted ? "as submitted when the client closes before its reply" : "as a failure"}`, async () => {
+      let settleFlow!: () => void;
+      const flow = new Promise<void>((resolveFlow, rejectFlow) => {
+        settleFlow = () =>
+          accepted
+            ? resolveFlow()
+            : rejectFlow(new Error("Request failed with status code 400"));
+      });
+      flow.catch(() => {});
+      const pending = new Map<(error: Error) => void, string>();
+      const sent: string[] = [];
+      const cutByClose: string[] = [];
+      const reply = (name: string) => {
+        const slot = sent.push(name) - 1;
+        return new Promise<unknown>((resolveReply, rejectReply) => {
+          const fail = (error: Error) => {
+            if (!pending.delete(fail)) return;
+            rejectReply(error);
+          };
+          pending.set(fail, name);
+          // Reply n goes out n lines after the first.
+          const after = () =>
+            slot === 0
+              ? Promise.resolve()
+              : new Promise((resolveTick) => setTimeout(resolveTick, 0));
+          flow.then(
+            () =>
+              after().then(() => {
+                if (pending.delete(fail)) resolveReply({ account: {} });
+              }),
+            (error: Error) => after().then(() => fail(error)),
+          );
+        });
+      };
+      const cli = {
+        claudeAuthenticate: async () => ({
+          manualUrl: "https://claude.com/oauth/?state=state",
+        }),
+        claudeOAuthWaitForCompletion: () => reply("wait"),
+        claudeOAuthCallback: (_code: string, _state: string) => {
+          const answer = reply("callback");
+          settleFlow();
+          return answer;
+        },
+        accountInfo: async () => ({ tokenSource: "none" }),
+        close: () => {
+          for (const [fail, name] of [...pending]) {
+            cutByClose.push(name);
+            fail(new Error("Query closed before response received"));
+          }
+        },
+      };
+      const emitted: Array<
+        Array<{ provider: string; loginStatus: string; scope: string }>
+      > = [];
+      let clients = 0;
+      const createClaude = (env: Record<string, string | undefined>) => {
+        clients++;
+        if (clients === 1) return new ClaudeAccountClient(env, () => cli);
+        return {
+          start: async () => {},
+          read: async () => ({
+            connected: true,
+            label: "person@example.com",
+          }),
+          close: async () => {},
+        };
+      };
+      const manager = new ProviderAccountManager(
+        (_userId, accounts) => emitted.push(accounts),
+        disconnectedAccountClient as never,
+        undefined,
+        undefined,
+        () => ({ CLAUDE_CONFIG_DIR: "/tmp/user-a-claude" }),
+        createClaude as never,
+        () => ({}),
+        () => ({}),
+        () => ({ CLAUDE_CONFIG_DIR: "/tmp/user-a-claude" }),
+        () => [{ id: "user-a" }],
+      );
+      await manager.startLogin("user-a", "claude", "personal", "browser");
+      const submitted = await manager.submitCode(
+        "user-a",
+        "claude",
+        "personal",
+        "code#state",
+      );
+      const loginStatus = () =>
+        emitted
+          .at(-1)
+          ?.find(
+            (account) =>
+              account.provider === "claude" && account.scope === "personal",
+          )?.loginStatus;
+      for (
+        let tick = 0;
+        tick < 50 && loginStatus() === "waiting_external";
+        tick++
+      )
+        await new Promise((resolveTick) => setTimeout(resolveTick, 0));
+      expect(sent).toEqual(["wait", "callback"]);
+      if (accepted) {
+        // The race this guards: the close cut the callback reply off.
+        expect(cutByClose).toEqual(["callback"]);
+        expect(submitted).toEqual({ ok: true, value: { submitted: true } });
+        expect(loginStatus()).toBe("succeeded");
+      } else {
+        expect(submitted).toMatchObject({ ok: false, status: 502 });
+        expect(loginStatus()).toBe("interrupted");
+      }
+    });
+  }
 
   it("activates an auto-provisioned personal home only after verified connection", async () => {
     let complete!: () => void;
