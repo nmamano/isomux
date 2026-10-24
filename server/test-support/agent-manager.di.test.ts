@@ -1267,7 +1267,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
 
   // Real subprocess credential scrub: run with bun run test:opencode.
   it.skipIf(!LIVE)(
-    "keeps provider credentials out of auth guidance and agent logs, then recovers after a managed key change and /clear",
+    "keeps provider credentials out of the provider refusal and agent logs, then recovers after a managed key change and /clear",
     async () => {
       const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
       const newKey = `recovered-${apiKey}`;
@@ -1403,6 +1403,14 @@ describe("AgentManager DI (temp-state isolated)", () => {
         OPENAI_API_KEY: apiKey,
         OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
       };
+      // A server started with OPENCODE_API_KEY never asks for it, so the
+      // server here starts without it, whatever the host env holds.
+      const savedOpenCodeKey = process.env.OPENCODE_API_KEY;
+      delete process.env.OPENCODE_API_KEY;
+      reaper.add(async () => {
+        if (savedOpenCodeKey !== undefined)
+          process.env.OPENCODE_API_KEY = savedOpenCodeKey;
+      });
       writeManagedUserEnv(userId, env);
       const environmentKey = environmentSourceKeyForUserId(userId);
       const profile = openCodeProfilePaths(environmentKey);
@@ -1441,9 +1449,24 @@ describe("AgentManager DI (temp-state isolated)", () => {
           );
         }
       };
+      // The deadline detects a missing event; success ends on the event.
+      const untilEvent = async (event: Promise<void>, missing: string) => {
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            event,
+            new Promise<never>((_resolve, reject) => {
+              deadline = setTimeout(() => reject(new Error(missing)), 5000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(deadline);
+        }
+      };
       let lease: Awaited<ReturnType<typeof supervisor.acquire>> | undefined;
       const startedPids = new Set<number>();
       const topicCalls: Promise<string>[] = [];
+      let topicCallStarted = Promise.withResolvers<void>();
       let stopAgent: (() => Promise<unknown>) | undefined;
       reaper.track(supervisor);
       const teardown = reaper.add(async () => {
@@ -1466,6 +1489,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
         // below asks for, and an agent holds one only during a turn.
         lease.settle();
         startedPids.add(lease.pid);
+        expect(
+          lease.hasLaunchVariable("OPENCODE_API_KEY"),
+          "the server starts without OPENCODE_API_KEY",
+        ).toBe(false);
         const firstPid = lease.pid;
         const productionBackend = createOpenCodeBackend({
           safeErrorSink: (error) => safeErrors.push({ ...error }),
@@ -1475,14 +1502,16 @@ describe("AgentManager DI (temp-state isolated)", () => {
           oneShotPrompt(...args) {
             const call = productionBackend.oneShotPrompt(...args);
             topicCalls.push(call);
+            topicCallStarted.resolve();
             return call;
           },
         };
-        const isGuidance = (entry: { kind: string; content: string }) =>
-          entry.kind === "system" &&
-          entry.content.includes("OPENCODE_API_KEY") &&
-          entry.content.includes("/clear");
-        const guidanceLogged = Promise.withResolvers<void>();
+        // An openai model's refusal shows the provider's own words, which
+        // the mock sends as "invalid credential".
+        const isRefusal = (entry: { kind: string; content: string }) =>
+          entry.kind === "error" &&
+          entry.content.includes("invalid credential");
+        const refusalLogged = Promise.withResolvers<void>();
         let settled = Promise.withResolvers<void>();
         const expectedAgent = { id: "" };
         const mgr = createAgentManager({
@@ -1490,9 +1519,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
             if (
               event.type === "log_entry" &&
               event.entry.agentId === expectedAgent.id &&
-              isGuidance(event.entry)
+              isRefusal(event.entry)
             ) {
-              guidanceLogged.resolve();
+              refusalLogged.resolve();
             }
             if (
               event.type === "agent_updated" &&
@@ -1533,40 +1562,29 @@ describe("AgentManager DI (temp-state isolated)", () => {
           text: "fail before login",
         });
         await settled.promise;
-        // Login guidance is asynchronous and may follow the settled state.
-        // This deadline detects a missing event; success ends on the event itself.
-        let guidanceDeadline: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await Promise.race([
-            guidanceLogged.promise,
-            new Promise<never>((_resolve, reject) => {
-              guidanceDeadline = setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      "Auth guidance never arrived after the auth-failed turn settled",
-                    ),
-                  ),
-                5000,
-              );
-            }),
-          ]);
-        } finally {
-          clearTimeout(guidanceDeadline);
-        }
+        // The refusal entry may follow the settled state.
+        await untilEvent(
+          refusalLogged.promise,
+          "The provider refusal never arrived after the refused turn settled",
+        );
         console.info(
           "OpenCode DI timing",
           JSON.stringify({
-            phase: "guidance reply",
+            phase: "refusal reply",
             ms: Math.round(performance.now() - replyStarted),
             load: loadavg(),
           }),
         );
         const logs = mgr.getAgentLogs(info!.id);
         expect(
-          logs.some(isGuidance),
-          "system guidance names the key and /clear",
+          logs.some(isRefusal),
+          "an error entry shows the provider's refusal",
         ).toBe(true);
+        // OPENCODE_API_KEY signs in to OpenCode's own providers only.
+        expect(
+          logs.some((entry) => entry.content.includes("OPENCODE_API_KEY")),
+          "an openai refusal does not ask for OPENCODE_API_KEY",
+        ).toBe(false);
         expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
           false,
         );
@@ -1603,10 +1621,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
           ),
           "the original key was rejected before recovery",
         ).toBe(true);
-        expect(mgr.getAgent(info!.id)?.state).toBe("waiting_for_response");
+        expect(mgr.getAgent(info!.id)?.state).toBe("error");
         expect(
           JSON.stringify(logs).includes(apiKey),
-          "guidance logs exclude the provider key",
+          "refusal logs exclude the provider key",
         ).toBe(false);
 
         writeManagedUserEnv(userId, { ...env, OPENAI_API_KEY: newKey });
@@ -1658,6 +1676,17 @@ describe("AgentManager DI (temp-state isolated)", () => {
         expect(lease.pid).not.toBe(firstPid);
         expect(processIsRunning(firstPid)).toBe(false);
         expect(supervisor.profileDir).toBe(profile.profileDir);
+        // The failed initial topic holds automatic topics back, and /clear
+        // keeps that wait. The manual refresh skips it, so the one-shot path
+        // runs against the new key here.
+        topicCallStarted = Promise.withResolvers<void>();
+        mgr.resetTopic(info!.id);
+        await measure("recovery topic start", () =>
+          untilEvent(
+            topicCallStarted.promise,
+            "The manual topic refresh after recovery never called the backend",
+          ),
+        );
         const recoveryTopics = await Promise.allSettled(
           topicCalls.slice(initialTopicCount),
         );
