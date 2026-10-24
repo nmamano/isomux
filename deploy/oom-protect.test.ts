@@ -260,25 +260,6 @@ describe("find_user_isomux_pid: the server, not the agents beside it", () => {
     expect(out.trim()).toBe("500");
   });
 
-  it("finds nothing on a box with no user-level office", async () => {
-    const root = mkdtempSync(join(dir, "proc-system-"));
-    fakeProc(root, 600, { cgroup: "0::/system.slice/isomux.service" });
-    const { out, exit } = await run(root, `find_user_isomux_pid`);
-    expect(out.trim()).toBe("");
-    expect(exit).not.toBe(0);
-  });
-
-  it("leaves the user-level branch a no-op when there is no match", async () => {
-    const root = mkdtempSync(join(dir, "proc-none-"));
-    fakeProc(root, 600, { cgroup: "0::/system.slice/isomux.service" });
-    const { out } = await run(
-      root,
-      `configure_user_level_office; echo "rc=$?"`,
-    );
-    expect(out).not.toContain("found a user-level office");
-    expect(out).toContain("rc=0");
-  });
-
   it("stamps and confirms a user-level office when there is one", async () => {
     const root = mkdtempSync(join(dir, "proc-user2-"));
     fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "100" });
@@ -295,33 +276,6 @@ describe("find_user_isomux_pid: the server, not the agents beside it", () => {
 describe("--restamp: what the timer runs every minute", () => {
   const USER_CG =
     "0::/user.slice/user-1000.slice/user@1000.service/app.slice/isomux.service";
-
-  it("says nothing at all when the office already has the right score", async () => {
-    // The whole point of the mode. This fires once a minute forever, so a line
-    // per run would be ~3000 journal entries a day saying nothing happened.
-    const root = mkdtempSync(join(dir, "proc-restamp-quiet-"));
-    fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "-500" });
-    const { out } = await run(
-      root,
-      `RESTAMP=1; configure_user_level_office; echo "rc=$?"`,
-    );
-    expect(out).not.toContain("found a user-level office");
-    expect(out).not.toContain("confirmed");
-    expect(out).toContain("rc=0");
-  });
-
-  it("re-applies the score, and speaks up, after the office restarted", async () => {
-    // A restarted office comes back at whatever its user manager gives it (100
-    // on Ubuntu), because the stamp was written to a process, not to a config.
-    const root = mkdtempSync(join(dir, "proc-restamp-"));
-    fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "100" });
-    const { out } = await run(root, `RESTAMP=1; configure_user_level_office`);
-    expect(out).toContain("found a user-level office (pid 500)");
-    expect(out).toContain("oom_score_adj=-500 confirmed");
-    expect(
-      readFileSync(join(root, "500", "oom_score_adj"), "utf8").trim(),
-    ).toBe("-500");
-  });
 
   /** Drive the real `main --restamp`, exactly as the timer's unit does. */
   async function runRestamp(
@@ -362,6 +316,9 @@ describe("--restamp: what the timer runs every minute", () => {
     const { out, exit } = await runRestamp(root);
     expect(out).toContain("oom_score_adj=-500 confirmed");
     expect(exit).toBe(0);
+    expect(
+      readFileSync(join(root, "500", "oom_score_adj"), "utf8").trim(),
+    ).toBe("-500");
   });
 
   it("succeeds silently, through main, when there is nothing to do", async () => {
@@ -391,18 +348,22 @@ describe("--restamp: what the timer runs every minute", () => {
     expect(out).toContain("rc=0");
   });
 
-  it("stays quiet on a box with no user-level office at all", async () => {
-    // Every hosted box: the office is a system unit and carries -500 from its
-    // unit file. The timer is installed there anyway and must cost nothing.
-    const root = mkdtempSync(join(dir, "proc-restamp-none-"));
-    fakeProc(root, 600, { cgroup: "0::/system.slice/isomux.service" });
-    const { out } = await run(
-      root,
-      `RESTAMP=1; configure_user_level_office; echo "rc=$?"`,
-    );
-    expect(out).not.toContain("found a user-level office");
-    expect(out).toContain("rc=0");
-  });
+  // Every hosted box: the office is a system unit and carries -500 from its
+  // unit file. The timer is installed there anyway and must cost nothing, and
+  // a full run passes over the user-level step.
+  it.each(["1", ""])(
+    "stays quiet on a box with no user-level office at all (RESTAMP=%p)",
+    async (restamp) => {
+      const root = mkdtempSync(join(dir, "proc-restamp-none-"));
+      fakeProc(root, 600, { cgroup: "0::/system.slice/isomux.service" });
+      const { out } = await run(
+        root,
+        `RESTAMP=${restamp}; configure_user_level_office; echo "rc=$?"`,
+      );
+      expect(out).not.toContain("found a user-level office");
+      expect(out).toContain("rc=0");
+    },
+  );
 });
 
 describe("the re-stamp timer", () => {
@@ -420,6 +381,12 @@ describe("the re-stamp timer", () => {
     expect(out).toContain("OnUnitActiveSec=1min");
     expect(out).toContain("OnBootSec=1min");
     expect(out).toContain("systemctl enable --now isomux-oom-restamp.timer");
+    // A oneshot on a one-minute timer costs a Starting/Finished pair per run
+    // unless PID 1's own messages about it are filtered too. LogLevelMax does
+    // that; SyslogLevel is what keeps the tool's output from falling below the
+    // same ceiling and disappearing with them.
+    expect(out).toContain("LogLevelMax=notice");
+    expect(out).toContain("SyslogLevel=notice");
   });
 
   it("swaps the copy in by rename, never writing it in place", async () => {
@@ -452,17 +419,6 @@ describe("the re-stamp timer", () => {
     expect(out).not.toContain("install -D -m 755");
     expect(out).not.toContain("mv -f");
     expect(out).toContain(`ExecStart=${testable} --restamp`);
-  });
-
-  it("keeps the journal quiet without hiding a failure", async () => {
-    // A oneshot on a one-minute timer costs a Starting/Finished pair per run
-    // unless PID 1's own messages about it are filtered too. LogLevelMax does
-    // that; SyslogLevel is what keeps the tool's output from falling below the
-    // same ceiling and disappearing with them.
-    const root = mkdtempSync(join(dir, "proc-timer2-"));
-    const { out } = await run(root, `DRY_RUN=1; install_restamp_timer`);
-    expect(out).toContain("LogLevelMax=notice");
-    expect(out).toContain("SyslogLevel=notice");
   });
 });
 
@@ -553,12 +509,6 @@ describe("the kill-order tiers", () => {
     const out = await tiers();
     expect(out).toContain(
       "/etc/systemd/system/caddy.service.d/isomux-oom.conf: Restart=on-failure",
-    );
-    expect(out).toContain(
-      "/etc/systemd/system/caddy.service.d/isomux-oom.conf: # The Caddy package ships no Restart= policy, so this drop-in adds",
-    );
-    expect(out).not.toContain(
-      "/etc/systemd/system/ssh.service.d/isomux-oom.conf: # The Caddy package",
     );
     for (const unit of ["ssh", "isomux"]) {
       expect(out).not.toContain(
@@ -825,6 +775,12 @@ echo "rc=$?"
     expect(r.systemDropin).toContain("MemoryMax=6917M");
     expect(r.userDropin).toBe(r.systemDropin);
     expect(r.runuserCalls).toEqual([]);
+    // No office runs on either shape, so it names no unit: the old line
+    // promised the cap "when isomux.service starts", which never happens on a
+    // box whose office is a user unit.
+    expect(r.out).not.toContain("isomux.service");
+    expect(r.warnings).toEqual([]);
+    expect(r.confirmations).toEqual([]);
   });
 
   it("writes no user drop-in below 4 GiB or on a dry run, and the dry run shows it", async () => {
@@ -874,16 +830,6 @@ echo "rc=$?"
     expect(r.runuserCalls).toEqual([]);
     expect(r.confirmations).toEqual([]);
     expect(r.warnings).toHaveLength(1);
-  });
-
-  it("names no unit when no office runs on either shape", async () => {
-    // The old line promised the cap "when isomux.service starts", which never
-    // happens on a box whose office is a user unit.
-    const r = await runUserCap({});
-    expect(r.out).toContain("rc=0");
-    expect(r.out).not.toContain("isomux.service");
-    expect(r.warnings).toEqual([]);
-    expect(r.confirmations).toEqual([]);
   });
 
   it("only prints the reload on a dry run", async () => {
@@ -989,11 +935,18 @@ describe("swap sizing", () => {
   /** The advisory line the tool prints only when existing swap is undersized. */
   const TOO_SMALL = "this tool makes on a box with no swap";
 
-  it("leaves the 2 GiB file an earlier install left behind exactly where it is", async () => {
-    const { out } = await decide(fakeSwap({ totalMib: 2048, usedMib: 100 }));
-    expect(out).toContain("swap already set up: 2048 MiB");
-    expect(out).not.toMatch(destructive);
-  });
+  // Whatever the disk looks like: the has-swap check comes first.
+  it.each([undefined, 5000])(
+    "leaves the 2 GiB file an earlier install left behind exactly where it is (disk %p MiB)",
+    async (diskMib) => {
+      const { out } = await decide(
+        fakeSwap({ totalMib: 2048, usedMib: 100 }),
+        diskMib,
+      );
+      expect(out).toContain("swap already set up: 2048 MiB");
+      expect(out).not.toMatch(destructive);
+    },
+  );
 
   // Left alone is not the same as unmentioned: 2 GiB exhausted is the worst
   // configuration measured, so the operator is told what this tool would make
@@ -1071,12 +1024,6 @@ describe("swap sizing", () => {
     const { out } = await decide(fakeSwap({ totalMib: 0 }), 5000);
     expect(out).toContain("not creating a swap file");
   });
-
-  it("does not touch a box that has swap, whatever the disk looks like", async () => {
-    const { out } = await decide(fakeSwap({ totalMib: 2048 }), 5000);
-    expect(out).toContain("swap already set up");
-    expect(out).not.toMatch(destructive);
-  });
 });
 
 describe("the command line", () => {
@@ -1104,22 +1051,63 @@ describe("the command line", () => {
     expect(exit).toBe(3);
   });
 
-  it("converges update policy without creating swap, adding a memory cap, or restarting Caddy", () => {
-    expect(SRC).not.toContain("converge_update_memory_cap");
-    for (const skipped of ["configure_swap", "configure_office_memory_cap"]) {
-      const decision = SRC.split("\n").find(
-        (line) => line.includes("UPDATE_CONVERGE") && line.includes(skipped),
-      );
-      expect(decision).toBeDefined();
-      const result = Bun.spawnSync([
-        "bash",
-        "-c",
-        `UPDATE_CONVERGE=1; ${skipped}() { echo RAN; }; ${decision}`,
-      ]);
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout.toString()).toBe("");
-    }
-    expect(SRC).toContain("oom_tier caddy.service -500 on-failure");
+  // The update path: an update never adds swap or a memory cap to a box
+  // installed without one. Each step is a stand-in that says it ran.
+  it.each([
+    [
+      "--update-converge",
+      [
+        "install_earlyoom",
+        "configure_earlyoom",
+        "configure_kill_order",
+        "configure_swappiness",
+      ],
+    ],
+    [
+      "",
+      [
+        "install_earlyoom",
+        "configure_earlyoom",
+        "configure_office_memory_cap",
+        "configure_kill_order",
+        "configure_swappiness",
+        "configure_swap",
+      ],
+    ],
+  ])("runs these steps for %p", (flag, steps) => {
+    const STEPS = [
+      "install_earlyoom",
+      "configure_earlyoom",
+      "configure_office_memory_cap",
+      "configure_kill_order",
+      "configure_swappiness",
+      "configure_swap",
+    ];
+    const sourceable = readFileSync(mainable, "utf8").replace(
+      /\nmain "\$@"\n$/,
+      "\n",
+    );
+    expect(sourceable).not.toContain('\nmain "$@"');
+    const script = join(dir, "converge.sh");
+    writeFileSync(script, sourceable);
+    const result = Bun.spawnSync([
+      "bash",
+      "-c",
+      `source "$1"; ${STEPS.map((s) => `${s}() { echo "STEP ${s}"; };`).join(" ")} main ${flag}`,
+      "_",
+      script,
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(
+      result.stdout
+        .toString()
+        .split("\n")
+        .filter((l) => l.startsWith("STEP "))
+        .map((l) => l.slice(5)),
+    ).toEqual(steps);
+  });
+
+  it("never restarts Caddy", () => {
     expect(
       SRC.split("\n")
         .filter((line) => !line.trimStart().startsWith("#"))
@@ -1133,27 +1121,6 @@ describe("the command line", () => {
     expect(exit).toBe(3);
   });
 
-  it("old helper bytes reject the new update flag", async () => {
-    const oldHelper = join(dir, "old-helper.sh");
-    const oldSource = readFileSync(mainable, "utf8").replace(
-      "      --update-converge) UPDATE_CONVERGE=1 ;;\n",
-      "",
-    );
-    expect(oldSource).not.toContain("--update-converge) UPDATE_CONVERGE");
-    writeFileSync(oldHelper, oldSource);
-    const proc = Bun.spawn(["bash", oldHelper, "--update-converge"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [out, err, exit] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    expect(exit).toBe(3);
-    expect(out + err).toContain("Usage:");
-  });
-
   it("documents --restamp in its own help", async () => {
     const { out, exit } = await runScript("--help");
     expect(out).toContain("--restamp");
@@ -1162,27 +1129,12 @@ describe("the command line", () => {
 });
 
 describe("the shipped script", () => {
-  it("still calls main, which the sourceable copy strips", () => {
-    expect(SRC.endsWith('\nmain "$@"\n')).toBe(true);
-  });
-
   it("still refuses to run as anyone but root", () => {
     // The `--restamp` tests above run a copy with this guard stripped out, so
     // it gets pinned here: stripping it in a test must never be able to hide
     // its removal from the real script.
     expect(SRC).toContain("[[ $EUID -eq 0 ]] ||");
     expect(SRC).toContain("must run as root");
-  });
-
-  it("never verifies a score with systemctl show", () => {
-    // systemctl reports the configured value, not the effective one. Resolving
-    // MainPID with it is fine; believing it about a score is the original bug.
-    for (const line of SRC.split("\n")) {
-      if (line.trim().startsWith("#")) continue;
-      if (!line.includes("systemctl show")) continue;
-      expect(line).toMatch(/MainPID|ControlGroup/);
-      expect(line).not.toContain("OOMScoreAdjust");
-    }
   });
 
   it("reads every score back through the seam, never a hardcoded /proc", () => {

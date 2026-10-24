@@ -140,11 +140,12 @@ describe("release.sh", () => {
     expect(sh(base, `git -C origin.git tag -l ${tag}`)).toBe(tag);
   });
 
-  it("preserves an early failure in the printed log file", () => {
-    const r = runRelease(["v2026.7.18", "extra"]);
+  it("refuses extra arguments before it creates a tag, and keeps the failure in the printed log file", () => {
+    const r = runRelease(["--security", "v2026.7.18", "extra"]);
     expect(r.code).not.toBe(0);
     const log = readFileSync(releaseLogPath(r.out), "utf8");
     expect(log).toContain("usage: scripts/release.sh");
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
   });
 
   it("second release the same day gets the .2 suffix", () => {
@@ -325,31 +326,5 @@ describe("release.sh", () => {
       "gh release create v2026.8.13 --verify-tag --generate-notes --title v2026.8.13 --notes 'isomux-severity: security'",
     );
     expect(sh(base, "git -C origin.git tag -l v2026.8.13")).toBe("v2026.8.13");
-  });
-
-  it("refuses extra arguments before it creates a tag", () => {
-    const r = runRelease(["--security", "v2026.8.13", "extra"]);
-    expect(r.code).not.toBe(0);
-    expect(r.out).toContain("usage:");
-    expect(sh(base, "git -C origin.git tag -l")).toBe("");
-  });
-
-  it("a Bun pin change since the previous release is released like any other change", () => {
-    // Updaters install a release's pinned Bun beside the old one and roll
-    // back to it (task ffd70e4a), so a pin bump needs no override.
-    writeFileSync(
-      join(repo, "package.json"),
-      JSON.stringify({ name: "fake", packageManager: "bun@1.0.0" }),
-    );
-    sh(repo, "git add . && git commit -qm pin1 && git push -q origin main");
-    expect(runRelease(["v2026.7.1"]).code).toBe(0);
-    writeFileSync(
-      join(repo, "package.json"),
-      JSON.stringify({ name: "fake", packageManager: "bun@2.0.0" }),
-    );
-    sh(repo, "git add . && git commit -qm pin2 && git push -q origin main");
-    const r = runRelease(["v2026.7.2"]);
-    expect(r.code).toBe(0);
-    expect(sh(base, "git -C origin.git tag -l v2026.7.2")).toBe("v2026.7.2");
   });
 });

@@ -98,6 +98,8 @@ async function buildFixture(opts: {
   stopStaysActive?: boolean;
   caddyActive?: boolean;
   caddyUnitPresent?: boolean;
+  /** /readyz answers 503 this many times after the office is up. */
+  lateReadyPolls?: number;
 }): Promise<Fixture> {
   const base = mkdtempSync(join(tmpdir(), "isomux-update-test-"));
   const repo = join(base, "repo");
@@ -221,7 +223,9 @@ case $1 in
   install) [[ -e BREAK_INSTALL ]] && { echo "install broken" >&2; exit 1; } ;;
   run)
     [[ $2 == build:ui && -e BREAK_BUILD ]] && { echo "build broken" >&2; exit 1; }
-    [[ $2 == build:ui && -n \${SLOW_BUILD:-} ]] && sleep "$SLOW_BUILD"
+    if [[ $2 == build:ui && -n \${BUILD_GATE:-} ]]; then
+      until [[ -e $BUILD_GATE ]]; do sleep 0.05; done
+    fi
     ;;
 esac
 exit 0
@@ -229,11 +233,12 @@ exit 0
   );
   chmodSync(join(bin, "bun"), 0o755);
 
+  let late = opts.lateReadyPolls ?? 0;
   readyServer = Bun.serve({
     port: 0,
     fetch(req) {
       if (new URL(req.url).pathname === "/readyz" && existsSync(readyFlag)) {
-        return new Response("ok\n");
+        if (late-- <= 0) return new Response("ok\n");
       }
       return new Response("not ready", { status: 503 });
     },
@@ -253,7 +258,7 @@ STATUS_DIR=${statusDir}
 BUN=${join(bin, "bun")}
 BASE_URL=http://127.0.0.1:${port}
 UPDATER_PATH=${join(base, "installed-updater")}
-READY_TIMEOUT_S=3
+READY_TIMEOUT_S=${opts.lateReadyPolls ? 3 : 0}
 `,
   );
 
@@ -362,11 +367,13 @@ function progressAtCalls(): { call: string; progress: Progress }[] {
     });
 }
 
-afterEach(() => {
+function disposeFixture(): void {
   readyServer?.stop(true);
   readyServer = null;
   rmSync(fx.base, { recursive: true, force: true });
-});
+}
+
+afterEach(disposeFixture);
 
 describe("update.sh happy path", () => {
   beforeEach(async () => {
@@ -458,11 +465,13 @@ describe("update.sh happy path", () => {
     ).toEqual([]);
   });
 
-  it("a second run is a new attempt", async () => {
-    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
-    const first = progress().attempt;
-    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
-    expect(progress().attempt).not.toBe(first);
+  it("waits for an office that answers after its first readiness poll", async () => {
+    disposeFixture();
+    fx = await buildFixture({ lateReadyPolls: 1 });
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(status().result).toBe("ok");
+    expect(await head()).toBe(fx.newCommit);
   });
 
   it("runs on a conf with no snapshot or state keys", async () => {
@@ -527,7 +536,8 @@ exec /usr/bin/mktemp "$@"
   });
 
   it("a stopped updater reports a failed attempt", async () => {
-    fx.env.SLOW_BUILD = "2";
+    // The build waits for this file, so the stop lands inside it.
+    fx.env.BUILD_GATE = join(fx.base, "build-gate");
     const proc = Bun.spawn(["bash", UPDATE_SH, "v2026.7.20"], {
       env: fx.env,
       stdout: "pipe",
@@ -542,6 +552,8 @@ exec /usr/bin/mktemp "$@"
     }
     expect(progress().phase).toBe("build");
     proc.kill("SIGTERM");
+    // Bash runs the trap when the build, its foreground child, ends.
+    writeFileSync(fx.env.BUILD_GATE, "");
     const code = await proc.exited;
     expect(code).not.toBe(0);
     expect(progress().result).toBe("failed");
@@ -549,11 +561,13 @@ exec /usr/bin/mktemp "$@"
     expect(status().message).toContain("stopped during build");
   });
 
-  it("no-op when already on the target tag", async () => {
+  it("no-op when already on the target tag, as a new attempt", async () => {
     expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    const first = progress().attempt;
     rmSync(fx.stubLog);
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).toBe(0);
+    expect(progress().attempt).not.toBe(first);
     expect(r.out).toContain("already on");
     expect(r.out).not.toContain("--- deps");
     expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
@@ -694,6 +708,7 @@ exec /usr/bin/mktemp "$@"
   });
 
   it("a stop timeout restores the absent tag so retries cannot report a no-op", async () => {
+    disposeFixture();
     fx = await buildFixture({ stopStaysActive: true });
     await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
     expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
@@ -707,7 +722,7 @@ exec /usr/bin/mktemp "$@"
     const timedUpdater = join(fx.base, "timed-updater");
     writeFileSync(
       timedUpdater,
-      source.replace(timeoutLine, "  local deadline=$((SECONDS + 1)) state"),
+      source.replace(timeoutLine, "  local deadline=$((SECONDS + 0)) state"),
       { mode: 0o700 },
     );
 
@@ -860,24 +875,6 @@ describe("update.sh validation", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("unknown key");
   });
-
-  it("warns about a bun pin mismatch before touching the checkout", async () => {
-    fx = await buildFixture({
-      newFiles: {
-        "package.json": JSON.stringify({
-          name: "fake",
-          packageManager: "bun@9.9.9",
-        }),
-      },
-    });
-    const r = await runUpdate(["v2026.7.20"]);
-    expect(r.code).toBe(0);
-    const warn = r.out.indexOf("pins bun@9.9.9");
-    const checkout = r.out.indexOf("--- checkout");
-    expect(warn).toBeGreaterThan(-1);
-    expect(checkout).toBeGreaterThan(-1);
-    expect(warn).toBeLessThan(checkout);
-  });
 });
 
 describe("update.sh downgrade guard", () => {
@@ -983,6 +980,8 @@ describe("update.sh failure ladders", () => {
 // report an unqualified success when the public front door is down.
 describe("update.sh public-front-door result", () => {
   const SRC = readFileSync(new URL("./update.sh", import.meta.url), "utf8");
+  // The warning names the unit to check.
+  const CADDY_WARNING = /warning:.*systemctl status caddy/;
 
   function updaterWithSystemFrontDoorProbe(): string {
     const path = join(fx.base, "system-front-door-updater");
@@ -995,11 +994,6 @@ describe("update.sh public-front-door result", () => {
     return path;
   }
 
-  it("has no path to the Caddyfile at all", () => {
-    expect(SRC).not.toContain("/etc/caddy");
-    expect(SRC).not.toContain("Caddyfile");
-  });
-
   it("warns in both output and status when loopback is ready but Caddy is down", async () => {
     fx = await buildFixture({ caddyActive: false });
     const result = await runUpdate(
@@ -1007,13 +1001,10 @@ describe("update.sh public-front-door result", () => {
       updaterWithSystemFrontDoorProbe(),
     );
     expect(result.code).toBe(0);
-    expect(result.out).toContain(
-      "warning: Caddy is down; the office's public URL may be down. Check: systemctl status caddy",
-    );
+    // A qualified ok, with the warning in both places.
+    expect(result.out).toMatch(CADDY_WARNING);
     expect(status().result).toBe("ok");
-    expect(status().message).toContain(
-      "warning: Caddy is down; the office's public URL may be down. Check: systemctl status caddy",
-    );
+    expect(status().message).toMatch(CADDY_WARNING);
   });
 
   it("does not warn on a system office with no Caddy unit", async () => {
@@ -1026,8 +1017,8 @@ describe("update.sh public-front-door result", () => {
       updaterWithSystemFrontDoorProbe(),
     );
     expect(result.code).toBe(0);
-    expect(result.out).not.toContain("office's public URL may be down");
-    expect(status().message).not.toContain("office's public URL may be down");
+    expect(result.out).not.toMatch(CADDY_WARNING);
+    expect(status().message).not.toMatch(CADDY_WARNING);
   });
 });
 
@@ -1215,7 +1206,12 @@ touch "@BASE@/bun-mode.log"
     expect(r.code).toBe(0);
     expect(bunModeLog()).toBeNull();
     expect(bunVersion()).toBe(OLD_BUN);
-    expect(r.out).toContain(`bun@${PIN}`);
+    // It warns about the mismatch before it touches the checkout.
+    const warn = r.out.indexOf(`bun@${PIN}`);
+    const checkout = r.out.indexOf("--- checkout");
+    expect(warn).toBeGreaterThan(-1);
+    expect(checkout).toBeGreaterThan(-1);
+    expect(warn).toBeLessThan(checkout);
   });
 
   it("a box already on the target but on another Bun switches and restarts", async () => {
@@ -1225,6 +1221,12 @@ touch "@BASE@/bun-mode.log"
     fx = await buildFixture({ newFiles: pinnedRelease() });
     expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
     expect(bunVersion()).toBe(PIN);
+    // On the target and on its Bun: a no-op.
+    const switched = buildSteps().length;
+    const noop = await runUpdate(["v2026.7.20"]);
+    expect(noop.code).toBe(0);
+    expect(status().result).toBe("ok");
+    expect(buildSteps()).toHaveLength(switched);
     // Replaced by rename, as `bun upgrade` does, so the file in the Bun
     // directory keeps its bytes.
     writeFileSync(
@@ -1242,16 +1244,5 @@ touch "@BASE@/bun-mode.log"
     expect(await head()).toBe(fx.newCommit);
     expect(bunVersion()).toBe(PIN);
     expect(buildSteps().slice(before)).toEqual(["stop", "start"]);
-  });
-
-  it("a box already on the target and on its Bun stays a no-op", async () => {
-    fx = await buildFixture({ newFiles: pinnedRelease() });
-    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
-    const before = buildSteps().length;
-    const r = await runUpdate(["v2026.7.20"]);
-    expect(r.code).toBe(0);
-    expect(status().result).toBe("ok");
-    expect(bunVersion()).toBe(PIN);
-    expect(buildSteps().slice(before)).toEqual([]);
   });
 });

@@ -45,7 +45,7 @@ export function preClaimProbe(kind: ClaimMethod["kind"]): string {
 }
 
 // The setup key in a printed setup link's fragment.
-export function setupLinkKey(url: string): string {
+function setupLinkKey(url: string): string {
   const key = new URLSearchParams(new URL(url).hash.slice(1)).get("key");
   if (!key) throw new Error("the setup link carries no key");
   return key;

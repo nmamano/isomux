@@ -46,7 +46,7 @@ type ServerMessage = { type: string } & Record<string, unknown>;
 
 const SIGNED_OUT_ENGINES: Engine[] = ["claude", "codex"];
 
-export class StepFailure extends Error {
+class StepFailure extends Error {
   constructor(
     readonly step: string,
     message: string,

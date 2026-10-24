@@ -458,7 +458,8 @@ remote_main() {
       nice -n 10 timeout -k 30s "$4" bun run ci >"$2/ci.log" 2>&1
     ' _ "$pg_bin" "$run" "$PG_PORT" "$RUN_LIMIT" 9>&-) &
   local ci_pid=$!
-  tail -n +1 -f --pid="$ci_pid" "$run/ci.log" 2>/dev/null
+  # -s: tail checks the pid at this interval (1 s by default).
+  tail -s 0.2 -n +1 -f --pid="$ci_pid" "$run/ci.log" 2>/dev/null
   wait "$ci_pid"
   local ci_status=$?
   if [[ ! -e $run/started ]]; then

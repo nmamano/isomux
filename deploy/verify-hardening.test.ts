@@ -17,6 +17,7 @@ function fixture(options: {
   ufw?: string;
   sshd?: string;
   hardenExit?: number;
+  mode?: string;
 }) {
   const root = mkdtempSync(join(tmpdir(), "isomux-verify-hardening-"));
   roots.push(root);
@@ -57,7 +58,7 @@ exit ${options.hardenExit ?? 0}
 `,
   );
   chmodSync(harden, 0o755);
-  const result = Bun.spawnSync(["bash", SCRIPT, "--check"], {
+  const result = Bun.spawnSync(["bash", SCRIPT, options.mode ?? "--check"], {
     env: {
       ...process.env,
       PATH: `${bin}:/usr/bin:/bin`,
@@ -144,4 +145,33 @@ describe("isomux-verify-hardening", () => {
     expect(result.code).toBe(1);
     expect(result.calls).toContain("harden --check");
   });
+
+  it("reports an SSH boundary it could not tell as not known", () => {
+    const result = fixture({
+      ufw: GOOD_UFW,
+      sshd: "port 2222\n",
+      hardenExit: 2,
+    });
+    expect(result.code).toBe(2);
+  });
+
+  // The installer runs this mode at its firewall step, before the service
+  // account the SSH check needs exists.
+  it.each([
+    [GOOD_UFW, 0],
+    [GOOD_UFW.replace("Status: active", "Status: inactive"), 1],
+  ])(
+    "checks only the firewall with --check-firewall (exit %#)",
+    (ufw, code) => {
+      const result = fixture({
+        ufw,
+        sshd: "port 2222\n",
+        hardenExit: 1,
+        mode: "--check-firewall",
+      });
+      expect(result.code).toBe(code);
+      expect(result.calls).toContain("ufw status verbose");
+      expect(result.calls).not.toContain("harden");
+    },
+  );
 });

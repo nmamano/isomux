@@ -122,7 +122,6 @@ UPDATE_CONF=/etc/isomux/update.conf
 UPDATE_STATE_DIR=/var/lib/isomux-update
 FIREWALL_PORTS_FILE=$STATE_DIR/firewall-ports
 UPDATE_OUTCOME_FILE=/var/lib/isomux-update-public/outcome.json
-OOM_MEMORY_DROPIN=/etc/systemd/system/isomux.service.d/20-memory.conf
 WEB_HTTP_RULE=80/tcp
 WEB_HTTPS_RULE=443/tcp
 INSTALL_KIND_FILE=/etc/isomux/install-kind
@@ -151,6 +150,9 @@ USER_MANAGER_TIMEOUT_S=15
 CADDY_MARKER="# Managed by the isomux installer"
 CADDY_DIR=/etc/caddy
 CADDYFILE=$CADDY_DIR/Caddyfile
+# How long a restarted Caddy gets to answer the front-door check.
+CADDY_VERIFY_ATTEMPTS=11
+CADDY_VERIFY_INTERVAL_SECONDS=1
 # Where dpkg keeps package config files. A constant because apt_install scans
 # it to report the operator's files it kept, and the tests point that scan at a
 # temp tree instead.
@@ -439,7 +441,7 @@ apt_install() {
 # run itself was in 2026. A "newer than when we started" test would miss every
 # real package.
 conffile_markers() {
-  find "${1:-$CONFFILE_ROOT}" -name '*.dpkg-dist' \
+  find "$CONFFILE_ROOT" -name '*.dpkg-dist' \
     -printf '%p\t%i\t%T@\t%s\n' 2>/dev/null | LC_ALL=C sort
 }
 
@@ -449,12 +451,12 @@ conffile_markers() {
 # the inode is new), which also catches a package overwriting a marker an
 # earlier run had left behind - path existence alone could not tell those apart.
 report_kept_conffiles() {
-  local before=$1 root=${2:-$CONFFILE_ROOT} line path
+  local before=$1 line path
   local -a kept=()
   while IFS= read -r line; do
     path=${line%%$'\t'*}
     kept+=("${path%.dpkg-dist}")
-  done < <(comm -13 "$before" <(conffile_markers "$root"))
+  done < <(comm -13 "$before" <(conffile_markers))
   ((${#kept[@]} > 0)) || return 0
   log "apt shipped a new version of ${#kept[@]} package config file(s) you had edited; your version was kept, so it may now lag the package's default. The packaged version sits next to each one as <file>.dpkg-dist; reconciling them is up to you:"
   for dist in "${kept[@]}"; do log "  $dist"; done
@@ -619,11 +621,11 @@ install_github_cli() {
       -o Dir::Etc::sourceparts=/dev/null \
       -o APT::Get::List-Cleanup=0; then
     rm -f "$source" "$keyring_tmp" "$source_tmp"
-    warn "could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later by following the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
+    log "warning: could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later by following the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
     return 0
   fi
   if ! apt_install gh; then
-    warn "could not install GitHub CLI. The office will continue without it. Install it later with: apt-get install gh"
+    log "warning: could not install GitHub CLI. The office will continue without it. Install it later with: apt-get install gh"
     return 0
   fi
   log "installed GitHub CLI"
@@ -1631,7 +1633,7 @@ candidate_key_files() {
   {
     for dir in /root/.ssh /home/*/.ssh "$SERVICE_HOME/.ssh"; do
       [[ -d $dir ]] || continue
-      for f in "$dir"/*; do printf '%s\n' "$f"; done
+      for f in "$dir"/* "$dir"/.[!.]*; do printf '%s\n' "$f"; done
     done
     printf '%s' "$CONFIG_IDENTITY_FILES"
   } | sort -u | while IFS= read -r f; do
@@ -4155,8 +4157,6 @@ prepare_caddy_access_logs() {
 
 verify_caddy_front_door() {
   local config=$1 domain attempt status
-  local attempts=${CADDY_VERIFY_ATTEMPTS:-11}
-  local interval=${CADDY_VERIFY_INTERVAL_SECONDS:-1}
   domain=$(awk '
     /^[^[:space:]#].*[[:space:]]\{$/ {
       line=$0
@@ -4165,7 +4165,7 @@ verify_caddy_front_door() {
     }
   ' "$config")
   [[ $domain =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || return 1
-  for ((attempt = 1; attempt <= attempts; attempt++)); do
+  for ((attempt = 1; attempt <= CADDY_VERIFY_ATTEMPTS; attempt++)); do
     status=""
     if systemctl is-active --quiet caddy; then
       status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
@@ -4174,7 +4174,7 @@ verify_caddy_front_door() {
         return 0
       fi
     fi
-    ((attempt == attempts)) || sleep "$interval"
+    ((attempt == CADDY_VERIFY_ATTEMPTS)) || sleep "$CADDY_VERIFY_INTERVAL_SECONDS"
   done
   return 1
 }

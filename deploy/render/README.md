@@ -61,7 +61,7 @@ replacement.
 ```sh
 bun test server/container-app-supervisor.test.ts \
   server/test-support/container-apps.integration.test.ts \
-  deploy/container/bootstrap.test.ts deploy/container/route-selection.test.ts
+  deploy/container/bootstrap.test.ts
 ```
 
 They start real app processes and the real office API with fake model backends.

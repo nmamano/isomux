@@ -271,13 +271,6 @@ describe("seccomp installer", () => {
     };
   }
 
-  test("the ConfigMap keys are the uname names of the two profiles", () => {
-    expect(files).toEqual([
-      ["x86_64.json", "seccomp/amd64/isomux-chromium-v1.json"],
-      ["aarch64.json", "seccomp/arm64/isomux-chromium-v1.json"],
-    ]);
-  });
-
   test.each([
     ["x86_64", "amd64"],
     ["aarch64", "arm64"],

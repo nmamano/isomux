@@ -1,17 +1,91 @@
-import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { networkInterfaces, tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Subprocess } from "bun";
 
-// deploy/container/office.ts is an entry script with top-level side effects,
-// so its wiring is checked in its source. Every container deployment sits
-// behind a load balancer (internal-docs/proxy-trust-design.md).
-test("the container entry declares its load balancer for the office and the setup form", () => {
-  const office = readFileSync(new URL("./office.ts", import.meta.url), "utf8");
-  // The office reads this from office-config.json at boot.
-  expect(office).toMatch(
-    /atomicWriteFileSync\([\s\S]*trustedProxy: "load-balancer"[\s\S]*\);/,
-  );
-  // The setup form keys its limit on the client behind the load balancer.
-  expect(office).toMatch(
-    /classifyRequest\(\s*req,[\s\S]*?"load-balancer",?\s*\)\.client/,
-  );
+// Every container deployment sits behind a load balancer
+// (internal-docs/proxy-trust-design.md). The entry script is run as the image
+// runs it, and stopped before an owner exists, so the office never boots.
+const ENTRY = new URL("./office.ts", import.meta.url).pathname;
+const ORIGIN = "https://office.example.com";
+let entry: Subprocess | null = null;
+let home = "";
+
+afterEach(() => {
+  entry?.kill("SIGKILL");
+  entry = null;
+  if (home) rmSync(home, { recursive: true, force: true });
+  home = "";
 });
+
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+// The load balancer's address: a peer that is not loopback.
+function boxAddress(): string {
+  for (const list of Object.values(networkInterfaces()))
+    for (const a of list ?? [])
+      if (a.family === "IPv4" && !a.internal) return a.address;
+  throw new Error("this test needs a non-loopback IPv4 interface");
+}
+
+test("the container entry trusts its load balancer for the office and the setup form", async () => {
+  home = mkdtempSync(join(tmpdir(), "isomux-office-entry-"));
+  const port = await freePort();
+  entry = Bun.spawn([process.execPath, ENTRY], {
+    env: {
+      PATH: process.env.PATH,
+      HOME: home,
+      ISOMUX_HOME: join(home, ".isomux"),
+      ISOMUX_PUBLIC_URL: ORIGIN,
+      // Per run: the unclaimed office listens on every interface.
+      ISOMUX_SETUP_KEY: crypto.randomUUID() + crypto.randomUUID(),
+      PORT: String(port),
+    },
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  let up = false;
+  for (let i = 0; i < 200 && !up; i++) {
+    up = await fetch(`http://127.0.0.1:${port}/health`).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (!up) await Bun.sleep(50);
+  }
+  expect(up).toBe(true);
+
+  // The office reads this at boot.
+  const config = JSON.parse(
+    readFileSync(join(home, ".isomux", "office-config.json"), "utf8"),
+  );
+  expect(config).toMatchObject({
+    trustedProxy: "load-balancer",
+    networkBind: "all",
+  });
+
+  // The setup form keys its attempt limit on the client the load balancer
+  // names, not on the load balancer.
+  const post = (client: string) =>
+    fetch(`http://${boxAddress()}:${port}/setup`, {
+      method: "POST",
+      headers: {
+        origin: ORIGIN,
+        "content-type": "application/x-www-form-urlencoded",
+        "x-forwarded-for": client,
+      },
+      body: new URLSearchParams({ key: "wrong", name: "Owner" }),
+    }).then((r) => r.status);
+  const statuses: number[] = [];
+  for (let i = 0; i < 21; i++) statuses.push(await post("198.51.100.7"));
+  expect(new Set(statuses.slice(0, -1))).toEqual(new Set([403]));
+  expect(statuses.at(-1)).toBe(429);
+  expect(await post("203.0.113.10")).toBe(403);
+}, 15_000);

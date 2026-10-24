@@ -27,7 +27,7 @@ export type Deployment = {
 
 // The file a sitemap path serves from, resolved as Vercel's cleanUrls does:
 // `<path>.html`, else `<path>/index.html`.
-export function builtFileFor(siteDir: string, urlPath: string): string | null {
+function builtFileFor(siteDir: string, urlPath: string): string | null {
   const path = urlPath.replace(/\/+$/, "");
   const candidates = path
     ? [join(siteDir, `${path}.html`), join(siteDir, path, "index.html")]

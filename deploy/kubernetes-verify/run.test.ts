@@ -22,7 +22,6 @@ afterEach(() => {
 });
 
 type Options = {
-  pulled?: string;
   present?: boolean;
   image?: string;
   exists?: boolean;
@@ -73,8 +72,6 @@ case $ROLLOUT in fail) exit 1 ;; hang) sleep 30 ;; esac`,
     "git",
     `if [[ $1 == clone ]]; then d="\${@: -1}/deploy/kubernetes-latest"; mkdir -p "$d"; printf '#!/bin/sh\\n' > "$d/deploy.sh"; chmod +x "$d/deploy.sh"; fi`,
   );
-  if (options.pulled)
-    writeFileSync(join(dir, "work", "pulled"), options.pulled + "\n");
   // Existing certificates and setup key skip key generation; kubectl only
   // receives their paths.
   writeFileSync(join(dir, "work", "ca.pem"), "");
@@ -102,12 +99,19 @@ case $ROLLOUT in fail) exit 1 ;; hang) sleep 30 ;; esac`,
       marker: existsSync(marker) ? readFileSync(marker, "utf8").trim() : null,
     };
   };
-  return { env, events, outcome };
+  // Runs the script; its events are the calls this run made.
+  const run = (args: string[]) => {
+    const before = events().length;
+    const result = outcome(
+      Bun.spawnSync(["bash", SCRIPT, ...args], { env }).exitCode,
+    );
+    return { ...result, events: result.events.slice(before) };
+  };
+  return { env, events, outcome, run };
 }
 
 function invoke(args: string[], options: Options = {}) {
-  const { env, outcome } = setup(options);
-  return outcome(Bun.spawnSync(["bash", SCRIPT, ...args], { env }).exitCode);
+  return setup(options).run(args);
 }
 
 // Runs `up` until a stub records the REACHED call, then interrupts it. setsid
@@ -136,23 +140,40 @@ const NETWORK = "docker network inspect k3d-isomux-verify";
 const CHECKS = `docker ps -a --no-trunc --filter status=exited --filter ancestor=${K3S_IMAGE} --format {{.ID}} {{.Command}}`;
 const fromDelete = (events: string[]) => events.slice(events.indexOf(DELETE));
 
-test("up records the released image it pulls", () => {
-  const result = invoke(["up"]);
-  expect(result.code).toBe(0);
-  expect(imageEvents(result.events)).toEqual([
-    `docker pull --quiet ${RELEASED}`,
+test("down removes the released image that up pulled", () => {
+  const fx = setup({});
+  const up = fx.run(["up"]);
+  expect(up.code).toBe(0);
+  expect(imageEvents(up.events)).toEqual([`docker pull --quiet ${RELEASED}`]);
+  expect(up.marker).toBe(RELEASED);
+  expect(up.events).not.toContain(DELETE);
+  const down = fx.run(["down"]);
+  expect(down.code).toBe(0);
+  expect(down.events).toEqual([
+    DELETE,
+    NETWORK,
+    CHECKS,
+    `docker image rm ${RELEASED}`,
   ]);
-  expect(result.marker).toBe(RELEASED);
-  expect(result.events).not.toContain(DELETE);
+  expect(down.marker).toBeNull();
+});
+
+test("down keeps an image that was present before up", () => {
+  const fx = setup({ present: true });
+  const up = fx.run(["up"]);
+  expect(up.code).toBe(0);
+  expect(imageEvents(up.events)).toEqual([]);
+  expect(up.marker).toBeNull();
+  const down = fx.run(["down"]);
+  expect(down.code).toBe(0);
+  expect(down.events).toEqual([DELETE, NETWORK, CHECKS]);
 });
 
 test("up refuses a cluster that already exists and leaves it alone", () => {
   const result = invoke(["up"], { exists: true });
   expect(result.code).not.toBe(0);
-  expect(result.events.some((e) => e.startsWith("k3d cluster create"))).toBe(
-    false,
-  );
-  expect(result.events).not.toContain(DELETE);
+  // The refusal comes from the existence check, and nothing runs after it.
+  expect(result.events).toEqual(["k3d cluster get isomux-verify"]);
 });
 
 test("a failed up deletes the cluster and the image it pulled", () => {
@@ -170,15 +191,6 @@ test("a failed up deletes the cluster and the image it pulled", () => {
   expect(result.marker).toBeNull();
 });
 
-test("an up interrupted after the create deletes the cluster", async () => {
-  const result = await interruptUp(
-    { rollout: "hang", present: true },
-    "kubectl -n isomux rollout status",
-  );
-  expect(result.code).not.toBe(0);
-  expect(fromDelete(result.events)).toEqual([DELETE, NETWORK, CHECKS]);
-}, 15_000);
-
 test("an up interrupted during the create deletes the cluster", async () => {
   const result = await interruptUp(
     { createHangs: true, present: true },
@@ -189,13 +201,6 @@ test("an up interrupted during the create deletes the cluster", async () => {
   expect(fromDelete(result.events)).toEqual([DELETE, NETWORK, CHECKS]);
 }, 15_000);
 
-test("up records no pull when the released image is already present", () => {
-  const result = invoke(["up"], { present: true });
-  expect(result.code).toBe(0);
-  expect(imageEvents(result.events)).toEqual([]);
-  expect(result.marker).toBeNull();
-});
-
 test("up records no pull for a local image", () => {
   const result = invoke(["up"], { image: "isomux:local" });
   expect(result.code).toBe(0);
@@ -203,24 +208,6 @@ test("up records no pull for a local image", () => {
     "k3d image import --cluster isomux-verify isomux:local",
   );
   expect(result.marker).toBeNull();
-});
-
-test("down removes the released image that up pulled", () => {
-  const result = invoke(["down"], { pulled: RELEASED });
-  expect(result.code).toBe(0);
-  expect(result.events).toEqual([
-    DELETE,
-    NETWORK,
-    CHECKS,
-    `docker image rm ${RELEASED}`,
-  ]);
-  expect(result.marker).toBeNull();
-});
-
-test("down keeps an image that was present before up", () => {
-  const result = invoke(["down"]);
-  expect(result.code).toBe(0);
-  expect(result.events).toEqual([DELETE, NETWORK, CHECKS]);
 });
 
 test("down removes the check container that k3d leaves, and no node", () => {

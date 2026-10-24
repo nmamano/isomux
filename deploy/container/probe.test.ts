@@ -10,7 +10,11 @@ for (const [status, exitCode] of [
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => new Response(null, { status, headers: { Location: "/" } }),
+      // A probe that followed the redirect would read the 200 at /next.
+      fetch: (req) =>
+        new URL(req.url).pathname === "/next"
+          ? new Response("ok")
+          : new Response(null, { status, headers: { Location: "/next" } }),
     });
     try {
       const child = Bun.spawn(

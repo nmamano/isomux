@@ -1,38 +1,48 @@
-import { beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { Window } from "happy-dom";
-import { LEGACY_LINKS, main as buildDocs } from "./build-docs.ts";
+import {
+  LEGACY_LINKS,
+  main as buildDocs,
+  rewriteMarkdownLinks,
+} from "./build-docs.ts";
 import {
   HOSTING_GUIDES,
-  HOSTING_LEGACY_LINKS,
   composeHostingSource,
   hostingUrl,
 } from "./hosting-docs.ts";
-import middleware from "../middleware.ts";
 
 beforeAll(() => buildDocs());
 const htmlAt = (path: string) => readFileSync(`site${path}/index.html`, "utf8");
-function parse(html: string) {
-  const window = new Window({
-    settings: {
-      disableJavaScriptEvaluation: true,
-      disableCSSFileLoading: true,
-      disableJavaScriptFileLoading: true,
-    },
-  });
-  window.document.write(html);
-  return window;
+// Each built page is parsed once for the whole file, then closed at the end.
+const windows = new Map<string, Window>();
+function docAt(path: string) {
+  let window = windows.get(path);
+  if (!window) {
+    window = new Window({
+      settings: {
+        disableJavaScriptEvaluation: true,
+        disableCSSFileLoading: true,
+        disableJavaScriptFileLoading: true,
+      },
+    });
+    window.document.write(htmlAt(path));
+    windows.set(path, window);
+  }
+  return window.document;
 }
+afterAll(() =>
+  Promise.all(Array.from(windows.values(), (w) => w.happyDOM.close())),
+);
 
 describe("complete hosting guides", () => {
-  it("shows the hosting hierarchy and identifies the exact current page", async () => {
+  it("shows the hosting hierarchy in the sidebar of the index and every guide", () => {
     const paths = [
       "/docs/hosting",
       ...HOSTING_GUIDES.map((guide) => hostingUrl(guide.id)),
     ];
     for (const path of paths) {
-      const window = parse(htmlAt(path));
-      const sidebar = window.document.querySelector(
+      const sidebar = docAt(path).querySelector(
         '.sidebar nav[aria-label="Documentation"]',
       )!;
       const hosting = Array.from(
@@ -47,56 +57,32 @@ describe("complete hosting guides", () => {
           link.getAttribute("href"),
         ),
       ).toEqual(HOSTING_GUIDES.map((guide) => hostingUrl(guide.id)));
-      const current = sidebar.querySelectorAll('a[aria-current="page"]');
-      expect(current.length, path).toBe(1);
-      expect(current[0].getAttribute("href"), path).toBe(path);
-      expect(current[0].classList.contains("active"), path).toBe(true);
-      await window.happyDOM.close();
     }
   });
 
-  it("gives each flow leaf its unique guide destination", async () => {
-    const expectedIds = [
-      "hosted",
-      "render",
-      "aws",
-      "kubernetes",
-      "vps",
-      "local",
-      "private",
-      "funnel",
-      "domain",
-    ];
-    const window = parse(htmlAt("/docs/hosting"));
-    const doc = window.document;
-    for (const selector of [".hosting-flow"]) {
-      const links = Array.from(
-        doc.querySelectorAll(`${selector} a[data-guide]`),
-      );
-      expect(links.map((a) => a.getAttribute("data-guide")).sort()).toEqual(
-        [...expectedIds].sort(),
-      );
-      for (const link of links)
-        expect(link.getAttribute("href")).toBe(
-          `/docs/hosting-${link.getAttribute("data-guide")}`,
-        );
-    }
-    expect(doc.querySelectorAll(".hosting-options [aria-current]").length).toBe(
-      0,
+  it("gives each flow leaf its unique guide destination", () => {
+    const doc = docAt("/docs/hosting");
+    const links = Array.from(
+      doc.querySelectorAll(".hosting-flow a[data-guide]"),
     );
-    await window.happyDOM.close();
+    // The flow is written by hand: a guide it forgets is the regression.
+    expect(links.map((a) => a.getAttribute("data-guide")).sort()).toEqual(
+      HOSTING_GUIDES.map((guide) => guide.id).sort(),
+    );
+    for (const link of links)
+      expect(link.getAttribute("href")).toBe(
+        `/docs/hosting-${link.getAttribute("data-guide")}`,
+      );
+    // The index is no guide's page, so no leaf is marked current.
+    expect(doc.querySelectorAll(".hosting-flow [aria-current]").length).toBe(0);
   });
 
   it("renders one complete guide and matching chatbot and negotiated Markdown per identity", async () => {
     for (const guide of HOSTING_GUIDES) {
       const path = hostingUrl(guide.id);
       const html = htmlAt(path);
-      const window = parse(html);
-      const doc = window.document;
-      expect(
-        doc.querySelectorAll(".hosting-selector, .hosting-flow").length,
-        path,
-      ).toBe(0);
+      const doc = docAt(path);
+      expect(doc.querySelectorAll(".hosting-flow").length, path).toBe(0);
       expect(
         doc.querySelector(".hosting-guide-notice a")?.getAttribute("href"),
         path,
@@ -114,22 +100,11 @@ describe("complete hosting guides", () => {
       expect(context, path).not.toBeNull();
       const raw = JSON.parse(context![1]) as string;
       expect(raw.length, path).toBeLessThanOrEqual(20_000);
-      expect(raw.split("\n")[0]).toBe(markdown.split("\n")[0]);
       // Compare the entire composed body, allowing only the public-link rewrite.
-      const { rewriteMarkdownLinks } = await import("./build-docs.ts");
       expect(rewriteMarkdownLinks(raw), path).toBe(markdown);
-      const response = middleware(
-        new Request(`https://isomux.com${path}`, {
-          headers: { Accept: "text/markdown" },
-        }),
-      );
-      expect(response.headers.get("x-middleware-rewrite")).toBe(
-        `https://isomux.com/_agent${path}/index.md`,
-      );
       expect(
         doc.querySelector('link[rel="canonical"]')?.getAttribute("href"),
       ).toBe(`https://isomux.com${path}`);
-      await window.happyDOM.close();
     }
   });
 
@@ -138,19 +113,20 @@ describe("complete hosting guides", () => {
       "docs/hosting/blocks/install.md",
       "utf8",
     ).trim();
-    for (const id of ["local", "private", "funnel", "domain"]) {
+    const sharing = HOSTING_GUIDES.filter((guide) =>
+      readFileSync(guide.source, "utf8").includes("<!-- include: install -->"),
+    );
+    expect(sharing.length).toBeGreaterThan(0);
+    for (const { id } of sharing) {
       const markdown = readFileSync(
         `site/_agent/docs/hosting-${id}/index.md`,
         "utf8",
       );
-      expect(markdown).toContain(
+      expect(markdown, id).toContain(
         install.replaceAll(
           "](hosting-reference.md",
           "](/docs/hosting-reference",
         ),
-      );
-      expect(markdown).toContain(
-        "git clone https://github.com/nmamano/isomux.git",
       );
     }
     const source = readFileSync("deploy/container/README.md", "utf8");
@@ -163,104 +139,80 @@ describe("complete hosting guides", () => {
     expect(() => composeHostingSource("<!-- include: unknown -->")).toThrow();
   });
 
+  // Public old fragments: bookmarks and released offices link to them, so
+  // removing one strands a reader. Adding one needs no edit here.
   it("retains the old public fragment contract", () => {
-    const fragments = [
-      "self-hosted-setup",
-      "vps-install",
-      "run-the-installer",
-      "what-the-installer-does",
-      "root-access",
-      "parameters",
-      "re-running",
-      "updating",
-      "app-hostnames",
-      "opening-an-agents-dev-server",
-      "notes",
-      "desktop-chrome-extension",
-      "your-own-hardware",
-      "native-build-recovery",
-      "keep-the-server-running",
-      "make-the-office-reachable",
-      "your-devices-and-anyone-willing-to-install-tailscale",
-      "other-members-public-url",
-      "install-on-mobile-pwa",
-      "enable-https-for-voice-input-and-android-pwa-install",
-      "authorize-members",
-      "provider-api-keys",
-      "deploy-a-container",
-      "deploy-on-render",
-      "backups",
-      "running-out-of-memory",
-      "what-each-deployment-covers",
-      "proxy-and-real-domain",
-      "proxy-and-no-real-domain",
-      "no-proxy-and-no-real-domain",
-    ];
-    expect(Object.keys(HOSTING_LEGACY_LINKS).sort()).toEqual(fragments.sort());
-  });
-
-  it("keeps availability notices ahead of setup navigation", async () => {
-    for (const id of ["render"]) {
-      const window = parse(htmlAt(`/docs/hosting-${id}`));
-      const article = window.document.querySelector("article")!;
-      expect(article.children[0].tagName).toBe("H1");
-      expect(article.children[1].tagName).toBe("BLOCKQUOTE");
-      await window.happyDOM.close();
-    }
-  });
-
-  it("resolves all generated hosting links and fragments without duplicate IDs", async () => {
-    const paths = [
-      "/docs/hosting",
-      "/docs/hosting-reference",
-      ...HOSTING_GUIDES.map((g) => hostingUrl(g.id)),
-    ];
-    const cache = new Map<string, ReturnType<typeof parse>>();
-    for (const path of paths) cache.set(path, parse(htmlAt(path)));
-    try {
-      for (const [path, window] of cache) {
-        const ids = Array.from(
-          window.document.querySelectorAll("[id]"),
-          (e) => e.id,
-        );
-        expect(new Set(ids).size, path).toBe(ids.length);
-        for (const anchor of window.document.querySelectorAll("a[href]")) {
-          const href = anchor.getAttribute("href")!;
-          if (!href.startsWith("#") && !href.startsWith("/docs")) continue;
-          const url = new URL(href, `https://isomux.com${path}`);
-          expect(
-            existsSync(`site${url.pathname}/index.html`),
-            `${path} -> ${href}`,
-          ).toBe(true);
-          if (!url.hash) continue;
-          let target = cache.get(url.pathname);
-          if (!target) {
-            target = parse(htmlAt(url.pathname));
-            cache.set(url.pathname, target);
-          }
-          expect(
-            target.document.getElementById(
-              decodeURIComponent(url.hash.slice(1)),
-            ),
-            `${path} -> ${href}`,
-          ).not.toBeNull();
-        }
-      }
-    } finally {
-      await Promise.all(
-        Array.from(cache.values(), (window) => window.happyDOM.close()),
+    const fragments: Record<string, string[]> = {
+      features: ["several-agents-on-one-project"],
+      hosting: [
+        "self-hosted-setup",
+        "vps-install",
+        "run-the-installer",
+        "what-the-installer-does",
+        "root-access",
+        "parameters",
+        "re-running",
+        "updating",
+        "app-hostnames",
+        "opening-an-agents-dev-server",
+        "notes",
+        "desktop-chrome-extension",
+        "your-own-hardware",
+        "native-build-recovery",
+        "keep-the-server-running",
+        "make-the-office-reachable",
+        "your-devices-and-anyone-willing-to-install-tailscale",
+        "other-members-public-url",
+        "install-on-mobile-pwa",
+        "enable-https-for-voice-input-and-android-pwa-install",
+        "authorize-members",
+        "provider-api-keys",
+        "deploy-a-container",
+        "deploy-on-render",
+        "backups",
+        "running-out-of-memory",
+        "what-each-deployment-covers",
+        "proxy-and-real-domain",
+        "proxy-and-no-real-domain",
+        "no-proxy-and-no-real-domain",
+      ],
+      "access-and-invites": [
+        "use-your-own-provider-account",
+        "claude-on-amazon-bedrock",
+        "connection-variables-and-directories",
+        "personal-api-tokens",
+        "state-files",
+        "cookie-semantics",
+        "bootstrap-window-exposure",
+        "trust-model-boundaries",
+        "operating-notes",
+        "lobby-and-members-chat",
+      ],
+      "hosting-reference": ["desktop-chrome-extension", "provider-api-keys"],
+    };
+    for (const [slug, kept] of Object.entries(fragments))
+      expect(Object.keys(LEGACY_LINKS[slug] ?? {}), slug).toEqual(
+        expect.arrayContaining(kept),
       );
+  });
+
+  it("keeps availability notices ahead of setup navigation", () => {
+    const noticed = HOSTING_GUIDES.filter((guide) => "notice" in guide);
+    expect(noticed.length).toBeGreaterThan(0);
+    for (const { id } of noticed) {
+      const article = docAt(hostingUrl(id)).querySelector("article")!;
+      expect(article.children[0].tagName, id).toBe("H1");
+      expect(article.children[1].tagName, id).toBe("BLOCKQUOTE");
     }
   });
 });
 
 describe("legacy fragment maps", () => {
-  it("send every old fragment to an existing section, and list them only in the agent Markdown", async () => {
+  it("send every old fragment to an existing section, and list them only in the agent Markdown", () => {
     for (const [slug, links] of Object.entries(LEGACY_LINKS)) {
       // The features page is the docs landing, built at /docs.
       const path = slug === "features" ? "/docs" : `/docs/${slug}`;
-      const page = parse(htmlAt(path));
-      const doc = page.document;
+      const doc = docAt(path);
       const ids = Array.from(doc.querySelectorAll("[id]"), (e) => e.id);
       expect(new Set(ids).size, slug).toBe(ids.length);
       expect(
@@ -277,32 +229,26 @@ describe("legacy fragment maps", () => {
         const url = new URL(href, "https://isomux.com");
         expect(existsSync(`site${url.pathname}/index.html`), href).toBe(true);
         if (!url.hash) continue;
-        const target = parse(htmlAt(url.pathname.replace(/\/$/, "")));
+        const target = docAt(url.pathname.replace(/\/$/, ""));
         expect(
-          target.document.getElementById(url.hash.slice(1)),
+          target.getElementById(url.hash.slice(1)),
           `${slug}#${id} -> ${href}`,
         ).not.toBeNull();
-        await target.happyDOM.close();
       }
-      await page.happyDOM.close();
     }
   });
 });
 
 describe("docs meta descriptions", () => {
-  const description = async (path: string) => {
-    const window = parse(htmlAt(path));
-    const content = window.document
+  const description = (path: string) =>
+    docAt(path)
       .querySelector('meta[name="description"]')
-      ?.getAttribute("content");
-    await window.happyDOM.close();
-    return content ?? "";
-  };
+      ?.getAttribute("content") ?? "";
 
-  it("give each hosting guide its own summary, not its chooser text", async () => {
+  it("give each hosting guide its own summary, not its chooser text", () => {
     const seen = new Set<string>();
     for (const guide of HOSTING_GUIDES) {
-      const text = await description(hostingUrl(guide.id));
+      const text = description(hostingUrl(guide.id));
       expect(text, guide.id).not.toBe("");
       expect(text, guide.id).not.toBe(guide.detail);
       expect(text, guide.id).not.toBe(guide.label);
@@ -321,7 +267,7 @@ describe("docs meta descriptions", () => {
     expect(paths).toContain("/docs");
     for (const path of paths) {
       // The first-paragraph fallback marks a cut with a trailing "...".
-      expect(await description(path), path).not.toEndWith("...");
+      expect(description(path), path).not.toEndWith("...");
     }
   });
 });

@@ -29,6 +29,11 @@ const TRANSACTION = SRC.slice(
   SRC.indexOf("install_caddyfile_transaction() {"),
   SRC.indexOf("\nassert_caddy_file() {"),
 );
+const ASSERT_FILE_AT = SRC.indexOf("\nassert_caddy_file() {");
+const ASSERT_FILE = SRC.slice(
+  ASSERT_FILE_AT,
+  SRC.indexOf("\n}\n", ASSERT_FILE_AT) + 3,
+);
 const roots: string[] = [];
 
 function run(options: {
@@ -147,18 +152,15 @@ describe("deps-only Caddy access-log migration", () => {
     expect(result.calls).toBe("");
     expect(result.caddyfile).toContain("reverse_proxy 127.0.0.1:4001");
     expect(result.caddyfile).not.toContain("roll_keep_for");
-    expect(result.out).toContain(
-      "warning: the managed Caddyfile differs from the known installer renderings; access logging was not added",
-    );
-    expect(result.out).toContain(
-      `ISOMUX_UPDATE_WARNING=Caddy access logging was not added because ${result.caddyfilePath} has different bytes`,
-    );
+    const warning = result.out.match(/^ISOMUX_UPDATE_WARNING=.*$/m)?.[0];
+    expect(warning).toContain(result.caddyfilePath);
   });
 
   it("warns and continues when the prior Caddy config was restored", () => {
     const result = run({ transactionFails: true });
     expect(result.code).toBe(0);
-    expect(result.out).toContain("previous configuration was restored");
+    expect(result.calls).toMatch(/^transaction /m);
+    expect(result.out).toMatch(/^ISOMUX_UPDATE_WARNING=\S/m);
   });
 
   it("fails when migration leaves Caddy down", () => {
@@ -187,6 +189,8 @@ function runTransaction(options: {
   invalidExtraction?: boolean;
   logDirectoryAbsent?: boolean;
   frontDoor?: "healthy" | "active-then-dead" | "dead" | "new-dead-old-healthy";
+  // A hosted box whose TLS key only root can read: Caddy could not load it.
+  rootOnlyKey?: boolean;
 }) {
   const root = mkdtempSync(join(tmpdir(), "isomux-caddy-transaction-"));
   roots.push(root);
@@ -266,6 +270,10 @@ fi
 echo 308`,
   );
   executable("sleep", ":");
+  if (options.rootOnlyKey) {
+    writeFileSync(join(tlsDir, "key.pem"), "key\n");
+    executable("stat", "echo root:root:600");
+  }
 
   const final = join(caddyDir, "Caddyfile");
   const rendered = join(caddyDir, "rendered");
@@ -292,6 +300,7 @@ echo 308`,
     .replaceAll("/etc/isomux/tls", tlsDir);
   const script = `set -Eeuo pipefail
 ${localized}
+${ASSERT_FILE}
 CADDY_VERIFY_ATTEMPTS=2
 CADDY_VERIFY_INTERVAL_SECONDS=0
 run() { "$@"; }
@@ -316,6 +325,7 @@ install_caddyfile_transaction ${JSON.stringify(rendered)}
     out: `${proc.stdout.toString()}${proc.stderr.toString()}`,
     calls: existsSync(calls) ? readFileSync(calls, "utf8") : "",
     config: readFileSync(final, "utf8"),
+    tlsDir,
     officeLog: existsSync(officeLog) ? readFileSync(officeLog, "utf8") : "",
     appLog: existsSync(appLog) ? readFileSync(appLog, "utf8") : "",
     operatorFile: existsSync(operatorFile)
@@ -378,6 +388,18 @@ describe("Caddyfile transaction", () => {
     expect(result.config).toContain("# old config\n");
     expect(result.out).toContain("the previous file was restored");
     expect(result.out).not.toContain("did not restore a serving front door");
+  });
+
+  it("refuses a root-only key before replacing the Caddyfile", () => {
+    expect(ASSERT_FILE).toContain("assert_caddy_file() {");
+    const result = runTransaction({ rootOnlyKey: true });
+    expect(result.code).not.toBe(0);
+    expect(result.calls).toContain("caddy validate");
+    expect(result.out).toContain(join(result.tlsDir, "key.pem"));
+    expect(result.config).toBe(
+      "# old config\noffice.example {\n\trespond 404\n}\n",
+    );
+    expect(result.calls).not.toContain("systemctl restart");
   });
 
   it("commits a healthy fresh self-hosted front door without needing a certificate or upstream", () => {

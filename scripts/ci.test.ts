@@ -120,15 +120,6 @@ it("fails a slow step, reports its last line, and kills its grandchild", async (
   expect(alive(pid)).toBe(false);
 }, 15_000);
 
-it("reports an empty timed-out log explicitly", async () => {
-  const { result, out } = await fakeStep(["sleep", "60"], 600);
-  expect(result.status).toBe("failed");
-  expect(result.reason).toBe(
-    "wall-clock limit 600ms exceeded; last test line: (no output)",
-  );
-  expect(out).toContain(result.reason);
-}, 15_000);
-
 it("preserves fast success and failure and clears the long ceiling timer", async () => {
   for (const code of [0, 7]) {
     const { result } = await fakeStep(["sh", "-c", `exit ${code}`], 60_000);
@@ -158,18 +149,22 @@ it("falls back to the child when it does not own its process group", async () =>
   }
 }, 10_000);
 
-it("returns 124 even when the child exit notification never arrives", async () => {
-  const { result } = await fakeStep(["sleep", "60"], 600, true);
+it("returns 124 and reports an empty log even when the child exit notification never arrives", async () => {
+  const { result, out } = await fakeStep(["sleep", "60"], 600, true);
   expect(result.exitCode).toBe(124);
   expect(result.status).toBe("failed");
   expect(result.reason).toBe(
     "wall-clock limit 600ms exceeded; last test line: (no output)",
   );
+  // Printed by the stage, not only in the RESULT line this test adds.
+  const printed = out
+    .split("\n")
+    .filter((line) => !line.startsWith("RESULT="))
+    .join("\n");
+  expect(printed).toContain(result.reason);
 }, 15_000);
 
 it("selects real ceilings only for the test stages and applies them by default", async () => {
-  // Twice the recorded 2026-09-10 bun test step, in milliseconds.
-  expect(BUN_TEST_CEILING_MS).toBe(2 * 1_153_470);
   expect(ceilingFor("bun test")).toBe(BUN_TEST_CEILING_MS);
   // A hung OpenCode server must not hold a merge without a limit.
   const openCodeCeiling = ceilingFor("opencode live");

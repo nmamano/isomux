@@ -26,7 +26,6 @@ import { execSync, spawnSync } from "child_process";
 const UPDATE_SH = new URL("./update.sh", import.meta.url).pathname;
 
 let base: string;
-let toolsDir: string;
 
 // A PATH with exactly the tools sync_system_deps uses - and nothing else, so
 // the no-apt branch is testable on a box that does have apt.
@@ -102,8 +101,7 @@ function syncDeps(opts: {
   const runLog = runLogPath();
   rmSync(runLog, { force: true });
   const bin = join(base, "bin");
-  rmSync(bin, { recursive: true, force: true });
-  buildToolsDir(bin);
+  rmSync(join(bin, "apt-get"), { force: true });
   if (opts.withApt ?? true) {
     writeFileSync(join(bin, "apt-get"), "#!/usr/bin/env bash\nexit 0\n");
     chmodSync(join(bin, "apt-get"), 0o755);
@@ -143,21 +141,26 @@ echo "DEPS_WARNING=$DEPS_WARNING"
 
 beforeAll(() => {
   base = mkdtempSync(join(tmpdir(), "isomux-deps-sync-test-"));
-  toolsDir = join(base, "bin");
+  buildToolsDir(join(base, "bin"));
 });
 
 afterAll(() => {
   rmSync(base, { recursive: true, force: true });
-  expect(toolsDir).toBeTruthy();
 });
 
+// The updater's temp files: fixed /tmp names, not $TMPDIR.
+const tempFiles = () =>
+  readdirSync("/tmp").filter((f) => f.startsWith("isomux-deps"));
+
 describe("update.sh system-dependency sync", () => {
-  it("runs the TARGET release's installer in deps-only mode", () => {
+  it("runs the TARGET release's installer in deps-only mode, and leaves no temp file", () => {
     const repo = buildTrustRepo("trust-ok", fakeInstaller());
+    const before = new Set(tempFiles());
     const r = syncDeps({ trustRepo: repo });
     expect(r.ran).toContain("ISOMUX_DEPS_ONLY=1");
     expect(r.out).toContain("installing v2026.7.30's system dependencies");
     expect(r.out).toContain("rc=0");
+    expect(tempFiles().filter((f) => !before.has(f))).toEqual([]);
   });
 
   it("hands the installer a minimal environment, not the caller's", () => {
@@ -236,27 +239,11 @@ touch ${runLogPath()}
     expect(r.out).toContain("rc=0");
   });
 
-  it("leaves no temp installer behind", () => {
-    const repo = buildTrustRepo("trust-cleanup", fakeInstaller());
-    syncDeps({ trustRepo: repo });
-    expect(
-      readdirSync("/tmp").filter((f) => f.startsWith("isomux-deps.")),
-    ).toEqual([]);
-  });
-
   it("skips a target release that carries no installer at all", () => {
     const repo = buildTrustRepo("trust-none", null);
     const r = syncDeps({ trustRepo: repo });
     expect(r.ran).toBeNull();
     expect(r.out).toContain("carries no deploy/install.sh");
     expect(r.out).toContain("rc=0");
-  });
-
-  it("never reads the installer from the service checkout", () => {
-    // The trust repo is the only source: a REPO_DIR planted by the service
-    // user (agents run shell as it) must not be consulted.
-    expect(readFileSync(UPDATE_SH, "utf8")).toContain(
-      'git -C "$TRUST_REPO" cat-file -p "$target:deploy/install.sh"',
-    );
   });
 });

@@ -744,11 +744,15 @@ type Remote = {
   bunTimes(): bigint[];
   /** Runs the gate half for one run id, with its test arguments. */
   gate(id: string, args: string[]): { status: number | null; out: string };
-  /** The same, without waiting: for runs that overlap. */
+  /**
+   * The same, without waiting: for runs that overlap. The output so far is in
+   * gateOut(id).
+   */
   gateAsync(
     id: string,
     args: string[],
   ): Promise<{ status: number; out: string }>;
+  gateOut(id: string): string;
   /** The fixture directory: block-tsc and unblock live here. */
   dir: string;
   systemctlCalls(): string[];
@@ -840,6 +844,8 @@ exit 0`,
 [[ $2 == is-active ]] && exit ${opts.scopeStuck ? 0 : 3}
 exit 0`,
   );
+  // clear_dir gives up after a count of polls, not a time: skip its sleeps.
+  if (opts.scopeStuck) stub(join(bin, "sleep"), "exit 0");
 
   // The suite's Postgres port is busy on a dev box; the check needs a free one.
   const port = await freePort();
@@ -939,7 +945,7 @@ exit 0`,
         [
           "bash",
           "-c",
-          'exec bash "$@" 2>&1',
+          `exec bash "$@" >"${dir}/gate-${id}.out" 2>&1`,
           "_",
           "-s",
           "--",
@@ -953,17 +959,14 @@ exit 0`,
           cwd: home,
           stdin: readFileSync(script),
           env: remoteEnv,
-          stdout: "pipe",
         },
       );
       const timer = setTimeout(() => proc.kill(), 30_000);
-      const [out, status] = await Promise.all([
-        new Response(proc.stdout).text(),
-        proc.exited,
-      ]);
+      const status = await proc.exited;
       clearTimeout(timer);
-      return { status, out };
+      return { status, out: read(join(dir, `gate-${id}.out`)) };
     },
+    gateOut: (id) => read(join(dir, `gate-${id}.out`)),
     dir,
     systemctlCalls: () =>
       read(join(dir, "systemctl.log")).split("\n").filter(Boolean),
@@ -994,12 +997,16 @@ describe("ci-remote, the remote half", () => {
     );
   });
 
-  it.each([1, 3, 124])(
+  // 3 from CI is red, not "no verdict"; 124 is red and names the time limit.
+  it.each([3, 124])(
     "exits 1 when bun run ci ran and exited %d",
     async (code) => {
       const r = await remote({ ci: code });
       const res = r.run(runId());
       expect(res.status, res.out).toBe(1);
+      const limit = /^RUN_LIMIT=(\S+)$/m.exec(readFileSync(SCRIPT, "utf8"));
+      expect(limit).not.toBeNull();
+      expect(res.out.includes(limit![1]!)).toBe(code === 124);
     },
   );
 
@@ -1143,8 +1150,10 @@ describe("ci-remote --remote-gate, the remote half", () => {
   it("waits while CI holds its lock, and starts after it", async () => {
     const r = await remote({});
     const released = await holdCiLock(r);
-    const run = r.gateAsync(runId(), []);
-    await Bun.sleep(1500);
+    const id = runId();
+    const run = r.gateAsync(id, []);
+    // Its first line says it waits for the CI run.
+    await until(() => r.gateOut(id) !== "", "the gate to wait");
     expect(r.bunCalls()).toEqual([]);
     writeFileSync(join(r.dir, "unblock"), "");
     expect(await released.exited).toBe(0);
@@ -1174,8 +1183,13 @@ describe("ci-remote --remote-gate, the remote half", () => {
     writeFileSync(join(r.dir, "block-tsc"), "");
     const first = [r.gateAsync(runId(), []), r.gateAsync(runId(), [])];
     await until(() => count(r.bunCalls(), TSC) === 2, "two gates in tsc");
-    const third = r.gateAsync(runId(), []);
-    await Bun.sleep(1500);
+    const id = runId();
+    const third = r.gateAsync(id, []);
+    await until(() => r.gateOut(id) !== "", "the third gate to wait");
+    // It waits, without a third slot: take_gate_slot opens a slot's lock
+    // file before the gate prints anything.
+    expect(existsSync(join(r.root, "gate-slot-2"))).toBe(true);
+    expect(existsSync(join(r.root, "gate-slot-3"))).toBe(false);
     expect(count(r.bunCalls(), INSTALLS[0]!)).toBe(2);
     writeFileSync(join(r.dir, "unblock"), "");
     for (const res of await Promise.all([...first, third]))
@@ -1186,7 +1200,7 @@ describe("ci-remote --remote-gate, the remote half", () => {
   it.each(["both slots are taken", "CI holds its lock"])(
     "gives no verdict, without running a step, when %s past GATE_WAIT",
     async (busy) => {
-      const r = await remote({ gateWait: 1 });
+      const r = await remote({ gateWait: 0 });
       let held: Promise<unknown>[] = [];
       if (busy === "CI holds its lock") held = [(await holdCiLock(r)).exited];
       else {

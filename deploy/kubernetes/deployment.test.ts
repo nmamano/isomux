@@ -38,8 +38,11 @@ const envOf = (container: Container, name: string) =>
 const env = (name: string) => envOf(office, name);
 
 test("kubectl exec and logs still default to the office container", () => {
+  // Without the annotation, kubectl takes the first container.
   expect(
-    template.metadata.annotations?.["kubectl.kubernetes.io/default-container"],
+    template.metadata.annotations?.[
+      "kubectl.kubernetes.io/default-container"
+    ] ?? pod.containers[0]!.name,
   ).toBe("office");
 });
 

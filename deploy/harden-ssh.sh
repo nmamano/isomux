@@ -691,7 +691,7 @@ candidate_key_files() {
   {
     for dir in /root/.ssh /home/*/.ssh "$SERVICE_HOME/.ssh"; do
       [[ -d $dir ]] || continue
-      for f in "$dir"/*; do printf '%s\n' "$f"; done
+      for f in "$dir"/* "$dir"/.[!.]*; do printf '%s\n' "$f"; done
     done
     printf '%s' "$CONFIG_IDENTITY_FILES"
   } | sort -u | while IFS= read -r f; do

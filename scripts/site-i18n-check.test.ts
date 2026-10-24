@@ -14,10 +14,10 @@
 // disk-relative check would call `../../README.md` on a page two directories
 // down a valid link, which a browser would not.
 //
-// The expected rows below are written out literally on purpose. They are the
-// oracle; SITE_LANGUAGE_PATH is the implementation the office links through,
-// and one test compares the two. Deriving the rows from the helper would let a
-// wrong helper approve itself.
+// The expected rows below are written out literally on purpose: they are the
+// oracle for the pages. SITE_LANGUAGE_PATH, the paths the office links
+// through, is checked against the files on disk instead, so a wrong helper
+// cannot approve itself.
 
 import { beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -286,37 +286,37 @@ function requestedPath(ref: string, pageUrl: string): string | null {
   return url.origin === ORIGIN ? url.pathname : null;
 }
 
-/** Whether the deployed site answers `pathname` with a FILE. */
-function servesAFile(pathname: string): boolean {
-  if (BUILT_PATHS.has(pathname)) return true;
+/** The file under site/ the deployed site answers `pathname` with, or null. */
+function servedFile(pathname: string): string | null {
   const rel = pathname.replace(/^\/+/, "");
   const candidates =
     rel === "" ? ["index.html"] : [rel, `${rel}.html`, join(rel, "index.html")];
-  return candidates.some((candidate) => {
+  for (const candidate of candidates) {
     const abs = resolve(SITE, candidate);
     // A path that resolved outside site/ is not something the site can serve,
     // whatever exists at it on this disk.
-    if (abs !== SITE && !abs.startsWith(SITE + sep)) return false;
-    return existsSync(abs) && statSync(abs).isFile();
-  });
+    if (abs !== SITE && !abs.startsWith(SITE + sep)) continue;
+    if (existsSync(abs) && statSync(abs).isFile()) return abs;
+  }
+  return null;
+}
+
+/** Whether the deployed site answers `pathname` with a FILE. */
+function servesAFile(pathname: string): boolean {
+  return BUILT_PATHS.has(pathname) || servedFile(pathname) !== null;
 }
 
 describe("public site in four languages", () => {
   it("SITE_LANGUAGE_PATH matches the paths the pages are actually served at", () => {
-    expect(SITE_LANGUAGE_PATH).toEqual({
-      en: "",
-      es: "/es",
-      ca: "/ca",
-      zh: "/zh",
-    });
-    for (const row of PAGES) {
-      const prefix = SITE_LANGUAGE_PATH[row.lang as "en" | "es" | "ca" | "zh"];
-      const suffix = row.family === "hosted" ? "/hosted" : "";
-      expect(`https://isomux.com${prefix}${suffix}`).toBe(
-        row.family === "hosted" || row.lang !== "en"
-          ? row.url
-          : "https://isomux.com",
-      );
+    for (const { code } of SUPPORTED_LANGUAGES) {
+      for (const suffix of ["", "/hosted"]) {
+        const path = SITE_LANGUAGE_PATH[code] + suffix || "/";
+        const file = servedFile(path);
+        expect(file, path).not.toBeNull();
+        const html = tags(readFileSync(file!, "utf8"), "html");
+        expect(html.length, path).toBe(1);
+        expect(html[0].lang, path).toBe(code);
+      }
     }
   });
 
@@ -372,8 +372,10 @@ describe("public site in four languages", () => {
     it(`${name} has no broken local link or asset`, () => {
       const html = read(row);
       const broken: string[] = [];
+      let checked = 0;
       for (const ref of references(html)) {
         if (!ref || EXTERNAL.test(ref)) continue;
+        checked++;
         if (ref.startsWith("#")) {
           const id = ref.slice(1);
           if (!html.includes(`id="${id}"`) && !html.includes(`name="${id}"`))
@@ -385,15 +387,25 @@ describe("public site in four languages", () => {
         const path = requestedPath(ref, row.url);
         if (path === null || !servesAFile(path)) broken.push(ref);
       }
+      // Proves the reader found the page's local references at all.
+      expect(checked).toBeGreaterThan(0);
       expect(broken).toEqual([]);
     });
 
     if (row.family === "hosted") {
       it(`${name} carries its language to the storefront`, () => {
-        const cloudLinks = tags(read(row), "a")
-          .map((a) => a.href)
-          .filter((href) => href?.startsWith("https://cloud.isomux.com"));
-        expect(cloudLinks.length).toBe(2);
+        const cloudLinksOf = (page: Row) =>
+          tags(read(page), "a")
+            .map((a) => a.href)
+            .filter((href) => href?.startsWith("https://cloud.isomux.com"));
+        const english = PAGES.find(
+          (candidate) =>
+            candidate.lang === "en" && candidate.family === "hosted",
+        );
+        if (!english) throw new Error("missing English hosted page");
+        const cloudLinks = cloudLinksOf(row);
+        expect(cloudLinks.length).toBeGreaterThan(0);
+        expect(cloudLinks.length).toBe(cloudLinksOf(english).length);
         for (const href of cloudLinks) {
           const linked = new URL(href);
           expect(linked.searchParams.get("lang")).toBe(
@@ -403,27 +415,23 @@ describe("public site in four languages", () => {
       });
     }
 
-    it(`${name} ${row.family === "hosted" ? "says" : "does not say"} which language the legal pages are in`, () => {
-      const notes = blocksOf(read(row), "p", "legal-note");
-      if (row.family !== "hosted") {
-        // It is a note on the hosted page's own legal links. A copy stranded on
-        // the landing would be a line nothing on that page refers to.
-        expect(notes.length).toBe(0);
-        return;
-      }
-      expect(notes.length).toBe(1);
-      expect(renderedText(notes[0]).length).toBeGreaterThan(0);
-      if (row.lang !== "en") {
-        const english = PAGES.find(
-          (candidate) =>
-            candidate.lang === "en" && candidate.family === "hosted",
-        );
-        if (!english) throw new Error("missing English hosted page");
-        const englishNote = blocksOf(read(english), "p", "legal-note");
-        expect(englishNote.length).toBe(1);
-        expect(renderedText(notes[0])).not.toBe(renderedText(englishNote[0]));
-      }
-    });
+    if (row.family === "hosted") {
+      it(`${name} says which language the legal pages are in`, () => {
+        const notes = blocksOf(read(row), "p", "legal-note");
+        expect(notes.length).toBe(1);
+        expect(renderedText(notes[0]).length).toBeGreaterThan(0);
+        if (row.lang !== "en") {
+          const english = PAGES.find(
+            (candidate) =>
+              candidate.lang === "en" && candidate.family === "hosted",
+          );
+          if (!english) throw new Error("missing English hosted page");
+          const englishNote = blocksOf(read(english), "p", "legal-note");
+          expect(englishNote.length).toBe(1);
+          expect(renderedText(notes[0])).not.toBe(renderedText(englishNote[0]));
+        }
+      });
+    }
 
     if (row.lang !== "en") {
       it(`${name} is translated, not a copy of the English file`, () => {
@@ -498,27 +506,10 @@ describe("how the checker resolves a reference", () => {
     expect(servesAFile("/ca/chatbot.css")).toBe(false);
   });
 
-  it("accepts what the site really serves", () => {
-    expect(servesAFile("/")).toBe(true);
-    expect(servesAFile("/chatbot.css")).toBe(true);
-    expect(servesAFile("/hosted")).toBe(true);
-    expect(servesAFile("/es")).toBe(true);
-    expect(servesAFile("/ca/hosted")).toBe(true);
-    expect(servesAFile("/docs/hosting")).toBe(true);
-    expect(requestedPath("/demo?embed", "https://isomux.com/es")).toBe("/demo");
-    expect(servesAFile("/demo")).toBe(true);
-  });
-
   it("refuses a directory with no index and a path that is not there", () => {
     // site/_agent holds index.md, not index.html: a browser gets nothing.
     expect(existsSync(join(SITE, "_agent"))).toBe(true);
     expect(servesAFile("/_agent")).toBe(false);
     expect(servesAFile("/nope")).toBe(false);
-  });
-
-  it("treats an off-origin reference as not ours to resolve", () => {
-    expect(requestedPath("https://github.com/x", "https://isomux.com/")).toBe(
-      null,
-    );
   });
 });

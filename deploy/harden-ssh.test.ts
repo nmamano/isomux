@@ -54,9 +54,9 @@ beforeAll(() => {
   stubs = join(dir, "bin");
   mkdirSync(stubs);
 
-  // The copy under test, minus the root guard (which is pinned separately) and
-  // with the two absolute paths the apply path writes to and reads from moved
-  // into the temp tree.
+  // The copy under test, minus the root guard (which is pinned separately),
+  // with the two absolute paths the apply path writes to and reads from, and
+  // the home directories the key scan reads, moved into the temp tree.
   testable = join(dir, "harden-ssh.sh");
   configDir = join(dir, "sshd_config.d");
   authorizedKeys = join(dir, "authorized_keys");
@@ -72,10 +72,15 @@ beforeAll(() => {
     .replace(
       "AUTHORIZED_KEYS_FILES=(/root/.ssh/authorized_keys /home/*/.ssh/authorized_keys)",
       `AUTHORIZED_KEYS_FILES=(${authorizedKeys})`,
+    )
+    .replace(
+      'for dir in /root/.ssh /home/*/.ssh "$SERVICE_HOME/.ssh"; do',
+      `for dir in ${dir}/root/.ssh ${dir}/homes/*/.ssh "$SERVICE_HOME/.ssh"; do`,
     );
   expect(stripped).not.toContain("$EUID -eq 0");
   expect(stripped).toContain(`SSHD_CONFIG_D=${configDir}`);
   expect(stripped).toContain(`AUTHORIZED_KEYS_FILES=(${authorizedKeys})`);
+  expect(stripped).toContain(`for dir in ${dir}/root/.ssh`);
   writeFileSync(testable, stripped);
 
   // runuser -u <user> -- env -i VAR=... <cmd>  ->  just <cmd>, so the stubs on
@@ -106,8 +111,12 @@ if [[ "\${1:-}" == -G ]]; then
   [[ -z "\${STUB_IDENTITYFILE:-}" ]] || printf 'identityfile %s\\n' "$STUB_IDENTITYFILE"
   exit 0
 fi
-[[ " $* " == *" -F /dev/null "* ]] || echo "STUB: ssh ran without -F /dev/null" >&2
-if [[ "$target" == *:* && -n "\${STUB_SSH_V6:-}" ]]; then
+# Without -F /dev/null the account's own config could redirect the probe, so
+# the stub answers as an unreadable outcome.
+if [[ " $* " != *" -F /dev/null "* ]]; then
+  echo "kex_exchange_identification: Connection closed by remote host" >&2
+  exit 255
+elif [[ "$target" == *:* && -n "\${STUB_SSH_V6:-}" ]]; then
   printf '%s\\n' "$STUB_SSH_V6" >&2
 elif [[ "$target" != *:* && -n "\${STUB_SSH_V4:-}" ]]; then
   printf '%s\\n' "$STUB_SSH_V4" >&2
@@ -161,7 +170,12 @@ fi
 exit "\${STUB_SUDO_RC:-1}"`,
   );
   stub("id", `case "\${1:-}" in -u) echo 1001 ;; -nG) echo isomux ;; esac`);
-  stub("getent", `echo "isomux:x:1001:1001::${dir}/home:/bin/bash"`);
+  // The service account's home: STUB_HOME, so concurrent cases that plant
+  // keys there each get their own.
+  stub(
+    "getent",
+    `echo "isomux:x:1001:1001::\${STUB_HOME:-${dir}/home}:/bin/bash"`,
+  );
   stub("passwd", `echo "isomux L 01/01/2026 0 99999 7 -1"`);
   // Derives a public key by default, so no candidate is left "unproven" and the
   // PASS headline is deterministic; STUB_KEYGEN_FAIL exercises the other side.
@@ -254,7 +268,8 @@ const CLOSED =
 const BANNER_INJECTION = `Permission denied (publickey).
 kex_exchange_identification: Connection closed by remote host`;
 
-describe("harden-ssh.sh --check", () => {
+// Each case runs its own script and plants files under its own names.
+describe.concurrent("harden-ssh.sh --check", () => {
   it("a successful login is a FAIL, whatever ssh exits with", async () => {
     const checks = ["0", "1", "255"].map(async (rc) => ({
       rc,
@@ -266,6 +281,8 @@ describe("harden-ssh.sh --check", () => {
     for (const { rc, code, output } of await Promise.all(checks)) {
       expect({ rc, code }).toEqual({ rc, code: 1 });
       expect(output).toContain("can reach root");
+      // The evidence that makes the failure fixable: root's key list.
+      expect(output).toContain("/root/.ssh/authorized_keys");
     }
   });
 
@@ -278,9 +295,14 @@ describe("harden-ssh.sh --check", () => {
       })),
     }));
     for (const { rc, code, output } of await Promise.all(checks)) {
+      // A PASS only when the probe ignored the account's ssh config (see the
+      // ssh stub).
       expect({ rc, code }).toEqual({ rc, code: 0 });
       expect(output).toContain("cannot log in as root over SSH");
       expect(output).toContain("and cannot sudo");
+      // The addresses it actually tried.
+      expect(output).toContain("127.0.0.1 port 22");
+      expect(output).toContain("::1 port 22");
     }
   });
 
@@ -304,19 +326,6 @@ describe("harden-ssh.sh --check", () => {
       expect(code).toBe(1);
       expect(output).toContain("logged in as root over SSH at");
     }
-  });
-
-  it("reports which addresses it actually tried", async () => {
-    const { output } = await check({ STUB_SSH_TRANSCRIPT: DENIED });
-    expect(output).toContain("127.0.0.1 port 22");
-    expect(output).toContain("::1 port 22");
-  });
-
-  it("ignores the service account's own ssh config", async () => {
-    // A HostName or ProxyCommand line there could send the probe somewhere
-    // else and manufacture a refusal.
-    const { output } = await check({ STUB_SSH_TRANSCRIPT: DENIED });
-    expect(output).not.toContain("STUB: ssh ran without -F /dev/null");
   });
 
   it("nothing listening is a PASS that says so", async () => {
@@ -417,7 +426,8 @@ describe("harden-ssh.sh --check", () => {
     // The login attempt can miss it: a from= restriction, a server that stopped
     // taking attempts, a key the client never offered. The key is still a way
     // in.
-    const home = join(dir, "home", ".ssh");
+    const serviceHome = mkdtempSync(join(dir, "home-"));
+    const home = join(serviceHome, ".ssh");
     mkdirSync(home, { recursive: true });
     writeFileSync(
       join(home, "deploy-key"),
@@ -426,17 +436,41 @@ describe("harden-ssh.sh --check", () => {
     const ak = join(dir, "root-authorized-keys");
     writeFileSync(ak, "ssh-ed25519 AAAAstubbedblobdeploy-key laptop\n");
     const { code, output } = await check({
+      STUB_HOME: serviceHome,
       STUB_SSH_TRANSCRIPT: DENIED,
       STUB_SSH_RC: "255",
       STUB_AK: ak,
     });
     expect(code).toBe(1);
     expect(output).toContain("ACCEPTED BY ROOT");
-    rmSync(join(dir, "home"), { recursive: true, force: true });
+    rmSync(serviceHome, { recursive: true, force: true });
+  });
+
+  it("a key whose name starts with a dot is scanned too", async () => {
+    // A key can be called anything, so the scan takes every file in .ssh.
+    const serviceHome = mkdtempSync(join(dir, "home-"));
+    const home = join(serviceHome, ".ssh");
+    mkdirSync(home, { recursive: true });
+    writeFileSync(
+      join(home, ".deploy"),
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nstub\n",
+    );
+    const ak = join(dir, "root-authorized-keys-dot");
+    writeFileSync(ak, "ssh-ed25519 AAAAstubbedblob.deploy laptop\n");
+    const { code, output } = await check({
+      STUB_HOME: serviceHome,
+      STUB_SSH_TRANSCRIPT: DENIED,
+      STUB_SSH_RC: "255",
+      STUB_AK: ak,
+    });
+    rmSync(serviceHome, { recursive: true, force: true });
+    expect(code).toBe(1);
+    expect(output).toContain(join(home, ".deploy"));
   });
 
   it("a commented-out line in root's key list is not a key root accepts", async () => {
-    const home = join(dir, "home", ".ssh");
+    const serviceHome = mkdtempSync(join(dir, "home-"));
+    const home = join(serviceHome, ".ssh");
     mkdirSync(home, { recursive: true });
     writeFileSync(
       join(home, "deploy-key"),
@@ -445,12 +479,13 @@ describe("harden-ssh.sh --check", () => {
     const ak = join(dir, "root-authorized-keys-commented");
     writeFileSync(ak, "# ssh-ed25519 AAAAstubbedblobdeploy-key old laptop\n");
     const { code } = await check({
+      STUB_HOME: serviceHome,
       STUB_SSH_TRANSCRIPT: DENIED,
       STUB_SSH_RC: "255",
       STUB_AK: ak,
     });
     expect(code).toBe(0);
-    rmSync(join(dir, "home"), { recursive: true, force: true });
+    rmSync(serviceHome, { recursive: true, force: true });
   });
 
   it("follows the account's ssh config to keys outside any .ssh directory", async () => {
@@ -535,7 +570,8 @@ describe("harden-ssh.sh --check", () => {
       const { code, output } = await check({
         STUB_SSH_TRANSCRIPT: REFUSED,
         STUB_SSH_RC: "255",
-        STUB_SS: `LISTEN 0 4096 127.0.0.1:${banner.port} 0.0.0.0:* users:(("dropbear",pid=1,fd=3))\n`,
+        // An owner name that proves nothing, so only the banner can.
+        STUB_SS: `LISTEN 0 4096 127.0.0.1:${banner.port} 0.0.0.0:* users:(("mystery",pid=1,fd=3))\n`,
         STUB_SSH_ALT_PORT: String(banner.port),
         STUB_SSH_ALT: AUTHENTICATED,
       });
@@ -547,22 +583,42 @@ describe("harden-ssh.sh --check", () => {
   });
 
   it("says out loud which listening ports it could not identify", async () => {
-    // A port that never speaks first is indistinguishable from a slow SSH
-    // server. Not enough to block an install; not something to hide either.
-    const silent = Bun.listen({
+    // Ports that are not SSH and not owned by an SSH daemon: one that answers
+    // in another protocol, and one that stays quiet, as an HTTP server does
+    // until the client speaks (the sniff's deadline bounds that one). Not
+    // enough to block an install; not something to hide either.
+    const quiet = Bun.listen({
       hostname: "127.0.0.1",
       port: 0,
       socket: { open: () => {}, data: () => {}, error: () => {} },
+    });
+    const answering = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        open: (s) => {
+          s.write("HTTP/1.1 400 Bad Request\r\n");
+          s.end();
+        },
+        data: () => {},
+        error: () => {},
+      },
     });
     try {
       const { code, output } = await check({
         STUB_SSH_TRANSCRIPT: DENIED,
         STUB_SSH_RC: "255",
-        STUB_SS: `LISTEN 0 4096 127.0.0.1:${silent.port} 0.0.0.0:* users:(("mystery",pid=2,fd=3))\n`,
+        STUB_SS: [quiet, answering]
+          .map(
+            (l, i) =>
+              `LISTEN 0 4096 127.0.0.1:${l.port} 0.0.0.0:* users:(("mystery",pid=${i + 2},fd=3))\n`,
+          )
+          .join(""),
       });
       expect(code).toBe(0);
       expect(output).toContain("not identified");
-      expect(output).toContain(`port ${silent.port}`);
+      expect(output).toContain(`port ${quiet.port}`);
+      expect(output).toContain(`port ${answering.port}`);
       // ...and the headline says so too: an absolute "cannot log in" next to
       // "this port was not tested" cannot both be true.
       expect(output).toContain("no way in was found");
@@ -570,22 +626,24 @@ describe("harden-ssh.sh --check", () => {
         "PASSED - the isomux service account cannot log in",
       );
     } finally {
-      silent.stop(true);
+      quiet.stop(true);
+      answering.stop(true);
     }
-    // Longer than the default: a silent port costs the sniff its full deadline,
-    // which is the behaviour under test.
-  }, 20000);
+    // The quiet port costs the sniff its 5 s deadline.
+  }, 20_000);
 
   it("softens the headline when a key on the box could not be opened", async () => {
     // "Cannot log in" next to "we could not check this key" would contradict
     // itself. The guarantee is narrowed to what was actually testable.
-    const home = join(dir, "home", ".ssh");
+    const serviceHome = mkdtempSync(join(dir, "home-"));
+    const home = join(serviceHome, ".ssh");
     mkdirSync(home, { recursive: true });
     writeFileSync(
       join(home, "locked-key"),
       "-----BEGIN OPENSSH PRIVATE KEY-----\nstub\n",
     );
     const { code, output } = await check({
+      STUB_HOME: serviceHome,
       STUB_SSH_TRANSCRIPT: DENIED,
       STUB_SSH_RC: "255",
       STUB_KEYGEN_FAIL: "1",
@@ -593,18 +651,7 @@ describe("harden-ssh.sh --check", () => {
     expect(code).toBe(0);
     expect(output).toContain("no way in was found");
     expect(output).toContain("locked-key");
-    rmSync(join(dir, "home"), { recursive: true, force: true });
-  });
-
-  it("prints the evidence that makes a failure fixable", async () => {
-    // A verdict with no evidence is a dead end for whoever has to fix the box.
-    const { output } = await check({
-      STUB_SSH_TRANSCRIPT: AUTHENTICATED,
-      STUB_SSH_RC: "0",
-    });
-    expect(output).toContain("What is on this box:");
-    expect(output).toContain("/root/.ssh/authorized_keys");
-    expect(output).toContain("How to fix it:");
+    rmSync(serviceHome, { recursive: true, force: true });
   });
 });
 
@@ -627,34 +674,6 @@ describe("harden-ssh.sh source", () => {
     // have, turning a clean box into a false alarm.
     expect(SRC).toContain("env -i");
     expect(SRC).toContain("-o BatchMode=yes");
-  });
-
-  it("classifies on the transcript, not the exit status", () => {
-    expect(SRC).toContain(
-      "^(Authenticated to |debug1: Authentication succeeded)",
-    );
-    // Anchored: an unanchored search could be fed by a server banner.
-    expect(SRC).toContain("^root@[^ ]+: Permission denied[ ,(]");
-    // The probe's own status is deliberately discarded.
-    expect(SRC).toMatch(/"root@\$addr" true 2>&1\) \|\| true/);
-  });
-
-  it("a readable key that root accepts fails on its own", () => {
-    // Independent of the login attempt: a restriction in authorized_keys can
-    // hide the same key from a probe, and the key is still a way in.
-    const guard = SRC.indexOf("if [[ -n $KEY_HIT && $SSH_STATE != FAIL ]]");
-    expect(guard).toBeGreaterThan(-1);
-    const block = SRC.slice(guard, SRC.indexOf("\n  fi\n", guard));
-    expect(block).toContain("SSH_STATE=FAIL");
-  });
-
-  it("treats a passphrase-locked key as unproven, not safe", () => {
-    expect(SRC).toContain(
-      "locked with a passphrase, so whether root accepts it could not be tested",
-    );
-    // Said on a PASS too, not only when something already went wrong.
-    const pass = SRC.slice(SRC.indexOf("report_pass() {"));
-    expect(pass).toContain("KEY_UNPROVEN");
   });
 });
 

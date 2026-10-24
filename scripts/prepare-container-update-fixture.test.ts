@@ -160,6 +160,9 @@ test("fixture cleanup removes the labelled registry with its volume and every fi
 test("fixture cleanup leaves a container without the fixture label alone", () => {
   const { code, events, dir } = cleanup([], ["com.example.other=1"]);
   expect(code).toBe(0);
+  // It looked the registry up and went on to the images.
+  expect(events.some((e) => e.startsWith("ps "))).toBe(true);
+  expect(events.some((e) => e.startsWith("image ls --digests"))).toBe(true);
   expect(removedContainers(events)).toEqual([]);
   expect(existsSync(join(dir, "container"))).toBe(true);
 });
@@ -177,6 +180,9 @@ test("a registry that was created but failed to start is removed with its volume
 test("a registry another run created under the same name is left alone", () => {
   const { code, events, dir } = prepare("collision");
   expect(code).not.toBe(0);
+  expect(events.some((e) => e.startsWith(`run -d --name ${REGISTRY}`))).toBe(
+    true,
+  );
   expect(removedContainers(events)).toEqual([]);
   expect(existsSync(join(dir, "container"))).toBe(true);
   expect(events.some((e) => e.startsWith("image ls --digests"))).toBe(false);

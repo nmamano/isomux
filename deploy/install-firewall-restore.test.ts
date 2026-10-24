@@ -17,6 +17,8 @@ function fixture(options: {
   status: string;
   record?: string;
   updateConf?: boolean;
+  // Write the record with a real full-install configure_firewall first.
+  installSshPort?: string;
 }) {
   const root = mkdtempSync(join(tmpdir(), "isomux-firewall-restore-"));
   roots.push(root);
@@ -36,6 +38,17 @@ if [[ $* == 'status verbose' ]]; then cat "$STATUS_FILE"; fi
 `,
   );
   chmodSync(ufw, 0o755);
+  const install =
+    options.installSshPort === undefined
+      ? ""
+      : `
+eval "$(sed -n '/^configure_firewall()/,/^}/p' "$INSTALL_SH")"
+step() { :; }
+install_hardening_verifier() { :; }
+VERIFY_HARDENING_TOOL=true
+SSH_PORT=${options.installSshPort}
+CALLS="$CALLS.install" configure_firewall
+`;
   const script = `
 eval "$(sed -n '/^restore_recorded_firewall_rules()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^backfill_firewall_record()/,/^}/p' "$INSTALL_SH")"
@@ -49,6 +62,7 @@ outcome_add() { :; }
 run() { "$@"; }
 die() { echo "DIE: $*"; exit 1; }
 write_file() { local path=$1 mode=$2; cat > "$path"; chmod "$mode" "$path"; }
+${install}
 backfill_firewall_record
 restore_recorded_firewall_rules
 `;
@@ -70,6 +84,9 @@ restore_recorded_firewall_rules
     record: existsSync(record) ? readFileSync(record, "utf8") : null,
   };
 }
+
+const allows = (calls: string) =>
+  calls.split("\n").filter((call) => call.startsWith("allow "));
 
 const active = (rules: string) => `Status: active
 Default: deny (incoming), allow (outgoing), disabled (routed)
@@ -101,9 +118,7 @@ describe("installer-managed firewall rule restoration", () => {
     expect(result.code).toBe(0);
     expect(result.calls).not.toContain("allow ");
     expect(result.calls).not.toContain("enable");
-    expect(result.out).toContain(
-      "ISOMUX_UPDATE_WARNING=ufw is inactive; installer-managed firewall rules were not restored",
-    );
+    expect(result.out).toMatch(/^LOG: ISOMUX_UPDATE_WARNING=\S/m);
   });
 
   it("backfills only existing web rules on a legacy box", () => {
@@ -119,11 +134,13 @@ describe("installer-managed firewall rule restoration", () => {
 
   it("does not backfill a partial or inactive legacy policy", () => {
     const partial = fixture({ status: active("80/tcp ALLOW IN Anywhere\n") });
+    expect(partial.code).toBe(0);
     expect(partial.record).toBeNull();
     const inactive = fixture({
       status:
         "Status: inactive\n80/tcp ALLOW IN Anywhere\n443/tcp ALLOW IN Anywhere\n",
     });
+    expect(inactive.code).toBe(0);
     expect(inactive.record).toBeNull();
   });
 
@@ -132,6 +149,7 @@ describe("installer-managed firewall rule restoration", () => {
       status: active("80/tcp ALLOW IN Anywhere\n443/tcp ALLOW IN Anywhere\n"),
       updateConf: false,
     });
+    expect(result.code).toBe(0);
     expect(result.record).toBeNull();
   });
 
@@ -141,6 +159,26 @@ describe("installer-managed firewall rule restoration", () => {
       record: "kind=install\nanywhere\n",
     });
     expect(result.code).toBe(1);
+    expect(result.out).toMatch(/^DIE: /m);
     expect(result.calls).not.toContain("allow anywhere");
+  });
+
+  it("restores the SSH rule from the record a full install wrote", () => {
+    const result = fixture({
+      status: active("80/tcp ALLOW IN Anywhere\n443/tcp ALLOW IN Anywhere\n"),
+      installSshPort: "2222",
+    });
+    expect(result.code).toBe(0);
+    expect(allows(result.calls)).toEqual(["allow 2222/tcp"]);
+  });
+
+  it("records no SSH rule when the install opened no SSH port", () => {
+    // A web rule is missing too, so the reader must parse every line it got.
+    const result = fixture({
+      status: active("80/tcp ALLOW IN Anywhere\n"),
+      installSshPort: "none",
+    });
+    expect(result.code).toBe(0);
+    expect(allows(result.calls)).toEqual(["allow 443/tcp"]);
   });
 });

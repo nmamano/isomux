@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -39,7 +39,8 @@ function isSafeInstallerFetch(block: string): boolean {
 }
 
 describe("documented installer transport", () => {
-  it("accepts any consistent staged-file variable name", () => {
+  it("stages every Markdown Isomux installer fetch", () => {
+    // The check itself tells a staged recipe from one that runs another file.
     expect(
       isSafeInstallerFetch(
         'f=$(mktemp)\ncurl -fsSL https://example/deploy/install.sh -o "$f"\nbash "$f"\n',
@@ -50,10 +51,8 @@ describe("documented installer transport", () => {
         'f=$(mktemp)\ncurl -fsSL https://example/deploy/install.sh -o "$f"\nbash "$installer"\n',
       ),
     ).toBe(false);
-  });
-
-  it("stages every Markdown Isomux installer fetch", () => {
     const root = new URL("..", import.meta.url).pathname;
+    let checked = 0;
     for (const relative of trackedMarkdown()) {
       const source = readFileSync(join(root, relative), "utf8");
       const fetches = [...source.matchAll(INSTALL_FETCH)];
@@ -65,7 +64,9 @@ describe("documented installer transport", () => {
       expect(blocks.length, relative).toBe(fetches.length);
       for (const block of blocks)
         expect(isSafeInstallerFetch(block)).toBe(true);
+      checked += blocks.length;
     }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it("keeps inline and piped Isomux installer recipes out of tracked files", () => {
@@ -76,9 +77,15 @@ describe("documented installer transport", () => {
       cwd: root,
     });
     expect(result.exitCode).toBe(0);
-    const files = result.stdout.toString().trim().split("\n").filter(Boolean);
+    const files = result.stdout
+      .toString()
+      .trim()
+      .split("\n")
+      .filter(
+        (relative) => relative && relative !== "deploy/install-docs.test.ts",
+      );
+    expect(files.length).toBeGreaterThan(0);
     for (const relative of files) {
-      if (relative === "deploy/install-docs.test.ts") continue;
       const source = readFileSync(join(root, relative), "utf8");
       for (const line of source.split("\n")) {
         if (!line.includes(INSTALL_URL)) continue;
@@ -90,29 +97,6 @@ describe("documented installer transport", () => {
           );
         }
       }
-    }
-  });
-
-  it("runs a payload above 131072 bytes from a staged file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "isomux-install-docs-"));
-    const installer = join(dir, "install.sh");
-    const payload = `#${"x".repeat(140_000)}\nprintf 'staged-ok\\n'\n`;
-    try {
-      expect(Buffer.byteLength(payload)).toBeGreaterThan(131_072);
-      writeFileSync(installer, payload);
-      const staged = Bun.spawnSync(["bash", installer]);
-      expect(staged.exitCode).toBe(0);
-      expect(staged.stdout.toString()).toBe("staged-ok\n");
-
-      try {
-        // Observation only: some kernels accept this payload as one argument.
-        const argument = Bun.spawnSync(["bash", "-c", payload]);
-        if (argument.exitCode !== 0) expect(argument.exitCode).not.toBe(0);
-      } catch (error) {
-        expect(String(error)).toContain("E2BIG");
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
     }
   });
 

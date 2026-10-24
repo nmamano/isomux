@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -10,7 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const source = readFileSync(new URL("./update.sh", import.meta.url), "utf8");
-const definitions = source.slice(0, source.lastIndexOf('\nmain "$@"'));
+// Everything but the call to main: the tests call the functions themselves.
+const mainAt = source.lastIndexOf('\nmain "$@"');
+if (mainAt < 0) throw new Error('update.sh no longer ends with main "$@"');
+const definitions = source.slice(0, mainAt);
 
 async function fixture(script: string) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-container-ops-"));
@@ -41,41 +45,70 @@ READY_TIMEOUT_S=1
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    return { code, output: out + err };
+    const statusFile = join(dir, "status", "status.json");
+    const status = existsSync(statusFile)
+      ? (JSON.parse(readFileSync(statusFile, "utf8")) as {
+          phase: string;
+          result: string;
+        })
+      : null;
+    return { code, output: out + err, status };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-test("container image revision mismatch fails before stopping the office", async () => {
-  const result = await fixture(`
+// An image built from another source is never deployed: the image phase
+// refuses it, and the release's own image goes on to the assets phase (which
+// this fixture cannot complete).
+test.each([
+  ["another commit", "image", "$OLD_COMMIT"],
+  ["the release's commit", "assets", "$target_commit"],
+])(
+  "an image labelled with %s stops in the %s phase",
+  async (_, phase, label) => {
+    const result = await fixture(`
 docker() {
   if [[ $1 == pull ]]; then return; fi
-  if [[ "$*" == *RepoDigests* ]]; then printf '["ghcr.io/nmamano/isomux@sha256:${"c".repeat(64)}"]'; else echo "$OLD_COMMIT"; fi
+  if [[ "$*" == *RepoDigests* ]]; then printf '["ghcr.io/nmamano/isomux@sha256:${"c".repeat(64)}"]'; else echo "${label}"; fi
 }
-svc() { echo UNEXPECTED_SERVICE_MUTATION; }
 container_prepare
-svc stop isomux-container
-`);
-  expect(result.code).not.toBe(0);
-  expect(result.output).not.toContain("UNEXPECTED_SERVICE_MUTATION");
-  expect(result.output).toContain("image source revision");
-});
-
-test("HTTP readiness alone cannot accept an incorrect running image identity", async () => {
-  const ready = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-  try {
-    const result = await fixture(`
-BASE_URL=http://127.0.0.1:${ready.port}
-container_compose() { printf '{"commit":"${"a".repeat(40)}","release":"v2099.1.1"}'; }
-container_ready
 `);
     expect(result.code).not.toBe(0);
-    expect(result.output).toContain("running container version");
-  } finally {
-    await ready.stop(true);
-  }
-});
+    expect(result.status?.phase).toBe(phase);
+    if (phase === "image") expect(result.status?.result).toBe("failed");
+  },
+);
+
+// HTTP readiness alone cannot accept an incorrect running image identity.
+test.each([
+  ["the release's", 0, "b".repeat(40), "v2099.1.2"],
+  ["an old release's", 1, "b".repeat(40), "v2099.1.1"],
+  ["another commit's", 1, "a".repeat(40), "v2099.1.2"],
+])(
+  "a ready office that reports %s identity exits %d",
+  async (_, code, commit, release) => {
+    let probes = 0;
+    const ready = Bun.serve({
+      port: 0,
+      fetch: () => {
+        probes++;
+        return new Response("ok");
+      },
+    });
+    try {
+      const result = await fixture(`
+BASE_URL=http://127.0.0.1:${ready.port}
+container_compose() { printf '{"commit":"${commit}","release":"${release}"}'; }
+container_ready
+`);
+      expect(probes).toBeGreaterThan(0);
+      expect(result.code).toBe(code);
+    } finally {
+      await ready.stop(true);
+    }
+  },
+);
 
 const OLD_IMAGE = `ghcr.io/nmamano/isomux@sha256:${"1".repeat(64)}`;
 const NEW_IMAGE = `ghcr.io/nmamano/isomux@sha256:${"2".repeat(64)}`;
@@ -131,6 +164,7 @@ test("a container update never removes the image it now runs", async () => {
   });
   expect(result.code).toBe(0);
   expect(removed(result.output)).toEqual([]);
+  expect(result.output).toContain(`RECORDED v2099.1.2 ${NEW_IMAGE}`);
 });
 
 test("a refused image removal does not fail a finished update", async () => {

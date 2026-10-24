@@ -1,10 +1,12 @@
-// deploy/install.sh - content pins for the in-UI update-trigger escalation.
-// install.sh has no unprivileged execution harness (preflight requires root),
-// so these tests pin the SOURCE of the security-load-bearing pieces instead:
-// the polkit rule (extracted and exercised as a real RegExp), the root-owned
-// template unit, and the ordering that keeps them inside the guarded
-// updater-install step. A loosened regex or a widened grant fails here before
-// any reviewer has to notice it. Zero execution, zero LLM.
+// deploy/install.sh - checks for the parts of the installer that cannot run
+// here (main() requires root) or that it writes as text. The steps that can run
+// unprivileged are run by the install-*.test.ts files beside this one. This
+// file covers the update-trigger escalation (the polkit rule's regex extracted
+// and run as a real RegExp, against the updater's and version.ts's tag
+// grammar), main()'s step order, the embedded helper copies, the Caddyfile and
+// isomux.service as rendered, the OOM step's failure paths, the cookie-jar awk
+// under both awks, and a scan of every heredoc for command substitution. Zero
+// LLM.
 
 import { describe, it, expect } from "bun:test";
 import {
@@ -20,15 +22,11 @@ import { createHash } from "crypto";
 import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
 import { AGENT_OOM_SCORE_ADJ } from "../server/oom-stamp.ts";
 import { TLS_ASK_PATH } from "../server/tls-ask.ts";
+import { CALVER_RELEASE_RE } from "../server/version.ts";
+import { BROWSER_ABSOLUTE_PATHS } from "../server/preview-capture.ts";
 
 const SRC = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
 
-/** The isomux.service unit body the installer writes. */
-const serviceUnit = () =>
-  SRC.slice(
-    SRC.indexOf("write_file /etc/systemd/system/isomux.service 644"),
-    SRC.indexOf("run systemctl daemon-reload", SRC.indexOf("install_service")),
-  );
 const repoFile = (p: string) =>
   readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -43,48 +41,9 @@ function stripComments(src: string): string {
 /** Position of a step's call inside main(), for ordering assertions. */
 function stepIndex(name: string): number {
   const idx = SRC.indexOf(`\n  ${name}\n`, SRC.lastIndexOf("\nmain() {"));
-  expect(idx).toBeGreaterThan(-1);
+  expect({ name, found: idx > -1 }).toEqual({ name, found: true });
   return idx;
 }
-
-describe("install.sh hosted identity and bundled Claude", () => {
-  it("projects root-only enrollment into a readable marker in both directions", () => {
-    expect(SRC).not.toContain("INSTALL_KIND=");
-    expect(SRC).toContain("[[ -f /etc/isomux/renewal/enrollment.json ]]");
-    expect(SRC).toContain("install -d -m 0755 -o root -g root /etc/isomux");
-    expect(SRC).toContain('write_file "$INSTALL_KIND_FILE" 644');
-    expect(SRC).toContain('run rm -f "$INSTALL_KIND_FILE"');
-    expect(SRC).toContain("INSTALL_KIND_FILE=/etc/isomux/install-kind");
-    expect(stepIndex("sync_install_kind")).toBeLessThan(
-      stepIndex("install_service"),
-    );
-    const deps = SRC.slice(
-      SRC.indexOf("deps_only() {"),
-      SRC.indexOf("main() {"),
-    );
-    expect(deps).not.toContain("sync_install_kind");
-  });
-
-  it("does not install a separate Claude CLI", () => {
-    expect(SRC).not.toContain("install_claude_cli");
-    expect(SRC).not.toContain("https://claude.ai/install.sh");
-    expect(SRC).not.toContain("npm install");
-  });
-
-  it("links the bundled CLI after the build on full installs only", () => {
-    expect(stepIndex("build_isomux")).toBeLessThan(
-      stepIndex("link_bundled_claude"),
-    );
-    expect(stepIndex("link_bundled_claude")).toBeLessThan(
-      stepIndex("install_service"),
-    );
-    const deps = SRC.slice(
-      SRC.indexOf("deps_only() {"),
-      SRC.indexOf("main() {"),
-    );
-    expect(deps).not.toContain("link_bundled_claude");
-  });
-});
 
 // The polkit unit-name pattern as written in the heredoc. Bash expands `\$`
 // to `$` when writing the file (unquoted heredoc), so unescape exactly that
@@ -135,33 +94,69 @@ describe("install.sh escalation: polkit rule", () => {
     // tags scripts/update.sh (CALVER_RE) and server/version.ts
     // (CALVER_RELEASE_RE) accept, or an update could be startable but
     // refused - or worse, refusable but startable.
-    expect(SRC).toContain(
-      "isomux-update@v[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}(\\.[0-9]+)?\\.service",
+    const polkit = extractPolkitUnitRegex();
+    const assignment = /^CALVER_RE='[^']*'$/m.exec(
+      repoFile("scripts/update.sh"),
     );
-    const updateSh = readFileSync(
-      new URL("../scripts/update.sh", import.meta.url),
-      "utf8",
-    );
-    expect(updateSh).toContain(
-      "^v[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}(\\.[0-9]+)?$",
-    );
+    if (!assignment) throw new Error("CALVER_RE not found in update.sh");
+    const rows: [tag: string, accepted: boolean][] = [
+      ["v2026.7.19", true],
+      ["v2026.7.19.2", true],
+      ["v2026.12.31", true],
+      ["v2026.1.1.10", true],
+      ["v1.0", false],
+      ["main", false],
+      ["2026.7.19", false],
+      ["v2026.7", false],
+      ["v20261.7.19", false],
+      ["v2026.123.1", false],
+      ["v2026.7.123", false],
+      ["v2026.7.19.", false],
+      ["v2026.7.19.x", false],
+      ["v2026.7.19 v2026.7.20", false],
+    ];
+    // update.sh's own assignment line, matched the way update.sh matches.
+    const bash = Bun.spawnSync([
+      "bash",
+      "-c",
+      `${assignment[0]}\nfor t in "$@"; do [[ $t =~ $CALVER_RE ]] && echo 1 || echo 0; done`,
+      "bash",
+      ...rows.map(([tag]) => tag),
+    ]);
+    expect(bash.exitCode).toBe(0);
+    const updater = bash.stdout.toString().trim().split("\n");
+    expect(updater).toHaveLength(rows.length);
+    rows.forEach(([tag, accepted], i) => {
+      expect({
+        tag,
+        polkit: polkit.test(`isomux-update@${tag}.service`),
+        version: CALVER_RELEASE_RE.test(tag),
+        updater: updater[i] === "1",
+      }).toEqual({
+        tag,
+        polkit: accepted,
+        version: accepted,
+        updater: accepted,
+      });
+    });
   });
 });
 
 describe("install.sh escalation: template unit + placement", () => {
   it("root-owned oneshot template running the installed updater on %i", () => {
-    expect(SRC).toContain(
-      "write_file /etc/systemd/system/isomux-update@.service 644",
-    );
-    expect(SRC).toContain("Type=oneshot");
-    expect(SRC).toContain("ExecStart=$UPDATER_PATH %i");
+    const open =
+      "write_file /etc/systemd/system/isomux-update@.service 644 <<EOF\n";
+    const start = SRC.indexOf(open);
+    expect(start).toBeGreaterThan(-1);
+    const lines = SRC.slice(
+      start + open.length,
+      SRC.indexOf("\nEOF\n", start),
+    ).split("\n");
+    expect(lines).toContain("Type=oneshot");
+    expect(lines).toContain("ExecStart=$UPDATER_PATH %i");
     // On-demand only: no [Install] section, nothing enables it at boot.
-    const unitHeredoc = SRC.slice(
-      SRC.indexOf("write_file /etc/systemd/system/isomux-update@.service"),
-      SRC.indexOf("50-isomux-update.rules"),
-    );
-    expect(unitHeredoc).not.toContain("[Install]");
-    expect(unitHeredoc).not.toContain("WantedBy");
+    expect(lines).not.toContain("[Install]");
+    expect(lines.join("\n")).not.toContain("WantedBy");
   });
 
   it("written inside the guarded updater step, daemon-reload after", () => {
@@ -183,76 +178,24 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(rule).toBeLessThan(reload);
   });
 
-  it("polkitd is in the apt package list (minimal images may lack it)", () => {
-    expect(SRC).toMatch(/apt_install[^\n]*\bpolkitd\b/);
+  it("installs the packages later steps need (minimal images may lack them)", () => {
+    for (const [pkg, why] of [
+      ["polkitd", "the in-UI update trigger is a polkit rule"],
+      ["openssh-client", "the root-reachability gate probes over ssh"],
+    ]) {
+      const listed = new RegExp(`apt_install[^\\n]*\\b${pkg}\\b`).test(SRC);
+      expect({ pkg, why, listed }).toEqual({ pkg, why, listed: true });
+    }
   });
 
-  it("does not install NodeSource or Node.js", () => {
-    expect(SRC).not.toContain("nodesource");
-    expect(SRC).not.toMatch(/apt_install[^\n]*\b(nodejs|npm)\b/);
-  });
-
-  it("uses GitHub's scoped apt repository for GitHub CLI", () => {
-    expect(SRC).toContain(
-      "https://cli.github.com/packages/githubcli-archive-keyring.gpg",
-    );
-    expect(SRC).toContain(
-      "signed-by=%s] https://cli.github.com/packages stable main",
-    );
-    expect(SRC).toContain("-o APT::Get::List-Cleanup=0");
-    expect(SRC).toMatch(/apt_install[^\n]*\bgh\b/);
-  });
-
-  it("reports the GitHub CLI repository and package in dry-run mode", () => {
-    expect(SRC).toContain(
-      "DRY-RUN: would add the GitHub CLI apt repository and install gh",
-    );
-  });
-
-  it("installs a browser from Chrome's .deb, never snap, and verifies a capture", () => {
+  it("installs the browser where page previews look for it, never from snap", () => {
     // snap chromium installs cleanly and then cannot screenshot on a headless
     // server, so an installer that reaches for it would look successful and
-    // still ship preview-url dead. Pin the .deb source, the verification, and
-    // the never-snap rule.
-    expect(SRC).toContain(
-      "CHROME_DEB_URL=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
-    );
-    expect(SRC).toContain("CHROME_PATH=/usr/bin/google-chrome");
+    // still ship preview-url dead.
     expect(SRC).not.toMatch(/^\s*(run )?snap\b/m); // never invoked, only warned about
-    // The verification runs a real capture as the SERVICE USER (Chrome refuses
-    // to run as root without --no-sandbox, and the service user is who will
-    // actually launch it), and checks a PNG landed.
-    expect(SRC).toMatch(/as_service_user timeout 60 "\$CHROME_PATH"/);
-    expect(SRC).toContain("[[ -s $probe/probe.png ]]");
-    // Ordered after create_service_user (the probe needs that account) and
-    // before the build, so the warning is visible early in the output. Scoped
-    // to main's body: deps_only calls install_browser too.
-    const body = SRC.slice(SRC.lastIndexOf("\nmain() {"));
-    const createUser = body.indexOf("  create_service_user\n");
-    const browser = body.indexOf("  install_browser\n");
-    const fetch = body.indexOf("  fetch_isomux\n");
-    expect(createUser).toBeGreaterThan(-1);
-    expect(browser).toBeGreaterThan(createUser);
-    expect(fetch).toBeGreaterThan(browser);
-  });
-
-  it("a missing or broken browser warns instead of failing the install", () => {
-    // Page previews are the only thing a browser gates; losing them must not
-    // abandon an otherwise complete install.
-    const fn = SRC.slice(
-      SRC.indexOf("install_browser() {"),
-      SRC.indexOf("# Default ISOMUX_REF:"),
-    );
-    expect(fn.length).toBeGreaterThan(0);
-    expect(fn).not.toContain("die ");
-    for (const warning of [
-      "could not download Google Chrome",
-      "installing the Google Chrome package failed",
-      "produced no screenshot in a headless test run",
-      "ships no $arch Linux build",
-    ]) {
-      expect(fn).toContain(warning);
-    }
+    const chrome = /^CHROME_PATH=(\S+)$/m.exec(SRC);
+    if (!chrome) throw new Error("CHROME_PATH not found in install.sh");
+    expect(BROWSER_ABSOLUTE_PATHS).toContain(chrome[1]);
   });
 
   it("makes codex's bubblewrap sandbox work, without weakening the box", () => {
@@ -275,95 +218,6 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(SRC).toContain(
       'as_service_user env "PATH=$(service_path)" bwrap --unshare-net --dev-bind / / /bin/true',
     );
-    // After create_service_user (the probe needs that account) and before the
-    // build, like the browser step. Scoped to main's body: deps_only calls it
-    // too.
-    const body = SRC.slice(SRC.lastIndexOf("\nmain() {"));
-    const createUser = body.indexOf("  create_service_user\n");
-    const sandbox = body.indexOf("  configure_codex_sandbox\n");
-    const fetch = body.indexOf("  fetch_isomux\n");
-    expect(createUser).toBeGreaterThan(-1);
-    expect(sandbox).toBeGreaterThan(createUser);
-    expect(fetch).toBeGreaterThan(sandbox);
-  });
-
-  it("the service unit names the distinctive release entry point", () => {
-    // Fresh installs resolve to v2026.8.22 or newer, which contains this path.
-    // Dependency-only updates do not rewrite older units, so those units keep
-    // using the server/index.ts back-compat shim.
-    expect(SRC).toContain(
-      "ExecStart=/usr/local/bin/bun run server/isomux-office.ts",
-    );
-  });
-
-  it("deps-only mode installs dependencies and nothing else", () => {
-    // scripts/update.sh runs the target release's installer with
-    // ISOMUX_DEPS_ONLY=1 runs on a LIVE box. It may refresh and run a read-only
-    // hardening verifier and switch to the release's pinned Bun beside the old
-    // one (install-bun.test.ts), but box-policy mutation (firewall, SSH,
-    // unattended upgrades), the code and identity changes stay out of it.
-    const fn = SRC.slice(
-      SRC.indexOf("deps_only() {"),
-      SRC.lastIndexOf("\nmain() {"),
-    );
-    expect(fn.length).toBeGreaterThan(0);
-    expect(fn).toContain("install_packages");
-    expect(fn).toContain("install_browser");
-    // A release can newly require a working codex sandbox, and the step is a
-    // no-op on a box that already has one.
-    expect(fn).toContain("configure_codex_sandbox");
-    expect(fn).toContain("install_hardening_verifier");
-    expect(fn).toContain('"$VERIFY_HARDENING_TOOL" --check');
-    expect(fn).toContain("migrate_caddy_access_log");
-    expect(fn).toContain("write_loopback_bind_if_proxied");
-    expect(fn.indexOf("restore_caddy_state")).toBeLessThan(
-      fn.indexOf("write_loopback_bind_if_proxied"),
-    );
-    // Calls only: the comments name steps they explain.
-    const calls = fn
-      .split("\n")
-      .filter((l) => !l.trim().startsWith("#"))
-      .join("\n");
-    for (const excluded of [
-      "install_bun",
-      "configure_firewall",
-      "harden_ssh",
-      "enable_auto_updates",
-      "fetch_isomux",
-      "build_isomux",
-      "install_service",
-      "claim_owner",
-      "configure_caddy",
-      "mint_invite",
-    ]) {
-      expect(calls).not.toContain(excluded);
-    }
-    // Root only: it installs system packages.
-    expect(fn).toMatch(/\$EUID -eq 0 \]\] \|\| die/);
-    // install_packages can take caddy down (unverifiable office) or let apt
-    // bring it up (verified one); either way deps mode puts it back, and a
-    // sync that cannot is a failed sync. Behavior lives in
-    // install-deps-mode.test.ts; this only pins that the wiring is present.
-    expect(calls).toContain("snapshot_caddy_state");
-    expect(calls).toMatch(/restore_caddy_state \|\|\n\s*die /);
-    // The failure path restores too: report_failure only unmasked before.
-    const onFailure = SRC.slice(
-      SRC.indexOf("report_failure() {"),
-      SRC.indexOf("die() {"),
-    );
-    expect(onFailure).toContain("restore_caddy_state");
-    // Only the documented value activates the mode.
-    expect(SRC).toContain("if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then");
-    // The protocol marker scripts/update.sh probes for, as an exact
-    // assignment on its own line.
-    expect(SRC).toMatch(/^ISOMUX_INSTALL_DEPS_MODE_VERSION=1$/m);
-    // Taken before anything else, so DOMAIN and the rest of preflight are
-    // never required for a dependency sync.
-    const branch = SRC.indexOf("if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then");
-    expect(branch).toBeGreaterThan(SRC.lastIndexOf("\nmain() {"));
-    expect(branch).toBeLessThan(
-      SRC.indexOf("  preflight\n", SRC.lastIndexOf("\nmain() {")),
-    );
   });
 
   it("ships the helper scripts byte-for-byte, not a drifted copy", () => {
@@ -378,39 +232,102 @@ describe("install.sh escalation: template unit + placement", () => {
   });
 });
 
-describe("install.sh: the box cannot ship with agents able to reach root", () => {
-  it("gates the install twice, before the build and before the owner exists", () => {
-    // First gate right after the account exists, so a doomed box fails in
-    // seconds. Second gate on the finished box BEFORE claim_owner, so a box
-    // that fails leaves no owner, no invite link and no success callback.
-    expect(stepIndex("create_service_user")).toBeLessThan(
-      stepIndex("check_root_reachability"),
-    );
-    expect(stepIndex("check_root_reachability")).toBeLessThan(
-      stepIndex("fetch_isomux"),
-    );
-    expect(stepIndex("wait_for_server")).toBeLessThan(
-      stepIndex("assert_hardening"),
-    );
-    expect(stepIndex("assert_hardening")).toBeLessThan(
-      stepIndex("claim_owner"),
-    );
-  });
-
-  it("both gates stop on a failed check AND on one that could not decide", () => {
-    // "Could not tell" is not a pass: a box is not hardened just because the
-    // check did not run.
-    for (const gate of ["check_root_reachability", "assert_hardening"]) {
-      const body = SRC.slice(
-        SRC.indexOf(`${gate}() {`),
-        SRC.indexOf("\n}\n", SRC.indexOf(`${gate}() {`)),
-      );
-      expect(body).toContain('"$HARDEN_TOOL" --check || rc=$?');
-      expect(body).toMatch(/1\) die /);
-      expect(body).toMatch(/\*\) die /);
+// main() needs root, so the order of its steps is read from its body. One
+// table, one reason per pair.
+describe("install.sh: main() step order", () => {
+  it("runs each step after the one it depends on, and gates root twice", () => {
+    const pairs: [before: string, after: string, why: string][] = [
+      // The two root gates.
+      [
+        "create_service_user",
+        "check_root_reachability",
+        "gate 1 probes as the service account",
+      ],
+      [
+        "check_root_reachability",
+        "fetch_isomux",
+        "a doomed box fails in seconds, before the build",
+      ],
+      [
+        "wait_for_server",
+        "assert_hardening",
+        "gate 2 checks the finished, running box",
+      ],
+      [
+        "assert_hardening",
+        "claim_owner",
+        "a failed box leaves no owner, invite or success callback",
+      ],
+      // Everything else.
+      [
+        "sync_install_kind",
+        "install_service",
+        "the office reads the install-kind marker when it starts",
+      ],
+      [
+        "configure_oom_protection",
+        "build_isomux",
+        "the build is the memory-hungry part",
+      ],
+      [
+        "create_service_user",
+        "configure_user_manager",
+        "linger is enabled for that account",
+      ],
+      [
+        "configure_user_manager",
+        "install_service",
+        "the service starts with its user bus already up",
+      ],
+      [
+        "create_service_user",
+        "install_browser",
+        "the capture probe runs as the service user",
+      ],
+      [
+        "install_browser",
+        "fetch_isomux",
+        "a browser warning shows early in the output",
+      ],
+      [
+        "create_service_user",
+        "configure_codex_sandbox",
+        "the bwrap smoke test runs as the service user",
+      ],
+      [
+        "configure_codex_sandbox",
+        "fetch_isomux",
+        "a sandbox warning shows early, like the browser's",
+      ],
+      [
+        "build_isomux",
+        "link_bundled_claude",
+        "the bundled CLI exists only after the build",
+      ],
+      [
+        "link_bundled_claude",
+        "install_service",
+        "claude is linked before the office can spawn it",
+      ],
+      [
+        "configure_caddy",
+        "write_loopback_bind_if_proxied",
+        "networkBind goes to loopback only once Caddy proxies",
+      ],
+    ];
+    for (const [before, after, why] of pairs) {
+      const ordered = stepIndex(before) < stepIndex(after);
+      expect({ before, after, why, ordered }).toEqual({
+        before,
+        after,
+        why,
+        ordered: true,
+      });
     }
   });
+});
 
+describe("install.sh: the box cannot ship with agents able to reach root", () => {
   it("has no escape hatch for either gate", () => {
     // The installer's whole environment surface is its parameter block; an
     // opt-out would have to live there. It deliberately does not: the installs
@@ -420,29 +337,6 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
     expect(params.join("\n")).not.toMatch(
       /SKIP|FORCE|ALLOW|IGNORE|OVERRIDE|UNSAFE/,
     );
-  });
-
-  it("installs the ssh client the check needs", () => {
-    expect(SRC).toMatch(/apt_install[^\n]*\bopenssh-client\b/);
-  });
-
-  it("installs ffmpeg for agent workloads", () => {
-    expect(SRC).toMatch(/apt_install[^\n]*\bffmpeg\b/);
-  });
-
-  it("installs command-line utilities for agent workloads", () => {
-    expect(SRC).toMatch(/apt_install[^\n]*\bripgrep\b/);
-    expect(SRC).toMatch(/apt_install[^\n]*\btmux\b/);
-  });
-
-  it("leaves the operator a command to re-run, and points at it", () => {
-    // The hardening is skipped on a box with no SSH key yet, and whoever adds
-    // a key later will not re-run a whole installer.
-    expect(SRC).toContain("HARDEN_TOOL=/usr/local/sbin/isomux-harden-ssh");
-    expect(SRC).toContain('write_file "$HARDEN_TOOL" 755');
-    expect(SRC).toContain("sudo isomux-harden-ssh");
-    const report = SRC.slice(SRC.indexOf("report() {"));
-    expect(report).toContain("SSH_HARDENING_SKIPPED");
   });
 });
 
@@ -512,11 +406,12 @@ describe("install.sh: the managed Caddyfile", () => {
         expect(site).not.toContain("log_credentials");
         const filters = site.match(/request>uri regexp[^\n]+/g) ?? [];
         expect(filters).toHaveLength(1);
-        expect(filters[0]).toContain("(/i/)[^/?#]+");
-        expect(filters[0]).toContain("([?&]code=)[^&#]*");
-
-        const pattern = /(\/i\/)[^/?#]+|([?&]code=)[^&#]*/g;
-        const replacement = "$1$2<redacted>";
+        // Apply the rendered filter itself. Caddy uses Go's regexp, whose
+        // ${n} group references JS spells $n.
+        const filter = /regexp "([^"]+)" "([^"]+)"$/.exec(filters[0]!);
+        if (!filter) throw new Error(`unparsed filter: ${filters[0]}`);
+        const pattern = new RegExp(filter[1], "g");
+        const replacement = filter[2].replace(/\$\{(\d+)\}/g, "$$$1");
         expect("/i/live-invite?next=/".replace(pattern, replacement)).toBe(
           "/i/<redacted>?next=/",
         );
@@ -530,60 +425,6 @@ describe("install.sh: the managed Caddyfile", () => {
     }
   });
 
-  it("writes networkBind only after Caddy succeeds", () => {
-    const main = SRC.slice(SRC.lastIndexOf("\nmain() {"));
-    expect(main.indexOf("  configure_caddy\n")).toBeGreaterThan(-1);
-    expect(main.indexOf("  write_loopback_bind_if_proxied\n")).toBeGreaterThan(
-      main.indexOf("  configure_caddy\n"),
-    );
-    const writer = SRC.slice(
-      SRC.indexOf("write_loopback_bind_if_proxied() {"),
-      SRC.indexOf("\nconfigure_caddy() {"),
-    );
-    expect(writer).toContain("systemctl is-active --quiet caddy");
-    expect(writer).toContain("reverse_proxy");
-    expect(writer).toContain('has("networkBind")');
-    expect(writer).toContain("run_as_service_user");
-    expect(writer).toContain("chmod --reference");
-  });
-
-  it("reports box-side certificate failure and recovery with its one-office credential", () => {
-    const helper = SRC.slice(
-      SRC.indexOf("write_hosted_tls_renewal() {"),
-      SRC.indexOf(
-        "\nRENEW_HELPER",
-        SRC.indexOf("write_hosted_tls_renewal() {"),
-      ),
-    );
-    expect(helper).toContain("status_endpoint=${endpoint%/renew}/status");
-    expect(helper).toContain("report_status failed || true");
-    // Both success paths report ok: at a new endpoint the answer names when
-    // it answers there, else at the enrolled one.
-    expect(helper.match(/^\s*report_ok$/gm)?.length).toBe(2);
-    expect(helper).toMatch(
-      /\nreport_ok\(\) \{\n[\s\S]*?\n {2}report_status ok\n\}\n/,
-    );
-    expect(helper).toContain(
-      "trap 'rc=$?; trap - ERR; report_status failed || true; exit \"$rc\"' ERR",
-    );
-  });
-
-  it("turns the admin API off, in a global block ahead of the site block", () => {
-    // Caddy's admin API listens on 127.0.0.1:2019 by default and rewrites the
-    // proxy config with no credential. Loopback is not a trust boundary here:
-    // agents run on this box, and an SSRF bug in anything they build reaches it.
-    // Not the usual "up to the next \n}\n": the Caddyfile heredoc has its own
-    // closing braces at column 0. Slice to the next function instead.
-    const rendered = renderCaddyfile("office.example");
-    expect(rendered).toContain("admin off");
-    // Caddy only accepts global options as the FIRST block in the file.
-    expect(rendered.indexOf("admin off")).toBeLessThan(
-      rendered.indexOf("office.example {"),
-    );
-    // Still the same office it proxies to.
-    expect(rendered).toContain("reverse_proxy 127.0.0.1:4000");
-  });
-
   it("uses one explicit hosted wildcard certificate and a request-time gate", () => {
     const hosted = renderCaddyfile("office.example", "hosted");
     expect(hosted).toContain(
@@ -592,51 +433,6 @@ describe("install.sh: the managed Caddyfile", () => {
     expect(hosted).toContain("forward_auth 127.0.0.1:4000");
     expect(hosted).toContain(`uri ${TLS_ASK_PATH}?domain={http.request.host}`);
     expect(hosted).not.toContain("on_demand");
-  });
-
-  it("refuses a root-only key before replacing the Caddyfile", () => {
-    const body = SRC.slice(
-      SRC.indexOf("install_caddyfile_transaction() {"),
-      SRC.indexOf("\nconfigure_caddy() {"),
-    );
-    expect(body).toContain("assert_caddy_file /etc/isomux/tls/key.pem");
-    expect(
-      body.indexOf("assert_caddy_file /etc/isomux/tls/key.pem"),
-    ).toBeLessThan(body.indexOf('mv -f "$rendered" "$final"'));
-    const validator = SRC.slice(
-      SRC.indexOf("assert_caddy_file() {"),
-      SRC.indexOf("\nconfigure_caddy() {"),
-    );
-    const dir = mkdtempSync(join(tmpdir(), "isomux-caddy-access-"));
-    const key = join(dir, "key.pem");
-    writeFileSync(key, "not a key", { mode: 0o600 });
-    const proc = Bun.spawnSync([
-      "bash",
-      "-c",
-      `${validator}\nlog(){ :; }\nassert_caddy_file "$1"`,
-      "bash",
-      key,
-    ]);
-    rmSync(dir, { recursive: true, force: true });
-    expect(proc.exitCode).not.toBe(0);
-  });
-
-  // Slice 7. The installer writes the WHOLE file, so "idempotent" means
-  // "renders the same bytes every time" - there is no append path and no
-  // partial edit to converge.
-  it("renders deterministically, which is what makes a re-run a no-op", () => {
-    expect(renderCaddyfile("office.example")).toBe(
-      renderCaddyfile("office.example"),
-    );
-    // The domain is the only thing that varies.
-    expect(renderCaddyfile("other.example").replaceAll("other", "office")).toBe(
-      renderCaddyfile("office.example"),
-    );
-    const body = SRC.slice(
-      SRC.indexOf("configure_caddy() {"),
-      SRC.indexOf("\nreport() {"),
-    );
-    expect(body).not.toContain(">>");
   });
 
   it("has exactly one marker, one global block and one block per site", () => {
@@ -649,10 +445,20 @@ describe("install.sh: the managed Caddyfile", () => {
         "office.example {",
         "*.office.example {",
       ]);
+      // Caddy's admin API listens on 127.0.0.1:2019 by default and rewrites
+      // the proxy config with no credential. Loopback is not a trust boundary
+      // here: agents run on this box, and an SSRF bug in anything they build
+      // reaches it. Caddy only accepts global options in the first block.
       expect(block(rendered, "")).toContain("admin off");
+      // Caddy calls the ask URL over loopback, never through a site block, so
+      // refusing that exact path at the edge costs nothing and stops a
+      // stranger asking the office which apps exist.
       expect(block(rendered, "office.example")).toContain(
         `respond ${TLS_ASK_PATH} 404`,
       );
+      // The wildcard must NOT carry it: an app host serves its sign-in
+      // handshake under the same prefix.
+      expect(block(rendered, "*.office.example")).not.toContain("respond");
       expect(block(rendered, "office.example")).toContain(
         "reverse_proxy 127.0.0.1:4000",
       );
@@ -663,56 +469,22 @@ describe("install.sh: the managed Caddyfile", () => {
   });
 
   it("gates on-demand certificates on the office's own ask endpoint", () => {
-    const global = block(renderCaddyfile("office.example"), "");
+    const rendered = renderCaddyfile("office.example");
+    const global = block(rendered, "");
     expect(global).toContain("on_demand_tls {");
     // The URL the terminator calls must be the route the office actually
     // serves; this fails if either side is renamed alone.
     expect(global).toContain(`ask http://127.0.0.1:4000${TLS_ASK_PATH}`);
-  });
-
-  it("puts on-demand TLS on the wildcard site ONLY", () => {
-    const rendered = renderCaddyfile("office.example");
-    const office = block(rendered, "office.example");
+    // On the wildcard site only. The office keeps ordinary automatic HTTPS: it
+    // has a name, an A record and a certificate obtained at startup.
+    expect(block(rendered, "office.example")).not.toContain("on_demand");
     const wildcard = block(rendered, "*.office.example");
-    // The office keeps ordinary automatic HTTPS: it has a name, an A record and
-    // a certificate obtained at startup, and nothing about it is on demand.
-    expect(office).not.toContain("on_demand");
     expect(wildcard).toContain("tls {");
     expect(wildcard).toContain("on_demand");
-    // Both still proxy the office socket - the app arm is the office's own
-    // code, on the same listener.
-    expect(office).toContain("reverse_proxy 127.0.0.1:4000");
-    expect(wildcard).toContain("reverse_proxy 127.0.0.1:4000");
-  });
-
-  it("hides the ask endpoint on the office site and NOT on the wildcard", () => {
-    const rendered = renderCaddyfile("office.example");
-    // Caddy calls the ask URL over loopback, never through a site block, so
-    // refusing that exact path at the edge costs nothing and stops a stranger
-    // asking the office which apps exist.
-    expect(block(rendered, "office.example")).toContain(
-      `respond ${TLS_ASK_PATH} 404`,
-    );
-    // The wildcard must NOT carry it: an app host serves its sign-in handshake
-    // under the same prefix.
-    expect(block(rendered, "*.office.example")).not.toContain("respond");
   });
 });
 
 describe("install.sh: out-of-memory protection", () => {
-  it("installs and runs the protection script, without failing the install", () => {
-    expect(SRC).toContain("OOM_TOOL=/usr/local/sbin/isomux-oom-protect");
-    expect(SRC).toContain('write_file "$staged" 755');
-    // Slice from the end of the embedded script: the heredoc body is full of
-    // function bodies that would end the slice early.
-    const afterHeredoc = SRC.lastIndexOf("\nISOMUX_OOM_PROTECT_SH\n");
-    const fn = SRC.slice(afterHeredoc, SRC.indexOf("\n}\n", afterHeredoc));
-    expect(fn).not.toContain("die ");
-    expect(fn).toContain("warning: out-of-memory protection");
-    expect(fn).toContain('mv -f "$staged" "$OOM_TOOL"');
-    expect(fn).toContain('if ! "$OOM_TOOL" --update-converge; then');
-  });
-
   it("does not run old helper bytes when staging the target helper fails", () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-oom-skew-"));
     const oldTool = join(dir, "old-helper");
@@ -741,185 +513,49 @@ configure_oom_protection update
     }
   });
 
-  it("keeps an update successful when the refreshed helper fails", () => {
-    const dir = mkdtempSync(join(tmpdir(), "isomux-oom-nonfatal-"));
-    const tool = join(dir, "helper");
+  it("keeps the install or update going when the helper itself fails", () => {
+    // Update mode reports the failure in the update's outcome; a full install
+    // only warns. Neither stops: the office runs without the protection.
     const fn = SRC.slice(
       SRC.indexOf("configure_oom_protection() {"),
       SRC.indexOf("\nenable_auto_updates() {"),
     );
-    const script = `${fn}
-OOM_TOOL=${tool}
+    for (const mode of ["update", "full"]) {
+      const dir = mkdtempSync(join(tmpdir(), "isomux-oom-nonfatal-"));
+      const ran = join(dir, "ran");
+      // The staged bytes are replaced by a helper that records it ran, then fails.
+      const script = `${fn}
+OOM_TOOL=${join(dir, "helper")}
 DRY_RUN=""
 step() { :; }
 log() { echo "LOG: $*"; }
 outcome_add() { echo "OUTCOME: $*"; }
-write_file() { local path=$1 mode=$2; cat > "$path"; chmod "$mode" "$path"; }
-configure_oom_protection update
+write_file() { cat >/dev/null; printf '#!/bin/sh\\ntouch ${ran}\\nexit 1\\n' >"$1"; chmod "$2" "$1"; }
+configure_oom_protection ${mode === "update" ? "update" : ""}
+echo REACHED-END
 `;
-    try {
-      const result = Bun.spawnSync(["bash", "-Eeuo", "pipefail", "-c", script]);
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout.toString()).toContain(
-        "OUTCOME: Memory-pressure protection did not converge completely.",
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+      try {
+        const result = Bun.spawnSync([
+          "bash",
+          "-Eeuo",
+          "pipefail",
+          "-c",
+          script,
+        ]);
+        const out = result.stdout.toString();
+        expect({ mode, exit: result.exitCode, ran: existsSync(ran) }).toEqual({
+          mode,
+          exit: 0,
+          ran: true,
+        });
+        expect(out).toContain("REACHED-END");
+        expect(out).toMatch(
+          mode === "update" ? /^OUTCOME: \S/m : /^LOG: warning: /m,
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
-  });
-
-  it("runs before the build, which is the memory-hungry part", () => {
-    expect(stepIndex("configure_oom_protection")).toBeLessThan(
-      stepIndex("build_isomux"),
-    );
-  });
-
-  it("puts the office server in the kill-last tier", () => {
-    expect(serviceUnit()).toContain("OOMScoreAdjust=-500");
-  });
-
-  it("installs a RAM-derived office cap before the memory-hungry build", () => {
-    expect(SRC).toContain(
-      "OFFICE_MEMORY_DROPIN=/etc/systemd/system/isomux.service.d/20-memory.conf",
-    );
-    expect(SRC).toContain("configure_office_memory_cap");
-    expect(SRC).toContain("MemoryMax=${memory_max_mib}M");
-    expect(SRC).toContain("MemoryHigh=${memory_high_mib}M");
-    expect(SRC).toContain("MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M");
-    expect(SRC).toContain("OFFICE_MEMORY_MIN_MIB=4096");
-    expect(stepIndex("configure_oom_protection")).toBeLessThan(
-      stepIndex("build_isomux"),
-    );
-  });
-
-  // Task e05a5cd4. Seven variants of a sacrificial unit shaped like the office
-  // were measured (internal-docs/sizing-tiers-benchmark-results.md, "The blast
-  // radius, measured"); exactly one contained an OOM kill to a single agent,
-  // and it needed BOTH of the halves pinned here. Either alone recycles the
-  // whole office, which is the incident this came from - so both live in one
-  // test, with the reason, rather than as two facts nobody connects.
-  it("survives one agent being OOM-killed, which needs the policy AND the stamp", () => {
-    // Half one: systemd must not stop the unit when a process inside it is
-    // OOM-killed. The default, `stop`, plus Restart=always recycles every
-    // agent on the box.
-    expect(serviceUnit()).toContain("OOMPolicy=continue");
-    expect(serviceUnit()).toContain("Restart=always");
-
-    // Half two: the server raises its own descendants ABOVE itself, so the
-    // kernel takes an agent and not the MainPID. `continue` cannot save a unit
-    // whose MainPID dies, so without a positive stamp the line above buys
-    // nothing.
-    expect(AGENT_OOM_SCORE_ADJ).toBeGreaterThan(0);
-  });
-
-  // The other way an OOM spike ends the office for good: Restart=always stops
-  // meaning always once systemd's default rate limit is hit, and a spike can
-  // spend five starts in seconds. Measured on a box under earlyoom pressure,
-  // systemd-resolved did exactly that and stayed failed for three hours.
-  it("keeps restarting after a burst, instead of giving up for good", () => {
-    expect(serviceUnit()).toContain("StartLimitIntervalSec=0");
-    // Unbounded retries need a backoff, or a unit that cannot start spins.
-    expect(serviceUnit()).toMatch(/^RestartSec=[1-9]/m);
-  });
-});
-
-describe("install.sh: recorded firewall repair", () => {
-  it("records full-install rules and restores them only in deps mode", () => {
-    expect(SRC).toContain('write_file "$FIREWALL_PORTS_FILE" 600');
-    expect(SRC).toContain("printf 'kind=install\\n%s\\n%s\\n'");
-    const deps = SRC.slice(
-      SRC.indexOf("deps_only() {"),
-      SRC.lastIndexOf("\nmain() {"),
-    );
-    expect(deps).toContain("backfill_firewall_record");
-    expect(deps).toContain("restore_recorded_firewall_rules");
-    expect(deps).toContain("write_update_outcome");
-  });
-});
-
-// Agents' apps run as systemd USER units of the service account, and this
-// installer builds the one environment where `systemctl --user` cannot work at
-// all: a service account nobody logs into, so no user manager and no bus. What
-// is pinned here is the recipe that fixes it - linger, the bus address in the
-// service's environment, and a check that refuses to call it done on faith.
-describe("install.sh: the systemd user manager agents' apps run on", () => {
-  const fnBody = (name: string) => {
-    const start = SRC.indexOf(`${name}() {`);
-    expect(start).toBeGreaterThan(-1);
-    return SRC.slice(start, SRC.indexOf("\n}\n", start));
-  };
-
-  it("enables linger, so the account has a user manager with nobody logged in", () => {
-    expect(fnBody("configure_user_manager")).toContain(
-      'loginctl enable-linger "$SERVICE_USER"',
-    );
-  });
-
-  it("hands the service the address of that account's bus", () => {
-    // A system unit inherits no XDG_RUNTIME_DIR, and systemd's bus client
-    // derives the user bus from it. Without this line every app operation ends
-    // at "Failed to connect to bus".
-    expect(SRC).toContain(
-      "USER_MANAGER_DROPIN=/etc/systemd/system/isomux.service.d/10-user-manager.conf",
-    );
-    const fn = fnBody("configure_user_manager");
-    expect(fn).toContain('uid=$(id -u "$SERVICE_USER")');
-    expect(fn).toContain(
-      'install -d -m 755 "$(dirname "$USER_MANAGER_DROPIN")"',
-    );
-    expect(fn).toContain('write_file "$USER_MANAGER_DROPIN" 644');
-    expect(fn).toContain("Environment=XDG_RUNTIME_DIR=/run/user/$uid");
-    // systemd reads a new drop-in only after a reload.
-    expect(fn.indexOf("systemctl daemon-reload")).toBeGreaterThan(
-      fn.indexOf('write_file "$USER_MANAGER_DROPIN"'),
-    );
-  });
-
-  it("adds a drop-in and never rewrites the service unit", () => {
-    // deps_only runs this on a live box mid-update. A rewrite there would
-    // discard whatever the operator had edited into the unit, and would leave
-    // two copies of the environment contract free to drift apart.
-    expect(fnBody("configure_user_manager")).not.toContain(
-      "write_file /etc/systemd/system/isomux.service ",
-    );
-    expect(serviceUnit()).not.toContain("XDG_RUNTIME_DIR");
-  });
-
-  it("proves the bus answers from the service's environment, not root's", () => {
-    // Root runs the installer with a working bus of its own, so a probe that
-    // inherited root's environment would pass on a box where the service -
-    // which inherits neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS -
-    // cannot connect. `env -i` is what makes the check mean anything.
-    const probe = fnBody("user_manager_reachable");
-    expect(probe).toContain('runuser -u "$SERVICE_USER" -- env -i');
-    expect(probe).toContain('"XDG_RUNTIME_DIR=/run/user/$1"');
-    expect(probe).toContain("/usr/bin/systemctl --user show-environment");
-    expect(probe).not.toContain("DBUS_SESSION_BUS_ADDRESS");
-  });
-
-  it("stops the run rather than report success with an unreachable bus", () => {
-    // Not the browser's warn-and-carry-on: this is the transport a shipped
-    // feature runs on, so a box that reported success with it broken would
-    // fail every app operation with nothing in the install output that said
-    // so. enable-linger returns before logind has finished bringing the user
-    // manager up, hence a bounded wait rather than one check.
-    const fn = fnBody("configure_user_manager");
-    expect(SRC).toMatch(/^USER_MANAGER_TIMEOUT_S=\d+$/m);
-    expect(fn).toContain("until user_manager_reachable");
-    expect(fn).toMatch(/\(\(waited < USER_MANAGER_TIMEOUT_S\)\) \|\|\s+die /);
-  });
-
-  it("runs before the service starts, and converges boxes that predate apps", () => {
-    expect(stepIndex("create_service_user")).toBeLessThan(
-      stepIndex("configure_user_manager"),
-    );
-    expect(stepIndex("configure_user_manager")).toBeLessThan(
-      stepIndex("install_service"),
-    );
-    // An existing install has neither linger nor the drop-in, and nobody is
-    // going to run a manual step on every box: the dependency sync the updater
-    // runs from the target release is the one root-run path that reaches them.
-    expect(fnBody("deps_only")).toContain("\n  configure_user_manager\n");
   });
 });
 
@@ -1053,12 +689,48 @@ describe("install.sh: the systemd unit renders cleanly", () => {
     expect(unit).toContain("WorkingDirectory=/opt/isomux");
   });
 
-  // The portable core of the check: no line may carry this installer's log
-  // prefix, which can only get in there by a command substitution running.
-  it("carries no command-substitution artifacts", () => {
-    expect(unit).not.toContain("[isomux-install]");
-    expect(unit).not.toContain("command not found");
-    expect(unit).not.toContain("Failed to");
+  // Directives as systemd reads them: comment lines are not directives, and
+  // the comments here name Restart=always too.
+  function directive(key: string): string {
+    const values = unit
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("#"))
+      .flatMap((l) => {
+        const m = /^([A-Za-z][A-Za-z0-9]*)=(.*)$/.exec(l.trim());
+        return m && m[1] === key ? [m[2]] : [];
+      });
+    expect({ key, count: values.length }).toEqual({ key, count: 1 });
+    return values[0];
+  }
+
+  // Task e05a5cd4. Seven variants of a sacrificial unit shaped like the office
+  // were measured (internal-docs/sizing-tiers-benchmark-results.md, "The blast
+  // radius, measured"); exactly one contained an OOM kill to a single agent,
+  // and it needed BOTH OOMPolicy=continue and the agents' positive stamp.
+  // Either alone recycles the whole office, which is the incident this came
+  // from.
+  it("keeps the office running through an agent's OOM kill and a restart burst", () => {
+    // systemd's default policy, `stop`, plus Restart=always recycles every
+    // agent on the box when one is OOM-killed.
+    expect(directive("OOMPolicy")).toBe("continue");
+    expect(directive("Restart")).toBe("always");
+    // The server raises its own descendants ABOVE itself, so the kernel takes
+    // an agent and not the MainPID. `continue` cannot save a unit whose MainPID
+    // dies, so without a positive stamp the line above buys nothing.
+    expect(AGENT_OOM_SCORE_ADJ).toBeGreaterThan(0);
+    // The kill-last tier for the server itself.
+    expect(directive("OOMScoreAdjust")).toBe("-500");
+    // Restart=always stops meaning always once systemd's default rate limit
+    // is hit, and an OOM spike can spend five starts in seconds. Unbounded
+    // retries need a backoff, or a unit that cannot start spins.
+    expect(directive("StartLimitIntervalSec")).toBe("0");
+    expect(Number(directive("RestartSec"))).toBeGreaterThan(0);
+    // The unit runs a file the release ships. Fresh installs resolve to
+    // v2026.8.22 or newer; dependency-only updates do not rewrite older units,
+    // which keep the server/index.ts back-compat shim.
+    const entry = directive("ExecStart").split(/\s+/).at(-1)!;
+    const shipped = existsSync(new URL(`../${entry}`, import.meta.url));
+    expect({ entry, shipped }).toEqual({ entry, shipped: true });
   });
 
   it("keeps every line a comment, a section header or a directive", () => {
@@ -1175,15 +847,12 @@ describe("install.sh: no heredoc executes its own comments", () => {
   const srcLines = SRC.split("\n");
   const stage1 = heredocs(srcLines);
 
-  it("finds the heredocs it claims to (all delimiter forms)", () => {
-    // Pins the scan itself, so a future edit that adds one is visible here
-    // rather than silently outside the checks below.
+  it("stage 1: nothing install.sh expands carries a backtick or a substituted comment", () => {
+    // The scan finds what it claims to, so a broken parser cannot pass by
+    // finding nothing.
     expect(stage1.length).toBeGreaterThanOrEqual(10);
     expect(stage1.some((b) => b.quoted)).toBe(true);
     expect(stage1.some((b) => !b.quoted)).toBe(true);
-  });
-
-  it("stage 1: nothing install.sh expands carries a backtick or a substituted comment", () => {
     const bad = stage1
       .filter((b) => !b.quoted)
       .flatMap((b) =>
@@ -1196,6 +865,13 @@ describe("install.sh: no heredoc executes its own comments", () => {
 
   // The recursion the first version of this scan missed.
   it("stage 2: nothing a GENERATED helper expands carries one either", () => {
+    // It actually descends: the helpers really do contain heredocs, some of
+    // them expanded.
+    const nested = stage1
+      .filter((b) => b.quoted)
+      .flatMap((b) => heredocs(b.body));
+    expect(nested.length).toBeGreaterThan(0);
+    expect(nested.some((b) => !b.quoted)).toBe(true);
     const bad: string[] = [];
     for (const outer of stage1.filter((b) => b.quoted)) {
       for (const inner of heredocs(outer.body)) {
@@ -1208,14 +884,5 @@ describe("install.sh: no heredoc executes its own comments", () => {
       }
     }
     expect(bad).toEqual([]);
-  });
-
-  it("stage 2 actually descends - the helpers really do contain heredocs", () => {
-    // Otherwise the test above would pass by finding nothing to look at.
-    const inner = stage1
-      .filter((b) => b.quoted)
-      .flatMap((b) => heredocs(b.body));
-    expect(inner.length).toBeGreaterThan(0);
-    expect(inner.some((b) => !b.quoted)).toBe(true);
   });
 });

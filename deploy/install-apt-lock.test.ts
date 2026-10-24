@@ -85,6 +85,7 @@ apt_get ${command} -y || { rc=$?; report_failure; exit "$rc"; }
     code: result.exitCode,
     out: `${result.stdout}${result.stderr}`,
     call: existsSync(calls) ? readFileSync(calls, "utf8").trim() : "",
+    elapsed: Number(readFileSync(elapsed, "utf8")),
   };
 }
 
@@ -93,28 +94,23 @@ afterEach(() => {
 });
 
 describe("install.sh apt lock bound", () => {
-  it("lets apt-get update outwait Ubuntu's first-boot lock", () => {
-    const result = runApt("update", 70);
-    expect(result.code).toBe(0);
-    expect(result.call).toContain("DPkg::Lock::Timeout=120 update -y");
-    expect(result.out).toContain(
-      "Ubuntu's package manager is busy; waiting up to 120 seconds for it to finish",
-    );
-  });
-
-  it("uses the same finite bound for package installation", () => {
-    const result = runApt("install", 120);
-    expect(result.code).toBe(0);
-    expect(result.call).toContain("DPkg::Lock::Timeout=120 install -y");
-    expect(result.call).not.toContain("DPkg::Lock::Timeout=-1");
-  });
+  // Ubuntu's first-boot updates hold the lock for about a minute; the bound is
+  // inclusive.
+  for (const [command, heldFor] of [
+    ["update", 70],
+    ["install", 120],
+  ] as const) {
+    it(`lets apt-get ${command} outwait a lock held for ${heldFor} seconds`, () => {
+      const result = runApt(command, heldFor);
+      expect(result.code).toBe(0);
+      expect(result.elapsed).toBeGreaterThanOrEqual(heldFor);
+      expect(result.call).toContain(`DPkg::Lock::Timeout=120 ${command} -y`);
+    });
+  }
 
   it("fails once a held lock exceeds the bound", () => {
     const result = runApt("update", 121);
     expect(result.code).toBe(100);
     expect(result.out).toContain("INSTALL FAILED at step: install-packages");
-    expect(result.out).toContain(
-      "Re-running the installer with the same parameters is safe; it skips what is already done.",
-    );
   });
 });

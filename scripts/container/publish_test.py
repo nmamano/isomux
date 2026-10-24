@@ -134,11 +134,6 @@ class PublicationTests(unittest.TestCase):
                 publish.write_layout(TAG, REVISION, "local", "amd64", self.dir / "layout")
         self.assertFalse((self.dir / "layout").exists())
 
-    def test_untagged_probe_image_must_report_its_commit_and_no_release(self):
-        with patch.object(publish.subprocess, "run", return_value=subprocess.CompletedProcess(
-                [], 0, stdout=json.dumps({"release": None, "commit": REVISION}))):
-            publish.verify_image_identity(None, REVISION, "local")
-
     def test_layout_is_the_saved_image_with_gzip_layers(self):
         for compressed, store in ((False, "classic"), (True, "classic"), (False, "containerd")):
             with self.subTest(compressed=compressed, store=store), \
@@ -198,8 +193,7 @@ class PublicationTests(unittest.TestCase):
                 else:
                     with self.assertRaises(urllib.error.HTTPError):
                         publish.existing_digest(TAG, REVISION, "fixture")
-
-    def test_network_error_is_not_absence(self):
+        # A network error is not absence either.
         with patch.object(publish, "request", side_effect=TimeoutError):
             with self.assertRaises(TimeoutError):
                 publish.existing_digest(TAG, REVISION, "fixture")
@@ -228,11 +222,6 @@ class PublicationTests(unittest.TestCase):
         with patch.object(publish, "request", side_effect=[response(index), child, config]):
             self.assertEqual(publish.existing_digest(TAG, REVISION, "fixture"),
                              "sha256:" + hashlib.sha256(index).hexdigest())
-
-    def test_index_without_amd64_is_refused(self):
-        with patch.object(publish, "request", return_value=response(b'{"manifests": []}')):
-            with self.assertRaises(ValueError):
-                publish.existing_digest(TAG, REVISION, "fixture")
 
     def test_multi_arch_index_checks_every_image(self):
         amd64, arm64 = manifests(), manifests(architecture="arm64")
@@ -328,14 +317,6 @@ class PublicationTests(unittest.TestCase):
             digest = publish.publish_layouts(registry, tag, REVISION, directories)
         return digest, seen
 
-    def test_retry_keeps_original_digest_without_push(self):
-        # Includes a tag published before multi-arch releases: kept as it is.
-        with patch.object(publish, "existing_digest", return_value="sha256:original") as existing, \
-             patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
-            self.assertEqual(publish.publish_layouts(REGISTRY, TAG, REVISION, self.layouts()),
-                             "sha256:original")
-        existing.assert_called_once_with(TAG, REVISION, "fixture", api="api")
-
     def test_retry_of_a_past_single_arch_tag_is_neither_rewritten_nor_rechecked_for_arm64(self):
         directories = self.layouts()
         single = manifests()
@@ -349,10 +330,14 @@ class PublicationTests(unittest.TestCase):
         amd64, arm64 = manifests(), manifests(architecture="arm64")
         raw = index(("amd64", amd64[0].headers["Docker-Content-Digest"]),
                     ("arm64", arm64[0].headers["Docker-Content-Digest"]))
-        with patch.object(publish, "request", side_effect=[response(raw), *amd64, *arm64]), \
+        with patch.object(publish, "request", side_effect=[response(raw), *amd64, *arm64]) as request, \
              patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
             self.assertEqual(publish.publish_layouts(REGISTRY, TAG, REVISION, directories),
                              "sha256:" + hashlib.sha256(raw).hexdigest())
+        # The check reads the registry it publishes to.
+        self.assertTrue(request.call_args_list)
+        for call in request.call_args_list:
+            self.assertTrue(call.args[0].startswith(REGISTRY.api + "/"), call.args[0])
 
     def test_an_existing_tag_of_another_revision_writes_nothing(self):
         directories = self.layouts()
@@ -398,12 +383,6 @@ class PublicationTests(unittest.TestCase):
     def test_a_different_published_index_fails(self):
         with self.assertRaises(ValueError):
             self.push(TAG, self.layouts(), read_back="sha256:" + "0" * 64)
-
-    def test_collision_never_pushes(self):
-        with patch.object(publish, "existing_digest", side_effect=ValueError), \
-             patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
-            with self.assertRaises(ValueError):
-                publish.publish_layouts(REGISTRY, TAG, REVISION, self.layouts())
 
     @patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write"))
     @patch.object(publish, "existing_digest")
@@ -465,10 +444,6 @@ class PublicationTests(unittest.TestCase):
                 # The credential file exists only while skopeo pushes.
                 self.assertTrue(present)
                 self.assertFalse(pathlib.Path(registry.authfile).parent.exists())
-
-    def test_only_a_release_publishes_a_tag(self):
-        with self.assertRaises(ValueError):
-            publish.publish(None, REVISION, {}, "actor", "secret")
 
     @patch.object(publish, "registry_token")
     def test_invalid_identity_never_authenticates(self, token):

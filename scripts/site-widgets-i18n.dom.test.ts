@@ -17,6 +17,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SITE_LANGUAGE_PATH } from "../shared/i18n/site-url.ts";
+import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 import { setUpDomTestFile } from "../ui/test-support/dom.ts";
 
 setUpDomTestFile();
@@ -24,6 +26,10 @@ setUpDomTestFile();
 const SITE = join(import.meta.dir, "..", "site");
 const CHATBOT = readFileSync(join(SITE, "chatbot.js"), "utf8");
 const THEME_TOGGLE = readFileSync(join(SITE, "theme-toggle.js"), "utf8");
+
+// From the office's own tables, so a language added there without labels or a
+// page-kind prefix in these scripts goes red here.
+const LANGUAGES = SUPPORTED_LANGUAGES.map(({ code }) => code);
 
 type ChatWindow = typeof window & {
   __chatOpen: () => void;
@@ -69,7 +75,7 @@ describe("the chat widget's own labels", () => {
   it("renders complete, distinct widgets in every supported language", () => {
     const english = widgetLabels("en");
     expect(english.every(Boolean)).toBe(true);
-    for (const lang of ["es", "ca", "zh"]) {
+    for (const lang of LANGUAGES.filter((code) => code !== "en")) {
       const translated = widgetLabels(lang);
       expect(translated.length, lang).toBe(english.length);
       expect(translated.every(Boolean), lang).toBe(true);
@@ -110,29 +116,25 @@ describe("the page kind the widget reports to /api/chat", () => {
     return sent!;
   }
 
-  it("calls the one endpoint and nothing else", async () => {
-    expect((await outbound("/hosted", "en")).url).toBe("/api/chat");
+  it("reports the hosted page from every language's copy of it, to /api/chat", async () => {
+    for (const lang of LANGUAGES) {
+      const path = `${SITE_LANGUAGE_PATH[lang]}/hosted`;
+      expect(await outbound(path, lang), path).toEqual({
+        url: "/api/chat",
+        page: "hosted",
+      });
+    }
   });
 
-  it("reports the hosted page from every language's copy of it", async () => {
-    expect((await outbound("/hosted", "en")).page).toBe("hosted");
-    expect((await outbound("/es/hosted", "es")).page).toBe("hosted");
-    expect((await outbound("/ca/hosted", "ca")).page).toBe("hosted");
-    expect((await outbound("/zh/hosted", "zh")).page).toBe("hosted");
-  });
-
-  it("reports the landing from every language's copy of it", async () => {
-    expect((await outbound("/", "en")).page).toBe("main");
-    expect((await outbound("/es", "es")).page).toBe("main");
-    expect((await outbound("/es/", "es")).page).toBe("main");
-    expect((await outbound("/ca", "ca")).page).toBe("main");
-    expect((await outbound("/ca/", "ca")).page).toBe("main");
-    expect((await outbound("/zh", "zh")).page).toBe("main");
-    expect((await outbound("/zh/", "zh")).page).toBe("main");
-  });
-
-  it("reports the landing from a docs page, as it always has", async () => {
-    expect((await outbound("/docs/hosting", "en")).page).toBe("main");
+  it("reports the landing from every language's copy of it, and from a docs page", async () => {
+    const paths: [string, string][] = [["/docs/hosting", "en"]];
+    for (const lang of LANGUAGES) {
+      const prefix = SITE_LANGUAGE_PATH[lang];
+      paths.push([`${prefix}/`, lang]);
+      if (prefix) paths.push([prefix, lang]);
+    }
+    for (const [path, lang] of paths)
+      expect((await outbound(path, lang)).page, path).toBe("main");
   });
 });
 
@@ -147,7 +149,10 @@ describe("the theme toggle's own label", () => {
     runOn(lang, THEME_TOGGLE);
     const buttons = document.querySelectorAll("button.theme-toggle");
     expect(buttons.length).toBe(1);
-    return buttons[0].getAttribute("title") ?? "";
+    const title = buttons[0].getAttribute("title") ?? "";
+    // A screen reader hears the same sentence the tooltip shows.
+    expect(buttons[0].getAttribute("aria-label")).toBe(title);
+    return title;
   }
 
   // The button names the mode it would switch TO, so the two halves of the
@@ -156,14 +161,14 @@ describe("the theme toggle's own label", () => {
   // already light and the button offers dark; a saved "dark" is what makes it
   // offer light.
   it("offers dark when the page is light", () => {
-    const labels = ["en", "es", "ca", "zh"].map((lang) => label(lang, "light"));
+    const labels = LANGUAGES.map((lang) => label(lang, "light"));
     expect(labels.every(Boolean)).toBe(true);
     expect(new Set(labels).size).toBe(labels.length);
     expect(label("de", "light")).toBe(labels[0]);
   });
 
   it("offers light when the page is dark", () => {
-    const labels = ["en", "es", "ca", "zh"].map((lang) => label(lang, "dark"));
+    const labels = LANGUAGES.map((lang) => label(lang, "dark"));
     expect(labels.every(Boolean)).toBe(true);
     expect(new Set(labels).size).toBe(labels.length);
     expect(label("de", "dark")).toBe(labels[0]);
@@ -190,15 +195,5 @@ describe("the theme toggle's own label", () => {
     );
     btn.click();
     expect(localStorage.getItem("isomux-theme")).toBe("light");
-  });
-
-  it("puts the same sentence on aria-label as on title", () => {
-    document.body.innerHTML = "";
-    localStorage.clear();
-    localStorage.setItem("isomux-theme", "dark");
-    runOn("ca", THEME_TOGGLE);
-    const btn = document.querySelector("button.theme-toggle");
-    expect(btn!.getAttribute("aria-label")).toBe(btn!.getAttribute("title"));
-    expect(btn!.getAttribute("title")).toBeTruthy();
   });
 });

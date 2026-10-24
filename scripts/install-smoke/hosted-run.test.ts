@@ -100,16 +100,19 @@ test("hosted runner reaches office checks with marker, saved address and invite"
   expect(result.checked).toBe(true);
 });
 
-for (const mode of [
-  "wrong-marker",
-  "missing-boundary",
-  "access-off",
-  "wrong-origin",
-  "missing-invite",
-]) {
+// Each refusal names the guard's step (run.sh's step label), so a fixture that
+// failed earlier for another reason cannot pass for it.
+for (const [mode, step] of [
+  ["wrong-marker", "install"],
+  ["missing-boundary", "hosted-boundary"],
+  ["access-off", "hosted-state"],
+  ["wrong-origin", "hosted-state"],
+  ["missing-invite", "hosted-state"],
+] as const) {
   test(`hosted runner refuses ${mode} before office checks`, async () => {
     const result = await run(mode);
     expect(result.code).not.toBe(0);
+    expect(result.out).toContain(`FAIL at step ${step} `);
     expect(result.checked).toBe(false);
   });
 }

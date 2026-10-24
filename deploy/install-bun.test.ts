@@ -394,21 +394,15 @@ describe("install.sh Bun pin", () => {
     const r = runConverge({
       version: PINNED,
       realTable: true,
-      tail: `for a in x64 x64-baseline aarch64; do printf '%s=%s\\n' "$a" "$(bun_sha256 "$VERSION" "$a")"; done`,
+      tail: `for a in x64 x64-baseline aarch64; do printf '%s=%s\\n' "$a" "$(bun_sha256 "$VERSION" "$a")"; done
+if out=$(bun_sha256 0.0.0 x64); then echo "unknown=$out"; else echo unknown=missing; fi`,
     });
     expect(r.code).toBe(0);
     for (const arch of ["x64", "x64-baseline", "aarch64"]) {
       expect(r.out).toMatch(new RegExp(`^${arch}=[0-9a-f]{64}$`, "m"));
     }
-  });
-
-  it("has no hash for an unknown version", () => {
-    const r = runConverge({
-      version: "0.0.0",
-      realTable: true,
-      tail: `if out=$(bun_sha256 "$VERSION" x64); then echo "found=$out"; else echo missing; fi`,
-    });
-    expect(r.out.trim()).toBe("missing");
+    // And no hash at all for a version the table does not know.
+    expect(r.out).toMatch(/^unknown=missing$/m);
   });
 });
 

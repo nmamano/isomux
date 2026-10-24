@@ -68,10 +68,13 @@ reader, stay on the entry page. The old Vercel redirect routes remain unchanged.
 ## Verification
 
 The deterministic gate is `bun test scripts/hosting-docs.test.ts
-api/_site-agent-readiness.test.ts scripts/site-widgets-i18n.dom.test.ts`.
+scripts/use-cases-docs.test.ts api/_site-agent-readiness.test.ts
+scripts/site-widgets-i18n.dom.test.ts`.
 It builds real output and checks one-to-one diagram destinations,
 guide return links, HTML/Markdown/context agreement, inline shared steps, canonical AWS
-commands, notice placement, and local links/fragments without copy literals.
+commands and notice placement without copy literals. The local links and
+fragments of every docs page, hosting guides included, are checked in
+`scripts/use-cases-docs.test.ts`.
 
 After `bun run build:docs`, run `bun scripts/hosting-browser-check.ts` under the
 lane memory limit. It serves only the static build on an ephemeral loopback

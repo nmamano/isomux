@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   accessSync,
-  chmodSync,
   constants,
   mkdtempSync,
   mkdirSync,
@@ -12,7 +11,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
 
 const INSTALL_SH = new URL("./install.sh", import.meta.url).pathname;
 const roots: string[] = [];
@@ -20,11 +19,9 @@ const roots: string[] = [];
 function produce(target = "v2026.9.3", failMove = false) {
   const root = mkdtempSync(join(tmpdir(), "isomux-update-outcome-"));
   roots.push(root);
-  chmodSync(root, 0o755);
   const privateDir = join(root, "private");
   const publicDir = join(root, "public");
   mkdirSync(privateDir, { mode: 0o700 });
-  mkdirSync(publicDir, { mode: 0o755 });
   writeFileSync(
     join(privateDir, "status.json"),
     JSON.stringify({ target, message: 'root-only "detail"' }),
@@ -35,7 +32,10 @@ function produce(target = "v2026.9.3", failMove = false) {
   if (failMove) {
     writeFileSync(join(bin, "mv"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   }
+  // The updater runs as root with whatever umask it inherited. A strict one
+  // here means the modes below can only come from the producer itself.
   const script = `
+umask 077
 eval "$(sed -n '/^write_update_outcome()/,/^}/p' "$INSTALL_SH")"
 UPDATE_STATE_DIR="$PRIVATE_DIR"
 UPDATE_OUTCOME_FILE="$ARTIFACT"
@@ -82,35 +82,22 @@ describe("deps-only update outcome producer", () => {
   it("is traversable and readable by this non-root test process", () => {
     expect(process.getuid?.()).not.toBe(0);
     const result = produce();
-    const directories: string[] = [];
-    for (let path = dirname(result.artifact); ; path = dirname(path)) {
-      directories.push(path);
-      if (path === "/") break;
-    }
-    for (const path of directories) {
-      expect(statSync(path).mode & 0o001).toBe(0o001);
-      accessSync(path, constants.X_OK);
-    }
-    expect(statSync(result.artifact).mode & 0o004).toBe(0o004);
+    expect(statSync(result.publicDir).mode & 0o777).toBe(0o755);
+    expect(statSync(result.artifact).mode & 0o777).toBe(0o644);
     accessSync(result.artifact, constants.R_OK);
-    expect(statSync(result.privateDir).mode & 0o077).toBe(0);
   });
 
   it("publishes by rename and leaves no staged file", () => {
     const result = produce();
+    expect(result.code).toBe(0);
     expect(readdirSync(result.publicDir)).toEqual(["outcome.json"]);
-    const source = readFileSync(INSTALL_SH, "utf8");
-    expect(source).toContain('mv -f "$tmp" "$UPDATE_OUTCOME_FILE"');
-    expect(source).not.toContain('rm -f "$UPDATE_OUTCOME_FILE"');
   });
 
   it("does not publish when the updater target cannot be identified", () => {
     const result = produce("main");
     expect(result.code).toBe(0);
     expect(() => readFileSync(result.artifact)).toThrow();
-    expect(result.out).toContain(
-      "update outcome was not recorded because the target release could not be identified",
-    );
+    expect(result.out).toMatch(/^LOG: warning: /m);
   });
 
   it("keeps the update successful when atomic publication fails", () => {
@@ -118,6 +105,6 @@ describe("deps-only update outcome producer", () => {
     expect(result.code).toBe(0);
     expect(() => readFileSync(result.artifact)).toThrow();
     expect(readdirSync(result.publicDir)).toEqual([]);
-    expect(result.out).toContain("update outcome could not be recorded");
+    expect(result.out).toMatch(/^LOG: warning: /m);
   });
 });

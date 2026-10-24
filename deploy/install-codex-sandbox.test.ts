@@ -30,6 +30,8 @@ const INSTALL_SH = new URL("./install.sh", import.meta.url).pathname;
 let base: string;
 /** /usr/bin with bwrap removed - see makeShadowPath. */
 let shadow: string;
+/** The step's functions from install.sh - see extractPrelude. */
+let prelude: string;
 
 // This box may well have a working bwrap of its own, and "the binary is
 // missing" is one of the cases under test. So the script runs on a PATH built
@@ -230,18 +232,7 @@ exit 0
 
   const script = `
 set -Eeuo pipefail
-# FIRST definition only: install.sh also carries deploy/harden-ssh.sh and
-# deploy/oom-protect.sh inside heredocs, and those define their own
-# as_service_user / run / write_file. A plain sed range would eval the
-# embedded copy over the installer's own and test the wrong function.
-extract() { awk -v fn="$1() {" 'index($0, fn) == 1 {f = 1} f {print} f && /^}$/ {exit}' "$INSTALL_SH"; }
-for fn in run as_service_user service_path write_file configure_codex_sandbox \
-  bwrap_on_service_path bwrap_smoke_test userns_restricted install_bwrap_profile; do
-  eval "$(extract "$fn")"
-done
-# The heredoc body has its own column-0 braces, so this range ends at the
-# delimiter and the closing brace is added back.
-eval "$(sed -n '/^vendored_bwrap_profile()/,/^ISOMUX_BWRAP_USERNS_RESTRICT$/p' "$INSTALL_SH"; echo '}')"
+source "${prelude}"
 SERVICE_USER=$(id -un)
 SERVICE_HOME=$HOME
 DRY_RUN="${opts.dryRun ? "1" : ""}"
@@ -275,7 +266,6 @@ echo "REACHED-END"
     env: {
       ...process.env,
       PATH: `${bin}:${shadow}`,
-      INSTALL_SH,
       STUB_LOG: stubLog,
       AA_LOADED: aaLoaded,
       BWRAP_SRC: bwrapSrc,
@@ -296,9 +286,41 @@ echo "REACHED-END"
   };
 }
 
+// The step's functions, extracted from install.sh once and sourced by every
+// run.
+function extractPrelude() {
+  prelude = join(base, "prelude.sh");
+  const res = spawnSync(
+    "bash",
+    [
+      "-c",
+      `
+set -euo pipefail
+# FIRST definition only: install.sh also carries deploy/harden-ssh.sh and
+# deploy/oom-protect.sh inside heredocs, and those define their own
+# as_service_user / run / write_file. A plain sed range would eval the
+# embedded copy over the installer's own and test the wrong function.
+extract() { awk -v fn="$1() {" 'index($0, fn) == 1 {f = 1} f {print} f && /^}$/ {exit}' "$INSTALL_SH"; }
+for fn in run as_service_user service_path write_file configure_codex_sandbox \\
+  bwrap_on_service_path bwrap_smoke_test userns_restricted install_bwrap_profile; do
+  extract "$fn"
+done
+# The heredoc body has its own column-0 braces, so this range ends at the
+# delimiter and the closing brace is added back.
+sed -n '/^vendored_bwrap_profile()/,/^ISOMUX_BWRAP_USERNS_RESTRICT$/p' "$INSTALL_SH"
+echo '}'
+`,
+    ],
+    { env: { ...process.env, INSTALL_SH }, encoding: "utf8" },
+  );
+  expect(res.status).toBe(0);
+  writeFileSync(prelude, res.stdout);
+}
+
 beforeAll(() => {
   base = mkdtempSync(join(tmpdir(), "isomux-codex-sandbox-test-"));
   makeShadowPath();
+  extractPrelude();
 });
 
 afterAll(() => {
@@ -314,6 +336,12 @@ describe("install.sh codex sandbox: the probe decides", () => {
     expect(r.profile).toBeNull();
     expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
     expect(r.calls.filter((c) => c.startsWith("apt-get"))).toEqual([]);
+    // bwrap is only in a directory systemd's built-in default lacks, the way
+    // snapd's environment generator adds /snap/bin: found, so the step asked
+    // the system manager for the service's PATH, and asked nothing else.
+    expect(r.calls.filter((c) => c.startsWith("systemctl"))).toEqual([]);
+    expect(r.errTraps).toEqual([]);
+    expect(r.outcomes).toEqual([]);
     expect(r.reachedEnd).toBe(true);
   });
 
@@ -324,6 +352,7 @@ describe("install.sh codex sandbox: the probe decides", () => {
     );
     expect(r.out).toContain("codex sandbox ready");
     expect(r.profile).toBeNull();
+    expect(r.outcomes).toEqual([]);
   });
 
   it("enables the packaged profile when the userns restriction is the cause", () => {
@@ -342,6 +371,7 @@ describe("install.sh codex sandbox: the probe decides", () => {
     expect(r.calls.filter((c) => c.startsWith("apparmor_parser")).length).toBe(
       1,
     );
+    expect(r.outcomes).toEqual([]);
   });
 
   it("falls back to the vendored two-stage profile when the package has none", () => {
@@ -370,6 +400,7 @@ describe("install.sh codex sandbox: the probe decides", () => {
       expect(r.out).toContain("AppArmor policy is not the cause");
       // The real diagnostic, not a generic "sandbox unavailable".
       expect(r.out).toContain("Failed RTM_NEWADDR: Operation not permitted");
+      expect(r.outcomes).toHaveLength(1);
       expect(r.reachedEnd).toBe(true);
     }
   });
@@ -395,31 +426,16 @@ describe("install.sh codex sandbox: the probe decides", () => {
     expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
     expect(r.profile).toBeNull();
     expect(r.out).toContain("Leaving it disabled");
+    expect(r.outcomes).toHaveLength(1);
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
-  });
-
-  it("re-running on a fixed box does nothing at all", () => {
-    // install.sh re-runs on update, and the dependency-sync mode runs it on a
-    // live box. A second pass must be a no-op, which the probe gives for free.
-    const first = runStep({ userns: "1", packagedProfile: true });
-    expect(first.out).toContain("codex sandbox ready: loaded the");
-    const second = runStep({
-      userns: "1",
-      packagedProfile: true,
-      bwrapWorks: true,
-    });
-    expect(second.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual(
-      [],
-    );
-    expect(second.profile).toBeNull();
   });
 
   it("does nothing in dry-run mode", () => {
     const r = runStep({ userns: "1", packagedProfile: true, dryRun: true });
     expect(r.calls).toEqual([]);
     expect(r.profile).toBeNull();
-    expect(r.out).toContain("DRY-RUN: would install bubblewrap");
+    expect(r.out).toMatch(/^LOG: DRY-RUN: /m);
   });
 });
 
@@ -429,6 +445,7 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
   it("survives an apt that cannot install the packages", () => {
     const r = runStep({ bwrapMissing: true, aptFails: true });
     expect(r.out).toContain("could not install the bubblewrap package");
+    expect(r.outcomes).toHaveLength(1);
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -452,6 +469,7 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     expect(r.out).not.toContain("apparmor_parser said");
     expect(r.out).not.toContain("enabled Ubuntu's packaged");
     expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
+    expect(r.outcomes).toHaveLength(1);
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -461,25 +479,6 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
   // and returns only the SECOND one's status, so a failed create followed by a
   // successful write returns 0 - which is why this path no longer goes through
   // it. One case per guard.
-  it("names the create as what failed, on the vendored path", () => {
-    // The masking case: a writable parent, so a create failure would be
-    // followed by a write that succeeds and reports the whole thing fine.
-    const r = runStep({
-      userns: "1",
-      packagedProfile: false,
-      installFails: true,
-    });
-    expect(r.out).toMatch(
-      /LOG: warning: could not create[^\n]*install said: install: cannot create regular file/,
-    );
-    expect(r.out).not.toContain("apparmor_parser said");
-    expect(r.out).not.toContain("installed its vendored copy");
-    expect(r.profile).toBeNull();
-    expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
-    expect(r.reachedEnd).toBe(true);
-    expect(r.code).toBe(0);
-  });
-
   it("names the write as what failed, and leaves no empty profile behind", () => {
     // A create that reports success without producing the file, and a
     // directory that then refuses the write. The file must not be left for the
@@ -500,15 +499,37 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     expect(r.code).toBe(0);
   });
 
-  it("reports a profile directory that does not exist", () => {
+  it("stops when the create fails under a writable parent", () => {
+    // The masking case: a writable parent, so a create failure followed by a
+    // write that succeeds would land the profile with the umask's mode and
+    // report the whole thing fine.
+    const r = runStep({
+      userns: "1",
+      packagedProfile: false,
+      installFails: true,
+    });
+    expect(r.out).toMatch(/^LOG: warning: [^\n]*install: cannot create/m);
+    expect(r.profile).toBeNull();
+    expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
+    expect(r.outcomes).toHaveLength(1);
+    expect(r.reachedEnd).toBe(true);
+    expect(r.code).toBe(0);
+  });
+
+  it("names the create as what failed when the profile directory does not exist", () => {
+    // A real install against a missing directory. Its own diagnostic, which
+    // names the path, has to be IN the warning line after ours does.
     const r = runStep({
       userns: "1",
       packagedProfile: false,
       unwritableProfileDir: true,
     });
-    expect(r.out).toContain("could not create");
+    expect(r.out).toMatch(
+      /^LOG: warning: [^\n]*no-such-dir[^\n]*install: [^\n]*no-such-dir/m,
+    );
     expect(r.out).not.toContain("apparmor_parser said");
     expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
+    expect(r.outcomes).toHaveLength(1);
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -523,6 +544,7 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     // Says what the parser said, and does not claim the sandbox is ready.
     expect(r.out).toContain("AppArmor parser error");
     expect(r.out).not.toContain("codex sandbox ready");
+    expect(r.outcomes).toHaveLength(1);
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -531,6 +553,7 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     const r = runStep({ userns: "1", packagedProfile: true, neverWorks: true });
     expect(r.out).toContain("still does not work for");
     expect(r.out).toContain("Failed RTM_NEWADDR: Operation not permitted");
+    expect(r.outcomes).toHaveLength(1);
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -552,6 +575,14 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
     expect(r.profile).toBeNull();
     expect(r.outcomes).toHaveLength(1);
+    // One warning, and it names the service's PATH, not the manager's other
+    // variables or systemd's built-in default.
+    const warnings = r.out
+      .split("\n")
+      .filter((l) => l.startsWith("LOG: warning:"));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(`(${shadow})`);
+    expect(warnings[0]).not.toContain("default-bin");
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
@@ -567,30 +598,6 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     expect(r.out).not.toContain("codex sandbox ready");
     expect(r.out).toContain("setting up uid map: Permission denied");
     expect(r.outcomes).toHaveLength(1);
-  });
-
-  it("asks the system manager for the service's PATH", () => {
-    // bwrap is only in a directory systemd's built-in default lacks, the way
-    // snapd's environment generator adds /snap/bin: found, with no apt run.
-    const r = runStep({ bwrapWorks: true });
-    expect(r.out).toContain("codex sandbox ready");
-    expect(r.calls.filter((c) => c.startsWith("apt-get"))).toEqual([]);
-    expect(r.calls.filter((c) => c.startsWith("systemctl"))).toEqual([]);
-    expect(r.errTraps).toEqual([]);
-  });
-
-  it("names the service's PATH when bwrap is not on it", () => {
-    const r = runStep({
-      bwrapMissing: true,
-      bwrapWorks: true,
-      bwrapOffServicePath: true,
-    });
-    const warnings = r.out
-      .split("\n")
-      .filter((l) => l.startsWith("LOG: warning:"));
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain(`(${shadow})`);
-    expect(warnings[0]).not.toContain("default-bin");
   });
 
   for (const mode of ["fails", "no-path", "empty-path"] as const) {
@@ -619,40 +626,15 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     });
   }
 
-  it("records every failure in the update outcome, and nothing when ready", () => {
-    const failures: Opts[] = [
-      { bwrapMissing: true, aptFails: true },
-      { userns: "0" },
-      { userns: "1", disabled: true },
-      { userns: "1", packagedProfile: true, installFails: true },
-      { userns: "1", packagedProfile: false, installFails: true },
-      { userns: "1", packagedProfile: true, parserFails: true },
-      { userns: "1", packagedProfile: true, neverWorks: true },
-    ];
-    for (const opts of failures) {
-      const r = runStep(opts);
-      expect(r.out).not.toContain("codex sandbox ready");
-      expect(r.outcomes).toHaveLength(1);
-      expect(r.reachedEnd).toBe(true);
-    }
-    for (const opts of [
-      { bwrapWorks: true },
-      { bwrapMissing: true, bwrapWorks: true },
-      { userns: "1", packagedProfile: true },
-    ] as Opts[]) {
-      const r = runStep(opts);
-      expect(r.out).toContain("codex sandbox ready");
-      expect(r.outcomes).toEqual([]);
-    }
-  }, 30_000);
-
   it("has no die anywhere in the step", () => {
     const src = readFileSync(INSTALL_SH, "utf8");
-    const fn = src.slice(
-      src.indexOf("configure_codex_sandbox() {"),
-      src.indexOf("# Default ISOMUX_REF:"),
-    );
-    expect(fn.length).toBeGreaterThan(0);
+    // Both anchors must exist, the end after the start, or the slice is not
+    // the step.
+    const start = src.indexOf("configure_codex_sandbox() {");
+    const end = src.indexOf("# Default ISOMUX_REF:");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const fn = src.slice(start, end);
     expect(fn).not.toContain("die ");
     // Never the two shortcuts that make the symptom go away. Comments
     // stripped: the step's own comment names both in order to rule them out.

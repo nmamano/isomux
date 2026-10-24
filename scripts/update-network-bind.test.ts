@@ -14,10 +14,11 @@ const INSTALL = readFileSync(
   new URL("../deploy/install.sh", import.meta.url),
   "utf8",
 );
-const FUNCTION = INSTALL.slice(
-  INSTALL.indexOf("write_loopback_bind_if_proxied() {"),
-  INSTALL.indexOf("\nconfigure_caddy() {"),
-);
+const START = INSTALL.indexOf("write_loopback_bind_if_proxied() {");
+const END = INSTALL.indexOf("\nconfigure_caddy() {");
+if (START < 0 || END < START)
+  throw new Error("install.sh no longer has write_loopback_bind_if_proxied");
+const FUNCTION = INSTALL.slice(START, END);
 const roots: string[] = [];
 
 function run(options: {
@@ -80,6 +81,8 @@ write_loopback_bind_if_proxied`
     },
   });
   const after = statSync(config, { throwIfNoEntry: false });
+  // A missing function exits 127 and leaves the config as it was.
+  expect(result.exitCode, result.stderr.toString()).toBe(0);
   return {
     code: result.exitCode,
     out: `${result.stdout.toString()}${result.stderr.toString()}`,

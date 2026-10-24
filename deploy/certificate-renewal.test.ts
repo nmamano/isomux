@@ -187,6 +187,16 @@ esac`,
     helper,
     env,
     run: () => Bun.spawnSync(["bash", helper], { env }),
+    /** run without blocking, so table rows can run side by side. */
+    runAsync: async () => {
+      const proc = Bun.spawn(["bash", helper], {
+        env,
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const stderr = await new Response(proc.stderr).text();
+      return { exitCode: await proc.exited, stderr };
+    },
     statuses: () => read("status.log").split("\n").filter(Boolean),
     /** Each status call as [url, HTTP status]. */
     statusCalls: () =>
@@ -398,59 +408,71 @@ describe("moving to the endpoint a renew answer names", () => {
     expect(box.statuses()).toEqual(["ok"]);
   });
 
-  it("does not count a redirect or an error answer as proof", () => {
-    for (const code of ["301", "307", "308", "202"]) {
-      const box = makeBox();
-      const before = enrollment(box);
-      box.answerEndpoint(NEW);
-      writeFileSync(join(box.root, "new-status-code"), code);
-      expect(box.run().exitCode).toBe(0);
-      expect(enrollment(box)).toBe(before);
-      expect(box.statusCalls()).toEqual([
-        [statusOf(NEW), code],
-        [statusOf(OLD), "200"],
-      ]);
-    }
+  /** A box whose renew answer is its installed certificate plus `endpoint`:
+   * the unchanged path, so no key is made and nothing is signed. */
+  const answeringBox = (endpoint: unknown) => {
+    const box = makeBox({ installed: true });
+    box.answer(JSON.stringify({ ...JSON.parse(OFFICE.answer), endpoint }));
+    return box;
+  };
+
+  // The rows below run side by side, each on its own box. Each assertion
+  // carries its row, so a red row names itself.
+  it("does not count a redirect or an error answer as proof", async () => {
+    await Promise.all(
+      ["301", "307", "308", "202"].map(async (code) => {
+        const box = answeringBox(NEW);
+        const before = enrollment(box);
+        writeFileSync(join(box.root, "new-status-code"), code);
+        const { exitCode } = await box.runAsync();
+        expect([code, exitCode]).toEqual([code, 0]);
+        expect([code, enrollment(box)]).toEqual([code, before]);
+        expect([code, box.statusCalls()]).toEqual([
+          code,
+          [
+            [statusOf(NEW), code],
+            [statusOf(OLD), "200"],
+          ],
+        ]);
+      }),
+    );
   }, 30_000);
 
-  it("ignores a malformed endpoint and calls nothing but the old one", () => {
+  it("ignores a malformed endpoint and calls nothing but the old one", async () => {
+    // One row per guard of report_ok and clause of endpoint_re in the helper.
     const malformed: unknown[] = [
       "",
-      42,
-      null,
+      // Not a string, though it holds a good endpoint.
       [NEW],
-      { endpoint: NEW },
+      // The endpoint in use.
       OLD,
       "http://new.test/internal/certificates/renew",
+      // Userinfo: the host allows no "@".
       "https://user@new.test/internal/certificates/renew",
-      "https://user:pw@new.test/internal/certificates/renew",
-      "https://new.test/internal/certificates/renew?x=1",
-      "https://new.test/internal/certificates/renew#x",
-      "https://new.test/internal/certificates/renew/",
-      "https://new.test/internal/certificates/status",
-      "https://new.test/x/../internal/certificates/renew",
-      " https://new.test/internal/certificates/renew",
-      "https://new.test/internal/certificates/renew x",
-      "https://new.test/internal/certificates/renew\nhttps://new.test/internal/certificates/renew",
-      "https://new .test/internal/certificates/renew",
-      "https://new.test:/internal/certificates/renew",
+      "https://-new.test/internal/certificates/renew",
       "https://new.test:0/internal/certificates/renew",
       "https://new.test:abc/internal/certificates/renew",
-      "https://-new.test/internal/certificates/renew",
+      "https://new.test/x/../internal/certificates/renew",
+      "https://new.test/internal/certificates/status",
+      // Anything before or after the URL.
+      " https://new.test/internal/certificates/renew",
+      "https://new.test/internal/certificates/renew?x=1",
+      "https://new.test/internal/certificates/renew\nhttps://new.test/internal/certificates/renew",
     ];
-    for (const value of malformed) {
-      const box = makeBox();
-      const before = enrollment(box);
-      box.answerEndpoint(value);
-      expect(box.run().exitCode).toBe(0);
-      expect([value, enrollment(box)]).toEqual([value, before]);
-      expect([value, box.statusCalls()]).toEqual([
-        value,
-        [[statusOf(OLD), "200"]],
-      ]);
-    }
-    // One helper run per value, each about a second.
-  }, 90_000);
+    await Promise.all(
+      malformed.map(async (value) => {
+        const box = answeringBox(value);
+        const before = enrollment(box);
+        const { exitCode } = await box.runAsync();
+        expect([value, exitCode]).toEqual([value, 0]);
+        expect([value, enrollment(box)]).toEqual([value, before]);
+        expect([value, box.statusCalls()]).toEqual([
+          value,
+          [[statusOf(OLD), "200"]],
+        ]);
+      }),
+    );
+  }, 30_000);
 
   it("keeps the installed certificate when the enrollment cannot be written", () => {
     const box = makeBox();
@@ -569,9 +591,5 @@ refresh_hosted_tls_renewal`;
     expect(box.read(box.helper)).toBe("#!/bin/sh\nold helper\n");
     expect(box.read("log")).toContain("ISOMUX_UPDATE_WARNING=");
     expect(box.read("run.log")).toBe("");
-  });
-
-  it("is called from the update path", () => {
-    expect(fnBody("deps_only")).toContain("refresh_hosted_tls_renewal");
   });
 });

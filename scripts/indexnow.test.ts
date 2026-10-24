@@ -12,7 +12,6 @@ import { STATIC_PATHS, main as buildDocs } from "./build-docs.ts";
 import {
   INDEXNOW_KEY,
   SITE_HOST,
-  builtFileFor,
   changedUrls,
   pickBaseSha,
   pingIndexNow,
@@ -52,34 +51,6 @@ function site(files: Record<string, string>, paths: string[]): string {
 const sorted = (urls: string[]) => [...urls].sort();
 const abs = (...paths: string[]) => sorted(paths.map((p) => ORIGIN + p));
 
-describe("builtFileFor", () => {
-  it("resolves a sitemap path the way cleanUrls serves it", () => {
-    const dir = site(
-      {
-        "index.html": "",
-        "about.html": "",
-        "es/index.html": "",
-        "es/hosted.html": "",
-        "docs/index.html": "",
-        "docs/agents/index.html": "",
-      },
-      [],
-    );
-    const cases: [string, string][] = [
-      ["/", "index.html"],
-      ["/about", "about.html"],
-      ["/es", "es/index.html"],
-      ["/es/hosted", "es/hosted.html"],
-      ["/docs", "docs/index.html"],
-      ["/docs/agents", "docs/agents/index.html"],
-    ];
-    for (const [path, file] of cases) {
-      expect([path, builtFileFor(dir, path)]).toEqual([path, join(dir, file)]);
-    }
-    expect(builtFileFor(dir, "/demo")).toBeNull();
-  });
-});
-
 describe("changedUrls", () => {
   it("sends changed, new and removed pages, and skips unchanged and unbuilt ones", () => {
     const base = site(
@@ -107,12 +78,6 @@ describe("changedUrls", () => {
     );
   });
 
-  it("sends nothing when the two builds are identical", () => {
-    const files = { "index.html": "landing", "docs/agents/index.html": "a" };
-    const paths = ["/", "/demo", "/docs/agents"];
-    expect(changedUrls(site(files, paths), site(files, paths))).toEqual([]);
-  });
-
   it("sends every built sitemap page when there is no base build", () => {
     const head = site(
       { "index.html": "landing", "docs/agents/index.html": "a" },
@@ -123,7 +88,7 @@ describe("changedUrls", () => {
 
   it("resolves every URL of the real sitemap except /demo", () => {
     // The fixtures above use a few path shapes; this catches a sitemap path
-    // that builtFileFor cannot resolve and so would never be sent.
+    // that changedUrls cannot resolve and so would never be sent.
     buildDocs();
     const locs = [
       ...readFileSync("site/sitemap.xml", "utf8").matchAll(

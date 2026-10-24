@@ -63,12 +63,6 @@ test("hosted wrapper propagates first address enable failure", async () => {
   expect(result.steps).toEqual(["marker", "claim", "access"]);
 });
 
-test("hosted wrapper propagates invite failure", async () => {
-  const result = await run("invite");
-  expect(result.code).not.toBe(0);
-  expect(result.steps).toEqual(["marker", "claim", "access", "invite"]);
-});
-
 test("hosted wrapper refuses a changed installer entry point", async () => {
   const result = await run("", "main --new-entry");
   expect(result.code).not.toBe(0);

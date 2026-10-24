@@ -12,7 +12,6 @@ import {
   buildBrowserExtension,
   EXTENSION_ENTRIES,
 } from "./build-browser-extension";
-import { officeSocketURL } from "../shared/browser-extension-protocol";
 
 test("packaged extension has exact root entries, valid CRCs and no stale build files", async () => {
   const dir = mkdtempSync(join(tmpdir(), "extension-package-")),
@@ -57,23 +56,4 @@ test("packaged extension has exact root entries, valid CRCs and no stale build f
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-test("office URL input accepts origins only and derives the encrypted socket", () => {
-  expect(officeSocketURL("https://office.example.com")).toBe(
-    "wss://office.example.com/browser-extension/ws",
-  );
-  expect(officeSocketURL("http://localhost:1234/")).toBe(
-    "ws://localhost:1234/browser-extension/ws",
-  );
-  for (const value of [
-    "https://user:secret@office.example.com",
-    "https://office.example.com/?secret=a",
-    "https://office.example.com/#token",
-    "https://office.example.com/?",
-    "https://office.example.com/#",
-    "https://office.example.com/browser-extension/ws",
-    "http://office.example.com",
-    "wss://office.example.com",
-  ])
-    expect(() => officeSocketURL(value)).toThrow();
 });

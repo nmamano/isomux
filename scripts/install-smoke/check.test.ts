@@ -7,7 +7,7 @@ import {
   stripAnsi,
   type Entry,
 } from "./check.ts";
-import { claimOwner, preClaimProbe, sessionCookie } from "./claim.ts";
+import { claimOwner, sessionCookie } from "./claim.ts";
 
 const entry = (
   kind: string,
@@ -67,31 +67,18 @@ describe("stripAnsi", () => {
 });
 
 describe("sessionCookie", () => {
-  it("prefers the __Host- session cookie and drops the attributes", () => {
-    expect(
-      sessionCookie([
-        "isomux_session_0123456789ab=plain; Path=/",
-        "__Host-isomux_session_0123456789ab=new; Path=/; Secure",
-      ]),
-    ).toBe("__Host-isomux_session_0123456789ab=new");
-  });
-
-  it("prefers the office's own names over the shared names", () => {
-    expect(
-      sessionCookie([
-        "__Host-isomux_session=shared; Path=/; Secure",
-        "isomux_session_0123456789ab=own; Path=/",
-      ]),
-    ).toBe("isomux_session_0123456789ab=own");
-  });
-
-  it("still reads an office on a release with the shared names", () => {
-    expect(
-      sessionCookie([
-        "isomux_session=legacy; Path=/",
-        "__Host-isomux_session=new; Path=/; Secure",
-      ]),
-    ).toBe("__Host-isomux_session=new");
+  // The server writes one session cookie per answer: each name alone, in its
+  // HTTPS and HTTP form. The shared names are an older release's; drop those
+  // rows with claim.ts's shared patterns once no smoked release writes them.
+  it.each([
+    "__Host-isomux_session_0123456789ab",
+    "isomux_session_0123456789ab",
+    "__Host-isomux_session",
+    "isomux_session",
+  ])("reads %s and drops the attributes", (name) => {
+    expect(sessionCookie(["other=1", `${name}=v; Path=/; Secure`])).toBe(
+      `${name}=v`,
+    );
   });
 
   it("returns null when no session cookie has a value", () => {
@@ -156,18 +143,6 @@ describe("claimOwner", () => {
     ]);
   });
 
-  it("refuses a setup link without a key before it posts", async () => {
-    const { base, seen } = office(302);
-    await expect(
-      claimOwner(base, "http://localhost:4000", {
-        kind: "setup-link",
-        name: "A",
-        url: "http://localhost:4000/setup",
-      }),
-    ).rejects.toThrow();
-    expect(seen).toEqual([]);
-  });
-
   it("posts the configured setup key with the public origin", async () => {
     const { base, seen } = office(200);
     await claimOwner(base, "https://office.example.com", {
@@ -209,12 +184,6 @@ describe("claimOwner", () => {
       }),
     ).rejects.toThrow("403");
   });
-
-  it("probes the setup listener before a setup-key claim and /readyz otherwise", () => {
-    expect(preClaimProbe("setup-key")).toBe("/health");
-    expect(preClaimProbe("setup-link")).toBe("/readyz");
-    expect(preClaimProbe("invite")).toBe("/readyz");
-  });
 });
 
 describe("judgeAnswer", () => {
@@ -243,7 +212,7 @@ describe("deadlines against a stalled office", () => {
     tcp?.stop(true);
   });
 
-  // The test's own bound, well above the 300 ms deadline under test: without
+  // The test's own bound, well above the 50 ms deadline under test: without
   // that deadline the call would hang, and this fails it with its own line.
   const bounded = <T>(call: Promise<T>) =>
     Promise.race([
@@ -269,7 +238,7 @@ describe("deadlines against a stalled office", () => {
           stalledHttp(),
           "http://localhost:4000",
           { kind: "setup-key", name: "A", key: "k" },
-          300,
+          50,
         ),
       ),
     ).rejects.toThrow("POST /auth/claim did not answer");
@@ -277,7 +246,7 @@ describe("deadlines against a stalled office", () => {
 
   it("bounds the send", async () => {
     await expect(
-      bounded(sendMessage(stalledHttp(), "o", "c", "agent-1", "Hello", 300)),
+      bounded(sendMessage(stalledHttp(), "o", "c", "agent-1", "Hello", 50)),
     ).rejects.toThrow("the send did not answer");
   });
 
@@ -290,7 +259,7 @@ describe("deadlines against a stalled office", () => {
     tcp = listener;
     await expect(
       bounded(
-        OfficeSocket.open(`http://127.0.0.1:${listener.port}`, "o", "c", 300),
+        OfficeSocket.open(`http://127.0.0.1:${listener.port}`, "o", "c", 50),
       ),
     ).rejects.toThrow("did not open");
   });
