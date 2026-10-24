@@ -47,11 +47,11 @@ describe("thumbnailVerb", () => {
 });
 
 describe("appMenuActions", () => {
-  it("leaves out a verb that cannot change the state, and offers Archive only at rest and Unarchive only in Archived", () => {
-    // A running app is never archived or unarchived; "unknown" keeps every verb
-    // but Archive (the server archives only an app systemd reported at rest, so
-    // it would only earn a 409), and a failed app keeps restart as its recovery
-    // verb.
+  it("leaves out a verb that cannot change the state, and offers Archive in Stopped and Unarchive only in Archived", () => {
+    // A running app is never archived or unarchived. Every app in Stopped,
+    // "unknown" included, offers Archive: the page cannot tell an app with no
+    // unit from one the supervisor cannot read, so the server decides. A failed
+    // app keeps restart as its recovery verb.
     type Actions = ReturnType<typeof appMenuActions>;
     const table: [AppState, Actions, Actions][] = [
       [
@@ -76,7 +76,7 @@ describe("appMenuActions", () => {
       ],
       [
         "unknown",
-        ["start", "stop", "restart", "log", "delete"],
+        ["start", "stop", "restart", "log", "archive", "delete"],
         ["start", "stop", "restart", "log", "unarchive", "delete"],
       ],
     ];

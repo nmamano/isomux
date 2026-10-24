@@ -112,6 +112,22 @@ export function createContainerAppSupervisor(
       new Map(
         Object.entries(rpc<Record<string, AppRuntime>>("states", { names })),
       ),
+    // The container supervisor launches every app process itself and reports
+    // stopped or failed only when none is live; an app it has no record of
+    // has no process either.
+    provablyNotRunning: (name) => {
+      try {
+        const runtime = rpc<Record<string, AppRuntime>>("states", {
+          names: [name],
+        })[name];
+        if (runtime?.state === "stopped" || runtime?.state === "failed") {
+          return true;
+        }
+        return !rpc<boolean>("exists", { name });
+      } catch {
+        return false;
+      }
+    },
     logs: (name, lines) => rpc("logs", { name, lines }),
   };
 }

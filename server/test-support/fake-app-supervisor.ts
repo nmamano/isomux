@@ -285,6 +285,15 @@ export function createFakeAppSupervisor(
       return out;
     },
 
+    // An app with no unit is proof; so is one held stopped or failed. A forced
+    // `unknown` on an installed app is no answer, as a failed query is.
+    provablyNotRunning(name: string) {
+      fake.calls.push(`provablyNotRunning:${name}`);
+      if (!fake.installed.has(name)) return true;
+      const state = runtimes.get(name)?.state;
+      return state === "stopped" || state === "failed";
+    },
+
     logs(name: string, lines: number) {
       fake.calls.push(`logs:${name}`);
       fake.lastLogRequest = { name, lines };

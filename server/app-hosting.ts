@@ -49,6 +49,8 @@ export function createUnavailableAppSupervisor(): AppSupervisor {
     stop: refuse,
     restart: refuse,
     states: () => new Map<string, AppRuntime>(),
+    // Nothing is installed, so nothing runs.
+    provablyNotRunning: () => true,
     logs: refuse,
   };
 }

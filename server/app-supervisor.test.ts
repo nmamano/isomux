@@ -975,22 +975,28 @@ describe("app-supervisor: teardown", () => {
       ["masked", "inactive"],
       ["error", "inactive"],
     ];
-    for (const [load, active] of safe) {
-      const host = fakeHost((argv) =>
+    // Archive asks the same question through provablyNotRunning, which
+    // answers false where teardown throws.
+    const host = (load: string, active: string) =>
+      fakeHost((argv) =>
         argv[2] === "show"
           ? { stdout: showBlock("isomux-app-hello.service", load, active) }
           : undefined,
       );
-      expect(() => supervisor(host).teardown("hello")).not.toThrow();
+    for (const [load, active] of safe) {
+      expect(() =>
+        supervisor(host(load, active)).teardown("hello"),
+      ).not.toThrow();
+      expect(supervisor(host(load, active)).provablyNotRunning("hello")).toBe(
+        true,
+      );
     }
     for (const [load, active] of unsafe) {
-      const host = fakeHost((argv) =>
-        argv[2] === "show"
-          ? { stdout: showBlock("isomux-app-hello.service", load, active) }
-          : undefined,
-      );
-      expect(() => supervisor(host).teardown("hello")).toThrow(
+      expect(() => supervisor(host(load, active)).teardown("hello")).toThrow(
         /still running|NOT deleted/,
+      );
+      expect(supervisor(host(load, active)).provablyNotRunning("hello")).toBe(
+        false,
       );
     }
   });
@@ -1009,7 +1015,34 @@ describe("app-supervisor: teardown", () => {
         argv[2] === "show" ? { stdout } : undefined,
       );
       expect(() => supervisor(host).teardown("hello")).toThrow();
+      expect(supervisor(host).provablyNotRunning("hello")).toBe(false);
     }
+  });
+
+  it("answers false, never throws, when systemd cannot be asked", () => {
+    const host = fakeHost((argv) =>
+      argv[2] === "show"
+        ? { code: 1, stderr: "Failed to connect to bus" }
+        : undefined,
+    );
+    expect(supervisor(host).provablyNotRunning("hello")).toBe(false);
+  });
+
+  it("asks systemd now, not the state cache", () => {
+    // states() caches a read for 1.5 s. The app was at rest when the Apps page
+    // read it and is running now: archive must see the second answer.
+    let active = "inactive";
+    const host = fakeHost((argv) =>
+      argv[2] === "show"
+        ? { stdout: showBlock("isomux-app-hello.service", "loaded", active) }
+        : undefined,
+    );
+    const sup = supervisor(host);
+    expect(sup.states(["hello"]).get("hello")?.state).toBe("stopped");
+    active = "active";
+    expect(sup.provablyNotRunning("hello")).toBe(false);
+    active = "inactive";
+    expect(sup.provablyNotRunning("hello")).toBe(true);
   });
 });
 

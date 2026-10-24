@@ -695,6 +695,10 @@ export interface AppSupervisor {
   restart(appName: string): void;
   // Runtime state for a set of apps, in ONE systemctl call, cached briefly.
   states(appNames: readonly string[]): Map<string, AppRuntime>;
+  // Does the supervisor, asked now and not from a cache, PROVE that nothing
+  // runs for this app? The check delete relies on, for a caller that refuses
+  // rather than throws: a query that fails is false, never a throw.
+  provablyNotRunning(appName: string): boolean;
   logs(appName: string, lines: number): string[];
 }
 
@@ -832,6 +836,25 @@ export function createAppSupervisor(
     }
   };
 
+  // Ask systemd, uncached, about one app's unit. The block for the unit, or
+  // undefined when systemd answered nothing for it.
+  const showUnit = (
+    appName: string,
+  ): { r: RunResult; props: Map<string, string> | undefined } => {
+    const r = host.run(
+      systemctl(
+        "show",
+        unitName(appName),
+        "--property=Id,LoadState,ActiveState,SubState,NRestarts",
+      ),
+    );
+    const props =
+      r.code === 0
+        ? parseShowBlocks(r.stdout).get(unitName(appName))
+        : undefined;
+    return { r, props };
+  };
+
   // PROVE the app is not running, or throw. The query itself failing is a
   // throw, not an `unknown`: teardown's caller frees the app's name and port on
   // the strength of this, and "systemd did not answer" is not the same fact as
@@ -842,20 +865,13 @@ export function createAppSupervisor(
     what: string,
     detail: string,
   ): void => {
-    const r = host.run(
-      systemctl(
-        "show",
-        unitName(appName),
-        "--property=Id,LoadState,ActiveState,SubState,NRestarts",
-      ),
-    );
+    const { r, props } = showUnit(appName);
     if (r.code !== 0) {
       throw failed(
         `${what}, and systemd could not be asked whether it is still running`,
         r.stderr || r.stdout,
       );
     }
-    const props = parseShowBlocks(r.stdout).get(unitName(appName));
     if (!isProvablyNotRunning(props)) {
       // Says what systemd actually answered rather than a mapped state, since
       // the whole point here is that the mapping loses the distinctions.
@@ -1310,6 +1326,10 @@ export function createAppSupervisor(
       for (const [n, runtime] of read) cache.set(n, runtime);
       cachedAt = now();
       return read;
+    },
+
+    provablyNotRunning(appName) {
+      return isProvablyNotRunning(showUnit(appName).props);
     },
 
     logs(appName, lines) {

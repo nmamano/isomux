@@ -67,7 +67,7 @@ import {
 } from "../../identity/index.ts";
 import { noteAuditTarget } from "../../audit-context.ts";
 import { scrubText } from "../../secret-proxy/scrub.ts";
-import { archivableState, type AppRecord } from "../../../shared/types.ts";
+import type { AppRecord } from "../../../shared/types.ts";
 import {
   MAX_APP_THUMBNAIL_BYTES,
   readCappedBody,
@@ -234,6 +234,9 @@ export interface AppsDeps {
   // Runtime state for a SET of apps: one lookup for a whole list, never one per
   // app. A name the supervisor cannot speak for is simply absent.
   states(names: readonly string[]): Map<string, AppRuntime>;
+  // Proof, asked now, that nothing runs for the app; false when the
+  // supervisor cannot tell. Archive hides an app only on this proof.
+  provablyNotRunning(name: string): boolean;
   logs(name: string, lines: number): string[];
   // Every vault value as exact scrub patterns (secret-proxy/scrub.ts): no
   // log line leaves this route with one (task c7007f8b).
@@ -912,7 +915,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
 
     // A shared flag that moves a stopped app out of the way on the Apps page.
     // A running app cannot be archived: it would be hidden while it serves.
-    // Nor can an app whose state is unknown, since it may be running.
+    // Any other app is archived only when the supervisor proves, asked now,
+    // that nothing runs for it: the shown state can lag a stop in progress.
     // Asking for the state an app already has is a 200, as start is on a
     // running app.
     "apps.archive": archiveHandler(deps, true),
@@ -1174,11 +1178,11 @@ function archiveHandler(deps: AppsDeps, archived: boolean): RouteHandler {
       if (archived && (state === "running" || state === "starting")) {
         return fail(409, "app_running", "stop the app before you archive it");
       }
-      if (archived && !archivableState(state)) {
+      if (archived && !deps.provablyNotRunning(record.name)) {
         return fail(
           409,
           "app_state_unknown",
-          "Isomux cannot tell whether the app is running, so it cannot archive it",
+          "Isomux cannot tell whether the app is running. Stop the app first, then archive it, or delete it.",
         );
       }
       if ((record.archived === true) !== archived) {

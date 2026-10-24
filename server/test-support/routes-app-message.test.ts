@@ -665,6 +665,9 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     stop: () => {},
     restart: () => {},
     states: () => new Map(),
+    provablyNotRunning: () => {
+      throw new Error("not implemented");
+    },
     logs: () => [],
     sendAsApp: () => ({ ok: true as const, messageId: "m-1" }),
     limiter: createAppMessageLimiter(),

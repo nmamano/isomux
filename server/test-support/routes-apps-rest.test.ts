@@ -1888,6 +1888,9 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     stop: () => {},
     restart: () => {},
     states: () => new Map(),
+    provablyNotRunning: () => {
+      throw new Error("not implemented");
+    },
     logs: () => [],
     sendAsApp: () => ({ ok: true, messageId: "m-1" }),
     limiter: createAppMessageLimiter(),

@@ -3689,6 +3689,7 @@ function buildExecutorDeps(
       stop: (name) => appSupervisor.stop(name),
       restart: (name) => appSupervisor.restart(name),
       states: (names) => appSupervisor.states(names),
+      provablyNotRunning: (name) => appSupervisor.provablyNotRunning(name),
       logs: (name, lines) => appSupervisor.logs(name, lines),
       secretScrubPatterns: () => scrubPatterns(vaultValues()),
       forgetSecrets: (record) => {

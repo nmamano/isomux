@@ -1403,22 +1403,6 @@ export type AppState =
   | "failed"
   | "unknown";
 
-// Whether an app in this state may be archived. Archiving hides the app on the
-// Apps page, so only an app systemd reported at rest qualifies: `unknown` may
-// be serving. The route enforces this and the Apps page menu offers Archive
-// from it, so the two cannot disagree. No default: a new state must pick.
-export function archivableState(state: AppState): boolean {
-  switch (state) {
-    case "stopped":
-    case "failed":
-      return true;
-    case "running":
-    case "starting":
-    case "unknown":
-      return false;
-  }
-}
-
 // An app as it goes over the wire: the record plus what only the supervisor
 // knows. Its canonical home is here rather than contract-shapes.ts because
 // ServerMessage carries it (app_upserted), and contract-shapes.ts imports from

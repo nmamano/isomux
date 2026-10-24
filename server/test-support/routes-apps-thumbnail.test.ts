@@ -443,6 +443,23 @@ describe("routes/apps REST: archive", () => {
     expect(file.apps.find((a) => a.name === "hello")?.archived).toBe(true);
   });
 
+  it("refuses an installed app the supervisor cannot prove stopped", async () => {
+    const { srv, token } = await seed();
+    srv.appSupervisor.setRuntime("hello", {
+      state: "unknown",
+      restartCount: 0,
+    });
+    const r = await api(srv, "/api/apps/hello/archive", {
+      method: "POST",
+      bearer: token,
+    });
+    expect(r.status).toBe(409);
+    expect(errCode(r)).toBe("app_state_unknown");
+    const list = await api(srv, "/api/apps", { bearer: token });
+    expect((list.body as AppListWire[])[0]).toMatchObject({ name: "hello" });
+    expect((list.body as AppListWire[])[0]).not.toHaveProperty("archived");
+  });
+
   it("a repeat is a 200 that changes nothing; unarchive clears it", async () => {
     const { srv, token } = await seed();
     await stop(srv, token);
@@ -562,6 +579,9 @@ function deps(over: Partial<AppsDeps>): AppsDeps {
     stop: () => {},
     restart: () => {},
     states: () => new Map(),
+    provablyNotRunning: () => {
+      throw new Error("not implemented");
+    },
     logs: () => [],
     sendAsApp: () => ({ ok: true, messageId: "m-1" }),
     limiter: createAppMessageLimiter(),
@@ -685,32 +705,51 @@ describe("routes/apps: thumbnail upload ordering", () => {
 });
 
 describe("routes/apps: archive ordering", () => {
-  // Archive fails closed: only a state systemd reported as at rest may hide
-  // the app. `unknown` may still serve, so it is refused, under its own code
-  // because the app may not be running at all.
-  const archiveRefusal: Record<AppRuntime["state"], string | null> = {
-    stopped: null,
-    failed: null,
-    running: "app_running",
-    starting: "app_running",
-    unknown: "app_state_unknown",
-  };
-  for (const [state, code] of Object.entries(archiveRefusal)) {
-    it(`archive in state ${state}: ${code ?? "200, archived"}`, () => {
+  // Archive hides the app, so it fails closed on the check delete uses: the
+  // supervisor, asked now, must prove nothing runs. A cached running or
+  // starting state is refused before that question; every other state,
+  // `stopped` included (the wire calls `deactivating` stopped), is asked. No
+  // proof is app_state_unknown: the app may not be running at all.
+  const cases: {
+    state: AppRuntime["state"] | "absent";
+    proof: boolean;
+    code: string | null;
+    asked: boolean;
+  }[] = [];
+  for (const state of ["running", "starting"] as const) {
+    for (const proof of [true, false]) {
+      cases.push({ state, proof, code: "app_running", asked: false });
+    }
+  }
+  for (const state of ["stopped", "failed", "unknown", "absent"] as const) {
+    cases.push({ state, proof: true, code: null, asked: true });
+    cases.push({ state, proof: false, code: "app_state_unknown", asked: true });
+  }
+  for (const { state, proof, code, asked } of cases) {
+    it(`archive in state ${state}, proof ${proof}: ${code ?? "200, archived"}`, () => {
       const updates: unknown[] = [];
+      const questions: string[] = [];
       const result = appsHandlers(
         deps({
-          states: () => running(state as AppRuntime["state"]),
+          states: () => (state === "absent" ? new Map() : running(state)),
+          provablyNotRunning: (name) => {
+            questions.push(name);
+            return proof;
+          },
           update: (_name, patch) => {
             updates.push(patch);
             return record({ archived: patch.archived });
           },
         }),
       )["apps.archive"](ctx());
+      expect(questions).toEqual(asked ? ["hello"] : []);
       if (code === null) {
         expect(result).toMatchObject({
           kind: "json",
-          body: { state, archived: true },
+          body: {
+            state: state === "absent" ? "unknown" : state,
+            archived: true,
+          },
         });
         expect(updates).toEqual([{ archived: true }]);
       } else {
@@ -719,25 +758,6 @@ describe("routes/apps: archive ordering", () => {
       }
     });
   }
-
-  it("refuses archive when the supervisor has no answer for the app", () => {
-    let updated = false;
-    const result = appsHandlers(
-      deps({
-        states: () => new Map(),
-        update: () => {
-          updated = true;
-          return record({ archived: true });
-        },
-      }),
-    )["apps.archive"](ctx());
-    expect(result).toMatchObject({
-      kind: "error",
-      status: 409,
-      code: "app_state_unknown",
-    });
-    expect(updated).toBe(false);
-  });
 
   it("unarchives an app whose state is unknown", () => {
     const updates: unknown[] = [];

@@ -271,6 +271,7 @@ test("real app: token, logs, crash restart, stop, delete, and port reuse", async
   expect(first.token).toBe("synthetic-token-one");
   expect(first.secret).toBeUndefined();
   expect(first.url).toBe("https://sample.office.example.com");
+  expect(supervisor.provablyNotRunning(app.name)).toBe(false);
   const logs = await until(() => {
     const lines = supervisor.logs(app.name, 5);
     return lines.includes("synthetic-app-start") ? lines : null;
@@ -291,10 +292,13 @@ test("real app: token, logs, crash restart, stop, delete, and port reuse", async
   expect(supervisor.states([app.name]).get(app.name)?.restartCount).toBe(1);
   supervisor.stop(app.name);
   expect(supervisor.states([app.name]).get(app.name)?.state).toBe("stopped");
+  expect(supervisor.provablyNotRunning(app.name)).toBe(true);
   expect(await response()).toBeNull();
   supervisor.teardown(app.name);
   expect(supervisor.readToken(app.name)).toBeNull();
   expect(supervisor.states([app.name]).get(app.name)?.state).toBe("unknown");
+  // No record is proof; a supervisor that does not answer is not.
+  expect(supervisor.provablyNotRunning(app.name)).toBe(true);
   // The OS, not the supervisor status, proves that the old listener is gone.
   const reused = Bun.listen({
     hostname: "127.0.0.1",
@@ -302,6 +306,8 @@ test("real app: token, logs, crash restart, stop, delete, and port reuse", async
     socket: { data() {} },
   });
   reused.stop(true);
+  await closeDaemon();
+  expect(supervisor.provablyNotRunning(app.name)).toBe(false);
 }, 60_000);
 
 // Task c7007f8b: the worker reads STATE_ROOT/secrets/apps/<app>.env at each

@@ -28,7 +28,6 @@ import {
 import { RoomFilterSelect } from "./RoomFilterSelect.tsx";
 import { MenuItem } from "./ContextMenu.tsx";
 import { Portal } from "./Portal.tsx";
-import { archivableState } from "../../shared/types.ts";
 import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import type {
@@ -570,9 +569,9 @@ export function appMenuActions(
   }
   actions.push("log");
   const section = appSection(app);
-  if (section === "stopped" && archivableState(app.state)) {
-    actions.push("archive");
-  }
+  // The server archives only an app it can prove is not running, and says
+  // why when it cannot.
+  if (section === "stopped") actions.push("archive");
   if (section === "archived") actions.push("unarchive");
   actions.push("delete");
   return actions;
