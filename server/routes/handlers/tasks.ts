@@ -77,7 +77,8 @@ export interface TasksDeps {
     username: string | undefined;
   };
   // The set of room ids this caller can ACCESS (owner → every live room by rule;
-  // member → their granted rooms; agent → its spawning user's accessible set).
+  // member → their granted rooms; agent → its spawning user's accessible set;
+  // cron run → its job's room while the job's creator can access it).
   // Room ACCESS, not view - a hidden room stays accessible. Global tasks (no
   // roomId) are visible to everyone and are NOT represented here.
   accessibleRoomIds(identity: Identity): Set<string>;
@@ -85,9 +86,9 @@ export interface TasksDeps {
   // the live rooms, and whether it sees a closed room's tasks.
   taskViewer(identity: Identity): TaskViewer;
   // The room a create with NO roomId in the body defaults to: an AGENT caller's
-  // OWN room, or undefined (office-global) for a user / unknown identity. This is
-  // how "agent create → the agent's room" and "direct user/API create with no
-  // room param → global" are both realized.
+  // OWN room, a cron run's board room (its job's), or undefined (office-global)
+  // for a user / unknown identity. This is how "agent create → the agent's room"
+  // and "direct user/API create with no room param → global" are both realized.
   defaultCreateRoomId(identity: Identity): string | undefined;
 }
 

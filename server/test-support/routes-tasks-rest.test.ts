@@ -375,6 +375,207 @@ describe("routes/tasks REST: attribution and lifecycle", () => {
       ).status,
     ).toBe(204);
   });
+
+  // A job WITH a room: its run reaches that room's board the way an agent in
+  // the room does, and no other room, even one its owner creator can access
+  // (task 033fcb89). Closing the room takes the run back to the global board.
+  it("a run of a job with a room lists, works and files tasks in that room only, until the room closes", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
+    const asOwner = { rawSessionId: owner.rawSessionId };
+    const roomA = srv.agentManager.createRoom("Room A");
+    const roomB = srv.agentManager.createRoom("Room B");
+    const job = srv.cronjobManager.addCronjob({
+      name: "Nightly Report",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "p",
+      cwd: srv.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: "Morgan",
+      userId: ownerId,
+      roomId: roomA,
+    });
+    const runToken = mintRunToken(job.id, "run-1", ownerId);
+    const asRun = { bearer: runToken };
+    const ownerPost = async (title: string, roomId: string) =>
+      (
+        await api(srv, "/api/tasks", {
+          method: "POST",
+          ...asOwner,
+          body: { title, roomId },
+        })
+      ).body as TaskItem;
+    const inA = await ownerPost("in A", roomA);
+    const inB = await ownerPost("in B", roomB);
+    const glob = await ownerPost("glob", "");
+    const runPost = (body: Record<string, unknown>) =>
+      api(srv, "/api/tasks", { method: "POST", ...asRun, body });
+    const ids = (r: Res) => (r.body as TaskItem[]).map((t) => t.id).sort();
+
+    // The creator reaches room B: whatever hides it from the run is the run's
+    // own rule, not the creator's access.
+    const ownerList = await api(srv, `/api/tasks?roomId=${roomB}`, asOwner);
+    expect(ownerList.status).toBe(200);
+    expect(ids(ownerList)).toEqual([inB.id]);
+
+    // List: its room plus office-global; ?roomId=A narrows to the room.
+    const plain = await api(srv, "/api/tasks", asRun);
+    expect(plain.status).toBe(200);
+    expect(ids(plain)).toEqual([inA.id, glob.id].sort());
+    const roomList = await api(srv, `/api/tasks?roomId=${roomA}`, asRun);
+    expect(roomList.status).toBe(200);
+    expect(ids(roomList)).toEqual([inA.id]);
+    expect((await api(srv, `/api/tasks?roomId=${roomB}`, asRun)).status).toBe(
+      404,
+    );
+
+    // Work on a task in its room.
+    expect((await api(srv, `/api/tasks/${inA.id}`, asRun)).status).toBe(200);
+    const claim = await api(srv, `/api/tasks/${inA.id}/claim`, {
+      method: "POST",
+      ...asRun,
+      body: { assignee: "Nightly Report" },
+    });
+    expect(claim.status).toBe(200);
+    const done = await api(srv, `/api/tasks/${inA.id}/done`, {
+      method: "POST",
+      ...asRun,
+      body: {},
+    });
+    expect(done.status).toBe(200);
+    expect(
+      srv.agentManager.getTasks().find((t) => t.id === inA.id)?.status,
+    ).toBe("done");
+
+    // Room B's task stays out of reach.
+    expect((await api(srv, `/api/tasks/${inB.id}`, asRun)).status).toBe(404);
+    expect(
+      (
+        await api(srv, `/api/tasks/${inB.id}/done`, {
+          method: "POST",
+          ...asRun,
+          body: {},
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      srv.agentManager.getTasks().find((t) => t.id === inB.id)?.status,
+    ).toBe("open");
+
+    // Create: no roomId files in its room, as an agent's create does; an
+    // explicit room A too; "" files global; room B is a 404 and files nothing.
+    const byDefault = await runPost({ title: "default" });
+    expect(byDefault.status).toBe(201);
+    expect((byDefault.body as TaskItem).roomId).toBe(roomA);
+    expect((byDefault.body as TaskItem).createdBy).toBe("Nightly Report");
+    const explicitA = await runPost({ title: "explicit A", roomId: roomA });
+    expect(explicitA.status).toBe(201);
+    expect((explicitA.body as TaskItem).roomId).toBe(roomA);
+    const explicitGlobal = await runPost({ title: "global", roomId: "" });
+    expect(explicitGlobal.status).toBe(201);
+    expect((explicitGlobal.body as TaskItem).roomId).toBeUndefined();
+    const before = srv.agentManager.getTasks().length;
+    expect((await runPost({ title: "into B", roomId: roomB })).status).toBe(
+      404,
+    );
+    expect(srv.agentManager.getTasks().length).toBe(before);
+
+    // The room closes: the run is back on the global board. An office owner
+    // still sees a closed room's tasks; the run does not.
+    expect(srv.agentManager.closeRoom(roomA)).toBe(true);
+    expect(ids(await api(srv, "/api/tasks?status=all", asOwner))).toContain(
+      inA.id,
+    );
+    const afterClose = await api(srv, "/api/tasks?status=all", asRun);
+    expect(afterClose.status).toBe(200);
+    expect(ids(afterClose)).toEqual(
+      [glob.id, (explicitGlobal.body as TaskItem).id].sort(),
+    );
+    expect((await api(srv, `/api/tasks?roomId=${roomA}`, asRun)).status).toBe(
+      404,
+    );
+    const afterCloseCreate = await runPost({ title: "after close" });
+    expect(afterCloseCreate.status).toBe(201);
+    expect((afterCloseCreate.body as TaskItem).roomId).toBeUndefined();
+  });
+
+  // The run's room counts only while the job's creator can access it: a
+  // member's job keeps no room the member lost (task 033fcb89).
+  it("a run of a member's job reaches the job's room only while the member has access to it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const miaId = getUserByName("Mia")!.id;
+    const roomA = srv.agentManager.createRoom("Room A");
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(miaId, { allowedRooms: [roomB] });
+    const job = srv.cronjobManager.addCronjob({
+      name: "Mia Report",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "p",
+      cwd: srv.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: "Mia",
+      userId: miaId,
+      roomId: roomA,
+    });
+    const asRun = { bearer: mintRunToken(job.id, "run-1", miaId) };
+    const inA = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { title: "in A", roomId: roomA },
+      })
+    ).body as TaskItem;
+    const runIds = async () =>
+      ((await api(srv, "/api/tasks", asRun)).body as TaskItem[]).map(
+        (t) => t.id,
+      );
+    const defaultRoom = async (title: string) => {
+      const r = await api(srv, "/api/tasks", {
+        method: "POST",
+        ...asRun,
+        body: { title },
+      });
+      expect(r.status).toBe(201);
+      return (r.body as TaskItem).roomId;
+    };
+
+    // Without access to room A: global board only.
+    expect(await runIds()).not.toContain(inA.id);
+    expect((await api(srv, `/api/tasks?roomId=${roomA}`, asRun)).status).toBe(
+      404,
+    );
+    expect(await defaultRoom("no access")).toBeUndefined();
+
+    // Mia gets room A: the same run token now reaches it.
+    updateUserById(miaId, { allowedRooms: [roomA, roomB] });
+    expect(await runIds()).toContain(inA.id);
+    expect((await api(srv, `/api/tasks?roomId=${roomA}`, asRun)).status).toBe(
+      200,
+    );
+    expect(await defaultRoom("with access")).toBe(roomA);
+
+    // Room A closes while Mia's grant still names it: the run, like Mia, sees
+    // no closed room's tasks.
+    expect(srv.agentManager.closeRoom(roomA)).toBe(true);
+    expect(getUserByName("Mia")!.allowedRooms).toContain(roomA);
+    expect(
+      ((await api(srv, "/api/tasks?status=all", asRun)).body as TaskItem[]).map(
+        (t) => t.id,
+      ),
+    ).not.toContain(inA.id);
+    expect(await defaultRoom("after close")).toBeUndefined();
+  });
 });
 
 // --- The delta a mutation sends ----------------------------------------------

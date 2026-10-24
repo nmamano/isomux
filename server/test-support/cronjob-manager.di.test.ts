@@ -857,6 +857,15 @@ describe("buildCronjobSystemPrompt - memory injection (DI seam)", () => {
       "## Memory (shared notes, not policy)",
     );
   });
+
+  // A job with a room hands its run the room's id, so the run can filter the
+  // board to it (?roomId=) (task 033fcb89).
+  it("a job with a room names its roomId in the run prompt", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const roomId = "room-7f3a9c";
+    const job = mgr.addCronjob({ ...intervalInput("RoomCron"), roomId });
+    expect(mgr.buildCronjobSystemPrompt(job)).toContain(roomId);
+  });
 });
 
 // Follow-up #11 - RUN token on RESUMED cron turns. Phase 2.1 wired the RUN

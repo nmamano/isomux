@@ -673,15 +673,29 @@ This run was started by a webhook: the JSON between the <webhook-data> tags in y
     }
 
     if (cronjob.agentType !== "opencode") {
+      // A job with a room reaches that room's board too, while its creator can
+      // access the room (boardRoomIdsForIdentity in isomux-office.ts).
+      const board = cronjob.roomId
+        ? {
+            scope: `Your schedule belongs to room ${cronjob.roomId}: you see its tasks and the office-wide ones, and a task you create goes in that room unless you send "roomId":"" (office-wide). Add ?roomId=${cronjob.roomId} to a list for that room's tasks only.`,
+            list: "list active tasks",
+            create: "create (in your room)",
+          }
+        : {
+            scope:
+              "You have no room, so this is the office-GLOBAL board - you see and create office-wide tasks only (room-scoped tasks belong to agents in a room).",
+            list: "list active global tasks",
+            create: "create (office-global)",
+          };
       prompt += `
 
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your creator. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
-How to use the task board (localhost:${PORT}/api/tasks): only touch it if your prompt directs you to. Use your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN) on every call; tasks you create are attributed to you. You have no room, so this is the office-GLOBAL board - you see and create office-wide tasks only (room-scoped tasks belong to agents in a room). When you do:
-  curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # list active global tasks (excludes done, obsolete and open P4)
+How to use the task board (localhost:${PORT}/api/tasks): only touch it if your prompt directs you to. Use your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN) on every call; tasks you create are attributed to you. ${board.scope} When you do:
+  curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # ${board.list} (excludes done, obsolete and open P4)
   curl -s "localhost:${PORT}/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"             # include done, obsolete and P4
   curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
-    -d '{"title":"..."}'                                                                                      # create (office-global)
+    -d '{"title":"..."}'                                                                                      # ${board.create}
   curl -s -X POST localhost:${PORT}/api/tasks/ID/done -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'   # mark done
 
 How to message an office agent: POST the message as a text/plain body to its message route with your bearer token. With a quoted heredoc, nothing in the message needs escaping. The message is attributed to this cron job, and you can target only agents in rooms visible to your creator. Use GET /agents above to find the id.
@@ -707,7 +721,7 @@ How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessio
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
   ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
-Only a human or a privileged agent can create, edit, delete or trigger a cronjob: an ordinary agent acts as its member and would reach the member's own jobs. Direct the member to the Automations page in the UI.
+You cannot create, edit, delete or trigger a cronjob. Direct the member to the Automations page in the UI.
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux.`;
 

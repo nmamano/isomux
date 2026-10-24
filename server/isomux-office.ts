@@ -2778,22 +2778,17 @@ function appActorName(appName: string): string {
   return `App "${appName}"`;
 }
 
-// The room ACCESS set for a caller identity, for room-scoping the task board.
+// The room ACCESS set for a caller identity (the board, the pager, skills).
 // Resolves the acting user (a USER identity's own record, or an AGENT identity's
 // SPAWNING user - "agents are bounded by their manager's room access") and
 // returns accessibleRoomIdsFor(user): every live room for an owner (by rule),
 // the granted rooms for a member. This is room ACCESS, never the hidden/order
 // view filter - a hidden room is still accessible, so its tasks still show.
 //
-// A CRON-RUN identity gets the EMPTY set by rule, so a run sees and touches only
-// office-global tasks. Its userId is the cronjob's CREATOR (there for
-// attribution), and an owner-created job would otherwise inherit every room -
-// but a cron run has no room of its own and its prompt calls the board
-// office-global. This keeps that promise, and matches what runs could reach on
-// the retired loopback /tasks surface. Same empty set for a token whose user is
-// gone. This set is not the run's room access: room-gated guards use
-// hasRoomAccess, which keys on the run's userId and so gives a run its
-// creator's rooms.
+// A CRON-RUN identity gets the EMPTY set here, and so does a token whose user is
+// gone. A run's board rooms come from boardRoomIdsForIdentity instead. This set
+// is not the run's room access either: room-gated guards use hasRoomAccess,
+// which keys on the run's userId and so gives a run its creator's rooms.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
   const user = roomAccessUserFor(identity);
   return user ? accessibleRoomIdsFor(user) : new Set<string>();
@@ -2832,7 +2827,38 @@ function taskViewerForUser(user: UserRecord | null): TaskViewer {
 }
 
 function taskViewerForIdentity(identity: Identity): TaskViewer {
-  return taskViewerForUser(roomAccessUserFor(identity));
+  if (identity.scope !== "cron-run")
+    return taskViewerForUser(roomAccessUserFor(identity));
+  return {
+    accessibleRoomIds: boardRoomIdsForIdentity(identity),
+    liveRoomIds: new Set(agentManager.getRooms().map((room) => room.id)),
+    seesClosedRooms: false,
+  };
+}
+
+// The rooms whose tasks a caller sees and files on the board. A CRON-RUN sees
+// its job's room only (task 033fcb89), never its creator's other rooms: an
+// owner-made job would otherwise reach every room. A job with no room, or one
+// whose room is closed or out of its creator's access, leaves the run the
+// office-global board. Every other scope: its room access.
+function boardRoomIdsForIdentity(identity: Identity): Set<string> {
+  if (identity.scope !== "cron-run")
+    return accessibleRoomIdsForIdentity(identity);
+  const roomId = runBoardRoomId(identity);
+  return roomId ? new Set([roomId]) : new Set<string>();
+}
+
+// A run's board room: its job's live room, while the run still acts for the
+// job's creator and the creator can access that room. Read on each request, so
+// a room change, a room close or a lost grant applies to the next call.
+function runBoardRoomId(identity: Identity): string | null {
+  if (!identity.cronjobId || !identity.userId) return null;
+  const facts = cronjobFactsById(identity.cronjobId);
+  if (!facts.liveRoomId || facts.makerUserId !== identity.userId) return null;
+  const creator = getUserById(identity.userId);
+  return creator && accessibleRoomIdsFor(creator).has(facts.liveRoomId)
+    ? facts.liveRoomId
+    : null;
 }
 
 // The live agent whose settings limit a schedule it made: an ordinary agent.
@@ -2861,14 +2887,18 @@ function ownScheduleLimitsFor(
 }
 
 // The room a create with NO roomId in the body defaults to: an AGENT caller's
-// OWN room (an app's: its owner agent's current room), else undefined
-// (office-global) for a user, cron-run, or unknown identity. The agent's room is used verbatim even if its
+// OWN room (an app's: its owner agent's current room), a CRON-RUN's board room
+// (its job's room, see runBoardRoomId), else undefined (office-global) for a
+// user or unknown identity. cronHandlers share this default; a run holds no
+// cron capability, so the cron-run arm does not reach them. The agent's room is used verbatim even if its
 // spawning user can't currently access it - "agent create → the agent's room" is
 // the authoritative rule; an explicit cross-room target is what the access guard
 // in the handler checks.
 function defaultCreateRoomIdForIdentity(
   identity: Identity,
 ): string | undefined {
+  if (identity.scope === "cron-run")
+    return runBoardRoomId(identity) ?? undefined;
   const agentId = reachAgentId(identity);
   if (agentId) {
     const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
@@ -3431,7 +3461,7 @@ function buildExecutorDeps(
       updateTask: (id, changes) => agentManager.updateTask(id, changes),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
-      accessibleRoomIds: accessibleRoomIdsForIdentity,
+      accessibleRoomIds: boardRoomIdsForIdentity,
       taskViewer: taskViewerForIdentity,
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
     }),

@@ -691,8 +691,9 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
 //              room-access check is applied to an agent sender.
 //   CRON-RUN → creator-room access, matching the GET /agents projection. A run
 //              can message exactly the live agents it can discover. Resolve the
-//              live job creator instead of widening accessibleRoomIdsForIdentity:
-//              that helper deliberately stays empty for cron task-board scope.
+//              live job creator: accessibleRoomIdsForIdentity stays empty for a
+//              run, and its board rooms (boardRoomIdsForIdentity) are its job's
+//              room only.
 //
 // NOT in this guard, deliberately: recipient EXISTENCE (for the AGENT branch)
 // and pendingPermission OWNERSHIP. Those are send-message SEMANTIC preconditions

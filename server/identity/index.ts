@@ -326,8 +326,9 @@ export function agentCapabilities(privileged: boolean): readonly Capability[] {
 //
 // task:read + task:write are here because the cron system prompt gives a run the
 // board, and it reached it over the (now retired) loopback /tasks route. The
-// board a run sees is office-GLOBAL only: accessibleRoomIdsForIdentity returns
-// the empty set for cron-run scope, and a create with no roomId files global.
+// board a run sees is office-global plus its job's room, while the job's creator
+// can access that room (boardRoomIdsForIdentity); a create with no roomId files
+// in that room, else global.
 //
 // `app:read` / `app:write` are DELIBERATELY absent for the same reason as
 // log:read. A run is a fresh session with no chat and nobody to hand a URL to;
