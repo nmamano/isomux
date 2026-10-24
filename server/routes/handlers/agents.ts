@@ -58,7 +58,7 @@ import {
 
 type DeskRoom = Pick<
   import("../../../shared/types.ts").RoomWire,
-  "type" | "backRoom"
+  "type" | "backRoom" | "cwd"
 >;
 
 // A desk outside the room's grid names no slot to draw the agent at, so both
@@ -515,8 +515,13 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.name !== "string" || b.name.trim().length === 0) {
         return fail(422, "invalid_name", "name is required");
       }
-      if (typeof b.cwd !== "string" || b.cwd.length === 0) {
-        return fail(422, "invalid_cwd", "cwd is required");
+      // No cwd starts the agent in the room's folder, or in "~" where the room
+      // has none. A cwd that is present has to be a usable one.
+      if (
+        b.cwd !== undefined &&
+        (typeof b.cwd !== "string" || b.cwd.length === 0)
+      ) {
+        return fail(422, "invalid_cwd", "cwd must be a non-empty string");
       }
       if (typeof b.roomId !== "string" || b.roomId.length === 0) {
         return fail(422, "invalid_request", "roomId is required");
@@ -525,6 +530,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       // workers without a desk choice keeps the front for the agents people
       // talk to. A room with its back room off takes front desks only.
       const spawnRoom = deps.roomForDesks?.(b.roomId);
+      const cwd = b.cwd ?? spawnRoom?.cwd ?? "~";
       const spawnDesk = deskField(b.desk, spawnRoom);
       if (!spawnDesk.ok) return deskFieldFailure(spawnDesk, spawnRoom);
       if (malformedAgentFields(b)) {
@@ -559,7 +565,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       const { username } = deps.attributionFor(ctx.identity);
       const r = await deps.spawn({
         name: b.name,
-        cwd: b.cwd,
+        cwd,
         roomId: b.roomId,
         // No desk is a back seat only where the room has a back room; in the
         // lobby, or with the setting off, it is the first free front desk.

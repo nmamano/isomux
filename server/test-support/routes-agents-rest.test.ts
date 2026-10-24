@@ -19,6 +19,8 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
+import { resolveCwd } from "../cwd-utils.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import type { StartServerOpts } from "../isomux-office.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -1849,5 +1851,59 @@ describe("Codex default model from discovery", () => {
     }
     expect(srv.agentManager.getAgent(id)?.name).toBe("Renamed");
     expect(calls).toHaveLength(0);
+  });
+});
+
+// Task e871e36f: a spawn with no cwd starts in the target room's folder, or in
+// "~" where the room has none. A present cwd still has to be a usable one.
+describe("agents.spawn REST: the room's working folder", () => {
+  it("no cwd -> the target room's folder, or home without one; an empty cwd is still 422", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const r2 = srv.agentManager.createRoom("R2");
+    const dir = join(srv.stateRoot, "r2-folder");
+    mkdirSync(dir, { recursive: true });
+    // Set through the room route, on the second room only, so a default read
+    // from any other room than the target misses it.
+    const set = await req(srv, "PATCH", `/api/rooms/${r2}`, {
+      body: { cwd: dir },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(set.status).toBe(204);
+
+    const spawn = (name: string, roomId: string, extra = {}) =>
+      req(srv, "POST", "/api/agents", {
+        body: { name, roomId, desk: 0, ...extra },
+        rawSessionId: owner.rawSessionId,
+      });
+    const cwdOf = (res: Res) =>
+      resolveCwd(
+        srv.agentManager.getAgent(
+          (res.body as { agent: { id: string } }).agent.id,
+        )!.cwd,
+      );
+
+    const inFolder = await spawn("InFolder", r2);
+    expect(inFolder.status).toBe(201);
+    expect(cwdOf(inFolder)).toBe(dir);
+
+    const atHome = await spawn("AtHome", r1);
+    expect(atHome.status).toBe(201);
+    expect(cwdOf(atHome)).toBe(homedir());
+
+    // A cwd in the body wins over the room's folder.
+    const own = join(srv.stateRoot, "own");
+    mkdirSync(own, { recursive: true });
+    const explicit = await spawn("Explicit", r2, { desk: 1, cwd: own });
+    expect(explicit.status).toBe(201);
+    expect(cwdOf(explicit)).toBe(own);
+
+    const empty = await spawn("Empty", r2, { desk: 2, cwd: "" });
+    expect([empty.status, errCode(empty.body)]).toEqual([422, "invalid_cwd"]);
+    expect(
+      srv.agentManager.getAllAgents().some((a) => a.name === "Empty"),
+    ).toBe(false);
   });
 });

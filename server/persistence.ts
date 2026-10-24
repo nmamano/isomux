@@ -975,6 +975,9 @@ export interface Room {
   // Whether the room has a back room. Optional for the same reason as `pet`:
   // absent reads as off, unless the room holds back agents at load.
   backRoom?: boolean;
+  // The folder new agents in the room start in, or absent/null for "~".
+  // Optional for the same reason as `pet`.
+  cwd?: string | null;
   agents: PersistedAgent[];
 }
 

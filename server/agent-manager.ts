@@ -2120,6 +2120,16 @@ export function createAgentManager(deps: ManagerDeps) {
     return r;
   }
 
+  /** Sets the folder new agents in the room start in (null clears it). Like
+   *  the pet it changes nothing a running agent reads. */
+  function setRoomCwd(roomId: string, cwd: string | null): boolean {
+    const events = officeState.setRoomCwd(roomId, cwd);
+    if (events.length === 0) return false;
+    for (const event of events) eventHandler(event);
+    persistAll();
+    return true;
+  }
+
   function moveAgent(agentId: string, targetRoomId: string): boolean {
     const events = officeState.moveAgent(agentId, targetRoomId);
     if (events.length === 0) return false;
@@ -2307,6 +2317,7 @@ export function createAgentManager(deps: ManagerDeps) {
       skin: r.skin ?? null,
       decor: r.decor ?? null,
       ...(r.type !== "lobby" ? { backRoom: r.backRoom === true } : {}),
+      ...(r.cwd ? { cwd: r.cwd } : {}),
       type: r.type,
       ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
         ? { defaultAgentPending: true as const }
@@ -12391,6 +12402,7 @@ export function createAgentManager(deps: ManagerDeps) {
     setRoomSkin,
     setRoomDecor,
     setRoomBackRoom,
+    setRoomCwd,
     moveAgent,
     placeAgent,
     getAllAgents,
@@ -12530,6 +12542,7 @@ export function createProductionAgentManager(overrides?: {
                     r.backRoom ?? r.agents.some((a) => isBackSeat(a.desk)),
                 }
               : {}),
+            ...(r.cwd ? { cwd: r.cwd } : {}),
             type: r.type,
           }))
         : [{ id: generateRoomId(), name: "Room 1", prompt: null }],

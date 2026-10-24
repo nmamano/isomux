@@ -1857,6 +1857,11 @@ export interface RoomWire {
   // before the setting existed reads as, unless it held back agents at load.
   // The lobby never has one.
   backRoom?: boolean;
+  // The folder new agents in this room start in: an absolute or "~"-rooted
+  // path, stored as typed. Absent means exactly what null means: no folder, so
+  // a new agent starts in "~" as before the setting existed. Persisted with the
+  // room like `backRoom`.
+  cwd?: string | null;
 }
 
 // Per-user record stored server-side in ~/.isomux/users.json. Keyed by
@@ -2429,6 +2434,7 @@ export type ServerMessage =
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
   | { type: "room_back_room_updated"; roomId: string; backRoom: boolean }
+  | { type: "room_cwd_updated"; roomId: string; cwd: string | null }
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
   // Owners-audience FULL records (UserAdminWire === UserRecord). SEPARATE event

@@ -406,6 +406,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   const focusedAgentState = focusedAgent?.state ?? null;
   const currentRoomName =
     rooms.find((r) => r.id === currentRoomId)?.name ?? null;
+  // A new agent starts in the room's folder, or in "~" where it has none.
+  const newAgentCwd = rooms.find((r) => r.id === currentRoomId)?.cwd ?? "~";
   // On the Lobby tab the title is the office name, never "Lobby" (Nil).
   const tabLabel =
     focusedAgentName !== null
@@ -1154,7 +1156,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       {spawnBackOpen && currentRoomId && (
         <EditAgentDialog
           deskIndex={null}
-          defaultCwd="~"
+          defaultCwd={newAgentCwd}
           spawnAgentType="claude"
           roomId={currentRoomId}
           onClose={() => setSpawnBackOpen(false)}
@@ -1163,7 +1165,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       {spawnPickerDesk !== null && currentRoomId && (
         <EditAgentDialog
           deskIndex={spawnPickerDesk}
-          defaultCwd="~"
+          defaultCwd={newAgentCwd}
           spawnAgentType="claude"
           roomId={currentRoomId}
           onClose={() => setSpawnPickerDesk(null)}

@@ -63,7 +63,8 @@ export interface AccessSettings {
 export interface SpawnReq {
   profileKey?: string;
   name: string;
-  cwd: string;
+  // Absent starts the agent in the room's folder, or "~" where it has none.
+  cwd?: string;
   roomId: string;
   // A front desk (0-7). null or omitted puts the agent in the room's back
   // room; a taken front desk falls through to the first free one, then the
@@ -613,7 +614,7 @@ export interface RoomCreateReq {
 }
 
 export interface RoomRenameReq {
-  // All five fields are optional and independent: the picker sends only `pet`,
+  // All six fields are optional and independent: the picker sends only `pet`,
   // the settings pane sends whichever of the others changed. A body carrying
   // none of them is malformed.
   name?: string;
@@ -629,6 +630,10 @@ export interface RoomRenameReq {
   // Turns the back room on or off. Off is refused (409 back_room_in_use)
   // while agents sit there. The lobby has no back room.
   backRoom?: boolean;
+  // The folder new agents in the room start in: an absolute or "~"-rooted path
+  // to an existing directory (400 invalid_cwd otherwise). null or "" clears it
+  // back to "~". Absent leaves it alone.
+  cwd?: string | null;
 }
 
 // Room-prompt write. `version` is the token from a preceding rooms.getSettings
@@ -649,6 +654,8 @@ export interface RoomSettingsRes {
   pet: RoomPet | null;
   decor: RoomDecor | null;
   backRoom: boolean;
+  // The folder new agents start in; null means "~".
+  cwd: string | null;
 }
 
 export interface ViewOrderReq {

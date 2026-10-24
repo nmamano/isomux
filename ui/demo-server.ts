@@ -1951,6 +1951,13 @@ function emitEvents(events: OfficeEvent[]) {
           backRoom: event.backRoom,
         });
         break;
+      case "room_cwd_updated":
+        shimEmit({
+          type: "room_cwd_updated",
+          roomId: event.roomId,
+          cwd: event.cwd,
+        });
+        break;
       case "room_closed":
         shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
@@ -3272,7 +3279,7 @@ export async function demoApi(
       const b = (body ?? {}) as SpawnReq;
       const result = state.spawn({
         name: b.name,
-        cwd: b.cwd,
+        cwd: b.cwd ?? state.rooms.find((r) => r.id === b.roomId)?.cwd ?? "~",
         permissionMode:
           b.permissionMode ??
           NEW_AGENT_PERMISSION_MODE[b.agentType ?? "claude"],
@@ -3302,7 +3309,7 @@ export async function demoApi(
         entry: makeLogEntry(
           result.agent.id,
           "system",
-          `Agent "${b.name}" ready. Working in ${b.cwd}. (Demo mode)`,
+          `Agent "${b.name}" ready. Working in ${result.agent.cwd}. (Demo mode)`,
         ),
       });
       return { agent: result.agent };
@@ -3806,6 +3813,7 @@ export async function demoApi(
       pet: room?.pet ?? null,
       decor: room?.decor ?? null,
       backRoom: room?.backRoom === true,
+      cwd: room?.cwd ?? null,
     };
   }
   if (roomSettingsMatch && method === "PUT") {
@@ -3825,7 +3833,7 @@ export async function demoApi(
     if (method === "PATCH") {
       const b = (body ?? {}) as RoomRenameReq;
       // PATCH is a partial update: the settings pane sends whichever of name,
-      // pet, skin, decor and backRoom changed, the pet picker sends a pet, and
+      // pet, skin, decor, backRoom and cwd changed, the pet picker sends a pet, and
       // any of them may arrive alone. The back room goes first, as on the
       // server: its refusal writes nothing.
       if (typeof b.backRoom === "boolean") {
@@ -3842,6 +3850,8 @@ export async function demoApi(
       if (b.pet !== undefined) emitEvents(state.setRoomPet(id, b.pet));
       if (b.skin !== undefined) emitEvents(state.setRoomSkin(id, b.skin));
       if (b.decor !== undefined) emitEvents(state.setRoomDecor(id, b.decor));
+      if (b.cwd !== undefined)
+        emitEvents(state.setRoomCwd(id, b.cwd?.trim() || null));
       return undefined;
     }
     emitEvents(state.closeRoom(id));

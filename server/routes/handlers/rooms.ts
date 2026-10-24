@@ -47,6 +47,7 @@ import {
   instructionsRes,
   parseInstructionsWrite,
 } from "./instructions.ts";
+import { isAbsolute } from "path";
 import { backRoomInUseMessage } from "../../../shared/desks.ts";
 
 export interface RoomsDeps {
@@ -98,6 +99,12 @@ export interface RoomsDeps {
     | { ok: true }
     | { ok: false; reason: "room_not_found" | "not_supported" }
     | { ok: false; reason: "in_use"; count: number };
+  // Why a folder cannot be a working folder (missing, not a directory, no
+  // access), or null when it can. The same check a spawn runs.
+  cwdProblem(cwd: string): string | null;
+  // Sets the folder new agents in the room start in; null clears it. Returns
+  // false if the room does not exist (-> 404).
+  setCwd(roomId: string, cwd: string | null): boolean;
   // Reads a room's settings (the prompt; null means no prompt set) plus the
   // prompt's optimistic-concurrency version, and the room's look so an agent
   // can read it before changing it. The version covers the prompt only.
@@ -109,6 +116,7 @@ export interface RoomsDeps {
     pet: RoomPet | null;
     decor: RoomDecor | null;
     backRoom: boolean;
+    cwd: string | null;
   } | null;
   // Sets a room's prompt (null clears), guarded by the version from a preceding
   // getSettings - a mismatch writes nothing and reports the current version
@@ -158,6 +166,7 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         skin?: unknown;
         decor?: unknown;
         backRoom?: unknown;
+        cwd?: unknown;
       };
       // The tests differ on purpose and all are right over JSON: a name is
       // absent or a string, but `pet` and `skin` carry meaning when they are
@@ -168,13 +177,21 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       const hasSkin = "skin" in b;
       const hasDecor = "decor" in b;
       const hasBackRoom = "backRoom" in b;
+      const hasCwd = "cwd" in b;
       // Shape checks only (never an existence oracle): a malformed body is not
       // a comment on whether the room exists.
-      if (!hasName && !hasPet && !hasSkin && !hasDecor && !hasBackRoom) {
+      if (
+        !hasName &&
+        !hasPet &&
+        !hasSkin &&
+        !hasDecor &&
+        !hasBackRoom &&
+        !hasCwd
+      ) {
         return fail(
           422,
           "invalid_request",
-          "name, pet, skin, decor or backRoom is required",
+          "name, pet, skin, decor, backRoom or cwd is required",
         );
       }
       // The lobby has no back room, whatever the value (the skin's rule).
@@ -223,6 +240,28 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       }
       if (hasBackRoom && typeof b.backRoom !== "boolean") {
         return fail(422, "invalid_back_room", "backRoom must be true or false");
+      }
+      // The folder is checked in full before any write, so a refused folder
+      // leaves the rest of the body unwritten. It is resolved again at every
+      // spawn, so a relative path would depend on the server's own working
+      // directory: only an absolute or "~"-rooted one is taken.
+      let cwd: string | null = null;
+      if (hasCwd) {
+        if (b.cwd !== null && typeof b.cwd !== "string") {
+          return fail(422, "invalid_cwd", "cwd must be a string or null");
+        }
+        cwd = typeof b.cwd === "string" && b.cwd.trim() ? b.cwd.trim() : null;
+        if (cwd !== null) {
+          if (cwd !== "~" && !cwd.startsWith("~/") && !isAbsolute(cwd)) {
+            return fail(
+              400,
+              "invalid_cwd",
+              'cwd must be an absolute path or start with "~"',
+            );
+          }
+          const problem = deps.cwdProblem(cwd);
+          if (problem) return fail(400, "invalid_cwd", problem);
+        }
       }
       // The back room goes first: it is the one write that can be refused for
       // the room's state (agents still in the back), and a refusal must leave
@@ -286,6 +325,9 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         if (result !== "ok") {
           return fail(404, "room_not_found", "Room not found");
         }
+      }
+      if (hasCwd && !deps.setCwd(ctx.params.roomId, cwd)) {
+        return fail(404, "room_not_found", "Room not found");
       }
       return noContent();
     },

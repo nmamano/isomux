@@ -27,6 +27,8 @@
 // Seam: startTestServer() - real auth + /api executor. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { join, resolve } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 
 let server: TestServer | null = null;
@@ -65,7 +67,7 @@ async function req(
 }
 
 const errCode = (body: unknown): string | undefined =>
-  (body as { error?: { code?: string } }).error?.code;
+  (body as { error?: { code?: string } } | null)?.error?.code;
 
 // An owner, a member with no room grant, and a PATCH on the first room.
 async function office() {
@@ -392,5 +394,99 @@ describe("rooms.getSettings and rooms.setSettings REST", () => {
       decor: { pet: "shown" },
     });
     expect(after.version).toBe(before.version);
+  });
+});
+
+// The folder new agents in a room start in (task e871e36f). A set value is an
+// absolute or "~"-rooted path to an existing directory, stored as typed after a
+// trim; "" and null clear it. The spawn side: routes-agents-rest.test.ts.
+describe("rooms.rename REST: the working folder", () => {
+  const folderOf = async (srv: TestServer, rawSessionId: string, id: string) =>
+    (
+      (await req(srv, "GET", `/api/rooms/${id}/settings`, { rawSessionId }))
+        .body as { cwd?: unknown }
+    ).cwd;
+
+  it("sets, trims and clears it; the settings read and a live event carry it; it survives a restart; the lobby takes one too", async () => {
+    const { srv, owner, id, patch, room } = await office();
+    const dir = join(srv.stateRoot, "room-folder");
+    mkdirSync(dir, { recursive: true });
+    expect(await folderOf(srv, owner.rawSessionId, id)).toBeNull();
+
+    const sock = await srv.connectWs(owner.rawSessionId);
+    try {
+      await sock.waitFor("full_state");
+      expect((await patch({ cwd: `  ${dir}  ` })).status).toBe(204);
+      expect(await sock.waitFor("room_cwd_updated")).toMatchObject({
+        roomId: id,
+        cwd: dir,
+      });
+    } finally {
+      sock.close();
+    }
+    expect(room().cwd).toBe(dir);
+    expect(await folderOf(srv, owner.rawSessionId, id)).toBe(dir);
+
+    // "~" is stored as typed, not expanded.
+    expect((await patch({ cwd: "~" })).status).toBe(204);
+    expect(await folderOf(srv, owner.rawSessionId, id)).toBe("~");
+
+    for (const clear of ["", "   ", null]) {
+      expect((await patch({ cwd: dir })).status).toBe(204);
+      expect((await patch({ cwd: clear })).status).toBe(204);
+      expect({
+        clear,
+        cwd: await folderOf(srv, owner.rawSessionId, id),
+      }).toEqual({ clear, cwd: null });
+    }
+
+    // A name alone leaves the folder.
+    expect((await patch({ cwd: dir })).status).toBe(204);
+    expect((await patch({ name: "Renamed" })).status).toBe(204);
+    expect(room().cwd).toBe(dir);
+
+    srv.agentManager.ensureLobby();
+    expect((await patch({ cwd: dir }, "lobby")).status).toBe(204);
+
+    // Both reach agents.json and come back at boot, in the room wire too.
+    const booted = await srv.restart();
+    server = booted;
+    expect(await folderOf(booted, owner.rawSessionId, id)).toBe(dir);
+    expect(await folderOf(booted, owner.rawSessionId, "lobby")).toBe(dir);
+    const sock2 = await booted.connectWs(owner.rawSessionId);
+    try {
+      const full = (await sock2.waitFor("full_state")) as {
+        rooms: Array<{ id: string; cwd?: unknown }>;
+      };
+      expect(full.rooms.find((r) => r.id === id)?.cwd).toBe(dir);
+    } finally {
+      sock2.close();
+    }
+  });
+
+  it("refuses a missing folder, a file and a relative path with 400 invalid_cwd, a non-string with 422, and writes no field of a refused body", async () => {
+    const { srv, owner, id, patch, room } = await office();
+    const file = join(srv.stateRoot, "a-file");
+    writeFileSync(file, "x");
+    // The relative path names a folder that exists from the server's working
+    // directory, so only the absolute-or-"~" rule can refuse it.
+    expect(existsSync(resolve("server"))).toBe(true);
+    const before = room().name;
+    for (const [cwd, status] of [
+      [join(srv.stateRoot, "missing"), 400],
+      [file, 400],
+      ["server", 400],
+      [42, 422],
+    ] as const) {
+      const r = await patch({ name: "Should not stick", cwd });
+      expect({ cwd, status: r.status, code: errCode(r.body) }).toEqual({
+        cwd,
+        status,
+        code: "invalid_cwd",
+      });
+    }
+    expect(room().name).toBe(before);
+    expect(room().cwd ?? null).toBeNull();
+    expect(await folderOf(srv, owner.rawSessionId, id)).toBeNull();
   });
 });

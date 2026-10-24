@@ -503,6 +503,7 @@ App 的一些原则：
   "settings.room.namePlaceholder": "房间名称",
   "settings.room.backRoom": "后屋",
   "settings.room.backRoomHint": "可容纳超过 {count} 位智能体，经活板门进入。",
+  "settings.room.cwdHint": "此房间的新智能体从这里开始工作。",
   "settings.room.backRoomInUse.one": "后屋里有 {count} 位智能体，请先移出。",
   "settings.room.backRoomInUse.other": "后屋里有 {count} 位智能体，请先移出。",
   "settings.room.prompt": "指令",

@@ -41,8 +41,9 @@ describe("room settings memory scopes", () => {
       expect(calls.some((call) => call.startsWith("GET /api/memory"))).toBe(
         type === "office",
       );
+      // The working folder field is in both (task e871e36f).
       expect(view.queryAllByRole("textbox").length).toBe(
-        type === "office" ? 3 : 1,
+        type === "office" ? 4 : 2,
       );
       await act(async () =>
         fireEvent.click(view.getByRole("button", { name: "Save" })),

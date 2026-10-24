@@ -23,6 +23,7 @@ import {
 } from "../room-look.ts";
 import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
+import { noTranslate } from "../no-translate.ts";
 import { isFullUserView } from "../user-merge.ts";
 import {
   followRecord,
@@ -92,6 +93,10 @@ export function RoomPane({
   const [baselineBackRoom, setBaselineBackRoom] = useState(
     room?.backRoom === true,
   );
+  // The folder new agents in the room start in, saved through the same PATCH.
+  // Empty means "~". A folder the server refuses comes back on the error line.
+  const [cwd, setCwd] = useState(room?.cwd ?? "");
+  const [baselineCwd, setBaselineCwd] = useState(room?.cwd ?? "");
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
   const hasRoomMemory = room != null && room.type !== "lobby";
@@ -174,12 +179,16 @@ export function RoomPane({
       room && room.type !== "lobby" ? roomLookBody(look, baselineLook) : null;
     const backRoomChanged =
       room != null && room.type !== "lobby" && backRoom !== baselineBackRoom;
+    const trimmedCwd = cwd.trim();
+    const cwdChanged = trimmedCwd !== baselineCwd.trim();
     const renameBody: RoomRenameReq | null =
-      room && (trimmedName !== room.name || lookBody || backRoomChanged)
+      room &&
+      (trimmedName !== room.name || lookBody || backRoomChanged || cwdChanged)
         ? {
             ...(trimmedName !== room.name ? { name: trimmedName } : {}),
             ...lookBody,
             ...(backRoomChanged ? { backRoom } : {}),
+            ...(cwdChanged ? { cwd: trimmedCwd || null } : {}),
           }
         : null;
     // The instructions save drives the pane: success settles it to "Saved",
@@ -213,6 +222,8 @@ export function RoomPane({
         setBaselinePrompt(saved.instructions ?? "");
         setBaselineName(trimmedName);
         setBaselineBackRoom(backRoom);
+        setCwd(trimmedCwd);
+        setBaselineCwd(trimmedCwd);
         setLook(savedRoomLook(look));
         setBaselineLook(savedRoomLook(look));
         setSavedAt(Date.now());
@@ -321,6 +332,7 @@ export function RoomPane({
       (name.trim() !== baselineName ||
         prompt !== baselinePrompt ||
         backRoom !== baselineBackRoom ||
+        cwd.trim() !== baselineCwd.trim() ||
         roomLookBody(look, baselineLook) !== null)) ||
     mem.dirty ||
     viewDirty;
@@ -328,6 +340,7 @@ export function RoomPane({
     setName(baselineName);
     setPrompt(baselinePrompt);
     setBackRoom(baselineBackRoom);
+    setCwd(baselineCwd);
     setLook(baselineLook);
     setView(viewBase);
     mem.reset();
@@ -398,6 +411,30 @@ export function RoomPane({
             </label>
           </>
         )}
+
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            marginTop: 14,
+            marginBottom: 5,
+          }}
+        >
+          {t("common.field.workingDirectory")}{" "}
+          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+            {t("settings.room.cwdHint")}
+          </span>
+        </label>
+        <input
+          {...noTranslate()}
+          data-room-setting="cwd"
+          value={cwd}
+          onChange={(e) => setCwd(e.target.value)}
+          placeholder="~"
+          style={inputStyle}
+        />
 
         <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
           {t("common.instructionsAndMemory")}

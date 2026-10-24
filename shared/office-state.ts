@@ -48,6 +48,7 @@ export type OfficeEvent =
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
   | { type: "room_back_room_updated"; roomId: string; backRoom: boolean }
+  | { type: "room_cwd_updated"; roomId: string; cwd: string | null }
   | {
       type: "office_settings_updated";
       prompt: string | null;
@@ -726,6 +727,18 @@ export class OfficeState {
     if (idx < 0) return [];
     this._rooms[idx] = { ...this._rooms[idx], pet };
     const events: OfficeEvent[] = [{ type: "room_pet_updated", roomId, pet }];
+    this.emitEvents(events);
+    return events;
+  }
+
+  /** Sets the folder new agents in the room start in; null clears it back to
+   *  "~". Shaped like setRoomPet: unknown room writes nothing and emits
+   *  nothing. The caller validates the path. */
+  setRoomCwd(roomId: string, cwd: string | null): OfficeEvent[] {
+    const idx = this._rooms.findIndex((r) => r.id === roomId);
+    if (idx < 0) return [];
+    this._rooms[idx] = { ...this._rooms[idx], cwd };
+    const events: OfficeEvent[] = [{ type: "room_cwd_updated", roomId, cwd }];
     this.emitEvents(events);
     return events;
   }

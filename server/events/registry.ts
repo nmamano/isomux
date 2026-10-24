@@ -155,6 +155,7 @@ export interface EventPayloads {
   room_skin_updated: { roomId: string; skin: RoomSkin | null };
   room_decor_updated: { roomId: string; decor: RoomDecor | null };
   room_back_room_updated: { roomId: string; backRoom: boolean };
+  room_cwd_updated: { roomId: string; cwd: string | null };
 
   session_context: { context: SessionContext };
   full_state: {
@@ -359,6 +360,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },
   room_back_room_updated: {
+    audience: "room-ACL",
+    projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
+  },
+  room_cwd_updated: {
     audience: "room-ACL",
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },

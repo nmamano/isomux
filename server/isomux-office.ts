@@ -5169,6 +5169,15 @@ function buildExecutorDeps(
       setDecor: (roomId, patch) => agentManager.setRoomDecor(roomId, patch),
       setBackRoom: (roomId, backRoom) =>
         agentManager.setRoomBackRoom(roomId, backRoom),
+      cwdProblem: (cwd) => {
+        try {
+          agentManager.validateCwd(cwd);
+          return null;
+        } catch (err) {
+          return errMessage(err, "Invalid directory");
+        }
+      },
+      setCwd: (roomId, cwd) => agentManager.setRoomCwd(roomId, cwd),
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
         // Version over the prompt bytes ("" for a never-set/cleared prompt),
@@ -5181,6 +5190,7 @@ function buildExecutorDeps(
               pet: room.pet ?? null,
               decor: room.decor ?? null,
               backRoom: room.backRoom === true,
+              cwd: room.cwd ?? null,
             }
           : null;
       },
@@ -7400,6 +7410,9 @@ function emitAgentEvent(event: AgentEvent): void {
         roomId: event.roomId,
         backRoom: event.backRoom,
       });
+      break;
+    case "room_cwd_updated":
+      liveEmit("room_cwd_updated", { roomId: event.roomId, cwd: event.cwd });
       break;
     case "room_closed":
       liveEmit("room_closed", { roomId: event.roomId });

@@ -235,8 +235,8 @@ status `obsolete`, with the reason in `description`.
 ### Update a room
 
 `PATCH /api/rooms/<roomId>` is a partial update over a room's fields. Send
-`name`, `pet`, `skin`, `decor`, `backRoom`, or any mix; each is applied only
-when the body carries it.
+`name`, `pet`, `skin`, `decor`, `backRoom`, `cwd`, or any mix; each is applied
+only when the body carries it.
 
 `skin` is the room's preset: `"office"` (the default) or `"hospital"`. `null`
 restores the office preset. An unknown value returns 422 `invalid_skin`. The
@@ -261,8 +261,13 @@ trap door. A new room has it off. Turning it off while agents sit there
 returns 409 `back_room_in_use` with their `count`, and nothing in that body is
 written: move them out first. The lobby returns 422 `back_room_not_supported`.
 
-`GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet`, `decor`
-and `backRoom`.
+`cwd` is the folder new agents in the room start in: an absolute path, `~`, or
+a path under `~/`, to an existing directory. Any other value returns 400
+`invalid_cwd`, and nothing in that body is written. `null` or `""` clears it,
+and new agents start in `~`. `POST /api/agents` with no `cwd` uses it.
+
+`GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet`, `decor`,
+`backRoom` and `cwd`.
 
 ### Members chat
 
