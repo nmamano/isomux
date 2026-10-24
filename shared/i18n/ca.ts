@@ -2806,6 +2806,8 @@ Coses que pots fer per ell:
     "Traspassat automàticament amb el context al {percent}%, abans de la compactació automàtica.",
   "systemEntries.autoHandoff.failed":
     "El traspàs automàtic no s'ha completat. Aquesta conversa continua.",
+  "systemEntries.autoHandoff.retry":
+    "El traspàs automàtic no s'ha completat. Isomux ho torna a provar després de la propera resposta de l'agent.",
   "systemEntries.autoHandoff.paused":
     "El traspàs automàtic està en pausa en aquesta conversa: ha començat per sobre del llindar de traspàs.",
   "systemEntries.limitResume.resumed":

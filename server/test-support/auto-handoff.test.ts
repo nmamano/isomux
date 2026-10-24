@@ -11,7 +11,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
-import { createAgentManager } from "../agent-manager.ts";
+import { createAgentManager, type LimitResumeClock } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import { createMember, getUserByName } from "../users.ts";
@@ -23,9 +23,12 @@ import {
 import { officeAuditStore } from "../audit-store.ts";
 import {
   createMemberUsageCap,
+  memberUsageCap,
   setMemberUsageCapForTests,
 } from "../member-usage-cap.ts";
 import { WEEK_MS } from "../office-usage.ts";
+import { limitResumeOn } from "../limit-resume.ts";
+import { loadAgents } from "../persistence.ts";
 import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
@@ -37,6 +40,7 @@ import type {
   LogEntry,
   QueuedMessage,
   RoomWire,
+  UserRole,
 } from "../../shared/types.ts";
 
 beforeEach(() => {
@@ -116,6 +120,7 @@ function makeHarness(
     editable?: boolean;
     // How long a send waits for the last turn's sample (production: 500 ms).
     sampleWaitMs?: number;
+    limitResumeClock?: LimitResumeClock;
   } = {},
 ): Harness {
   const measure: Harness["measure"] = { now: null };
@@ -161,15 +166,37 @@ function makeHarness(
     officeState: new OfficeState({ rooms }),
     initialRooms: [],
     eventSink: sink,
+    ...(opts.limitResumeClock
+      ? { limitResumeClock: opts.limitResumeClock }
+      : {}),
   });
   mgr.configureAgentTurnDeps(opts.sampleWaitMs);
   activeFakes.push(fake);
   return { mgr, fake, logs, measure, brief };
 }
 
+// The user store outlives the state dir reset in a multi-file run, so a
+// name another file seeds can come back with another role: use names only
+// this file uses.
+function userIdFor(name: string, role: UserRole): string {
+  const existing = getUserByName(name);
+  if (existing) {
+    if (existing.role !== role)
+      throw new Error(`${name} exists with role ${existing.role}`);
+    return existing.id;
+  }
+  const created = createMember(name, { role });
+  if (!created.ok) throw new Error(created.error);
+  return created.user.id;
+}
+
 async function spawn(
   h: Harness,
-  opts: { autoHandoff?: boolean; agentType?: AgentInfo["agentType"] } = {},
+  opts: {
+    autoHandoff?: boolean;
+    agentType?: AgentInfo["agentType"];
+    manager?: { name: string; role: UserRole };
+  } = {},
 ): Promise<AgentInfo> {
   const info = await h.mgr.spawn(
     "Receiver",
@@ -181,8 +208,10 @@ async function spawn(
     undefined,
     undefined,
     undefined,
-    undefined,
+    opts.manager?.name,
     opts.agentType ?? "claude",
+    undefined,
+    opts.manager ? userIdFor(opts.manager.name, opts.manager.role) : undefined,
   );
   if (!info) throw new Error("spawn returned null");
   if (opts.autoHandoff ?? true)
@@ -211,6 +240,98 @@ const contextNoticeAt = (h: Harness, percent: number) =>
           part.params?.percent === percent,
       ),
   );
+
+// How many log entries (any kind) carry the catalog message `key`.
+const keyCount = (h: Harness, key: string) =>
+  h.logs.filter((e) =>
+    (e.message ?? []).some(
+      (part) => typeof part !== "string" && part.key === key,
+    ),
+  ).length;
+const RETRY_KEY = "systemEntries.autoHandoff.retry";
+const CAP_KEY = "systemEntries.usageCap.pace";
+
+// A failed automatic attempt that stays open: the retry line, not the
+// failure line, and the wrap-up notice stays quiet (95% is the measured
+// context in these tests). `old` got `briefs` brief prompts: the brief turn's
+// own end is not the completed turn a retry waits for, so none follows it.
+async function expectAttemptOpen(
+  h: Harness,
+  old: FakeSession,
+  briefs: number,
+): Promise<void> {
+  const failed = en.t("systemEntries.autoHandoff.failed");
+  await waitUntil(
+    () =>
+      keyCount(h, RETRY_KEY) > 0 ||
+      systemLines(h).includes(failed) ||
+      h.fake.sessions.length > 1,
+    "the attempt ended (retry line, failure line or handoff)",
+  );
+  await settle();
+  expect(h.fake.sessions).toHaveLength(1);
+  expect(systemLines(h)).not.toContain(failed);
+  expect(texts(old).filter(isBriefPrompt)).toHaveLength(briefs);
+  expect(keyCount(h, RETRY_KEY)).toBe(1);
+  expect(contextNoticeAt(h, 95)).toBe(false);
+}
+
+// An open attempt tries again: the turn running in the old session (the
+// message the failed attempt released) completes above the trigger, and the
+// next message hands off. 96%, so the commit of this turn's sample is seen
+// apart from the earlier 95% one.
+async function expectRetried(
+  h: Harness,
+  id: string,
+  old: FakeSession,
+  running: string,
+): Promise<FakeSession> {
+  await waitUntil(
+    () => stateOf(h, id) === "thinking" && sent(old, running),
+    "released message runs in the old session",
+  );
+  h.measure.now = ctx(192_000, 200_000);
+  old.completeTurn({ text: "done" });
+  await nextMessage(h, id, "RETRY-NEXT");
+  const fresh = await freshSession(h, id, old);
+  expect(texts(old).filter(isBriefPrompt)).toHaveLength(2);
+  expectInOrder(fresh.sent[0].text, [BRIEF, "RETRY-NEXT"]);
+  return fresh;
+}
+
+// The member usage cap on the office account, which the agents bill
+// (CLAUDE_CONFIG_DIR). `used` is the weekly percent each read reports: 1 is
+// under today's line, 90 over it. flipAfterNextRead: the next read still
+// reports `used`, every later one 90.
+function capOn(): { used: number; flipAfterNextRead: boolean } {
+  const claudeHome = join(STATE_ROOT, "claude-home");
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
+  const state = { used: 1, flipAfterNextRead: false };
+  setMemberUsageCapForTests(
+    createMemberUsageCap({
+      reader: {
+        async read() {
+          const usedPercent = state.used;
+          if (state.flipAfterNextRead) {
+            state.flipAfterNextRead = false;
+            state.used = 90;
+          }
+          return {
+            kind: "weekly",
+            usedPercent,
+            resetsAtMs: Date.now() + WEEK_MS / 2,
+            observedAtMs: Date.now(),
+          };
+        },
+        invalidate() {},
+        close() {},
+      },
+      officeDir: () => claudeHome,
+      load: () => true,
+    }),
+  );
+  return state;
+}
 
 // Start a member turn and wait until the session runs it.
 async function startTurn(
@@ -806,8 +927,7 @@ describe("automatic handoff: the queue", () => {
     const skillDir = join(STATE_ROOT, "skills", "autohandoffskill");
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, "SKILL.md"), "SKILL-BODY: do the thing.");
-    const member = createMember("Cap Member", { role: "member" });
-    if (!member.ok) throw new Error("member not created");
+    const memberId = userIdFor("Cap Member", "member");
     const gate: { hold: boolean; release: (() => void) | null } = {
       hold: false,
       release: null,
@@ -855,7 +975,7 @@ describe("automatic handoff: the queue", () => {
       "Cap Member",
       "claude",
       undefined,
-      member.user.id,
+      memberId,
     ))!;
     await h.mgr.editAgent(info.id, { autoHandoff: true });
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
@@ -1028,40 +1148,7 @@ describe("automatic handoff: failures", () => {
     expect(old.sent.some((m) => isBriefPrompt(m.text))).toBe(true);
   });
 
-  it("a brief turn the usage cap refuses", async () => {
-    const claudeHome = join(STATE_ROOT, "claude-home");
-    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
-    const h = makeHarness();
-    const info = await spawn(h);
-    const old = await startTurn(h, info.id);
-    // On before the brief turn asks it: over the line, so it refuses.
-    setMemberUsageCapForTests(
-      createMemberUsageCap({
-        reader: {
-          async read() {
-            return {
-              kind: "weekly",
-              usedPercent: 90,
-              resetsAtMs: Date.now() + WEEK_MS / 2,
-              observedAtMs: Date.now(),
-            };
-          },
-          invalidate() {},
-          close() {},
-        },
-        officeDir: () => claudeHome,
-        load: () => true,
-      }),
-    );
-    h.measure.now = ctx(190_000, 200_000);
-    old.completeTurn({ text: "done" });
-    await nextMessage(h, info.id);
-    await waitUntil(() => systemLines(h).includes(failed), "failure line");
-    expect(texts(old).some(isBriefPrompt)).toBe(false);
-    expect(h.fake.sessions).toHaveLength(1);
-  });
-
-  it("a handoff whose brief cannot be written", async () => {
+  it("a handoff whose brief cannot be written leaves the attempt open", async () => {
     const h = makeHarness();
     let briefSession: FakeSession | null = null;
     h.brief.answer = (s) => {
@@ -1080,17 +1167,78 @@ describe("automatic handoff: failures", () => {
     blockAtomicFileReplacement(storePath);
     try {
       briefSession!.completeTurn({ text: BRIEF });
-      await waitUntil(() => systemLines(h).includes(failed), "failure line");
+      await waitUntil(
+        () => keyCount(h, RETRY_KEY) > 0 || systemLines(h).includes(failed),
+        "the attempt ended",
+      );
     } finally {
       rmSync(storePath, { recursive: true, force: true });
     }
     expect(h.fake.sessions).toHaveLength(1);
     expect(old.closed).toBe(false);
-    // The queue goes to the old session after all.
-    await waitUntil(
-      () => texts(old).some((t) => t.includes("QUEUED-ONE")),
-      "queue flushed to the old session",
-    );
+    await expectAttemptOpen(h, old, 1);
+    // The queue goes to the old session after all, and the next completed
+    // turn above the trigger tries again.
+    h.brief.answer = (s) => s.completeTurn({ text: BRIEF });
+    await expectRetried(h, info.id, old, "QUEUED-ONE");
+  });
+
+  // Part of a brief, then the usage limit, as the Claude engine reports it.
+  function limitStop(s: FakeSession, resetsAtMs: number) {
+    s.push({ kind: "assistant_text", text: "BRIEF-PART" });
+    s.push({ kind: "system_text", text: "You've hit your limit" });
+    s.push({ kind: "usage_limit_stop", resetsAtMs });
+    s.completeTurn();
+  }
+  const inAnHour = () => Date.now() + 60 * 60 * 1000;
+
+  it("a brief turn a usage limit stops is not handed off, and the attempt stays open until a completed turn", async () => {
+    const h = makeHarness();
+    // Every brief turn stops so until the limit lifts below: a retry on the
+    // brief turn's own end would loop while the limit holds.
+    h.brief.answer = (s) => limitStop(s, inAnHour());
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
+    await expectAttemptOpen(h, old, 1);
+    h.brief.answer = (s) => s.completeTurn({ text: BRIEF });
+    const fresh = await expectRetried(h, info.id, old, NEXT);
+    expect(texts(fresh).join("\n")).not.toContain("BRIEF-PART");
+  });
+
+  it("a brief turn a usage limit stops arms no resume after the limit", async () => {
+    // The resume timers never fire: the test reads the armed resume.
+    const clock: LimitResumeClock = {
+      now: () => Date.now(),
+      setTimeout: () => ({}),
+      clearTimeout: () => {},
+    };
+    const h = makeHarness({ limitResumeClock: clock });
+    let briefSession: FakeSession | null = null;
+    h.brief.answer = (s) => {
+      briefSession = s;
+    };
+    const info = await spawn(h);
+    // The enabling condition: the switch armLimitResume reads is on.
+    expect(limitResumeOn(h.mgr.getAgent(info.id)!)).toBe(true);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await atRestMeasured(h, info.id);
+    const queued = h.mgr.enqueueMessage(info.id, {
+      sender: SENDER,
+      text: NEXT,
+    });
+    if (!queued.ok) throw new Error(queued.error);
+    await waitUntil(() => briefSession !== null, "brief turn sent");
+    // With the message that started the attempt gone, no turn follows the
+    // brief turn to drop a resume it armed.
+    expect(h.mgr.cancelQueued(info.id, queued.messageId!)).toBe(true);
+    limitStop(briefSession!, inAnHour());
+    await expectAttemptOpen(h, old, 1);
+    expect(
+      loadAgents()
+        .flatMap((r) => r.agents)
+        .find((a) => a.id === info.id)?.limitResumeAt,
+    ).toBeUndefined();
   });
 
   it("a /clear during the brief turn ends the attempt with no failure line", async () => {
@@ -1117,6 +1265,104 @@ describe("automatic handoff: failures", () => {
     expect(
       officeAuditStore().list({ actorKind: "auto_handoff" }).items,
     ).toHaveLength(0);
+  });
+});
+
+describe("automatic handoff: the member usage cap", () => {
+  // The brief turn has no member: the rule for input no human sent
+  // (usage-caps-design.md section 3b) decides, by the agent's manager.
+  it("an owner's agent at the cap: the brief turn runs and the handoff completes", async () => {
+    const cap = capOn();
+    const h = makeHarness();
+    const info = await spawn(h, {
+      manager: { name: "Cap Owner", role: "owner" },
+    });
+    const old = await startTurn(h, info.id);
+    cap.used = 90;
+    h.measure.now = ctx(190_000, 200_000);
+    old.completeTurn({ text: "done" });
+    await atRestMeasured(h, info.id);
+    // Another agent's message, which the cap does not cover for this agent.
+    h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "AGENT-NEXT" });
+    const fresh = await freshSession(h, info.id, old);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expectInOrder(fresh.sent[0].text, [BRIEF, "AGENT-NEXT"]);
+    expect(keyCount(h, RETRY_KEY)).toBe(0);
+    expect(systemLines(h)).not.toContain(
+      en.t("systemEntries.autoHandoff.failed"),
+    );
+    // The enabling condition: the cap refuses on this agent's account. A
+    // member's own message is refused.
+    h.measure.now = ctx(20_000, 200_000);
+    fresh.completeTurn({ text: "resumed" });
+    await atRestMeasured(h, info.id);
+    expect(keyCount(h, CAP_KEY)).toBe(0);
+    userIdFor("Cap Member", "member");
+    void h.mgr.sendMessage(info.id, "MEMBER-AT-CAP", "Cap Member");
+    await waitUntil(() => keyCount(h, CAP_KEY) > 0, "member refused");
+    expect(sent(fresh, "MEMBER-AT-CAP")).toBe(false);
+  });
+
+  it("a member's agent at the cap: the brief turn is refused, the attempt stays open, and it hands off after the cap lifts", async () => {
+    const cap = capOn();
+    const h = makeHarness();
+    const info = await spawn(h, {
+      manager: { name: "Cap Member", role: "member" },
+    });
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await atRestMeasured(h, info.id);
+    cap.used = 90;
+    h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "AGENT-NEXT" });
+    await expectAttemptOpen(h, old, 0);
+    // Refused before send: no brief prompt, no reset. The agent's message
+    // is refused too (the enabling condition: the cap covers this agent).
+    await waitUntil(() => keyCount(h, CAP_KEY) >= 2, "both refusals");
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    expect(sent(old, "AGENT-NEXT")).toBe(false);
+    expect(h.fake.sessions).toHaveLength(1);
+
+    // The cap lifts. A completed turn above the trigger re-arms; the next
+    // message hands off.
+    cap.used = 1;
+    memberUsageCap().invalidate("claude");
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest",
+    );
+    const again = await startTurn(h, info.id, "WORK-AGAIN");
+    expect(again === old).toBe(true);
+    h.measure.now = ctx(192_000, 200_000);
+    old.completeTurn({ text: "done" });
+    await atRestMeasured(h, info.id);
+    h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "AGENT-AFTER" });
+    const fresh = await freshSession(h, info.id, old);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expectInOrder(fresh.sent[0].text, [BRIEF, "AGENT-AFTER"]);
+  });
+
+  it("a member's agent whose cap closes during the handoff: the fresh session still gets the brief", async () => {
+    const cap = capOn();
+    const h = makeHarness();
+    // The brief turn and the handoff's own reading are under the line; the
+    // fresh session's flush reads over it.
+    h.brief.answer = (s) => {
+      cap.flipAfterNextRead = true;
+      s.completeTurn({ text: BRIEF });
+    };
+    const info = await spawn(h, {
+      manager: { name: "Cap Member", role: "member" },
+    });
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await atRestMeasured(h, info.id);
+    h.mgr.enqueueMessage(info.id, { sender: SENDER, text: "AGENT-NEXT" });
+    // The enabling condition: the fresh flush refused (the agent's message).
+    await waitUntil(() => keyCount(h, CAP_KEY) > 0, "flush refusal");
+    await settle();
+    const fresh = h.fake.sessions.filter((s) => s !== old);
+    expect(fresh).toHaveLength(1);
+    expect(sent(fresh[0], BRIEF)).toBe(true);
+    expect(h.fake.sessions.some((s) => sent(s, "AGENT-NEXT"))).toBe(false);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
   });
 });
 
@@ -1243,19 +1489,12 @@ describe("automatic handoff: the settings survive a restart", () => {
 
 describe("automatic handoff: whose turn the brief turn is", () => {
   it("no member's, even when a member's message starts it (task 10d7ead6)", async () => {
-    // The user store outlives the state dir reset in a multi-file run.
-    const morgan =
-      getUserByName("Morgan")?.id ??
-      (() => {
-        const created = createMember("Morgan", { role: "member" });
-        if (!created.ok) throw new Error(created.error);
-        return created.user.id;
-      })();
+    const morgan = userIdFor("Handoff Morgan", "member");
     const h = makeHarness();
     const info = await spawn(h);
     // The crossing turn is Morgan's, so a brief turn that keeps the last
     // turn's members, or takes the waiting message's, fails.
-    void h.mgr.sendMessage(info.id, "work", "Morgan");
+    void h.mgr.sendMessage(info.id, "work", "Handoff Morgan");
     await waitUntil(
       () =>
         stateOf(h, info.id) === "thinking" &&
@@ -1273,7 +1512,7 @@ describe("automatic handoff: whose turn the brief turn is", () => {
       during = [...(h.mgr.getAgent(info.id)?.turnMemberIds ?? [])];
       s.completeTurn({ text: BRIEF });
     };
-    void h.mgr.sendMessage(info.id, NEXT, "Morgan");
+    void h.mgr.sendMessage(info.id, NEXT, "Handoff Morgan");
     await freshSession(h, info.id, old);
     expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
     expect(during).toEqual([]);

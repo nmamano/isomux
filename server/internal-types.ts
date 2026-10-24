@@ -234,9 +234,14 @@ export interface ManagedAgent {
   // This conversation used its attempt (it failed) or paused the mode. The
   // fullness notices fire as before once this is set.
   autoHandoffSpent: boolean;
-  // While the brief turn runs: its text after the last tool call, and its
-  // turn status. Filled by the normalized-event handler.
-  autoHandoffCapture: { chunks: string[]; status: string | null } | null;
+  // While the brief turn runs: its text after the last tool call, its turn
+  // status, and whether a usage limit stopped it. Filled by the
+  // normalized-event handler.
+  autoHandoffCapture: {
+    chunks: string[];
+    status: string | null;
+    limitStopped: boolean;
+  } | null;
   // Opened by an automatic handoff and not yet sampled. A first sample at or
   // above the trigger pauses the mode for this conversation (the loop guard).
   autoHandoffOpened: boolean;

@@ -2801,6 +2801,8 @@ Cosas que puedes hacer por él:
     "Traspasado automáticamente con el contexto al {percent}%, antes de la compactación automática.",
   "systemEntries.autoHandoff.failed":
     "El traspaso automático no se completó. Esta conversación continúa.",
+  "systemEntries.autoHandoff.retry":
+    "El traspaso automático no se completó. Isomux lo intenta de nuevo tras la próxima respuesta del agente.",
   "systemEntries.autoHandoff.paused":
     "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
   "systemEntries.limitResume.resumed":

@@ -3512,6 +3512,9 @@ export function createAgentManager(deps: ManagerDeps) {
   // 2026-10-02): a human's own input by that human's role, anything else by
   // the receiving agent's manager.
   function queuedItemCapped(managed: ManagedAgent, m: QueuedMessage): boolean {
+    // A handoff brief passed the cap in handoffBody, before the old session
+    // went; refusing it here would lose it.
+    if (m.handoff) return false;
     return m.sender.kind === "user"
       ? directInputCapped(m.sender.username)
       : managerCapped(managed.info.userId);
@@ -5305,7 +5308,16 @@ export function createAgentManager(deps: ManagerDeps) {
         {
           const m = agents.get(agentId);
           if (m) drainBoundaryClaim(agentId, m);
-          if (m?.autoHandoffCapture) m.autoHandoffCapture.status = ev.status;
+          if (m?.autoHandoffCapture) {
+            m.autoHandoffCapture.status = ev.status;
+            // A usage limit stopped the brief turn: no handoff, and no
+            // resume, which would ask the old session for the brief again as
+            // a normal reply. The attempt stays open (runAutoHandoff).
+            if (m.limitStopResetsAtMs !== null) {
+              m.autoHandoffCapture.limitStopped = true;
+              m.limitStopResetsAtMs = null;
+            }
+          }
           // A usage limit stopped this turn: arm the resume now, before the
           // turn's deferred resolves below and a queued message starts a
           // turn that drops it.
@@ -5342,8 +5354,15 @@ export function createAgentManager(deps: ManagerDeps) {
         // status - the backend reading reflects whatever actually landed in
         // the transcript). Fire-and-forget: pendingTurn below still resolves
         // synchronously, so turn semantics don't change; the commit protocol
-        // inside makes the late resolution safe.
-        if (managed) refreshContextUsage(managed, "turn_completed", ev.status);
+        // inside makes the late resolution safe. A brief turn's end does not
+        // arm the automatic handoff: an attempt that failed retries after the
+        // next turn, not after its own brief turn.
+        if (managed)
+          refreshContextUsage(
+            managed,
+            "turn_completed",
+            managed.autoHandoffCapture ? undefined : ev.status,
+          );
         // Subscription-allowance reading at the same boundary.
         if (managed) refreshSubscriptionUsage(managed, "turn_completed");
         if (managed) refreshSessionConnectors(managed);
@@ -10958,9 +10977,11 @@ export function createAgentManager(deps: ManagerDeps) {
     const capture: NonNullable<ManagedAgent["autoHandoffCapture"]> = {
       chunks: [],
       status: null,
+      limitStopped: false,
     };
     managed.autoHandoffCapture = capture;
     let threw = false;
+    let temporary = false;
     try {
       // runAgentTurn calls beginTurn before its first await, so the agent is
       // busy before this function yields.
@@ -10977,11 +10998,14 @@ export function createAgentManager(deps: ManagerDeps) {
               managed,
               sdkText: autoHandoffBriefPrompt(phase),
               memberIds: [],
-              usageCapped: true,
+              // No member sent it: capped as the agent's other input no
+              // human sends, by its manager (usage-caps-design.md 3b).
+              usageCapped: managerCapped(managed.info.userId),
             },
       );
     } catch (err) {
       threw = true;
+      temporary = temporaryBriefTurnError(err);
       if (agents.has(agentId)) briefTurnFailure(agentId, managed, err);
     } finally {
       if (managed.autoHandoffCapture === capture)
@@ -10991,15 +11015,24 @@ export function createAgentManager(deps: ManagerDeps) {
     // the phase: the member's action explains it.
     if (!agents.has(agentId) || managed.autoHandoffPhase !== phase) return;
     const brief = joinBriefChunks(managed.info.agentType, capture.chunks);
-    if (threw || capture.status !== "completed" || !brief) {
-      failAutoHandoff(agentId, managed, phase);
+    if (
+      threw ||
+      capture.limitStopped ||
+      capture.status !== "completed" ||
+      !brief
+    ) {
+      failAutoHandoff(agentId, managed, phase, {
+        temporary: temporary || capture.limitStopped,
+      });
       return;
     }
     const result = await handoffBody(agentId, brief, phase);
     if (!agents.has(agentId)) return;
     if (!result.ok) {
       if (managed.autoHandoffPhase === phase)
-        failAutoHandoff(agentId, managed, phase);
+        failAutoHandoff(agentId, managed, phase, {
+          temporary: TEMPORARY_HANDOFF_ERRORS.has(result.error),
+        });
       return;
     }
     // A typed /handoff records nothing, as a typed /clear does.
@@ -11054,17 +11087,41 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
+  // handoffBody refusals that can pass later: the cap, a failed write, or
+  // another handoff under way.
+  const TEMPORARY_HANDOFF_ERRORS = new Set([
+    "usage_cap",
+    "persist_failed",
+    "handoff_in_progress",
+  ]);
+
+  // A brief turn that could not run now: the next completed turn shows it
+  // can, so the automatic attempt stays open.
+  function temporaryBriefTurnError(err: unknown): boolean {
+    return (
+      err instanceof UsageCapError ||
+      err instanceof ProviderCapacityError ||
+      err instanceof BackendNotConfiguredError ||
+      err instanceof AuthNeededError
+    );
+  }
+
   // No handoff: the conversation continues and the queue flushes to the old
   // session. A failed automatic attempt uses the conversation's attempt, so
-  // the fullness notices come back; a failed /handoff leaves it.
+  // the fullness notices come back; a failed /handoff leaves it. A temporary
+  // failure leaves the automatic attempt open: the next completed turn above
+  // the trigger arms it again (evaluateAutoHandoff).
   function failAutoHandoff(
     agentId: string,
     managed: ManagedAgent,
     phase: AutoHandoffPhase,
+    opts: { temporary?: boolean } = {},
   ): void {
     managed.autoHandoffPhase = null;
     if (phase.manual) {
       addLogEntry(agentId, "system", msg("systemEntries.handoff.failed"));
+    } else if (opts.temporary) {
+      addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.retry"));
     } else {
       managed.autoHandoffSpent = true;
       addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.failed"));

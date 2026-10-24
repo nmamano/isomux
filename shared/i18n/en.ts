@@ -2771,6 +2771,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Handed off automatically at {percent}% context, before auto-compaction.",
   "systemEntries.autoHandoff.failed":
     "Automatic handoff did not complete. This conversation continues.",
+  "systemEntries.autoHandoff.retry":
+    "Automatic handoff did not complete. Isomux tries again after the agent's next reply.",
   "systemEntries.autoHandoff.paused":
     "Automatic handoff is paused for this conversation: it started above the handoff threshold.",
   "systemEntries.limitResume.resumed":

@@ -169,9 +169,11 @@ runs with, not the current configuration:
   reply): capped when that human is not an owner. An owner's direct input is
   never capped, also to a member's agent.
 - Input no human sent directly (agent message, scheduled message, handoff, app
-  message, wake, cron-run message to an agent): capped when the receiving
-  agent's manager (`info.userId`) has role `member`. An agent with no manager
-  is not capped.
+  message, wake, cron-run message to an agent, the automatic handoff's brief
+  turn): capped when the receiving agent's manager (`info.userId`) has role
+  `member`. An agent with no manager is not capped. A refused automatic brief
+  turn leaves the attempt open, so it retries after the cap lifts
+  (auto-handoff-design.md section 6).
 - A cron run: capped when the cronjob's owner (`job.userId`) has role
   `member`.
 
@@ -226,7 +228,10 @@ from the cap's last admission for that account (`peek`, at most 60 s old). The
 agent, cron-run and app send paths first await one (`prepareEnqueue`). The
 scheduled-message tick cannot await: with no recent admission the item is
 accepted and the gate at turn start decides. Handoff gates before the session reset, so a refused handoff does not
-wipe the session. Turn start stays the authoritative check.
+wipe the session. Turn start stays the authoritative check, except for a
+handoff brief: `flushQueue` never gates it, because the old session is gone
+and a refusal would drop the brief. The handoff's early refusal (a reading
+taken by `prepareEnqueue`) is its only check.
 
 **Cron** (own sessions, no `runAgentTurn`):
 
