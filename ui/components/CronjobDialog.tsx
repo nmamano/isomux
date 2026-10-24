@@ -13,6 +13,7 @@ import {
   claudeFamilySupportsMaxEffort,
   familyDisplayLabel,
   MIN_INTERVAL_MINUTES,
+  CODEX_DEFAULT_SANDBOX,
   type AgentBackendType,
   type BackendModelWire,
   type CodexSandboxMode,
@@ -206,7 +207,7 @@ export function CronjobDialog({
     cronjob?.effort ?? DEFAULT_EFFORT,
   );
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
-    cronjob?.codexSandbox ?? "danger-full-access",
+    cronjob?.codexSandbox ?? CODEX_DEFAULT_SANDBOX,
   );
   // Initial permission mode is fixed per engine - the dropdown shows a
   // single option in each case (no human-in-the-loop modes for unattended).

@@ -10,6 +10,7 @@
 // agent allowlist because cron runs unattended.
 
 import {
+  CODEX_DEFAULT_SANDBOX,
   CODEX_MODELS,
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
@@ -240,7 +241,7 @@ export function resolveAgentEngineSettings(
     ),
     codexSandbox:
       agentType === "codex"
-        ? (validateCodexSandbox(raw.codexSandbox) ?? "danger-full-access")
+        ? (validateCodexSandbox(raw.codexSandbox) ?? CODEX_DEFAULT_SANDBOX)
         : undefined,
   };
 }

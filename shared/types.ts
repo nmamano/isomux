@@ -117,6 +117,9 @@ export type CodexSandboxMode =
   | "workspace-write"
   | "danger-full-access";
 
+// The sandbox a Codex agent or schedule with no stored codexSandbox runs with.
+export const CODEX_DEFAULT_SANDBOX: CodexSandboxMode = "danger-full-access";
+
 // Union of all backend permission/approval modes. UI uses agentType to
 // pick which set is valid.
 export type AgentPermissionMode = ClaudePermissionMode | CodexApprovalPolicy;

@@ -52,7 +52,10 @@ import {
 } from "../provider-text.ts";
 import { authSignal } from "../auth-signal.ts";
 import { effectiveCodexSandbox } from "./sandbox-probe.ts";
-import type { SubagentOrigin } from "../../../shared/types.ts";
+import {
+  CODEX_DEFAULT_SANDBOX,
+  type SubagentOrigin,
+} from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
 import {
   codexRolloutFileExists,
@@ -290,11 +293,6 @@ const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "on-request", label: "On request - ask when model asks" },
   { value: "never", label: "Never ask (use with sandbox)" },
 ];
-
-// Default sandbox if the caller doesn't pass one. Full access matches the
-// posture everywhere else: agents resolve to danger-full-access and Claude
-// cron runs bypass permissions.
-const DEFAULT_SANDBOX_MODE = "danger-full-access";
 
 const CLIENT_INFO_NAME = "isomux";
 const CLIENT_INFO_VERSION = "1.0.0";
@@ -938,7 +936,7 @@ export interface CodexSessionInitOpts {
   modelFamily: string;
   effort: string;
   permissionMode: string;
-  sandbox?: string; // SandboxMode enum string; falls back to DEFAULT_SANDBOX_MODE
+  sandbox?: string; // SandboxMode enum string; falls back to CODEX_DEFAULT_SANDBOX
   env?: { [key: string]: string | undefined };
   resumeThreadId?: string;
   // Remote MCP servers for the thread config (codexThreadConfig).
@@ -1204,7 +1202,7 @@ export class CodexSession implements BackendSession {
       await this.client.initialize(initParams);
 
       const sandboxChoice = await effectiveCodexSandbox(
-        this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
+        this.opts.sandbox ?? CODEX_DEFAULT_SANDBOX,
       );
       // The thread stores its collaboration mode, so a resumed thread can
       // already be in plan mode.

@@ -24,6 +24,7 @@ import {
   claudePermissionModeFor,
   familyDisplayLabel,
   NEW_AGENT_PERMISSION_MODE,
+  CODEX_DEFAULT_SANDBOX,
 } from "../../shared/types.ts";
 import {
   roomSlotCount,
@@ -368,9 +369,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [effort, setEffort] = useState<EffortLevel>(
     agent?.effort ?? DEFAULT_EFFORT,
   );
-  const codexNewEngineDefault = codexNewEngineDefaults();
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
-    agent?.codexSandbox ?? codexNewEngineDefault.codexSandbox,
+    agent
+      ? (agent.codexSandbox ?? CODEX_DEFAULT_SANDBOX)
+      : codexNewEngineDefaults().codexSandbox,
   );
   // Claude families without effort and Auto (Bedrock or Vertex) in the env
   // the agent runs with: the member's own at spawn (session_context), the
@@ -862,7 +864,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               : MODEL_FAMILIES[0].family),
         effort: agent?.effort ?? DEFAULT_EFFORT,
         permissionMode: initialPermissionMode,
-        codexSandbox: agent?.codexSandbox ?? "workspace-write",
+        codexSandbox: agent?.codexSandbox ?? CODEX_DEFAULT_SANDBOX,
       };
     } else if (targetEngine === "codex") {
       const codexDefault = codexNewEngineDefaults();
@@ -1051,7 +1053,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         );
         if (
           isCodex &&
-          codexSandbox !== (agent!.codexSandbox ?? "workspace-write")
+          codexSandbox !== (agent!.codexSandbox ?? CODEX_DEFAULT_SANDBOX)
         )
           changes.codexSandbox = codexSandbox;
       }

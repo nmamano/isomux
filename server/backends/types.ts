@@ -52,7 +52,7 @@ export interface CreateSessionOptions {
   interactive?: boolean;
   // Codex-only: SandboxMode string ("read-only" / "workspace-write" /
   // "danger-full-access"). Claude backend ignores. Undefined falls back to
-  // the backend's default ("workspace-write" for Codex).
+  // CODEX_DEFAULT_SANDBOX.
   sandbox?: string;
   env?: { [key: string]: string | undefined };
   // Stable identity of the configured environment sources. Backends that

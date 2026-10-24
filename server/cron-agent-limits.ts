@@ -6,7 +6,12 @@
 
 import { realpathSync } from "fs";
 import { sep } from "path";
-import type { AgentInfo, CodexSandboxMode, Cronjob } from "../shared/types.ts";
+import {
+  CODEX_DEFAULT_SANDBOX,
+  type AgentInfo,
+  type CodexSandboxMode,
+  type Cronjob,
+} from "../shared/types.ts";
 import { resolveCwd } from "./cwd-utils.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
@@ -30,10 +35,11 @@ export const SCHEDULE_ROOM_REFUSAL =
 // folder, 1 reads only, 0 asks or is gated, so it cannot run unattended.
 type Reach = 0 | 1 | 2 | 3;
 
-// A missing sandbox is the Codex adapter's workspace-write default.
+// A missing sandbox runs as CODEX_DEFAULT_SANDBOX.
 function sandboxReach(sandbox: CodexSandboxMode | undefined): Reach {
-  if (sandbox === "danger-full-access") return 3;
-  if (sandbox === "read-only") return 1;
+  const mode = sandbox ?? CODEX_DEFAULT_SANDBOX;
+  if (mode === "danger-full-access") return 3;
+  if (mode === "read-only") return 1;
   return 2;
 }
 

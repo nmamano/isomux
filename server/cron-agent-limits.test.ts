@@ -78,11 +78,11 @@ const AGENTS: Array<[string, Omit<ScheduleLimitAgent, "cwd">, Rank]> = [
     },
     2,
   ],
-  // No sandbox: the Codex adapter's workspace-write default.
+  // No sandbox: runs as CODEX_DEFAULT_SANDBOX, full access (task 375b000e).
   [
     "codex never default sandbox",
     { agentType: "codex", permissionMode: "never" },
-    2,
+    3,
   ],
   [
     "codex never read-only",
@@ -133,7 +133,8 @@ const JOBS: Array<[string, Omit<ScheduleLimitJob, "cwd">, Rank]> = [
     { agentType: "codex", codexSandbox: "workspace-write" },
     2,
   ],
-  ["codex default-sandbox job", { agentType: "codex" }, 2],
+  // No sandbox: the run gets full access, so it ranks as the full job.
+  ["codex default-sandbox job", { agentType: "codex" }, 3],
   ["codex read-only job", { agentType: "codex", codexSandbox: "read-only" }, 1],
 ];
 

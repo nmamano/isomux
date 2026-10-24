@@ -6787,7 +6787,7 @@ export function createAgentManager(deps: ManagerDeps) {
       permissionMode: managed.info.permissionMode,
       interactive: true,
       // Codex-only sandbox; Claude backend ignores. Undefined falls back to
-      // the Codex adapter's "workspace-write" default.
+      // CODEX_DEFAULT_SANDBOX.
       sandbox: managed.info.codexSandbox,
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
