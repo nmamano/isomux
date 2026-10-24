@@ -25,6 +25,7 @@ import {
 function build(
   agentType: "claude" | "codex" | "opencode" = "codex",
   privileged = false,
+  makesSchedules = true,
 ) {
   return buildSystemPrompt(
     "A1",
@@ -39,6 +40,8 @@ function build(
     privileged,
     null,
     agentType,
+    null,
+    makesSchedules,
   );
 }
 
@@ -223,20 +226,58 @@ describe("system prompt pointer contract", () => {
     expect(prompt).not.toContain("$ISOMUX_AGENT_TOKEN");
   });
 
-  it("renders all six baseline prompts within the approved byte budgets", () => {
+  it("renders all baseline prompts within the approved byte budgets", () => {
     const measured = (["claude", "codex", "opencode"] as const).flatMap(
       (engine) =>
-        [false, true].map((privileged) => ({
-          engine,
-          privileged,
-          bytes: Buffer.byteLength(build(engine, privileged)),
-        })),
+        [false, true].flatMap((privileged) =>
+          [false, true].map((makesSchedules) => ({
+            engine,
+            privileged,
+            bytes: Buffer.byteLength(build(engine, privileged, makesSchedules)),
+          })),
+        ),
     );
     for (const row of measured) {
       const ordinaryBudget = row.engine === "opencode" ? 11_000 : 9_000;
       expect(row.bytes).toBeLessThanOrEqual(
         ordinaryBudget + (row.privileged ? 2_000 : 0),
       );
+    }
+  });
+});
+
+// Task 11e311db (Nil, 2026-10-24): a schedule runs with nobody present, so
+// only an agent whose mode acts without approvals makes one
+// (agentMakesSchedules). Its prompt offers schedule creation; any other
+// agent's prompt has the same situation line, sending the member to the
+// Schedules page instead of a page the agent cannot use.
+describe("system prompt schedule line", () => {
+  it("offers schedule creation only to an agent that makes schedules, and keeps the situation for the others", () => {
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      const makes = build(engine, false, true).split("\n");
+      const asks = build(engine, false, false).split("\n");
+      const pointer = "Page: `cronjob-management`";
+      expect([engine, makes.some((l) => l.includes(pointer))]).toEqual([
+        engine,
+        true,
+      ]);
+      expect([engine, asks.join("\n").includes("cronjob-management")]).toEqual([
+        engine,
+        false,
+      ]);
+      // Inspecting schedules and runs stays open to both.
+      for (const lines of [makes, asks])
+        expect(lines.some((l) => l.includes("Page: `cronjobs`"))).toBe(true);
+      // One line changes, in place: the other agent still reads the
+      // situation, and its line points at no reference page.
+      expect(asks.length).toBe(makes.length);
+      const changed = makes.flatMap((line, i) => (line === asks[i] ? [] : [i]));
+      expect(changed).toHaveLength(1);
+      expect(makes[changed[0]]).toContain(pointer);
+      // The same situation, before its colon; another action after it.
+      const situation = (line: string) => line.slice(0, line.indexOf(":"));
+      expect(situation(asks[changed[0]])).toBe(situation(makes[changed[0]]));
+      expect(asks[changed[0]]).not.toContain("Page:");
     }
   });
 });

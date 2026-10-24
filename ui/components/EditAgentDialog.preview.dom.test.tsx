@@ -48,14 +48,26 @@ const agent: AgentInfo = {
   turnMemberIds: [],
 };
 
+// The select that holds an option with this value.
+function selectWith(container: HTMLElement, value: string): HTMLSelectElement {
+  const found = Array.from(container.querySelectorAll("select")).find(
+    (select) => select.querySelector(`option[value="${value}"]`) !== null,
+  );
+  if (!found) throw new Error(`no select with option ${value}`);
+  return found;
+}
+
 describe("agent form prompt preview", () => {
-  for (const mode of ["spawn", "edit"] as const) {
+  for (const mode of ["spawn", "edit", "spawn-codex"] as const) {
     it(`${mode} sends the current form values without saving`, async () => {
       const writes: { method: string; path: string; body: unknown }[] = [];
       setApiShim(async (method, path, body) => {
         if (path === "/api/validate/cwd") return { ok: true };
         if (method === "GET" && path.startsWith("/api/memory"))
           return { text: "Saved memory", version: "v1", size: 12, cap: 5000 };
+        // The Codex form lists its engine's models.
+        if (method === "GET" && path.startsWith("/api/backends/"))
+          return { models: [] };
         writes.push({ method, path, body });
         if (path === "/api/agents/system-prompt-preview")
           return { prompt: "Assembled draft" };
@@ -72,7 +84,10 @@ describe("agent form prompt preview", () => {
                   deskIndex: 0,
                   roomId: room.id,
                   defaultCwd: "~",
-                  spawnAgentType: "claude" as const,
+                  spawnAgentType:
+                    mode === "spawn-codex"
+                      ? ("codex" as const)
+                      : ("claude" as const),
                 })}
           />,
           {
@@ -109,6 +124,16 @@ describe("agent form prompt preview", () => {
             view.container.querySelector(".agent-memory-field textarea")!,
             { target: { value: "" } },
           );
+        // A mode or sandbox changed in the form and not saved (task
+        // 11e311db): the preview shows the form's.
+        if (mode === "edit")
+          fireEvent.change(selectWith(view.container, "acceptEdits"), {
+            target: { value: "acceptEdits" },
+          });
+        if (mode === "spawn-codex")
+          fireEvent.change(selectWith(view.container, "read-only"), {
+            target: { value: "read-only" },
+          });
       });
       await act(async () => {
         fireEvent.click(
@@ -128,10 +153,18 @@ describe("agent form prompt preview", () => {
             ...(mode === "edit" ? { agentId: "a1" } : {}),
             roomId: "r1",
             name: "Draft name",
-            agentType: "claude",
+            agentType: mode === "spawn-codex" ? "codex" : "claude",
             instructions: "Draft instructions",
             privileged: false,
             ...(mode === "edit" ? { memory: "" } : {}),
+            // The form's mode, and a Codex form's sandbox: they decide the
+            // schedule line (task 11e311db). A new Claude agent's default
+            // is auto.
+            ...(mode === "edit"
+              ? { permissionMode: "acceptEdits" }
+              : mode === "spawn"
+                ? { permissionMode: "auto" }
+                : { permissionMode: "never", codexSandbox: "read-only" }),
           },
         },
       ]);

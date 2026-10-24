@@ -181,6 +181,7 @@ import {
   type BackendFailureText,
 } from "./backend-failure-text.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
 import { getAgentHost } from "./agent-host.ts";
@@ -6769,6 +6770,7 @@ export function createAgentManager(deps: ManagerDeps) {
       memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
       manager.record?.language ?? null,
+      agentMakesSchedules(managed.info),
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

@@ -160,6 +160,7 @@ import { resolveCwd } from "./cwd-utils.ts";
 import {
   modelFamilyMismatchError,
   resolveInteractiveModelSelection,
+  validatePermissionMode,
 } from "./agent-validators.ts";
 import type {
   Cronjob,
@@ -903,7 +904,7 @@ function createManagers(startOpts: StartServerOpts): void {
         ? ordinaryScheduleMaker(job.createdByAgentId)
         : null;
       const breach = maker ? scheduleLimitBreach(job, maker) : null;
-      return maker && breach ? scheduleRunRefusal(breach, maker.name) : null;
+      return maker && breach ? scheduleRunRefusal(breach, maker, job) : null;
     },
   });
   // Register the production instance for the module-read bridge that
@@ -5224,6 +5225,9 @@ function buildExecutorDeps(
           .getRooms()
           .find((candidate) => candidate.id === input.roomId);
         if (!room || (input.agentId && !existing)) return undefined;
+        // The form's mode decides the schedule line; without one, the
+        // agent's on the same engine, else the new-agent default.
+        const sameEngine = existing?.agentType === input.agentType;
         return buildAgentSystemPrompt(
           {
             id: existing?.id ?? "new-agent",
@@ -5234,6 +5238,14 @@ function buildExecutorDeps(
             agentType: input.agentType,
             customInstructions: input.instructions,
             privileged: input.privileged,
+            permissionMode:
+              input.permissionMode ??
+              (sameEngine
+                ? existing.permissionMode
+                : validatePermissionMode(input.agentType, undefined)),
+            codexSandbox:
+              input.codexSandbox ??
+              (sameEngine ? existing.codexSandbox : undefined),
           },
           room,
           agentManager.getOfficeSettings(),

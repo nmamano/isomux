@@ -37,7 +37,12 @@ function sandboxReach(sandbox: CodexSandboxMode | undefined): Reach {
   return 2;
 }
 
-function agentReach(agent: ScheduleLimitAgent): Reach {
+type AgentMode = Pick<
+  AgentInfo,
+  "agentType" | "permissionMode" | "codexSandbox"
+>;
+
+function agentReach(agent: AgentMode): Reach {
   if (agent.agentType === "codex")
     return agent.permissionMode === "never"
       ? sandboxReach(agent.codexSandbox)
@@ -51,6 +56,15 @@ function agentReach(agent: ScheduleLimitAgent): Reach {
 // (validateCronjobPermissionMode); a Codex one runs in its sandbox.
 function jobReach(job: ScheduleLimitJob): Reach {
   return job.agentType === "codex" ? sandboxReach(job.codexSandbox) : 3;
+}
+
+// Whether the agent may make any schedule: a privileged agent always, an
+// ordinary one when its mode runs without approvals. Decides the schedule
+// line of the system prompt.
+export function agentMakesSchedules(
+  agent: AgentMode & { privileged?: boolean },
+): boolean {
+  return agent.privileged === true || agentReach(agent) > 0;
 }
 
 // Where the job reaches more than the agent, else null. `realpath` resolves
@@ -84,7 +98,9 @@ export function scheduleExceedsAgent(
 ): string | null {
   const breach = scheduleLimitBreach(job, agent, realpath);
   if (breach === "mode")
-    return "This schedule would have more access than your permission mode gives you. Ask your manager to create it, or to change your mode.";
+    return job.agentType === "codex"
+      ? "A schedule runs with nobody present, so a Codex schedule has no approvals in its sandbox. Only an agent with that access can make one or run one it made: Codex in never with the same sandbox or a wider one, or bypassPermissions. Ask the member to create it on the Schedules tab of the Automations page, or to give you that mode."
+      : "A schedule runs with nobody present, so a Claude or OpenCode schedule has full permissions. Only an agent with full permissions can make one or run one it made: bypassPermissions, or Codex in never with danger-full-access. Ask the member to create it on the Schedules tab of the Automations page, or to give you that mode.";
   if (breach === "folder")
     return "A schedule you make must run in your working folder or a folder inside it.";
   return null;
@@ -93,9 +109,16 @@ export function scheduleExceedsAgent(
 // The reason a run start was refused, for the member who reads the run.
 export function scheduleRunRefusal(
   breach: "mode" | "folder",
-  agentName: string,
+  maker: Pick<AgentInfo, "name" | "agentType">,
+  job: ScheduleLimitJob,
 ): LogMessage {
-  return breach === "mode"
-    ? msg("systemEntries.scheduleRun.limit.mode", { agent: agentName })
-    : msg("systemEntries.scheduleRun.limit.folder", { agent: agentName });
+  const agent = maker.name;
+  if (breach === "folder")
+    return msg("systemEntries.scheduleRun.limit.folder", { agent });
+  // One key per remedy, so no translated mode name goes into a sentence.
+  if (maker.agentType !== "codex")
+    return msg("systemEntries.scheduleRun.limit.modeBypass", { agent });
+  return job.agentType === "codex"
+    ? msg("systemEntries.scheduleRun.limit.modeCodexSandbox", { agent })
+    : msg("systemEntries.scheduleRun.limit.modeCodexFull", { agent });
 }

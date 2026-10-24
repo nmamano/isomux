@@ -1,10 +1,10 @@
 # Schedule management
 
-A schedule runs a prompt in a fresh session daily, weekly, at an interval, or only on demand (schedule `{type:"none"}`: Run now and webhooks start it). Any agent can create schedules. A privileged agent can change, delete or run its manager's schedules. An ordinary agent can see, change, delete or run only the schedules it made.
+A schedule runs a prompt in a fresh session daily, weekly, at an interval, or only on demand (schedule `{type:"none"}`: Run now and webhooks start it). A schedule runs with nobody present, so only an agent that acts without approvals can make one: a Claude or OpenCode agent in `bypassPermissions`, or a Codex agent in `never`. Any other agent asks the member to create the schedule on the Schedules tab of the Automations page. A privileged agent can make one in any mode, and can change, delete or run its manager's schedules. An ordinary agent can see, change, delete or run only the schedules it made.
 
 A schedule that an ordinary agent makes cannot have more access than the agent:
 
-- Mode: a Claude or OpenCode schedule always runs with `bypassPermissions`, so the agent needs `bypassPermissions`. A Codex schedule runs with no approvals in its sandbox, so a Codex agent needs `never` and the same sandbox or a wider one. A Claude agent in `auto`, or an agent in any mode that asks, cannot make schedules.
+- Mode: a Claude or OpenCode schedule always runs with `bypassPermissions`, so the agent needs `bypassPermissions`. A Codex schedule runs with no approvals in its sandbox, so a Codex agent needs `never` and the same sandbox or a wider one.
 - Folder: `cwd` is the agent's working folder or a folder inside it.
 - Room: the agent's room, or no room.
 

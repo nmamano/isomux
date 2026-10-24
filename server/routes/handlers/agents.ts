@@ -106,6 +106,8 @@ import {
 import {
   NEVER_PROMPTING_MODE,
   spawnedAgentMode,
+  validateCodexSandbox,
+  validatePermissionMode,
 } from "../../agent-validators.ts";
 import type {
   SpawnReq,
@@ -408,7 +410,13 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         typeof b.privileged !== "boolean" ||
         !["claude", "codex", "opencode"].includes(b.agentType ?? "") ||
         (b.agentId !== undefined && typeof b.agentId !== "string") ||
-        (b.memory !== undefined && typeof b.memory !== "string")
+        (b.memory !== undefined && typeof b.memory !== "string") ||
+        // A mode or sandbox the engine does not have.
+        (b.permissionMode !== undefined &&
+          validatePermissionMode(b.agentType!, b.permissionMode) !==
+            b.permissionMode) ||
+        (b.codexSandbox !== undefined &&
+          validateCodexSandbox(b.codexSandbox) !== b.codexSandbox)
       ) {
         return fail(422, "invalid_request", "Malformed prompt preview");
       }

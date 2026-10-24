@@ -92,6 +92,10 @@ export interface AgentSystemPromptPreviewReq {
   instructions: string;
   privileged: boolean;
   memory?: string;
+  // The form's mode, for the schedule line. Absent: the agent's, else the
+  // new-agent default.
+  permissionMode?: AgentInfo["permissionMode"];
+  codexSandbox?: AgentInfo["codexSandbox"];
 }
 
 export type EditAgentReq = Partial<

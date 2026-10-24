@@ -197,7 +197,7 @@ The token holder reads replies over HTTP (`POST /api/me/api-token-inbox/drain`) 
 
 Isomux puts a new token in the environment of each agent and each scheduled run. The token lives only in memory, and it stops when the agent stops, when the run ends, or when the server restarts. Isomux takes the sender of a message from the token, not from the request body. An agent can use its chat affordances only on its own chat.
 
-An ordinary agent can make schedules. It sees, changes, runs and deletes only the schedules that it made, not its member's. Such a schedule cannot have more access than the agent: no wider permission mode or Codex sandbox, no folder outside the agent's working folder, and no other room. Isomux checks this at each change and run that the agent asks for, and again at each run start with the agent's current settings. Thus, when a member lowers the agent's mode, the runs of its schedules fail until the agent has that access again. The member can change or delete the schedule.
+An ordinary agent can make schedules when its mode runs without approvals (`bypassPermissions`, or `never` for Codex), since a schedule runs with nobody present. It sees, changes, runs and deletes only the schedules that it made, not its member's. Such a schedule cannot have more access than the agent: no wider permission mode or Codex sandbox, no folder outside the agent's working folder, and no other room. Isomux checks this at each change and run that the agent asks for, and again at each run start with the agent's current settings. Thus, when a member lowers the agent's mode, the runs of its schedules fail until the agent has that access again. The member can change or delete the schedule.
 
 A terminal panel does not get an agent token.
 

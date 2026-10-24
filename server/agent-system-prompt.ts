@@ -5,6 +5,7 @@ import type {
   UserRecord,
 } from "../shared/types.ts";
 import { memoryStore } from "./memory-store.ts";
+import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { getUserById, getUserByName } from "./users.ts";
 
@@ -33,6 +34,8 @@ export function buildAgentSystemPrompt(
     | "customInstructions"
     | "privileged"
     | "agentType"
+    | "permissionMode"
+    | "codexSandbox"
   >,
   room: RoomWire,
   officeConfig: OfficeSettings,
@@ -87,5 +90,6 @@ export function buildAgentSystemPrompt(
       .join("\n\n") || null,
     agent.agentType,
     manager.record?.language ?? null,
+    agentMakesSchedules(agent),
   );
 }

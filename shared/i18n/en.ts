@@ -3064,8 +3064,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Cannot start: cwd is invalid: Not a directory: {path}",
   "systemEntries.scheduleRun.startCwd.inaccessible":
     "Cannot start: cwd is invalid: Cannot access {path}: {message}",
-  "systemEntries.scheduleRun.limit.mode":
-    "{agent}, the agent that made this schedule, has less access than the schedule needs. Give the agent more access, or change the schedule.",
+  "systemEntries.scheduleRun.limit.modeBypass":
+    "This schedule runs only while {agent}, the agent that made it, is in Bypass mode, since a schedule runs with nobody present. Put {agent} in that mode, or delete the schedule and create it again yourself.",
+  "systemEntries.scheduleRun.limit.modeCodexFull":
+    "This schedule runs only while {agent}, the agent that made it, is in Never ask with full access (no sandbox), since a schedule runs with nobody present. Give {agent} that access, or delete the schedule and create it again yourself.",
+  "systemEntries.scheduleRun.limit.modeCodexSandbox":
+    "This schedule runs only while {agent}, the agent that made it, is in Never ask with a sandbox at least as wide as the schedule's, since a schedule runs with nobody present. Give {agent} that access, or delete the schedule and create it again yourself.",
   "systemEntries.scheduleRun.limit.folder":
     "This schedule runs outside the working folder of {agent}, the agent that made it. Change the folder of the schedule or of the agent.",
   "systemEntries.claudeAuth.connected":

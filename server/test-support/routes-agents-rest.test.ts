@@ -1479,6 +1479,12 @@ describe("agents.previewSystemPrompt REST", () => {
       { name: [] },
       { privileged: "true" },
       { customInstructions: null },
+      // A mode or sandbox the engine does not have (task 11e311db).
+      { permissionMode: "never" },
+      { permissionMode: "plan" },
+      { permissionMode: 1 },
+      { agentType: "codex", permissionMode: "bypassPermissions" },
+      { agentType: "codex", codexSandbox: "everything" },
     ]) {
       expect((await preview({ ...draft, ...invalid })).status).toBe(422);
     }

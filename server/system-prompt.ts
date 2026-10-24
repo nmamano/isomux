@@ -62,6 +62,9 @@ export function buildSystemPrompt(
   autoLoadedMemory?: string | null,
   agentType?: "claude" | "codex" | "opencode" | null,
   ownerLanguage?: SupportedLanguageCode | null,
+  // agentMakesSchedules: offer schedule creation, else send the member to
+  // the Schedules tab.
+  makesSchedules: boolean = false,
 ): string {
   const taskScope =
     roomId === LOBBY_ROOM_ID
@@ -116,7 +119,7 @@ ${appHostingSection(appsUnsupported)}
 - You need a credential you do not have: ask for it as a secret, so the member types it outside the chat. Never ask for it in chat. Page: \`connections\`.
 - The member needs you to read or act on a page in their own Chrome, for example behind their login: control their browser. Page: \`browser\`.
 - The member asks about schedules or their runs: inspect them. Page: \`cronjobs\`.
-- The member wants work to run on a schedule with nobody present: create a schedule. Page: \`cronjob-management\`.
+- The member wants work to run on a schedule with nobody present: ${makesSchedules ? "create a schedule. Page: `cronjob-management`." : "ask them to create it on the Schedules tab of the Automations page. Your permission mode does not let you make one, since a schedule runs with nobody to approve its actions."}
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.
 - A relationship or flow is easier to see than to read: draw it in chat. Page: \`visuals\`.
 - The session goal is complete: close the session with the built-in \`/wrap-session\` skill, without waiting to be asked.

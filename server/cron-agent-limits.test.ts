@@ -1,5 +1,6 @@
 // scheduleExceedsAgent (server/cron-agent-limits.ts): the limits on a schedule
-// an ordinary agent made (task c4233bfd). The route and run-start wiring is in
+// an ordinary agent made (task c4233bfd). agentMakesSchedules and the wording
+// of the mode refusals follow the same table (task 11e311db). The route and run-start wiring is in
 // server/test-support/routes-cronjobs-rest.test.ts ("schedules an ordinary
 // agent makes"); this file owns the whole mode table and the folder rules.
 
@@ -8,10 +9,15 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import {
+  agentMakesSchedules,
   scheduleExceedsAgent,
+  scheduleRunRefusal,
   type ScheduleLimitAgent,
   type ScheduleLimitJob,
 } from "./cron-agent-limits.ts";
+import { localizeLogParts } from "../shared/i18n/log-message.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 
 const root = mkdtempSync(join(tmpdir(), "cron-agent-limits-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -210,5 +216,114 @@ describe("scheduleExceedsAgent: folder", () => {
         ),
       ),
     ).toBe(true);
+  });
+});
+
+describe("agentMakesSchedules", () => {
+  // An ordinary agent makes a schedule when its mode reaches anything
+  // unattended: some job then fits under it. A privileged agent's cron:manage
+  // lifts the limits, so it makes schedules in every mode.
+  it("is true for an ordinary agent exactly when its mode reaches anything, and for a privileged one in every mode", () => {
+    const got: string[] = [];
+    const want: string[] = [];
+    for (const [agentName, agent, agentRank] of AGENTS) {
+      for (const privileged of [false, true]) {
+        const label = `${agentName}${privileged ? " privileged" : ""}`;
+        got.push(`${label}: ${agentMakesSchedules({ ...agent, privileged })}`);
+        want.push(`${label}: ${privileged || agentRank > 0}`);
+      }
+      // No flag reads as ordinary.
+      got.push(`${agentName} unflagged: ${agentMakesSchedules({ ...agent })}`);
+      want.push(`${agentName} unflagged: ${agentRank > 0}`);
+    }
+    expect(got).toEqual(want);
+  });
+});
+
+describe("the mode refusal wording", () => {
+  const lowest: ScheduleLimitAgent = {
+    agentType: "claude",
+    permissionMode: "auto",
+    cwd: home,
+  };
+  const reason = (job: Omit<ScheduleLimitJob, "cwd">, agent = lowest) =>
+    scheduleExceedsAgent({ ...job, cwd: home }, agent);
+
+  // The rule differs by the job's engine (full permissions against no
+  // approvals in a sandbox), so the agent reads one reason per rule.
+  it("gives the agent one reason for a Claude or OpenCode job and another for a Codex job, apart from the folder reason", () => {
+    const claude = reason({ agentType: "claude" });
+    const opencode = reason({ agentType: "opencode" });
+    const codex = reason({ agentType: "codex", codexSandbox: "read-only" });
+    const codexFull = reason({
+      agentType: "codex",
+      codexSandbox: "danger-full-access",
+    });
+    const folder = scheduleExceedsAgent(
+      { agentType: "claude", cwd: outside },
+      { ...lowest, permissionMode: "bypassPermissions" },
+    );
+    for (const text of [claude, opencode, codex, codexFull, folder])
+      expect(refused(text)).toBe(true);
+    expect(opencode).toBe(claude);
+    expect(codexFull).toBe(codex);
+    expect(new Set([claude, codex, folder]).size).toBe(3);
+    // The reason is about the job, not about who asks: a Codex agent in a
+    // mode that asks reads the same reason for a Claude job.
+    expect(
+      reason(
+        { agentType: "claude" },
+        { agentType: "codex", permissionMode: "on-request", cwd: home },
+      ),
+    ).toBe(claude);
+  });
+
+  // The member reads the run refusal. What the maker needs depends on its
+  // engine (Bypass, or Never ask for Codex) and, for a Codex maker, on the
+  // job's engine (full access, or a sandbox as wide as the job's).
+  it("gives the member one run refusal per remedy, worded in every language with the maker's name", () => {
+    const name = "MakerSentinel";
+    const words = (
+      makerType: ScheduleLimitAgent["agentType"],
+      job: Omit<ScheduleLimitJob, "cwd">,
+      breach: "mode" | "folder" = "mode",
+    ) => {
+      const message = scheduleRunRefusal(
+        breach,
+        { name, agentType: makerType },
+        { ...job, cwd: home },
+      );
+      const english = localizeLogParts(translatorFor("en"), [message]);
+      for (const { code } of SUPPORTED_LANGUAGES) {
+        const text = localizeLogParts(translatorFor(code), [message]);
+        expect([code, text?.includes(name)]).toEqual([code, true]);
+        if (code !== "en") expect([code, text]).not.toEqual([code, english]);
+      }
+      return english;
+    };
+    const claudeJob = { agentType: "claude" as const };
+    const codexJob = {
+      agentType: "codex" as const,
+      codexSandbox: "workspace-write" as const,
+    };
+    // Needs Bypass: a Claude or OpenCode maker, whatever the job.
+    const bypass = words("claude", claudeJob);
+    expect(words("claude", codexJob)).toBe(bypass);
+    expect(words("opencode", claudeJob)).toBe(bypass);
+    expect(words("opencode", codexJob)).toBe(bypass);
+    // A Codex maker: full access for a Claude or OpenCode job, a sandbox as
+    // wide as the job's for a Codex job.
+    const codexFull = words("codex", claudeJob);
+    expect(words("codex", { agentType: "opencode" })).toBe(codexFull);
+    const codexSandbox = words("codex", codexJob);
+    expect(
+      words("codex", {
+        agentType: "codex",
+        codexSandbox: "danger-full-access",
+      }),
+    ).toBe(codexSandbox);
+    const folder = words("codex", codexJob, "folder");
+    expect(words("claude", claudeJob, "folder")).toBe(folder);
+    expect(new Set([bypass, codexFull, codexSandbox, folder]).size).toBe(4);
   });
 });

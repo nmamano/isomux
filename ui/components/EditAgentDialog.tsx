@@ -2061,6 +2061,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   instructions: customInstructions,
                   privileged,
                   ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
+                  permissionMode,
+                  ...(targetEngine === "codex" ? { codexSandbox } : {}),
                 }}
               />
             </section>

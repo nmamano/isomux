@@ -3110,8 +3110,12 @@ Coses que pots fer per ell:
     "No es pot iniciar: el cwd no és vàlid: no és un directori: {path}",
   "systemEntries.scheduleRun.startCwd.inaccessible":
     "No es pot iniciar: el cwd no és vàlid: no es pot accedir a {path}: {message}",
-  "systemEntries.scheduleRun.limit.mode":
-    "{agent}, l'agent que ha creat aquesta programació, té menys accés del que la programació necessita. Dona més accés a l'agent o canvia la programació.",
+  "systemEntries.scheduleRun.limit.modeBypass":
+    "Aquesta programació només s'executa mentre {agent}, l'agent que l'ha creada, és en el mode Ometre els permisos, perquè una programació s'executa sense ningú present. Posa {agent} en aquest mode, o elimina la programació i torna-la a crear tu.",
+  "systemEntries.scheduleRun.limit.modeCodexFull":
+    "Aquesta programació només s'executa mentre {agent}, l'agent que l'ha creada, és en No preguntar mai amb accés total (sense sandbox), perquè una programació s'executa sense ningú present. Dona aquest accés a {agent}, o elimina la programació i torna-la a crear tu.",
+  "systemEntries.scheduleRun.limit.modeCodexSandbox":
+    "Aquesta programació només s'executa mentre {agent}, l'agent que l'ha creada, és en No preguntar mai amb un sandbox almenys tan ampli com el de la programació, perquè una programació s'executa sense ningú present. Dona aquest accés a {agent}, o elimina la programació i torna-la a crear tu.",
   "systemEntries.scheduleRun.limit.folder":
     "Aquesta programació s'executa fora de la carpeta de treball de {agent}, l'agent que l'ha creada. Canvia la carpeta de la programació o de l'agent.",
   "systemEntries.claudeAuth.connected":
