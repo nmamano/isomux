@@ -24,7 +24,11 @@ import { resolveCwd } from "../cwd-utils.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import type { StartServerOpts } from "../isomux-office.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { loadAgents, loadRecentCwds } from "../persistence.ts";
+import {
+  loadAgentHistory,
+  loadAgents,
+  loadRecentCwds,
+} from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
@@ -562,42 +566,47 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(srv.agentManager.getAgent(x.id)?.name).toBe("Renamed");
   });
 
-  it("PATCH sets the automatic handoff switch, which persists; a non-boolean is 422", async () => {
+  it("PATCH switches automatic handoff off, which persists; on is the default and stores nothing; a non-boolean is 422", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const x = await spawnAt(srv, "Auto", srv.agentManager.getRooms()[0].id, 0);
-    expect(srv.agentManager.getAgent(x.id)?.autoHandoff ?? false).toBe(false);
     const persisted = () =>
       loadAgents()
         .flatMap((r) => r.agents)
         .find((a) => a.id === x.id);
+    const patch = (body: Record<string, unknown>) =>
+      req(srv, "PATCH", `/api/agents/${x.id}`, {
+        body,
+        rawSessionId: owner.rawSessionId,
+      });
+    // A fresh spawn is on and stores no switch.
+    expect(srv.agentManager.getAgent(x.id)?.autoHandoff).not.toBe(false);
+    expect(persisted()).toBeDefined();
     expect(persisted()).not.toHaveProperty("autoHandoff");
 
-    const on = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { autoHandoff: true },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(on.status).toBe(200);
-    expect(
-      (on.body as { agent: { autoHandoff?: boolean } }).agent.autoHandoff,
-    ).toBe(true);
-    expect(persisted()?.autoHandoff).toBe(true);
-
-    const bad = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { autoHandoff: "yes" },
-      rawSessionId: owner.rawSessionId,
-    });
+    const bad = await patch({ autoHandoff: "yes" });
     expect(bad.status).toBe(422);
-    expect(srv.agentManager.getAgent(x.id)?.autoHandoff).toBe(true);
+    expect(srv.agentManager.getAgent(x.id)?.autoHandoff).not.toBe(false);
 
-    const off = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { autoHandoff: false },
-      rawSessionId: owner.rawSessionId,
-    });
+    // Off is stored as an explicit false, in the agent file and in the
+    // history snapshot of live agents.
+    const off = await patch({ autoHandoff: false });
     expect(off.status).toBe(200);
+    expect(
+      (off.body as { agent: { autoHandoff?: boolean } }).agent.autoHandoff,
+    ).toBe(false);
     expect(srv.agentManager.getAgent(x.id)?.autoHandoff).toBe(false);
+    expect(persisted()?.autoHandoff).toBe(false);
+    expect(loadAgentHistory()[x.id]?.autoHandoff).toBe(false);
+
+    // Back on: nothing stored again.
+    const on = await patch({ autoHandoff: true });
+    expect(on.status).toBe(200);
+    expect(srv.agentManager.getAgent(x.id)?.autoHandoff).not.toBe(false);
     expect(persisted()).not.toHaveProperty("autoHandoff");
+    expect(loadAgentHistory()[x.id]).toBeDefined();
+    expect(loadAgentHistory()[x.id]).not.toHaveProperty("autoHandoff");
   });
 
   it("PATCH sets the automatic handoff token value in range; it persists only off the default; anything else is 422", async () => {
@@ -681,7 +690,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(res.status).toBe(200);
     const after = srv.agentManager.getAgent(x.id);
     expect(after?.agentType).toBe("codex");
-    expect(after?.autoHandoff).toBe(true);
+    expect(after?.autoHandoff).not.toBe(false);
     expect(after?.autoHandoffTokens).toBe(300_000);
   });
 

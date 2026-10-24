@@ -174,6 +174,9 @@ async function diSpawn(
     agentType,
   );
   if (!info) throw new Error("spawn returned null");
+  // The automatic handoff stands in for the context notices: off, so they
+  // show.
+  await mgr.editAgent(info.id, { autoHandoff: false });
   return info;
 }
 
@@ -226,6 +229,9 @@ async function spawnAgent(
     "claude",
   );
   if (!info) throw new Error(`spawn ${name} returned null`);
+  // The automatic handoff stands in for the context notices: off, so they
+  // show.
+  await srv.agentManager.editAgent(info.id, { autoHandoff: false });
   return info;
 }
 

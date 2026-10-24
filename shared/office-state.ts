@@ -430,7 +430,7 @@ export class OfficeState {
     }
     if (
       typeof changes.autoHandoff === "boolean" &&
-      changes.autoHandoff !== (agent.autoHandoff ?? false)
+      changes.autoHandoff !== (agent.autoHandoff ?? true)
     ) {
       agent.autoHandoff = changes.autoHandoff;
       updated.autoHandoff = changes.autoHandoff;

@@ -214,8 +214,9 @@ async function spawn(
     opts.manager ? userIdFor(opts.manager.name, opts.manager.role) : undefined,
   );
   if (!info) throw new Error("spawn returned null");
-  if (opts.autoHandoff ?? true)
-    await h.mgr.editAgent(info.id, { autoHandoff: true });
+  // On by default: a spawned agent stores no switch and hands off.
+  if (opts.autoHandoff === false)
+    await h.mgr.editAgent(info.id, { autoHandoff: false });
   return info;
 }
 
@@ -977,7 +978,6 @@ describe("automatic handoff: the queue", () => {
       undefined,
       memberId,
     ))!;
-    await h.mgr.editAgent(info.id, { autoHandoff: true });
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
     await nextMessage(h, info.id);
     await waitUntil(() => gate.release !== null, "handoff waits on the cap");
@@ -1430,7 +1430,7 @@ describe("automatic handoff: wrap-up notices", () => {
 });
 
 describe("automatic handoff: the settings survive a restart", () => {
-  it("restores the switch and the agent's own token value; an agent persisted without the switch is off", async () => {
+  it("restores the switch off and the agent's own token value; an agent persisted without the switch is on", async () => {
     const fake = new FakeBackend();
     activeFakes.push(fake);
     const persisted = (
@@ -1471,7 +1471,7 @@ describe("automatic handoff: the settings survive a restart", () => {
           prompt: null,
           agents: [
             persisted("custom", 0, {
-              autoHandoff: true,
+              autoHandoff: false,
               autoHandoffTokens: 300_000,
             }),
             persisted("legacy", 1, {}),
@@ -1481,9 +1481,10 @@ describe("automatic handoff: the settings survive a restart", () => {
     });
     mgr.configureAgentTurnDeps();
     await mgr.restoreAgents();
-    expect(mgr.getAgent("custom")?.autoHandoff).toBe(true);
+    expect(mgr.getAgent("custom")?.autoHandoff).toBe(false);
     expect(mgr.getAgent("custom")?.autoHandoffTokens).toBe(300_000);
-    expect(mgr.getAgent("legacy")?.autoHandoff ?? false).toBe(false);
+    // Absent and true both read as on; only an explicit false is off.
+    expect(mgr.getAgent("legacy")?.autoHandoff).not.toBe(false);
   });
 });
 

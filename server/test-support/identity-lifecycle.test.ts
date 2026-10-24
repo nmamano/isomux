@@ -201,29 +201,29 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
     );
   });
 
-  it("automatic handoff and its token value survive kill -> revive, and it stays off when it was off", async () => {
+  it("automatic handoff stays on with its token value across kill -> revive, and stays off when it was switched off", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
     server = srv;
     const on = await spawnAgent(srv, "AutoOn");
     const off = await spawnAgent(srv, "AutoOff");
+    // On by default: only the token value is set.
     await srv.agentManager.editAgent(on.info.id, {
-      autoHandoff: true,
       autoHandoffTokens: 300_000,
     });
+    await srv.agentManager.editAgent(off.info.id, { autoHandoff: false });
+    expect(srv.agentManager.getAgent(off.info.id)?.autoHandoff).toBe(false);
 
     for (const { info, roomId } of [on, off]) {
       await srv.agentManager.kill(info.id);
       const res = await srv.agentManager.revive(info.id, roomId, info.desk);
       expect(res.ok).toBe(true);
     }
-    expect(srv.agentManager.getAgent(on.info.id)?.autoHandoff).toBe(true);
+    expect(srv.agentManager.getAgent(on.info.id)?.autoHandoff).not.toBe(false);
     expect(srv.agentManager.getAgent(on.info.id)?.autoHandoffTokens).toBe(
       300_000,
     );
-    expect(srv.agentManager.getAgent(off.info.id)?.autoHandoff ?? false).toBe(
-      false,
-    );
+    expect(srv.agentManager.getAgent(off.info.id)?.autoHandoff).toBe(false);
   });
 });

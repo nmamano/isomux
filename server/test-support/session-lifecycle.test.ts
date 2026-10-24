@@ -463,6 +463,9 @@ describe("session lifecycle: clean stream end in the pre-send window", () => {
       { sampleWaitMs: 1500 },
     );
     const agent = await spawnLazy(lane.mgr, "claude");
+    // Off: an automatic handoff would hold the flush for the same sample
+    // before it claims the turn.
+    await lane.mgr.editAgent(agent.id, { autoHandoff: false });
 
     agentSend(lane.mgr, agent.id, "kickoff");
     await waitUntil(

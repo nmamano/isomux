@@ -164,7 +164,7 @@ async function spawn(
   );
   if (!info) throw new Error("spawn returned null");
   // Off unless a test asks: the member's /handoff does not need the switch.
-  if (opts.autoHandoff) await h.mgr.editAgent(info.id, { autoHandoff: true });
+  if (!opts.autoHandoff) await h.mgr.editAgent(info.id, { autoHandoff: false });
   return info;
 }
 

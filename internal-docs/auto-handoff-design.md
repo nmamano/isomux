@@ -4,16 +4,15 @@ Design for task b7e88135 (P0): "A mode where the user doesn't need to worry abou
 
 ## Summary
 
-A per-agent switch, off by default. When it is on and a completed turn leaves the agent's context at or above the trigger (section 2), the mode arms, and that turn's reply stays on screen. When the next message arrives, the server first runs one more turn in the old session, the **brief turn**: it asks the agent for a forward-looking brief and takes the reply as that brief. Then it runs the existing handoff logic, which resets the session and delivers the brief, followed by that message and every other queued message, to the fresh session. All three engines take part. If a step fails, the conversation continues, and the mode does not try again in that conversation.
+A per-agent switch, on by default (Nil, 2026-10-24). When it is on and a completed turn leaves the agent's context at or above the trigger (section 2), the mode arms, and that turn's reply stays on screen. When the next message arrives, the server first runs one more turn in the old session, the **brief turn**: it asks the agent for a forward-looking brief and takes the reply as that brief. Then it runs the existing handoff logic, which resets the session and delivers the brief, followed by that message and every other queued message, to the fresh session. All three engines take part. If a step fails, the conversation continues, and the mode does not try again in that conversation.
 
 ## 1. Turning it on
 
-**A per-agent boolean `autoHandoff`, default `false`, set in the agent edit dialog.**
+**A per-agent boolean `autoHandoff`, default `true` (Nil, 2026-10-24: "automatic handoff should default to ON"; it was `false` until task 9b2e9086), set in the agent edit dialog.**
 
-- It sits with the other per-agent settings: `AgentInfo`, `PersistedAgent` and the `EditAgentReq` pick. The persisted field is optional, written only when on and read as `?? false`, so old state files load with no migration. Spawn takes no such field; the spawn dialog switches it on with an edit right after the spawn.
+- It sits with the other per-agent settings: `AgentInfo`, `PersistedAgent` and the `EditAgentReq` pick. The persisted field is optional, written only when off and read as `!== false`, so old state files load with no migration: an agent with no stored value, including one switched off before the default changed, reads as on. Every spawn path (dialog, API, welcome agents, Hosted seed) leaves it absent, so a new agent starts on. Spawn takes no such field; when a member switches it off in the spawn dialog, the dialog switches it off with an edit right after the spawn.
 - **A per-agent token value `autoHandoffTokens`, default 500k (task 758f361c, 2026-10-20).** The field under the switch, "Hand off at N k tokens", shows only while the switch is on. It replaces 500k in the trigger (section 2). It follows the switch through `AgentInfo`, `PersistedAgent`, the agent history and the `EditAgentReq` pick, and is written only off the default. The PATCH takes an integer from 50k to 10M (`shared/auto-handoff.ts`), else 422: below 50k a fresh session opens above the trigger, and the loop guard (section 6) pauses every later conversation. The dialog works in thousands and sends the value only when the member changed it.
 - No room or office default.
-- Off by default, because the mode clears the chat when no one asked for a handoff (section 5).
 - The switch shows only where the engine supports the mode, through `AgentCapabilities.autoHandoff`. Claude, Codex and OpenCode set it; the OpenCode tracer does not.
 
 ## 2. Trigger and measurement
@@ -95,7 +94,7 @@ Nil, 2026-10-23: `/handoff` is a built-in command like `/clear`, because it hand
 
 ## Rulings
 
-Nil, 2026-10-13 and 2026-10-14: the 500k/85% trigger with the compaction guard; all three engines; the chat clears; the fresh-session notice and history pointer; no brief rules beyond `/handoff` step 1; the per-conversation summary is a separate task (ac41c60e). Nil, 2026-10-15: the handoff runs when the next message arrives after the crossing turn, and that message goes to the fresh session after the brief (section 3). Defaults where Nil has not ruled (reversible): the per-agent switch, off for new agents; no room or office default. Lead rulings (2026-10-15, reversible): an edit forks with no brief turn; a message queued during the crossing turn starts the handoff when that turn ends. Task f537db0a (2026-10-24, from Nil's report that his own agent stayed past the limit): the brief turn follows the manager rule of the member usage cap, and a temporary failure leaves the attempt open.
+Nil, 2026-10-13 and 2026-10-14: the 500k/85% trigger with the compaction guard; all three engines; the chat clears; the fresh-session notice and history pointer; no brief rules beyond `/handoff` step 1; the per-conversation summary is a separate task (ac41c60e). Nil, 2026-10-15: the handoff runs when the next message arrives after the crossing turn, and that message goes to the fresh session after the brief (section 3). Nil, 2026-10-24: the switch is on by default (task 9b2e9086). Defaults where Nil has not ruled (reversible): no room or office default. Lead rulings (2026-10-15, reversible): an edit forks with no brief turn; a message queued during the crossing turn starts the handoff when that turn ends. Task f537db0a (2026-10-24, from Nil's report that his own agent stayed past the limit): the brief turn follows the manager rule of the member usage cap, and a temporary failure leaves the attempt open.
 
 ## For the Lead (route, wire and state-layout proposals)
 
@@ -107,7 +106,7 @@ Proposals, not decisions. The Lead rules on them before any code:
 
 Lead rulings (2026-10-13), for implementation after Nil's go:
 
-- The persisted field `autoHandoff?: boolean`, read as `?? false`, and `AgentCapabilities.autoHandoff`: approved.
+- The persisted field `autoHandoff?: boolean`, read as `?? false` (since 2026-10-24 written only when off and read as `!== false`; section 1), and `AgentCapabilities.autoHandoff`: approved.
 - `steerDeclined: "auto_handoff"`: approved.
 - Audit: write a row. Secrets B2 set the precedent for a server action with its own actor kind (`secret_proxy`): an automatic handoff gets one too (for example `auto_handoff`), with the agent as the target, so the audit log shows that the server, not the agent or a member, cleared the conversation.
 

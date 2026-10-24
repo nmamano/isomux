@@ -418,7 +418,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     chosenManager?.role === "member" &&
     chosenManager.allowedRooms !== undefined &&
     !chosenManager.allowedRooms.includes(agent!.roomId);
-  const [autoHandoff, setAutoHandoff] = useState(agent?.autoHandoff ?? false);
+  const [autoHandoff, setAutoHandoff] = useState(agent?.autoHandoff ?? true);
   const [autoHandoffTokens, setAutoHandoffTokens] = useState(() =>
     String((agent?.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS) / 1000),
   );
@@ -985,16 +985,18 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         ...(isCodex ? { codexSandbox } : {}),
       } satisfies SpawnReq)
         .then(async (res) => {
-          // Spawn takes neither switch: set them with an edit.
-          if (autoHandoff || (!limitResume && !isOpenCode))
-            await apiFetch("PATCH", `/api/agents/${res.agent.id}`, {
-              ...(autoHandoff ? { autoHandoff: true } : {}),
-              ...(handoffTokens !== undefined &&
-              handoffTokens !== AUTO_HANDOFF_DEFAULT_TOKENS
-                ? { autoHandoffTokens: handoffTokens }
-                : {}),
-              ...(!limitResume && !isOpenCode ? { limitResume: false } : {}),
-            } satisfies EditAgentReq);
+          // Spawn takes neither switch: set what is off the default with an
+          // edit. Both switches are on by default.
+          const spawnEdits: EditAgentReq = {
+            ...(!autoHandoff ? { autoHandoff: false } : {}),
+            ...(handoffTokens !== undefined &&
+            handoffTokens !== AUTO_HANDOFF_DEFAULT_TOKENS
+              ? { autoHandoffTokens: handoffTokens }
+              : {}),
+            ...(!limitResume && !isOpenCode ? { limitResume: false } : {}),
+          };
+          if (Object.keys(spawnEdits).length > 0)
+            await apiFetch("PATCH", `/api/agents/${res.agent.id}`, spawnEdits);
           if (privileged)
             await apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {
               privileged: true,
@@ -1057,7 +1059,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         )
           changes.codexSandbox = codexSandbox;
       }
-      if (autoHandoff !== (agent!.autoHandoff ?? false))
+      if (autoHandoff !== (agent!.autoHandoff ?? true))
         changes.autoHandoff = autoHandoff;
       if (
         handoffTokens !== undefined &&

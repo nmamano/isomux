@@ -93,7 +93,7 @@ export function autoHandoffMeasureParams(trigger: AutoHandoffTrigger): {
  *  stay quiet; after a failed or paused attempt they fire as before. */
 export function autoHandoffPossible(managed: ManagedAgent): boolean {
   return (
-    managed.info.autoHandoff === true &&
+    managed.info.autoHandoff !== false &&
     managed.info.capabilities.autoHandoff &&
     !managed.autoHandoffSpent
   );

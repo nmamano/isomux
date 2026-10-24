@@ -1761,7 +1761,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // Switched off before its brief turn started: the armed handoff does not
     // happen. A brief turn already running finishes and hands off.
     if (
-      managed.info.autoHandoff !== true &&
+      managed.info.autoHandoff === false &&
       managed.autoHandoffPhase &&
       !managed.autoHandoffPhase.manual &&
       !managed.autoHandoffPhase.briefStarted
@@ -2300,7 +2300,7 @@ export function createAgentManager(deps: ManagerDeps) {
       manager: a.info.manager,
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
-      ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
+      ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
       ...(a.info.limitResume === false ? { limitResume: false } : {}),
       ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
@@ -2365,7 +2365,7 @@ export function createAgentManager(deps: ManagerDeps) {
         userId: a.info.userId,
         manager: a.info.manager,
         privileged: a.info.privileged ?? false,
-        ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
+        ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
         ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
         ...(a.info.limitResume === false ? { limitResume: false } : {}),
       };
@@ -2638,7 +2638,7 @@ export function createAgentManager(deps: ManagerDeps) {
       userId,
       manager: p.manager ?? null,
       privileged: p.privileged ?? false,
-      ...(p.autoHandoff === true ? { autoHandoff: true } : {}),
+      ...(p.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(p.autoHandoffTokens),
       ...(p.limitResume === false ? { limitResume: false } : {}),
       queue: [],
@@ -10221,7 +10221,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // kill-time entry is authoritative - updateAgentHistory skips killed
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
-          ...(managed.info.autoHandoff ? { autoHandoff: true } : {}),
+          ...(managed.info.autoHandoff === false ? { autoHandoff: false } : {}),
           ...persistedAutoHandoffTokens(managed.info.autoHandoffTokens),
           ...(managed.info.limitResume === false ? { limitResume: false } : {}),
         };
@@ -10475,7 +10475,7 @@ export function createAgentManager(deps: ManagerDeps) {
       userId: entry.userId,
       manager: entry.manager,
       privileged: entry.privileged ?? false,
-      ...(entry.autoHandoff ? { autoHandoff: true } : {}),
+      ...(entry.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(entry.autoHandoffTokens),
       ...(entry.limitResume === false ? { limitResume: false } : {}),
     };
@@ -10820,7 +10820,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const opened = managed.autoHandoffOpened;
     managed.autoHandoffOpened = false;
     if (
-      managed.info.autoHandoff !== true ||
+      managed.info.autoHandoff === false ||
       !managed.info.capabilities.autoHandoff
     )
       return;

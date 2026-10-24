@@ -1269,6 +1269,9 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
   ) {
     const room = srv.agentManager.getRooms()[0];
     const recv = await spawnAgent(srv, "Receiver", room.id, "claude");
+    // Off: an automatic handoff would hold the flush for the same sample
+    // before it claims the turn.
+    await srv.agentManager.editAgent(recv.id, { autoHandoff: false });
     const sender = await spawnAgent(srv, "Sender", room.id);
     const sock = await srv.connectWs(ownerSession);
     await sock.waitFor("full_state");

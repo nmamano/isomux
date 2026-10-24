@@ -854,7 +854,8 @@ export interface AgentInfo {
   privileged?: boolean;
   // Automatic handoff: when the context crosses the trigger after a completed
   // turn, the server has the agent write a brief and hands off to a fresh
-  // session (internal-docs/auto-handoff-design.md). Absent reads as false.
+  // session (internal-docs/auto-handoff-design.md). Absent reads as true; the
+  // server sets it only when off.
   autoHandoff?: boolean;
   // The automatic handoff's token trigger (shared/auto-handoff.ts). Absent
   // reads as AUTO_HANDOFF_DEFAULT_TOKENS.
