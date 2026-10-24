@@ -447,6 +447,7 @@ function QueueChips({
                 {msg.ask && <AskLink ask={msg.ask} isMobile={isMobile} />}
                 {msg.text && (
                   <div
+                    {...noTranslate()}
                     style={{
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",

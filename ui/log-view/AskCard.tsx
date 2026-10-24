@@ -37,6 +37,7 @@ import type {
   AskReplyReq,
 } from "../../shared/contract-shapes.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { noTranslate } from "../no-translate.ts";
 import { SecretAskCard } from "./SecretAskCard.tsx";
 import { askLinkFor } from "../../shared/office-links.ts";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
@@ -292,6 +293,7 @@ function ReplyAskCard({
           <div
             ref={promptRef}
             data-ask-prompt=""
+            {...noTranslate()}
             style={{
               color: "var(--text-primary)",
               fontSize,
@@ -397,7 +399,8 @@ function ReplyAskCard({
                 opacity: busy ? 0.6 : 1,
               }}
             >
-              {option}
+              {/* The agent's words; the recommended mark stays translatable. */}
+              <span {...noTranslate()}>{option}</span>
               {option === entry.recommended && " "}
               {option === entry.recommended && (
                 <span

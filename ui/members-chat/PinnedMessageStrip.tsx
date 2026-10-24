@@ -76,6 +76,7 @@ export function PinnedMessageStrip({
           <span {...noTranslate()}>{author}</span>
         </span>
         <span
+          {...noTranslate()}
           style={{
             display: "block",
             fontSize: 12,

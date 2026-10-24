@@ -235,6 +235,9 @@ const ANCHOR = {
   mermaidLoading: translationsFor("cards.markdown.rendering"),
 } as const;
 
+// The nearest translate attribute decides (HTML spec); none means translate.
+const translated = (element: Element) =>
+  element.closest("[translate]")?.getAttribute("translate") !== "no";
 const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
 const labelled = (view: View, text: string) =>
@@ -274,6 +277,14 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.pendingPrompt.ca);
     shows(view, ANCHOR.queueChip.ca);
     shows(view, ANCHOR.queueAttachments.ca);
+    // The queued message's text stays out of page translation (task
+    // bb040257); the queue's own control does not.
+    expect(translated(view.getByText("Hola."))).toBe(false);
+    expect(
+      translated(
+        view.container.querySelector(`[title="${ANCHOR.sendNow.ca}"]`)!,
+      ),
+    ).toBe(true);
     titled(view, ANCHOR.editAgent.ca);
     titled(view, ANCHOR.openTerminal.ca);
     titled(view, ANCHOR.sendNow.ca);

@@ -31,6 +31,7 @@ import {
   createElement,
   Fragment,
   useContext,
+  useEffect,
   type ReactNode,
 } from "react";
 import {
@@ -159,6 +160,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     self,
     typeof navigator === "undefined" ? null : navigator.language,
   );
+  // The page says which language it is in, so a browser translator set to
+  // translate English does not rewrite a page that is already in Catalan.
+  // ui/index.html keeps lang="en" until this runs.
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
   return (
     <I18nCtx.Provider value={uiTranslatorFor(language)}>
       {children}

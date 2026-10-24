@@ -7,7 +7,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, render, fireEvent, waitFor } =
+const { act, render, fireEvent, getByText, waitFor } =
   await import("@testing-library/react");
 const { useEffect } = await import("react");
 const { StoreProvider, useDispatch, useAppState, FeaturesProvider } =
@@ -401,6 +401,10 @@ it("draws a button per option above the reply field, and a tap fills the field f
   view.unmount();
 });
 
+// The nearest translate attribute decides (HTML spec); none means translate.
+const translated = (element: Element) =>
+  element.closest("[translate]")?.getAttribute("translate") !== "no";
+
 const recommendedMarks = (card: HTMLElement) =>
   [
     ...card.querySelectorAll<HTMLButtonElement>(
@@ -426,6 +430,12 @@ it("starts the field with the recommended option, marks that option only, and on
   expect(card.textContent).toContain(label);
   // The other option is an ordinary button.
   expect(optionButtons(card).map((b) => b.textContent)).toContain("Yes");
+  // What the agent wrote (the question and each option) stays out of page
+  // translation; the mark, in the reader's language, does not.
+  expect(translated(getByText(card, "Keep the verifier rule?"))).toBe(false);
+  expect(translated(getByText(card, "Yes"))).toBe(false);
+  expect(translated(getByText(card, "No"))).toBe(false);
+  expect(translated(getByText(card, label))).toBe(true);
   // Untouched, so focus selects it for typing over.
   act(() => input.focus());
   expect(selection(input)).toEqual([0, 2]);

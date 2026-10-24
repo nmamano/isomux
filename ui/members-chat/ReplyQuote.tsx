@@ -1,5 +1,6 @@
 import { membersChatPreview } from "../../shared/members-chat.ts";
 import type { MembersChatReply } from "../../shared/types.ts";
+import { noTranslate } from "../no-translate.ts";
 
 export function ReplyQuote({
   reply,
@@ -14,6 +15,8 @@ export function ReplyQuote({
       onClick={onJump}
       disabled={!onJump}
       data-members-chat-quote
+      // A name and a member's words: neither is page copy.
+      {...noTranslate()}
       style={{
         display: "block",
         width: "100%",

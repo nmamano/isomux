@@ -1157,7 +1157,9 @@ export function UserMessage({
           style={inlineAccessory ? { flex: 1, minWidth: 0 } : undefined}
         >
           {content && (
+            // What a member or agent wrote stays out of page translation.
             <div
+              {...noTranslate()}
               style={{
                 color: "var(--text-secondary)",
                 fontFamily: "var(--font-ui)",
@@ -1394,7 +1396,10 @@ function AssistantText({
   const i18n = useI18n();
   const getText = useCallback(() => content, [content]);
   return (
+    // The agent's words stay out of page translation; the corner controls are
+    // already in the reader's language.
     <div
+      {...noTranslate()}
       style={{
         margin: "8px 0",
         padding: "10px 14px",
