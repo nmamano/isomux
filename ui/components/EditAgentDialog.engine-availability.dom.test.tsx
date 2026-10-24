@@ -1,8 +1,8 @@
 // An engine the office host cannot run (full_state.unavailableEngines; OpenCode
 // off Linux) shows as unavailable in the agent dialog, and its model list is
 // never requested. The context menu and cronjob dialog are covered in
-// engine-availability.dom.test.tsx. Also what a new Codex agent, or one
-// switched to Codex, is saved with.
+// engine-availability.dom.test.tsx. Also what a new Codex or Claude agent, or
+// one switched to Codex or Claude, is saved with.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -11,8 +11,12 @@ const { act, fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
-const { CODEX_MODELS, DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } =
-  await import("../../shared/types.ts");
+const {
+  CODEX_MODELS,
+  DEFAULT_AGENT_CAPABILITIES,
+  DEFAULT_EFFORT,
+  MODEL_FAMILIES,
+} = await import("../../shared/types.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type UnavailableEngines = import("../../shared/types.ts").UnavailableEngines;
 
@@ -291,6 +295,101 @@ describe("Codex defaults", () => {
       ]);
     } finally {
       view.unmount();
+    }
+  });
+});
+
+// Task f49289bd: a new Claude agent, or one switched to Claude, is saved in
+// Bypass, also where the default family has no Auto (which used to give Ask).
+describe("Claude defaults", () => {
+  const limitedCases = [[MODEL_FAMILIES[0].family], []];
+  // The mode picker offers Auto only where the family has it.
+  const offersAuto = (container: HTMLElement) =>
+    [...container.querySelectorAll("select")].some(
+      (select) =>
+        [...select.options].some((o) => o.value === "acceptEdits") &&
+        [...select.options].some((o) => o.value === "auto"),
+    );
+
+  it("a new Claude agent is spawned in Bypass on any family", async () => {
+    for (const limited of limitedCases) {
+      const { writes } = shimRequests();
+      const view = render(
+        onLanguage(
+          "en",
+          <EditAgentDialog
+            onClose={() => {}}
+            deskIndex={0}
+            roomId={room.id}
+            defaultCwd="~"
+            spawnAgentType="claude"
+          />,
+          {
+            ...stateWith({}, []),
+            sessionContext: {
+              userId: "u1",
+              username: "Tester",
+              role: "owner",
+              currentSessionPrefix: "00000000",
+              connectionId: "c1",
+              limitedClaudeFamilies: limited,
+            },
+          },
+        ),
+      );
+      try {
+        await settle();
+        expect(offersAuto(view.container)).toBe(limited.length === 0);
+        await act(async () => {
+          fireEvent.click(saveButton(view.container));
+        });
+        await settle();
+        expect(writes.map((w) => w.method)).toStrictEqual(["POST"]);
+        expect(writes[0].body).toMatchObject({
+          agentType: "claude",
+          modelFamily: MODEL_FAMILIES[0].family,
+          permissionMode: "bypassPermissions",
+        });
+      } finally {
+        view.unmount();
+      }
+    }
+  });
+
+  it("a Codex agent switched to Claude saves Bypass on any family", async () => {
+    for (const limited of limitedCases) {
+      const { writes } = shimRequests();
+      const agent = { ...agentOn("codex"), limitedClaudeFamilies: limited };
+      const view = render(
+        onLanguage(
+          "en",
+          <EditAgentDialog onClose={() => {}} agent={agent} />,
+          stateWith({}, [agent]),
+        ),
+      );
+      try {
+        await settle();
+        const select = view.container.querySelector(
+          ".agent-engine-control select",
+        ) as HTMLSelectElement;
+        await act(async () => {
+          fireEvent.change(select, { target: { value: "claude" } });
+        });
+        await settle();
+        expect(offersAuto(view.container)).toBe(limited.length === 0);
+        await act(async () => {
+          fireEvent.click(saveButton(view.container));
+        });
+        await settle();
+        expect(writes.map((w) => w.method)).toStrictEqual(["PATCH"]);
+        expect(writes[0].body).toMatchObject({
+          agentType: "claude",
+          modelFamily: MODEL_FAMILIES[0].family,
+          permissionMode: "bypassPermissions",
+        });
+      } finally {
+        view.unmount();
+      }
     }
   });
 });

@@ -1130,6 +1130,56 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(after?.codexSandbox).toBe("workspace-write");
   });
 
+  // Task f49289bd: an agent switched to Claude with no mode gets the mode a
+  // new Claude agent gets, also on a family without Auto.
+  it("PATCH codex->claude with no mode -> bypass, also on a family without Auto", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerRecord = getUserByName(owner.username);
+    if (!ownerRecord) throw new Error("seeded owner record missing");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const env = await srv.http("/api/office/env", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values: { CLAUDE_CODE_USE_VERTEX: "1" } }),
+    });
+    expect(env.status).toBe(204);
+    for (const [desk, modelFamily] of [
+      [0, "sonnet"],
+      [1, "opus"],
+    ] as const) {
+      const x = await srv.agentManager.spawn(
+        `X${desk}`,
+        srv.stateRoot,
+        "never",
+        desk,
+        undefined,
+        r1,
+        undefined,
+        "gpt-5.5",
+        undefined,
+        owner.username,
+        "codex",
+        undefined,
+        ownerRecord.id,
+      );
+      if (!x) throw new Error("codex spawn failed");
+      const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+        body: { agentType: "claude", modelFamily },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(200);
+      const after = srv.agentManager.getAgent(x.id);
+      expect(after?.agentType).toBe("claude");
+      expect(after?.modelFamily).toBe(modelFamily);
+      if (modelFamily === "sonnet")
+        expect(after?.limitedClaudeFamilies).toContain("sonnet");
+      expect(after?.permissionMode).toBe("bypassPermissions");
+    }
+  });
+
   // Task a7a60fba. The engine switch applies the metadata edit (name/cwd/
   // outfit/instructions) and only THEN hands off to newConversation for the
   // engine change, with no rollback wrapper around the pair. That is safe only
@@ -1548,9 +1598,34 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     return { srv, owner, r1, spawn };
   }
 
-  it("a Claude spawner in default mode gets an auto child, not a prompting one", async () => {
+  it("a Claude spawner in default mode gets a bypass child, not a prompting one", async () => {
     const { spawn } = await setup("claude", "default");
-    expect((await spawn(1)).permissionMode).toBe("auto");
+    expect((await spawn(1)).permissionMode).toBe("bypassPermissions");
+  });
+
+  // Task f49289bd: an Auto spawner's child starts in bypass too. Carrying the
+  // Auto over would give a child on a family without Auto the Ask mode.
+  it("an Auto spawner's child starts in bypass, also on a family without Auto", async () => {
+    const { srv, owner, spawn } = await setup("claude", "auto");
+    const env = await srv.http("/api/office/env", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values: { CLAUDE_CODE_USE_VERTEX: "1" } }),
+    });
+    expect(env.status).toBe(204);
+    for (const [desk, modelFamily] of [
+      [1, "sonnet"],
+      [2, "opus"],
+    ] as const) {
+      const child = await spawn(desk, { modelFamily });
+      if (modelFamily === "sonnet")
+        expect(
+          srv.agentManager.getAllAgents().find((a) => a.name === "Child1")
+            ?.limitedClaudeFamilies,
+        ).toContain("sonnet");
+      expect(child.permissionMode).toBe("bypassPermissions");
+    }
   });
 
   it("a mode in the request wins, including a prompting one", async () => {
@@ -1574,8 +1649,8 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     expect(asked.codexSandbox).toBe("workspace-write");
   });
 
-  it("a member spawn with no mode is unchanged (default)", async () => {
-    const { srv, owner, r1 } = await setup("claude", "bypassPermissions");
+  it("a member spawn with no mode starts in bypass", async () => {
+    const { srv, owner, r1 } = await setup("claude", "default");
     const res = await req(srv, "POST", "/api/agents", {
       rawSessionId: owner.rawSessionId,
       body: { name: "MemberChild", cwd: srv.stateRoot, roomId: r1, desk: 1 },
@@ -1583,7 +1658,7 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     expect(res.status).toBe(201);
     expect(
       (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
-    ).toBe("default");
+    ).toBe("bypassPermissions");
   });
 });
 

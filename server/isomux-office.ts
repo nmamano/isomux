@@ -1485,7 +1485,7 @@ function registerBootHooks(): void {
       "Claude Welcome Agent",
       "claude",
       MODEL_FAMILIES[0].family,
-      "auto",
+      undefined,
       CLAUDE_WELCOME_OUTFIT,
       username,
     );
@@ -5331,9 +5331,7 @@ function buildExecutorDeps(
           const spawned = await agentManager.spawn(
             input.name,
             input.cwd,
-            input.agentType === "opencode"
-              ? input.permissionMode
-              : (input.permissionMode ?? "default"),
+            input.permissionMode,
             input.desk,
             input.profileKey === RECEPTIONIST_PROFILE_KEY
               ? renderReceptionistProfile({

@@ -44,7 +44,10 @@ import {
 } from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AbortResult } from "../../internal-types.ts";
-import type { AgentInfo } from "../../../shared/types.ts";
+import {
+  NEW_AGENT_PERMISSION_MODE,
+  type AgentInfo,
+} from "../../../shared/types.ts";
 import {
   roomSlotCount,
   isValidDesk,
@@ -104,7 +107,6 @@ import {
   AUTO_HANDOFF_TOKENS_MIN,
 } from "../../../shared/auto-handoff.ts";
 import {
-  NEVER_PROMPTING_MODE,
   spawnedAgentMode,
   validateCodexSandbox,
   validatePermissionMode,
@@ -534,8 +536,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           !AGENT_TEMPLATES.some((profile) => profile.key === b.profileKey))
       )
         return fail(422, "invalid_request", "malformed agent field");
-      // An agent that spawns an agent without naming a mode passes on a mode
-      // that does not prompt (task a7bdd069). A mode in the request wins, and
+      // An agent that spawns an agent without naming a mode gives it the
+      // new-agent mode, and a Codex child of a Codex agent in never its sandbox
+      // (tasks a7bdd069, f49289bd). A mode in the request wins, and
       // a codexSandbox in the request wins over the inherited one.
       let permissionMode = b.permissionMode;
       let codexSandbox = b.codexSandbox;
@@ -547,7 +550,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (
         (permissionMode === undefined || permissionMode === null) &&
         spawner &&
-        Object.hasOwn(NEVER_PROMPTING_MODE, childType)
+        Object.hasOwn(NEW_AGENT_PERMISSION_MODE, childType)
       ) {
         const inherited = spawnedAgentMode(spawner, childType);
         permissionMode = inherited.permissionMode;

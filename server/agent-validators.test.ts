@@ -37,10 +37,17 @@ describe("resolveAgentEngineSettings", () => {
       { permissionMode: "on-request", codexSandbox: "danger-full-access" },
     ],
     [
-      "an empty Claude input gets auto and no sandbox",
+      "an empty Claude input gets bypass and no sandbox",
       "claude",
       {},
-      { permissionMode: "auto", codexSandbox: undefined },
+      { permissionMode: "bypassPermissions", codexSandbox: undefined },
+    ],
+    // A restored agent keeps its stored Auto (task f49289bd).
+    [
+      "a stored Claude auto is kept",
+      "claude",
+      { modelFamily: "opus", permissionMode: "auto" },
+      { permissionMode: "auto" },
     ],
     [
       "an omitted OpenCode permission defaults to bypass",
@@ -163,8 +170,8 @@ describe("OpenCode cron validation", () => {
   });
 });
 
-// Task a7bdd069: one test per row of SPAWN_MODE_CARRY_OVER. Expectations are
-// written out, not read from the table.
+// Tasks a7bdd069 and f49289bd: the child's mode for each spawner engine, mode
+// and child engine, written out.
 describe("spawnedAgentMode", () => {
   const modes = {
     claude: ["default", "acceptEdits", "bypassPermissions", "auto"],
@@ -190,14 +197,19 @@ describe("spawnedAgentMode", () => {
 
   const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
   const bypass = { permissionMode: "bypassPermissions" };
-  const auto = { permissionMode: "auto" };
   // [spawner engine, child engine, child mode for each spawner mode]
   it.each([
-    // auto and bypass carry over; prompting modes become auto.
+    // Every Claude child starts in bypass (task f49289bd): an Auto spawner's
+    // child too, which a limited family would run as Ask.
     [
       "claude",
       "claude",
-      { default: auto, acceptEdits: auto, bypassPermissions: bypass, auto },
+      {
+        default: bypass,
+        acceptEdits: bypass,
+        bypassPermissions: bypass,
+        auto: bypass,
+      },
     ],
     [
       "claude",
@@ -215,7 +227,11 @@ describe("spawnedAgentMode", () => {
         auto: bypass,
       },
     ],
-    ["codex", "claude", { untrusted: auto, "on-request": auto, never: auto }],
+    [
+      "codex",
+      "claude",
+      { untrusted: bypass, "on-request": bypass, never: bypass },
+    ],
     // never carries over with the spawner's sandbox.
     [
       "codex",
@@ -231,8 +247,7 @@ describe("spawnedAgentMode", () => {
       "opencode",
       { untrusted: bypass, "on-request": bypass, never: bypass },
     ],
-    // bypass carries over; Ask becomes auto.
-    ["opencode", "claude", { default: auto, bypassPermissions: bypass }],
+    ["opencode", "claude", { default: bypass, bypassPermissions: bypass }],
     ["opencode", "codex", { default: full, bypassPermissions: full }],
     ["opencode", "opencode", { default: bypass, bypassPermissions: bypass }],
   ] as const)("%s -> %s", (from, to, expected) => {

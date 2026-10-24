@@ -23,6 +23,7 @@ import {
   claudeFamilySupportsAutoPermission,
   claudePermissionModeFor,
   familyDisplayLabel,
+  NEW_AGENT_PERMISSION_MODE,
 } from "../../shared/types.ts";
 import {
   roomSlotCount,
@@ -89,7 +90,10 @@ function codexNewEngineDefaults(): {
   permissionMode: AgentInfo["permissionMode"];
   codexSandbox: CodexSandboxMode;
 } {
-  return { permissionMode: "never", codexSandbox: "danger-full-access" };
+  return {
+    permissionMode: NEW_AGENT_PERMISSION_MODE.codex,
+    codexSandbox: "danger-full-access",
+  };
 }
 
 function agentEngineSwitchChanges(
@@ -121,10 +125,10 @@ export function initialPermissionModeFor(
     return agent?.permissionMode ?? codexNewEngineDefaults().permissionMode;
   }
   if (engine === "opencode")
-    return agent?.permissionMode ?? "bypassPermissions";
+    return agent?.permissionMode ?? NEW_AGENT_PERMISSION_MODE.opencode;
   return claudePermissionModeFor(
     agent?.modelFamily ?? MODEL_FAMILIES[0].family,
-    agent?.permissionMode ?? "auto",
+    agent?.permissionMode ?? NEW_AGENT_PERMISSION_MODE.claude,
     limited,
   );
 }
@@ -159,12 +163,12 @@ export function templateValuesAfterEngineSwitch(
         ? {
             modelFamily: "",
             effort: DEFAULT_EFFORT,
-            permissionMode: "bypassPermissions" as AgentInfo["permissionMode"],
+            permissionMode: NEW_AGENT_PERMISSION_MODE.opencode,
           }
         : {
             modelFamily: MODEL_FAMILIES[0].family,
             effort: DEFAULT_EFFORT,
-            permissionMode: "auto" as AgentInfo["permissionMode"],
+            permissionMode: NEW_AGENT_PERMISSION_MODE.claude,
           };
   return templateEngineValues(
     template,
@@ -878,12 +882,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       seed = {
         modelFamily: claudeDefault,
         effort: DEFAULT_EFFORT,
-        permissionMode: claudeFamilySupportsAutoPermission(
-          claudeDefault,
-          limited,
-        )
-          ? "auto"
-          : "default",
+        permissionMode: NEW_AGENT_PERMISSION_MODE.claude,
       };
     }
     const selectedTemplate = AGENT_TEMPLATES.find(

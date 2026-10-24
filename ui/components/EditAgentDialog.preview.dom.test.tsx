@@ -159,11 +159,11 @@ describe("agent form prompt preview", () => {
             ...(mode === "edit" ? { memory: "" } : {}),
             // The form's mode, and a Codex form's sandbox: they decide the
             // schedule line (task 11e311db). A new Claude agent's default
-            // is auto.
+            // is bypassPermissions (task f49289bd).
             ...(mode === "edit"
               ? { permissionMode: "acceptEdits" }
               : mode === "spawn"
-                ? { permissionMode: "auto" }
+                ? { permissionMode: "bypassPermissions" }
                 : { permissionMode: "never", codexSandbox: "read-only" }),
           },
         },

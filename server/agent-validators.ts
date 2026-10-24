@@ -15,6 +15,7 @@ import {
   EFFORT_LEVELS,
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
+  NEW_AGENT_PERMISSION_MODE,
   OPENCODE_TRACER_MODEL,
   claudeFamilySupportsMaxEffort,
   isClaudeFamily,
@@ -27,7 +28,8 @@ import {
 } from "../shared/types.ts";
 
 // A Claude family limited in the agent's environment (limitedClaudeFamilies)
-// has no Auto: auto, and the auto fallback, become default, the stricter mode.
+// has no Auto: auto becomes default, the stricter mode. A missing or unknown
+// mode becomes the new-agent mode.
 export function validatePermissionMode(
   agentType: AgentBackendType,
   raw: AgentPermissionMode | undefined,
@@ -40,16 +42,16 @@ export function validatePermissionMode(
     if (raw === "on-failure") return "on-request";
     if (raw === "untrusted" || raw === "on-request" || raw === "never")
       return raw;
-    return "never";
+    return NEW_AGENT_PERMISSION_MODE.codex;
   }
   if (agentType === "opencode") {
     if (raw === "default" || raw === "bypassPermissions") return raw;
-    return "bypassPermissions";
+    return NEW_AGENT_PERMISSION_MODE.opencode;
   }
-  const auto = limited.includes(modelFamily) ? "default" : "auto";
+  if (raw === "auto") return limited.includes(modelFamily) ? "default" : "auto";
   if (raw === "default" || raw === "acceptEdits" || raw === "bypassPermissions")
     return raw;
-  return auto;
+  return NEW_AGENT_PERMISSION_MODE.claude;
 }
 
 export function validateModelFamily(
@@ -198,49 +200,21 @@ export function validateCodexSandbox(
 
 // Mode of an agent spawned by an agent whose request names no permissionMode
 // (task a7bdd069; Nil 2026-10-05, mapping by Isomux PM). The child never
-// starts in a prompting mode: the spawner's mode carries over only when it
-// does not prompt and means the same in the child's engine; any other mode
-// becomes the child's never-prompting mode.
-export const NEVER_PROMPTING_MODE = {
-  claude: "auto",
-  codex: "never",
-  opencode: "bypassPermissions",
-} as const satisfies Record<AgentBackendType, AgentPermissionMode>;
-
-// Spawner engine -> child engine -> the spawner modes that carry over.
-const SPAWN_MODE_CARRY_OVER: Record<
-  AgentBackendType,
-  Record<AgentBackendType, readonly AgentPermissionMode[]>
-> = {
-  claude: {
-    claude: ["auto", "bypassPermissions"],
-    codex: [],
-    opencode: ["bypassPermissions"],
-  },
-  codex: { claude: [], codex: ["never"], opencode: [] },
-  opencode: {
-    claude: ["bypassPermissions"],
-    codex: [],
-    opencode: ["bypassPermissions"],
-  },
-};
-
-// A Codex child also gets a sandbox: the spawner's when its mode carried over
-// (codex -> codex), else danger-full-access.
+// starts in a prompting mode: it gets its engine's new-agent mode. A Codex
+// child of a Codex spawner in never keeps the spawner's sandbox; any other
+// Codex child gets danger-full-access.
 export function spawnedAgentMode(
   spawner: Pick<AgentInfo, "agentType" | "permissionMode" | "codexSandbox">,
   childType: AgentBackendType,
 ): { permissionMode: AgentPermissionMode; codexSandbox?: CodexSandboxMode } {
-  const carries = SPAWN_MODE_CARRY_OVER[spawner.agentType][childType].includes(
-    spawner.permissionMode,
-  );
-  const permissionMode = carries
-    ? spawner.permissionMode
-    : NEVER_PROMPTING_MODE[childType];
+  const permissionMode = NEW_AGENT_PERMISSION_MODE[childType];
   if (childType !== "codex") return { permissionMode };
+  const keepsSandbox =
+    spawner.agentType === "codex" && spawner.permissionMode === "never";
   return {
     permissionMode,
-    codexSandbox: (carries && spawner.codexSandbox) || "danger-full-access",
+    codexSandbox:
+      (keepsSandbox && spawner.codexSandbox) || "danger-full-access",
   };
 }
 

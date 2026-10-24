@@ -89,6 +89,7 @@ import {
   ASK_DISMISSED_TEXT,
   LOBBY_ROOM_ID,
   DEFAULT_AGENT_CAPABILITIES,
+  NEW_AGENT_PERMISSION_MODE,
   DEFAULT_EFFORT,
   OPENCODE_DEFAULT_MODEL,
   cronjobRunStreamId,
@@ -355,7 +356,7 @@ const DEMO_BACKEND_DEFAULTS: Record<
   }
 > = {
   claude: {
-    permissionMode: "auto",
+    permissionMode: NEW_AGENT_PERMISSION_MODE.claude,
     capabilities: DEFAULT_AGENT_CAPABILITIES,
     subscription: true,
   },
@@ -3251,7 +3252,7 @@ export async function demoApi(
         cwd: b.cwd,
         permissionMode:
           b.permissionMode ??
-          (b.agentType === "opencode" ? "bypassPermissions" : "default"),
+          NEW_AGENT_PERMISSION_MODE[b.agentType ?? "claude"],
         // As on the server: no desk is the back room, where the room has one.
         desk:
           b.desk === undefined &&

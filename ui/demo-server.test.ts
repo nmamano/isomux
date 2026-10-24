@@ -189,6 +189,24 @@ describe("demo fixture data", () => {
     );
   });
 
+  // As on the server, a new Claude agent starts in Bypass (task f49289bd).
+  it("spawns a Claude agent with no mode in Bypass", async () => {
+    const demoRoom = (await demoApi("POST", "/api/rooms", {
+      name: "Claude defaults",
+    })) as { room: { id: string } };
+    const claude = (await demoApi("POST", "/api/agents", {
+      name: "Claude Demo Default",
+      cwd: "~/demo-claude",
+      desk: 0,
+      roomId: demoRoom.room.id,
+      modelFamily: "opus",
+      effort: "high",
+      agentType: "claude",
+    })) as { agent: { permissionMode: string; agentType: string } };
+    expect(claude.agent.agentType).toBe("claude");
+    expect(claude.agent.permissionMode).toBe("bypassPermissions");
+  });
+
   it("keeps usage stable across agent and cron fixture mutations", async () => {
     const initial = (await demoApi("GET", "/api/usage")) as UsageReportWire;
     const michael = initial.agents.find(

@@ -259,8 +259,9 @@ describe("the schedule line in the form preview", () => {
         },
         false,
       ],
-      // A new agent: the engine's default.
-      [{}, false],
+      // A new agent: the engine's default (Claude bypassPermissions since
+      // task f49289bd).
+      [{}, true],
       [{ agentType: "codex" }, true],
       [{ agentType: "codex", permissionMode: "on-request" }, false],
       [

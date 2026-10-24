@@ -13,6 +13,7 @@ import {
 } from "./EditAgentDialog.tsx";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
 import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
+import { MODEL_FAMILIES } from "../../shared/types.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
 
 const BASE: AgentFormSnapshot = {
@@ -108,10 +109,29 @@ describe("initial permission mode", () => {
       "bypassPermissions",
     );
   });
+
+  // Task f49289bd: a new Claude agent starts in Bypass, also where the
+  // default family has no Auto; a stored Auto there still shows as Ask.
+  it("uses Bypass for a new Claude spawn on any family, and shows a stored Auto as run", () => {
+    const defaultFamily = MODEL_FAMILIES[0].family;
+    for (const limited of [[defaultFamily], []])
+      expect(initialPermissionModeFor(undefined, "claude", limited)).toBe(
+        "bypassPermissions",
+      );
+    const storedAuto = {
+      agentType: "claude",
+      modelFamily: defaultFamily,
+      permissionMode: "auto",
+    } as AgentInfo;
+    expect(initialPermissionModeFor(storedAuto, "claude")).toBe("auto");
+    expect(
+      initialPermissionModeFor(storedAuto, "claude", [defaultFamily]),
+    ).toBe("default");
+  });
 });
 
 describe("template values on a limited Claude family", () => {
-  it("gives a template on a limited family Ask instead of Auto", () => {
+  it("gives a template Bypass on a limited family and on any other", () => {
     const base = AGENT_TEMPLATES.find(
       (candidate) => candidate.key !== RECEPTIONIST_PROFILE_KEY,
     )!;
@@ -126,14 +146,14 @@ describe("template values on a limited Claude family", () => {
       },
     };
     expect(
-      templateValuesAfterEngineSwitch(template, "claude", null, false)
-        .permissionMode,
-    ).toBe("auto");
-    expect(
       templateValuesAfterEngineSwitch(template, "claude", null, false, [
         "haiku",
       ]).permissionMode,
-    ).toBe("default");
+    ).toBe("bypassPermissions");
+    expect(
+      templateValuesAfterEngineSwitch(template, "claude", null, false)
+        .permissionMode,
+    ).toBe("bypassPermissions");
   });
 });
 

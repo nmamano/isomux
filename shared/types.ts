@@ -565,6 +565,14 @@ export function claudeFamilySupportsAutoPermission(
   return isClaudeFamily(family) && !limited.includes(family);
 }
 
+// The mode a new agent starts in when nothing names one: the mode of its
+// engine that never asks. Existing agents keep their stored mode.
+export const NEW_AGENT_PERMISSION_MODE = {
+  claude: "bypassPermissions",
+  codex: "never",
+  opencode: "bypassPermissions",
+} as const satisfies Record<AgentBackendType, AgentPermissionMode>;
+
 // A Claude permission mode on a family without Auto. Auto on a limited family
 // runs as default, the stricter mode (the server's buildSdkOpts does the same).
 // Auto on a family this client does not know stays bypassPermissions.

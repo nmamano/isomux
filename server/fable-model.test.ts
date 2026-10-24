@@ -83,12 +83,20 @@ describe("capability gates for families limited on Bedrock and Vertex", () => {
     expect(validateEffort("claude", "opus", "max", limited)).toBe("max");
   });
 
-  it("validatePermissionMode corrects auto to default on a limited family", () => {
+  // Task f49289bd: a Claude agent with no mode, or a mode Claude does not
+  // have, starts in Bypass on every family, and never falls to Ask. Only a
+  // stored Auto runs as Ask on a limited family.
+  it("validatePermissionMode corrects a stored auto to default on a limited family; no mode gives bypass on any family", () => {
     expect(validatePermissionMode("claude", "auto", "haiku", limited)).toBe(
       "default",
     );
-    expect(validatePermissionMode("claude", undefined, "sonnet", limited)).toBe(
-      "default",
+    for (const raw of [undefined, "never"] as const)
+      for (const family of ["sonnet", "opus"])
+        expect(validatePermissionMode("claude", raw, family, limited)).toBe(
+          "bypassPermissions",
+        );
+    expect(validatePermissionMode("claude", undefined)).toBe(
+      "bypassPermissions",
     );
     expect(
       validatePermissionMode("claude", "bypassPermissions", "haiku", limited),

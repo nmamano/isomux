@@ -474,6 +474,31 @@ describe("subscription usage", () => {
     expect(mgr.getAgent(info.id)?.codexSandbox).toBe("danger-full-access");
   });
 
+  // Task f49289bd: a Codex agent that resumes a Claude session gets the mode
+  // a new Claude agent gets, not the stamp's Auto.
+  it("a Codex agent resuming a Claude session starts in bypass", async () => {
+    const claudeHome = wireClaudeHome();
+    const mgr = makeManager(
+      new FakeBackend({
+        session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+      }),
+    );
+    const info = await spawn(mgr, "codex");
+    expect(mgr.getAgent(info.id)?.permissionMode).toBe("never");
+    const claudeSessionId = "22222222-2222-4222-8222-222222222222";
+    stampSessionEngineConfig(info.id, claudeSessionId, {
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "auto",
+      codexSandbox: undefined,
+    });
+    seedClaudeFile(claudeHome, mgr.getAgent(info.id)!.cwd, claudeSessionId);
+    await mgr.resume(info.id, claudeSessionId);
+    expect(mgr.getAgent(info.id)?.agentType).toBe("claude");
+    expect(mgr.getAgent(info.id)?.permissionMode).toBe("bypassPermissions");
+  });
+
   it("drops a read that was already in flight when the engine switched", async () => {
     // The seq guard alone can't catch this: the stale sample is the NEWEST
     // one. Only an account-identity generation rejects it.
