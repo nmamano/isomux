@@ -4231,6 +4231,7 @@ function demoWebhookRoute(
       ruleIndex,
       args,
       block: DEMO_WEBHOOK_BLOCK.replace("pr-review", hook.name),
+      truncated: [],
     };
   }
   if (sub === "secret" && (method === "GET" || method === "POST")) {

@@ -93,9 +93,15 @@ export interface WebhookBlockInput {
   reservedChars: number;
 }
 
+export interface WebhookBlock {
+  text: string;
+  // The names of the args that were cut, in the rule's arg order.
+  truncated: string[];
+}
+
 // Throws when the input breaks a fixed limit. The registry validates every
 // stored value, so a throw here is a bug, not a bad delivery.
-export function buildWebhookBlock(input: WebhookBlockInput): string {
+export function buildWebhookBlock(input: WebhookBlockInput): WebhookBlock {
   const { name, scheme, ruleIndex, args, reservedChars } = input;
   if (!WEBHOOK_NAME_PATTERN.test(name)) {
     throw new Error("webhook block: invalid hook name");
@@ -148,21 +154,41 @@ export function buildWebhookBlock(input: WebhookBlockInput): string {
   const skeleton = escapeArgsJson(
     Object.fromEntries(argNames.map((argName) => [argName, ""])),
   ).length;
-  const share =
+  const equalShare =
     argNames.length === 0
       ? 0
       : Math.floor((budget - skeleton) / argNames.length);
-  if (budget < skeleton || (argNames.length > 0 && share < MARKER_COST)) {
+  if (budget < skeleton || (argNames.length > 0 && equalShare < MARKER_COST)) {
     throw new Error("webhook block: no room for the args");
   }
-  const json = escapeArgsJson(
-    Object.fromEntries(
-      argNames.map((argName) => [argName, fitValue(args[argName], share)]),
-    ),
+  // Shortest first, each arg that fits an equal share of the room left stays
+  // whole and gives back what it does not use. The args left after the first
+  // that does not fit share the rest equally. A share never shrinks from one
+  // step to the next, so every arg gets at least equalShare.
+  const lengths = new Map(
+    argNames.map((argName) => [argName, escapedLength(args[argName])]),
   );
+  let room = budget - skeleton;
+  let left = argNames.length;
+  let share = equalShare;
+  for (const argName of [...argNames].sort(
+    (a, b) => lengths.get(a)! - lengths.get(b)!,
+  )) {
+    share = Math.floor(room / left);
+    if (lengths.get(argName)! > share) break;
+    room -= lengths.get(argName)!;
+    left -= 1;
+  }
+  const fitted = Object.fromEntries(
+    argNames.map((argName) => [argName, fitValue(args[argName], share)]),
+  );
+  const json = escapeArgsJson(fitted);
   const text = render(json);
   if (reservedChars + text.length > WEBHOOK_TEXT_MAX_CHARS) {
     throw new Error("webhook block: over budget");
   }
-  return text;
+  return {
+    text,
+    truncated: argNames.filter((argName) => fitted[argName] !== args[argName]),
+  };
 }

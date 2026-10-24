@@ -397,6 +397,7 @@ export function webhooksHandlers(
                 ruleIndex: plan.ruleIndex,
                 args: plan.args,
                 block: plan.block,
+                truncated: plan.truncated,
               };
       }
       return ok(result);

@@ -467,7 +467,7 @@ describe("POST /hooks/:id: verified deliveries", () => {
       delivery: "72d3162e-cc78-11e3-81ab-4c9367dc0958",
     });
     expect(res.status).toBe(202);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body).toEqual({ ok: true, truncated: [] });
     const queue = () =>
       o.srv.agentManager.getAllAgents().find((a) => a.id === o.agent.id)!.queue;
     await waitUntil(() => queue().length === 1, 3000, "queued");
@@ -714,7 +714,7 @@ describe("POST /hooks/:id: verified deliveries", () => {
     const job = await cronjobTarget(o);
     const res = await deliver(o, { body: prOpened(42) });
     expect(res.status).toBe(202);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body).toEqual({ ok: true, truncated: [] });
 
     const [row] = await rows(o);
     expect(row.outcome).toBe("dispatched");
@@ -740,6 +740,37 @@ describe("POST /hooks/:id: verified deliveries", () => {
     );
     // No agent got a message.
     await expectMessages(o, 0);
+  });
+
+  it("a 202 names the args the block cut, for an agent and for a cronjob target", async () => {
+    const o = await office({
+      rules: [
+        {
+          event: "pull_request",
+          match: { action: "opened" },
+          args: { text: "{{payload.text}}", channel: "{{payload.channel}}" },
+        },
+      ],
+    });
+    const body = (text: string) =>
+      JSON.stringify({ action: "opened", channel: "general", text });
+    const long = (c: string) => c.repeat(5000);
+
+    const cut = await deliver(o, { body: body(long("a")) });
+    expect(cut.status).toBe(202);
+    expect(cut.body).toEqual({ ok: true, truncated: ["text"] });
+    const whole = await deliver(o, { body: body("short") });
+    expect(whole.status).toBe(202);
+    expect(whole.body).toEqual({ ok: true, truncated: [] });
+
+    await cronjobTarget(o);
+    const run = await deliver(o, { body: body(long("b")) });
+    expect(run.status).toBe(202);
+    expect(run.body).toEqual({ ok: true, truncated: ["text"] });
+    expect((await rows(o))[0]).toMatchObject({
+      outcome: "dispatched",
+      target: { kind: "cronjob" },
+    });
   });
 
   it("a hook owner who no longer owns the cronjob starts no run; the row retries once they do", async () => {

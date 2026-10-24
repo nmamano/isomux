@@ -687,14 +687,22 @@ describe("webhooks REST: dry run", () => {
       ruleIndex: number;
       args: Record<string, string>;
       block: string;
+      truncated: string[];
     };
     expect(body.outcome).toBe("match");
     expect(body.ruleIndex).toBe(0);
     expect(body.args).toEqual({ pr: "7" });
+    expect(body.truncated).toEqual([]);
     const lines = body.block.split("\n");
     expect(lines.at(-1)).toBe("</webhook-data>");
     expect(JSON.parse(lines.at(-2)!)).toEqual({ pr: "7" });
     expect(lines[0]).toContain("Review it.");
+    // A value over the budget is cut in the block and named in the answer.
+    const long = await dry({
+      action: "opened",
+      pull_request: { number: "7".repeat(5000) },
+    });
+    expect(long.body).toMatchObject({ outcome: "match", truncated: ["pr"] });
 
     expect(
       ((await dry({ action: "closed" })).body as { outcome: string }).outcome,

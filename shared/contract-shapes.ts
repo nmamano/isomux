@@ -1720,6 +1720,8 @@ export type WebhookDryRunRes =
       ruleIndex: number;
       args: Record<string, string>;
       block: string;
+      // The args the block cut, in the rule's arg order.
+      truncated: string[];
     };
 
 // The two secret routes. Only a human session reaches them.

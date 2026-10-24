@@ -47,7 +47,7 @@ Stages, in order. Stages 1 to 6 run before the signature has been verified. They
 | 10 | Match the rules | no rule matches | 200 | row `no_match` |
 | 11 | Dispatch rate limit | limit reached | 429 | row `dispatch_limited` (can retry) |
 | 12 | Check the target and dispatch | target gone, stopped, queue full, or no access | 503 | row `target_unavailable` (can retry) |
-| 13 | - | - | 202 | row `dispatched` |
+| 13 | - | - | 202 + list of cut args | row `dispatched` |
 
 The claim comes before every other verified stage, so each verified outcome, `ping` included, goes through dedup before it can touch the log.
 
@@ -63,7 +63,7 @@ GitHub `ping`: GitHub sends it when somebody creates the webhook. The handler an
 
 Response time: GitHub fails a delivery that gets no 2xx within 10 seconds and does not redeliver failed deliveries automatically (GitHub docs, "Best practices" and "Handling failed webhook deliveries", read 2026-10-05). Both targets return quickly: `fire()` in `server/cronjob-manager.ts` returns the run row and continues asynchronously, and `enqueueMessage` only queues. The response does not wait for the agent turn or the run.
 
-Response bodies are short JSON: `{"ok":true}`, or `{"error":"<reason>"}` with a reason from the table. The body never names a cronjob, an agent or a rule.
+Response bodies are short JSON: `{"ok":true}`, or `{"error":"<reason>"}` with a reason from the table. A 202 adds `"truncated"`: the names of the args that the block cut (section 4, "Size budget"), in the rule's order, empty when none, so a sender can send the rest again. A duplicate answers `{"ok":true}`. The body never names a cronjob, an agent or a rule.
 
 ## 2. Where hooks and secrets live, and who sees a secret
 
@@ -182,11 +182,11 @@ The cut, in order:
 
 1. `J` is 4000 minus the length of everything except the JSON line.
 2. `S` is the length of the escaped JSON with every value set to `""`.
-3. Each of the `n` args gets a share of `floor((J - S) / n)` characters for the escaped text between its quotes.
-4. A value whose escaped text fits its share stays whole. Otherwise the server keeps the longest prefix, in whole code points (it never splits a surrogate pair), such that the escaped prefix plus the marker `…[cut]` fits the share.
-5. The server serializes the cut values. It never cuts the serialized line or the block.
+3. `R` starts at `J - S`, the room for the escaped text between the quotes, and `m` at `n`, the number of args. Shortest escaped value first: while the next value's escaped length is at most `floor(R / m)`, the value stays whole, `R` drops by its length and `m` by 1.
+4. Each arg left gets a share of `floor(R / m)`. The server keeps the longest prefix of its value, in whole code points (it never splits a surrogate pair), such that the escaped prefix plus the marker `…[cut]` fits the share.
+5. The server serializes the values. It never cuts the serialized line or the block.
 
-Unused share is not given to other args. That keeps the cut simple and the same for the same input. Because step 4 measures the escaped length, a value full of `<` (6 characters each when escaped) or NUL (6 characters each) is cut earlier than a plain value, and the line still fits.
+So a short arg (a channel name) leaves the room it does not use to a long one (the text). A share never drops from one step to the next, so every arg still gets at least `floor((J - S) / n)`, and the result is the same for the same input. Because the steps measure the escaped length, a value full of `<` (6 characters each when escaped) or NUL (6 characters each) is cut earlier than a plain value, and the line still fits. The 202 answer and the dry run list the cut args.
 
 ### (a) Agent message
 

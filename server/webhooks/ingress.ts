@@ -61,6 +61,8 @@ export type WebhookPlan =
       ruleIndex: number;
       args: Record<string, string>;
       block: string;
+      // The args the block cut, in the rule's arg order.
+      truncated: string[];
     };
 
 // What a verified, parsed, non-ping delivery asks for: the first matching rule,
@@ -80,7 +82,7 @@ export function planWebhookDelivery(
     delivery: deliveryId,
   });
   const { target } = record;
-  const block = buildWebhookBlock({
+  const { text: block, truncated } = buildWebhookBlock({
     name: record.name,
     scheme: record.scheme,
     event,
@@ -94,7 +96,7 @@ export function planWebhookDelivery(
         ? formatWebhookSenderPrefix(record.name).length + 1
         : 0,
   });
-  return { kind: "match", ruleIndex: matched.index, args, block };
+  return { kind: "match", ruleIndex: matched.index, args, block, truncated };
 }
 
 // --- the handler -------------------------------------------------------------
@@ -150,23 +152,28 @@ export interface WebhookIngress {
   recover(): void;
 }
 
-// Short JSON, never naming a cronjob, an agent or a rule.
+// Short JSON, never naming a cronjob, an agent or a rule. A dispatch also
+// lists the args the block cut, so the sender can send the rest again.
 function reply(
   status: number,
   error: string | null,
   headers: Record<string, string> = {},
+  truncated?: string[],
 ): Response {
-  return new Response(
-    JSON.stringify(error === null ? { ok: true } : { error }),
-    {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-        ...headers,
-      },
+  const body =
+    error !== null
+      ? { error }
+      : truncated
+        ? { ok: true, truncated }
+        : { ok: true };
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      ...headers,
     },
-  );
+  });
 }
 
 // The body, or null once it passes `cap`. Counted while it streams, so a
@@ -310,9 +317,10 @@ export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
       patch: SettlePatch,
       error: string | null,
       headers?: Record<string, string>,
+      truncated?: string[],
     ): Response =>
       store.settle(log, rowId, patch)
-        ? reply(patch.status, error, headers)
+        ? reply(patch.status, error, headers, truncated)
         : reply(500, "internal");
     const blank = { ruleIndex: null, args: null, target: null, detail: null };
 
@@ -425,6 +433,8 @@ export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
           detail: null,
         },
         null,
+        undefined,
+        plan.truncated,
       );
     }
     const unreachable = "agent deleted or outside the hook owner's rooms";
@@ -480,6 +490,8 @@ export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
           detail: null,
         },
         null,
+        undefined,
+        plan.truncated,
       );
     } finally {
       if (!committed) limiter.releaseDaily(record.id);
