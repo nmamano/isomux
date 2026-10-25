@@ -242,6 +242,7 @@ import {
   autoHandoffTrigger,
   joinBriefChunks,
   persistedAutoHandoffTokens,
+  type AutoHandoffTrigger,
 } from "./auto-handoff.ts";
 import {
   LIMIT_RESUME_BOOT_DELAY_MS,
@@ -2030,6 +2031,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // window, same transcript. Runs only after the replace above succeeded
     // (a throw rolled the edit back, so the old measurement still stands).
     if (updated.modelFamily) invalidateContextMeasurement(managed);
+    // A new token value, or the switch going on, arms at once when the
+    // latest sample is already at or above the trigger: the next message
+    // starts the handoff. After the invalidation, so a model change in the
+    // same edit does not arm from the old window's sample.
+    if (updated.autoHandoffTokens !== undefined || updated.autoHandoff === true)
+      armAutoHandoffFromEdit(agentId, managed);
 
     // A rename carries the agent's tasks along (task 83f71be9). It runs only
     // once the edit can no longer roll back, so a failed rename writes no task.
@@ -10844,14 +10851,40 @@ export function createAgentManager(deps: ManagerDeps) {
     }
     // A member who pressed Stop wants attention, not a reset.
     if (turnStatus !== "completed") return;
+    armAutoHandoffPhase(managed, snap, trigger);
+    // The reply that crossed the trigger stays on screen: the brief turn
+    // starts when the next message arrives (flushQueue).
+  }
+
+  // A settings edit (editAgent) arms from the latest sample of any source:
+  // the member's edit is the intent, so a stopped turn's sample counts too.
+  function armAutoHandoffFromEdit(agentId: string, managed: ManagedAgent) {
+    const snap = managed.contextUsage;
+    if (
+      !snap ||
+      managed.info.autoHandoff === false ||
+      !managed.info.capabilities.autoHandoff ||
+      managed.autoHandoffPhase ||
+      managed.autoHandoffSpent ||
+      handoffInProgress.has(agentId)
+    )
+      return;
+    const trigger = autoHandoffTrigger(snap, autoHandoffTokensOf(managed.info));
+    if (snap.totalTokens >= trigger.tokens)
+      armAutoHandoffPhase(managed, snap, trigger);
+  }
+
+  function armAutoHandoffPhase(
+    managed: ManagedAgent,
+    snap: ContextUsageSnapshot,
+    trigger: AutoHandoffTrigger,
+  ) {
     managed.autoHandoffPhase = {
       briefStarted: false,
       trigger,
       totalTokens: snap.totalTokens,
       percentage: snap.percentage,
     };
-    // The reply that crossed the trigger stays on screen: the brief turn
-    // starts when the next message arrives (flushQueue).
   }
 
   // Resume after a usage limit (server/limit-resume.ts). The fire time is

@@ -1467,7 +1467,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.autoHandoff": "Automatic handoff",
   "dialogs.agent.autoHandoffHint":
     "When the context gets full, the agent writes a brief and continues in a fresh session. The chat clears.",
-  "dialogs.agent.autoHandoffTokens": "Hand off at {input}k tokens",
+  "dialogs.agent.autoHandoffTokens":
+    "Hand off when the context reaches {input}k tokens",
   "dialogs.agent.autoHandoffTokensError": "Enter a number from {min} to {max}.",
   "dialogs.agent.limitResume": "Resume after usage limit",
   "dialogs.agent.limitResumeHint":

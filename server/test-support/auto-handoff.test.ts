@@ -678,6 +678,120 @@ describe("automatic handoff: the agent's own token value", () => {
     expect(texts(old).some(isBriefPrompt)).toBe(false);
     expect(h.fake.sessions).toHaveLength(1);
   });
+
+  // An edit with the context already at or above the new value arms at once
+  // (task f2f8488d): the next message starts the handoff.
+
+  // At rest at 471k of 1M, under the default 500k: the turn armed nothing.
+  async function restingAt471k(h: Harness): Promise<{
+    info: AgentInfo;
+    old: FakeSession;
+  }> {
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(471_000, 1_000_000));
+    await atRestMeasured(h, info.id);
+    return { info, old };
+  }
+
+  // One message: the brief turn runs in `old`, and the message goes to the
+  // fresh session after the brief.
+  async function nextMessageHandsOff(
+    h: Harness,
+    id: string,
+    old: FakeSession,
+  ): Promise<void> {
+    await nextMessage(h, id);
+    const fresh = await freshSession(h, id, old);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expect(sent(old, NEXT)).toBe(false);
+    expectInOrder(fresh.sent[0].text, [BRIEF, NEXT]);
+  }
+
+  it("an edit that lowers the value below the context arms it, and one message starts the handoff", async () => {
+    const h = makeHarness();
+    const { info, old } = await restingAt471k(h);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 300_000 });
+    await nextMessageHandsOff(h, info.id, old);
+    expect(systemLines(h)).toContain(
+      en.t("systemEntries.autoHandoff.writingTokens", { thousands: 300 }),
+    );
+  });
+
+  it("turning the switch on with the context above the value arms it", async () => {
+    const h = makeHarness();
+    const info = await spawn(h, { autoHandoff: false });
+    const old = await turnEndingAt(h, info.id, ctx(600_000, 1_000_000));
+    await atRestMeasured(h, info.id);
+    await h.mgr.editAgent(info.id, { autoHandoff: true });
+    await nextMessageHandsOff(h, info.id, old);
+  });
+
+  it("the sample an edit arms from may come from a turn the member stopped", async () => {
+    const h = makeHarness({ abortInPlace: true });
+    const info = await spawn(h);
+    const s = await startTurn(h, info.id);
+    h.measure.now = ctx(471_000, 1_000_000);
+    const aborted = h.mgr.abort(info.id);
+    s.completeTurn({ status: "interrupted" });
+    expect(await aborted).toMatchObject({ ok: true });
+    await atRestMeasured(h, info.id);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 300_000 });
+    await nextMessageHandsOff(h, info.id, s);
+  });
+
+  it("an edit that lowers the value, then one that raises it past the context: the next message runs in place", async () => {
+    const h = makeHarness();
+    const { info, old } = await restingAt471k(h);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 300_000 });
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 700_000 });
+    await nextMessage(h, info.id);
+    await waitUntil(() => sent(old, NEXT), "message runs in the old session");
+    await settle();
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    expect(h.fake.sessions).toHaveLength(1);
+  });
+
+  it("an edit after the loop guard paused the mode arms nothing", async () => {
+    const h = makeHarness();
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
+    const fresh = await freshSession(h, info.id, old);
+    h.measure.now = ctx(185_000, 200_000);
+    fresh.completeTurn({ text: "resumed" });
+    const paused = en.t("systemEntries.autoHandoff.paused");
+    await waitUntil(() => systemLines(h).includes(paused), "pause line");
+    await atRestMeasured(h, info.id);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 100_000 });
+    await nextMessage(h, info.id, "AFTER-EDIT");
+    await waitUntil(() => sent(fresh, "AFTER-EDIT"), "message runs in place");
+    await settle();
+    expect(texts(fresh).some(isBriefPrompt)).toBe(false);
+    expect(h.fake.sessions).toHaveLength(2);
+  });
+
+  it("one edit that changes the model and lowers the value arms nothing: the old model's sample no longer counts", async () => {
+    const h = makeHarness();
+    const { info } = await restingAt471k(h);
+    await h.mgr.editAgent(info.id, {
+      modelFamily: "haiku",
+      autoHandoffTokens: 300_000,
+    });
+    // The enabling condition: the edit changed the model and dropped the
+    // sample.
+    expect(h.mgr.getAgent(info.id)?.modelFamily).toBe("haiku");
+    expect(h.mgr.getAgent(info.id)?.contextUsage ?? null).toBeNull();
+    void h.mgr.sendMessage(info.id, NEXT);
+    await waitUntil(
+      () => h.fake.sessions.some((s) => sent(s, NEXT)),
+      "message delivered",
+    );
+    await settle();
+    expect(h.fake.sessions.some((s) => texts(s).some(isBriefPrompt))).toBe(
+      false,
+    );
+    expect(h.fake.sessionForAgent(info.id)?.isResume).toBe(true);
+  });
 });
 
 describe("automatic handoff: the next message starts it", () => {

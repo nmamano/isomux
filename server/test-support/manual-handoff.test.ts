@@ -454,10 +454,18 @@ describe("/handoff on a busy agent", () => {
       change: { autoHandoff: false },
     },
     { name: "a new token value", change: { autoHandoffTokens: 600_000 } },
+    // An edit with the context above the value arms an automatic handoff
+    // when nothing waits (task f2f8488d); here the /handoff waits.
+    {
+      name: "a token value below the context",
+      change: { autoHandoffTokens: 300_000 },
+    },
   ] as const) {
     it(`${edit.name} does not drop a waiting /handoff`, async () => {
       const h = makeHarness();
       const info = await spawn(h, { autoHandoff: true });
+      // 400k of 1M: under the default 500k, so this turn arms nothing.
+      await finishedTurn(h, info.id, ctx(400_000, 1_000_000));
       const old = await startTurn(h, info.id);
       void h.mgr.sendMessage(info.id, "/handoff");
       await waitUntil(
