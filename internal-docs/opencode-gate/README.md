@@ -33,3 +33,9 @@ The second run of the gate, for the move to `@opencode/cli` 2.1.4 (task
 frozen record of that run and have no package manifest, so no dependency alert
 attaches to them; the report gives the install line for the exact pin. They
 are outside the root `tsconfig.json` include and the ESLint scope.
+
+[`release-note-2.1.4.md`](release-note-2.1.4.md) is the GitHub Release note of
+the release that carries the OpenCode 2 cut-over (tasks `e47be82a`, `4b354a81`,
+`6018743c`, `75904a56`, `bd218a3f`). The file holds only the note: cut that
+release with `scripts/release.sh --notes-file
+internal-docs/opencode-gate/release-note-2.1.4.md`.

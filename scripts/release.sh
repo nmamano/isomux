@@ -12,6 +12,11 @@
 #   scripts/release.sh v2026.7.19            # ordinary release, explicit tag
 #   scripts/release.sh --security            # marked security release
 #   scripts/release.sh --security v2026.7.19 # marked security release, explicit tag
+#   scripts/release.sh --notes-file note.md  # hand-written note above the generated notes
+#
+# The flags go before the tag, in any order. --notes-file takes the file
+# verbatim; with --security the marker line follows the note. The note itself
+# may not hold a marker line: only --security makes a security release.
 #
 # Gates, in order: clean checkout; HEAD published on origin's main; the
 # Build workflow (.github/workflows/build.yml) completed green for HEAD - 
@@ -35,9 +40,13 @@ die() {
 }
 
 LOG_FILE="${TMPDIR:-/tmp}/isomux-release-$(date +%Y%m%dT%H%M%S).log"
-if [[ -z ${_ISOMUX_RELEASE_LOGGED:-} ]]; then
+if [[ -n ${_ISOMUX_RELEASE_LOGGED:-} ]]; then
+  # The inner run keeps the outer run's log path: files named after it (the
+  # release body) then share the stamp of the printed "full output" line.
+  LOG_FILE=$_ISOMUX_RELEASE_LOGGED
+else
   log "full output: $LOG_FILE"
-  if _ISOMUX_RELEASE_LOGGED=1 bash "$0" "$@" 2>&1 | tee "$LOG_FILE"; then
+  if _ISOMUX_RELEASE_LOGGED=$LOG_FILE bash "$0" "$@" 2>&1 | tee "$LOG_FILE"; then
     exit 0
   else
     status=${PIPESTATUS[0]}
@@ -45,12 +54,23 @@ if [[ -z ${_ISOMUX_RELEASE_LOGGED:-} ]]; then
   fi
 fi
 
+USAGE="usage: scripts/release.sh [--security] [--notes-file <path>] [vYYYY.M.D[.N]]"
 SECURITY_RELEASE=""
-if [[ ${1:-} == --security ]]; then
-  SECURITY_RELEASE=1
+NOTES_FILE=""
+while [[ ${1:-} == -* ]]; do
+  case $1 in
+    --security) SECURITY_RELEASE=1 ;;
+    --notes-file)
+      [[ $# -ge 2 && -z $NOTES_FILE ]] || die "$USAGE"
+      NOTES_FILE=$2
+      [[ -n $NOTES_FILE ]] || die "$USAGE"
+      shift
+      ;;
+    *) die "$USAGE" ;;
+  esac
   shift
-fi
-(( $# <= 1 )) || die "usage: scripts/release.sh [--security] [vYYYY.M.D[.N]]"
+done
+(( $# <= 1 )) || die "$USAGE"
 TAG="${1:-}"
 SKIP_CI="${RELEASE_SKIP_CI:-}"
 CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
@@ -58,6 +78,30 @@ SECURITY_MARKER='isomux-severity: security'
 
 if [[ -n $SECURITY_RELEASE && -n $SKIP_CI ]]; then
   die "--security cannot be used with RELEASE_SKIP_CI: sandbox mode creates no GitHub Release, so it cannot publish the required security marker"
+fi
+
+# The release body, composed before any tag so that a bad note or a failed
+# write stops the release with nothing published. The path is relative to the
+# caller's directory, so this runs before the cd to the checkout root.
+BODY_FILE=""
+if [[ -n $NOTES_FILE ]]; then
+  [[ -z $SKIP_CI ]] ||
+    die "--notes-file cannot be used with RELEASE_SKIP_CI: sandbox mode creates no GitHub Release, so it cannot publish the note"
+  [[ -f $NOTES_FILE && -r $NOTES_FILE ]] || die "release note is not a readable file: $NOTES_FILE"
+  [[ -n $(tr -d '[:space:]' <"$NOTES_FILE") ]] || die "release note is empty: $NOTES_FILE"
+  # The checker (server/update-checker.ts) takes any line that trims to the
+  # marker. Refuse a line that holds the marker and no other ASCII graphic
+  # character, a superset of that rule, so a note can never make an ordinary
+  # release a security release. The marker has no ERE metacharacters.
+  if LC_ALL=C grep -qxE "[^!-~]*${SECURITY_MARKER}[^!-~]*" "$NOTES_FILE"; then
+    die "release note holds the security marker line; remove it (--security adds the marker): $NOTES_FILE"
+  fi
+  BODY_FILE="${LOG_FILE%.log}-notes.md"
+  {
+    printf '%s\n' "$(cat "$NOTES_FILE")"
+    [[ -z $SECURITY_RELEASE ]] || printf '\n%s\n' "$SECURITY_MARKER"
+  } >"$BODY_FILE" || die "cannot write the release body: $BODY_FILE"
+  log "release body: $BODY_FILE"
 fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git checkout"
@@ -153,7 +197,10 @@ log "tagged and pushed $TAG ($HEAD_SHA)"
 if [[ -z $SKIP_CI ]]; then
   release_args=(release create "$TAG" --verify-tag --generate-notes --title "$TAG")
   recovery="gh release create $TAG --verify-tag --generate-notes --title $TAG"
-  if [[ -n $SECURITY_RELEASE ]]; then
+  if [[ -n $BODY_FILE ]]; then
+    release_args+=(--notes-file "$BODY_FILE")
+    recovery+=" --notes-file $(printf '%q' "$BODY_FILE")"
+  elif [[ -n $SECURITY_RELEASE ]]; then
     release_args+=(--notes "$SECURITY_MARKER")
     recovery+=" --notes '$SECURITY_MARKER'"
   fi

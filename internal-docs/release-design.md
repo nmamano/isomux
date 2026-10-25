@@ -10,7 +10,10 @@ A **CalVer git tag on the GitHub repo**: `v2026.7.19` (append `.2` for a
 second tag the same day). SemVer would be noise - no library consumers, no
 API-compat contract to encode - and CalVer makes a customer box's staleness
 readable at a glance. Tags are annotated, and each gets a GitHub Release
-with auto-generated notes.
+with auto-generated notes. A release that needs a hand-written note (a
+breaking change, a migration) gets it with `scripts/release.sh --notes-file
+<path>`: the file's text goes verbatim above the generated notes, and the
+update banner links to that page.
 
 Source installs build the UI on the customer box (`bun run
 build:ui`) and pin deps via the committed lockfile
@@ -105,6 +108,15 @@ adds two manual conditions:
    that run when the commit has none), refuses to reuse an existing tag, tags (annotated),
    and pushes the tag. The script prints the path of a timestamped log and
    tees its complete release and pre-push output there.
+
+**Trying `scripts/release.sh` without publishing.** The script pushes a real
+tag to whatever `origin` is set, so run it only in a scratch clone whose
+`origin` is a local bare repo. `RELEASE_SKIP_CI=1` skips the CI gates and the
+GitHub Release, and refuses `--security` and `--notes-file`. To exercise those,
+set `RELEASE_GH_REPO=owner/repo` instead and put a stub `gh` first on `PATH`
+that records its arguments and answers `gh api .../actions/runs` with green
+Build and Install smoke (release set) runs, since the CI gates then run.
+`scripts/release-sh.test.ts` builds this sandbox.
 
 **Bun invariant.** A box runs the Bun its release pins. Each version lives in
 its own directory, `<dir>/<version>/bun` (`/usr/local/lib/isomux/bun` on a
@@ -427,7 +439,8 @@ Shipped (the shell-drivable slice):
 - Unauth `GET /readyz` with the per-IP limiter (`server/ready-limiter.ts`),
   loopback exempt.
 - `scripts/release.sh` (CI-green gate via check-runs, the install-smoke gate, tag pushed with --no-verify since that gate already covers the tagged commit, tag-reuse refusal,
-  annotated CalVer tag, push, GitHub Release) and `scripts/update.sh`
+  annotated CalVer tag, push, GitHub Release with an optional hand-written
+  note from `--notes-file`) and `scripts/update.sh`
   (everything above; no state snapshot since 2026-10).
   Failure paths are exercised in `scripts/update-sh.test.ts` /
   `scripts/release-sh.test.ts` against sandboxed fixtures.

@@ -1,11 +1,3 @@
-# Release note: OpenCode 2
-
-The text below goes in the GitHub Release body of the release that carries the
-OpenCode 2 cut-over (tasks e47be82a, 4b354a81, 6018743c, 75904a56, bd218a3f).
-The update banner links to that page. Nil signs off the text.
-
----
-
 OpenCode agents now run OpenCode 2 (`@opencode/cli` 2.1.4).
 
 For members:

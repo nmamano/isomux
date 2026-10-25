@@ -18,6 +18,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { execSync, spawnSync } from "child_process";
+import { hasSecurityReleaseMarker } from "../server/update-checker.ts";
 
 const RELEASE_SH = new URL("./release.sh", import.meta.url).pathname;
 const UPDATE_CHECKER = new URL("../server/update-checker.ts", import.meta.url)
@@ -35,14 +36,15 @@ function sh(cwd: string, cmd: string): string {
 function runRelease(
   args: string[],
   env: Record<string, string> = { RELEASE_SKIP_CI: "1" },
+  cwd: string = repo,
 ): { code: number; out: string } {
-  // A real release exports _ISOMUX_RELEASE_LOGGED=1 to its whole process
+  // A real release exports _ISOMUX_RELEASE_LOGGED (its log path) to its whole process
   // tree - including the pre-push CI that runs this suite - so an inherited
   // value makes every spawned release.sh skip the pointer line and the
   // log-file assertions fail exactly and only during an actual release.
   const { _ISOMUX_RELEASE_LOGGED: _drop, ...ambient } = process.env;
   const r = spawnSync("bash", [RELEASE_SH, ...args], {
-    cwd: repo,
+    cwd,
     env: { ...ambient, TMPDIR: base, ...env },
     encoding: "utf8",
     timeout: 30_000,
@@ -84,6 +86,14 @@ beforeEach(() => {
     `#!/usr/bin/env bash
 printf '%q ' "$@" >>"\${GH_STUB_LOG:-/dev/null}"
 printf '\n' >>"\${GH_STUB_LOG:-/dev/null}"
+if [[ $1 == release ]]; then
+  prev=""
+  for a in "$@"; do
+    [[ $prev == --notes-file || $prev == -F ]] && cp "$a" "\${GH_STUB_NOTES:-/dev/null}"
+    [[ $a == --notes-file=* ]] && cp "\${a#--notes-file=}" "\${GH_STUB_NOTES:-/dev/null}"
+    prev=$a
+  done
+fi
 [[ \${GH_STUB_MODE:-green} == release-fail && $1 == release ]] && exit 9
 if [[ $1 == api ]]; then
   jqexpr=""
@@ -326,5 +336,266 @@ describe("release.sh", () => {
       "gh release create v2026.8.13 --verify-tag --generate-notes --title v2026.8.13 --notes 'isomux-severity: security'",
     );
     expect(sh(base, "git -C origin.git tag -l v2026.8.13")).toBe("v2026.8.13");
+  });
+});
+
+describe("release.sh --notes-file", () => {
+  const MARKER = "isomux-severity: security";
+  // Shell-active text and an inline mention of the marker: the body must be
+  // the note verbatim, and only a whole marker line makes a security release.
+  const NOTE =
+    "OpenCode agents now run `opencode` 2 ($HOME, \"quotes\", 'single', \\ and $(echo x)).\n\n" +
+    "- Releases marked isomux-severity: security still need the flag.\n\n\n";
+
+  function writeNote(name: string, text: string = NOTE): string {
+    const dir = join(base, "notes");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, name);
+    writeFileSync(path, text);
+    return path;
+  }
+
+  function runNotes(
+    args: string[],
+    extra: { mode?: string; cwd?: string; path?: string } = {},
+  ): { code: number; out: string; ghLog: string; body: string | null } {
+    const ghLog = join(base, "gh.log");
+    const notesCopy = join(base, "gh-notes-copy.md");
+    const r = runRelease(
+      args,
+      {
+        RELEASE_GH_REPO: "fake/fake",
+        GH_STUB_MODE: extra.mode ?? "green",
+        GH_STUB_LOG: ghLog,
+        GH_STUB_NOTES: notesCopy,
+        PATH: `${extra.path ? `${extra.path}:` : ""}${join(base, "bin")}:${process.env.PATH}`,
+      },
+      extra.cwd ?? repo,
+    );
+    let log = "";
+    try {
+      log = readFileSync(ghLog, "utf8");
+    } catch {}
+    let body: string | null = null;
+    try {
+      body = readFileSync(notesCopy, "utf8");
+    } catch {}
+    return { ...r, ghLog: log, body };
+  }
+
+  function releaseCall(ghLog: string): string[] {
+    const line = ghLog.split("\n").find((l) => l.startsWith("release create "));
+    expect(line).toBeDefined();
+    return line!.trim().split(" ");
+  }
+
+  function expectNoTag(ghLog: string) {
+    expect(sh(repo, "git tag -l")).toBe("");
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
+    expect(ghLog).not.toContain("release create");
+  }
+
+  it("an ordinary release puts the note verbatim above the generated notes, with no marker", () => {
+    const note = writeNote("note.md");
+    const r = runNotes(["--notes-file", note, "v2026.8.13"]);
+    expect(r.code).toBe(0);
+    expect(sh(base, "git -C origin.git tag -l v2026.8.13")).toBe("v2026.8.13");
+    const call = releaseCall(r.ghLog);
+    expect(call).toContain("--generate-notes");
+    expect(call).not.toContain("--notes");
+    expect(call).not.toContain("-n");
+    expect(r.body).not.toBeNull();
+    expect(r.body!.trimEnd()).toBe(NOTE.trimEnd());
+    expect(hasSecurityReleaseMarker(r.body)).toBe(false);
+  });
+
+  it("a security release puts the note first and the marker line after it, flags in either order", () => {
+    const note = writeNote("note.md");
+    const r = runNotes(["--notes-file", note, "--security", "v2026.8.13"]);
+    expect(r.code).toBe(0);
+    const call = releaseCall(r.ghLog);
+    expect(call).toContain("--generate-notes");
+    expect(call).not.toContain("--notes");
+    expect(r.body!.trimEnd()).toBe(`${NOTE.trimEnd()}\n\n${MARKER}`);
+    expect(hasSecurityReleaseMarker(r.body)).toBe(true);
+  });
+
+  it("a relative path resolves from the caller's directory, not the checkout root", () => {
+    mkdirSync(join(repo, "docs"));
+    writeFileSync(join(repo, "docs", "note.md"), NOTE);
+    writeFileSync(join(repo, "note.md"), "decoy at the checkout root\n");
+    sh(repo, "git add . && git commit -qm notes && git push -q origin main");
+    const r = runNotes(["--notes-file", "note.md", "v2026.8.13"], {
+      cwd: join(repo, "docs"),
+    });
+    expect(r.code).toBe(0);
+    expect(r.body!.trimEnd()).toBe(NOTE.trimEnd());
+  });
+
+  // Each case would otherwise release (valid tag, green CI); the refusal must
+  // come before the tag, and the output names what was wrong.
+  const refusals: [
+    string,
+    () => { args: string[]; env?: Record<string, string> },
+    string[],
+  ][] = [
+    [
+      "a file that does not exist",
+      () => ({
+        args: ["--notes-file", join(base, "absent-note.md"), "v2026.8.13"],
+      }),
+      ["absent-note.md"],
+    ],
+    [
+      "a directory",
+      () => {
+        mkdirSync(join(base, "note-dir.md"));
+        return {
+          args: ["--notes-file", join(base, "note-dir.md"), "v2026.8.13"],
+        };
+      },
+      ["note-dir.md"],
+    ],
+    [
+      "a whitespace-only file",
+      () => ({
+        args: [
+          "--notes-file",
+          writeNote("blank-note.md", " \n\t\n\n"),
+          "v2026.8.13",
+        ],
+      }),
+      ["blank-note.md"],
+    ],
+    [
+      "a note with a marker line, ordinary release",
+      () => ({
+        args: [
+          "--notes-file",
+          writeNote("marker-note.md", `Intro.\n${MARKER}\nMore.\n`),
+          "v2026.8.13",
+        ],
+      }),
+      ["marker-note.md"],
+    ],
+    [
+      "a note with an indented marker line, security release",
+      () => ({
+        args: [
+          "--security",
+          "--notes-file",
+          writeNote("indented-note.md", `Intro.\n\t ${MARKER}  \nMore.\n`),
+          "v2026.8.13",
+        ],
+      }),
+      ["indented-note.md"],
+    ],
+    [
+      "a note with a CRLF marker line",
+      () => ({
+        args: [
+          "--notes-file",
+          writeNote("crlf-note.md", `Intro.\r\n${MARKER}\r\nMore.\r\n`),
+          "v2026.8.13",
+        ],
+      }),
+      ["crlf-note.md"],
+    ],
+    [
+      "sandbox mode",
+      () => ({
+        args: ["--notes-file", writeNote("note.md"), "v2026.8.13"],
+        env: { RELEASE_SKIP_CI: "1" },
+      }),
+      ["RELEASE_SKIP_CI"],
+    ],
+    [
+      "a repeated --notes-file",
+      () => ({
+        args: [
+          "--notes-file",
+          writeNote("one.md"),
+          "--notes-file",
+          writeNote("two.md"),
+          "v2026.8.13",
+        ],
+      }),
+      ["usage: scripts/release.sh", "--notes-file"],
+    ],
+    [
+      "--notes-file without a path",
+      () => ({ args: ["--notes-file"] }),
+      ["usage: scripts/release.sh", "--notes-file"],
+    ],
+    [
+      "an unknown flag",
+      () => ({ args: ["--bogus", "v2026.8.13"] }),
+      ["usage: scripts/release.sh", "--notes-file"],
+    ],
+  ];
+
+  it.each(refusals)(
+    "refuses %s before it creates a tag",
+    (_name, setup, said) => {
+      const { args, env } = setup();
+      const r = env ? { ...runRelease(args, env), ghLog: "" } : runNotes(args);
+      expect(r.code).not.toBe(0);
+      for (const s of said) expect(r.out).toContain(s);
+      expectNoTag(r.ghLog);
+    },
+  );
+
+  it("a failed Release creation prints a recovery command whose notes file still holds the note and the marker", () => {
+    const note = writeNote("note.md");
+    const r = runNotes(["--security", "--notes-file", note, "v2026.8.13"], {
+      mode: "release-fail",
+    });
+    expect(r.code).not.toBe(0);
+    expect(sh(base, "git -C origin.git tag -l v2026.8.13")).toBe("v2026.8.13");
+    const recovery = r.out.match(/(gh release create v2026\.8\.13 .*)$/m)?.[1];
+    expect(recovery).toBeDefined();
+    const tokens = recovery!.trim().split(" ");
+    expect(tokens).toContain("--generate-notes");
+    expect(tokens).not.toContain("--notes");
+    const i = tokens.findIndex((t) => t === "--notes-file" || t === "-F");
+    expect(i).toBeGreaterThan(-1);
+    const body = readFileSync(tokens[i + 1], "utf8");
+    expect(body.trimEnd()).toBe(`${NOTE.trimEnd()}\n\n${MARKER}`);
+  });
+
+  it("names the body file after the printed run log, even when the inner run's clock has moved on", () => {
+    // A date stub that returns a new stamp on each call: the outer and the
+    // inner run get different stamps, as they do across a second boundary.
+    const clockBin = join(base, "clock-bin");
+    mkdirSync(clockBin);
+    const realDate = sh(base, "command -v date");
+    writeFileSync(
+      join(clockBin, "date"),
+      `#!/usr/bin/env bash
+if [[ \${1:-} == +%Y%m%dT%H%M%S ]]; then
+  n=$(( $(cat "${join(base, "clock-count")}" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" >"${join(base, "clock-count")}"
+  printf '20260101T0000%02d\\n' "$n"
+  exit 0
+fi
+exec ${realDate} "$@"
+`,
+    );
+    chmodSync(join(clockBin, "date"), 0o755);
+    const note = writeNote("note.md");
+    const r = runNotes(["--notes-file", note, "v2026.8.13"], {
+      path: clockBin,
+    });
+    expect(r.code).toBe(0);
+    // The stub ran in both runs, so the stamps differed.
+    expect(
+      Number(readFileSync(join(base, "clock-count"), "utf8")),
+    ).toBeGreaterThan(1);
+    const call = releaseCall(r.ghLog);
+    const i = call.findIndex((t) => t === "--notes-file" || t === "-F");
+    expect(i).toBeGreaterThan(-1);
+    expect(call[i + 1]).toBe(
+      releaseLogPath(r.out).replace(/\.log$/, "-notes.md"),
+    );
   });
 });
