@@ -1,4 +1,4 @@
-import { auth } from "../../../../../auth";
+import { auth, keepSession } from "../../../../../auth";
 import { handleGoogleRemoval } from "../../../../../lib/account-email-request.server";
 import { removeGoogleSignInFor } from "../../../../../lib/services.server";
 
@@ -10,5 +10,6 @@ export async function POST(request: Request): Promise<Response> {
   return handleGoogleRemoval(request, {
     accountId: async () => (await auth())?.accountId ?? null,
     remove: removeGoogleSignInFor,
+    keepSession,
   });
 }

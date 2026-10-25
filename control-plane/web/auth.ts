@@ -22,12 +22,22 @@
 // Sessions are JWTs and there is no database adapter. An adapter would make
 // Auth.js a second writer of `accounts`, and slice 3's ownership split exists
 // precisely so that every writer of a table can be named.
+//
+// A JWT cannot be revoked, so each one carries its account's session epoch from
+// sign-in, and every session read compares it with the account's (one primary
+// key read). An email change or a Google sign-in removal raises the epoch, which
+// ends every session issued before it; the route that made the change re-issues
+// its own browser's session through keepSession. A session whose epoch cannot be
+// read (the store is down) is no session either: Auth.js clears the cookie, so
+// a database outage costs a sign-in again rather than leaving a revoked session
+// alive.
 
 import NextAuth, { type NextAuthConfig } from "next-auth";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { inspect } from "node:util";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
-import { identityForSignIn } from "./lib/services.server";
+import { identityForSignIn, sessionEpochFor } from "./lib/services.server";
 import { deploymentSignInTokens } from "./lib/signin-link.server";
 import { redactLogText } from "../report";
 
@@ -94,7 +104,26 @@ export const devSignInAvailable = devAuthEnabled;
 export const googleSignInAvailable = googleConfigured;
 export const emailSignInAvailable = emailLinkConfigured;
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+/**
+ * What keepSession sends through Auth.js's session update. Any browser can post
+ * an update with any data, so only this process's own random value re-issues a
+ * session at the current epoch; it never leaves the process, because
+ * unstable_update runs Auth.js in-process.
+ */
+const KEEP = randomBytes(32).toString("hex");
+
+function isKeep(data: unknown): boolean {
+  const keep =
+    typeof data === "object" && data !== null
+      ? (data as { keep?: unknown }).keep
+      : undefined;
+  if (typeof keep !== "string") return false;
+  const given = Buffer.from(keep);
+  const expected = Buffer.from(KEEP);
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   providers,
   logger: {
     error(error) {
@@ -128,10 +157,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       user.id = identity.accountId;
       return true;
     },
-    jwt({ token, user }) {
-      // Written once, at sign-in, from the durable binding.
-      if (user?.id) token.accountId = user.id;
-      return token;
+    async jwt({ token, user, trigger, session }) {
+      if (user?.id) {
+        // Written once, at sign-in, from the durable binding.
+        const epoch = await sessionEpochFor(user.id);
+        if (epoch === null) throw new Error(`account ${user.id} is gone`);
+        token.accountId = user.id;
+        token.sessionEpoch = epoch;
+        return token;
+      }
+      const accountId = token.accountId;
+      if (typeof accountId !== "string") return null;
+      // Throws when the store cannot answer: no session (header comment).
+      const current = await sessionEpochFor(accountId);
+      if (current === null) return null;
+      if (trigger === "update" && isKeep(session)) {
+        token.sessionEpoch = current;
+        return token;
+      }
+      // A session from before the epoch existed counts as the first.
+      return (token.sessionEpoch ?? 0) === current ? token : null;
     },
     session({ session, token }) {
       const accountId = token.accountId;
@@ -140,3 +185,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+export { handlers, auth, signIn, signOut };
+
+/**
+ * Re-issue this request's session at its account's current epoch, after a
+ * change that ended the account's other sessions.
+ */
+export async function keepSession(): Promise<void> {
+  await unstable_update({ keep: KEEP } as never);
+}

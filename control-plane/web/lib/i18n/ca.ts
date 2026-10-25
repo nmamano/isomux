@@ -80,6 +80,10 @@ export const ca: Catalog = {
     "Aquest enllaç no és vàlid. <account>Demana'n un de nou</account>.",
   "account.linkFailed":
     "Aquest enllaç ha caducat o ja s'ha fet servir. <account>Demana'n un de nou</account>.",
+  "account.confirmSignIn":
+    "<signin>Inicia la sessió</signin> al compte que ha demanat aquest canvi i torna a obrir l'enllaç del correu.",
+  "account.confirmOtherAccount":
+    "Has iniciat la sessió en un altre compte. <signin>Inicia la sessió</signin> al que ha demanat aquest canvi i torna a obrir l'enllaç del correu.",
   "account.mailSubject": "Confirma el teu correu nou d'Isomux",
   "account.mailIntro":
     "Obre aquest enllaç perquè aquest sigui el teu correu de Hosted Isomux:",

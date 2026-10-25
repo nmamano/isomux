@@ -1276,6 +1276,14 @@ export async function removeGoogleSignInFor(
   return withStore((store) => removeGoogleSignIn(store, accountId));
 }
 
+/** The account's session epoch, or null when it does not exist. */
+export async function sessionEpochFor(
+  accountId: string,
+): Promise<number | null> {
+  const { sessionEpoch } = await import("../../signup");
+  return withStore((store) => sessionEpoch(store, accountId));
+}
+
 /**
  * Opt the account behind an unsubscribe token out of the welcome series. An
  * unknown token changes nothing and is not an error.

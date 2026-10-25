@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { DocumentLanguage } from "../../../lib/i18n/document-language";
 import { webTranslatorFor } from "../../../lib/i18n/rich";
@@ -17,13 +18,16 @@ type Outcome =
   | { state: "busy" }
   | { state: "done"; email: string }
   | { state: "link-failed" }
+  | { state: "signed-out" }
+  | { state: "other-account" }
   | { state: "refused"; text: string };
 
 /**
  * The page an email change link opens: one button, never an auto-submit, for
  * the reason app/signin/email/email-link-form.tsx gives (mail scanners open
- * links first). It needs no session: the token names the account and the new
- * address, and the server checks its signature.
+ * links first). The change applies only for the account that asked: the token
+ * names the account and the new address, and the server checks both its
+ * signature and that this browser is signed in to that account.
  */
 export function EmailChangeConfirm() {
   const language = useLanguage();
@@ -52,6 +56,10 @@ export function EmailChangeConfirm() {
         setOutcome({ state: "done", email });
       } else if (response.status === 400 || response.status === 404) {
         setOutcome({ state: "link-failed" });
+      } else if (response.status === 401) {
+        setOutcome({ state: "signed-out" });
+      } else if (response.status === 403) {
+        setOutcome({ state: "other-account" });
       } else {
         // The server words its refusals in the customer's language.
         setOutcome({
@@ -67,6 +75,23 @@ export function EmailChangeConfirm() {
   const askAgain = (chunk: React.ReactNode) => (
     <Link href="/account">{chunk}</Link>
   );
+  // A plain /signin: the token stays in the fragment, out of every URL the
+  // server sees. A browser signed in to another account signs out first, since
+  // /signin sends a signed-in visitor home.
+  const signInFirst = (chunk: React.ReactNode) => (
+    <Link href="/signin">{chunk}</Link>
+  );
+  const signOutFirst = (chunk: React.ReactNode) => (
+    <a
+      href="/signin"
+      onClick={(event) => {
+        event.preventDefault();
+        void signOut({ redirectTo: "/signin" });
+      }}
+    >
+      {chunk}
+    </a>
+  );
   return (
     <main>
       <DocumentLanguage language={language} />
@@ -79,6 +104,16 @@ export function EmailChangeConfirm() {
       {outcome.state === "link-failed" && (
         <p className="callout callout-danger" role="alert">
           {i18n.rich("account.linkFailed", { account: askAgain })}
+        </p>
+      )}
+      {outcome.state === "signed-out" && (
+        <p className="callout callout-danger" role="alert">
+          {i18n.rich("account.confirmSignIn", { signin: signInFirst })}
+        </p>
+      )}
+      {outcome.state === "other-account" && (
+        <p className="callout callout-danger" role="alert">
+          {i18n.rich("account.confirmOtherAccount", { signin: signOutFirst })}
         </p>
       )}
       {outcome.state === "refused" && (

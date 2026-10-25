@@ -5,7 +5,9 @@
 // The properties here are identity properties. A change that lands on the
 // wrong row, or lets two accounts share one inbox, hands an account to whoever
 // reads that inbox; a Google removal that leaves the subject bound keeps a way
-// in the customer asked to close.
+// in the customer asked to close. Each change that applies moves the account's
+// session epoch on by one, which ends every session issued before it
+// (web/auth.ts; task 4fe8a83c).
 
 import { afterEach, describe, expect, test } from "bun:test";
 import {
@@ -14,6 +16,7 @@ import {
   changeAccountEmail,
   emailChangeRefusal,
   removeGoogleSignIn,
+  sessionEpoch,
   stripeCustomersForAccount,
 } from "./signup.ts";
 import {
@@ -64,12 +67,15 @@ describe("moving a Google-made account to an email sign-in", () => {
   test("after the change an email link to the new address reaches it, and after the removal the old Google account does not", async () => {
     const store = await openTestStore();
     const account = await googleAccount(store);
+    // A sign-in, binding included, ends no session.
+    expect(await sessionEpoch(store, account.id)).toBe(0);
 
     const changed = await changeAccountEmail(store, {
       accountId: account.id,
       newEmail: "Work@Example.com",
     });
     expect(changed).toEqual({ ok: true, oldEmail: GMAIL, changed: true });
+    expect(await sessionEpoch(store, account.id)).toBe(1);
     // Stored lowercased: the exact-string unique index is what refuses a
     // second account at this inbox, and an email sign-in writes lowercase.
     expect((await getAccount(store, account.id))?.email).toBe(
@@ -87,11 +93,16 @@ describe("moving a Google-made account to an email sign-in", () => {
       emailVerified: true,
     });
     expect(viaGoogle.id).toBe(account.id);
+    expect(await sessionEpoch(store, account.id)).toBe(1);
 
     expect(await removeGoogleSignIn(store, account.id)).toBe(true);
-    expect((await getAccount(store, account.id))?.google_subject).toBeNull();
-    // Nothing left to remove.
+    const removed = await getAccount(store, account.id);
+    expect(removed?.google_subject).toBeNull();
+    expect(removed?.session_epoch).toBe(2);
+    expect(await sessionEpoch(store, account.id)).toBe(2);
+    // Nothing left to remove, and nothing ends.
     expect(await removeGoogleSignIn(store, account.id)).toBe(false);
+    expect(await sessionEpoch(store, account.id)).toBe(2);
 
     // The old Google account now lands somewhere else.
     const afterRemoval = await bindGoogleSubject(store, {
@@ -155,6 +166,7 @@ describe("an address that cannot become the account's", () => {
       }),
     ).toEqual({ ok: false, code: "taken" });
     expect((await getAccount(store, account.id))?.email).toBe(GMAIL);
+    expect(await sessionEpoch(store, account.id)).toBe(0);
     expect(await auditFor(store, account.id)).toEqual([]);
 
     // The negative control: a free address is not refused.
@@ -177,6 +189,7 @@ describe("an address that cannot become the account's", () => {
     expect((await getAccount(store, account.id))?.version).toBe(
       account.version,
     );
+    expect(await sessionEpoch(store, account.id)).toBe(0);
     expect(await auditFor(store, account.id)).toEqual([]);
   });
 
@@ -192,6 +205,8 @@ describe("an address that cannot become the account's", () => {
       }),
     ).toEqual({ ok: false, code: "no-account" });
     expect(await removeGoogleSignIn(store, "acct-missing")).toBe(false);
+    // No account is no epoch: web/auth.ts reads that as no session.
+    expect(await sessionEpoch(store, "acct-missing")).toBeNull();
   });
 
   test("an account made at the same address while the change is in flight wins, and the change answers taken", async () => {
@@ -251,6 +266,8 @@ describe("an address that cannot become the account's", () => {
     // the other row was uncommitted, rather than reading it afterwards.
     expect(waited).toBe(true);
     expect((await getAccount(store, account.id))?.email).toBe(GMAIL);
+    // The change rolled back to its savepoint: the epoch did not move either.
+    expect(await sessionEpoch(store, account.id)).toBe(0);
     const holders = await store.sqlAll<{ id: string }>(
       "select id from accounts where lower(email) = 'racer@example.com'",
     );

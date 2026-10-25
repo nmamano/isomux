@@ -94,6 +94,7 @@ describe("only one file reaches the store", () => {
       "requestRestart",
       "requestUncancel",
       "revealInvite",
+      "sessionEpochFor",
       "signUpOffice",
       "signupPageState",
       "stripeCustomersFor",

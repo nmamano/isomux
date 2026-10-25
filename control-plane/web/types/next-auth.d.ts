@@ -18,5 +18,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     accountId?: string;
+    /** The account's session epoch when this session was issued (auth.ts). */
+    sessionEpoch?: number;
   }
 }

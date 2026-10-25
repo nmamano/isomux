@@ -192,6 +192,22 @@ export async function migrateWelcomeMailsTable(
   }
 }
 
+/** Owner-role migration for the per-account session epoch (signup.ts
+ * sessionEpoch). */
+export async function migrateSessionEpochColumn(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table if exists accounts add column if not exists session_epoch integer not null default 0",
+    ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /** Owner-role migration for durable ordinary-signup Checkout recovery. */
 export async function migratePendingCheckoutColumns(
   dsn: string,
@@ -381,6 +397,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-welcome-mails",
     run: migrateWelcomeMailsTable,
     ready: "welcome series table",
+  },
+  {
+    command: "migrate-session-epoch",
+    run: migrateSessionEpochColumn,
+    ready: "session epoch column",
   },
 ];
 
@@ -963,6 +984,7 @@ export async function bootstrapDatabase(
   await migratePendingCheckoutColumns(dsn);
   await migrateCertificateContactColumns(dsn);
   await migrateWelcomeMailsTable(dsn);
+  await migrateSessionEpochColumn(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
@@ -972,6 +994,7 @@ export async function bootstrapDatabase(
     await migratePendingCheckoutColumns(dsn);
     await migrateCertificateContactColumns(dsn);
     await migrateWelcomeMailsTable(dsn);
+    await migrateSessionEpochColumn(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

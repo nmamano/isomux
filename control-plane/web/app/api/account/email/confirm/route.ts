@@ -1,3 +1,4 @@
+import { auth, keepSession } from "../../../../../auth";
 import {
   confirmIpLimiter,
   handleEmailChangeConfirm,
@@ -19,6 +20,8 @@ export async function POST(request: Request): Promise<Response> {
   return handleEmailChangeConfirm(request, {
     apiKey: process.env.AUTH_RESEND_KEY || undefined,
     tokens: deploymentEmailChangeTokens(),
+    accountId: async () => (await auth())?.accountId ?? null,
+    keepSession,
     ipLimiter: confirmIpLimiter,
     refusal: emailChangeRefusalFor,
     stripeCustomers: stripeCustomersFor,

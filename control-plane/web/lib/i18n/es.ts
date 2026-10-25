@@ -81,6 +81,10 @@ export const es: Catalog = {
     "Este enlace no es válido. <account>Pide uno nuevo</account>.",
   "account.linkFailed":
     "Este enlace ha caducado o ya se ha usado. <account>Pide uno nuevo</account>.",
+  "account.confirmSignIn":
+    "<signin>Inicia sesión</signin> en la cuenta que pidió este cambio y vuelve a abrir el enlace del correo.",
+  "account.confirmOtherAccount":
+    "Has iniciado sesión en otra cuenta. <signin>Inicia sesión</signin> en la que pidió este cambio y vuelve a abrir el enlace del correo.",
   "account.mailSubject": "Confirma tu nuevo correo de Isomux",
   "account.mailIntro":
     "Abre este enlace para que este sea tu correo de Hosted Isomux:",

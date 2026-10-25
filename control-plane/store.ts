@@ -514,6 +514,7 @@ create table if not exists accounts (
   google_subject text,
   stripe_customer_id text,
   is_operator integer not null default 0,
+  session_epoch integer not null default 0,
   version integer not null,
   created_at bigint not null,
   updated_at bigint not null
@@ -1471,6 +1472,7 @@ export class Store {
       ["accounts", "stripe_customer_id"],
       ["accounts", "google_subject"],
       ["accounts", "is_operator"],
+      ["accounts", "session_epoch"],
       ["subscriptions", "episode_state"],
       ["subscriptions", "exhaustion_observed_at"],
       ["subscriptions", "ended_at"],

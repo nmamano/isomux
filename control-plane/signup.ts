@@ -408,7 +408,7 @@ export async function emailChangeRefusal(
 
 /**
  * Move an account to a new address, after its holder opened the link mailed
- * there. The address is stored lowercased; the audit row names the account id
+ * there, and end the account's other sessions. The address is stored lowercased; the audit row names the account id
  * only, because an address is display data (the ops.ts rule).
  *
  * The read check is a fast path. The decision is the unique index: an account
@@ -436,7 +436,10 @@ export async function changeAccountEmail(
     let changed: AccountRow | null;
     try {
       changed = await store.recoverable(() =>
-        casAccount(store, account!.id, account!.version, { email }),
+        casAccount(store, account!.id, account!.version, {
+          email,
+          session_epoch: account!.session_epoch + 1,
+        }),
       );
     } catch (err) {
       if (isUniqueViolation(err)) return { ok: false, code: "taken" };
@@ -468,7 +471,8 @@ export async function stripeCustomersForAccount(
 }
 
 /**
- * Unbind the account's Google sign-in. False when none was bound.
+ * Unbind the account's Google sign-in and end the account's other sessions.
+ * False when none was bound.
  *
  * Afterwards that Google account reaches this one only by its address, the way
  * an unbound Google sign-in does (bindGoogleSubject): after an email change it
@@ -483,6 +487,7 @@ export async function removeGoogleSignIn(
     if (!account?.google_subject) return false;
     const unbound = await casAccount(store, account.id, account.version, {
       google_subject: null,
+      session_epoch: account.session_epoch + 1,
     });
     if (!unbound) {
       throw new Error(
@@ -492,6 +497,21 @@ export async function removeGoogleSignIn(
     await appendAccountAudit(store, account.id, "account.google_removed");
     return true;
   });
+}
+
+/**
+ * The account's session epoch, or null when the account does not exist. A
+ * session issued at an older epoch is no session (web/auth.ts).
+ */
+export async function sessionEpoch(
+  store: Store,
+  accountId: string,
+): Promise<number | null> {
+  const row = await store.sqlGet<{ session_epoch: number }>(
+    "select session_epoch from accounts where id = $1",
+    [accountId],
+  );
+  return row ? Number(row.session_epoch) : null;
 }
 
 async function appendAccountAudit(

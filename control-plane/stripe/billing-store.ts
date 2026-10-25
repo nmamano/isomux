@@ -31,6 +31,9 @@ export interface AccountRow {
    * casAccount's patch type: the one writer is operator-admin.ts, so a future
    * caller cannot raise its own privilege through the generic account CAS. */
   is_operator: number;
+  /** Raised by every change that ends the account's other sessions; a session
+   * carries the value it was issued at (signup.ts sessionEpoch). */
+  session_epoch: number;
   version: number;
   created_at: number;
   updated_at: number;
@@ -223,7 +226,10 @@ export async function casAccount(
   id: string,
   expectedVersion: number,
   patch: Partial<
-    Pick<AccountRow, "email" | "google_subject" | "stripe_customer_id">
+    Pick<
+      AccountRow,
+      "email" | "google_subject" | "stripe_customer_id" | "session_epoch"
+    >
   >,
 ): Promise<AccountRow | null> {
   assertInTx(store, "casAccount");

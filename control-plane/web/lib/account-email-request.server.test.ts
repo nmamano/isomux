@@ -1,5 +1,7 @@
 // The account routes: asking for an email change, confirming it from the link,
-// and removing the Google sign-in (task 887bfb07).
+// and removing the Google sign-in (task 887bfb07). The link applies only for
+// the account's own session, and a change that applied keeps that session
+// while it ends the account's others (task 4fe8a83c).
 //
 // Every dependency is passed in except the origin check, which is the real one.
 // The store and Stripe ends are stand-ins that record what they were asked, so
@@ -14,6 +16,7 @@ import {
   handleGoogleRemoval,
   type EmailChangeConfirmDeps,
   type EmailChangeRequestDeps,
+  type GoogleRemovalDeps,
 } from "./account-email-request.server";
 import { createLimiter, type Limiter } from "./rate-limit.server";
 import {
@@ -259,9 +262,14 @@ describe("asking for an email change", () => {
 
 interface Recorder {
   events: string[];
+  /** The store reads before any write: the refusal check, then the Stripe
+   * customers. */
+  reads: string[];
   stripeCalls: { customer: string; email: string; key: string }[];
   changes: { accountId: string; newEmail: string }[];
   notices: { to: string; newEmail: string }[];
+  /** One entry per keepSession call: how many changes had applied by then. */
+  kept: number[];
 }
 
 function confirmHarness(
@@ -270,13 +278,28 @@ function confirmHarness(
     secret: SECRET,
   }),
 ) {
-  const r: Recorder = { events: [], stripeCalls: [], changes: [], notices: [] };
+  const r: Recorder = {
+    events: [],
+    reads: [],
+    stripeCalls: [],
+    changes: [],
+    notices: [],
+    kept: [],
+  };
+  let signedIn: string | null = ACCOUNT;
   const deps: EmailChangeConfirmDeps = {
     apiKey: KEY,
     tokens,
+    accountId: async () => signedIn,
     ipLimiter: wide(),
-    refusal: async () => null,
-    stripeCustomers: async () => ["cus_a", "cus_b"],
+    refusal: async () => {
+      r.reads.push("refusal");
+      return null;
+    },
+    stripeCustomers: async () => {
+      r.reads.push("customers");
+      return ["cus_a", "cus_b"];
+    },
     updateStripeEmail: async (customer, email, key) => {
       r.events.push(`stripe:${customer}`);
       r.stripeCalls.push({ customer, email, key });
@@ -292,11 +315,20 @@ function confirmHarness(
       r.notices.push({ to: mail.to, newEmail: mail.newEmail });
       return { ok: true };
     },
+    keepSession: async () => {
+      r.kept.push(r.changes.length);
+    },
     ...over,
   };
   const link = (claims: EmailChangeClaims = { a: ACCOUNT, e: NEW }) =>
     tokens.create(claims);
-  return { deps, r, tokens, link };
+  return {
+    deps,
+    r,
+    tokens,
+    link,
+    signInAs: (id: string | null) => (signedIn = id),
+  };
 }
 
 const confirm = (body: unknown, headers?: Record<string, string>) =>
@@ -307,7 +339,7 @@ async function emailOf(response: Response): Promise<unknown> {
 }
 
 describe("confirming an email change", () => {
-  test("with no session: Stripe follows first, then the account, then the notice to the OLD address", async () => {
+  test("with the account's own session: Stripe follows first, then the account, then the notice to the OLD address", async () => {
     const { deps, r, tokens, link } = confirmHarness();
     const token = link();
     // An address in the body is not the link's address and is ignored: the
@@ -327,11 +359,57 @@ describe("confirming an email change", () => {
     expect(r.stripeCalls.map((c) => c.email)).toEqual([NEW, NEW]);
     expect(r.changes).toEqual([{ accountId: ACCOUNT, newEmail: NEW }]);
     expect(r.notices).toEqual([{ to: OLD, newEmail: NEW }]);
+    // The change ended the account's other sessions; this one is kept, once,
+    // and only after the change applied.
+    expect(r.kept).toEqual([1]);
     // The link is spent.
     expect(tokens.check(token)).toEqual({ ok: false, reason: "used" });
     const again = await handleEmailChangeConfirm(confirm({ token }), deps);
     expect(again.status).toBe(400);
     expect(r.changes.length).toBe(1);
+    expect(r.kept).toEqual([1]);
+  });
+
+  test("without a session it is a 401, and with another account's a 403: nothing is read or written and the link stays good", async () => {
+    // The pre-claim this closes: account A asks to move to an address nobody
+    // holds yet, and that inbox's owner presses the button.
+    const h = confirmHarness();
+    const token = h.link();
+    const statuses: number[] = [];
+    for (const session of [null, "acct-other"]) {
+      h.signInAs(session);
+      statuses.push(
+        (await handleEmailChangeConfirm(confirm({ token }), h.deps)).status,
+      );
+    }
+    expect(statuses).toEqual([401, 403]);
+    expect(h.r.reads).toEqual([]);
+    expect(h.r.events).toEqual([]);
+    expect(h.r.kept).toEqual([]);
+    expect(h.tokens.check(token).ok).toBe(true);
+
+    // The session was the only thing missing: the same link applies for the
+    // account that asked.
+    h.signInAs(ACCOUNT);
+    const applied = await handleEmailChangeConfirm(confirm({ token }), h.deps);
+    expect(applied.status).toBe(200);
+    expect(h.r.changes).toEqual([{ accountId: ACCOUNT, newEmail: NEW }]);
+  });
+
+  test("a session that cannot be kept does not fail a change that applied", async () => {
+    const { deps, r, link } = confirmHarness({
+      keepSession: async () => {
+        throw new Error("the session store is down");
+      },
+    });
+    const response = await handleEmailChangeConfirm(
+      confirm({ token: link() }),
+      deps,
+    );
+    expect(response.status).toBe(200);
+    expect(await emailOf(response)).toBe(NEW);
+    expect(r.changes.length).toBe(1);
+    expect(r.notices).toEqual([{ to: OLD, newEmail: NEW }]);
   });
 
   test("a Stripe failure is a 502 that changes nothing and leaves the link good; the retry replays the same Stripe keys", async () => {
@@ -351,6 +429,7 @@ describe("confirming an email change", () => {
     expect(failed.status).toBe(502);
     expect(r.changes).toEqual([]);
     expect(r.notices).toEqual([]);
+    expect(r.kept).toEqual([]);
     expect(tokens.check(token).ok).toBe(true);
     const first = r.stripeCalls.map((c) => ({
       customer: c.customer,
@@ -455,6 +534,8 @@ describe("confirming an email change", () => {
     expect(response.status).toBe(200);
     expect(await emailOf(response)).toBe(NEW);
     expect(r.notices).toEqual([]);
+    // Nothing changed, so no session ended and none needs keeping.
+    expect(r.kept).toEqual([]);
   });
 
   test("a change that finds the account already moved sends no notice", async () => {
@@ -474,6 +555,7 @@ describe("confirming an email change", () => {
     expect(response.status).toBe(200);
     expect(r.events).toEqual(["stripe:cus_a", "stripe:cus_b", "change"]);
     expect(r.notices).toEqual([]);
+    expect(r.kept).toEqual([]);
   });
 
   test("the account losing the race after Stripe moved is a 409 with no notice", async () => {
@@ -491,6 +573,7 @@ describe("confirming an email change", () => {
     expect(response.status).toBe(409);
     expect(r.events).toEqual(["stripe:cus_a", "stripe:cus_b", "change"]);
     expect(r.notices).toEqual([]);
+    expect(r.kept).toEqual([]);
   });
 
   test("a notice that cannot be sent does not undo or fail the change", async () => {
@@ -572,33 +655,54 @@ describe("confirming an email change", () => {
 // ------------------------------------------------------------ Google removal
 
 describe("removing the Google sign-in", () => {
-  function removal(bound: boolean) {
+  function removal(bound: boolean, over: Partial<GoogleRemovalDeps> = {}) {
     const removed: string[] = [];
+    // One entry per keepSession call: how many removals had run by then.
+    const kept: number[] = [];
     let signedIn: string | null = ACCOUNT;
+    const deps: GoogleRemovalDeps = {
+      accountId: async () => signedIn,
+      remove: async (accountId: string) => {
+        removed.push(accountId);
+        return bound;
+      },
+      keepSession: async () => {
+        kept.push(removed.length);
+      },
+      ...over,
+    };
     return {
       removed,
+      kept,
       signInAs: (id: string | null) => (signedIn = id),
-      deps: {
-        accountId: async () => signedIn,
-        remove: async (accountId: string) => {
-          removed.push(accountId);
-          return bound;
-        },
-      },
+      deps,
     };
   }
   const remove = (headers?: Record<string, string>) =>
     post("/api/account/google/remove", {}, headers);
 
-  test("removes it from the signed-in account", async () => {
+  test("removes it from the signed-in account, and keeps this session after the removal ended the others", async () => {
     const h = removal(true);
+    expect((await handleGoogleRemoval(remove(), h.deps)).status).toBe(200);
+    expect(h.removed).toEqual([ACCOUNT]);
+    expect(h.kept).toEqual([1]);
+  });
+
+  test("a session that cannot be kept does not fail a removal that applied", async () => {
+    const h = removal(true, {
+      keepSession: async () => {
+        throw new Error("the session store is down");
+      },
+    });
     expect((await handleGoogleRemoval(remove(), h.deps)).status).toBe(200);
     expect(h.removed).toEqual([ACCOUNT]);
   });
 
-  test("an account with no Google sign-in is a 404", async () => {
+  test("an account with no Google sign-in is a 404, and no session is touched", async () => {
     const h = removal(false);
     expect((await handleGoogleRemoval(remove(), h.deps)).status).toBe(404);
+    expect(h.removed).toEqual([ACCOUNT]);
+    expect(h.kept).toEqual([]);
   });
 
   test("signed out is a 401 and another site is a 403, and neither removes anything", async () => {
@@ -611,5 +715,6 @@ describe("removing the Google sign-in", () => {
     const signedOut = await handleGoogleRemoval(remove(), h.deps);
     expect([foreign.status, signedOut.status]).toEqual([403, 401]);
     expect(h.removed).toEqual([]);
+    expect(h.kept).toEqual([]);
   });
 });

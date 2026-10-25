@@ -683,7 +683,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "stripe/billing-store:getAccount; emailChangeRefusalFor, changeAccountEmailFor " +
       "-> signup:emailChangeRefusal, signup:changeAccountEmail (getAccount, " +
       "accountByAddress); stripeCustomersFor -> signup:stripeCustomersForAccount; " +
-      "removeGoogleSignInFor -> signup:removeGoogleSignIn (getAccount)",
+      "removeGoogleSignInFor -> signup:removeGoogleSignIn (getAccount); " +
+      "sessionEpochFor -> signup:sessionEpoch, on every session read",
   },
   {
     table: "accounts",
@@ -702,7 +703,7 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "share inside a transaction needs UPDATE on the row it locks; " +
       "changeAccountEmailFor -> signup:changeAccountEmail and removeGoogleSignInFor " +
       "-> signup:removeGoogleSignIn -> stripe/billing-store.ts casAccount write " +
-      "the email and clear the Google subject",
+      "the email and clear the Google subject, each raising the session epoch",
   },
   {
     table: "name_reservations",
@@ -927,6 +928,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "reservationIsDead",
       "reservationsForAccount",
       "reserveOffice",
+      "sessionEpoch",
       "stripeCustomersForAccount",
       "validateSignup",
     ],

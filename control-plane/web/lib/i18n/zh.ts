@@ -57,6 +57,10 @@ export const zh: Catalog = {
   "account.confirmFailed": "暂时无法更改你的电子邮箱。请稍后重试。",
   "account.linkInvalid": "此链接无效。<account>重新获取</account>。",
   "account.linkFailed": "此链接已过期或已被使用。<account>重新获取</account>。",
+  "account.confirmSignIn":
+    "请<signin>登录</signin>提出此更改的账户，然后重新打开邮件中的链接。",
+  "account.confirmOtherAccount":
+    "你登录的是另一个账户。请<signin>登录</signin>提出此更改的账户，然后重新打开邮件中的链接。",
   "account.mailSubject": "确认你的新 Isomux 电子邮箱",
   "account.mailIntro": "打开此链接，将此地址设为你的 Hosted Isomux 电子邮箱：",
   "account.noticeSubject": "你的 Isomux 电子邮箱已更改",

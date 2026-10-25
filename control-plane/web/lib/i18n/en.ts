@@ -82,6 +82,10 @@ export const en = {
     "This link is not valid. <account>Ask for a new one</account>.",
   "account.linkFailed":
     "This link has expired or was already used. <account>Ask for a new one</account>.",
+  "account.confirmSignIn":
+    "<signin>Sign in</signin> to the account that asked for this change, then open the link in the email again.",
+  "account.confirmOtherAccount":
+    "You are signed in to a different account. <signin>Sign in</signin> to the one that asked for this change, then open the link in the email again.",
   "account.mailSubject": "Confirm your new Isomux email",
   "account.mailIntro":
     "Open this link to make this address your Hosted Isomux email:",

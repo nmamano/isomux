@@ -202,6 +202,7 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     for (const [table, column] of [
       ["operations", "absolute_flagged"],
       ["accounts", "is_operator"],
+      ["accounts", "session_epoch"],
       ["instances", "customer_ssh_key"],
       ["instances", "certificate_contact_next_check_at"],
       ["name_reservations", "checkout_session_id"],

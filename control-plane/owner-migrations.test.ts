@@ -130,6 +130,7 @@ const PRE_MIGRATION = [
   MULTI_OFFICE_UNDONE,
   "alter table name_reservations drop column checkout_session_id",
   "alter table instances drop column certificate_contact_next_check_at",
+  "alter table accounts drop column session_epoch",
 ];
 
 suite("migrate-all", () => {

@@ -152,6 +152,10 @@ export interface EmailChangeConfirmDeps {
   /** AUTH_RESEND_KEY, for the notice to the old address. */
   apiKey: string | undefined;
   tokens: LinkTokens<EmailChangeClaims> | null;
+  /** The signed-in account, or null. */
+  accountId: () => Promise<string | null>;
+  /** Keeps this browser's session after the change ends the others. */
+  keepSession: () => Promise<void>;
   ipLimiter: Limiter;
   refusal: (
     accountId: string,
@@ -176,8 +180,10 @@ export interface EmailChangeConfirmDeps {
   now?: () => number;
 }
 
-/** POST /api/account/email/confirm {token}: apply the change the link names.
- * No session needed: the token binds the account and the new address. */
+/** POST /api/account/email/confirm {token}: apply the change the link names,
+ * for the account's own session only. The token binds the account and the new
+ * address; the session proves that whoever opened it holds that account, so a
+ * link mailed to someone else's inbox cannot move the account to them. */
 export async function handleEmailChangeConfirm(
   request: Request,
   deps: EmailChangeConfirmDeps,
@@ -205,6 +211,9 @@ export async function handleEmailChangeConfirm(
   const checked = tokens.check(token, now);
   if (!checked.ok) return new Response(null, { status: 400 });
   const { a: accountId, e: email } = checked.claims;
+  const signedIn = await deps.accountId();
+  if (!signedIn) return new Response(null, { status: 401 });
+  if (signedIn !== accountId) return new Response(null, { status: 403 });
   const done = () => Response.json({ email });
 
   const refusal = await deps.refusal(accountId, email);
@@ -260,6 +269,9 @@ export async function handleEmailChangeConfirm(
     );
     return text(t("account.changeEmailTaken"), 409);
   }
+  if (outcome.changed) {
+    await keep(deps.keepSession, `email change for account ${accountId}`);
+  }
   if (outcome.changed && deps.apiKey) {
     const sent = await deps
       .sendNotice(
@@ -278,6 +290,8 @@ export async function handleEmailChangeConfirm(
 
 export interface GoogleRemovalDeps {
   accountId: () => Promise<string | null>;
+  /** Keeps this browser's session after the removal ends the others. */
+  keepSession: () => Promise<void>;
   remove: (accountId: string) => Promise<boolean>;
 }
 
@@ -291,5 +305,21 @@ export async function handleGoogleRemoval(
   const accountId = await deps.accountId();
   if (!accountId) return new Response(null, { status: 401 });
   const removed = await deps.remove(accountId);
-  return new Response(null, { status: removed ? 200 : 404 });
+  if (!removed) return new Response(null, { status: 404 });
+  await keep(deps.keepSession, `Google removal for account ${accountId}`);
+  return new Response(null, { status: 200 });
+}
+
+/** Keep this browser signed in after a change that ended the account's other
+ * sessions. The change already applied, so a failure here only costs this
+ * browser a sign-in again. */
+async function keep(
+  keepSession: () => Promise<void>,
+  what: string,
+): Promise<void> {
+  try {
+    await keepSession();
+  } catch {
+    console.error(`${what}: this browser's session was not kept`);
+  }
 }
