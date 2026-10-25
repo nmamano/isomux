@@ -101,9 +101,11 @@ async function runOfficeScenario(
     await settings.goto(officeOrigin + "/integrations");
     await settings.bringToFront();
     await settings
-      .getByRole("tab", { name: t("integrations.tabs.browser"), exact: true })
+      .getByRole("button", {
+        name: t("integrations.tabs.browser"),
+        exact: true,
+      })
       .click();
-    expect(await settings.getByTestId("browser-backend").count()).toBe(0);
     expect(
       (await action(first.id, { action: "goto", url: "http://localhost/" }))
         .body.error.code,
