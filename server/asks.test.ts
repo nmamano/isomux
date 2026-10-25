@@ -7,7 +7,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { AskEntry } from "../shared/types.ts";
 import {
+  ASK_TASK_TITLE_MAX,
   askReplyNote,
+  askTaskFields,
   askVisibleTo,
   checkOptions,
   type AskAudienceDeps,
@@ -413,5 +415,132 @@ describe("the note before the member's words", () => {
     expect(
       askReplyNote({ id: "abcd1234", prompt: "x", dismissed: true }),
     ).not.toBe(askReplyNote({ id: "abcd1234", prompt: "x" }));
+  });
+
+  it("names the task an ask was filed as, apart from a reply and a dismiss", () => {
+    const filed = askReplyNote({
+      id: "abcd1234",
+      prompt: "Ship it?",
+      taskId: "feed0001",
+    });
+    expect(filed).toContain("abcd1234");
+    expect(filed).toContain("feed0001");
+    expect(filed).toContain(JSON.stringify("Ship it?"));
+    expect(filed).not.toBe(
+      askReplyNote({ id: "abcd1234", prompt: "Ship it?" }),
+    );
+    expect(filed).not.toBe(
+      askReplyNote({ id: "abcd1234", prompt: "Ship it?", dismissed: true }),
+    );
+    // The opening session is still named when the note reaches a later one.
+    expect(
+      askReplyNote(
+        { id: "abcd1234", prompt: "x", taskId: "feed0001", sessionId: "s-1" },
+        "s-2",
+      ),
+    ).toContain("s-1");
+  });
+});
+
+describe("the task an ask is filed as", () => {
+  const ask = (over: Partial<AskEntry>): AskEntry => ({
+    id: "abcd1234",
+    agentId: "a1",
+    memberUserId: "u1",
+    prompt: "Ship it?",
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  });
+  const codePoints = (s: string) => Array.from(s).length;
+  const loneSurrogate =
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  it("takes the title from the prompt's first non-blank line, whitespace collapsed", () => {
+    const { title } = askTaskFields(
+      ask({ prompt: "\n  \n  Ship   the\tbuild?  \nThe tests are green." }),
+      "Asker",
+    );
+    expect(title).toBe("Ship the build?");
+  });
+
+  it("cuts a long first line by code points, never through a character", () => {
+    // An exact fit stays whole.
+    const fits = "a".repeat(ASK_TASK_TITLE_MAX);
+    expect(askTaskFields(ask({ prompt: fits }), "Asker").title).toBe(fits);
+    // An emoji (two UTF-16 units) sits across the cut: a cut by units would
+    // split it.
+    const line = `${"a".repeat(ASK_TASK_TITLE_MAX - 2)}${"😀".repeat(20)}`;
+    const { title } = askTaskFields(ask({ prompt: line }), "Asker");
+    expect(loneSurrogate.test(title)).toBe(false);
+    expect(codePoints(title)).toBeLessThanOrEqual(ASK_TASK_TITLE_MAX);
+    // A visible cut: the title is shorter than the line and ends with a mark
+    // that is not the line's own text.
+    const kept = Array.from(title).slice(0, -1).join("");
+    expect(line.startsWith(kept)).toBe(true);
+    expect(codePoints(kept)).toBeGreaterThanOrEqual(ASK_TASK_TITLE_MAX - 2);
+    expect(line.startsWith(title)).toBe(false);
+  });
+
+  it("holds the whole prompt first, then what the card showed, then where it came from", () => {
+    const prompt = "Merge the branch?\n\nCI is green on 807b5ad5.";
+    const full = ask({
+      prompt,
+      options: ["Merge now", "Wait for Nil"],
+      recommended: "Wait for Nil",
+      link: "/tasks",
+      commands: ["git log --oneline -3"],
+      editFiles: [{ cwd: "/w", path: "/w/notes.md" }],
+      readFiles: [
+        {
+          filename: "ab12.png",
+          originalName: "plot.png",
+          mediaType: "image/png",
+          size: 7,
+        },
+      ],
+    });
+    const { description } = askTaskFields(full, "Asker");
+    expect(description.startsWith(prompt)).toBe(true);
+    const lines = description.split("\n");
+    for (const part of [
+      "Merge now",
+      "Wait for Nil",
+      "/tasks",
+      "git log --oneline -3",
+      "/w/notes.md",
+      "plot.png",
+    ])
+      expect([part, lines.filter((l) => l.includes(part)).length]).toEqual([
+        part,
+        1,
+      ]);
+    // The recommended option is marked: its line changes with the mark, the
+    // other option's line does not.
+    const unmarked = askTaskFields(
+      { ...full, recommended: undefined },
+      "Asker",
+    ).description.split("\n");
+    const lineOf = (ls: string[], part: string) =>
+      ls.find((l) => l.includes(part));
+    expect(lineOf(lines, "Merge now")).toBe(lineOf(unmarked, "Merge now"));
+    expect(lineOf(lines, "Wait for Nil")).not.toBe(
+      lineOf(unmarked, "Wait for Nil"),
+    );
+    // The last line names the agent and the ask.
+    const last = lines[lines.length - 1];
+    expect(last).toContain("Asker");
+    expect(last).toContain("abcd1234");
+  });
+
+  it("adds the member's note when there is one, and nothing for a bare ask", () => {
+    const bare = askTaskFields(ask({}), "Asker").description;
+    const noted = askTaskFields(ask({}), "Asker", "After the launch.");
+    expect(noted.description).toContain("After the launch.");
+    expect(bare).not.toContain("After the launch.");
+    // A bare ask is the prompt and the line it came from, nothing else.
+    expect(bare.split("\n").filter((l) => l.trim() !== "")).toHaveLength(2);
+    // The note does not change the title.
+    expect(noted.title).toBe("Ship it?");
   });
 });

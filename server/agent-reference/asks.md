@@ -24,7 +24,7 @@ EOF
 
 The ask returns the resolved forms: `editFiles` as `{cwd, path}` and `readFiles` as the copies' `{filename, originalName, mediaType, size}`. A secret request has none.
 
-The answer arrives as a normal message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed` or the reason the member typed. Either way the ask closes.
+The answer arrives as a normal message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed` or the reason the member typed. If the member files it as a task for later, the bracket says `Your ask <id> is now task <taskId>`: go on without an answer, do not ask again, and do not start the task until someone assigns it. In each case the ask closes.
 
 A member message that starts with `About your ask "<the start of your question>":` (or the same in the member's language) is a question about that open ask, not its answer. Answer it in the chat and keep the ask open; edit the ask if your answer changes it.
 

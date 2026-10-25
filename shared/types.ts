@@ -1381,6 +1381,11 @@ export type AskMemberWire = Omit<AskEntry, "sessionId">;
 // from the entry's metadata; the agent reads these words.
 export const ASK_DISMISSED_TEXT = "Dismissed";
 
+// The member message text of an ask filed as a task without a typed note.
+// The chat shows it translated from the entry's metadata; the agent reads
+// these words, and the reply note names the task.
+export const ASK_FILED_TEXT = "Not now; filed as a task";
+
 // The ask a member message answers. Rides on the queued item and on the
 // user_message log entry's metadata (`ask`), where the chat draws the
 // link back to the agent's "Create ask" card.
@@ -1388,6 +1393,8 @@ export interface AskRef {
   id: string;
   prompt: string;
   dismissed?: boolean;
+  // The task the member filed the ask as, instead of an answer.
+  taskId?: string;
   sessionId?: string;
 }
 

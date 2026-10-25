@@ -3659,6 +3659,15 @@ function buildExecutorDeps(
           agentManager.copyAskReadFile(agentId, absPath),
       },
       deliver: deliverAskAnswer,
+      agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,
+      createTask: ({ title, description, createdBy, username, roomId }) =>
+        agentManager.addTask(title, createdBy, {
+          description,
+          username,
+          roomId,
+        }),
+      deleteTask: (id) => agentManager.deleteTask(id),
+      attributionFor,
     }),
   );
 
@@ -6986,20 +6995,25 @@ function sendMemberMessage(
   });
 }
 
-// A reply or dismiss of an ask, delivered the way a typed member
+// A reply, a dismiss or a filed task of an ask, delivered the way a typed member
 // message is (an API token through its own send record, as on the message
 // route). Resolves at the acceptance decision.
 function deliverAskAnswer(
   identity: Identity,
   entry: AskEntry,
   text: string,
-  opts: { dismissed: boolean; device: string | undefined },
+  opts: {
+    dismissed: boolean;
+    taskId?: string;
+    device: string | undefined;
+  },
 ): Promise<UserSendAcceptance> {
   const username = attributionFor(identity).username;
   const ask = {
     id: entry.id,
     prompt: entry.prompt,
     ...(opts.dismissed ? { dismissed: true } : {}),
+    ...(opts.taskId ? { taskId: opts.taskId } : {}),
     ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
   };
   const send = (device: string | undefined) =>

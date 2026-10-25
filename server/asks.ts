@@ -473,6 +473,45 @@ export function askMemberWire({
   return entry;
 }
 
+// The task a member files an ask as: the title is the prompt's first
+// non-blank line, cut to ASK_TASK_TITLE_MAX code points; the description
+// holds the whole prompt, the options (the recommended one marked), the link,
+// the commands and files, the member's note when they typed one, and the
+// agent and ask it came from.
+export const ASK_TASK_TITLE_MAX = 120;
+export function askTaskFields(
+  entry: AskEntry,
+  agentName: string,
+  note?: string,
+): { title: string; description: string } {
+  const firstLine = entry.prompt.split("\n").find((l) => l.trim() !== "");
+  const line = Array.from((firstLine ?? "").trim().replace(/\s+/g, " "));
+  const title =
+    line.length > ASK_TASK_TITLE_MAX
+      ? `${line.slice(0, ASK_TASK_TITLE_MAX - 1).join("")}…`
+      : line.join("");
+  const parts = [entry.prompt.trim()];
+  if (entry.options)
+    parts.push(
+      `Options:\n${entry.options
+        .map((o) => `- ${o}${o === entry.recommended ? " (recommended)" : ""}`)
+        .join("\n")}`,
+    );
+  if (entry.link) parts.push(`Link: ${entry.link}`);
+  if (entry.commands)
+    parts.push(`Commands:\n${entry.commands.map((c) => `- ${c}`).join("\n")}`);
+  const files = [
+    ...(entry.editFiles ?? []).map((f) => f.path),
+    ...(entry.readFiles ?? []).map((f) => f.originalName),
+  ];
+  if (files.length > 0)
+    parts.push(`Files:\n${files.map((f) => `- ${f}`).join("\n")}`);
+  if (note !== undefined && note.trim() !== "")
+    parts.push(`Note: ${note.trim()}`);
+  parts.push(`From ${agentName}'s ask ${entry.id}.`);
+  return { title, description: parts.join("\n\n") };
+}
+
 // The bracket the agent reads before the member's words. The reply can reach a
 // later session (after a clear, a handoff or /wrap-session) that never saw the
 // question, so the note quotes the whole prompt and, when the session that
@@ -481,10 +520,13 @@ export function askReplyNote(
   ref: AskRef,
   currentSessionId: string | null = null,
 ): string {
-  const verb = ref.dismissed ? "Dismissed your ask" : "Reply to your ask";
   const from =
     ref.sessionId && ref.sessionId !== currentSessionId
       ? ` (opened in session ${ref.sessionId})`
       : "";
-  return `[${verb} ${ref.id}${from}: ${JSON.stringify(ref.prompt.trim())}] `;
+  const quoted = JSON.stringify(ref.prompt.trim());
+  if (ref.taskId)
+    return `[Your ask ${ref.id}${from} is now task ${ref.taskId}: ${quoted}] `;
+  const verb = ref.dismissed ? "Dismissed your ask" : "Reply to your ask";
+  return `[${verb} ${ref.id}${from}: ${quoted}] `;
 }

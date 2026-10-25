@@ -704,40 +704,75 @@ it("skips a secret request's fields when it moves with Tab", async () => {
   view.unmount();
 });
 
-it("sends a typed reason with a dismiss, and nothing for the default or a blank field", async () => {
-  for (const [typed, body] of [
-    [null, {}],
-    ["  not this week ", { text: "  not this week " }],
-    ["", {}],
-    ["   ", {}],
-    // The member deleted the default and typed it again: no reason.
-    ["DEFAULT", {}],
-  ] as const) {
-    posts = [];
-    const view = mount(false);
-    await waitFor(() => expect(cards(view.container).length).toBe(2));
-    const input = field(view.container, "aaaa0001");
-    const prefilled = input.value;
-    if (typed !== null) {
-      fireEvent.change(input, { target: { value: "" } });
-      if (typed !== "")
-        fireEvent.change(input, {
-          target: { value: typed === "DEFAULT" ? prefilled : typed },
-        });
+it("sends a typed note with a dismiss or a file-task, and nothing for the default or a blank field, and closes the card", async () => {
+  const buttons = {
+    dismiss: '[data-ask="aaaa0001"] form button[type=button]',
+    "file-task": '[data-ask="aaaa0001"] [data-ask-file-task]',
+  };
+  for (const [verb, selector] of Object.entries(buttons))
+    for (const [typed, body] of [
+      [null, {}],
+      ["  not this week ", { text: "  not this week " }],
+      ["", {}],
+      ["   ", {}],
+      // The member deleted the default and typed it again: no note.
+      ["DEFAULT", {}],
+    ] as const) {
+      posts = [];
+      const view = mount(false);
+      await waitFor(() => expect(cards(view.container).length).toBe(2));
+      const input = field(view.container, "aaaa0001");
+      const prefilled = input.value;
+      if (typed !== null) {
+        fireEvent.change(input, { target: { value: "" } });
+        if (typed !== "")
+          fireEvent.change(input, {
+            target: { value: typed === "DEFAULT" ? prefilled : typed },
+          });
+      }
+      const button = view.container.querySelector<HTMLButtonElement>(selector)!;
+      await act(async () => {
+        fireEvent.click(button);
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect([verb, typed, posts]).toEqual([
+        verb,
+        typed,
+        [{ path: `/api/asks/aaaa0001/${verb}`, body }],
+      ]);
+      expect([verb, cards(view.container)]).toEqual([verb, ["bbbb0002"]]);
+      view.unmount();
     }
-    const dismiss = view.container.querySelector<HTMLButtonElement>(
-      '[data-ask="aaaa0001"] form button[type=button]',
-    )!;
-    await act(async () => {
-      fireEvent.click(dismiss);
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect([typed, posts]).toEqual([
-      typed,
-      [{ path: "/api/asks/aaaa0001/dismiss", body }],
-    ]);
-    view.unmount();
-  }
+});
+
+it("keeps the card with the error when the server refuses a file-task, and draws the button on a phone too", async () => {
+  answer = async () => {
+    throw new ApiError(409, "agent_stopped", "agent_stopped");
+  };
+  const view = mount(true);
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+  );
+  fireEvent.click(
+    view.container.querySelector<HTMLElement>(
+      "[data-asks-stack=collapsed] button",
+    )!,
+  );
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="aaaa0001"]',
+  )!;
+  await act(async () => {
+    fireEvent.click(
+      card.querySelector<HTMLButtonElement>("[data-ask-file-task]")!,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/aaaa0001/file-task"]);
+  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(card.querySelector("[role=alert]")?.textContent).toContain(
+    "agent_stopped",
+  );
+  view.unmount();
 });
 
 // What the store holds for agent a6 after a click.

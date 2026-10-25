@@ -1,6 +1,6 @@
 // The Inbox's Asks tab: the member's open asks from every agent they can see,
 // grouped by agent, the longest wait first. Each ask is the AskCard the chat's
-// stack draws, so reply and dismiss work the same here; the agent's name opens
+// stack draws, so its answers work the same here; the agent's name opens
 // its chat. The list is the store's asks slice (ui/asks-sync.ts). InboxView
 // draws the header and the tabs around it.
 

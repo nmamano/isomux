@@ -7,6 +7,7 @@
 import { createContext, useContext } from "react";
 import {
   ASK_DISMISSED_TEXT,
+  ASK_FILED_TEXT,
   type AskRef,
   type LogEntry,
 } from "../../shared/types.ts";
@@ -21,19 +22,29 @@ export function askRefOf(entry: LogEntry): AskRef | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.id !== "string" || typeof r.prompt !== "string") return null;
-  return { id: r.id, prompt: r.prompt, dismissed: r.dismissed === true };
+  return {
+    id: r.id,
+    prompt: r.prompt,
+    dismissed: r.dismissed === true,
+    ...(typeof r.taskId === "string" ? { taskId: r.taskId } : {}),
+  };
 }
 
 /**
  * The text a member message answering an ask shows: the content of a reply,
  * the translated "Dismissed" of a bare dismiss, and "Dismissed: <reason>"
- * when the member typed a reason.
+ * when the member typed a reason; for an ask filed as a task, "Filed as task
+ * <id>", with the member's note when they typed one.
  */
 export function askAnswerText(
   t: Translator["t"],
   ask: AskRef | null | undefined,
   content: string,
 ): string {
+  if (ask?.taskId)
+    return content === ASK_FILED_TEXT
+      ? t("asks.filedAsTask", { task: ask.taskId })
+      : t("asks.filedAsTaskNote", { task: ask.taskId, note: content });
   if (!ask?.dismissed) return content;
   return content === ASK_DISMISSED_TEXT
     ? t("asks.dismissed")

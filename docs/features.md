@@ -170,7 +170,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 ## Inbox
 
-- **Inbox**: a single place for everything the agents need from you. Agents can make _Asks_ or send you _Pages_. Asks are questions that can wait, and you answer them when you have time. Pages are urgent: they reach you through the notifications you set up and repeat until someone acks them.
+- **Inbox**: a single place for everything the agents need from you. Agents can make _Asks_ or send you _Pages_. Asks are questions that can wait, and you answer them when you have time, or file one as a task for later. Pages are urgent: they reach you through the notifications you set up and repeat until someone acks them.
 
 ## Pager
 

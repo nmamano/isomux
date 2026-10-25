@@ -6,12 +6,12 @@
 // for, or an owner for an office secret request), while that member can
 // still reach the agent's room; anyone else gets the same 404 as an unknown
 // id. A secret request is answered on its own routes (secret-requests.ts),
-// never with a reply or a dismiss.
+// never with a reply, a dismiss or a filed task.
 //
-// A reply or a dismiss is a member message to the agent through the path a
-// typed message takes, so it wakes or resumes the agent the same way and is
-// refused only where a typed message would be. The ask closes after the
-// message is accepted; a refused message leaves it open.
+// A reply, a dismiss or a filed task is a member message to the agent through
+// the path a typed message takes, so it wakes or resumes the agent the same
+// way and is refused only where a typed message would be. The ask closes after
+// the message is accepted; a refused message leaves it open.
 //
 // The store emits the per-recipient events on commit, so these handlers never
 // emit directly. LEAF over the executor, the store and shared types.
@@ -24,7 +24,12 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import { ASK_DISMISSED_TEXT, type AskEntry } from "../../../shared/types.ts";
+import {
+  ASK_DISMISSED_TEXT,
+  ASK_FILED_TEXT,
+  type AskEntry,
+  type TaskItem,
+} from "../../../shared/types.ts";
 import {
   MAX_READ_FILE_BYTES,
   TERMINAL_COMMAND_MAX_LEN,
@@ -38,6 +43,7 @@ import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   askMemberWire,
+  askTaskFields,
   askVisibleTo,
   AsksUnavailableError,
   ASK_AFFORDANCE_KEYS,
@@ -80,14 +86,36 @@ export interface AsksDeps {
     probeReadFile(agentId: string, rawPath: string): ReadFileCheck | null;
     copyReadFile(agentId: string, absPath: string): AskReadFileCopy | null;
   };
-  // Deliver the member's message to the agent, carrying the ask.
-  // Resolves at the acceptance decision, as a typed member message does.
+  // Deliver the member's message to the agent, carrying the ask (and the
+  // task it was filed as). Resolves at the acceptance decision, as a typed
+  // member message does.
   deliver(
     identity: Identity,
     entry: AskEntry,
     text: string,
-    opts: { dismissed: boolean; device: string | undefined },
+    opts: {
+      dismissed: boolean;
+      taskId?: string;
+      device: string | undefined;
+    },
   ): Promise<UserSendAcceptance>;
+  // The agent's display name, for the filed task's description.
+  agentName(agentId: string): string | null;
+  // File a task on the board, and take it back when the agent refuses the
+  // message that names it.
+  createTask(input: {
+    title: string;
+    description: string;
+    createdBy: string;
+    username: string | undefined;
+    roomId: string;
+  }): TaskItem;
+  deleteTask(id: string): boolean;
+  // Who the caller is on the board, as tasks.create records it.
+  attributionFor(identity: Identity): {
+    createdBy: string;
+    username: string | undefined;
+  };
 }
 
 type HandlerResult = Awaited<ReturnType<RouteHandler>>;
@@ -322,62 +350,137 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     return { ok: true, affordances: out };
   }
 
-  const answer =
-    (dismissed: boolean): RouteHandler =>
-    async (ctx) => {
-      const body = (ctx.body ?? {}) as Record<string, unknown>;
-      if (body.device !== undefined && typeof body.device !== "string")
-        return fail(422, "invalid_request", "device must be a string");
-      if (body.device !== undefined && ctx.identity.scope !== "user")
-        return fail(
+  // The checks every answer shares: the body's device and text, the open
+  // ask the caller may answer, not a secret request, not already being
+  // answered. A reply needs text; a dismiss or a filed task may carry the
+  // member's note, and a blank one counts as none.
+  const answerable = (
+    ctx: Parameters<RouteHandler>[0],
+    textRequired: boolean,
+  ):
+    | { ok: true; entry: AskEntry; text?: string; device?: string }
+    | { ok: false; result: HandlerResult } => {
+    const refuse = (result: HandlerResult) => ({ ok: false as const, result });
+    const body = (ctx.body ?? {}) as Record<string, unknown>;
+    if (body.device !== undefined && typeof body.device !== "string")
+      return refuse(fail(422, "invalid_request", "device must be a string"));
+    if (body.device !== undefined && ctx.identity.scope !== "user")
+      return refuse(
+        fail(
           400,
           "api_attribution_not_supported",
           "device is not supported for API token senders.",
-        );
-      let text = ASK_DISMISSED_TEXT;
-      if (!dismissed) {
-        if (typeof body.text !== "string" || body.text.trim().length === 0)
-          return fail(400, "invalid_text", "text is required");
-        text = body.text;
-      } else if (body.text !== undefined) {
-        // A dismiss can carry the member's reason; a blank one is a bare
-        // dismiss.
-        if (typeof body.text !== "string")
-          return fail(400, "invalid_text", "text must be a string");
-        if (body.text.trim().length > 0) text = body.text;
-      }
-      const entry = addressedTo(ctx.identity, ctx.params.askId);
-      if (!entry) return notFound();
-      // A secret request is answered with its masked form only: a reply would
-      // carry what the member typed into the chat and to the agent.
-      if (entry.secret)
-        return secretRequest(
+        ),
+      );
+    let text: string | undefined;
+    if (textRequired) {
+      if (typeof body.text !== "string" || body.text.trim().length === 0)
+        return refuse(fail(400, "invalid_text", "text is required"));
+      text = body.text;
+    } else if (body.text !== undefined) {
+      if (typeof body.text !== "string")
+        return refuse(fail(400, "invalid_text", "text must be a string"));
+      if (body.text.trim().length > 0) text = body.text;
+    }
+    const entry = addressedTo(ctx.identity, ctx.params.askId);
+    if (!entry) return refuse(notFound());
+    // A secret request is answered with its masked form only: a reply would
+    // carry what the member typed into the chat and to the agent.
+    if (entry.secret)
+      return refuse(
+        secretRequest(
           "This ask is a secret request. Save or decline it instead.",
-        );
-      if (delivering.has(entry.id))
-        return fail(409, "ask_busy", "An answer to this ask is being sent.");
+        ),
+      );
+    if (delivering.has(entry.id))
+      return refuse(
+        fail(409, "ask_busy", "An answer to this ask is being sent."),
+      );
+    return { ok: true, entry, text, device: body.device };
+  };
+
+  // Close an answered ask. The agent has the message; a retry would send it
+  // twice, so a failed write is logged and the entry stays open until the
+  // store can write again.
+  const close = (entry: AskEntry) => {
+    try {
+      store.remove(entry.id);
+    } catch (err) {
+      console.error(
+        `[asks] ${entry.id} was answered but could not be closed:`,
+        err,
+      );
+    }
+  };
+
+  const answer =
+    (dismissed: boolean): RouteHandler =>
+    async (ctx) => {
+      const checked = answerable(ctx, !dismissed);
+      if (!checked.ok) return checked.result;
+      const { entry, device } = checked;
+      const text = checked.text ?? ASK_DISMISSED_TEXT;
       delivering.add(entry.id);
       try {
         const result = await deps.deliver(ctx.identity, entry, text, {
           dismissed,
-          device: body.device,
+          device,
         });
         if (!result.ok) return fail(result.status, result.code, result.message);
-        try {
-          store.remove(entry.id);
-        } catch (err) {
-          // The agent has the message; a retry would send it twice. The entry
-          // stays open until the store can write again.
-          console.error(
-            `[asks] ${entry.id} was answered but could not be closed:`,
-            err,
-          );
-        }
+        close(entry);
         return noContent();
       } finally {
         delivering.delete(entry.id);
       }
     };
+
+  // File the ask as a task in the agent's room, then tell the agent the task
+  // id in place of an answer. The task goes first so the message can name
+  // it; a refused or failed message takes it back and leaves the ask open,
+  // so a retry files one task, not two.
+  const fileTask: RouteHandler = async (ctx) => {
+    const checked = answerable(ctx, false);
+    if (!checked.ok) return checked.result;
+    const { entry, text: note, device } = checked;
+    const agent = deps.agent(entry.agentId);
+    if (!agent) return notFound();
+    const { title, description } = askTaskFields(
+      entry,
+      deps.agentName(entry.agentId) ?? entry.agentId,
+      note,
+    );
+    const { createdBy, username } = deps.attributionFor(ctx.identity);
+    delivering.add(entry.id);
+    try {
+      const task = deps.createTask({
+        title,
+        description,
+        createdBy,
+        username,
+        roomId: agent.roomId,
+      });
+      let result: UserSendAcceptance;
+      try {
+        result = await deps.deliver(
+          ctx.identity,
+          entry,
+          note ?? ASK_FILED_TEXT,
+          { dismissed: false, taskId: task.id, device },
+        );
+      } catch (err) {
+        deps.deleteTask(task.id);
+        throw err;
+      }
+      if (!result.ok) {
+        deps.deleteTask(task.id);
+        return fail(result.status, result.code, result.message);
+      }
+      close(entry);
+      return created(task);
+    } finally {
+      delivering.delete(entry.id);
+    }
+  };
 
   return {
     "agents.createAsk": guarded((ctx) => {
@@ -530,5 +633,6 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
     "asks.reply": guarded(answer(false)),
     "asks.dismiss": guarded(answer(true)),
+    "asks.fileTask": guarded(fileTask),
   };
 }

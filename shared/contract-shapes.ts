@@ -816,6 +816,12 @@ export interface AskDismissReq {
   text?: string;
   device?: string;
 }
+export interface AskFileTaskReq {
+  // What the member typed, sent to the agent and added to the task. Blank or
+  // absent: the agent reads "Not now; filed as a task".
+  text?: string;
+  device?: string;
+}
 // What an agent reads back: the member wire plus the target's username.
 // member is null for an office secret request, which is for every owner.
 export type AskAgentWire = AskMemberWire & { member: string | null };

@@ -1,8 +1,9 @@
-// One open ask: the agent's prompt, its age, a reply field, Reply and
-// Dismiss; a secret request has its masked form instead (SecretAskCard). The
-// asks stack above the chat input and the Asks page both draw it, so a new
-// kind of ask shows on both. The card goes on a 204, without waiting for
-// ask_removed. An ask with a link to an office page or an agent's chat has a
+// One open ask: the agent's prompt, its age, a reply field, Reply, Dismiss
+// and "Not now; file as a task", which files the ask on the board; a secret
+// request has its masked form instead (SecretAskCard). The asks stack above
+// the chat input and the Asks page both draw it, so a new kind of ask shows
+// on both. The card goes when the server accepts the answer, without waiting
+// for ask_removed. An ask with a link to an office page or an agent's chat has a
 // button that opens it (ui/office-link.tsx); the ask stays open. Every ask
 // has a "Discuss in chat" button (AskAboutButton) that starts a chat message
 // about it, and the ask stays open too. An ask with options has a button for
@@ -16,8 +17,8 @@
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card, and an untouched field follows an edit of the ask. While the field
-// holds the untouched default, focus and click select it, and Dismiss sends
-// nothing more; a typed reason goes with the dismiss. Tab and Shift+Tab move
+// holds the untouched default, focus and click select it, and Dismiss or
+// filing as a task sends nothing more; a typed note goes with either. Tab and Shift+Tab move
 // between the reply fields inside the list that draws the cards
 // ([data-asks-list]); at either end the browser's order goes on.
 
@@ -36,6 +37,7 @@ import { timeSince } from "../../shared/i18n/time.ts";
 import type { AskMemberWire } from "../../shared/types.ts";
 import type {
   AskDismissReq,
+  AskFileTaskReq,
   AskReplyReq,
 } from "../../shared/contract-shapes.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
@@ -251,20 +253,20 @@ function ReplyAskCard({
     if (untouched) el.setSelectionRange(0, el.value.length);
   }
 
-  async function answer(dismiss: boolean) {
+  async function answer(kind: "reply" | "dismiss" | "file-task") {
     if (sending.current) return;
-    if (!dismiss && reply.trim() === "") return;
+    if (kind === "reply" && reply.trim() === "") return;
     sending.current = true;
     setBusy(true);
     setError(null);
     const device = getDevice() || undefined;
     try {
-      if (dismiss) {
+      if (kind !== "reply") {
         const reason = dismissReason();
-        await apiFetch("POST", `/api/asks/${entry.id}/dismiss`, {
+        await apiFetch("POST", `/api/asks/${entry.id}/${kind}`, {
           ...(reason !== null ? { text: reason } : {}),
           ...(device ? { device } : {}),
-        } satisfies AskDismissReq);
+        } satisfies AskDismissReq & AskFileTaskReq);
       } else
         await apiFetch("POST", `/api/asks/${entry.id}/reply`, {
           text: reply,
@@ -283,6 +285,29 @@ function ReplyAskCard({
   }
 
   const buttonPad = isMobile ? "8px 14px" : "5px 14px";
+  const secondaryButton = {
+    padding: buttonPad,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "transparent",
+    color: "var(--text-dim)",
+    fontSize: 12,
+    cursor: busy ? "default" : "pointer",
+    flexShrink: 0,
+  } as const;
+  // Closes the ask and files it on the board; the reply field's note goes
+  // with it, as with Dismiss. A phone has no room for it in the reply row.
+  const fileTaskButton = (
+    <button
+      type="button"
+      data-ask-file-task=""
+      disabled={busy}
+      onClick={() => void answer("file-task")}
+      style={secondaryButton}
+    >
+      {t("asks.fileTask")}
+    </button>
+  );
   return (
     <div
       data-ask={entry.id}
@@ -442,7 +467,7 @@ function ReplyAskCard({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void answer(false);
+          void answer("reply");
         }}
         style={{ display: "flex", gap: 6, marginTop: 7, alignItems: "center" }}
       >
@@ -498,21 +523,20 @@ function ReplyAskCard({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void answer(true)}
-          style={{
-            padding: buttonPad,
-            borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: "transparent",
-            color: "var(--text-dim)",
-            fontSize: 12,
-            cursor: busy ? "default" : "pointer",
-            flexShrink: 0,
-          }}
+          onClick={() => void answer("dismiss")}
+          style={secondaryButton}
         >
           {t("asks.dismiss")}
         </button>
+        {!isMobile && fileTaskButton}
       </form>
+      {isMobile && (
+        <div
+          style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}
+        >
+          {fileTaskButton}
+        </div>
+      )}
       {error && (
         <div
           role="alert"

@@ -186,6 +186,7 @@ import type {
   AskEditReq,
   AskReplyReq,
   AskDismissReq,
+  AskFileTaskReq,
   AskAgentWire,
   SecretRequestRes,
   SecretRequestSaveReq,
@@ -961,6 +962,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/asks/:askId/dismiss",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
+  }),
+  defineRoute<AskFileTaskReq, TaskItem>({
+    opId: "asks.fileTask",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/asks/:askId/file-task",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    emits: [
+      "ask_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+      "tasks",
+    ],
   }),
   defineRoute<AffordancePreviewUrlReq, OkTrue>({
     opId: "agents.previewUrl",

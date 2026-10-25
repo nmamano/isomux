@@ -16,6 +16,7 @@ const { LogView } = await import("./LogView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { ASK_FILED_TEXT } = await import("../../shared/types.ts");
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
@@ -77,11 +78,35 @@ function logs(withCard: boolean): LogEntry[] {
         ask: { id: "abcd1234", prompt: "Go?", dismissed: true },
       },
     },
+    // The ask filed as a task, bare and with the member's note.
+    {
+      id: "filed",
+      agentId: "a1",
+      timestamp: 6,
+      kind: "user_message",
+      content: ASK_FILED_TEXT,
+      metadata: {
+        username: "Tester",
+        ask: { id: "abcd1234", prompt: "Go?", taskId: "feed0001" },
+      },
+    },
+    {
+      id: "filed-note",
+      agentId: "a1",
+      timestamp: 7,
+      kind: "user_message",
+      content: "after the launch",
+      metadata: {
+        username: "Tester",
+        ask: { id: "abcd1234", prompt: "Go?", taskId: "feed0001" },
+      },
+    },
   ];
 }
 
 // The viewer reads Catalan; the agent reads the stored English.
 const ca = translatorFor("ca");
+const en = translatorFor("en");
 const DISMISSED = ca.t("asks.dismissed");
 const WITH_REASON = ca.t("asks.dismissedReason", { reason: "wrong room" });
 
@@ -144,6 +169,26 @@ it("shows a dismiss in the viewer's language, not the English word the agent rea
     '[data-log-entry-id="dismiss-reason"]',
   )!.textContent;
   expect(reason).toContain(WITH_REASON);
+  view.unmount();
+});
+
+it("shows an ask filed as a task in the viewer's language, naming the task", () => {
+  const view = render(onLanguage("ca", <Transcript entries={logs(true)} />));
+  const text = (id: string) =>
+    view.container.querySelector<HTMLElement>(`[data-log-entry-id="${id}"]`)!
+      .textContent ?? "";
+  const bare = ca.t("asks.filedAsTask", { task: "feed0001" });
+  const noted = ca.t("asks.filedAsTaskNote", {
+    task: "feed0001",
+    note: "after the launch",
+  });
+  expect(bare).not.toBe(en.t("asks.filedAsTask", { task: "feed0001" }));
+  expect(text("filed")).toContain(bare);
+  expect(text("filed")).not.toContain(ASK_FILED_TEXT);
+  expect(text("filed-note")).toContain(noted);
+  // Neither reads as a dismiss.
+  expect(text("filed")).not.toContain(DISMISSED);
+  expect(text("filed-note")).not.toContain(DISMISSED);
   view.unmount();
 });
 

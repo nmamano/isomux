@@ -82,11 +82,13 @@ import type {
   MembersChatMessage,
   PagerEntry,
   AskMemberWire,
+  TaskItem,
   WebhookDelivery,
   WebhookWire,
 } from "../shared/types.ts";
 import {
   ASK_DISMISSED_TEXT,
+  ASK_FILED_TEXT,
   LOBBY_ROOM_ID,
   DEFAULT_AGENT_CAPABILITIES,
   NEW_AGENT_PERMISSION_MODE,
@@ -4017,18 +4019,43 @@ export async function demoApi(
   if (method === "GET" && /^\/api\/agents\/[^/]+\/sessions$/.test(pathname)) {
     return { sessions: [], currentSessionId: null };
   }
-  // asks.reply / asks.dismiss - close the ask and send
-  // the answer to its agent as a member message, as the server does.
-  const askMatch = pathname.match(/^\/api\/asks\/([^/]+)\/(reply|dismiss)$/);
+  // asks.reply / asks.dismiss / asks.fileTask - close the ask and send
+  // the answer to its agent as a member message, as the server does. A filed
+  // ask also goes on the board, in the agent's room, titled by its first line.
+  const askMatch = pathname.match(
+    /^\/api\/asks\/([^/]+)\/(reply|dismiss|file-task)$/,
+  );
   if (askMatch && method === "POST") {
     const entries = demoAskEntries();
     const entry = entries.find((e) => e.id === decodeURIComponent(askMatch[1]));
     if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
     const dismissed = askMatch[2] === "dismiss";
+    const filing = askMatch[2] === "file-task";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const typed = typeof sent === "string" ? sent : "";
-    // A dismiss carries the member's reason when they typed one.
-    const text = dismissed && typed.trim() === "" ? ASK_DISMISSED_TEXT : typed;
+    // A dismiss or a filed task carries the member's note when they typed one.
+    const text =
+      typed.trim() !== ""
+        ? typed
+        : dismissed
+          ? ASK_DISMISSED_TEXT
+          : filing
+            ? ASK_FILED_TEXT
+            : typed;
+    let task: TaskItem | undefined;
+    if (filing) {
+      const title =
+        entry.prompt.split("\n").find((l) => l.trim() !== "") ?? entry.prompt;
+      emitEvents(
+        state.addTask(title.trim(), "Ricky", {
+          description: entry.prompt,
+          username: "Ricky",
+          roomId: state.getState().agents.find((a) => a.id === entry.agentId)
+            ?.roomId,
+        }),
+      );
+      task = state.tasks.at(-1);
+    }
     demoAsks = entries.filter((e) => e.id !== entry.id);
     shimEmit({ type: "ask_removed", id: entry.id });
     shimEmit({
@@ -4038,11 +4065,12 @@ export async function demoApi(
           id: entry.id,
           prompt: entry.prompt,
           ...(dismissed ? { dismissed: true } : {}),
+          ...(task ? { taskId: task.id } : {}),
         },
       }),
     });
     demoChatReply(entry.agentId);
-    return undefined;
+    return task;
   }
   // agents.sendMessage (POST .../messages) - log the user message, show
   // "thinking", then reply after a beat. username is server-derived in prod, so

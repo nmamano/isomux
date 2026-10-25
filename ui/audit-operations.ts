@@ -1,6 +1,7 @@
 // Browser-safe operation suggestions. Coverage is checked against server write sites.
 export const AUDIT_OPERATIONS = [
   "asks.dismiss",
+  "asks.fileTask",
   "asks.reply",
   "admin.ownerLogin",
   "agents.abort",
