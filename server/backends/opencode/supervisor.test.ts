@@ -3269,8 +3269,7 @@ globalThis.migrationStatus = () => {
       return { ...made, release, polls };
     }
 
-    // Quarantined (task ed8eb0b7): timed out under full CI load before the first import poll.
-    it.skip("holds the start until the import completes, with the record marked meanwhile", async () => {
+    it("holds the start until the import completes, with the record marked meanwhile", async () => {
       const path = await root();
       const { binary, release, polls } = await slowImport(path);
       const supervisor = makeSupervisor(path, undefined, 600_000, {}, binary);
@@ -3278,27 +3277,40 @@ globalThis.migrationStatus = () => {
       const acquiring = supervisor.acquire().finally(() => {
         settled = true;
       });
-      let pending: Record<string, unknown> | null = null;
-      for (let i = 0; i < 200 && !pending?.v1Import; i++) {
-        pending = await record(supervisor);
-        if (!pending?.v1Import) await Bun.sleep(25);
+      // A failed body must not fail the next case with this start's rejection.
+      acquiring.catch(() => {});
+      const pollCount = async () =>
+        (await readFile(polls, "utf8").catch(() => ""))
+          .split("\n")
+          .filter(Boolean).length;
+      try {
+        let pending: Record<string, unknown> | null = null;
+        for (let i = 0; i < 200 && !pending?.v1Import; i++) {
+          pending = await record(supervisor);
+          if (!pending?.v1Import) await Bun.sleep(25);
+        }
+        // M1: the server has a record while it imports, so a helper that dies
+        // here leaves no unrecorded server.
+        expect(pending?.v1Import).toBe("running");
+        expect(typeof pending?.pid).toBe("number");
+        expect(typeof pending?.startTicks).toBe("string");
+        // The record is written before the first poll. A second poll shows
+        // that the helper got "running" and did not stop there.
+        const deadline = Date.now() + 5_000;
+        let count = await pollCount();
+        while (count < 2 && Date.now() < deadline) {
+          await Bun.sleep(25);
+          count = await pollCount();
+        }
+        expect(count, "the helper polls the import").toBeGreaterThanOrEqual(2);
+        expect(settled, "no lease while the import runs").toBe(false);
+        expect(existsSync(ready(supervisor)), "no ready marker yet").toBe(
+          false,
+        );
+      } finally {
+        // Lets the start helper end, so the file's afterEach can stop it.
+        await writeFile(release, "");
       }
-      // M1: the server has a record while it imports, so a helper that dies
-      // here leaves no unrecorded server.
-      expect(pending?.v1Import).toBe("running");
-      expect(typeof pending?.pid).toBe("number");
-      expect(typeof pending?.startTicks).toBe("string");
-      const before = (await readFile(polls, "utf8"))
-        .split("\n")
-        .filter(Boolean).length;
-      await Bun.sleep(400);
-      expect(
-        (await readFile(polls, "utf8")).split("\n").filter(Boolean).length,
-        "the helper polls the import",
-      ).toBeGreaterThan(before);
-      expect(settled, "no lease while the import runs").toBe(false);
-      expect(existsSync(ready(supervisor)), "no ready marker yet").toBe(false);
-      await writeFile(release, "");
       const lease = await acquiring;
       const done = await record(supervisor);
       expect(done?.pid).toBe(lease.pid);
