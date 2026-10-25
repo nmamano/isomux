@@ -1,75 +1,11 @@
-import { getThemeById, type ThemeMode } from "../../../themes.ts";
+import type { ThemeMode } from "../../../themes.ts";
 
-// The hospital keeps one identity - clinical green-white by day, the same room
-// with the lights down at night - under every theme, the way the lobby does
-// (ui/office/lobby/palette.ts). Only the mode matters: every theme in
-// ui/themes.ts declares whether it is a dark or a light one, and the skin
-// follows that and nothing else.
-//
-// Two maps, because they are read in two different ways. `hospitalSceneVars`
-// overrides theme variables the existing scene already paints itself from, so
-// the floor and the walls change with no branch in Floor.tsx. `hospitalColors`
-// is read by the skin's own drawings, which are not part of any theme.
-//
-// The derived faces keep the theme's own rule - caps face up and are brightest,
-// the left cut and left slab sides face lower-left, their right counterparts
-// lower-right and are darkest - and keep the theme's expressions verbatim, base
-// colour aside. A var() inside a custom property resolves on the element that
-// DECLARES it, and these are declared on the scene container next to the bases
-// below, so they mix against the hospital's floor and walls, not the theme's.
-
-const DAY: Record<string, string> = {
-  "--floor-light": "#e9f1ec",
-  "--floor-dark": "#e2ebe6",
-  "--floor-edge-light-left":
-    "color-mix(in srgb, var(--floor-light) 92%, black)",
-  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 92%, black)",
-  "--floor-edge-light-right":
-    "color-mix(in srgb, var(--floor-light) 84%, black)",
-  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 84%, black)",
-  "--floor-stroke": "rgba(24,64,54,0.11)",
-  "--wall-left": "#d7e5e0",
-  "--wall-right": "#cbdbd5",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 88%, white)",
-  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 92%, black)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 84%, black)",
-  "--wall-stroke": "rgba(24,64,54,0.09)",
-  "--wall-decor": "#dfeae6",
-  "--wall-decor-inner": "#eef5f2",
-  "--wall-decor-stroke": "rgba(0,0,0,0.09)",
-  "--clock-hand": "rgba(14,48,40,0.5)",
-};
-
-const dracula = getThemeById("dracula").vars;
-
-const NIGHT: Record<string, string> = {
-  "--floor-light": dracula["--floor-light"],
-  "--floor-dark": dracula["--floor-dark"],
-  "--floor-edge-light-left": dracula["--floor-edge-light-left"],
-  "--floor-edge-dark-left": dracula["--floor-edge-dark-left"],
-  "--floor-edge-light-right": dracula["--floor-edge-light-right"],
-  "--floor-edge-dark-right": dracula["--floor-edge-dark-right"],
-  "--floor-stroke": dracula["--floor-stroke"],
-  "--wall-left": dracula["--wall-left"],
-  "--wall-right": dracula["--wall-right"],
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 84%, white)",
-  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 84%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 90%, white)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 94%, white)",
-  "--wall-stroke": "rgba(255,255,255,0.025)",
-  "--wall-decor": dracula["--wall-decor"],
-  "--wall-decor-inner": dracula["--wall-decor-inner"],
-  "--wall-decor-stroke": dracula["--wall-decor-stroke"],
-  "--clock-hand": "rgba(255,255,255,0.4)",
-};
-
-/** The theme variables the hospital repaints. Everything the office scene draws
- *  from these - floor tiles, slab sides, both walls, their cut faces, the wall
- *  plates and the clock hands - follows without a branch. */
-export function hospitalSceneVars(mode: ThemeMode): Record<string, string> {
-  return mode === "light" ? DAY : NIGHT;
-}
+// The colours of the hospital's own drawings: the wainscot, the first-aid
+// cabinet, the beds, the IV stand and the curtain. They are not part of any
+// theme, so only the mode matters: every theme in ui/themes.ts declares
+// whether it is a dark or a light one. The walls and the floor are not here:
+// the hospital's green is the "clinic" room tint (../tint.ts), the one path
+// every room colour takes.
 
 /** What the skin's OWN drawings are painted in: the wainscot on the walls, the
  *  first-aid cabinet, the beds, the IV stand and the curtain. */

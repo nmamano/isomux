@@ -74,7 +74,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - Auto-generated **conversation topic** below nametag.
 - **Drag agents between desks or rooms** to rearrange, or onto the trap door to move them to the back room.
 - **A pet in every room** - a cat by default; click it to pick a cat, dog, rabbit or tortoise and a coat for it. The choice is stored with the room, so everyone sees the same animal.
-- **Room look** - pick Office or Hospital, then the walls, curtains, plants, wall art and more.
+- **Room look** - in a room's settings (double-click its tab), pick Office or Hospital, then the room color, floor pattern, a plate with the room's name, curtains, plants and more.
 - **Skeuomorphic touches**: click the moon through the window to toggle dark mode, click doors to switch rooms, etc.
 - **Color themes**: Dark, Light, Nord, Dracula, Solarized Dark/Light.
 

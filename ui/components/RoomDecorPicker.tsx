@@ -33,7 +33,12 @@ import {
   sceneVarsFor,
 } from "../office/skins/index.tsx";
 import { HospitalProps } from "../office/skins/hospital/props.tsx";
-import { NeonSign, WindowPlant } from "../office/Floor.tsx";
+import {
+  FloorTiles,
+  NeonSign,
+  RoomNamePlate,
+  WindowPlant,
+} from "../office/Floor.tsx";
 import { BlossomJar, CornerPlant, PlantDefs } from "../office/plants.tsx";
 import { PetCorner, drawnPet } from "../office/RoomProps.tsx";
 import { FLOOR_CLIP } from "../office/grid.ts";
@@ -63,6 +68,8 @@ type Box = readonly [number, number, number, number];
 const ROOM_BOX: Box = [-370, -215, 980, 754];
 const SLOT_BOX: Record<Exclude<RoomDecorSlot, "pet">, Box> = {
   walls: ROOM_BOX,
+  // The front corner, where the slab sides show the pattern's thickness.
+  floor: [0, 360, 240, 185],
   curtains: [-335, -75, 240, 185],
   sill: [-300, -5, 160, 123],
   wallArt: [295, -80, 160, 123],
@@ -111,14 +118,14 @@ function Thumb({
   size: { width: number; height: number };
   children?: ReactNode;
 }) {
-  const { mode } = useTheme();
+  const { theme } = useTheme();
   return (
     <svg
       aria-hidden="true"
       width={size.width}
       height={size.height}
       viewBox={box.join(" ")}
-      style={sceneVarsFor(walls, mode)}
+      style={sceneVarsFor(walls, theme)}
     >
       <defs>
         <PlantDefs />
@@ -136,9 +143,11 @@ const PRESET_TILE = { width: 96, height: 74 };
 function SlotDrawing<S extends Exclude<RoomDecorSlot, "pet">>({
   slot,
   value,
+  roomName,
 }: {
   slot: S;
   value: ResolvedRoomDecor[S];
+  roomName: string;
 }) {
   switch (slot) {
     case "curtains":
@@ -155,7 +164,10 @@ function SlotDrawing<S extends Exclude<RoomDecorSlot, "pet">>({
           }}
         />
       );
+    case "floor":
+      return <FloorTiles pattern={value as ResolvedRoomDecor["floor"]} />;
     case "wallArt":
+      if (value === "name") return <RoomNamePlate name={roomName} />;
       return value === "neon" ? (
         <NeonSign color={TILE_NEON} />
       ) : (
@@ -197,12 +209,19 @@ function FloorPlantAt() {
 }
 
 /** The whole room in a decor, smaller than life: what a preset tile shows. */
-function RoomDrawing({ decor }: { decor: ResolvedRoomDecor }) {
+function RoomDrawing({
+  decor,
+  roomName,
+}: {
+  decor: ResolvedRoomDecor;
+  roomName: string;
+}) {
   return (
     <>
       <DecorWallPieces decor={decor} />
       {decor.wallArt === "neon" && <NeonSign color={TILE_NEON} />}
-      <SlotDrawing slot="sill" value={decor.sill} />
+      {decor.wallArt === "name" && <RoomNamePlate name={roomName} />}
+      <SlotDrawing slot="sill" value={decor.sill} roomName={roomName} />
       {decor.ward === "beds" && <HospitalProps />}
       {decor.floorPlant === "plant" && <FloorPlantAt />}
       {decor.pet === "shown" && <PetCorner pet={null} />}
@@ -235,6 +254,7 @@ const SPECIES_KEY: Record<
 // the compiler. The pet row names its options by species instead.
 const SLOT_KEY: Record<Exclude<RoomDecorSlot, "pet">, DecorKey> = {
   walls: "office.decor.walls",
+  floor: "office.decor.floor",
   curtains: "office.decor.curtains",
   sill: "office.decor.sill",
   wallArt: "office.decor.wallArt",
@@ -250,6 +270,18 @@ const OPTION_KEY: {
   walls: {
     office: "office.decor.walls.office",
     clinic: "office.decor.walls.clinic",
+    teal: "office.decor.walls.teal",
+    sky: "office.decor.walls.sky",
+    lilac: "office.decor.walls.lilac",
+    rose: "office.decor.walls.rose",
+    clay: "office.decor.walls.clay",
+  },
+  floor: {
+    checker: "office.decor.floor.checker",
+    plain: "office.decor.floor.plain",
+    stripes: "office.decor.floor.stripes",
+    blocks: "office.decor.floor.blocks",
+    mosaic: "office.decor.floor.mosaic",
   },
   curtains: { none: "office.decor.none", tied: "office.decor.curtains.tied" },
   sill: {
@@ -259,6 +291,7 @@ const OPTION_KEY: {
   },
   wallArt: {
     neon: "office.decor.wallArt.neon",
+    name: "office.decor.wallArt.name",
     landscape: "office.decor.wallArt.landscape",
     chart: "office.decor.wallArt.chart",
     none: "office.decor.none",
@@ -370,7 +403,7 @@ export const RoomDecorPicker = memo(function RoomDecorPicker({
             select: () => onChange(pickPreset(look, skin)),
             picture: (
               <Thumb box={ROOM_BOX} walls={drawn.walls} size={PRESET_TILE}>
-                <RoomDrawing decor={drawn} />
+                <RoomDrawing decor={drawn} roomName={room.name} />
               </Thumb>
             ),
           };
@@ -392,11 +425,13 @@ export const RoomDecorPicker = memo(function RoomDecorPicker({
                 <Thumb
                   box={SLOT_BOX[s]}
                   walls={
-                    s === "walls" ? (value as "office" | "clinic") : decor.walls
+                    s === "walls"
+                      ? (value as ResolvedRoomDecor["walls"])
+                      : decor.walls
                   }
                   size={TILE}
                 >
-                  <SlotDrawing slot={s} value={value} />
+                  <SlotDrawing slot={s} value={value} roomName={room.name} />
                 </Thumb>
               ),
             }))}

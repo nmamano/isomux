@@ -10,10 +10,13 @@
 // not import UI.
 
 export const ROOM_DECOR_OPTIONS = {
-  walls: ["office", "clinic"],
+  // "clinic" is the green tint. It keeps the wire name the hospital stored
+  // before every colour became a tint.
+  walls: ["office", "clinic", "teal", "sky", "lilac", "rose", "clay"],
+  floor: ["checker", "plain", "stripes", "blocks", "mosaic"],
   curtains: ["none", "tied"],
   sill: ["trailing", "blossom", "none"],
-  wallArt: ["neon", "landscape", "chart", "none"],
+  wallArt: ["neon", "name", "landscape", "chart", "none"],
   trim: ["none", "rail"],
   cabinet: ["none", "first-aid"],
   floorPlant: ["plant", "none"],

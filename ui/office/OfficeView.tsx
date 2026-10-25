@@ -37,7 +37,7 @@ import { inboxTabFor, useInboxCounts, type InboxTab } from "../inbox.ts";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
-import { useRoomSkinVars } from "./skins/index.tsx";
+import { useCurrentRoomDecor, useRoomSkinVars } from "./skins/index.tsx";
 import { GroundShadows } from "./GroundShadows.tsx";
 import {
   Seasonal,
@@ -380,6 +380,7 @@ export function OfficeView({
   // these, so a skin repaints them with no branch in the drawing; the tab bar,
   // the HUD and the panels sit outside that container and never see them.
   const skinVars = useRoomSkinVars();
+  const { floor: floorPattern } = useCurrentRoomDecor();
   const newRoomDoor = embed
     ? null
     : {
@@ -904,6 +905,7 @@ export function OfficeView({
                     {decorateScene && (
                       <Floor
                         desk8Cable={roomAgents.some((a) => a.desk === 7)}
+                        pattern={floorPattern}
                       />
                     )}
                     {decorateScene && <GroundShadows />}

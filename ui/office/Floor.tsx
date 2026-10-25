@@ -30,8 +30,12 @@ import { DecorWalls, useCurrentRoomDecor } from "./skins/index.tsx";
 import {
   DOOR_LABEL_SIZE,
   fitDoorLabel,
+  fitLabelWhole,
   type DoorLabelFit,
+  type LabelBox,
 } from "./door-label.ts";
+import { noTranslate } from "../no-translate.ts";
+import { floorPattern, slabTones, type FloorPattern } from "./floor-pattern.ts";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
@@ -52,9 +56,103 @@ const SVG_STYLE: React.CSSProperties = {
 };
 const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
 
+// Slab thickness, and the outer corners where the slab passes under the wall
+// (the wall footprint is 9 x 4.5 wider than the tile grid on each side).
+const SLAB_H = 14;
+const SLAB_OUTER_LEFT_X = -364,
+  SLAB_OUTER_RIGHT_X = 604,
+  SLAB_OUTER_Y = 273;
+
+/** The floor's tiles and the slab sides under its front edges, in one
+ *  pattern. Scene coordinates, no svg of its own, so the settings tiles draw
+ *  it inside theirs. */
+export function FloorTiles({ pattern }: { pattern: FloorPattern }) {
+  const N = FLOOR_N;
+  // The pattern can split each desk-grid tile into smaller cells, so the
+  // tiles and the slab segments step by one cell, not one desk tile.
+  const grid = floorPattern(pattern);
+  const cells = grid.cells;
+  const split = cells / N;
+  const cellRowDx = FLOOR_ROW_DX / split,
+    cellRowDy = FLOOR_ROW_DY / split,
+    cellColDx = FLOOR_COL_DX / split,
+    cellColDy = FLOOR_COL_DY / split;
+
+  const tiles = [];
+  for (let r = 0; r < cells; r++) {
+    for (let c = 0; c < cells; c++) {
+      const bx = FLOOR_BACK_X + r * cellRowDx + c * cellColDx;
+      const by = FLOOR_BACK_Y + r * cellRowDy + c * cellColDy;
+      const tone = grid.tone(r, c);
+      tiles.push(
+        <path
+          key={`${r}-${c}`}
+          d={`M${bx} ${by} L${bx + cellRowDx} ${by + cellRowDy} L${bx + cellRowDx + cellColDx} ${by + cellRowDy + cellColDy} L${bx + cellColDx} ${by + cellColDy} Z`}
+          data-floor-tile={`${r}-${c}`}
+          data-floor-tone={tone}
+          fill={`var(--floor-${tone})`}
+          stroke="var(--floor-stroke)"
+          strokeWidth="0.5"
+        />,
+      );
+    }
+  }
+
+  // The slab sides carry the pattern down over the thickness, so each front
+  // cell continues as its own slab segment and the floor reads as one solid
+  // piece. The cell that meets the left side is (cells-1, i); the one that
+  // meets the right side is (i, cells-1). The first segment on each side
+  // reaches out to the wall's outer corner.
+  const edgeTones = slabTones(pattern);
+  const slabs = [];
+  for (let i = 0; i < cells; i++) {
+    const lx = i === 0 ? SLAB_OUTER_LEFT_X : -355 + i * cellColDx;
+    const ly = i === 0 ? SLAB_OUTER_Y : 277.5 + i * cellColDy;
+    const lex = -355 + (i + 1) * cellColDx,
+      ley = 277.5 + (i + 1) * cellColDy;
+    const rx = i === 0 ? SLAB_OUTER_RIGHT_X : 595 - i * cellColDx;
+    const ry = i === 0 ? SLAB_OUTER_Y : 277.5 + i * cellColDy;
+    const rex = 595 - (i + 1) * cellColDx,
+      rey = 277.5 + (i + 1) * cellColDy;
+    slabs.push(
+      <path
+        key={`sl-${i}`}
+        data-floor-slab={`left-${i}`}
+        data-floor-tone={edgeTones.left[i]}
+        d={`M${lx} ${ly} L${lex} ${ley} L${lex} ${ley + SLAB_H} L${lx} ${ly + SLAB_H} Z`}
+        fill={`var(--floor-edge-${edgeTones.left[i]}-left)`}
+        stroke="var(--floor-stroke)"
+        strokeWidth="0.5"
+      />,
+      <path
+        key={`sr-${i}`}
+        data-floor-slab={`right-${i}`}
+        data-floor-tone={edgeTones.right[i]}
+        d={`M${rx} ${ry} L${rex} ${rey} L${rex} ${rey + SLAB_H} L${rx} ${ry + SLAB_H} Z`}
+        fill={`var(--floor-edge-${edgeTones.right[i]}-right)`}
+        stroke="var(--floor-stroke)"
+        strokeWidth="0.5"
+      />,
+    );
+  }
+
+  return (
+    <>
+      {slabs}
+      {tiles}
+    </>
+  );
+}
+
 // desk8Cable: the cable belongs to the desk at slot 8, so a room without
 // that desk shows no cable.
-export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
+export function Floor({
+  desk8Cable = true,
+  pattern = "checker",
+}: {
+  desk8Cable?: boolean;
+  pattern?: FloorPattern;
+}) {
   // Floor diamond matches wall bottom edges (2:1 isometric ratio):
   // back=(120,40), left=(-355,277.5), right=(595,277.5), front=(120,515)
   const backX = FLOOR_BACK_X,
@@ -64,65 +162,6 @@ export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
   const colDx = FLOOR_COL_DX,
     colDy = FLOOR_COL_DY;
   const N = FLOOR_N;
-
-  // Slab thickness, and the outer corners where the slab passes under the
-  // wall (the wall footprint is 9 x 4.5 wider than the tile grid on each side).
-  const SLAB_H = 14;
-  const outerLeftX = -364,
-    outerRightX = 604,
-    outerY = 273;
-
-  const tiles = [];
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      const bx = backX + r * rowDx + c * colDx;
-      const by = backY + r * rowDy + c * colDy;
-      const light = (r + c) % 2 === 0;
-      tiles.push(
-        <path
-          key={`${r}-${c}`}
-          d={`M${bx} ${by} L${bx + rowDx} ${by + rowDy} L${bx + rowDx + colDx} ${by + rowDy + colDy} L${bx + colDx} ${by + colDy} Z`}
-          fill={light ? "var(--floor-light)" : "var(--floor-dark)"}
-          stroke="var(--floor-stroke)"
-          strokeWidth="0.5"
-        />,
-      );
-    }
-  }
-
-  // The slab sides carry the checkerboard down over the thickness, so each
-  // front-edge tile continues as its own slab. The tile that meets the left
-  // side is (N-1, i); the one that meets the right side is (i, N-1), so both
-  // share the same parity. The first slab on each side reaches out to the
-  // wall's outer corner.
-  const slabs = [];
-  for (let i = 0; i < N; i++) {
-    const fill = `var(--floor-edge-${(N - 1 + i) % 2 === 0 ? "light" : "dark"}-`;
-    const lx = i === 0 ? outerLeftX : -355 + i * colDx;
-    const ly = i === 0 ? outerY : 277.5 + i * colDy;
-    const lex = -355 + (i + 1) * colDx,
-      ley = 277.5 + (i + 1) * colDy;
-    const rx = i === 0 ? outerRightX : 595 - i * colDx;
-    const ry = i === 0 ? outerY : 277.5 + i * colDy;
-    const rex = 595 - (i + 1) * colDx,
-      rey = 277.5 + (i + 1) * colDy;
-    slabs.push(
-      <path
-        key={`sl-${i}`}
-        d={`M${lx} ${ly} L${lex} ${ley} L${lex} ${ley + SLAB_H} L${lx} ${ly + SLAB_H} Z`}
-        fill={`${fill}left)`}
-        stroke="var(--floor-stroke)"
-        strokeWidth="0.5"
-      />,
-      <path
-        key={`sr-${i}`}
-        d={`M${rx} ${ry} L${rex} ${rey} L${rex} ${rey + SLAB_H} L${rx} ${ry + SLAB_H} Z`}
-        fill={`${fill}right)`}
-        stroke="var(--floor-stroke)"
-        strokeWidth="0.5"
-      />,
-    );
-  }
 
   // Desk 8 (slot index 7) is the desk nearest the visible floor edge, so its
   // cable is the one that can reach the lip and fall over it. Reading the
@@ -221,8 +260,7 @@ export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
       viewBox={VB}
       overflow="visible"
     >
-      {slabs}
-      {tiles}
+      <FloorTiles pattern={pattern} />
 
       {/* Desk 8's cable: out from under the desk, across to the lip, over
           the side of the slab and off the edge of the world. Each run is a
@@ -1015,6 +1053,7 @@ export function Walls({
   const { currentRoomId, rooms } = useAppState();
   const { t, language } = useI18n();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
+  const roomName = rooms[roomIndex]?.name ?? "";
   const { sill, wallArt } = useCurrentRoomDecor();
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
@@ -1613,6 +1652,19 @@ export function Walls({
           onOpen={() => window.open(landingUrl(language), "_blank")}
         />
       )}
+      {/* The room's name on a plate. It opens the room's settings, where the
+          plate was picked. */}
+      {wallArt === "name" && roomName.trim() && (
+        <RoomNamePlate
+          name={roomName}
+          title={
+            onOpenSettings
+              ? t("office.namePlate.title", { name: roomName.trim() })
+              : roomName.trim()
+          }
+          onOpen={onOpenSettings}
+        />
+      )}
 
       {/* Vent - upper-east area of right wall */}
       <g
@@ -1839,6 +1891,162 @@ export function NeonSign({
     </>
   );
 }
+
+/** The room's name on a plate in the neon sign's place on the right wall. The
+ *  plate and the text take the theme's colours (and the room's tint), so it
+ *  reads in light and dark themes alike. Without `onOpen` it is the drawing
+ *  alone, which is how the settings tiles show it. */
+export function RoomNamePlate({
+  name,
+  title,
+  onOpen,
+}: {
+  name: string;
+  title?: string;
+  onOpen?: () => void;
+}) {
+  // Measured in the real font by a hidden text element, as WallDoor does,
+  // and again once the web font has loaded. Until then it draws whole on one
+  // line.
+  const measureRef = useRef<SVGTextElement>(null);
+  const [fit, setFit] = useState<{ fit: DoorLabelFit; widest: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el || typeof el.getComputedTextLength !== "function") return;
+    let live = true;
+    const measure = () => {
+      if (!live) return;
+      // fitLabelWhole tries several sizes, and each measure is a DOM write
+      // and a layout, so each string is measured once.
+      const widths = new Map<string, number>();
+      const width = (text: string) => {
+        let w = widths.get(text);
+        if (w === undefined) {
+          el.textContent = text;
+          w = el.getComputedTextLength();
+          widths.set(text, w);
+        }
+        return w;
+      };
+      const next = fitLabelWhole(name, width, PLATE_LABEL_BOX);
+      const scale = next.size / PLATE_LABEL_BOX.size;
+      setFit({
+        fit: next,
+        widest: Math.max(0, ...next.lines.map(width)) * scale,
+      });
+    };
+    measure();
+    void document.fonts?.ready.then(measure);
+    return () => {
+      live = false;
+    };
+  }, [name]);
+  const shown = fit?.fit ?? {
+    lines: [name.trim()],
+    size: PLATE_LABEL_BOX.size,
+  };
+  const widest = fit?.widest ?? PLATE_LABEL_BOX.width;
+  const lineHeight = shown.size * 1.15;
+  const textHeight = shown.size + (shown.lines.length - 1) * lineHeight;
+  const w = Math.max(PLATE_MIN_W, widest + 2 * PLATE_PAD_X);
+  const h = textHeight + 2 * PLATE_PAD_Y;
+  const x = PLATE_CENTER_X - w / 2;
+  const y = PLATE_CENTER_Y - h / 2;
+  // The cap height sits about 0.72 of the font size above the baseline, so
+  // this centres the lines in the plate.
+  const firstBaseline = y + PLATE_PAD_Y + shown.size * 0.86;
+  return (
+    <g transform="translate(370, -5) skewY(27)">
+      <text
+        ref={measureRef}
+        aria-hidden="true"
+        visibility="hidden"
+        fontSize={PLATE_LABEL_BOX.size}
+        fontWeight="600"
+        style={{ fontFamily: "var(--font-ui)" }}
+      />
+      <g
+        data-room-name-plate=""
+        data-no-pan={onOpen ? "" : undefined}
+        onClick={onOpen}
+        style={
+          onOpen ? { cursor: "pointer", pointerEvents: "auto" } : undefined
+        }
+      >
+        {title && <title>{title}</title>}
+        {/* The plate stands off the wall: its lower edge shows as a darker
+            face, and a soft shadow falls below it. */}
+        <rect
+          x={x + 1}
+          y={y + 4}
+          width={w}
+          height={h}
+          rx="4"
+          fill="var(--shadow)"
+          opacity="0.5"
+        />
+        <rect
+          x={x}
+          y={y + 2.5}
+          width={w}
+          height={h}
+          rx="4"
+          fill="color-mix(in srgb, var(--wall-decor) 72%, black)"
+        />
+        <rect
+          x={x}
+          y={y}
+          width={w}
+          height={h}
+          rx="4"
+          fill="var(--wall-decor)"
+          stroke="var(--wall-decor-stroke)"
+          strokeWidth="1"
+        />
+        <rect
+          x={x + 3}
+          y={y + 3}
+          width={w - 6}
+          height={h - 6}
+          rx="2.5"
+          fill="var(--wall-decor-inner)"
+        />
+        <text
+          {...noTranslate()}
+          x={PLATE_CENTER_X}
+          y={firstBaseline}
+          textAnchor="middle"
+          fill="var(--text-primary)"
+          fontSize={shown.size}
+          fontWeight="600"
+          style={{ fontFamily: "var(--font-ui)", userSelect: "none" }}
+        >
+          {shown.lines.map((line, i) => (
+            <tspan key={i} x={PLATE_CENTER_X} dy={i === 0 ? 0 : lineHeight}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      </g>
+    </g>
+  );
+}
+
+// The plate's box on the right wall, in the neon sign's own coordinates
+// (between the clock and the vent), and the box its name is fitted into.
+const PLATE_CENTER_X = 9;
+const PLATE_CENTER_Y = -6;
+const PLATE_PAD_X = 12;
+const PLATE_PAD_Y = 8;
+const PLATE_MIN_W = 64;
+const PLATE_LABEL_BOX: LabelBox = {
+  size: 18,
+  minSize: 11,
+  width: 128,
+  maxLines: 2,
+};
 
 function NeonHitArea({
   title,

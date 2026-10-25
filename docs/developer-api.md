@@ -259,9 +259,10 @@ lobby draws its own scene and takes no skin: it returns 422
 `skin` at creation.
 
 `decor` holds the choices on top of the preset, one value per slot:
-`walls` (`office`, `clinic`), `curtains` (`none`, `tied`), `sill`
-(`trailing`, `blossom`, `none`), `wallArt` (`neon`, `landscape`, `chart`,
-`none`), `trim` (`none`, `rail`), `cabinet` (`none`, `first-aid`),
+`walls` (`office`, `clinic`, `teal`, `sky`, `lilac`, `rose`, `clay`), `floor`
+(`checker`, `plain`, `stripes`, `blocks`, `mosaic`), `curtains` (`none`,
+`tied`), `sill` (`trailing`, `blossom`, `none`), `wallArt` (`neon`, `name`,
+`landscape`, `chart`, `none`), `trim` (`none`, `rail`), `cabinet` (`none`, `first-aid`),
 `floorPlant` (`plant`, `none`), `ward` (`none`, `beds`) and `pet` (`shown`,
 `none`). The body merges into the stored choices: a value sets that slot,
 `null` clears it back to the preset, and `"decor": null` clears all of them.

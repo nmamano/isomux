@@ -32,20 +32,35 @@ corkboard (tasks), the wall screen (apps), the clock (schedules), the vent
 
 | Choice | Slot and wire values | Office preset | Hospital preset |
 | --- | --- | --- | --- |
-| Scene palette | `walls`: `office`, `clinic` | office | clinic |
+| Room colour | `walls`: `office`, `clinic`, `teal`, `sky`, `lilac`, `rose`, `clay` | office | clinic |
+| Floor pattern | `floor`: `checker`, `plain`, `stripes`, `blocks`, `mosaic` | checker | checker |
 | Window curtains | `curtains`: `none`, `tied` | none | tied |
 | Window sill | `sill`: `trailing`, `blossom`, `none` | rotates by room | rotates by room |
-| Right wall | `wallArt`: `neon`, `landscape`, `chart`, `none` | neon | rotates landscape / chart |
+| Right wall | `wallArt`: `neon`, `name`, `landscape`, `chart`, `none` | neon | rotates landscape / chart |
 | Wall trim | `trim`: `none`, `rail` | none | rail |
 | Wall cabinet | `cabinet`: `none`, `first-aid` | none | first-aid |
 | Floor plant | `floorPlant`: `plant`, `none` | plant | plant |
 | Ward furniture | `ward`: `none`, `beds` | none | beds |
 | Pet shown | `pet`: `shown`, `none` | shown | none |
 
-`walls` selects the scene palette, not only the wall and floor colours. `office`
-is the theme's own palette. `clinic` is the hospital's: a green-white palette
-in light mode and a Dracula-derived one in dark mode, which also recolours the
-wall plates and the clock hands.
+`walls` selects the room colour. `office` is the theme's own palette. Every
+other value is a tint (ui/office/skins/tint.ts): it repaints the walls, the
+floor and the wall plates in one hue and keeps the active theme's OKLab
+lightness for each, so a tinted room works in every theme, light or dark.
+`clinic` is the green tint, and the hospital preset's colour: it keeps the wire
+name from when the hospital had a fixed palette of its own, so there is one
+path for room colour (Nil, 2026-10-25). No yellow: a dark yellow reads as
+brown.
+
+`floor` picks which tone each floor cell takes (ui/office/floor-pattern.ts).
+The floor draws its tiles and the slab sides under its front edges from the
+same pattern, so the thick side continues the cells it meets. `mosaic` splits
+each desk-grid tile into four cells.
+
+`name` hangs a plate with the room's name in the neon sign's place, in the
+theme's plate and text colours. A long name wraps to two lines and shrinks;
+past the minimum size it ends in an ellipsis, and the tooltip has the full
+name. A click on the plate opens the room's settings, as the vent does.
 
 `beds` is the set the hospital draws today: one bed, the IV stand and the
 bedside cabinet, between the pet and the trap door. It is one choice because
@@ -62,8 +77,8 @@ not there, as in hospital rooms today.
 A preset is the base the choices sit on. A room stores its preset (the existing
 `skin` field: `office` or `hospital`) and only the slots a member changed.
 What the room draws is the preset's value for every slot, replaced by each
-stored change. A room with skin `hospital` and no changes draws exactly what it
-draws today, so no stored room needs a migration.
+stored change. A room with skin `hospital` and no changes draws the hospital
+preset, so no stored room needs a migration.
 
 ## The menu: staging and Save
 

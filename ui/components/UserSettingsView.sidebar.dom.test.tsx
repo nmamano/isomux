@@ -90,11 +90,13 @@ async function mount(
   return view;
 }
 
-/** The sidebar button that reads `label`, or null. */
+/** The sidebar button that reads `label`, or null. Text inside an
+ *  aria-hidden subtree (a picker tile's preview) is not a row. */
 function row(view: View, label: string): HTMLElement | null {
   return (
     view
       .queryAllByText(label)
+      .filter((el) => !el.closest('[aria-hidden="true"]'))
       .map((el) => el.closest("button"))
       .find((el): el is HTMLButtonElement => el !== null) ?? null
   );

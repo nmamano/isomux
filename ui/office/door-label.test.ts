@@ -5,6 +5,8 @@ import {
   DOOR_LABEL_SIZE,
   DOOR_LABEL_WIDTH,
   fitDoorLabel,
+  fitLabelWhole,
+  type LabelBox,
 } from "./door-label.ts";
 
 // Every code point is CHAR wide at DOOR_LABEL_SIZE, the ellipsis included.
@@ -222,5 +224,55 @@ describe("fitDoorLabel", () => {
   it("does not shrink the label for a word that could never be drawn", () => {
     const far = stats(`${"ab ".repeat(5_000)}${"q".repeat(4 * FULL)}`);
     expect(far.fit.size).toBe(DOOR_LABEL_SIZE);
+  });
+});
+
+// The room-name plate shows the whole name when any size down to its minimum
+// can: two lines, as large as they fit. Only a name too long for the minimum
+// size is cut, with an ellipsis. The door fit alone shrinks only for the
+// widest word, so it cuts a name a smaller size still shows whole.
+describe("fitLabelWhole", () => {
+  // `measure` is at box.size, as for fitDoorLabel.
+  const box: LabelBox = { size: 20, minSize: 10, width: 120, maxLines: 2 };
+  const drawn = (line: string, size: number) =>
+    (measure(line) * size) / box.size;
+
+  it("keeps a short name on one line at full size", () => {
+    expect(fitLabelWhole("Ops", measure, box)).toEqual({
+      lines: ["Ops"],
+      size: box.size,
+    });
+    expect(fitLabelWhole("   ", measure, box).lines).toEqual([]);
+  });
+
+  it("shrinks a name the full size would cut until it shows whole on two lines", () => {
+    const name = words(5, 8).join(" ");
+    // At full size the five words take three lines, so the door fit cuts.
+    expect(fitDoorLabel(name, measure, box).lines.at(-1)).toEndWith("…");
+    const fit = fitLabelWhole(name, measure, box);
+    expect(fit.lines.join(" ")).toBe(name);
+    expect(fit.lines.length).toBeLessThanOrEqual(box.maxLines);
+    for (const line of fit.lines) {
+      expect(drawn(line, fit.size)).toBeLessThanOrEqual(box.width + 1e-9);
+    }
+    // Two lines need three words (26 code points) on one of them: the largest
+    // size that holds that is width * size / (26 * CHAR). Within one point of
+    // it, never past it.
+    const largest = (box.width * box.size) / (26 * CHAR);
+    expect(largest).toBeGreaterThan(box.minSize);
+    expect(largest).toBeLessThan(box.size);
+    expect(fit.size).toBeLessThanOrEqual(largest + 1e-9);
+    expect(fit.size).toBeGreaterThan(largest - 1);
+  });
+
+  it("cuts with an ellipsis only a name the minimum size cannot show", () => {
+    const name = words(12, 8).join(" ");
+    const fit = fitLabelWhole(name, measure, box);
+    expect(fit.size).toBe(box.minSize);
+    expect(fit.lines).toHaveLength(box.maxLines);
+    expect(fit.lines.at(-1)).toEndWith("…");
+    for (const line of fit.lines) {
+      expect(drawn(line, fit.size)).toBeLessThanOrEqual(box.width + 1e-9);
+    }
   });
 });

@@ -9,9 +9,9 @@ import {
 } from "../../../shared/room-decor.ts";
 import { ordinaryRooms, type RoomWire } from "../../../shared/types.ts";
 import { useAppState, useTheme } from "../../store.tsx";
-import type { ThemeMode } from "../../themes.ts";
 import { roomPaletteIndex } from "../grid.ts";
-import { hospitalColors, hospitalSceneVars } from "./hospital/palette.ts";
+import { hospitalColors } from "./hospital/palette.ts";
+import { isRoomTint, tintSceneVars } from "./tint.ts";
 import { FirstAidCabinet, HospitalProps, Wainscot } from "./hospital/props.tsx";
 import {
   FramedLandscape,
@@ -44,6 +44,7 @@ export const ROOM_PRESETS: Record<
   // The room every office has drawn since before skins existed.
   office: (ctx) => ({
     walls: "office",
+    floor: "checker",
     curtains: "none",
     sill: ctx.blossom ? "blossom" : "trailing",
     wallArt: "neon",
@@ -55,6 +56,7 @@ export const ROOM_PRESETS: Record<
   }),
   hospital: (ctx) => ({
     walls: "clinic",
+    floor: "checker",
     curtains: "tied",
     sill: ctx.blossom ? "blossom" : "trailing",
     wallArt: ctx.hospitalIndex % 2 === 1 ? "chart" : "landscape",
@@ -121,9 +123,9 @@ export function useCurrentRoomDecor(): ResolvedRoomDecor {
  *  palette is the theme's own, so it overrides nothing. */
 export function sceneVarsFor(
   walls: ResolvedRoomDecor["walls"],
-  mode: ThemeMode,
+  themeId: string,
 ): Record<string, string> {
-  return walls === "clinic" ? hospitalSceneVars(mode) : {};
+  return isRoomTint(walls) ? tintSceneVars(walls, themeId) : {};
 }
 
 /** The scene container's variable overrides for the current room. Spread into
@@ -131,8 +133,8 @@ export function sceneVarsFor(
  *  scene - the tab bar, the HUD, the panels - is touched. */
 export function useRoomSkinVars(): Record<string, string> {
   const { walls } = useCurrentRoomDecor();
-  const { mode } = useTheme();
-  return sceneVarsFor(walls, mode);
+  const { theme } = useTheme();
+  return sceneVarsFor(walls, theme);
 }
 
 /** The wall pieces a room's decor hangs, in scene coordinates. Mounted last

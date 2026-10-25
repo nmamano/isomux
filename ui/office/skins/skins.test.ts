@@ -26,8 +26,6 @@ import {
 import type { RoomWire } from "../../../shared/types.ts";
 import { THEMES } from "../../themes.ts";
 
-const MODES = ["light", "dark"] as const;
-
 function room(id: string, extra: Partial<RoomWire> = {}): RoomWire {
   return { id, name: id, prompt: null, canCloseWhenEmpty: true, ...extra };
 }
@@ -62,6 +60,7 @@ test("the office preset draws the room every office had before decor", () => {
   });
   expect(office).toEqual({
     walls: "office",
+    floor: "checker",
     curtains: "none",
     sill: "trailing",
     wallArt: "neon",
@@ -71,7 +70,8 @@ test("the office preset draws the room every office had before decor", () => {
     ward: "none",
     pet: "shown",
   });
-  for (const mode of MODES) expect(sceneVarsFor("office", mode)).toEqual({});
+  for (const theme of THEMES)
+    expect(sceneVarsFor("office", theme.id)).toEqual({});
 });
 
 // The hospital preset is the hospital skin as it drew before it was a preset:
@@ -80,6 +80,7 @@ test("the hospital preset draws the hospital skin as it was", () => {
   const ward = ROOM_PRESETS.hospital({ blossom: false, hospitalIndex: 0 });
   expect(ward).toEqual({
     walls: "clinic",
+    floor: "checker",
     curtains: "tied",
     sill: "trailing",
     wallArt: "landscape",
@@ -132,33 +133,149 @@ test("a room's choices replace its preset's, and unknown ones are ignored", () =
   expect(Object.keys(drawn).sort()).toEqual([...ROOM_DECOR_SLOTS].sort());
 });
 
-test("the clinic palette only overrides variables the themes define", () => {
-  const known = new Set(THEMES.flatMap((theme) => Object.keys(theme.vars)));
-  for (const mode of MODES) {
-    for (const name of Object.keys(sceneVarsFor("clinic", mode))) {
-      expect({ mode, name, known: known.has(name) }).toEqual({
-        mode,
-        name,
-        known: true,
+// Every walls value but "office" is a tint, and "clinic" - the hospital's
+// green - is one of them, so there is one path for room colour (Nil,
+// 2026-10-25). A tint keeps the theme: each base it repaints keeps the theme's
+// OKLab lightness, so dark walls stay dark under a dark theme and light ones
+// light, and only the hue moves. The tint itself does not move with the theme.
+
+const TINTS = ROOM_DECOR_OPTIONS.walls.filter((walls) => walls !== "office");
+
+/** What a tint repaints: the two walls, the two floor tones and the plates
+ *  hung on the walls (the name plate among them), so the whole room takes the
+ *  colour. */
+const TINTED = [
+  "--wall-left",
+  "--wall-right",
+  "--floor-light",
+  "--floor-dark",
+  "--wall-decor",
+  "--wall-decor-inner",
+];
+
+function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/** OKLab lightness, and the hue in degrees, of a #rrggbb colour. */
+function oklab(hex: string): { L: number; hue: number } {
+  expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
+  const n = parseInt(hex.slice(1), 16);
+  const r = srgbToLinear(((n >> 16) & 255) / 255);
+  const g = srgbToLinear(((n >> 8) & 255) / 255);
+  const b = srgbToLinear((n & 255) / 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  return {
+    L: 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    hue: ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360,
+  };
+}
+
+function hueGap(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return Math.min(d, 360 - d);
+}
+
+// A var() inside a custom property resolves where it is declared, so a theme
+// variable built from a repainted base (a wall's cut face, a slab side) has to
+// be declared again next to it, with the theme's own expression - or it keeps
+// mixing against the theme's colour and the room's edges stay untinted.
+test("a tint repaints the walls, the floor and the wall plates, and re-declares what the theme builds from them", () => {
+  for (const theme of THEMES) {
+    const derived = Object.entries(theme.vars)
+      .filter(([, value]) =>
+        TINTED.some((base) => String(value).includes(`var(${base})`)),
+      )
+      .map(([name]) => name);
+    for (const walls of TINTS) {
+      const vars = sceneVarsFor(walls, theme.id);
+      expect({
+        theme: theme.id,
+        walls,
+        names: Object.keys(vars).sort(),
+      }).toEqual({
+        theme: theme.id,
+        walls,
+        names: [...TINTED, ...derived].sort(),
       });
+      for (const name of derived) {
+        expect({ theme: theme.id, walls, name, value: vars[name] }).toEqual({
+          theme: theme.id,
+          walls,
+          name,
+          value: theme.vars[name as keyof typeof theme.vars],
+        });
+      }
     }
   }
 });
 
-// Day and night are two lightings of ONE room, not two rooms: a variable the
-// day map repaints and the night map forgets would leave the theme's own colour
-// showing through at night.
-test("the clinic palette repaints the same variables in both modes", () => {
-  expect(Object.keys(sceneVarsFor("clinic", "light")).sort()).toEqual(
-    Object.keys(sceneVarsFor("clinic", "dark")).sort(),
-  );
-});
-
-test("the clinic palette repaints the floor and both walls", () => {
-  for (const mode of MODES) {
-    const vars = sceneVarsFor("clinic", mode);
-    for (const name of ["--floor-light", "--wall-left", "--wall-right"]) {
-      expect(vars[name]).toBeTruthy();
+test("a tint keeps the theme's lightness and gives each room colour its own hue under every theme", () => {
+  const hueIn = new Map<string, number>();
+  for (const theme of THEMES) {
+    const wallHues: number[] = [];
+    for (const walls of TINTS) {
+      const vars = sceneVarsFor(walls, theme.id);
+      for (const name of TINTED) {
+        const drawn = oklab(vars[name]);
+        const own = oklab(theme.vars[name as keyof typeof theme.vars]);
+        expect({
+          theme: theme.id,
+          walls,
+          name,
+          dL: Math.abs(drawn.L - own.L) < 0.01,
+        }).toEqual({
+          theme: theme.id,
+          walls,
+          name,
+          dL: true,
+        });
+        // The floor and the plates follow the walls' colour.
+        const wallHue = oklab(vars["--wall-left"]).hue;
+        expect({
+          theme: theme.id,
+          walls,
+          name,
+          sameHue: hueGap(drawn.hue, wallHue) < 15,
+        }).toEqual({
+          theme: theme.id,
+          walls,
+          name,
+          sameHue: true,
+        });
+      }
+      const hue = oklab(vars["--wall-left"]).hue;
+      wallHues.push(hue);
+      // A tint is one colour whatever the theme.
+      const first = hueIn.get(walls) ?? hue;
+      hueIn.set(walls, first);
+      expect({
+        theme: theme.id,
+        walls,
+        steady: hueGap(hue, first) < 10,
+      }).toEqual({
+        theme: theme.id,
+        walls,
+        steady: true,
+      });
+    }
+    // Two room colours that share a hue cannot tell two rooms apart.
+    for (let i = 0; i < wallHues.length; i++) {
+      for (let j = i + 1; j < wallHues.length; j++) {
+        expect({
+          theme: theme.id,
+          pair: [TINTS[i], TINTS[j]],
+          apart: hueGap(wallHues[i], wallHues[j]) >= 25,
+        }).toEqual({
+          theme: theme.id,
+          pair: [TINTS[i], TINTS[j]],
+          apart: true,
+        });
+      }
     }
   }
 });

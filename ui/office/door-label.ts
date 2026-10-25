@@ -24,12 +24,29 @@ export interface DoorLabelFit {
   size: number;
 }
 
+/** The box a label is fitted into. The door's is the default; the room-name
+ *  plate on the right wall fits the same string into a wider box. */
+export interface LabelBox {
+  size: number;
+  minSize: number;
+  width: number;
+  maxLines: number;
+}
+
+export const DOOR_LABEL_BOX: LabelBox = {
+  size: DOOR_LABEL_SIZE,
+  minSize: DOOR_LABEL_MIN_SIZE,
+  width: DOOR_LABEL_WIDTH,
+  maxLines: DOOR_LABEL_MAX_LINES,
+};
+
 /**
- * `measure(text)` is the drawn width of `text` at DOOR_LABEL_SIZE.
+ * `measure(text)` is the drawn width of `text` at `box.size`.
  */
 export function fitDoorLabel(
   label: string,
   measure: (text: string) => number,
+  box: LabelBox = DOOR_LABEL_BOX,
 ): DoorLabelFit {
   const trimmed = label.trim();
   const head: string[] = [];
@@ -42,7 +59,7 @@ export function fitDoorLabel(
     .join("")
     .split(/\s+/)
     .filter((word) => word !== "");
-  if (words.length === 0) return { lines: [], size: DOOR_LABEL_SIZE };
+  if (words.length === 0) return { lines: [], size: box.size };
 
   const widths = new Map<string, number>();
   const width = (text: string) => {
@@ -55,11 +72,11 @@ export function fitDoorLabel(
   };
   const widest = Math.max(...words.map(width));
   const size = Math.max(
-    DOOR_LABEL_MIN_SIZE,
-    Math.min(DOOR_LABEL_SIZE, (DOOR_LABEL_SIZE * DOOR_LABEL_WIDTH) / widest),
+    box.minSize,
+    Math.min(box.size, (box.size * box.width) / widest),
   );
-  // The widest line, measured at DOOR_LABEL_SIZE.
-  const limit = (DOOR_LABEL_WIDTH * DOOR_LABEL_SIZE) / size;
+  // The widest line, measured at box.size.
+  const limit = (box.width * box.size) / size;
   const fits = (text: string) => width(text) <= limit + FIT_EPSILON;
 
   // Lines are spans [start, end) of code points of the words joined by
@@ -68,7 +85,7 @@ export function fitDoorLabel(
   const text = (start: number, end: number) => cps.slice(start, end).join("");
   const lines: [number, number][] = [];
   let line: [number, number] | null = null;
-  const full = () => lines.length === DOOR_LABEL_MAX_LINES;
+  const full = () => lines.length === box.maxLines;
   let at = 0;
   for (const word of words) {
     const start = at;
@@ -116,4 +133,33 @@ export function fitDoorLabel(
     ],
     size,
   };
+}
+
+/**
+ * The largest size from `box.size` down to `box.minSize` at which the whole
+ * label shows on `box.maxLines` lines. Only when even `box.minSize` cannot
+ * show it does the fit cut it with an ellipsis. `fitDoorLabel` alone shrinks
+ * only until the widest word fits, so it can cut a name that a smaller size
+ * still shows whole. `measure` is as for `fitDoorLabel`.
+ */
+export function fitLabelWhole(
+  label: string,
+  measure: (text: string) => number,
+  box: LabelBox,
+): DoorLabelFit {
+  const whole = label.trim().split(/\s+/).join(" ");
+  const sizes: number[] = [];
+  for (let size = box.size; size > box.minSize; size--) sizes.push(size);
+  sizes.push(box.minSize);
+  let fit: DoorLabelFit = { lines: [], size: box.size };
+  for (const size of sizes) {
+    const scale = size / box.size;
+    fit = fitDoorLabel(label, (text) => measure(text) * scale, {
+      ...box,
+      size,
+      minSize: size,
+    });
+    if (fit.lines.join(" ") === whole) return fit;
+  }
+  return fit;
 }
