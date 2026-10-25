@@ -200,6 +200,21 @@ function isCodexRefusal(info: unknown): boolean {
   return false;
 }
 
+// Benign Codex stderr lines, dropped from the chat one line at a time. None
+// is actionable for an Isomux member:
+// - bubblewrap: Codex logs this at ERROR level, but it is a note on how its
+//   Linux sandbox works.
+// - trusted project: Codex logs this at ERROR level; it tells the user how
+//   to opt into project-local config.
+// - PATH aliases: Codex refuses to create its helper binaries when
+//   CODEX_HOME is under the temp dir (an ISOMUX_HOME under /tmp), then
+//   proceeds without them (task a671cf65).
+const BENIGN_STDERR_LINES = [
+  /bubblewrap.*needs access to create user namespaces/i,
+  /until the project is trusted, but skills still load/i,
+  /could not create PATH aliases/i,
+];
+
 // A 403 is the provider refusing the request, not a sign-in failure (task
 // 2bd836d5): Codex logs it on stderr, and a match there would interrupt the
 // turn before the refusal reaches the member.
@@ -3071,21 +3086,16 @@ export class CodexSession implements BackendSession {
       chunk.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").trimEnd(),
       this.missingToolOutputNotices,
     );
-    if (!text) return;
-    // Drop known-benign startup notices. Codex logs these at ERROR level
-    // but they're informational: the bubblewrap line is a "here's how our
-    // Linux sandbox works" note, and the trusted-project line tells the
-    // user how to opt into project-local config - neither is actionable
-    // for Isomux users in the chat.
-    if (
-      /bubblewrap.*needs access to create user namespaces/i.test(text) ||
-      /until the project is trusted, but skills still load/i.test(text)
-    ) {
-      return;
-    }
+    // A chunk is one pipe read and can carry several lines, so drop the
+    // benign ones line by line and keep the rest.
+    const kept = text
+      .split("\n")
+      .filter((line) => !BENIGN_STDERR_LINES.some((re) => re.test(line)))
+      .join("\n");
+    if (!kept.trim()) return;
     // Route through the auth-aware gate so codex's websocket retry burst
     // produces at most one user-visible signal per turn (Claude-SDK parity).
-    this.enqueueAuthAwareSystemText(`[codex stderr] ${text}`);
+    this.enqueueAuthAwareSystemText(`[codex stderr] ${kept}`);
   }
 
   private handleSubprocessExit(

@@ -3085,6 +3085,25 @@ describe("CodexSession stderr surfacing", () => {
       "[codex stderr] 2026-08-13T01:31:30.815540Z ERROR codex_core::tools::router: error=exec_command failed",
     );
   });
+  it("drops benign startup notices line by line and keeps the rest of the chunk", async () => {
+    const { fake, it } = await bootstrapped();
+    // Codex 0.164.0 prints this when CODEX_HOME is under the temp dir.
+    const pathAliases =
+      'WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/state/codex-home"))';
+    const bubblewrap =
+      "2026-10-25T10:00:00Z ERROR codex_core: Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.";
+    // A chunk of only benign notices emits nothing.
+    fake.fireStderr(pathAliases + "\n");
+    // A pipe read can carry a benign notice and a real line together.
+    fake.fireStderr(`${pathAliases}\n${bubblewrap}\nERROR unrelated failure\n`);
+    fake.fireStderr("marker");
+    expect(
+      expectKind(await nextEvent(it, "kept stderr"), "system_text").text,
+    ).toBe("[codex stderr] ERROR unrelated failure");
+    expect(expectKind(await nextEvent(it, "marker"), "system_text").text).toBe(
+      "[codex stderr] marker",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
