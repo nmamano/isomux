@@ -388,11 +388,13 @@ export function LobbyEditor({
           placements={items}
           receptionistAt={recep}
           rightDoor={{ label: rooms[0]?.name ?? "Room 1", onClick: () => {} }}
-          receptionist={
-            <g transform="translate(-26 -68)">
-              <Character state="idle" outfit={RECEP_OUTFIT} />
-            </g>
-          }
+          receptionist={{
+            node: (
+              <g transform="translate(-26 -68)">
+                <Character state="idle" outfit={RECEP_OUTFIT} />
+              </g>
+            ),
+          }}
         />
         {/* Drag handles */}
         {items.map((it) => {

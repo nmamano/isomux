@@ -470,13 +470,38 @@ export function BookshelfTall() {
   );
 }
 
+const CREDENZA_H = 26;
+// The record player's box on the credenza top.
+const PLAYER = { a: -14, b: 0, w: 16, d: 12, h: 3 };
+
+// The player's screen box (local units): the bounds of its corners. The lobby
+// puts its keyboard button over this box.
+export const RECORD_PLAYER_BOX = (() => {
+  const corners = [-1, 1].flatMap((da) =>
+    [-1, 1].flatMap((db) =>
+      [0, PLAYER.h].map((dz) =>
+        iso(
+          PLAYER.a + (da * PLAYER.w) / 2,
+          PLAYER.b + (db * PLAYER.d) / 2,
+          CREDENZA_H + dz,
+        ),
+      ),
+    ),
+  );
+  const xs = corners.map(([x]) => x);
+  const ys = corners.map(([, y]) => y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+})();
+
 // `jukebox` makes the record player play music on a click. Only the live lobby
 // sets it; the editor, the preview and the contact sheet draw it still.
 export function Credenza({ jukebox = false }: { jukebox?: boolean }) {
   const wood = "#b0885a";
   const w = 60,
     d = 16,
-    h = 26;
+    h = CREDENZA_H;
   return (
     <g>
       {[
@@ -511,10 +536,10 @@ export function Credenza({ jukebox = false }: { jukebox?: boolean }) {
 }
 
 function StillRecordPlayer({ h }: { h: number }) {
-  const [rx, ry] = iso(-14, 0, h + 3);
+  const [rx, ry] = iso(PLAYER.a, PLAYER.b, h + PLAYER.h);
   return (
     <g>
-      <IsoBox w={16} d={12} h={3} a={-14} b={0} z={h} color="#3d3a37" />
+      <IsoBox {...PLAYER} z={h} color="#3d3a37" />
       <ellipse cx={rx} cy={ry} rx="5" ry="2.5" fill="#111" />
       <ellipse cx={rx} cy={ry} rx="1.6" ry="0.8" fill="#c0392b" />
     </g>
@@ -530,14 +555,14 @@ const STYLE_KEYS = {
   bossa: "lobby.jukebox.bossa",
 } as const satisfies Record<StyleId, string>;
 
-// A click plays a new take, the next click stops it. Mouse only, like the
-// receptionist: the props layer is hidden from screen readers.
+// A click plays a new take, the next click stops it. The props layer is
+// hidden from screen readers, so the keyboard button is in LobbyControls.
 function RecordPlayer({ h }: { h: number }) {
   const { t } = useI18n();
   const { playing, style } = useJukebox();
   // Leaving the lobby stops the music.
   useEffect(() => () => stopJukebox(), []);
-  const [rx, ry] = iso(-14, 0, h + 3);
+  const [rx, ry] = iso(PLAYER.a, PLAYER.b, h + PLAYER.h);
   return (
     <g
       data-no-pan
@@ -546,7 +571,7 @@ function RecordPlayer({ h }: { h: number }) {
       style={{ cursor: "pointer", pointerEvents: "auto" }}
     >
       <title>{style ? t(STYLE_KEYS[style]) : t("lobby.jukebox.play")}</title>
-      <IsoBox w={16} d={12} h={3} a={-14} b={0} z={h} color="#3d3a37" />
+      <IsoBox {...PLAYER} z={h} color="#3d3a37" />
       {/* The disc is drawn as a circle and squashed into the floor plane, so
           it turns in that plane and the box stays still. */}
       <g transform={`translate(${rx} ${ry}) scale(1 0.5)`}>

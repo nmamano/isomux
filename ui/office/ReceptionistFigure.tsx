@@ -6,6 +6,11 @@
 import { useI18n } from "../i18n.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 import { CHARACTER_GEOMETRY } from "./Character.tsx";
+import {
+  RECEPTIONIST_HIT,
+  RECEPTIONIST_PILL_Y,
+  RECEPTIONIST_SCALE,
+} from "./receptionist-geometry.ts";
 import { LiveCharacter } from "./LiveCharacter.tsx";
 import { styleForModel } from "../model-styles.ts";
 import { noTranslate } from "../no-translate.ts";
@@ -17,12 +22,10 @@ const STATE_COLORS: Record<string, string> = {
   error: "var(--red)",
 };
 
-// Keep the sprite modestly larger than a desk agent, anchored at its feet.
-const SCALE = 1.2;
+const SCALE = RECEPTIONIST_SCALE;
 const FEET_Y = CHARACTER_GEOMETRY.feetY;
 const HALF_W = CHARACTER_GEOMETRY.width / 2;
-const FIGURE_TOP = FEET_Y * SCALE;
-const PILL_Y = -FIGURE_TOP;
+const PILL_Y = RECEPTIONIST_PILL_Y;
 
 export function ReceptionistFigure({
   agent,
@@ -51,13 +54,7 @@ export function ReceptionistFigure({
       <title>{t("lobby.openChat", { name: agent.name })}</title>
       {/* The sprite column stays clickable through the gap below the tag.
           The pill handles clicks across its own full width. */}
-      <rect
-        x={-HALF_W * SCALE - 4}
-        y={PILL_Y - 12}
-        width={HALF_W * 2 * SCALE + 8}
-        height={-PILL_Y + 14}
-        fill="transparent"
-      />
+      <rect {...RECEPTIONIST_HIT} fill="transparent" />
       <g
         transform={`translate(${-HALF_W * SCALE} ${-FEET_Y * SCALE}) scale(${SCALE})`}
       >

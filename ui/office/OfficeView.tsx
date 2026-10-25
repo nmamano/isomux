@@ -314,6 +314,9 @@ export function OfficeView({
   // (prev/next neighbour); -1 when nothing is selected.
   const currentRoomIndex = tabs.findIndex((r) => r.id === currentRoomId);
   const dispatch = useDispatch();
+  const openReceptionist = () => {
+    if (receptionist) dispatch({ type: "focus", agentId: receptionist.id });
+  };
   // A wall door between two rooms turns the room; tabs and the lobby doors
   // switch with no animation.
   const contentEl = useRef<HTMLDivElement | null>(null);
@@ -838,22 +841,31 @@ export function OfficeView({
                     jukebox
                     receptionist={
                       /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
-                      receptionist ? (
-                        <ReceptionistFigure
-                          agent={receptionist}
-                          needsAttention={needsAttention.has(receptionist.id)}
-                          onClick={viewport.wrapClick(() =>
-                            dispatch({
-                              type: "focus",
-                              agentId: receptionist.id,
-                            }),
-                          )}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            onContextMenu(e.clientX, e.clientY, receptionist);
-                          }}
-                        />
-                      ) : undefined
+                      receptionist
+                        ? {
+                            node: (
+                              <ReceptionistFigure
+                                agent={receptionist}
+                                needsAttention={needsAttention.has(
+                                  receptionist.id,
+                                )}
+                                onClick={viewport.wrapClick(openReceptionist)}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  onContextMenu(
+                                    e.clientX,
+                                    e.clientY,
+                                    receptionist,
+                                  );
+                                }}
+                              />
+                            ),
+                            button: {
+                              name: receptionist.name,
+                              onOpen: openReceptionist,
+                            },
+                          }
+                        : undefined
                       /* eslint-enable react-hooks/refs */
                     }
                     rightDoor={

@@ -40,7 +40,10 @@ import {
   PropDefs,
   variantFacings,
   type PropStar,
+  type PropVariant,
 } from "./props.tsx";
+import { toggleJukebox, useJukebox } from "./jukebox.ts";
+import { RECEPTIONIST_HIT } from "../receptionist-geometry.ts";
 import {
   LOBBY_LAYOUTS,
   type LobbyLayoutId,
@@ -58,6 +61,11 @@ export interface LobbyRoomRef {
   name: string;
 }
 
+export interface LobbyReceptionist {
+  node: ReactNode;
+  button?: { name: string; onOpen: () => void };
+}
+
 export interface LobbySceneProps {
   rooms: LobbyRoomRef[];
   presences?: PresenceInfo[];
@@ -72,8 +80,9 @@ export interface LobbySceneProps {
   // Per-family variant overrides, e.g. { sofa: "loveseat" }.
   variants?: Record<string, string>;
   // The receptionist, drawn at the layout's slot with its feet at the origin.
-  // The mount passes a figure; the preview passes nothing.
-  receptionist?: ReactNode;
+  // The mount passes a figure and a button, which opens its chat from the
+  // keyboard; the editor passes a figure only; the preview passes nothing.
+  receptionist?: LobbyReceptionist;
   // Editor overrides (scripts/lobby-editor-server.ts): a live placement list
   // and receptionist slot in place of the layout's own.
   placements?: Placement[];
@@ -139,6 +148,9 @@ export function LobbyScene({
           receptionist: receptionistAt ?? base?.receptionist ?? { a: 5, b: 5 },
         }
       : base;
+  // The props layer and its keyboard buttons draw the same placements.
+  const propsShown = spec && (decorateScene || receptionist);
+  const shownPlacements = spec && decorateScene ? spec.placements : [];
   return (
     <>
       <LobbyWalls
@@ -151,9 +163,9 @@ export function LobbyScene({
       {rightDoor && (
         <WallDoors rightDoor={{ ...rightDoor, passCount: rightDoorUses }} />
       )}
-      {spec && (decorateScene || receptionist) && (
+      {propsShown && (
         <LobbyProps
-          placements={decorateScene ? spec.placements : []}
+          placements={shownPlacements}
           variants={variants}
           rooms={rooms}
           officeName={officeName?.trim() || t("lobby.officeFallback")}
@@ -162,7 +174,19 @@ export function LobbyScene({
           jukebox={jukebox}
           receptionist={
             receptionist
-              ? { ...spec.receptionist, node: receptionist }
+              ? { ...spec.receptionist, node: receptionist.node }
+              : undefined
+          }
+        />
+      )}
+      {propsShown && (
+        <LobbyControls
+          placements={shownPlacements}
+          variants={variants}
+          jukebox={jukebox}
+          receptionist={
+            receptionist?.button
+              ? { ...spec.receptionist, ...receptionist.button }
               : undefined
           }
         />
@@ -176,6 +200,126 @@ export function LobbyScene({
         onOpenUser={onOpenUser}
       />
     </>
+  );
+}
+
+// The props layer is hidden from screen readers, so its two clickable props
+// get keyboard buttons here: each a <g role="button"> with
+// data-lobby-control="receptionist" or "jukebox", over the drawn prop. The
+// layer takes no pointer events: a mouse click still lands on the prop.
+const CONTROL_CSS = `
+.lobby-control:focus:not(:focus-visible) { outline: none; }
+.lobby-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+`;
+
+function LobbyControls({
+  placements,
+  variants,
+  jukebox,
+  receptionist,
+}: {
+  placements: Placement[];
+  variants?: Record<string, string>;
+  jukebox: boolean;
+  receptionist?: { a: number; b: number; name: string; onOpen: () => void };
+}) {
+  const { t } = useI18n();
+  const players = jukebox
+    ? resolvePlacements(placements, variants).floor.flatMap(({ p, v }) => {
+        if (!v.recordPlayerAt) return [];
+        const { x, y, s, flip } = floorTransform(p, v);
+        const box = v.recordPlayerAt;
+        const sx = flip ? -s : s;
+        return [
+          {
+            x: x + Math.min(sx * box.x, sx * (box.x + box.width)),
+            y: y + s * box.y,
+            width: s * box.width,
+            height: s * box.height,
+          },
+        ];
+      })
+    : [];
+  if (!receptionist && players.length === 0) return null;
+  const at = receptionist && floorXY(receptionist.b, receptionist.a);
+  return (
+    <svg
+      style={SVG_STYLE}
+      width={SCENE_W}
+      height={SCENE_H}
+      viewBox={VB}
+      overflow="visible"
+    >
+      <style>{CONTROL_CSS}</style>
+      {receptionist && at && (
+        <SceneButton
+          kind="receptionist"
+          label={t("lobby.receptionist.open", { name: receptionist.name })}
+          onPress={receptionist.onOpen}
+          box={{
+            ...RECEPTIONIST_HIT,
+            x: at.x + RECEPTIONIST_HIT.x,
+            y: at.y + RECEPTIONIST_HIT.y,
+          }}
+        />
+      )}
+      {players.map((box, i) => (
+        <JukeboxButton key={i} box={box} />
+      ))}
+    </svg>
+  );
+}
+
+function JukeboxButton({ box }: { box: SceneBox }) {
+  const { t } = useI18n();
+  const { playing } = useJukebox();
+  return (
+    <SceneButton
+      kind="jukebox"
+      label={t(playing ? "lobby.jukebox.stop" : "lobby.jukebox.play")}
+      onPress={() => toggleJukebox()}
+      box={box}
+    />
+  );
+}
+
+interface SceneBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+// A keyboard button over a prop, like the theme window: Enter or Space
+// presses it. The layer takes no pointer events, so the mouse never reaches it.
+function SceneButton({
+  kind,
+  label,
+  onPress,
+  box,
+}: {
+  kind: "receptionist" | "jukebox";
+  label: string;
+  onPress: () => void;
+  box: SceneBox;
+}) {
+  return (
+    <g
+      className="lobby-control"
+      data-lobby-control={kind}
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onClick={onPress}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onPress();
+        }
+      }}
+    >
+      <rect {...box} fill="transparent" />
+    </g>
   );
 }
 
@@ -631,6 +775,44 @@ function placementDepth(p: Placement): number {
   return p.a + p.b + (p.z ?? 0);
 }
 
+// Each placement with the variant it draws (the scene's override, else the
+// layout's own), split into wall pieces, rugs and floor props back to front.
+function resolvePlacements(
+  placements: Placement[],
+  variants?: Record<string, string>,
+) {
+  const resolved = placements
+    .map((p) => {
+      const variantId = variants?.[p.family] ?? p.variant;
+      const v =
+        findVariant(p.family, variantId) ?? findVariant(p.family, p.variant);
+      return v ? { p, v } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  return {
+    walls: resolved.filter(({ v }) => v.wall),
+    rugs: resolved.filter(({ p, v }) => !v.wall && p.family === "rug"),
+    floor: resolved
+      .filter(({ p, v }) => !v.wall && p.family !== "rug")
+      .sort((x, y) => placementDepth(x.p) - placementDepth(y.p)),
+  };
+}
+
+// Where a floor prop stands, its scale and whether it is mirrored. A facing
+// is a mirror plus which side of the piece the viewer sees; `flip` stays as
+// the plain mirror for props that have no back.
+function floorTransform(p: Placement, v: PropVariant) {
+  const { x, y } = floorXY(p.b, p.a);
+  const mirrored =
+    p.facing === "SW" || p.facing === "NW" || (!p.facing && p.flip);
+  return {
+    x,
+    y,
+    s: PROP_SCALE * (p.scale ?? 1),
+    flip: !!mirrored && variantFacings(v) > 1,
+  };
+}
+
 export function LobbyProps({
   placements,
   variants,
@@ -650,19 +832,7 @@ export function LobbyProps({
   jukebox?: boolean;
   receptionist?: { a: number; b: number; node: ReactNode };
 }) {
-  const resolved = placements
-    .map((p) => {
-      const variantId = variants?.[p.family] ?? p.variant;
-      const v =
-        findVariant(p.family, variantId) ?? findVariant(p.family, p.variant);
-      return v ? { p, v } : null;
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null);
-  const walls = resolved.filter(({ v }) => v.wall);
-  const rugs = resolved.filter(({ p, v }) => !v.wall && p.family === "rug");
-  const floor = resolved
-    .filter(({ p, v }) => !v.wall && p.family !== "rug")
-    .sort((x, y) => placementDepth(x.p) - placementDepth(y.p));
+  const { walls, rugs, floor } = resolvePlacements(placements, variants);
   return (
     <svg
       style={SVG_STYLE}
@@ -770,21 +940,13 @@ export function LobbyProps({
       {[
         ...floor.map(({ p, v }, i) => {
           const C = v.Component;
-          const { x, y } = floorXY(p.b, p.a);
-          // A facing is a mirror plus which side of the piece the viewer sees.
-          // `flip` stays as the plain mirror for props that have no back.
-          const facing = p.facing;
-          const facings = variantFacings(v);
-          const mirrored =
-            facing === "SW" || facing === "NW" || (!facing && p.flip);
-          const flip = mirrored && facings > 1;
+          const { x, y, s, flip } = floorTransform(p, v);
           // Only a prop with a drawn back can be turned around. The others
           // keep their one face whatever the placement asks for.
           const back =
-            facings === 4 && (facing === "NE" || facing === "NW")
+            variantFacings(v) === 4 && (p.facing === "NE" || p.facing === "NW")
               ? "near"
               : "far";
-          const s = PROP_SCALE * (p.scale ?? 1);
           return {
             depth: placementDepth(p),
             node: (

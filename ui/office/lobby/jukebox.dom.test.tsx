@@ -6,9 +6,11 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../../test-support/dom.ts";
 setUpDomTestFile();
-const { act, render, renderHook } = await import("@testing-library/react");
+const { act, fireEvent, render, renderHook } =
+  await import("@testing-library/react");
 const { createElement } = await import("react");
 const { LobbyScene } = await import("./LobbyScene.tsx");
+const { SceneDecorationContext } = await import("../scene-decoration.tsx");
 const { STYLES, stopJukebox, toggleJukebox, useJukebox } =
   await import("./jukebox.ts");
 
@@ -256,6 +258,10 @@ const scene = (jukebox: boolean) =>
     jukebox,
   });
 
+// The keyboard buttons for the record player, outside the props layer.
+const keyControls = (container: HTMLElement) =>
+  container.querySelectorAll('[data-lobby-control="jukebox"]');
+
 describe("record player in the lobby", () => {
   it("is a control only in the live lobby", () => {
     for (const [jukebox, controls] of [
@@ -266,8 +272,67 @@ describe("record player in the lobby", () => {
       expect(
         propsLayer(view.container).querySelectorAll("[data-no-pan]").length,
       ).toBe(controls);
+      // One keyboard button per player that a click plays.
+      expect(keyControls(view.container).length).toBe(controls);
       view.unmount();
     }
+  });
+
+  it("has no keyboard button when the scenery, and so the player, is not drawn", () => {
+    const view = render(
+      createElement(SceneDecorationContext.Provider, { value: false }, [
+        createElement(LobbyScene, {
+          key: "scene",
+          rooms: [],
+          officeName: null,
+          mode: "dark",
+          layout: "nilo",
+          jukebox: true,
+          receptionist: { node: createElement("circle", { r: 1 }) },
+        }),
+      ]),
+    );
+    // The props layer is still drawn, for the receptionist, without a player.
+    const layer = propsLayer(view.container);
+    expect(layer.getAttribute("aria-hidden")).toBe("true");
+    expect(layer.querySelectorAll("[data-no-pan]").length).toBe(0);
+    expect(keyControls(view.container).length).toBe(0);
+    view.unmount();
+  });
+
+  it("plays on Enter and stops on Space from its keyboard button", async () => {
+    const view = render(scene(true));
+    expect(keyControls(view.container).length).toBe(1);
+    const button = keyControls(view.container)[0];
+    expect(button.getAttribute("role")).toBe("button");
+    expect(button.getAttribute("tabindex")).toBe("0");
+    expect(button.closest('[aria-hidden="true"]')).toBeNull();
+    const state = renderHook(() => useJukebox());
+    expect(state.result.current.playing).toBe(false);
+    const stoppedLabel = button.getAttribute("aria-label");
+    expect(stoppedLabel).toBeTruthy();
+    // fireEvent returns false when the handler prevented the default, so
+    // Space does not also scroll the page.
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(button, { key: "Enter" });
+    });
+    expect(notPrevented).toBe(false);
+    await settleResumes();
+    expect(state.result.current.playing).toBe(true);
+    // The label says what the next press does.
+    const playingLabel = button.getAttribute("aria-label");
+    expect(playingLabel).toBeTruthy();
+    expect(playingLabel).not.toBe(stoppedLabel);
+    act(() => {
+      notPrevented = fireEvent.keyDown(button, { key: " " });
+    });
+    expect(notPrevented).toBe(false);
+    expect(state.result.current.playing).toBe(false);
+    expect(audibleSources().length).toBe(0);
+    expect(button.getAttribute("aria-label")).toBe(stoppedLabel);
+    state.unmount();
+    view.unmount();
   });
 
   it("spins while it plays and stops spinning when pressed again", async () => {

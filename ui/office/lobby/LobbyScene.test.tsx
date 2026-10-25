@@ -178,7 +178,7 @@ describe("lobby layouts", () => {
         officeName="x"
         mode="dark"
         layout="lounge"
-        receptionist={<circle data-receptionist-node="1" r="1" />}
+        receptionist={{ node: <circle data-receptionist-node="1" r="1" /> }}
       />,
     );
     expect(without).not.toContain("data-receptionist-node");

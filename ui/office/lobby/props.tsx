@@ -15,6 +15,7 @@ import {
   FireplaceModern,
   BookshelfTall,
   Credenza,
+  RECORD_PLAYER_BOX,
   FishTankStand,
   FishBowl,
   LampArc,
@@ -75,6 +76,9 @@ export interface PropVariant {
   facings?: 1 | 2 | 4;
   // Approximate screen height above the anchor, used by the sheet to frame.
   height: number;
+  // The box of the piece's record player (local, before the placement's
+  // scale), so the lobby can put the player's keyboard button over it.
+  recordPlayerAt?: { x: number; y: number; width: number; height: number };
 }
 
 export interface PropFamily {
@@ -198,6 +202,7 @@ export const LOBBY_PROPS: PropFamily[] = [
         Component: ({ jukebox }) => <Credenza jukebox={jukebox} />,
         shadow: { rx: 42, ry: 20 },
         height: 50,
+        recordPlayerAt: RECORD_PLAYER_BOX,
       },
     ],
   },
