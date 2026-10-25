@@ -33,6 +33,11 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
 ];
 
+// Page-data workers for one build. Only scripts/web-build.ts sets this, on the
+// run after a build worker crashed; otherwise Next keeps its own count.
+const workers = process.env.ISOMUX_WEB_BUILD_WORKERS ?? "";
+const cpus = /^[1-9]\d*$/.test(workers) ? Number(workers) : undefined;
+
 const config: NextConfig = {
   // `next dev` otherwise writes AGENTS.md and CLAUDE.md into this directory and
   // re-creates them when they are removed. Agent instructions that appear from
@@ -40,6 +45,7 @@ const config: NextConfig = {
   // CLAUDE.md is not ours to write.
   agentRules: false,
   turbopack: { root: repoRoot },
+  ...(cpus === undefined ? {} : { experimental: { cpus } }),
   outputFileTracingRoot: repoRoot,
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
