@@ -33,12 +33,7 @@ import {
   sceneVarsFor,
 } from "../office/skins/index.tsx";
 import { HospitalProps } from "../office/skins/hospital/props.tsx";
-import {
-  FloorTiles,
-  NeonSign,
-  RoomNamePlate,
-  WindowPlant,
-} from "../office/Floor.tsx";
+import { NeonSign, RoomNamePlate, WindowPlant } from "../office/Floor.tsx";
 import { BlossomJar, CornerPlant, PlantDefs } from "../office/plants.tsx";
 import { PetCorner, drawnPet } from "../office/RoomProps.tsx";
 import { FLOOR_CLIP } from "../office/grid.ts";
@@ -68,8 +63,6 @@ type Box = readonly [number, number, number, number];
 const ROOM_BOX: Box = [-370, -215, 980, 754];
 const SLOT_BOX: Record<Exclude<RoomDecorSlot, "pet">, Box> = {
   walls: ROOM_BOX,
-  // The front corner, where the slab sides show the pattern's thickness.
-  floor: [0, 360, 240, 185],
   curtains: [-335, -75, 240, 185],
   sill: [-300, -5, 160, 123],
   wallArt: [295, -80, 160, 123],
@@ -164,8 +157,6 @@ function SlotDrawing<S extends Exclude<RoomDecorSlot, "pet">>({
           }}
         />
       );
-    case "floor":
-      return <FloorTiles pattern={value as ResolvedRoomDecor["floor"]} />;
     case "wallArt":
       if (value === "name") return <RoomNamePlate name={roomName} />;
       return value === "neon" ? (
@@ -254,7 +245,6 @@ const SPECIES_KEY: Record<
 // the compiler. The pet row names its options by species instead.
 const SLOT_KEY: Record<Exclude<RoomDecorSlot, "pet">, DecorKey> = {
   walls: "office.decor.walls",
-  floor: "office.decor.floor",
   curtains: "office.decor.curtains",
   sill: "office.decor.sill",
   wallArt: "office.decor.wallArt",
@@ -275,13 +265,6 @@ const OPTION_KEY: {
     lilac: "office.decor.walls.lilac",
     rose: "office.decor.walls.rose",
     clay: "office.decor.walls.clay",
-  },
-  floor: {
-    checker: "office.decor.floor.checker",
-    plain: "office.decor.floor.plain",
-    stripes: "office.decor.floor.stripes",
-    blocks: "office.decor.floor.blocks",
-    mosaic: "office.decor.floor.mosaic",
   },
   curtains: { none: "office.decor.none", tied: "office.decor.curtains.tied" },
   sill: {

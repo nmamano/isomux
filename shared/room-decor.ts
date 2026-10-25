@@ -13,7 +13,6 @@ export const ROOM_DECOR_OPTIONS = {
   // "clinic" is the green tint. It keeps the wire name the hospital stored
   // before every colour became a tint.
   walls: ["office", "clinic", "teal", "sky", "lilac", "rose", "clay"],
-  floor: ["checker", "plain", "stripes", "blocks", "mosaic"],
   curtains: ["none", "tied"],
   sill: ["trailing", "blossom", "none"],
   wallArt: ["neon", "name", "landscape", "chart", "none"],

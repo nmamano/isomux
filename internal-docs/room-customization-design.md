@@ -33,7 +33,6 @@ corkboard (tasks), the wall screen (apps), the clock (schedules), the vent
 | Choice | Slot and wire values | Office preset | Hospital preset |
 | --- | --- | --- | --- |
 | Room colour | `walls`: `office`, `clinic`, `teal`, `sky`, `lilac`, `rose`, `clay` | office | clinic |
-| Floor pattern | `floor`: `checker`, `plain`, `stripes`, `blocks`, `mosaic` | checker | checker |
 | Window curtains | `curtains`: `none`, `tied` | none | tied |
 | Window sill | `sill`: `trailing`, `blossom`, `none` | rotates by room | rotates by room |
 | Right wall | `wallArt`: `neon`, `name`, `landscape`, `chart`, `none` | neon | rotates landscape / chart |
@@ -52,13 +51,12 @@ name from when the hospital had a fixed palette of its own, so there is one
 path for room colour (Nil, 2026-10-25). No yellow: a dark yellow reads as
 brown.
 
-`floor` picks which tone each floor cell takes (ui/office/floor-pattern.ts).
-The floor draws its tiles and the slab sides under its front edges from the
-same pattern, so the thick side continues the cells it meets. `mosaic` splits
-each desk-grid tile into four cells.
+There is no floor pattern choice: floor patterns were built and dropped at
+sign-off as not creative enough (Nil, 2026-10-25).
 
-`name` hangs a plate with the room's name in the neon sign's place, in the
-theme's plate and text colours. A long name wraps to two lines and shrinks;
+`name` hangs a small chalkboard in a wooden frame with the room's name in the
+neon sign's place. Its colours are fixed, as the corkboard's are, so it reads
+on every wall. A long name wraps to two lines and shrinks;
 past the minimum size it ends in an ellipsis, and the tooltip has the full
 name. A click on the plate opens the room's settings, as the vent does.
 

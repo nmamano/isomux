@@ -60,7 +60,6 @@ test("the office preset draws the room every office had before decor", () => {
   });
   expect(office).toEqual({
     walls: "office",
-    floor: "checker",
     curtains: "none",
     sill: "trailing",
     wallArt: "neon",
@@ -80,7 +79,6 @@ test("the hospital preset draws the hospital skin as it was", () => {
   const ward = ROOM_PRESETS.hospital({ blossom: false, hospitalIndex: 0 });
   expect(ward).toEqual({
     walls: "clinic",
-    floor: "checker",
     curtains: "tied",
     sill: "trailing",
     wallArt: "landscape",

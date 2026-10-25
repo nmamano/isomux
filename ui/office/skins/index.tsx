@@ -44,7 +44,6 @@ export const ROOM_PRESETS: Record<
   // The room every office has drawn since before skins existed.
   office: (ctx) => ({
     walls: "office",
-    floor: "checker",
     curtains: "none",
     sill: ctx.blossom ? "blossom" : "trailing",
     wallArt: "neon",
@@ -56,7 +55,6 @@ export const ROOM_PRESETS: Record<
   }),
   hospital: (ctx) => ({
     walls: "clinic",
-    floor: "checker",
     curtains: "tied",
     sill: ctx.blossom ? "blossom" : "trailing",
     wallArt: ctx.hospitalIndex % 2 === 1 ? "chart" : "landscape",
