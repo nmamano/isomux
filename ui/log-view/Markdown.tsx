@@ -24,7 +24,13 @@ import diff from "highlight.js/lib/languages/diff";
 import yaml from "highlight.js/lib/languages/yaml";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
-import { sanitizeSvg } from "./svg-sanitize.ts";
+import {
+  SVG_SPAN_RE,
+  escapeAttrValue,
+  escapeText,
+  sanitizeSvg,
+} from "./svg-sanitize.ts";
+import { decodeEntities, safeUrl, sanitizeHtml } from "./html-sanitize.ts";
 import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
 import { readSafariEnv, safariHrefSameOrigin } from "../safari-link.ts";
 
@@ -70,17 +76,37 @@ marked.setOptions({
   gfm: true,
 });
 
-const renderer = new marked.Renderer();
-renderer.link = ({ href, title, text }) => {
-  const titleAttr = title ? ` title="${title}"` : "";
-  const target = safariHrefSameOrigin(
-    href,
-    readSafariEnv(),
-    window.location.origin,
-  );
-  return `<a href="${target}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
-};
-marked.use({ renderer });
+// Raw HTML and link text can carry outside text, so both go through
+// html-sanitize.ts: the link text renders from its inline tokens, and a link
+// whose scheme is not allowed renders as its text alone.
+marked.use({
+  renderer: {
+    html: ({ text }) => sanitizeHtml(text),
+    // After an inline <code>, <kbd>, <pre> or <script> tag, marked passes
+    // the following text through unescaped (escaped: true), and it can hold
+    // markup that marked's tag rule misses but the browser reads as a tag.
+    text: (token) =>
+      "escaped" in token &&
+      token.escaped &&
+      !("tokens" in token && token.tokens)
+        ? sanitizeHtml(token.text)
+        : false,
+    link({ href, title, tokens }) {
+      const text = this.parser.parseInline(tokens);
+      const url = safeUrl(decodeEntities(href), "href");
+      if (url === null) return text;
+      const titleAttr = title
+        ? ` title="${escapeAttrValue(decodeEntities(title))}"`
+        : "";
+      const target = safariHrefSameOrigin(
+        url,
+        readSafariEnv(),
+        window.location.origin,
+      );
+      return `<a href="${escapeAttrValue(target)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
+  },
+});
 
 // Task ids become neutral placeholders at parse time. The tokenizer cannot
 // see the reader's ACL-filtered task map, so the layout effect below upgrades
@@ -108,15 +134,8 @@ marked.use({
   ],
 });
 
-const escapeHtmlAttr = (s: string) =>
-  s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
 function mathPlaceholder(source: string, displayMode: boolean): string {
-  const escaped = escapeHtmlAttr(source);
+  const escaped = escapeAttrValue(source);
   return `<span class="katex-math" data-katex-source="${escaped}" data-katex-display="${displayMode}">${escaped}</span>`;
 }
 
@@ -252,7 +271,7 @@ marked.use({
         const source = (token as { source?: string }).source ?? "";
         return (
           `<div class="mermaid-wrapper">` +
-          `<div class="mermaid" data-mermaid-source="${escapeHtmlAttr(source)}"></div>` +
+          `<div class="mermaid" data-mermaid-source="${escapeAttrValue(source)}"></div>` +
           `</div>\n`
         );
       },
@@ -272,7 +291,6 @@ marked.use({
 // indexOf("<svg") - line-start only for block, not-backtick-preceded for
 // inline - so prose that mentions `<svg>` in inline code keeps being
 // handled by the built-in codespan tokenizer.
-const SVG_SPAN_RE = /^<svg\b[\s\S]*?<\/svg\s*>/i;
 const svgExtension = (
   name: string,
   level: "block" | "inline",
@@ -391,7 +409,7 @@ export function renderMarkdown(i18n: Translator, content: string): string {
       .replace(/<table>/g, `<div class="table-wrapper"><table>`)
       .replace(/<\/table>/g, `</table></div>`);
   } catch {
-    return content;
+    return escapeText(content);
   }
 }
 

@@ -1,19 +1,21 @@
 // Sanitizer for raw inline <svg> blocks in chat messages.
 //
-// Chat markdown passes raw HTML through to innerHTML unsanitized (local,
-// trusted-ish content), but SVG needs special handling for a rendering
-// reason: marked's `breaks: true` inserts <br> between the lines of any
-// SVG that ends up inside a paragraph, and <br> is one of the HTML
-// parser's "foreign content breakout" tags - the browser force-closes the
-// <svg> when it hits one, so every shape after it parses as an unknown
-// HTML element and renders nothing. The Markdown component therefore
-// captures whole <svg>…</svg> spans with a marked extension and emits
-// them through this sanitizer instead.
+// Chat markdown sends raw HTML through html-sanitize.ts, but SVG needs
+// special handling for a rendering reason: marked's `breaks: true` inserts
+// <br> between the lines of any SVG that ends up inside a paragraph, and
+// <br> is one of the HTML parser's "foreign content breakout" tags - the
+// browser force-closes the <svg> when it hits one, so every shape after it
+// parses as an unknown HTML element and renders nothing. The Markdown
+// component therefore captures whole <svg>…</svg> spans with a marked
+// extension and emits them through this sanitizer instead, and
+// html-sanitize.ts sends an <svg> inside a raw HTML block here too.
+//
+// The content is not trusted: agent replies can quote outside text, and
+// project skill files come from cloned repositories (task 85881065).
 //
 // Since that makes agent-authored SVG a deliberately supported surface,
-// we hold it to a stricter bar than the rest of the passthrough HTML:
-// only known shape/structure/text/paint elements and presentation
-// attributes survive. <script>, <foreignObject>, SMIL animation, on*
+// we hold it to a strict bar: only known shape/structure/text/paint
+// elements and presentation attributes survive. <script>, <foreignObject>, SMIL animation, on*
 // handlers, the style attribute (it would admit the whole SVG CSS
 // surface, including url() fetches), and non-fragment hrefs are dropped.
 // Paint/reference attributes that accept CSS url() syntax (fill, stroke,
@@ -210,18 +212,21 @@ function isSafeCssValue(value: string): boolean {
   return true;
 }
 
+// One whole <svg>…</svg> span at the start of the input.
+export const SVG_SPAN_RE = /^<svg\b[\s\S]*?<\/svg\s*>/i;
+
 // Matches one markup construct. Attribute chunks may contain '>' only
 // inside quotes, hence the alternation instead of a bare [^>]*.
-const MARKUP_RE =
+export const MARKUP_RE =
   /<!--[\s\S]*?(?:-->|$)|<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<[!?][^>]*>|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
 
-const ATTR_RE = /([^\s=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?/g;
+export const ATTR_RE = /([^\s=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]*))?/g;
 
-function escapeText(s: string): string {
+export function escapeText(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function escapeAttrValue(s: string): string {
+export function escapeAttrValue(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
