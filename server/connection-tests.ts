@@ -106,10 +106,11 @@ export function secretTestKind(secret: {
 }
 
 // A name the service wrote, or null when it is not plain text or could carry
-// what the request sent: the credential, or a part of the URL path or query.
+// what the request sent: the credential, or a part of the path or query of a
+// member-written URL. A fixed preset URL (url null) carries nothing to repeat.
 function cleanName(
   text: unknown,
-  sent: { value: string | null; url: string },
+  sent: { value: string | null; url: string | null },
 ): string | null {
   if (typeof text !== "string") return null;
   const name = text.trim();
@@ -117,6 +118,7 @@ function cleanName(
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(name)) return null;
   if (sent.value && name.includes(sent.value)) return null;
+  if (sent.url === null) return name;
   let parts: string[] = [];
   try {
     const url = new URL(sent.url);
@@ -259,7 +261,7 @@ async function testSecret(
     ok: true,
     kind: "secret",
     host: check.host,
-    account: cleanName(named, { value: secret.value, url: check.url }),
+    account: cleanName(named, { value: secret.value, url: null }),
   };
 }
 

@@ -11,9 +11,11 @@ import { SECRET_PRESETS } from "../shared/secret-hosts.ts";
 import {
   SECRET_TEST_KINDS,
   type ConnectionTestResult,
+  type SecretTestKind,
 } from "../shared/contract-shapes.ts";
 import {
   createConnectionTester,
+  IDENTITY_CHECKS,
   secretTestKind,
   type ConnectionTestFetch,
 } from "./connection-tests.ts";
@@ -257,6 +259,37 @@ describe("secret tests", () => {
       account: null,
     });
     expectClean(result);
+  });
+
+  it("shows an account name that contains a word of its own check's fixed address", async () => {
+    // Each name holds a path part of its preset's URL (/user, /v1/account,
+    // /graphql); the request carried nothing else the name could repeat.
+    const cases: [SecretTestKind, string, unknown][] = [
+      ["github", "superuser", { login: "superuser" }],
+      [
+        "stripe",
+        "accounts@example.com",
+        { id: "acct_1", email: "accounts@example.com" },
+      ],
+      [
+        "fly",
+        "graphql-ops@example.com",
+        { data: { viewer: { email: "graphql-ops@example.com" } } },
+      ],
+    ];
+    for (const [kind, account, body] of cases) {
+      const { fetch, sent } = fakeFetch(() => json(body));
+      const { sources, tester } = setup(fetch);
+      const host = IDENTITY_CHECKS[kind].host;
+      addSecret(sources, ALICE, "TOKEN", [host]);
+      const result = await tester.secret(ALICE, "TOKEN");
+      expect(sent.map((entry) => entry.url)).toEqual([
+        IDENTITY_CHECKS[kind].url,
+      ]);
+      expect(result).toEqual({ ok: true, kind: "secret", host, account });
+      expectClean(result);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("stops at the timeout", async () => {
