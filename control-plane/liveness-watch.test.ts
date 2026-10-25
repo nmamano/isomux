@@ -39,7 +39,11 @@ const CONTROL_UP = async (): Promise<ControlResult> => ({
   detail: "control reachable",
 });
 
-async function bed(): Promise<Bed> {
+/** The office's provider asset: by default one with a recorded address;
+ * `{ ipv4: null }` one whose address is not recorded; `null` no asset row. */
+async function bed(
+  asset: { ipv4: string | null } | null = { ipv4: "169.58.97.2" },
+): Promise<Bed> {
   const now = { value: 1_000_000 };
   const store = await openTestStore(() => now.value);
   await store.createInstance({
@@ -52,18 +56,20 @@ async function bed(): Promise<Bed> {
     goal: "live",
     access_window_expires_at: now.value + 1_000_000,
   });
-  await store.createAsset({
-    id: "asset-1",
-    instance_id: "inst-1",
-    provider: "contabo",
-    provider_id: "203474835",
-    intent_id: null,
-    asset_state: "active",
-    ipv4: "169.58.97.2",
-    service_ends_at: null,
-    host_key_fingerprint: null,
-    next_reconcile_at: now.value,
-  });
+  if (asset) {
+    await store.createAsset({
+      id: "asset-1",
+      instance_id: "inst-1",
+      provider: "contabo",
+      provider_id: "203474835",
+      intent_id: null,
+      asset_state: "active",
+      ipv4: asset.ipv4,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: now.value,
+    });
+  }
   return {
     store,
     instanceId: "inst-1",
@@ -196,6 +202,36 @@ describe("three strikes gets a person", () => {
       "clear",
     );
   });
+});
+
+// The scripted lookup still answers 169.58.97.2 and every rung would pass, as
+// it would for a wildcard record that points at another healthy office. With
+// no recorded address the office cannot be told apart from that one, so the
+// reading fails, counts a strike, and never clears a raise.
+test("a live office with no recorded IPv4 fails at wrong-box and does not clear an open raise", async () => {
+  for (const asset of [{ ipv4: null }, null]) {
+    const b = await bed(asset);
+    for (let i = 0; i < 3; i++) {
+      await b.pass("tcp");
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    expect({ asset, reasons: await b.reasons() }).toEqual({
+      asset,
+      reasons: ["critical"],
+    });
+
+    await b.pass("ok");
+    const row = (await b.store.getLiveness("inst-1"))!;
+    expect({ asset, rung: row.rung, strikes: row.strikes }).toEqual({
+      asset,
+      rung: "wrong-box",
+      strikes: 4,
+    });
+    expect({ asset, reasons: await b.reasons() }).toEqual({
+      asset,
+      reasons: ["critical"],
+    });
+  }
 });
 
 test("only live offices are probed", async () => {

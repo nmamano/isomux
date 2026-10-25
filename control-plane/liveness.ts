@@ -132,22 +132,32 @@ function tcpConnect(
 /**
  * Walk the ladder for `host`, and refuse to bless a box that is not ours.
  *
- * `expectIpv4` is not optional in spirit. `*.test.isomux.app` already resolves
+ * `expectIpv4` is not optional. `*.test.isomux.app` already resolves
  * via a wildcard, and a stale or wildcard A record plus a healthy office
  * somewhere else is enough for every rung below to pass against a machine we
  * did not build. Acceptance has to mean "this box", so the resolved address is
- * checked against the instance's own address before anything else counts.
+ * checked against the instance's own address before anything else counts, and
+ * a missing address is refused before the lookup.
  */
 export async function probeLiveness(
   host: string,
   deps: LivenessDeps = {},
-  expectIpv4?: string,
+  expectIpv4: string | null | undefined,
 ): Promise<LivenessResult> {
   const lookup =
     deps.lookup ??
     (async (h: string) => (await dns.lookup(h, { family: 4 })).address);
   const connect = deps.connect ?? tcpConnect;
   const fetchImpl = deps.fetchImpl ?? fetch;
+
+  if (!expectIpv4) {
+    return {
+      rung: "wrong-box",
+      detail:
+        `${host} has no recorded IPv4, so a wildcard or stale record ` +
+        `cannot be told apart from this instance.`,
+    };
+  }
 
   let ipv4: string;
   try {
@@ -156,7 +166,7 @@ export async function probeLiveness(
     return { rung: "dns", detail: `name does not resolve: ${messageOf(err)}` };
   }
 
-  if (expectIpv4 && ipv4 !== expectIpv4) {
+  if (ipv4 !== expectIpv4) {
     return {
       rung: "wrong-box",
       detail:

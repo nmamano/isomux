@@ -78,13 +78,16 @@ export async function watchLiveness(
     if (!claimed) continue;
 
     const asset = await store.assetForInstance(instance.id);
+    // probeLiveness refuses a missing address on its own; this line only says
+    // why, because the stored reading carries no detail.
+    if (!asset?.ipv4) {
+      deps.report?.(
+        `liveness for ${instance.name}: no recorded IPv4, counted as a failed reading`,
+      );
+    }
     let rung: Rung;
     try {
-      const result = await probeLiveness(
-        instance.name,
-        deps,
-        asset?.ipv4 ?? undefined,
-      );
+      const result = await probeLiveness(instance.name, deps, asset?.ipv4);
       rung = result.rung;
     } catch (err) {
       // A probe that throws is a probe that did not answer. It counts as a

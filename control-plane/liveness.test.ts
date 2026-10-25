@@ -46,6 +46,32 @@ describe("probeLiveness", () => {
     const notServing = deps(OURS, 503);
     expect((await probeLiveness("x", notServing, OURS)).rung).toBe("readyz");
   });
+
+  // Without our own address there is nothing to tell a wildcard or stale record
+  // from this box, so the probe stops before it asks anything: every scripted
+  // rung below would pass, and a pass here is how a down office reads as up.
+  test("with no expected address the probe stops at wrong-box before the lookup", async () => {
+    for (const missing of [null, undefined, ""]) {
+      const calls = { lookup: 0, connect: 0, fetch: 0 };
+      const counting = {
+        lookup: () => {
+          calls.lookup++;
+          return Promise.resolve(OURS);
+        },
+        connect: () => {
+          calls.connect++;
+          return Promise.resolve();
+        },
+        fetchImpl: () => {
+          calls.fetch++;
+          return Promise.resolve(new Response("", { status: 200 }));
+        },
+      };
+      const r = await probeLiveness("cp1.test.isomux.app", counting, missing);
+      expect({ missing, rung: r.rung }).toEqual({ missing, rung: "wrong-box" });
+      expect(calls).toEqual({ lookup: 0, connect: 0, fetch: 0 });
+    }
+  });
 });
 
 // The control probe decides whether a failed office reading is the office's

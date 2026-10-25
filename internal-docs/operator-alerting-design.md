@@ -36,7 +36,7 @@ tick runs that evaluation after it dispatches due operations
 The other implemented producers are certificate renewal failures
 (`control-plane/certificate-service.ts:50-71`,
 `control-plane/certificate-service.ts:77-96`), repeated liveness failures
-(`control-plane/liveness-watch.ts:177-210`), billing conditions
+(`control-plane/liveness-watch.ts:180-213`), billing conditions
 (`control-plane/stripe/billing-attention.ts:45-68`), lifecycle conditions
 (`control-plane/lifecycle-tick.ts:207-227`), reinstatement uncertainty
 (`control-plane/reinstatement-operations.ts:100-129`,
