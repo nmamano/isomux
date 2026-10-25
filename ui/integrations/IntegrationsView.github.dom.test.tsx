@@ -2,7 +2,9 @@
 // 7ac5ba2e, Nil at the sign-off of 7fc83592). The tab is for office owners
 // only: a Room select picks the room, and the form below it shows that room's
 // saved link and status, Save sends the link PUT and Unlink the DELETE. The
-// server rules: server/test-support/routes-github-sync-rest.test.ts.
+// token secret is picked from the office secrets allowed for api.github.com
+// (task edcc3e34, Nil at the sign-off of 7ac5ba2e). The server rules:
+// server/test-support/routes-github-sync-rest.test.ts.
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -12,8 +14,9 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { setApiShim } = await import("../api.ts");
-const { IntegrationsFake } =
+const { IntegrationsFake, secret } =
   await import("../test-support/integrations-fake.ts");
+const { notifyConnectionsChanged } = await import("../connections-events.ts");
 const { MEMBER, OWNER, open, selectedTab } =
   await import("../test-support/integrations-page-fixture.ts");
 const { RoomPane } = await import("../components/RoomPane.tsx");
@@ -70,9 +73,16 @@ function install(owner: boolean) {
   });
 }
 
+// The host the sync checks a secret's hosts for, exactly.
+const GITHUB = "api.github.com";
+const officeSecrets = (...list: ReturnType<typeof secret>[]) => {
+  fake.scope("office").secrets = list;
+};
+
 beforeEach(() => {
   links = {};
   install(true);
+  officeSecrets(secret("GITHUB_SYNC_TOKEN", { hosts: [GITHUB] }));
 });
 
 const withRooms = (state: typeof OWNER, rooms: RoomWire[] = ROOMS) => ({
@@ -99,6 +109,22 @@ function q<T extends Element>(view: View, selector: string): T {
 
 const roomSelect = (view: View) =>
   q<HTMLSelectElement>(view, "select[data-github-link-room]");
+const secretSelect = (view: View) =>
+  q<HTMLSelectElement>(view, "select[data-github-link-secret]");
+// The secrets the select offers, without the "pick one" placeholder.
+const secretChoices = (view: View) =>
+  [...secretSelect(view).options]
+    .map((o) => o.value)
+    .filter(Boolean)
+    .sort();
+const saveBtn = (view: View) =>
+  q<HTMLButtonElement>(view, "[data-github-link-save]");
+
+async function change(view: View, selector: string, value: string) {
+  await act(async () => {
+    fireEvent.change(q(view, selector), { target: { value } });
+  });
+}
 
 async function pickRoom(view: View, roomId: string) {
   await act(async () => {
@@ -151,9 +177,7 @@ it("lists the rooms without the lobby, names each linked repo, and opens on the 
       .value.split(",")
       .map((l) => l.trim()),
   ).toEqual(["isomux", "ready"]);
-  expect(q<HTMLInputElement>(view, "[data-github-link-secret]").value).toBe(
-    "GITHUB_SYNC_TOKEN",
-  );
+  expect(secretSelect(view).value).toBe("GITHUB_SYNC_TOKEN");
   const status = q<HTMLElement>(view, "[data-github-link-status]");
   expect(status.getAttribute("data-kind")).toBe("paused");
   expect((status.textContent ?? "").trim().length).toBeGreaterThan(0);
@@ -165,9 +189,7 @@ it("with no linked room, opens on the first room with an empty form", async () =
   const view = await open(withRooms(OWNER), { request: { tab: "github" } });
   expect(roomSelect(view).value).toBe("r1");
   expect(q<HTMLInputElement>(view, "[data-github-link-repo]").value).toBe("");
-  expect(q<HTMLInputElement>(view, "[data-github-link-secret]").value).toBe(
-    "GITHUB_SYNC_TOKEN",
-  );
+  expect(secretSelect(view).value).toBe("GITHUB_SYNC_TOKEN");
   expect(view.container.querySelector("[data-github-link-unlink]")).toBeNull();
 });
 
@@ -218,6 +240,122 @@ it("a missing secret's status links to the Secrets tab", async () => {
   await act(async () => fireEvent.click(q(view, "[data-go-secrets]")));
   expect(selectedTab(view)).toBe("secrets");
   expect(view.container.querySelector("[data-github-link]")).toBeNull();
+});
+
+it("the secret select offers exactly the office secrets allowed for api.github.com, and Link saves the picked one", async () => {
+  officeSecrets(
+    secret("GITHUB_SYNC_TOKEN", { hosts: [GITHUB] }),
+    secret("ORG_READER", { hosts: ["uploads.github.com", GITHUB] }),
+    // The sync matches the host exactly: github.com is another host.
+    secret("WEB_LOGIN", { hosts: ["github.com"] }),
+    secret("STRIPE_KEY", { hosts: ["api.stripe.com"] }),
+  );
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(fake.requests("GET", "/api/office/secrets").length).toBeGreaterThan(0);
+  expect(secretChoices(view)).toEqual(["GITHUB_SYNC_TOKEN", "ORG_READER"]);
+  expect(secretSelect(view).value).toBe("GITHUB_SYNC_TOKEN");
+
+  await change(view, "[data-github-link-repo]", "acme/gadgets");
+  await change(view, "[data-github-link-secret]", "ORG_READER");
+  await act(async () => fireEvent.click(saveBtn(view)));
+  expect(
+    linkCalls("PUT").map((c) => (c.body as { secretName: string }).secretName),
+  ).toEqual(["ORG_READER"]);
+});
+
+it("a saved link keeps its secret as the pick when the office no longer offers it", async () => {
+  links = { r1: { ...saved("r1", "Acme/Widgets"), secretName: "OLD_TOKEN" } };
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(secretChoices(view)).toEqual(["GITHUB_SYNC_TOKEN", "OLD_TOKEN"]);
+  expect(secretSelect(view).value).toBe("OLD_TOKEN");
+  await act(async () => fireEvent.click(saveBtn(view)));
+  expect(
+    linkCalls("PUT").map((c) => (c.body as { secretName: string }).secretName),
+  ).toEqual(["OLD_TOKEN"]);
+});
+
+it("a new link picks the only allowed secret, and with several and no GITHUB_SYNC_TOKEN waits for a pick", async () => {
+  officeSecrets(secret("ORG_READER", { hosts: [GITHUB] }));
+  const one = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(secretChoices(one)).toEqual(["ORG_READER"]);
+  expect(secretSelect(one).value).toBe("ORG_READER");
+  await change(one, "[data-github-link-repo]", "acme/gadgets");
+  expect(saveBtn(one).disabled).toBe(false);
+  one.unmount();
+
+  officeSecrets(
+    secret("ORG_READER", { hosts: [GITHUB] }),
+    secret("BOT_READER", { hosts: [GITHUB] }),
+  );
+  const several = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(secretChoices(several)).toEqual(["BOT_READER", "ORG_READER"]);
+  expect(secretSelect(several).value).toBe("");
+  // A repo alone is not enough: the secret is still unpicked.
+  await change(several, "[data-github-link-repo]", "acme/gadgets");
+  expect(saveBtn(several).disabled).toBe(true);
+  await act(async () => fireEvent.click(saveBtn(several)));
+  expect(linkCalls("PUT")).toEqual([]);
+
+  await change(several, "[data-github-link-secret]", "BOT_READER");
+  expect(saveBtn(several).disabled).toBe(false);
+  await act(async () => fireEvent.click(saveBtn(several)));
+  expect(
+    linkCalls("PUT").map((c) => (c.body as { secretName: string }).secretName),
+  ).toEqual(["BOT_READER"]);
+});
+
+it("with no secret allowed for api.github.com, a line links to the Secrets tab and Link stays disabled", async () => {
+  officeSecrets(secret("WEB_LOGIN", { hosts: ["github.com"] }));
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(view.container.querySelector("[data-github-link-secret]")).toBeNull();
+  const none = q<HTMLElement>(view, "[data-github-link-no-secret]");
+  expect((none.textContent ?? "").trim().length).toBeGreaterThan(0);
+
+  await change(view, "[data-github-link-repo]", "acme/gadgets");
+  expect(saveBtn(view).disabled).toBe(true);
+  await act(async () => fireEvent.click(saveBtn(view)));
+  expect(linkCalls("PUT")).toEqual([]);
+
+  await act(async () =>
+    fireEvent.click(q(view, "[data-github-link-no-secret] [data-go-secrets]")),
+  );
+  expect(selectedTab(view)).toBe("secrets");
+});
+
+it("a secret added or removed elsewhere changes the choices, and Link saves the secret the select shows", async () => {
+  officeSecrets();
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  q(view, "[data-github-link-no-secret]");
+  await change(view, "[data-github-link-repo]", "acme/gadgets");
+
+  // Added on the Secrets tab or by an agent: the select replaces the line.
+  officeSecrets(
+    secret("ORG_READER", { hosts: [GITHUB] }),
+    secret("BOT_READER", { hosts: [GITHUB] }),
+  );
+  await act(async () => notifyConnectionsChanged());
+  await act(async () => {});
+  expect(view.container.querySelector("[data-github-link-no-secret]")).toBe(
+    null,
+  );
+  expect(secretChoices(view)).toEqual(["BOT_READER", "ORG_READER"]);
+  // The form keeps what was typed.
+  expect(q<HTMLInputElement>(view, "[data-github-link-repo]").value).toBe(
+    "acme/gadgets",
+  );
+
+  // The picked secret goes away: the save never sends a name the select
+  // does not show.
+  await change(view, "[data-github-link-secret]", "ORG_READER");
+  officeSecrets(secret("BOT_READER", { hosts: [GITHUB] }));
+  await act(async () => notifyConnectionsChanged());
+  await act(async () => {});
+  const shown = secretSelect(view).value;
+  expect(shown).not.toBe("");
+  await act(async () => fireEvent.click(saveBtn(view)));
+  expect(
+    linkCalls("PUT").map((c) => (c.body as { secretName: string }).secretName),
+  ).toEqual([shown]);
 });
 
 it("an owner with no room besides the lobby gets a line instead of a select", async () => {

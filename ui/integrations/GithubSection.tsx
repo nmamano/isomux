@@ -2,12 +2,14 @@
 // task 7fc83592), for office owners only. A Room select picks the room, and
 // the form below it saves that room's link on its own (it is not part of the
 // room's PATCH). The select names each room's linked repo, so the tab also
-// reads as the list of links.
+// reads as the list of links. The token is picked from the office secrets
+// the sync will send to GitHub (task edcc3e34).
 
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
+import { onConnectionsChanged } from "../connections-events.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
   dialogCancelBtn,
@@ -20,9 +22,18 @@ import {
 import { Btn, card, hintText, input } from "./kit.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import type { GithubLinkStatus, GithubLinkWire } from "../../shared/types.ts";
+import type { SecretListRes } from "../../shared/contract-shapes.ts";
+import {
+  DEFAULT_GITHUB_SYNC_SECRET,
+  GITHUB_HOST,
+} from "../../shared/github-sync.ts";
 
-// Same default as the server's DEFAULT_GITHUB_SYNC_SECRET.
-const DEFAULT_SECRET = "GITHUB_SYNC_TOKEN";
+// The secret a new link starts on: the default name, else the only choice.
+function defaultSecret(usable: string[]): string {
+  if (usable.includes(DEFAULT_GITHUB_SYNC_SECRET))
+    return DEFAULT_GITHUB_SYNC_SECRET;
+  return usable.length === 1 ? usable[0] : "";
+}
 
 // The missing secret's line links the Secrets tab, so it is drawn apart.
 const MISSING = "paused:missing";
@@ -57,6 +68,35 @@ export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
     null,
   );
   const [picked, setPicked] = useState<string | null>(null);
+  // The names of the office secrets the sync may send to GitHub; null until
+  // the list answered. A failed load offers none.
+  const [usable, setUsable] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    // Only the newest load may set the list: an older answer can come last.
+    let latest = 0;
+    const load = () => {
+      const mine = ++latest;
+      return apiFetch<SecretListRes>("GET", "/api/office/secrets")
+        .then((result) =>
+          result.secrets
+            .filter((secret) => secret.hosts.includes(GITHUB_HOST))
+            .map((secret) => secret.name),
+        )
+        .catch(() => [])
+        .then((names) => {
+          if (alive && mine === latest) setUsable(names);
+        });
+    };
+    void load();
+    // A secret added or removed on the Secrets tab changes the choices.
+    const stop = onConnectionsChanged(() => void load());
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +134,7 @@ export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
         </p>
       </section>
     );
-  if (!links || !picked) return null;
+  if (!links || !picked || !usable) return null;
   const roomId = choices.some((room) => room.id === picked)
     ? picked
     : choices[0].id;
@@ -119,6 +159,7 @@ export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
         key={roomId}
         roomId={roomId}
         saved={links[roomId] ?? null}
+        usable={usable}
         onSecrets={onSecrets}
         onSaved={(link) =>
           setLinks((prev) => {
@@ -137,11 +178,13 @@ export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
 function RoomGithubLink({
   roomId,
   saved,
+  usable,
   onSecrets,
   onSaved,
 }: {
   roomId: string;
   saved: GithubLinkWire | null;
+  usable: string[];
   onSecrets: () => void;
   onSaved: (link: GithubLinkWire | null) => void;
 }) {
@@ -153,9 +196,8 @@ function RoomGithubLink({
   const [collaboratorsOnly, setCollaboratorsOnly] = useState(
     saved?.collaboratorsOnly ?? false,
   );
-  const [secretName, setSecretName] = useState(
-    saved?.secretName ?? DEFAULT_SECRET,
-  );
+  // "" until the member picks a secret, for a new link.
+  const [pickedSecret, setPickedSecret] = useState(saved?.secretName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,8 +206,16 @@ function RoomGithubLink({
     setRepo(next?.repo ?? "");
     setLabels(next ? next.labels.join(", ") : "");
     setCollaboratorsOnly(next?.collaboratorsOnly ?? false);
-    setSecretName(next?.secretName ?? DEFAULT_SECRET);
+    setPickedSecret(next?.secretName ?? "");
   }
+
+  // The choices keep the saved and the picked secret even when the office
+  // no longer offers them, so the select always shows what Save sends.
+  const secretName = pickedSecret || defaultSecret(usable);
+  const choices = [...usable];
+  for (const name of [link?.secretName, secretName])
+    if (name && !choices.includes(name)) choices.push(name);
+  const ready = repo.trim() !== "" && secretName !== "";
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -191,7 +241,7 @@ function RoomGithubLink({
             .map((label) => label.trim())
             .filter(Boolean),
           collaboratorsOnly,
-          secretName: secretName.trim(),
+          secretName,
         },
       );
       show(result.link);
@@ -247,16 +297,39 @@ function RoomGithubLink({
         {t("integrations.github.collaboratorsOnly")}
       </label>
       <label style={label}>{t("integrations.github.secret")}</label>
-      <input
-        {...noTranslate()}
-        data-github-link-secret
-        value={secretName}
-        onChange={(e) => setSecretName(e.target.value)}
-        style={dialogInput}
-      />
-      <p style={{ ...dialogHint, marginTop: 4 }}>
-        {t("integrations.github.secretHint")}
-      </p>
+      {choices.length > 0 ? (
+        <>
+          <select
+            {...noTranslate()}
+            data-github-link-secret
+            value={secretName}
+            onChange={(e) => setPickedSecret(e.target.value)}
+            style={dialogInput}
+          >
+            <option value="" disabled>
+              {t("integrations.github.pickSecret")}
+            </option>
+            {choices.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <p style={{ ...dialogHint, marginTop: 4 }}>
+            {t("integrations.github.secretHint")}
+          </p>
+        </>
+      ) : (
+        <p data-github-link-no-secret style={{ ...dialogHint, marginTop: 4 }}>
+          {rich("integrations.github.noSecret", {
+            link: (chunk) => (
+              <Btn kind="link" onClick={onSecrets} data-go-secrets>
+                {chunk}
+              </Btn>
+            ),
+          })}
+        </p>
+      )}
       {link && (
         <p
           data-github-link-status
@@ -285,10 +358,10 @@ function RoomGithubLink({
         <button
           data-github-link-save
           onClick={() => void save()}
-          disabled={busy || !repo.trim()}
+          disabled={busy || !ready}
           style={{
             ...dialogSaveBtn,
-            ...(busy || !repo.trim() ? disabledLook : {}),
+            ...(busy || !ready ? disabledLook : {}),
           }}
         >
           {t(link ? "integrations.github.update" : "integrations.github.link")}

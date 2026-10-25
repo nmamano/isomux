@@ -1022,7 +1022,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Only issues from repo owners, members and collaborators",
   "integrations.github.secret": "GitHub token secret",
   "integrations.github.secretHint":
-    "The name of the office secret that holds a GitHub token that can read this repo's issues. Allow it for api.github.com.",
+    "Only office secrets allowed for api.github.com are listed. The token must be able to read this repo's issues.",
+  "integrations.github.pickSecret": "Pick a secret",
+  "integrations.github.noSecret":
+    "No office secret is allowed for api.github.com. Add one on the <link>Secrets</link> tab.",
   "integrations.github.status.pending": "Not checked yet.",
   "integrations.github.status.ok": "Up to date.",
   "integrations.github.status.missing":

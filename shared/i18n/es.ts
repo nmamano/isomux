@@ -1031,7 +1031,10 @@ Cosas que puedes hacer por él:
     "Solo incidencias de propietarios, miembros y colaboradores del repositorio",
   "integrations.github.secret": "Secreto con el token de GitHub",
   "integrations.github.secretHint":
-    "El nombre del secreto de la oficina que contiene un token de GitHub que puede leer las incidencias de este repositorio. Permítelo para api.github.com.",
+    "Solo se muestran los secretos de la oficina permitidos para api.github.com. El token debe poder leer las incidencias de este repositorio.",
+  "integrations.github.pickSecret": "Elige un secreto",
+  "integrations.github.noSecret":
+    "Ningún secreto de la oficina está permitido para api.github.com. Añade uno en la pestaña <link>Secretos</link>.",
   "integrations.github.status.pending": "Aún no se ha comprobado.",
   "integrations.github.status.ok": "Al día.",
   "integrations.github.status.missing":

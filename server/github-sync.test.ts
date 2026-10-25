@@ -10,10 +10,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openOfficeDatabase } from "./audit-store.ts";
+import { DEFAULT_GITHUB_SYNC_SECRET } from "../shared/github-sync.ts";
 import {
   createGithubLinkStore,
   createGithubSync,
-  DEFAULT_GITHUB_SYNC_SECRET,
   GITHUB_FETCH_TIMEOUT_MS,
   GITHUB_MAX_WAIT_MS,
   GITHUB_SYNC_INTERVAL_MS,

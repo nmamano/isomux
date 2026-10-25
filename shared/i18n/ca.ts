@@ -1032,7 +1032,10 @@ Coses que pots fer per ell:
     "Només incidències de propietaris, membres i col·laboradors del repositori",
   "integrations.github.secret": "Secret amb el token de GitHub",
   "integrations.github.secretHint":
-    "El nom del secret de l'oficina que conté un token de GitHub que pot llegir les incidències d'aquest repositori. Permet-lo per a api.github.com.",
+    "Només es mostren els secrets de l'oficina permesos per a api.github.com. El token ha de poder llegir les incidències d'aquest repositori.",
+  "integrations.github.pickSecret": "Tria un secret",
+  "integrations.github.noSecret":
+    "Cap secret de l'oficina està permès per a api.github.com. Afegeix-ne un a la pestanya <link>Secrets</link>.",
   "integrations.github.status.pending": "Encara no s'ha comprovat.",
   "integrations.github.status.ok": "Al dia.",
   "integrations.github.status.missing":

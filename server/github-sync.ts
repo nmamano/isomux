@@ -13,12 +13,15 @@ import type {
 import type { GithubIssueData } from "../shared/github-issue.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import { checkSecretName } from "../shared/secret-hosts.ts";
+import {
+  DEFAULT_GITHUB_SYNC_SECRET,
+  GITHUB_HOST,
+} from "../shared/github-sync.ts";
 import { withAuditContextSync } from "./audit-context.ts";
 
 export const GITHUB_SYNC_INTERVAL_MS = 2 * 60 * 1000;
 export const GITHUB_FETCH_TIMEOUT_MS = 30 * 1000;
 export const GITHUB_MAX_WAIT_MS = 60 * 60 * 1000;
-export const DEFAULT_GITHUB_SYNC_SECRET = "GITHUB_SYNC_TOKEN";
 
 // The stored link: the wire shape plus the poll state. cursor is set once the
 // first pass over the open issues ends; until then walk holds its progress
@@ -61,7 +64,6 @@ export interface GithubLinkStore {
   saveWalk(linkId: string, walk: NonNullable<GithubLink["walk"]>): void;
 }
 
-const GITHUB_HOST = "api.github.com";
 const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const MAX_LINK_LABELS = 20;
 const MAX_LABEL_LENGTH = 50;

@@ -12,7 +12,7 @@ import { FakeGithub } from "./fake-github.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { createSecretStore } from "../secret-store.ts";
-import { DEFAULT_GITHUB_SYNC_SECRET } from "../github-sync.ts";
+import { DEFAULT_GITHUB_SYNC_SECRET } from "../../shared/github-sync.ts";
 import { parseIssueData } from "../../shared/github-issue.ts";
 import type {
   AgentInfo,

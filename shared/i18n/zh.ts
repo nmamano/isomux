@@ -925,7 +925,10 @@ App 的一些原则：
     "仅限仓库所有者、成员和协作者提交的议题",
   "integrations.github.secret": "GitHub 令牌密钥",
   "integrations.github.secretHint":
-    "存放可读取此仓库议题的 GitHub 令牌的办公室密钥名称。请允许它用于 api.github.com。",
+    "仅列出允许用于 api.github.com 的办公室密钥。该令牌必须能读取此仓库的议题。",
+  "integrations.github.pickSecret": "选择一个密钥",
+  "integrations.github.noSecret":
+    "没有允许用于 api.github.com 的办公室密钥。请在<link>密钥</link>标签页添加。",
   "integrations.github.status.pending": "尚未检查。",
   "integrations.github.status.ok": "已是最新。",
   "integrations.github.status.missing":
