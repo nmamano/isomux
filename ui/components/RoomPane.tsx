@@ -22,7 +22,6 @@ import {
   type RoomLook,
 } from "../room-look.ts";
 import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
-import { RoomGithubLink } from "./RoomGithubLink.tsx";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import { noTranslate } from "../no-translate.ts";
 import { isFullUserView } from "../user-merge.ts";
@@ -542,10 +541,6 @@ export function RoomPane({
               onChange={setLook}
             />
           </>
-        )}
-
-        {room.type !== "lobby" && sessionContext?.role === "owner" && (
-          <RoomGithubLink roomId={roomId} />
         )}
 
         {view && (

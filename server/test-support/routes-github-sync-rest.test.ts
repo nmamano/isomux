@@ -265,7 +265,7 @@ describe("an imported task on the wire", () => {
 
     const list = await api(srv, "/api/tasks?status=all", asOwner);
     const listed = (list.body as TaskItem[]).find((t) => t.id === task!.id)!;
-    expect(listed.title).toBe("Acme/Widgets#1: Make it faster");
+    expect(listed.title).toBe("Make it faster");
     expect(listed.external).toEqual(safe);
 
     const upserts = () =>

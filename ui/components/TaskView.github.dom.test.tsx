@@ -28,7 +28,7 @@ const external = {
 } as const;
 const imported = {
   id: "11111111",
-  title: "Acme/Widgets#7: Make it faster",
+  title: "Speed up the build",
   status: "in_progress",
   priority: "P2",
   createdBy: "GitHub",

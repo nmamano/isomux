@@ -35,6 +35,7 @@ export const TAB_LABEL: Record<IntegrationsTab, PlainMessageKey> = {
   variables: "integrations.tabs.variables",
   voice: "integrations.tabs.voice",
   browser: "integrations.tabs.browser",
+  github: "integrations.tabs.github",
   pager: "settings.sidebar.pager",
   "api-tokens": "settings.sidebar.apiTokens",
 };

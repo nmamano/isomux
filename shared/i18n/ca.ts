@@ -533,35 +533,6 @@ Coses que pots fer per ell:
   "settings.room.backRoom": "Rebotiga",
   "settings.room.backRoomHint": "Més de {count} agents, darrere d'una trapa.",
   "settings.room.cwdHint": "Els agents nous d'aquesta sala comencen aquí.",
-  "settings.room.github.title": "Incidències de GitHub",
-  "settings.room.github.hint":
-    "Les incidències obertes amb totes les etiquetes de sota es converteixen en tasques d'aquesta sala. Tancar o reobrir una incidència a GitHub actualitza la seva tasca. Isomux no escriu res a GitHub.",
-  "settings.room.github.repo": "Repositori",
-  "settings.room.github.labels": "Etiquetes",
-  "settings.room.github.labelsHint":
-    "Separa-les amb comes. Fes servir etiquetes que no afegeixi cap plantilla d'incidències ni cap flux de treball, perquè només els mantenidors puguin portar una incidència.",
-  "settings.room.github.collaboratorsOnly":
-    "Només incidències de propietaris, membres i col·laboradors del repositori",
-  "settings.room.github.secret": "Secret de l'oficina",
-  "settings.room.github.secretHint":
-    "Conté un token de GitHub que pot llegir les incidències d'aquest repositori. Permet-lo per a api.github.com.",
-  "settings.room.github.status.pending": "Encara no s'ha comprovat.",
-  "settings.room.github.status.ok": "Al dia.",
-  "settings.room.github.status.missing":
-    "En pausa: cap secret de l'oficina té aquest nom. Afegeix-lo a la pàgina Integracions.",
-  "settings.room.github.status.host":
-    "En pausa: el secret no està permès per a api.github.com.",
-  "settings.room.github.status.refused":
-    "En pausa: GitHub ha rebutjat el token. Actualitza el secret per tornar-ho a provar.",
-  "settings.room.github.status.noAccess":
-    "En pausa: el token no pot llegir les incidències d'aquest repositori. Actualitza el secret o desa l'enllaç per tornar-ho a provar.",
-  "settings.room.github.status.waiting":
-    "Esperant que es restableixi el límit d'ús de GitHub.",
-  "settings.room.github.status.error":
-    "No s'ha pogut contactar amb GitHub. Es tornarà a provar d'aquí a uns minuts.",
-  "settings.room.github.link": "Enllaçar el repositori",
-  "settings.room.github.update": "Actualitzar l'enllaç",
-  "settings.room.github.unlink": "Desenllaçar",
   "settings.room.backRoomInUse.one":
     "{count} agent és a la rebotiga. Treu-lo primer.",
   "settings.room.backRoomInUse.other":
@@ -1035,6 +1006,7 @@ Coses que pots fer per ell:
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Ús del navegador",
   "integrations.tabs.voice": "Veu",
+  "integrations.tabs.github": "Incidències de GitHub",
   "integrations.tabIntro.providers":
     "Els comptes i les claus amb què funcionen els agents de Claude, Codex i OpenCode.",
   "integrations.tabIntro.mcp":
@@ -1045,6 +1017,37 @@ Coses que pots fer per ell:
     "Paràmetres simples que els agents poden llegir, com una zona horària.",
   "integrations.tabIntro.voice":
     "El que fan servir el micròfon i la lectura en veu alta, a tots els teus dispositius.",
+  "integrations.tabIntro.github":
+    "Les incidències obertes amb totes les etiquetes de sota es converteixen en tasques de la sala. Tancar o reobrir una incidència a GitHub actualitza la seva tasca. Isomux no escriu res a GitHub.",
+  "integrations.github.room": "Sala",
+  "integrations.github.empty":
+    "Crea primer una sala. El vestíbul no pot enllaçar cap repositori.",
+  "integrations.github.repo": "Repositori",
+  "integrations.github.labels": "Etiquetes",
+  "integrations.github.labelsHint":
+    "Separa-les amb comes. Fes servir etiquetes que no afegeixi cap plantilla d'incidències ni cap flux de treball, perquè només els mantenidors puguin portar una incidència.",
+  "integrations.github.collaboratorsOnly":
+    "Només incidències de propietaris, membres i col·laboradors del repositori",
+  "integrations.github.secret": "Secret amb el token de GitHub",
+  "integrations.github.secretHint":
+    "El nom del secret de l'oficina que conté un token de GitHub que pot llegir les incidències d'aquest repositori. Permet-lo per a api.github.com.",
+  "integrations.github.status.pending": "Encara no s'ha comprovat.",
+  "integrations.github.status.ok": "Al dia.",
+  "integrations.github.status.missing":
+    "En pausa: cap secret de l'oficina té aquest nom. Afegeix-lo a la pestanya <link>Secrets</link>.",
+  "integrations.github.status.host":
+    "En pausa: el secret no està permès per a api.github.com.",
+  "integrations.github.status.refused":
+    "En pausa: GitHub ha rebutjat el token. Actualitza el secret per tornar-ho a provar.",
+  "integrations.github.status.noAccess":
+    "En pausa: el token no pot llegir les incidències d'aquest repositori. Actualitza el secret o desa l'enllaç per tornar-ho a provar.",
+  "integrations.github.status.waiting":
+    "Esperant que es restableixi el límit d'ús de GitHub.",
+  "integrations.github.status.error":
+    "No s'ha pogut contactar amb GitHub. Es tornarà a provar d'aquí a uns minuts.",
+  "integrations.github.link": "Enllaçar el repositori",
+  "integrations.github.update": "Actualitzar l'enllaç",
+  "integrations.github.unlink": "Desenllaçar",
   "integrations.voice.mic": "Micròfon",
   "integrations.voice.readAloud": "Lectura en veu alta",
   "integrations.voice.voiceName": "Veu",
@@ -2529,7 +2532,7 @@ Coses que pots fer per ell:
   "tasks.empty": "No hi ha tasques",
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.github.chipTitle": "Obrir la incidència a GitHub",
-  "tasks.github.heading": "Incidència de GitHub",
+  "tasks.github.heading": "Obtinguda de GitHub",
   "tasks.github.state.open": "Oberta",
   "tasks.github.state.completed": "Tancada com a completada",
   "tasks.github.state.notPlanned": "Tancada com a no planificada",

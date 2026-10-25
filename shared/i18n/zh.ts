@@ -505,33 +505,6 @@ App 的一些原则：
   "settings.room.backRoom": "后屋",
   "settings.room.backRoomHint": "可容纳超过 {count} 位智能体，经活板门进入。",
   "settings.room.cwdHint": "此房间的新智能体从这里开始工作。",
-  "settings.room.github.title": "GitHub 议题",
-  "settings.room.github.hint":
-    "带有下方所有标签的开放议题会成为此房间的任务。在 GitHub 上关闭或重新打开议题会更新对应的任务。Isomux 不会向 GitHub 写入任何内容。",
-  "settings.room.github.repo": "仓库",
-  "settings.room.github.labels": "标签",
-  "settings.room.github.labelsHint":
-    "用逗号分隔。请使用不会被议题模板或工作流自动添加的标签，这样只有维护者才能引入议题。",
-  "settings.room.github.collaboratorsOnly":
-    "仅限仓库所有者、成员和协作者提交的议题",
-  "settings.room.github.secret": "办公室密钥",
-  "settings.room.github.secretHint":
-    "存放一个可以读取此仓库议题的 GitHub 令牌。请允许它用于 api.github.com。",
-  "settings.room.github.status.pending": "尚未检查。",
-  "settings.room.github.status.ok": "已是最新。",
-  "settings.room.github.status.missing":
-    "已暂停：没有使用此名称的办公室密钥。请在“集成”页面添加。",
-  "settings.room.github.status.host":
-    "已暂停：该密钥未被允许用于 api.github.com。",
-  "settings.room.github.status.refused":
-    "已暂停：GitHub 拒绝了该令牌。请更新密钥后重试。",
-  "settings.room.github.status.noAccess":
-    "已暂停：该令牌无法读取此仓库的议题。请更新密钥或保存链接后重试。",
-  "settings.room.github.status.waiting": "正在等待 GitHub 的速率限制重置。",
-  "settings.room.github.status.error": "无法连接 GitHub。几分钟后重试。",
-  "settings.room.github.link": "链接仓库",
-  "settings.room.github.update": "更新链接",
-  "settings.room.github.unlink": "取消链接",
   "settings.room.backRoomInUse.one": "后屋里有 {count} 位智能体，请先移出。",
   "settings.room.backRoomInUse.other": "后屋里有 {count} 位智能体，请先移出。",
   "settings.room.prompt": "指令",
@@ -931,12 +904,41 @@ App 的一些原则：
   "integrations.tabs.variables": "变量",
   "integrations.tabs.browser": "浏览器使用",
   "integrations.tabs.voice": "语音",
+  "integrations.tabs.github": "GitHub 议题",
   "integrations.tabIntro.providers":
     "Claude、Codex 和 OpenCode 智能体运行所用的账号和密钥。",
   "integrations.tabIntro.mcp": "智能体可以调用的工具，例如 Linear 或 Sentry。",
   "integrations.tabIntro.secrets": "GitHub 等服务的 API 密钥和令牌。",
   "integrations.tabIntro.variables": "智能体可以读取的普通设置，例如时区。",
   "integrations.tabIntro.voice": "麦克风和朗读使用的服务，适用于你的所有设备。",
+  "integrations.tabIntro.github":
+    "带有下方所有标签的开放议题会成为该房间的任务。在 GitHub 上关闭或重新打开议题会更新对应的任务。Isomux 不会向 GitHub 写入任何内容。",
+  "integrations.github.room": "房间",
+  "integrations.github.empty": "请先创建一个房间。大厅无法关联仓库。",
+  "integrations.github.repo": "仓库",
+  "integrations.github.labels": "标签",
+  "integrations.github.labelsHint":
+    "用逗号分隔。请使用不会被议题模板或工作流自动添加的标签，这样只有维护者才能引入议题。",
+  "integrations.github.collaboratorsOnly":
+    "仅限仓库所有者、成员和协作者提交的议题",
+  "integrations.github.secret": "GitHub 令牌密钥",
+  "integrations.github.secretHint":
+    "存放可读取此仓库议题的 GitHub 令牌的办公室密钥名称。请允许它用于 api.github.com。",
+  "integrations.github.status.pending": "尚未检查。",
+  "integrations.github.status.ok": "已是最新。",
+  "integrations.github.status.missing":
+    "已暂停：没有使用此名称的办公室密钥。请在<link>密钥</link>标签页添加。",
+  "integrations.github.status.host":
+    "已暂停：该密钥未被允许用于 api.github.com。",
+  "integrations.github.status.refused":
+    "已暂停：GitHub 拒绝了该令牌。请更新密钥后重试。",
+  "integrations.github.status.noAccess":
+    "已暂停：该令牌无法读取此仓库的议题。请更新密钥或保存链接后重试。",
+  "integrations.github.status.waiting": "正在等待 GitHub 的速率限制重置。",
+  "integrations.github.status.error": "无法连接 GitHub。几分钟后重试。",
+  "integrations.github.link": "链接仓库",
+  "integrations.github.update": "更新链接",
+  "integrations.github.unlink": "取消链接",
   "integrations.voice.mic": "麦克风",
   "integrations.voice.readAloud": "朗读",
   "integrations.voice.voiceName": "声音",
@@ -2278,7 +2280,7 @@ App 的一些原则：
   "tasks.empty": "没有任务",
   "tasks.roomChipTitle": "房间：{room}",
   "tasks.github.chipTitle": "在 GitHub 上打开该议题",
-  "tasks.github.heading": "GitHub 议题",
+  "tasks.github.heading": "获取自 GitHub",
   "tasks.github.state.open": "开放",
   "tasks.github.state.completed": "已关闭（已完成）",
   "tasks.github.state.notPlanned": "已关闭（不在计划中）",

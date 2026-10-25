@@ -1,11 +1,13 @@
 // The Integrations page (task 911c9bbb, design A of the mocks): what agents
 // can use, and how the office reaches the viewer. A sidebar like Settings'
 // (task db800fd8) lists the tabs: model providers, MCP servers, secrets,
-// variables, voice, browser, pager and API tokens. The first four show the
+// variables, voice, browser, GitHub issues, pager and API tokens. The first four show the
 // office-wide ones, then the personal ones. Browser pairs only the viewer's
 // own Chrome (task f2d5cf9f moved it here from Settings); Pager and API tokens
 // are the viewer's own too (they moved here from Settings in task db800fd8),
-// so they need a session and never follow the member picker. An owner can
+// so they need a session and never follow the member picker. GitHub issues
+// links a room to a repo and shows only to an owner (it moved here from Room
+// settings in task 7ac5ba2e). An owner can
 // pick another member's personal ones; the card then turns orange, takes the
 // member's name and offers a way back, and every form names the member, so an
 // owner cannot forget whose items they are changing (Nil, 2026-10-13).
@@ -35,6 +37,7 @@ import { McpSection, SignInNotice } from "./McpSection.tsx";
 import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
 import { VoiceSection } from "./VoiceSection.tsx";
+import { GithubSection } from "./GithubSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
 import { takeSignIn, type SignInNote } from "./sign-in-return.ts";
 import { Btn, Data, card, hintText, input } from "./kit.tsx";
@@ -80,6 +83,7 @@ const TAB_INTRO = {
   variables: "integrations.tabIntro.variables",
   voice: "integrations.tabIntro.voice",
   browser: "browser.intro",
+  github: "integrations.tabIntro.github",
   // Pager and API tokens: the panes carry their own heading and intro.
   pager: null,
   "api-tokens": null,
@@ -111,11 +115,14 @@ function IntegrationsPage({
   const self = sessionContext?.username ?? "";
 
   // Shared with the server, which checks an ask's link to a tab. Pager and
-  // API tokens show only with a session; a remembered or requested one
-  // without a session falls back like an unknown tab.
-  const tabs = sessionContext
-    ? INTEGRATIONS_TABS
-    : INTEGRATIONS_TABS.filter((id) => !SELF_TABS.includes(id));
+  // API tokens show only with a session, and GitHub issues only to an owner;
+  // a remembered or requested one the viewer lacks falls back like an
+  // unknown tab.
+  const tabs = INTEGRATIONS_TABS.filter(
+    (id) =>
+      (sessionContext || !SELF_TABS.includes(id)) &&
+      (role === "owner" || id !== "github"),
+  );
 
   // Read once: the request is one-shot, and App clears it below.
   const [initial] = useState(() => request);
@@ -283,10 +290,11 @@ function IntegrationsPage({
             onGone={memberGone}
           />
         );
-      // The Voice, Browser Use, Pager and API tokens tabs have no cards (see
+      // The Voice, Browser Use, GitHub issues, Pager and API tokens tabs have no cards (see
       // the page below).
       case "voice":
       case "browser":
+      case "github":
       case "pager":
       case "api-tokens":
         return null;
@@ -499,6 +507,8 @@ function IntegrationsPage({
               ) : tab === "browser" ? (
                 // Only a session has its own Chrome to pair.
                 sessionContext && <BrowserPane />
+              ) : tab === "github" ? (
+                <GithubSection onSecrets={() => setTab("secrets")} />
               ) : tab === "pager" ? (
                 sessionContext && (
                   <PagerSettingsPane username={sessionContext.username} />

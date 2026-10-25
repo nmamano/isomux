@@ -30,6 +30,8 @@ export const INTEGRATIONS_TABS = [
   "variables",
   "voice",
   "browser",
+  // Owners only: a room's GitHub issue link (task 7ac5ba2e).
+  "github",
   // The viewer's own: where their pages go, and their personal API tokens.
   // They moved here from Settings (task db800fd8).
   "pager",

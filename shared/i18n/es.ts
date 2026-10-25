@@ -534,35 +534,6 @@ Cosas que puedes hacer por él:
   "settings.room.backRoom": "Trastienda",
   "settings.room.backRoomHint": "Más de {count} agentes, tras una trampilla.",
   "settings.room.cwdHint": "Los agentes nuevos de esta sala empiezan aquí.",
-  "settings.room.github.title": "Incidencias de GitHub",
-  "settings.room.github.hint":
-    "Las incidencias abiertas con todas las etiquetas de abajo se convierten en tareas de esta sala. Cerrar o reabrir una incidencia en GitHub actualiza su tarea. Isomux no escribe nada en GitHub.",
-  "settings.room.github.repo": "Repositorio",
-  "settings.room.github.labels": "Etiquetas",
-  "settings.room.github.labelsHint":
-    "Sepáralas con comas. Usa etiquetas que no añada ninguna plantilla de incidencias ni ningún flujo de trabajo, para que solo los mantenedores puedan traer una incidencia.",
-  "settings.room.github.collaboratorsOnly":
-    "Solo incidencias de propietarios, miembros y colaboradores del repositorio",
-  "settings.room.github.secret": "Secreto de la oficina",
-  "settings.room.github.secretHint":
-    "Contiene un token de GitHub que puede leer las incidencias de este repositorio. Permítelo para api.github.com.",
-  "settings.room.github.status.pending": "Aún no se ha comprobado.",
-  "settings.room.github.status.ok": "Al día.",
-  "settings.room.github.status.missing":
-    "En pausa: ningún secreto de la oficina tiene este nombre. Añádelo en la página Integraciones.",
-  "settings.room.github.status.host":
-    "En pausa: el secreto no está permitido para api.github.com.",
-  "settings.room.github.status.refused":
-    "En pausa: GitHub rechazó el token. Actualiza el secreto para volver a intentarlo.",
-  "settings.room.github.status.noAccess":
-    "En pausa: el token no puede leer las incidencias de este repositorio. Actualiza el secreto o guarda el enlace para volver a intentarlo.",
-  "settings.room.github.status.waiting":
-    "Esperando a que se restablezca el límite de uso de GitHub.",
-  "settings.room.github.status.error":
-    "No se pudo contactar con GitHub. Se volverá a intentar en unos minutos.",
-  "settings.room.github.link": "Enlazar repositorio",
-  "settings.room.github.update": "Actualizar enlace",
-  "settings.room.github.unlink": "Desenlazar",
   "settings.room.backRoomInUse.one":
     "{count} agente está en la trastienda. Sácalo primero.",
   "settings.room.backRoomInUse.other":
@@ -1034,6 +1005,7 @@ Cosas que puedes hacer por él:
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Uso del navegador",
   "integrations.tabs.voice": "Voz",
+  "integrations.tabs.github": "Incidencias de GitHub",
   "integrations.tabIntro.providers":
     "Las cuentas y claves con las que funcionan los agentes de Claude, Codex y OpenCode.",
   "integrations.tabIntro.mcp":
@@ -1044,6 +1016,37 @@ Cosas que puedes hacer por él:
     "Ajustes simples que los agentes pueden leer, como una zona horaria.",
   "integrations.tabIntro.voice":
     "Lo que usan el micrófono y la lectura en voz alta, en todos tus dispositivos.",
+  "integrations.tabIntro.github":
+    "Las incidencias abiertas con todas las etiquetas de abajo se convierten en tareas de la sala. Cerrar o reabrir una incidencia en GitHub actualiza su tarea. Isomux no escribe nada en GitHub.",
+  "integrations.github.room": "Sala",
+  "integrations.github.empty":
+    "Crea una sala primero. El vestíbulo no puede enlazar un repositorio.",
+  "integrations.github.repo": "Repositorio",
+  "integrations.github.labels": "Etiquetas",
+  "integrations.github.labelsHint":
+    "Sepáralas con comas. Usa etiquetas que no añada ninguna plantilla de incidencias ni ningún flujo de trabajo, para que solo los mantenedores puedan traer una incidencia.",
+  "integrations.github.collaboratorsOnly":
+    "Solo incidencias de propietarios, miembros y colaboradores del repositorio",
+  "integrations.github.secret": "Secreto con el token de GitHub",
+  "integrations.github.secretHint":
+    "El nombre del secreto de la oficina que contiene un token de GitHub que puede leer las incidencias de este repositorio. Permítelo para api.github.com.",
+  "integrations.github.status.pending": "Aún no se ha comprobado.",
+  "integrations.github.status.ok": "Al día.",
+  "integrations.github.status.missing":
+    "En pausa: ningún secreto de la oficina tiene este nombre. Añádelo en la pestaña <link>Secretos</link>.",
+  "integrations.github.status.host":
+    "En pausa: el secreto no está permitido para api.github.com.",
+  "integrations.github.status.refused":
+    "En pausa: GitHub rechazó el token. Actualiza el secreto para volver a intentarlo.",
+  "integrations.github.status.noAccess":
+    "En pausa: el token no puede leer las incidencias de este repositorio. Actualiza el secreto o guarda el enlace para volver a intentarlo.",
+  "integrations.github.status.waiting":
+    "Esperando a que se restablezca el límite de uso de GitHub.",
+  "integrations.github.status.error":
+    "No se pudo contactar con GitHub. Se volverá a intentar en unos minutos.",
+  "integrations.github.link": "Enlazar repositorio",
+  "integrations.github.update": "Actualizar enlace",
+  "integrations.github.unlink": "Desenlazar",
   "integrations.voice.mic": "Micrófono",
   "integrations.voice.readAloud": "Lectura en voz alta",
   "integrations.voice.voiceName": "Voz",
@@ -2522,7 +2525,7 @@ Cosas que puedes hacer por él:
   "tasks.empty": "No hay tareas",
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.github.chipTitle": "Abrir la incidencia en GitHub",
-  "tasks.github.heading": "Incidencia de GitHub",
+  "tasks.github.heading": "Obtenida de GitHub",
   "tasks.github.state.open": "Abierta",
   "tasks.github.state.completed": "Cerrada como completada",
   "tasks.github.state.notPlanned": "Cerrada como no planificada",

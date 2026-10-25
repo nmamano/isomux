@@ -302,7 +302,7 @@ describe("import", () => {
     expect(tasks.items.map((t) => t.external?.number).sort()).toEqual([1, 5]);
     const first = tasks.of(1)!;
     expect(first).toMatchObject({
-      title: "Acme/Widgets#1: Fix the thing",
+      title: "Fix the thing",
       priority: "P4",
       status: "open",
       roomId: "room-1",
@@ -318,9 +318,9 @@ describe("import", () => {
       stateReason: null,
     });
     const long = tasks.of(5)!;
-    const prefix = "Acme/Widgets#5: ";
-    expect(long.title.startsWith(prefix + "y".repeat(200))).toBe(true);
-    expect(long.title.length).toBeLessThanOrEqual(prefix.length + 256);
+    // The title is the issue's alone: the chip carries owner/repo#N
+    // (task 7ac5ba2e).
+    expect(long.title).toBe("y".repeat(256));
 
     expect(links.getIssue("ACME/widgets", 5)).toEqual({
       title: "y".repeat(256),
@@ -378,13 +378,11 @@ describe("import", () => {
     const { gh, tasks, sync, links } = setup();
     gh.open(labelled({ title: "Old" }));
     await sync.tick();
-    tasks.set(1, { title: "[go | ready] Acme/Widgets#1: Old (triaged)" });
+    tasks.set(1, { title: "[go | ready] Old (triaged)" });
 
     gh.touch(1, { title: "New title", body: "New body", labels: [] });
     await sync.tick();
-    expect(tasks.of(1)!.title).toBe(
-      "[go | ready] Acme/Widgets#1: Old (triaged)",
-    );
+    expect(tasks.of(1)!.title).toBe("[go | ready] Old (triaged)");
     expect(links.getIssue("acme/widgets", 1)).toMatchObject({
       title: "New title",
       body: "New body",

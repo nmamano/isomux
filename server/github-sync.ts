@@ -409,18 +409,24 @@ export function createGithubSync(deps: GithubSyncDeps): GithubSync {
       deps.db.transaction(() => {
         deps.links.putIssue(link.repo, number, data);
         withAuditContextSync(actorFor(link), "githubSync.import", () =>
-          deps.tasks.add(`${link.repo}#${number}: ${data.title}`, "GitHub", {
-            priority: "P4",
-            roomId: link.roomId,
-            external: {
-              provider: "github",
-              repo: link.repo,
-              number,
-              url: `https://github.com/${link.repo}/issues/${number}`,
-              state: data.state,
-              stateReason: data.stateReason,
+          // The bare issue title: the row's chip names the repo and number.
+          // GitHub requires a title; the fallback keeps a row from being blank.
+          deps.tasks.add(
+            data.title.trim() || `${link.repo}#${number}`,
+            "GitHub",
+            {
+              priority: "P4",
+              roomId: link.roomId,
+              external: {
+                provider: "github",
+                repo: link.repo,
+                number,
+                url: `https://github.com/${link.repo}/issues/${number}`,
+                state: data.state,
+                stateReason: data.stateReason,
+              },
             },
-          }),
+          ),
         );
       })();
       return;

@@ -545,35 +545,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.backRoom": "Back room",
   "settings.room.backRoomHint": "More than {count} agents, behind a trap door.",
   "settings.room.cwdHint": "New agents in this room start here.",
-  "settings.room.github.title": "GitHub issues",
-  "settings.room.github.hint":
-    "Open issues with all the labels below become tasks in this room. Closing or reopening an issue on GitHub updates its task. Isomux writes nothing to GitHub.",
-  "settings.room.github.repo": "Repository",
-  "settings.room.github.labels": "Labels",
-  "settings.room.github.labelsHint":
-    "Separate with commas. Use labels that no issue template or workflow adds, so that only maintainers can bring an issue in.",
-  "settings.room.github.collaboratorsOnly":
-    "Only issues from repo owners, members and collaborators",
-  "settings.room.github.secret": "Office secret",
-  "settings.room.github.secretHint":
-    "Holds a GitHub token that can read this repo's issues. Allow it for api.github.com.",
-  "settings.room.github.status.pending": "Not checked yet.",
-  "settings.room.github.status.ok": "Up to date.",
-  "settings.room.github.status.missing":
-    "Paused: no office secret has this name. Add it on the Integrations page.",
-  "settings.room.github.status.host":
-    "Paused: the secret is not allowed for api.github.com.",
-  "settings.room.github.status.refused":
-    "Paused: GitHub refused the token. Update the secret to try again.",
-  "settings.room.github.status.noAccess":
-    "Paused: the token cannot read this repo's issues. Update the secret or save the link to try again.",
-  "settings.room.github.status.waiting":
-    "Waiting for GitHub's rate limit to reset.",
-  "settings.room.github.status.error":
-    "Could not reach GitHub. Trying again in a few minutes.",
-  "settings.room.github.link": "Link repo",
-  "settings.room.github.update": "Update link",
-  "settings.room.github.unlink": "Unlink",
   "settings.room.backRoomInUse.one":
     "{count} agent sits in the back room. Move it out first.",
   "settings.room.backRoomInUse.other":
@@ -1025,6 +996,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Browser Use",
   "integrations.tabs.voice": "Voice",
+  "integrations.tabs.github": "GitHub issues",
   "integrations.tabIntro.providers":
     "The accounts and keys that Claude, Codex and OpenCode agents run on.",
   "integrations.tabIntro.mcp":
@@ -1035,6 +1007,37 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Plain settings that agents can read, such as a time zone.",
   "integrations.tabIntro.voice":
     "What the mic and read aloud use, on all your devices.",
+  "integrations.tabIntro.github":
+    "Open issues with all the labels below become tasks in the room. Closing or reopening an issue on GitHub updates its task. Isomux writes nothing to GitHub.",
+  "integrations.github.room": "Room",
+  "integrations.github.empty":
+    "Create a room first. The lobby cannot link a repo.",
+  "integrations.github.repo": "Repository",
+  "integrations.github.labels": "Labels",
+  "integrations.github.labelsHint":
+    "Separate with commas. Use labels that no issue template or workflow adds, so that only maintainers can bring an issue in.",
+  "integrations.github.collaboratorsOnly":
+    "Only issues from repo owners, members and collaborators",
+  "integrations.github.secret": "GitHub token secret",
+  "integrations.github.secretHint":
+    "The name of the office secret that holds a GitHub token that can read this repo's issues. Allow it for api.github.com.",
+  "integrations.github.status.pending": "Not checked yet.",
+  "integrations.github.status.ok": "Up to date.",
+  "integrations.github.status.missing":
+    "Paused: no office secret has this name. Add it on the <link>Secrets</link> tab.",
+  "integrations.github.status.host":
+    "Paused: the secret is not allowed for api.github.com.",
+  "integrations.github.status.refused":
+    "Paused: GitHub refused the token. Update the secret to try again.",
+  "integrations.github.status.noAccess":
+    "Paused: the token cannot read this repo's issues. Update the secret or save the link to try again.",
+  "integrations.github.status.waiting":
+    "Waiting for GitHub's rate limit to reset.",
+  "integrations.github.status.error":
+    "Could not reach GitHub. Trying again in a few minutes.",
+  "integrations.github.link": "Link repo",
+  "integrations.github.update": "Update link",
+  "integrations.github.unlink": "Unlink",
   "integrations.voice.mic": "Mic",
   "integrations.voice.readAloud": "Read aloud",
   "integrations.voice.voiceName": "Voice",
@@ -2469,7 +2472,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.empty": "No tasks",
   "tasks.roomChipTitle": "Room: {room}",
   "tasks.github.chipTitle": "Open the issue on GitHub",
-  "tasks.github.heading": "GitHub issue",
+  "tasks.github.heading": "Fetched from GitHub",
   "tasks.github.state.open": "Open",
   "tasks.github.state.completed": "Closed as completed",
   "tasks.github.state.notPlanned": "Closed as not planned",
