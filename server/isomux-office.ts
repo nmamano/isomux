@@ -437,6 +437,7 @@ import {
   claudeFamilyModelsForUserId,
   limitedClaudeFamiliesForUserId,
   readOfficeEnvFile,
+  setOfficeEnvFileProvider,
   setSecretEnvironmentProvider,
 } from "./env-loader.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
@@ -9216,6 +9217,9 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // Clear the cron module-read bridge so command-handlers/usage-report don't
   // read a dead manager between boots, and the loopback origin port.
   registerProductionCronjobManagerForModuleReads(null);
+  // The env-loader reads the office env file through this manager's state; a
+  // later spawn in the same process must not see a stopped server's file.
+  setOfficeEnvFileProvider(() => null);
   // Stop the scheduled-message tick timers so a stale closure can't fire into
   // the next boot's agentManager (idempotent; a no-op when skipSchedulers kept
   // them from starting).

@@ -1,13 +1,15 @@
 // Harness properties that would otherwise fail silently: distinct connection
-// ids per tab, a single live harness per process, and an office database that
-// starts clean in each boot.
+// ids per tab, a single live harness per process, an office database that
+// starts clean in each boot, and a stop that leaves no office env file set
+// for a later test file in the same process.
 import { describe, it, expect, afterEach } from "bun:test";
-import { closeSync, fstatSync, openSync } from "fs";
+import { closeSync, fstatSync, openSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { expectRejection } from "./expect-rejection.ts";
 import { STATE_ROOT } from "../config.ts";
 import { OFFICE_DATABASE, officeAuditStore } from "../audit-store.ts";
+import { buildEnvForUserId } from "../env-loader.ts";
 
 let server: TestServer | null = null;
 
@@ -44,6 +46,22 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
   it("refuses a second concurrent harness (single-instance-per-process)", async () => {
     server = await startTestServer();
     await expectRejection(startTestServer(), /already active/);
+  });
+
+  // A file that boots no server (supervisor.test.ts) builds spawn env with
+  // the office env file of the last server that ran in the process (task
+  // dcdb7c08).
+  it("stops reading the office env file of a stopped server", async () => {
+    server = await startTestServer();
+    const envFile = join(server.stateRoot, "pending.env");
+    writeFileSync(envFile, "A=1\n");
+    server.agentManager.setOfficeSettings(null, envFile, null);
+    expect(() => buildEnvForUserId(null, {})).toThrow(envFile);
+
+    await server.stop();
+    server = null;
+    // A sync throw here fails the case.
+    expect(buildEnvForUserId(null, {})?.A).toBeUndefined();
   });
 });
 

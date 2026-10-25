@@ -5,8 +5,8 @@
 //
 // Lives in its own module to avoid a `cronjob-manager → agent-manager →
 // command-handlers → cronjob-manager` import cycle. agent-manager owns the
-// in-memory `officeState` singleton and registers an env-file provider at
-// module init via setOfficeEnvFileProvider; callers (agent-manager,
+// in-memory `officeState` and registers an env-file provider at boot via
+// setOfficeEnvFileProvider; callers (agent-manager,
 // cronjob-manager, server/index) all import `buildEnvFor` from here.
 //
 // User overrides office; office overrides process.env. Spawn-time failure
@@ -39,13 +39,12 @@ import {
   managedUserEnvPath,
 } from "./user-env.ts";
 
-// Provider lookup for the current office env file path. agent-manager sets
-// this once at module init from its `officeState.office.envFile` so we can
-// resolve env without coupling this module to OfficeState directly. Until
-// the provider is registered, `buildEnvFor` behaves as if no office env
-// file is configured - which only matters during the brief window before
-// agent-manager's module body has run, and no caller hits buildEnvFor that
-// early in practice.
+// Provider lookup for the current office env file path.
+// createProductionAgentManager sets it at boot from its
+// `officeState.office.envFile` so we can resolve env without coupling this
+// module to OfficeState directly, and stopServer clears it. While no provider
+// is registered, `buildEnvFor` behaves as if no office env file is
+// configured.
 let getOfficeEnvFile: () => string | null = () => null;
 let getPersonalProviderActive: typeof isPersonalProviderActive =
   isPersonalProviderActive;
