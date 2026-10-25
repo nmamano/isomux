@@ -68,6 +68,14 @@ export function rebootHandler(deps: RebootDeps): Handler {
           reason: "cannot reboot an office in the cancellation lifecycle",
         };
       }
+      // Past the cancellation fence, a suspended office is a dunning suspension;
+      // requestResume is the way out.
+      if (ctx.instance.service_state === "suspended") {
+        return {
+          kind: "fatal",
+          reason: "cannot reboot an office suspended for non-payment",
+        };
+      }
       // The read and provider call cannot be atomic. Lifecycle reconciliation
       // detects a reboot that lands after suspension and powers the box off
       // again before deletion can proceed.

@@ -769,7 +769,9 @@ so a later cancellation does not inherit the old promise. Unknown policy fails
 closed to legacy.
 
 Payment failure remains a separate lifecycle. Its resumable suspension rules do
-not enter the customer-cancellation machine.
+not enter the customer-cancellation machine. A customer restart is refused, at
+request and at run time, while the office is suspended for non-payment, also
+during a cancellation grace; only a resume after payment powers it back on.
 
 A customer restart is refused when requested and when its queued operation
 runs once cancellation suspension is due. Grandfathered rows can still restart

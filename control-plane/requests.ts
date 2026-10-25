@@ -47,7 +47,8 @@ export type RefusalCode =
   | "revocation_in_progress"
   | "already_revoked"
   | "restart_in_progress"
-  | "cancellation_suspended";
+  | "cancellation_suspended"
+  | "payment_suspended";
 
 /**
  * What the customer reads. Functional copy; the provisioning actor is "Hosted
@@ -76,6 +77,8 @@ export const REFUSAL_WORDS: Record<RefusalCode, string> = {
   restart_in_progress: "A restart is already running.",
   cancellation_suspended:
     "This office cannot be restarted. Your office dashboard shows the options available now.",
+  payment_suspended:
+    "This office is powered off because a payment failed. Pay the open invoice to power it back on, or contact support.",
 };
 
 export type RequestOutcome =
@@ -328,6 +331,12 @@ export async function requestRestart(
     );
     if (cancellation && !restartAllowedIn(cancellation.timeline.phase)) {
       return refuse("cancellation_suspended");
+    }
+    // Past the cancellation fence, a suspended office is a dunning suspension;
+    // requestResume is the way out.
+    const instance = await store.getInstance(req.instanceId);
+    if (instance?.service_state === "suspended") {
+      return refuse("payment_suspended");
     }
     const active = await store.activeOperation(req.instanceId, "reboot");
     if (active) return refuse("restart_in_progress");

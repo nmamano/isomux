@@ -286,6 +286,8 @@ export const zh: Catalog = {
   "refusals.requestRestartInProgress": "重启已在进行中。",
   "refusals.requestCancellationSuspended":
     "无法重启此办公室。办公室控制台会显示当前可用的选项。",
+  "refusals.requestPaymentSuspended":
+    "此办公室因付款失败已关机。请支付未结发票以重新开机，或联系支持人员。",
   "refusals.cancelNotYours": "找不到该办公室。",
   "refusals.cancelNoSubscription": "此办公室还没有订阅。",
   "refusals.cancelAlreadyCancelled": "你的订阅已安排结束。",

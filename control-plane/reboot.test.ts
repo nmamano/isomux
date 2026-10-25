@@ -1,6 +1,6 @@
 // The restart, at the provider.
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { rebootHandler } from "./reboot.ts";
 import { type AssetRow } from "./store.ts";
 import {
@@ -11,6 +11,7 @@ import {
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 import { RemoteTimeoutError } from "./ssh.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
+import { suspensionOperationId } from "./stripe/dunning.ts";
 
 afterEach(async () => {
   await releaseTestStores();
@@ -213,4 +214,148 @@ test("a throw is rethrown for the ticker, and audited as ambiguous", async () =>
     "reboot:started:provider 203474835",
     "reboot:ambiguous:killed",
   ]);
+});
+
+// The bed's reboot row is enqueued BEFORE the power_off below, so every case
+// here is also a reboot opened while the office was live that runs after the
+// suspension landed: the request fence cannot have seen it.
+describe("a suspended office is not rebooted", () => {
+  const EPISODE = "dun-evt_reboot";
+  const dunning = {
+    reason: "dunning",
+    subscription: "sub-1",
+    episode: EPISODE,
+  };
+
+  async function subscribe(
+    b: Bed,
+    over: Partial<{
+      status: string;
+      ended_at: number | null;
+      cancellation_reason: string | null;
+      cancellation_policy: "launch" | "legacy";
+    }>,
+  ): Promise<void> {
+    await b.ctx.store.tx(async () => {
+      const account = await ensureAccount(b.ctx.store, {
+        id: "acct-1",
+        email: "suspended@example.test",
+      });
+      await insertSubscription(b.ctx.store, {
+        id: "sub-1",
+        account_id: account.id,
+        instance_id: b.ctx.instance.id,
+        stripe_customer_id: "cus-1",
+        status: over.status ?? "active",
+        current_period_end: null,
+        cancel_at_period_end: 0,
+        ended_at: over.ended_at ?? null,
+        canceled_at: null,
+        cancellation_reason: over.cancellation_reason ?? null,
+        ...(over.cancellation_policy
+          ? { cancellation_policy: over.cancellation_policy }
+          : {}),
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 3,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        last_event_id: null,
+        last_event_created: null,
+      });
+    });
+  }
+
+  /** What the ticker leaves after a power_off succeeds, and what dispatch
+   * hands the handler: the instance row read after the lease. */
+  async function setServiceState(b: Bed, state: "suspended" | "live") {
+    const instance = await b.ctx.store.casInstance(
+      b.ctx.instance.id,
+      b.ctx.instance.version,
+      { service_state: state },
+    );
+    expect(instance).not.toBeNull();
+    b.ctx.instance = instance!;
+  }
+
+  async function poweredOff(b: Bed): Promise<void> {
+    await b.ctx.store.enqueue({
+      id: suspensionOperationId(EPISODE),
+      instance_id: b.ctx.instance.id,
+      kind: "power_off",
+      status: "succeeded",
+      inactivity_deadline_at: 0,
+      absolute_deadline_at: 0,
+      evidence: { ...dunning, poweredOffAt: b.ctx.now - 60_000 },
+    });
+    await setServiceState(b, "suspended");
+  }
+
+  async function run(b: Bed): Promise<{ result: unknown; calls: number }> {
+    let calls = 0;
+    const result = await rebootHandler({
+      reboot: async () => void calls++,
+    }).run(b.ctx);
+    return { result, calls };
+  }
+
+  for (const billing of [
+    { status: "past_due" },
+    { status: "unpaid" },
+    {
+      status: "canceled",
+      ended_at: 1,
+      cancellation_reason: "payment_failed",
+    },
+  ]) {
+    test(`a dunning suspension (${billing.status}${billing.cancellation_reason ? `, ${billing.cancellation_reason}` : ""}) is fatal and never reaches the provider`, async () => {
+      const b = await bed(true);
+      await subscribe(b, billing);
+      await poweredOff(b);
+      const { result, calls } = await run(b);
+      expect(result).toMatchObject({ kind: "fatal" });
+      expect(calls).toBe(0);
+      expect(b.audits).toEqual([]);
+    });
+  }
+
+  test("a customer who cancels during a dunning suspension is not rebooted in the grace", async () => {
+    // Without the suspension this is the grandfathered serving grace, which
+    // reboots (the test above).
+    const b = await bed(true);
+    await subscribe(b, {
+      status: "canceled",
+      ended_at: b.ctx.now,
+      cancellation_reason: "cancellation_requested",
+      cancellation_policy: "legacy",
+    });
+    await poweredOff(b);
+    const { result, calls } = await run(b);
+    expect(result).toMatchObject({ kind: "fatal" });
+    expect(calls).toBe(0);
+    expect(b.audits).toEqual([]);
+  });
+
+  test("an office resumed after payment reboots", async () => {
+    const b = await bed(true);
+    await subscribe(b, { status: "active" });
+    await poweredOff(b);
+    await b.ctx.store.enqueue({
+      id: `op-power_on-${EPISODE}`,
+      instance_id: b.ctx.instance.id,
+      kind: "power_on",
+      status: "succeeded",
+      inactivity_deadline_at: 0,
+      absolute_deadline_at: 0,
+      evidence: { ...dunning, poweredOnAt: b.ctx.now },
+    });
+    await setServiceState(b, "live");
+    const { result, calls } = await run(b);
+    expect(result).toMatchObject({ kind: "done" });
+    expect(calls).toBe(1);
+  });
 });

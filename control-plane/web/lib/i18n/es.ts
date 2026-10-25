@@ -365,6 +365,8 @@ export const es: Catalog = {
   "refusals.requestRestartInProgress": "Ya hay un reinicio en curso.",
   "refusals.requestCancellationSuspended":
     "Esta oficina no se puede reiniciar. El panel de tu oficina muestra las opciones disponibles ahora.",
+  "refusals.requestPaymentSuspended":
+    "Esta oficina está apagada porque falló un pago. Paga la factura pendiente para volver a encenderla, o contacta con soporte.",
   "refusals.cancelNotYours": "No hemos encontrado esa oficina.",
   "refusals.cancelNoSubscription":
     "Todavía no tenemos ninguna suscripción para esta oficina.",

@@ -373,6 +373,8 @@ export const en = {
   "refusals.requestRestartInProgress": "A restart is already running.",
   "refusals.requestCancellationSuspended":
     "This office cannot be restarted. Your office dashboard shows the options available now.",
+  "refusals.requestPaymentSuspended":
+    "This office is powered off because a payment failed. Pay the open invoice to power it back on, or contact support.",
   "refusals.cancelNotYours": "We could not find that office.",
   "refusals.cancelNoSubscription":
     "We have no subscription for this office yet.",
