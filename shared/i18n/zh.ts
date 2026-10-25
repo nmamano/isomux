@@ -1896,7 +1896,7 @@ App 的一些原则：
   "subscription.duration.hoursMinutes": "{hours} {minutes}",
   "logView.editAgent": "编辑智能体",
   "logView.pickModel": "选择模型",
-  "logView.goneModelTitle": "OpenCode 已不再提供 {model}。",
+  "logView.goneModelTitle": "OpenCode 已不再提供 {model}。请选择其他模型。",
   "panels.editor.noFileOpen": "未打开文件",
   "panels.editor.emptyHint":
     "未打开文件。请使用 <code>{command}</code>，或让智能体发送文件。",

@@ -2124,7 +2124,7 @@ Cosas que puedes hacer por él:
   "subscription.duration.hoursMinutes": "{hours} y {minutes}",
   "logView.editAgent": "Editar el agente",
   "logView.pickModel": "Elegir un modelo",
-  "logView.goneModelTitle": "OpenCode ya no ofrece {model}.",
+  "logView.goneModelTitle": "OpenCode ya no ofrece {model}. Elige otro modelo.",
   "panels.editor.noFileOpen": "Ningún archivo abierto",
   "panels.editor.emptyHint":
     "Ningún archivo abierto. Usa <code>{command}</code> o pide al agente que te envíe uno.",
