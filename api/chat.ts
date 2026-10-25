@@ -674,8 +674,8 @@ async function answer(req: Request, ip: string): Promise<Response> {
       return jsonError(
         504,
         "upstream_timeout",
-        "The chat service did not answer in time.",
-        "Retry later or use the documentation links on the page.",
+        "The chat service took too long to answer.",
+        "Ask again, or use the documentation links on the page.",
       );
     return jsonError(
       502,
