@@ -10,7 +10,12 @@ import type {
   ProviderLoginStartRes,
 } from "../../shared/types.ts";
 import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
-import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
+import {
+  dialogCancelBtn,
+  dialogSaveBtn,
+  disabledLook,
+  filledSecondaryBtn,
+} from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { ProviderMark } from "./ProviderMark.tsx";
@@ -212,6 +217,9 @@ function ProviderScopeConnection({
   const [localWaiting, setLocalWaiting] = useState(false);
   const waitingConfirmedByWire = useRef(false);
   const [claudeCode, setClaudeCode] = useState("");
+  // Claude took the code: the card waits for the provider and does not ask
+  // for the code again.
+  const [codeSubmitted, setCodeSubmitted] = useState(false);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [test, setTest] = useState<SignInTest>({ state: "idle" });
   // A second click in the same tick still sees the old state: the ref
@@ -229,6 +237,7 @@ function ProviderScopeConnection({
       setAuthUrl(null);
       setLinkCopied(false);
       setLocalWaiting(false);
+      setCodeSubmitted(false);
     }
   }, [connected]);
   useEffect(() => {
@@ -239,6 +248,12 @@ function ProviderScopeConnection({
     if (waitingConfirmedByWire.current) {
       waitingConfirmedByWire.current = false;
       setLocalWaiting(false);
+      setCodeSubmitted(false);
+      // The link and the code belong to the sign-in that ended.
+      setAuthUrl(null);
+      setLinkCopied(false);
+      setDeviceCode(null);
+      setCodeCopied(false);
     }
   }, [account?.loginStatus]);
   // A callback response can arrive after the successful account push.
@@ -313,6 +328,7 @@ function ProviderScopeConnection({
     const popup = window.open("about:blank", "_blank");
     setRunning("signIn");
     setSignInError(null);
+    setCodeSubmitted(false);
     setDeviceCode(null);
     setCodeCopied(false);
     setAuthUrl(null);
@@ -362,6 +378,7 @@ function ProviderScopeConnection({
         code: claudeCode,
       });
       setClaudeCode("");
+      setCodeSubmitted(true);
       setLocalWaiting(false);
       await refresh();
     } catch (caught) {
@@ -370,6 +387,16 @@ function ProviderScopeConnection({
           ? caught.message
           : t("settings.signIn.submitFailed"),
       );
+      // The sign-in ended on the server and its push did not reach this
+      // card: the form follows the server, and the error stands alone.
+      if (
+        caught instanceof ApiError &&
+        caught.code === "no_login_in_progress"
+      ) {
+        setCodeSubmitted(false);
+        setLocalWaiting(false);
+        await refresh().catch(() => {});
+      }
     } finally {
       setRunning(null);
     }
@@ -385,6 +412,7 @@ function ProviderScopeConnection({
       setDeviceCode(null);
       setAuthUrl(null);
       setLocalWaiting(false);
+      setCodeSubmitted(false);
       await refresh();
     } catch (caught) {
       setError(
@@ -558,7 +586,8 @@ function ProviderScopeConnection({
           {account.error}
         </p>
       )}
-      {signInError && !connected && (
+      {/* A refused code's reason can also arrive on the account. */}
+      {signInError && !connected && signInError !== account?.error && (
         <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
           {signInError}
         </p>
@@ -575,7 +604,10 @@ function ProviderScopeConnection({
           {canCancelSharedLogin && (
             <button
               data-cancel-shared-login
-              style={dialogCancelBtn}
+              style={{
+                ...filledSecondaryBtn,
+                ...(pending ? disabledLook : {}),
+              }}
               onClick={() => void cancel()}
               disabled={pending}
             >
@@ -600,7 +632,7 @@ function ProviderScopeConnection({
           account?.loginStatus === "waiting_external") ||
         (localWaiting && !connected) ? (
         <div data-own-login-controls style={{ margin: "12px 0" }}>
-          {provider === "claude" && (
+          {provider === "claude" && !codeSubmitted && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
               {t("settings.signIn.pasteCode")}
               <input
@@ -610,9 +642,13 @@ function ProviderScopeConnection({
               />
             </label>
           )}
-          {provider === "claude" && (
+          {provider === "claude" && !codeSubmitted && (
             <button
-              style={{ ...dialogCancelBtn, marginRight: 8 }}
+              style={{
+                ...dialogSaveBtn,
+                marginRight: 8,
+                ...(pending || !claudeCode.trim() ? disabledLook : {}),
+              }}
               onClick={() => void submitClaudeCode()}
               disabled={pending || !claudeCode.trim()}
             >
@@ -620,7 +656,7 @@ function ProviderScopeConnection({
             </button>
           )}
           <button
-            style={dialogCancelBtn}
+            style={{ ...filledSecondaryBtn, ...(pending ? disabledLook : {}) }}
             onClick={() => void cancel()}
             disabled={pending}
           >
@@ -690,7 +726,7 @@ function ProviderScopeConnection({
         <Reserved>
           {scope === "office" ? (
             <div style={connectedRowStyle}>
-              <button style={dialogCancelBtn}>{t("common.signOut")}</button>
+              <button style={filledSecondaryBtn}>{t("common.signOut")}</button>
             </div>
           ) : (
             signInRow(false)
@@ -703,9 +739,10 @@ function ProviderScopeConnection({
             <button
               data-provider-sign-out
               style={{
-                ...dialogCancelBtn,
+                ...filledSecondaryBtn,
                 color: "var(--red-text)",
                 flexShrink: 0,
+                ...(pending ? disabledLook : {}),
               }}
               onClick={() => setConfirmingSignOut(true)}
               disabled={pending}
@@ -722,14 +759,21 @@ function ProviderScopeConnection({
             >
               <button
                 autoFocus
-                style={dialogCancelBtn}
+                style={{
+                  ...filledSecondaryBtn,
+                  ...(pending ? disabledLook : {}),
+                }}
                 onClick={() => setConfirmingSignOut(false)}
                 disabled={pending}
               >
                 {t("common.cancel")}
               </button>
               <button
-                style={{ ...dialogCancelBtn, color: "var(--red-text)" }}
+                style={{
+                  ...filledSecondaryBtn,
+                  color: "var(--red-text)",
+                  ...(pending ? disabledLook : {}),
+                }}
                 onClick={() => void disconnect()}
                 disabled={pending}
               >
@@ -739,7 +783,7 @@ function ProviderScopeConnection({
           )}
           {pageLook && !confirmingSignOut && (
             <button
-              style={{ ...dialogCancelBtn, flexShrink: 0 }}
+              style={{ ...filledSecondaryBtn, flexShrink: 0 }}
               disabled={test.state === "running"}
               onClick={() => void runTest()}
               data-sign-in-test
@@ -773,7 +817,7 @@ function ProviderScopeConnection({
           <div style={{ margin: "12px 0" }}>
             <p style={hint}>{t("settings.signIn.connectedStart")}</p>
             <button
-              style={dialogCancelBtn}
+              style={filledSecondaryBtn}
               onClick={() => void onStartNewConversation()}
             >
               {t("settings.signIn.startConversation")}

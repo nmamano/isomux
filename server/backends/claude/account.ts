@@ -26,6 +26,11 @@ export interface ClaudeLoginStart {
 const CAPABILITY_ERROR =
   "Browser sign-in is not available with this provider version. Use the terminal instead.";
 
+// The SDK surfaces the provider's raw HTTP error (e.g. "Request failed with
+// status code 400") - useless to the person pasting.
+const CODE_REFUSED =
+  "Claude rejected this sign-in code. Click Sign in again and paste the code from the tab that opens.";
+
 function httpsUrl(value: unknown): string {
   if (typeof value !== "string") throw new Error(CAPABILITY_ERROR);
   const url = new URL(value);
@@ -40,6 +45,8 @@ export class ClaudeAccountClient {
   // first. Its caller then closes this client, which cuts off the callback's
   // reply: after a finished flow, that lost reply is not a rejection.
   private completed = false;
+  // A flow that fails after a code was sent failed on that code.
+  private codeSent = false;
   private closeQuery: (() => void) | null = null;
   private seam: Required<
     Pick<
@@ -147,20 +154,24 @@ export class ClaudeAccountClient {
     }
     if (!code || !state)
       throw new Error("Claude returned an invalid sign-in code.");
+    const seam = this.required();
+    this.codeSent = true;
     try {
-      await this.required().claudeOAuthCallback(code, state);
+      await seam.claudeOAuthCallback(code, state);
     } catch {
       if (this.completed) return;
-      // The SDK surfaces the provider's raw HTTP error (e.g. "Request
-      // failed with status code 400") - useless to the person pasting.
-      throw new Error(
-        "Claude rejected this sign-in code. Click Sign in again and paste the code from the tab that opens.",
-      );
+      throw new Error(CODE_REFUSED);
     }
   }
 
   async waitForCompletion(): Promise<unknown> {
-    const result = await this.required().claudeOAuthWaitForCompletion();
+    let result: unknown;
+    try {
+      result = await this.required().claudeOAuthWaitForCompletion();
+    } catch (err) {
+      if (this.codeSent) throw new Error(CODE_REFUSED, { cause: err });
+      throw err;
+    }
     this.completed = true;
     return result;
   }

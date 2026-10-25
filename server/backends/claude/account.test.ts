@@ -195,6 +195,25 @@ describe("ClaudeAccountClient", () => {
     expect(callbacks).toEqual(["returned:original", "pasted:original"]);
   });
 
+  // A refused code ends the flow with the SDK's raw HTTP error, which the
+  // client words the way submitCode does. A flow that ends before any code was
+  // sent was not refused: it keeps the provider's own reason (task 457a18a6).
+  it("keeps the provider's reason when a sign-in ends before a code is sent", async () => {
+    const client = new ClaudeAccountClient({}, () => ({
+      claudeAuthenticate: async () => ({
+        manualUrl: "https://claude.com/oauth/?state=original",
+      }),
+      claudeOAuthCallback: async () => {},
+      claudeOAuthWaitForCompletion: async () => {
+        throw new Error("CLI exited");
+      },
+      accountInfo: async () => ({ tokenSource: "none" }),
+    }));
+    await client.start();
+    await client.login();
+    await expectRejection(client.waitForCompletion(), /^CLI exited$/);
+  });
+
   it("falls back before auth when any private method is absent", async () => {
     let authenticated = false;
     const client = new ClaudeAccountClient({}, () => ({

@@ -1,5 +1,6 @@
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import type { ProviderAccountWire } from "../../shared/types.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
@@ -638,3 +639,249 @@ it("says where Codex agents get OPENAI_API_KEY, next to each scope's sign-in", (
   });
   expect(new Set(texts).size).toBe(sources.length);
 });
+
+// Once Claude has a code, the card waits for the provider without asking for
+// the code again; a refused code keeps the field for another paste. A code
+// that reaches no sign-in (it ended on the server and the push was lost)
+// leaves the form, so its error never sits next to a code field (task
+// 457a18a6).
+{
+  const { useState } = await import("react");
+  const idle: ProviderAccountWire = {
+    provider: "claude",
+    scope: "office",
+    accountStatus: "not_connected",
+    loginStatus: "idle",
+    canBrowserLogin: true,
+  };
+  const waiting: ProviderAccountWire = {
+    ...idle,
+    loginStatus: "waiting_external",
+  };
+  // The parent keeps what the card's refresh hands it, as ProvidersSection
+  // does.
+  function Parent({ initial }: { initial: ProviderAccountWire }) {
+    const [accounts, setAccounts] = useState<ProviderAccountWire[]>([initial]);
+    return createElement(ProviderSignInCard, {
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+      accounts,
+      onAccounts: setAccounts,
+    });
+  }
+  const form = (view: ReturnType<typeof render>) => ({
+    field: view.queryAllByRole("textbox").length,
+    submit: view.queryAllByRole("button", {
+      name: t("settings.signIn.submitCode"),
+    }).length,
+    cancel: view.queryAllByRole("button", {
+      name: t("settings.signIn.cancelSignIn"),
+    }).length,
+    state: view.container
+      .querySelector("[data-provider-account-state]")
+      ?.getAttribute("data-provider-account-state"),
+  });
+  async function submit(view: ReturnType<typeof render>) {
+    await act(async () => {
+      fireEvent.change(view.getByRole("textbox"), {
+        target: { value: "code#state" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", { name: t("settings.signIn.submitCode") }),
+      );
+    });
+  }
+
+  for (const accepted of [true, false]) {
+    it(`${accepted ? "drops" : "keeps"} the code field once Claude ${accepted ? "took" : "refused"} the code`, async () => {
+      setApiShim(async (_method, path) => {
+        if (path.endsWith("/callback")) {
+          if (accepted) return { submitted: true };
+          throw new ApiError(502, "provider_error", "Refused");
+        }
+        // The provider has not finished: the wire still waits.
+        if (path.endsWith("/refresh")) return { accounts: [waiting] };
+        throw new Error(`unexpected ${path}`);
+      });
+      const view = render(createElement(Parent, { initial: waiting }));
+      expect(form(view)).toEqual({
+        field: 1,
+        submit: 1,
+        cancel: 1,
+        state: "waiting",
+      });
+      await submit(view);
+      expect(form(view)).toEqual(
+        accepted
+          ? { field: 0, submit: 0, cancel: 1, state: "waiting" }
+          : { field: 1, submit: 1, cancel: 1, state: "waiting" },
+      );
+    });
+  }
+
+  for (const started of ["by the push", "on this card"] as const) {
+    it(`leaves the form when a code reaches no sign-in started ${started}`, async () => {
+      const originalOpen = window.open;
+      window.open = () =>
+        ({
+          close() {},
+          location: { href: "" },
+          opener: null,
+        }) as unknown as Window;
+      try {
+        setApiShim(async (_method, path) => {
+          if (path.endsWith("/login"))
+            return { account: waiting, authUrl: "https://example.test/login" };
+          if (path.endsWith("/callback"))
+            throw new ApiError(
+              409,
+              "no_login_in_progress",
+              "No sign-in is in progress.",
+            );
+          // On this card, the wire never confirms the sign-in.
+          if (path.endsWith("/refresh")) return { accounts: [idle] };
+          throw new Error(`unexpected ${path}`);
+        });
+        const view = render(
+          createElement(Parent, {
+            initial: started === "by the push" ? waiting : idle,
+          }),
+        );
+        if (started === "on this card")
+          await act(async () => {
+            fireEvent.click(
+              view.container.querySelector("[data-start-provider-login]")!,
+            );
+          });
+        expect(form(view)).toEqual({
+          field: 1,
+          submit: 1,
+          cancel: 1,
+          state: started === "by the push" ? "waiting" : "not_connected",
+        });
+        await submit(view);
+        expect(view.getByRole("alert").textContent).toBe(
+          "No sign-in is in progress.",
+        );
+        expect(form(view)).toEqual({
+          field: 0,
+          submit: 0,
+          cancel: 0,
+          state: "not_connected",
+        });
+        expect(
+          view.container.querySelector("[data-start-provider-login]"),
+        ).not.toBeNull();
+      } finally {
+        window.open = originalOpen;
+      }
+    });
+  }
+}
+
+// A refused code ends the sign-in with the callback's reason. When the
+// account push carries the same reason, the card says it once (task
+// 457a18a6).
+it("says a refused code's reason once when the push carries it too", async () => {
+  const reason = "Refused for a test reason.";
+  setApiShim(async (_method, path) => {
+    if (path.endsWith("/callback"))
+      throw new ApiError(502, "provider_error", reason);
+    throw new Error(`unexpected ${path}`);
+  });
+  const account: ProviderAccountWire = {
+    provider: "claude",
+    scope: "office",
+    accountStatus: "not_connected",
+    loginStatus: "waiting_external",
+    canBrowserLogin: true,
+  };
+  const card = (overrides: Partial<ProviderAccountWire> = {}) =>
+    createElement(ProviderSignInCard, {
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+      accounts: [{ ...account, ...overrides }],
+    });
+  const view = render(card());
+  await act(async () => {
+    fireEvent.change(view.getByRole("textbox"), {
+      target: { value: "code#state" },
+    });
+  });
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: t("settings.signIn.submitCode") }),
+    );
+  });
+  await act(async () => {
+    view.rerender(card({ loginStatus: "interrupted", error: reason }));
+  });
+  expect(view.getAllByRole("alert").map((alert) => alert.textContent)).toEqual([
+    reason,
+  ]);
+});
+
+// The sign-in link and the device code belong to one sign-in: once the
+// server says it ended, the card stops offering them (task 457a18a6).
+for (const provider of ["claude", "codex"] as const) {
+  it(`drops the ${provider === "claude" ? "sign-in link" : "device code"} once the sign-in ends`, async () => {
+    const originalOpen = window.open;
+    window.open = () =>
+      ({
+        close() {},
+        location: { href: "" },
+        opener: null,
+      }) as unknown as Window;
+    try {
+      const waiting: ProviderAccountWire = {
+        provider,
+        scope: "office",
+        accountStatus: "not_connected",
+        loginStatus: "waiting_external",
+        canBrowserLogin: true,
+      };
+      setApiShim(async (_method, path) => {
+        if (path.endsWith("/login"))
+          return {
+            account: waiting,
+            authUrl: "https://example.test/login",
+            userCode: provider === "codex" ? "ABCD-1234" : undefined,
+          };
+        if (path.endsWith("/refresh")) return { accounts: [waiting] };
+        throw new Error(`unexpected ${path}`);
+      });
+      const card = (loginStatus: ProviderAccountWire["loginStatus"]) =>
+        createElement(ProviderSignInCard, {
+          provider,
+          scopes: ["office"],
+          canChangeOffice: true,
+          accounts: [{ ...waiting, loginStatus }],
+        });
+      const offered = (view: ReturnType<typeof render>) =>
+        provider === "claude"
+          ? view.queryAllByRole("button", {
+              name: t("settings.signIn.copyLink"),
+            }).length
+          : view.queryAllByText("ABCD-1234").length;
+      const view = render(card("idle"));
+      await act(async () => {
+        fireEvent.click(
+          view.container.querySelector("[data-start-provider-login]")!,
+        );
+      });
+      await act(async () => view.rerender(card("waiting_external")));
+      expect(offered(view)).toBe(1);
+      await act(async () => view.rerender(card("interrupted")));
+      expect(
+        view.container.querySelector("[data-start-provider-login]"),
+      ).not.toBeNull();
+      expect(offered(view)).toBe(0);
+    } finally {
+      window.open = originalOpen;
+    }
+  });
+}

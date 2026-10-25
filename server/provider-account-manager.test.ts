@@ -1024,7 +1024,12 @@ describe("ProviderAccountManager", () => {
         },
       };
       const emitted: Array<
-        Array<{ provider: string; loginStatus: string; scope: string }>
+        Array<{
+          provider: string;
+          loginStatus: string;
+          scope: string;
+          error?: string;
+        }>
       > = [];
       let clients = 0;
       const createClaude = (env: Record<string, string | undefined>) => {
@@ -1058,13 +1063,14 @@ describe("ProviderAccountManager", () => {
         "personal",
         "code#state",
       );
-      const loginStatus = () =>
+      const claude = () =>
         emitted
           .at(-1)
           ?.find(
             (account) =>
               account.provider === "claude" && account.scope === "personal",
-          )?.loginStatus;
+          );
+      const loginStatus = () => claude()?.loginStatus;
       for (
         let tick = 0;
         tick < 50 && loginStatus() === "waiting_external";
@@ -1080,6 +1086,11 @@ describe("ProviderAccountManager", () => {
       } else {
         expect(submitted).toMatchObject({ ok: false, status: 502 });
         expect(loginStatus()).toBe("interrupted");
+        // One refused code, one reason: the sign-in ends with the callback's
+        // error, not the SDK's raw HTTP line beside it (task 457a18a6).
+        expect(claude()?.error).toBe(
+          submitted.ok ? "not a failure" : submitted.message,
+        );
       }
     });
   }
@@ -1601,5 +1612,170 @@ describe("ProviderAccountManager", () => {
         "codex:personal": "member_variable",
       });
     });
+  });
+});
+
+// A refresh reads every pair, and the Codex probes it forces take seconds.
+// A sign-in step that publishes while those probes run must not be followed
+// by the refresh's older view of that sign-in: the card keeps the last
+// snapshot it gets. Nil saw a sign-in stuck on Waiting for provider until a
+// reload (task 457a18a6).
+describe("a refresh that overlaps a sign-in step", () => {
+  type Accounts = Awaited<ReturnType<ProviderAccountManager["list"]>>;
+  const claudeOffice = (accounts: Accounts | undefined) =>
+    accounts?.find(
+      (account) => account.provider === "claude" && account.scope === "office",
+    );
+  const tick = () => new Promise((resolveTick) => setTimeout(resolveTick, 0));
+  const until = async (condition: () => boolean) => {
+    for (let i = 0; i < 100 && !condition(); i++) await tick();
+    expect(condition()).toBe(true);
+  };
+
+  const personalHome = (id: string, provider: string) =>
+    `/tmp/t-457a18a6-${id}-${provider}`;
+
+  function fixture() {
+    const emitted: Accounts[] = [];
+    let gate: Promise<void> | null = null;
+    let codexHeld = 0;
+    let signedIn = false;
+    let complete!: () => void;
+    const flow = new Promise<void>((resolveFlow) => {
+      complete = resolveFlow;
+    });
+    const manager = new ProviderAccountManager(
+      (_userId, accounts) => emitted.push(accounts),
+      (() => ({
+        start: () => {
+          if (!gate) return Promise.resolve();
+          codexHeld++;
+          return gate;
+        },
+        read: async () => ({ connected: false }),
+        close: async () => {},
+      })) as never,
+      undefined,
+      (id) => id,
+      () => ({}),
+      // One client plays every Claude role: probe, login and verifier.
+      (() => ({
+        start: async () => {},
+        login: async () => ({ authUrl: "https://claude.com/oauth/" }),
+        submitCode: async () => {},
+        waitForCompletion: () => flow,
+        read: async () =>
+          signedIn
+            ? { connected: true, label: "owner@example.com" }
+            : { connected: false },
+        close: async () => {},
+      })) as never,
+      () => ({ CLAUDE_CONFIG_DIR: "/tmp/t-457a18a6-office-claude" }),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "owner" }],
+      personalHome,
+      personalHome,
+      () => false,
+      () => {},
+      () => {},
+      () => () => {},
+      () => null,
+    );
+    return {
+      manager,
+      emitted,
+      codexHeld: () => codexHeld,
+      // Holds every Codex probe that starts from now until the release.
+      holdCodex() {
+        let release!: () => void;
+        gate = new Promise<void>((resolveGate) => {
+          release = resolveGate;
+        });
+        return () => {
+          gate = null;
+          release();
+        };
+      },
+      complete() {
+        signedIn = true;
+        complete();
+      },
+    };
+  }
+
+  function refreshOf(manager: ProviderAccountManager) {
+    const state = { settled: false };
+    const accounts = manager.list("owner", true).finally(() => {
+      state.settled = true;
+    });
+    return { accounts, state };
+  }
+
+  it("returns a sign-in the provider finished during the refresh as connected", async () => {
+    const f = fixture();
+    expect(
+      (await f.manager.startLogin("owner", "claude", "office", "browser")).ok,
+    ).toBe(true);
+    expect(
+      (await f.manager.submitCode("owner", "claude", "office", "code#state"))
+        .ok,
+    ).toBe(true);
+    const release = f.holdCodex();
+    const refresh = refreshOf(f.manager);
+    await until(() => f.codexHeld() === 1);
+    f.complete();
+    await until(
+      () => claudeOffice(f.emitted.at(-1))?.loginStatus === "succeeded",
+    );
+    // The overlap under test: the sign-in published before the refresh read
+    // returned.
+    expect(refresh.state.settled).toBe(false);
+    release();
+    expect(claudeOffice(await refresh.accounts)).toMatchObject({
+      accountStatus: "connected",
+      accountLabel: "owner@example.com",
+      loginStatus: "succeeded",
+    });
+  });
+
+  it("returns a sign-in that started during the refresh as waiting", async () => {
+    const f = fixture();
+    await f.manager.list("owner");
+    const release = f.holdCodex();
+    const refresh = refreshOf(f.manager);
+    await until(() => f.codexHeld() === 1);
+    try {
+      expect(
+        (await f.manager.startLogin("owner", "claude", "office", "browser")).ok,
+      ).toBe(true);
+      expect(claudeOffice(f.emitted.at(-1))?.loginStatus).toBe(
+        "waiting_external",
+      );
+      expect(refresh.state.settled).toBe(false);
+      release();
+      expect(claudeOffice(await refresh.accounts)?.loginStatus).toBe(
+        "waiting_external",
+      );
+    } finally {
+      release();
+      await f.manager.cancel("owner", "claude", "office");
+    }
+  });
+
+  it("returns a sign-in cancelled during the refresh as ended", async () => {
+    const f = fixture();
+    await f.manager.list("owner");
+    expect(
+      (await f.manager.startLogin("owner", "claude", "office", "browser")).ok,
+    ).toBe(true);
+    const release = f.holdCodex();
+    const refresh = refreshOf(f.manager);
+    await until(() => f.codexHeld() === 1);
+    expect(await f.manager.cancel("owner", "claude", "office")).toBe(true);
+    expect(claudeOffice(f.emitted.at(-1))?.loginStatus).toBe("idle");
+    expect(refresh.state.settled).toBe(false);
+    release();
+    expect(claudeOffice(await refresh.accounts)?.loginStatus).toBe("idle");
   });
 });

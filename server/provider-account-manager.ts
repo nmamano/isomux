@@ -139,6 +139,9 @@ export class ProviderAccountManager {
   // Running probes per directory (target.key), for startLogin to wait on.
   private inflight = new Map<string, Set<Promise<unknown>>>();
   private cacheGenerations = new Map<string, number>();
+  // Moves at every change to the sign-in on a directory (target.key), so a
+  // read that overlapped one reads that directory again before it answers.
+  private loginRevisions = new Map<string, number>();
   // Told when a sign-in or sign-out changes the account at `dir`. The office
   // points it at the agent manager.
   onAccountChanged: (provider: ProviderAccountProvider, dir: string) => void =
@@ -408,24 +411,69 @@ export class ProviderAccountManager {
     refresh = false,
     selection?: ProviderAccountReadOptions,
   ): Promise<ProviderAccountWire[]> {
-    const pairs: Array<[ProviderAccountProvider, ProviderAccountScope]> = [
-      ["codex", "office"],
-      ["codex", "personal"],
-      ["claude", "office"],
-      ["claude", "personal"],
-    ];
-    const wires = await Promise.all(
-      pairs
-        .filter(
-          ([provider, scope]) =>
-            !selection ||
-            (provider === selection.provider && scope === selection.scope),
-        )
-        .map(([provider, scope]) =>
-          this.wireFor(userId, provider, scope, refresh, selection?.signal),
-        ),
+    const pairs = (
+      [
+        ["codex", "office"],
+        ["codex", "personal"],
+        ["claude", "office"],
+        ["claude", "personal"],
+      ] as const
+    ).filter(
+      ([provider, scope]) =>
+        !selection ||
+        (provider === selection.provider && scope === selection.scope),
     );
-    return this.withApiKeySource(userId, wires);
+    const seen: Array<{ key: string; revision: number } | undefined> = [];
+    let wires = await this.withApiKeySource(
+      userId,
+      await Promise.all(
+        pairs.map(([provider, scope], index) =>
+          this.wireFor(
+            userId,
+            provider,
+            scope,
+            refresh,
+            selection?.signal,
+            (key) => {
+              seen[index] = { key, revision: this.loginRevision(key) };
+            },
+          ),
+        ),
+      ),
+    );
+    // A forced read takes seconds. A sign-in that started, finished or was
+    // cancelled meanwhile has published its new state, which this read's
+    // older wire must not follow: read those pairs once more.
+    const moved = seen.map(
+      (at) => at !== undefined && this.loginRevision(at.key) !== at.revision,
+    );
+    if (moved.some(Boolean))
+      wires = await this.withApiKeySource(
+        userId,
+        await Promise.all(
+          pairs.map(([provider, scope], index) =>
+            moved[index]
+              ? this.wireFor(userId, provider, scope, false, selection?.signal)
+              : Promise.resolve(wires[index]),
+          ),
+        ),
+      );
+    return wires;
+  }
+
+  private loginRevision(key: string): number {
+    return this.loginRevisions.get(key) ?? 0;
+  }
+
+  // Every write of this.active or of an active wire goes through these two.
+  private setActive(key: string, value: Active | null): void {
+    if (value) this.active.set(key, value);
+    else this.active.delete(key);
+    this.touchLogin(key);
+  }
+
+  private touchLogin(key: string): void {
+    this.loginRevisions.set(key, this.loginRevision(key) + 1);
   }
 
   // The viewer's OPENAI_API_KEY source on each Codex wire, read now: a
@@ -565,6 +613,7 @@ export class ProviderAccountManager {
     scope: ProviderAccountScope,
     refresh: boolean,
     signal?: AbortSignal,
+    onTarget?: (key: string) => void,
   ): Promise<ProviderAccountWire> {
     let target: Target;
     try {
@@ -580,6 +629,7 @@ export class ProviderAccountManager {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+    onTarget?.(target.key);
     if (
       scope === "personal" &&
       target.autoPersonal &&
@@ -781,7 +831,7 @@ export class ProviderAccountManager {
         settle = resolvePromise;
       }),
     };
-    this.active.set(target.key, reservation);
+    this.setActive(target.key, reservation);
     const outcome = await this.runLogin(reservation, method);
     settle(outcome);
     return outcome;
@@ -831,7 +881,7 @@ export class ProviderAccountManager {
         authUrl: start.authUrl,
         userCode: "userCode" in start ? start.userCode : undefined,
       };
-      this.active.set(key, active);
+      this.setActive(key, active);
       this.emit(active.userId, await this.list(active.userId));
       void this.finish(key);
       return {
@@ -845,7 +895,7 @@ export class ProviderAccountManager {
         },
       };
     } catch (err) {
-      if (this.active.get(key) === reservation) this.active.delete(key);
+      if (this.active.get(key) === reservation) this.setActive(key, null);
       await client?.close();
       return this.failure(502, "provider_error", err);
     }
@@ -932,6 +982,7 @@ export class ProviderAccountManager {
             : ((done as { error?: string | null }).error ??
               `${active.target.provider === "codex" ? "Codex" : "Claude"} did not report a connected account.`),
       };
+      this.touchLogin(key);
       if (
         active.target.scope === "personal" &&
         active.target.autoPersonal &&
@@ -961,10 +1012,11 @@ export class ProviderAccountManager {
               ? err.message
               : "Sign-in was interrupted. Start again.",
         };
+        this.touchLogin(key);
         this.emit(active.userId, await this.list(active.userId));
       }
     } finally {
-      if (this.active.get(key) === active) this.active.delete(key);
+      if (this.active.get(key) === active) this.setActive(key, null);
       await active.client.close();
     }
   }
@@ -994,7 +1046,7 @@ export class ProviderAccountManager {
         !(allowForeign && active.target.scope === "office"))
     )
       return false;
-    this.active.delete(target.key);
+    this.setActive(target.key, null);
     const publish = async () => {
       this.emit(userId, await this.list(userId));
       if (active.userId !== userId)

@@ -54,6 +54,20 @@ export const cardActionBtn: Readonly<CSSProperties> = Object.freeze({
   cursor: "pointer",
 });
 
+// A secondary action on a card. dialogCancelBtn's transparent fill and
+// hairline border are too faint there to read as a button, and every theme's
+// surface tokens are a few percent at most, so the fill and the border mix
+// the theme's own text colour in.
+export const filledSecondaryBtn: Readonly<CSSProperties> = Object.freeze({
+  padding: "7px 16px",
+  borderRadius: 8,
+  border: "1px solid color-mix(in srgb, var(--text-primary) 22%, transparent)",
+  background: "color-mix(in srgb, var(--text-primary) 9%, transparent)",
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  cursor: "pointer",
+});
+
 export const dialogSaveBtn: Readonly<CSSProperties> = Object.freeze({
   padding: "7px 16px",
   borderRadius: 8,
