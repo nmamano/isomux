@@ -8,7 +8,14 @@ function jsonError(
 ): Response {
   return Response.json(
     { error: { code, message, resolution } },
-    { status, headers: { "Cache-Control": "no-store" } },
+    {
+      status,
+      // Response.json would add ";charset=utf-8"; Vercel sent this value.
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
+    },
   );
 }
 
@@ -24,7 +31,7 @@ export const CHAT_LIMITS = {
   maxBodyBytes: 1_000_000,
 };
 
-// --- Rate limiting (in-memory, resets on cold start) ---
+// --- Rate limiting (in-memory, per server process) ---
 // Sliding windows per IP. Every response reports them in the RateLimit-Policy
 // and RateLimit fields of the IETF draft draft-ietf-httpapi-ratelimit-headers.
 const POLICIES = [
@@ -33,6 +40,28 @@ const POLICIES = [
 ];
 const LONGEST_WINDOW_MS = Math.max(...POLICIES.map((p) => p.windowMs));
 const hits = new Map<string, number[]>();
+
+let lastSweep = 0;
+
+/** How many IPs the limiter holds. */
+export function trackedIpCount(): number {
+  return hits.size;
+}
+
+/**
+ * Forgets each IP whose newest hit no window counts any more, at most once a
+ * minute, so that one long-running process does not keep every visitor.
+ */
+function forgetStale(now: number): void {
+  if (now >= lastSweep && now - lastSweep < 60_000) return;
+  lastSweep = now;
+  for (const [ip, timestamps] of hits)
+    if (!timestamps.length || now - timestamps.at(-1)! >= LONGEST_WINDOW_MS)
+      hits.delete(ip);
+}
+
+/** How long a reply may take from the request to Anthropic to its last byte. */
+export const CHAT_UPSTREAM = { timeoutMs: 45_000 };
 
 type Quota = {
   name: string;
@@ -61,6 +90,7 @@ function quotaState(ip: string, now: number): Quota[] {
 /** Count a request if every window has room. Quotas are the state after it. */
 function rateLimit(ip: string): { allowed: boolean; quotas: Quota[] } {
   const now = Date.now();
+  forgetStale(now);
   const timestamps = (hits.get(ip) ?? []).filter(
     (t) => now - t < LONGEST_WINDOW_MS,
   );
@@ -590,6 +620,12 @@ async function answer(req: Request, ip: string): Promise<Response> {
   const tag = conversationTag(conversationId);
   const meta = `> IP: \`${ip}\` | UA: \`${userAgent.slice(0, 100)}\` | Ref: \`${referer}\``;
 
+  // Every call out for this reply ends by the deadline, or as soon as the
+  // visitor leaves: on one long-running server nothing else would end it.
+  const deadline = AbortSignal.timeout(CHAT_UPSTREAM.timeoutMs);
+  const left = new AbortController();
+  const signal = AbortSignal.any([deadline, left.signal, req.signal]);
+
   // Log visitor message to Discord (fire-and-forget)
   const lastUserMsg = [...messages]
     .reverse()
@@ -606,12 +642,14 @@ async function answer(req: Request, ip: string): Promise<Response> {
           ),
         allowed_mentions: NO_MENTIONS,
       }),
+      signal,
     }).catch(() => {});
   }
 
   let upstream: Response;
   try {
     upstream = await fetch("https://api.anthropic.com/v1/messages", {
+      signal,
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -632,6 +670,13 @@ async function answer(req: Request, ip: string): Promise<Response> {
       }),
     });
   } catch {
+    if (deadline.aborted)
+      return jsonError(
+        504,
+        "upstream_timeout",
+        "The chat service did not answer in time.",
+        "Retry later or use the documentation links on the page.",
+      );
     return jsonError(
       502,
       "upstream_unavailable",
@@ -652,6 +697,9 @@ async function answer(req: Request, ip: string): Promise<Response> {
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
+    cancel() {
+      left.abort();
+    },
     async start(controller) {
       let fullText = "";
       try {
@@ -686,13 +734,20 @@ async function answer(req: Request, ip: string): Promise<Response> {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ content, allowed_mentions: NO_MENTIONS }),
+              signal,
             }).catch(() => {});
           }
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
+        // A visitor who left reads nothing more.
+        if (left.signal.aborted || req.signal.aborted) return;
+        const msg = deadline.aborted
+          ? "The chat service took too long to answer. Ask again, or use the documentation links on the page."
+          : err instanceof Error
+            ? err.message
+            : "Unknown error";
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`),
         );

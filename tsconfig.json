@@ -22,6 +22,7 @@
     "control-plane",
     "deploy",
     "scripts",
+    "site-host",
     "middleware.ts"
   ],
   // The hosted control plane's web app is its own package with its own

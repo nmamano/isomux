@@ -1,0 +1,2559 @@
+{
+  "source": "Live isomux.com on Vercel, recorded by site-host/record-parity.ts (redirect: manual, no proxy, no compression). Headers that change per response or deploy (date, age, etag, last-modified, content-length, x-vercel-*, x-matched-path) are not recorded.",
+  "recordedAt": "2026-10-25T19:43:26.987Z",
+  "cases": [
+    {
+      "name": "home",
+      "method": "GET",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:17.983Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 36952,
+      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+    },
+    {
+      "name": "home HEAD",
+      "method": "HEAD",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.024Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "home markdown",
+      "method": "GET",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:18.056Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 638,
+      "bodySha256": "1dacc5c8f4f333efacbaf77b18b3d72f982d0b3909be3fb98b0c78ec5c4f65ba"
+    },
+    {
+      "name": "home markdown HEAD",
+      "method": "HEAD",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:18.092Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "home markdown q-lower",
+      "method": "GET",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown;q=0.2, text/html;q=0.9"
+      },
+      "recordedAt": "2026-10-25T19:43:18.123Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 36952,
+      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+    },
+    {
+      "name": "home 406",
+      "method": "GET",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "application/pdf"
+      },
+      "recordedAt": "2026-10-25T19:43:18.160Z",
+      "status": 406,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 52,
+      "bodySha256": "a638e3ed9d3af710e1d33eec52122d312b83a0f0d55e231fdb2703e154b34831"
+    },
+    {
+      "name": "home browser accept",
+      "method": "GET",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      },
+      "recordedAt": "2026-10-25T19:43:18.186Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 36952,
+      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+    },
+    {
+      "name": "home POST",
+      "method": "POST",
+      "url": "https://isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.221Z",
+      "status": 405,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "index",
+      "method": "GET",
+      "url": "https://isomux.com/index",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.233Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/",
+        "refresh": "0;url=/",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "index.html",
+      "method": "GET",
+      "url": "https://isomux.com/index.html",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.250Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/",
+        "refresh": "0;url=/",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "clean page",
+      "method": "GET",
+      "url": "https://isomux.com/about",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.265Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 19736,
+      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+    },
+    {
+      "name": "clean page trailing slash",
+      "method": "GET",
+      "url": "https://isomux.com/about/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.283Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 19736,
+      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+    },
+    {
+      "name": "html extension",
+      "method": "GET",
+      "url": "https://isomux.com/about.html",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.294Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/about",
+        "refresh": "0;url=/about",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "html extension with query",
+      "method": "GET",
+      "url": "https://isomux.com/about.html?a=1",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.304Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/about?a=1",
+        "refresh": "0;url=/about?a=1",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "clean page HEAD",
+      "method": "HEAD",
+      "url": "https://isomux.com/about",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.313Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "clean page markdown (no middleware)",
+      "method": "GET",
+      "url": "https://isomux.com/about",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:18.326Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 19736,
+      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+    },
+    {
+      "name": "clean page 406 (no middleware)",
+      "method": "GET",
+      "url": "https://isomux.com/about",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "application/pdf"
+      },
+      "recordedAt": "2026-10-25T19:43:18.338Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 19736,
+      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+    },
+    {
+      "name": "nested page",
+      "method": "GET",
+      "url": "https://isomux.com/use-cases/phone",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.349Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/use-cases-phone",
+        "refresh": "0;url=/docs/use-cases-phone",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "docs",
+      "method": "GET",
+      "url": "https://isomux.com/docs",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.384Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"docs\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 66122,
+      "bodySha256": "ca182099817df5137e9967dad0a454c23532389ae53d1d0debb49e2f348e2c1a"
+    },
+    {
+      "name": "docs slash",
+      "method": "GET",
+      "url": "https://isomux.com/docs/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.425Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"docs\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 66122,
+      "bodySha256": "ca182099817df5137e9967dad0a454c23532389ae53d1d0debb49e2f348e2c1a"
+    },
+    {
+      "name": "docs markdown",
+      "method": "GET",
+      "url": "https://isomux.com/docs",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:18.472Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 26306,
+      "bodySha256": "61ff599586965a947f8e69310482506732103871e9db8922c9b9fa29c152402e"
+    },
+    {
+      "name": "docs slash markdown",
+      "method": "GET",
+      "url": "https://isomux.com/docs/",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:18.506Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 26306,
+      "bodySha256": "61ff599586965a947f8e69310482506732103871e9db8922c9b9fa29c152402e"
+    },
+    {
+      "name": "doc page",
+      "method": "GET",
+      "url": "https://isomux.com/docs/hosting",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.531Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"hosting\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 16407,
+      "bodySha256": "26c7ce88959a6b2a3adc19b882dbc9f7a3a6e1fd7cce5db687fcbb00b7e86d45"
+    },
+    {
+      "name": "doc page slash",
+      "method": "GET",
+      "url": "https://isomux.com/docs/hosting/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:18.562Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"hosting\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 16407,
+      "bodySha256": "26c7ce88959a6b2a3adc19b882dbc9f7a3a6e1fd7cce5db687fcbb00b7e86d45"
+    },
+    {
+      "name": "doc page markdown",
+      "method": "GET",
+      "url": "https://isomux.com/docs/hosting",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:18.763Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 3135,
+      "bodySha256": "05eb7cc99974209c6e67d80896787dc611932cfac64781a51f1a59ac83609101"
+    },
+    {
+      "name": "doc page 406",
+      "method": "GET",
+      "url": "https://isomux.com/docs/hosting",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "image/png"
+      },
+      "recordedAt": "2026-10-25T19:43:18.793Z",
+      "status": 406,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 52,
+      "bodySha256": "a638e3ed9d3af710e1d33eec52122d312b83a0f0d55e231fdb2703e154b34831"
+    },
+    {
+      "name": "doc page missing",
+      "method": "GET",
+      "url": "https://isomux.com/docs/no-such-page",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.062Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "doc page missing markdown",
+      "method": "GET",
+      "url": "https://isomux.com/docs/no-such-page",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:20.138Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 269,
+      "bodySha256": "030e75690e55c8ce92fe885798b2f5977b020bfe6bb1e757e4ff2a273f40a2ab"
+    },
+    {
+      "name": "doc nested",
+      "method": "GET",
+      "url": "https://isomux.com/docs/hosting/extra",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.224Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "agent md file",
+      "method": "GET",
+      "url": "https://isomux.com/_agent/docs/hosting/index.md",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.244Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 3135,
+      "bodySha256": "05eb7cc99974209c6e67d80896787dc611932cfac64781a51f1a59ac83609101"
+    },
+    {
+      "name": "agent index md",
+      "method": "GET",
+      "url": "https://isomux.com/_agent/index.md",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.253Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"index.md\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 638,
+      "bodySha256": "1dacc5c8f4f333efacbaf77b18b3d72f982d0b3909be3fb98b0c78ec5c4f65ba"
+    },
+    {
+      "name": "redirect self-hosted",
+      "method": "GET",
+      "url": "https://isomux.com/docs/self-hosted",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.265Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting",
+        "refresh": "0;url=/docs/hosting",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect self-hosted query",
+      "method": "GET",
+      "url": "https://isomux.com/docs/self-hosted?ref=x",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.274Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting?ref=x",
+        "refresh": "0;url=/docs/hosting?ref=x",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect self-hosted trailing slash",
+      "method": "GET",
+      "url": "https://isomux.com/docs/self-hosted/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.304Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 79,
+      "bodySha256": "9c0ebe059e659bcc3afa6c91740c75594da19ea5aa2f6cc1cfbba2bdd7ca8689"
+    },
+    {
+      "name": "redirect agent self-hosted",
+      "method": "GET",
+      "url": "https://isomux.com/_agent/docs/self-hosted/index.md",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.312Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/_agent/docs/hosting/index.md",
+        "refresh": "0;url=/_agent/docs/hosting/index.md",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect vps-install",
+      "method": "GET",
+      "url": "https://isomux.com/docs/vps-install",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.329Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting",
+        "refresh": "0;url=/docs/hosting",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect deployments",
+      "method": "GET",
+      "url": "https://isomux.com/docs/deployments",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.341Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting",
+        "refresh": "0;url=/docs/hosting",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect use-cases",
+      "method": "GET",
+      "url": "https://isomux.com/use-cases",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.351Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/use-cases",
+        "refresh": "0;url=/docs/use-cases",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect use-cases phone",
+      "method": "GET",
+      "url": "https://isomux.com/use-cases/phone",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.367Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/use-cases-phone",
+        "refresh": "0;url=/docs/use-cases-phone",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect terms",
+      "method": "GET",
+      "url": "https://isomux.com/terms",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.375Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/hosted-terms",
+        "refresh": "0;url=/hosted-terms",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect privacy",
+      "method": "GET",
+      "url": "https://isomux.com/privacy",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.387Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/hosted-privacy",
+        "refresh": "0;url=/hosted-privacy",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect pricing",
+      "method": "GET",
+      "url": "https://isomux.com/pricing",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.398Z",
+      "status": 307,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/hosted#plans",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect pricing HEAD",
+      "method": "HEAD",
+      "url": "https://isomux.com/pricing",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.409Z",
+      "status": 307,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/hosted#plans",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "www apex",
+      "method": "GET",
+      "url": "https://www.isomux.com/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.543Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 36952,
+      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+    },
+    {
+      "name": "www path query",
+      "method": "GET",
+      "url": "https://www.isomux.com/docs/hosting?x=1&y=2",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.553Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "https://isomux.com/docs/hosting?x=1&y=2",
+        "refresh": "0;url=https://isomux.com/docs/hosting?x=1&y=2",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "www redirect source",
+      "method": "GET",
+      "url": "https://www.isomux.com/terms",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.561Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "https://isomux.com/terms",
+        "refresh": "0;url=https://isomux.com/terms",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "www html",
+      "method": "GET",
+      "url": "https://www.isomux.com/about.html",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.573Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/about",
+        "refresh": "0;url=/about",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "security.txt rewrite",
+      "method": "GET",
+      "url": "https://isomux.com/.well-known/security.txt",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.788Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"security.txt\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 198,
+      "bodySha256": "00f46d6515b26dd460a32b1d53390aaed6c3a510f0b90c4f4f1ae1a63c2c5ca0"
+    },
+    {
+      "name": "security.txt",
+      "method": "GET",
+      "url": "https://isomux.com/security.txt",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.811Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"security.txt\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 198,
+      "bodySha256": "00f46d6515b26dd460a32b1d53390aaed6c3a510f0b90c4f4f1ae1a63c2c5ca0"
+    },
+    {
+      "name": "api-catalog rewrite",
+      "method": "GET",
+      "url": "https://isomux.com/.well-known/api-catalog",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.955Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"api-catalog.json\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/linkset+json; profile=\"https://www.rfc-editor.org/info/rfc9727\"",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 373,
+      "bodySha256": "fe9edf1d27f4f886525d98ec96d8314ef17e76f1db131179e2171c5cd774c52a"
+    },
+    {
+      "name": "api-catalog file",
+      "method": "GET",
+      "url": "https://isomux.com/api-catalog.json",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:20.971Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"api-catalog.json\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 373,
+      "bodySha256": "fe9edf1d27f4f886525d98ec96d8314ef17e76f1db131179e2171c5cd774c52a"
+    },
+    {
+      "name": "not found page",
+      "method": "GET",
+      "url": "https://isomux.com/no-such-page",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.350Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "not found nested",
+      "method": "GET",
+      "url": "https://isomux.com/a/b/c",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.419Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "not found markdown",
+      "method": "GET",
+      "url": "https://isomux.com/no-such-page",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:22.460Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/markdown; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 269,
+      "bodySha256": "030e75690e55c8ce92fe885798b2f5977b020bfe6bb1e757e4ff2a273f40a2ab"
+    },
+    {
+      "name": "not found HEAD",
+      "method": "HEAD",
+      "url": "https://isomux.com/no-such-page",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.533Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "not found POST",
+      "method": "POST",
+      "url": "https://isomux.com/no-such-page",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.607Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "not found file ext",
+      "method": "GET",
+      "url": "https://isomux.com/nope.png",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.667Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "api root",
+      "method": "GET",
+      "url": "https://isomux.com/api",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.728Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 151,
+      "bodySha256": "937812bc9cf0199c1ba2317324004a624a26cbedfa79a8697d3296fffd2a047c"
+    },
+    {
+      "name": "api unknown",
+      "method": "GET",
+      "url": "https://isomux.com/api/nope",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.833Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 156,
+      "bodySha256": "a2103b4ff91d5d3869e52737f2e17d34de9b30573ee678858e9c62f64d31e9ae"
+    },
+    {
+      "name": "api underscore file",
+      "method": "GET",
+      "url": "https://isomux.com/api/_content-negotiation",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:22.895Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 172,
+      "bodySha256": "86dd4f9ea3efa6286bffb784bcb95c616eacc231b9895cec00a7e2b8eb01a0fb"
+    },
+    {
+      "name": "api not-found direct",
+      "method": "GET",
+      "url": "https://isomux.com/api/not-found",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.091Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 161,
+      "bodySha256": "80f1e81b5c5e761fdc3d2a29708c447e37875f9c374f8f7b9a11d2012ffc8b31"
+    },
+    {
+      "name": "api chat GET",
+      "method": "GET",
+      "url": "https://isomux.com/api/chat",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.170Z",
+      "status": 405,
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "ratelimit": "\"minute\";r=5;t=0, \"hour\";r=20;t=0",
+        "ratelimit-policy": "\"minute\";q=5;w=60, \"hour\";q=20;w=3600",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 174,
+      "bodySha256": "4d3ac659aa4bc199b6a75dc5380d2c0d57dc384159d78d436cf201ddea86b1f0"
+    },
+    {
+      "name": "api chat OPTIONS",
+      "method": "OPTIONS",
+      "url": "https://isomux.com/api/chat",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.220Z",
+      "status": 405,
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "ratelimit": "\"minute\";r=5;t=0, \"hour\";r=20;t=0",
+        "ratelimit-policy": "\"minute\";q=5;w=60, \"hour\";q=20;w=3600",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 174,
+      "bodySha256": "4d3ac659aa4bc199b6a75dc5380d2c0d57dc384159d78d436cf201ddea86b1f0"
+    },
+    {
+      "name": "api chat ts source",
+      "method": "GET",
+      "url": "https://isomux.com/api/chat.ts",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.234Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain",
+        "location": "/api/chat",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "refresh": "0;url=/api/chat",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "middleware source",
+      "method": "GET",
+      "url": "https://isomux.com/middleware.ts",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.287Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "vercel.json",
+      "method": "GET",
+      "url": "https://isomux.com/vercel.json",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.328Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "demo",
+      "method": "GET",
+      "url": "https://isomux.com/demo",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.341Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"demo\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self' https://nilmamano.com; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff"
+      },
+      "bodyBytes": 3050,
+      "bodySha256": "014a7abd249a7aae456766272a29acbbadc560dbe1da5619e80a7cdf6ca13e37"
+    },
+    {
+      "name": "demo slash",
+      "method": "GET",
+      "url": "https://isomux.com/demo/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.353Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"demo\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 3050,
+      "bodySha256": "014a7abd249a7aae456766272a29acbbadc560dbe1da5619e80a7cdf6ca13e37"
+    },
+    {
+      "name": "demo app",
+      "method": "GET",
+      "url": "https://isomux.com/demo/app",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.533Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"app\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 1377,
+      "bodySha256": "8266fa6de3306c8f407bd06ba3c48041d27d4f47fbab666d99b1b658f0d1c864"
+    },
+    {
+      "name": "robots",
+      "method": "GET",
+      "url": "https://isomux.com/robots.txt",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.549Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"robots.txt\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 80,
+      "bodySha256": "90b0ff4daf3392ba5db36e211cabea73dd82f0f64608abf896fa2c01a05806fb"
+    },
+    {
+      "name": "llms",
+      "method": "GET",
+      "url": "https://isomux.com/llms.txt",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.703Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"llms.txt\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 4188,
+      "bodySha256": "63e8c937082a9950ffd264f77929099ed42dedc5384cbf7359b1f7cbec97d054"
+    },
+    {
+      "name": "openapi",
+      "method": "GET",
+      "url": "https://isomux.com/openapi.json",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:23.846Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"openapi.json\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 5214,
+      "bodySha256": "f018773d46734b72e4d5787221eb32e0b3fdd6fb11fc4d714b213a79f1031d73"
+    },
+    {
+      "name": "sitemap",
+      "method": "GET",
+      "url": "https://isomux.com/sitemap.xml",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.007Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"sitemap.xml\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/xml",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 2585,
+      "bodySha256": "101e2683505e477ea6a668380c24557e86ccf16d8f4bce5dc7009992ef334cdd"
+    },
+    {
+      "name": "css",
+      "method": "GET",
+      "url": "https://isomux.com/footer.css",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.031Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"footer.css\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/css; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 3378,
+      "bodySha256": "ae803ee9f9783a21716318b24280185996dc0fa20f7f191b04c8ae185c2038f4"
+    },
+    {
+      "name": "js",
+      "method": "GET",
+      "url": "https://isomux.com/chatbot.js",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.046Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"chatbot.js\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/javascript; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 11502,
+      "bodySha256": "83fc1eabe20198da7312c6a2c04d974e887435d39678fcc72348605febeca6c5"
+    },
+    {
+      "name": "svg",
+      "method": "GET",
+      "url": "https://isomux.com/favicon.svg",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.068Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"favicon.svg\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "image/svg+xml",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 600,
+      "bodySha256": "b7e9117967d79d2cfc96f7ae3681742edae9517504521edcd18d8386a3d87b2e"
+    },
+    {
+      "name": "ico",
+      "method": "GET",
+      "url": "https://isomux.com/favicon.ico",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.212Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"favicon.ico\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "image/vnd.microsoft.icon",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 5417,
+      "bodySha256": "5c1fcc09f8d54097c7bf0511575a2df63c98f3b7438b8f8abcc7cdaf76d4a7f4"
+    },
+    {
+      "name": "png",
+      "method": "GET",
+      "url": "https://isomux.com/favicon.png",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.360Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"favicon.png\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "image/png",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 3871,
+      "bodySha256": "528ccd74d7d3a8fc0cc914b422ec1eee323d6812e016a90f34f5fa5d86f4b8e4"
+    },
+    {
+      "name": "jpeg",
+      "method": "GET",
+      "url": "https://isomux.com/add-to-home-screen.jpeg",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.568Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"add-to-home-screen.jpeg\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "image/jpeg",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 141038,
+      "bodySha256": "c44cc0f92b7cb83100270a16bba067d715837943cb1936ad7aefaf59fbb1e903"
+    },
+    {
+      "name": "mp4",
+      "method": "GET",
+      "url": "https://isomux.com/office-trimmed.mp4",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:24.814Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"office-trimmed.mp4\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "video/mp4",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 720604,
+      "bodySha256": "1e6d72cf29073662cc291f043cb5f3a3019b8063bf035b0099d61986119178a1"
+    },
+    {
+      "name": "gif",
+      "method": "GET",
+      "url": "https://isomux.com/office.gif",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.389Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"office.gif\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "image/gif",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 1289462,
+      "bodySha256": "d0f626b459124d32626fb0a2c59908f5d464bf5474c4cd26f449401584360a92"
+    },
+    {
+      "name": "indexnow key",
+      "method": "GET",
+      "url": "https://isomux.com/fbffa404de590d880791f3058b42c157.txt",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.521Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"fbffa404de590d880791f3058b42c157.txt\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/plain; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 32,
+      "bodySha256": "891dad610888714b6d9741500c33d8f75a546a7a45793f8ed214cf0e23db57d7"
+    },
+    {
+      "name": "locale page",
+      "method": "GET",
+      "url": "https://isomux.com/es/",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.535Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"es\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 37902,
+      "bodySha256": "65743df0947227938aba8a34c6fc6733eea5bf07e7e64efc4fe500ade29ffb88"
+    },
+    {
+      "name": "locale page no slash",
+      "method": "GET",
+      "url": "https://isomux.com/es",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.557Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"es\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 37902,
+      "bodySha256": "65743df0947227938aba8a34c6fc6733eea5bf07e7e64efc4fe500ade29ffb88"
+    },
+    {
+      "name": "locale hosted",
+      "method": "GET",
+      "url": "https://isomux.com/zh/hosted",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.573Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"hosted\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 26944,
+      "bodySha256": "7cdb01ce36c8deedac50f73c72dd9c81f31f6d8a82979fbbc08acb9ab3ca96ba"
+    },
+    {
+      "name": "hosted-terms",
+      "method": "GET",
+      "url": "https://isomux.com/hosted-terms",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.733Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"hosted-terms\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 18581,
+      "bodySha256": "a0f51497673c5098473513a4e8cc044f7a76e88fb029aeae4faa64ef997e7f97"
+    },
+    {
+      "name": "hosted-privacy",
+      "method": "GET",
+      "url": "https://isomux.com/hosted-privacy",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.923Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"hosted-privacy\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 16741,
+      "bodySha256": "d4ab49709023b886fdd47e96e5742d7ba44bdb048c3779ec2391b10e7ff90207"
+    },
+    {
+      "name": "double slash",
+      "method": "GET",
+      "url": "https://isomux.com//about",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.937Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 19736,
+      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+    },
+    {
+      "name": "encoded",
+      "method": "GET",
+      "url": "https://isomux.com/%61bout",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.954Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"about\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 19736,
+      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+    },
+    {
+      "name": "traversal",
+      "method": "GET",
+      "url": "https://isomux.com/..%2f..%2fetc/passwd",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:25.966Z",
+      "status": 400,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain; charset=utf-8",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000"
+      },
+      "bodyBytes": 65,
+      "bodySha256": "795185d615bc87e63dd8f3afff21d6f4ff291203d7e622aae5b1b24358085b18"
+    },
+    {
+      "name": "vercel insights",
+      "method": "GET",
+      "url": "https://isomux.com/_vercel/insights/script.js",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.001Z",
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=2678400",
+        "content-disposition": "inline; filename=\"script.js\"",
+        "content-type": "application/javascript; charset=utf-8",
+        "cross-origin-resource-policy": "cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload"
+      },
+      "bodyBytes": 4522,
+      "bodySha256": "050e35bf7e6e96590f2a9de114c14ff792806ed28457b3248762944350c0ba4c"
+    },
+    {
+      "name": "redirect self-hosted markdown",
+      "method": "GET",
+      "url": "https://isomux.com/docs/self-hosted",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:26.025Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting",
+        "refresh": "0;url=/docs/hosting",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect self-hosted 406",
+      "method": "GET",
+      "url": "https://isomux.com/docs/self-hosted",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "image/png"
+      },
+      "recordedAt": "2026-10-25T19:43:26.036Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting",
+        "refresh": "0;url=/docs/hosting",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "www docs markdown",
+      "method": "GET",
+      "url": "https://www.isomux.com/docs",
+      "requestHeaders": {
+        "accept-encoding": "identity",
+        "accept": "text/markdown"
+      },
+      "recordedAt": "2026-10-25T19:43:26.057Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "https://isomux.com/docs",
+        "refresh": "0;url=https://isomux.com/docs",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect pricing query",
+      "method": "GET",
+      "url": "https://isomux.com/pricing?x=1",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.069Z",
+      "status": 307,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/hosted?x=1#plans",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "redirect vps-install query",
+      "method": "GET",
+      "url": "https://isomux.com/docs/vps-install?x=1",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.080Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs/hosting?x=1",
+        "refresh": "0;url=/docs/hosting?x=1",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "not found nested encoded query",
+      "method": "GET",
+      "url": "https://isomux.com/a/b%20c?q=1",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.122Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "api does-not-exist",
+      "method": "GET",
+      "url": "https://isomux.com/api/does-not-exist",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.166Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 166,
+      "bodySha256": "2f83768ec3ecb3e87a51d5743c08f8dc6240013ca7fe1a6a37234b3dbcdcba88"
+    },
+    {
+      "name": "docs POST",
+      "method": "POST",
+      "url": "https://isomux.com/docs",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.793Z",
+      "status": 405,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-disposition": "inline; filename=\"docs\"",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "docs index.html",
+      "method": "GET",
+      "url": "https://isomux.com/docs/index.html",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.808Z",
+      "status": 308,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain",
+        "location": "/docs",
+        "refresh": "0;url=/docs",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000",
+        "transfer-encoding": "chunked"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "7c040f8633b8823d72ed63da9b3b2dfe9846e912c66a64c9433ec9c4815d76c2"
+    },
+    {
+      "name": "traversal encoded dots",
+      "method": "GET",
+      "url": "https://isomux.com/%2e%2e/%2e%2e/etc/passwd",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.852Z",
+      "status": 404,
+      "headers": {
+        "cache-control": "public, max-age=60",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "text/html; charset=utf-8",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept, Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 477,
+      "bodySha256": "75b6251c726d537ed63054dc5b783b6c9ebc96ad3abbe7e460710bcdadbcca44"
+    },
+    {
+      "name": "null byte",
+      "method": "GET",
+      "url": "https://isomux.com/about%00.html",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.861Z",
+      "status": 400,
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-type": "text/plain; charset=utf-8",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000"
+      },
+      "bodyBytes": 65,
+      "bodySha256": "e9287a63ca8df770e8ab58fe1f401e2555849420ca0b4d1f4fbf042e62fe995a"
+    },
+    {
+      "name": "bad percent",
+      "method": "GET",
+      "url": "https://isomux.com/%E0%A4%A",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.871Z",
+      "status": 400,
+      "headers": {
+        "connection": "close",
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "bodyBytes": 15,
+      "bodySha256": "19b843cc92cb12aa314bb3c3913b2feeb852e85969bf06cb9d096931bfda34ba"
+    },
+    {
+      "name": "chat POST no body",
+      "method": "POST",
+      "url": "https://isomux.com/api/chat",
+      "requestHeaders": {
+        "accept-encoding": "identity"
+      },
+      "recordedAt": "2026-10-25T19:43:26.987Z",
+      "status": 400,
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-type": "application/json",
+        "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+        "ratelimit": "\"minute\";r=4;t=60, \"hour\";r=19;t=3600",
+        "ratelimit-policy": "\"minute\";q=5;w=60, \"hour\";q=20;w=3600",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "server": "Vercel",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "bodyBytes": 141,
+      "bodySha256": "32607c28fec2d9ff2c3e156896e6d0925c71259e2019f1d7b9052f4afd8d069a"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+name: Site image
+
+# Builds the isomux.com image (site-host/Dockerfile) on each push to main and
+# pushes it to ghcr.io/nmamano/isomux-site as sha-<commit> and main. A push
+# whose served files did not change moves the tags to the existing image.
+# The VPS deploys what main points to.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-image
+  cancel-in-progress: false
+
+env:
+  # Not ghcr.io/nmamano/isomux: that is the product image self-hosters pull.
+  IMAGE: ghcr.io/nmamano/isomux-site
+
+jobs:
+  image:
+    if: github.repository == 'nmamano/isomux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Build the site
+        run: bun install --frozen-lockfile && bun run build:demo && bun run build:docs
+
+      - name: Test the site server and the chat
+        run: bun test ./site-host/server.test.ts ./api/_*.test.ts
+
+      # The key covers the built files the image copies (site-host/Dockerfile.dockerignore),
+      # so a change anywhere that the build reads is seen. A build that is not
+      # byte-for-byte repeatable only costs an extra image.
+      - name: Key the image inputs
+        id: key
+        run: |
+          key=$(find site api middleware.ts vercel.json site-host/server.ts site-host/Dockerfile site-host/Dockerfile.dockerignore node_modules/path-to-regexp-6 -type f ! -name '_*.test.ts' -print0 \
+            | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-32)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push, or move the tags
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:inputs-$KEY" > /dev/null 2>&1; then
+            echo "The served files did not change: tagging the existing image."
+            docker buildx imagetools create -t "$IMAGE:sha-$COMMIT" -t "$IMAGE:main" "$IMAGE:inputs-$KEY"
+          else
+            docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+              -f site-host/Dockerfile \
+              --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+              --label "org.opencontainers.image.revision=$COMMIT" \
+              -t "$IMAGE:sha-$COMMIT" -t "$IMAGE:inputs-$KEY" -t "$IMAGE:main" --push .
+          fi
+          docker buildx imagetools inspect "$IMAGE:main" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Log out
+        if: always()
+        run: docker logout ghcr.io

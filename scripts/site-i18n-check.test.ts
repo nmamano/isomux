@@ -128,8 +128,6 @@ const DOC_SLUGS = readdirSync(join(ROOT, "docs"))
 const BUILT_PATHS = new Set<string>([
   "/demo",
   "/docs",
-  // Injected by the host, never a file in this tree.
-  "/_vercel/insights/script.js",
   ...DOC_SLUGS.filter((slug) => slug !== "features").map((s) => `/docs/${s}`),
 ]);
 

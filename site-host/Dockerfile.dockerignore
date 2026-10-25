@@ -1,0 +1,10 @@
+# The build context of site-host/Dockerfile: only what the site image serves.
+*
+!site
+!api/*.ts
+api/_*.test.ts
+!middleware.ts
+!vercel.json
+!site-host/server.ts
+!node_modules/path-to-regexp-6
+site/.gitignore

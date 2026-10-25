@@ -14,7 +14,7 @@ import {
   it,
   setSystemTime,
 } from "bun:test";
-import handler from "./chat.ts";
+import handler, { trackedIpCount } from "./chat.ts";
 
 const T0 = Date.parse("2026-10-20T12:00:00Z");
 const realFetch = globalThis.fetch;
@@ -197,5 +197,56 @@ describe("chat rate-limit fields", () => {
     expect((await badJson()).status).toBe(429);
     at(3600);
     expect((await badJson()).status).toBe(400);
+  });
+});
+
+// One server process keeps the limiter for months, so it must forget an
+// address once none of its hits can count again: when its newest hit is older
+// than the longest window. These tests run on a clock past every other test's,
+// so every address they did not hit is stale.
+describe("chat limiter memory", () => {
+  const LATER = Date.parse("2100-01-01T00:00:00Z");
+  /** Set the clock to LATER plus the given seconds. */
+  function later(seconds: number) {
+    setSystemTime(new Date(LATER + seconds * 1000));
+  }
+
+  it("forgets an address an hour after its last hit", async () => {
+    later(0);
+    ip = "203.0.113.200";
+    expect((await badJson()).status).toBe(400);
+    expect(trackedIpCount()).toBeGreaterThanOrEqual(1);
+    later(3601);
+    ip = "203.0.113.201";
+    expect((await badJson()).status).toBe(400);
+    expect(trackedIpCount()).toBe(1);
+  });
+
+  it("keeps an address while a hit of it still counts in the hour", async () => {
+    const visitor = "203.0.113.210";
+    ip = visitor;
+    // 20 in the hour, 5 in each of four minutes.
+    for (const minute of [0, 2, 4, 6])
+      for (let n = 0; n < 5; n++) {
+        later(minute * 60 + n);
+        expect((await badJson()).status).toBe(400);
+      }
+    // Another visitor at minute 30, then the first one is still refused.
+    later(30 * 60);
+    ip = "203.0.113.211";
+    expect((await badJson()).status).toBe(400);
+    later(31 * 60);
+    ip = visitor;
+    expect((await badJson()).status).toBe(429);
+
+    // At minute 61 the hits of minute 0 have left the hour, the others count:
+    // 15 counted, so this one leaves 4.
+    later(61 * 60 + 5);
+    ip = "203.0.113.212";
+    expect((await badJson()).status).toBe(400);
+    ip = visitor;
+    const res = await badJson();
+    expect(res.status).toBe(400);
+    expect(fields(res.headers.get("ratelimit")).hour.r).toBe(4);
   });
 });
