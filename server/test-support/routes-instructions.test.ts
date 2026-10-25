@@ -1,18 +1,19 @@
 // Every instruction layer (office, room, agent, member, schedules) reads and
 // writes its text at GET/PUT .../instructions with {instructions, version}
-// (task 379ae5db). The old routes and field names stay for one release as
-// aliases of the same store, the same version and the same auth.
+// (task 379ae5db). The old routes and field names stayed for one release and
+// are gone (task 744fa64a).
 //
 // What this file pins, per layer:
 //   - the read/write round trip: the PUT answers with the stored text and its
 //     version, null and "" clear, and the write reaches the browsers live;
 //   - a missing version is 400, a stale one 409 with the current version, and
 //     neither writes;
-//   - the old route and the new route are one store, and (except the office,
-//     whose settings version also covers the name) one version;
-//   - each caller gets the same answer on the new route as on the old one.
-// Then the per-layer rules: the office's two versions, the member write that
-// takes only the text, the agent and member field aliases.
+//   - which callers read and write it.
+// Then the per-layer rules: the office instructions outside the settings
+// version, the member write that takes only the text, the agent and member
+// fields on the agent and member routes, and what a caller of an old route or
+// field name gets: a 404 for a route, a 400 that names the new field for a
+// field, and nothing written.
 //
 // Seam: startTestServer() - real auth + /api executor + WS. Zero LLM.
 
@@ -21,7 +22,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { versionOf } from "../../shared/blob-version.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, setUserRoleById } from "../users.ts";
 import {
   startTestServer,
   type TestServer,
@@ -67,7 +68,11 @@ async function call(
 }
 
 const errOf = (r: Res) =>
-  (r.body as { error?: { code?: string; version?: string } } | null)?.error;
+  (
+    r.body as {
+      error?: { code?: string; version?: string; message?: string };
+    } | null
+  )?.error;
 
 async function office() {
   server = await startTestServer();
@@ -99,7 +104,7 @@ async function office() {
     miaId,
     roomId,
     agentId,
-    // Every kind of caller the old routes tell apart.
+    // Every kind of caller the routes tell apart.
     callers: {
       ownerSession: { session: morgan.rawSessionId },
       memberSession: { session: mia.rawSessionId },
@@ -120,50 +125,31 @@ async function office() {
 }
 type Office = Awaited<ReturnType<typeof office>>;
 
-// The old route of one layer, as its callers use it today.
-interface OldRoute {
-  // null: the layer had no read route (schedules).
-  read: ((o: Office, auth: Auth) => Promise<Res>) | null;
-  text: (r: Res) => string | null;
-  version: (r: Res) => string;
-  // version undefined: the old write takes none (schedules).
-  write: (
-    o: Office,
-    auth: Auth,
-    text: string | null,
-    version?: string,
-  ) => Promise<Res>;
-}
-
 interface Layer {
   name: string;
   path: (o: Office) => string;
   stored: (o: Office) => string | null;
-  // The WS event the old write sends, which the new write must send too.
+  // The WS event the write sends.
   event: string;
-  // A version read on the old route is valid on the new one.
-  sameVersion: boolean;
-  old: OldRoute;
+  // The callers that read and write the layer; the rest get 403. The member
+  // layer's target is Mia, an ordinary member.
+  allowed: (keyof Office["callers"])[];
 }
 
 const owner = (o: Office) => o.callers.ownerSession;
+
+const OWNER_REACH = [
+  "ownerSession",
+  "ownerPrivilegedAgent",
+  "ownerApiToken",
+] as const;
 
 const officeLayer: Layer = {
   name: "office",
   path: () => "/api/office/instructions",
   stored: (o) => o.srv.agentManager.getOfficeSettings().prompt,
   event: "office_settings_updated",
-  sameVersion: false,
-  old: {
-    read: (o, auth) => call(o.srv, "GET", "/api/office/settings", auth),
-    text: (r) => (r.body as { prompt: string | null }).prompt,
-    version: (r) => (r.body as { version: string }).version,
-    write: (o, auth, text, version) =>
-      call(o.srv, "PUT", "/api/office/settings", {
-        ...auth,
-        body: { prompt: text, version },
-      }),
-  },
+  allowed: [...OWNER_REACH],
 };
 
 const roomLayer: Layer = {
@@ -173,18 +159,7 @@ const roomLayer: Layer = {
     o.srv.agentManager.getRooms().find((room) => room.id === o.roomId)!
       .prompt ?? null,
   event: "room_settings_updated",
-  sameVersion: true,
-  old: {
-    read: (o, auth) =>
-      call(o.srv, "GET", `/api/rooms/${o.roomId}/settings`, auth),
-    text: (r) => (r.body as { prompt: string | null }).prompt,
-    version: (r) => (r.body as { version: string }).version,
-    write: (o, auth, text, version) =>
-      call(o.srv, "PUT", `/api/rooms/${o.roomId}/settings`, {
-        ...auth,
-        body: { prompt: text, version },
-      }),
-  },
+  allowed: [...OWNER_REACH],
 };
 
 const agentLayer: Layer = {
@@ -192,42 +167,22 @@ const agentLayer: Layer = {
   path: (o) => `/api/agents/${o.agentId}/instructions`,
   stored: (o) => o.srv.agentManager.getAgent(o.agentId)!.customInstructions,
   event: "agent_updated",
-  sameVersion: true,
-  old: {
-    read: (o, auth) =>
-      call(o.srv, "GET", `/api/agents/${o.agentId}/instructions`, auth),
-    text: (r) =>
-      (r.body as { customInstructions: string | null }).customInstructions,
-    version: (r) =>
-      (r.body as { customInstructionsVersion: string })
-        .customInstructionsVersion,
-    write: (o, auth, text, version) =>
-      call(o.srv, "PATCH", `/api/agents/${o.agentId}`, {
-        ...auth,
-        body: { customInstructions: text, customInstructionsVersion: version },
-      }),
-  },
+  // An ordinary agent reads an agent's instructions, and writes none.
+  allowed: [...OWNER_REACH],
 };
 
-// The member layer's target is Mia, an ordinary member.
 const memberLayer: Layer = {
   name: "member",
   path: () => "/api/users/Mia/instructions",
   stored: () => getUserByName("Mia")!.memberPrompt,
   // The owner's socket gets the full record; user_updated is the public one.
   event: "user_admin_updated",
-  sameVersion: true,
-  old: {
-    read: (o, auth) => call(o.srv, "GET", "/api/users/Mia/member-prompt", auth),
-    text: (r) => (r.body as { memberPrompt: string | null }).memberPrompt,
-    version: (r) =>
-      (r.body as { memberPromptVersion: string }).memberPromptVersion,
-    write: (o, auth, text, version) =>
-      call(o.srv, "PATCH", "/api/users/Mia", {
-        ...auth,
-        body: { memberPrompt: text, memberPromptVersion: version },
-      }),
-  },
+  allowed: [
+    ...OWNER_REACH,
+    "memberSession",
+    "memberPrivilegedAgent",
+    "memberApiToken",
+  ],
 };
 
 const cronLayer: Layer = {
@@ -235,17 +190,7 @@ const cronLayer: Layer = {
   path: () => "/api/cron-instructions",
   stored: (o) => o.srv.cronjobManager.getCronjobsPrompt(),
   event: "cronjobs_prompt_updated",
-  sameVersion: true,
-  old: {
-    read: null,
-    text: () => null,
-    version: () => "",
-    write: (o, auth, text) =>
-      call(o.srv, "PUT", "/api/cron-prompt", {
-        ...auth,
-        body: { value: text },
-      }),
-  },
+  allowed: ["ownerSession"],
 };
 
 const LAYERS = [officeLayer, roomLayer, agentLayer, memberLayer, cronLayer];
@@ -370,123 +315,48 @@ describe.each(LAYERS.map((l) => [l.name, l] as const))(
       expect(layer.stored(o)).toBe("Kept");
     });
 
-    it("shares one store with the old route, and one version where the old version covers only the text", async () => {
+    it("answers only its callers, and every caller is authenticated", async () => {
       const o = await office();
-      const read = layer.old.read;
-
-      // Old write, new read.
-      const v0 = read ? layer.old.version(await read(o, owner(o))) : undefined;
-      const oldSaved = await layer.old.write(o, owner(o), "Old route", v0);
-      expect(oldSaved.status).toBeLessThan(300);
-      const viaNew = await readNew(o, layer);
-      expect(viaNew.instructions).toBe("Old route");
-      expect(viaNew.version).toBe(versionOf("Old route"));
-
-      // New write, old read.
-      expect(
-        (
-          await writeNew(o, layer, {
-            instructions: "New route",
-            version: viaNew.version,
-          })
-        ).status,
-      ).toBe(200);
-      if (read) {
-        const viaOld = await read(o, owner(o));
-        expect(layer.old.text(viaOld)).toBe("New route");
-        if (layer.sameVersion) {
-          // A version read on either route is valid on the other.
-          expect(layer.old.version(viaOld)).toBe(versionOf("New route"));
-          expect(
-            (
-              await writeNew(o, layer, {
-                instructions: "Third",
-                version: layer.old.version(viaOld),
-              })
-            ).status,
-          ).toBe(200);
-          expect(
-            (
-              await layer.old.write(
-                o,
-                owner(o),
-                "Fourth",
-                (await readNew(o, layer)).version,
-              )
-            ).status,
-          ).toBeLessThan(300);
-          expect(layer.stored(o)).toBe("Fourth");
-        }
-      }
-    });
-
-    it("gives each caller the same answer on the new route as on the old one", async () => {
-      const o = await office();
-      const answers: Record<string, unknown> = {};
-      // Every caller is authenticated, so a refusal is a 403, never a 401.
-      const denied = (status: number) => {
-        expect(status).not.toBe(401);
-        return status === 403;
-      };
+      const reads: string[] = [];
+      const writes: string[] = [];
       for (const [who, auth] of Object.entries(o.callers)) {
         // A stale version: an allowed write is a 409, and nothing changes.
-        const oldWrite = layer.old.read
-          ? await layer.old.write(o, auth, "x", "000000000000")
-          : await layer.old.write(o, auth, null);
-        const newWrite = await writeNew(
+        const write = await writeNew(
           o,
           layer,
-          {
-            instructions: "x",
-            version: "000000000000",
-          },
+          { instructions: "x", version: "000000000000" },
           auth,
         );
-        const newRead = await call(o.srv, "GET", layer.path(o), auth);
-        if (!denied(newWrite.status))
-          expect([who, newWrite.status]).toEqual([who, 409]);
-        if (!denied(newRead.status))
-          expect([who, newRead.status]).toEqual([who, 200]);
-        const oldRead = layer.old.read
-          ? (await layer.old.read(o, auth)).status
-          : undefined;
-        answers[who] = {
-          read: oldRead === undefined ? undefined : !denied(oldRead),
-          write: !denied(oldWrite.status),
-        };
-        expect([who, !denied(newWrite.status)]).toEqual([
+        const read = await call(o.srv, "GET", layer.path(o), auth);
+        expect([who, read.status]).toEqual([
           who,
-          !denied(oldWrite.status),
+          read.status === 403 ? 403 : 200,
         ]);
-        if (oldRead !== undefined)
-          expect([who, !denied(newRead.status)]).toEqual([
-            who,
-            !denied(oldRead),
-          ]);
-        else
-          // The schedules layer had no read: its read takes the write's auth.
-          expect([who, !denied(newRead.status)]).toEqual([
-            who,
-            !denied(oldWrite.status),
-          ]);
+        expect([who, write.status]).toEqual([
+          who,
+          write.status === 403 ? 403 : 409,
+        ]);
+        if (read.status === 200) reads.push(who);
+        if (write.status === 409) writes.push(who);
       }
-      // The matrix tells callers apart: someone is allowed, someone is not.
-      const writes = Object.values(answers).map(
-        (a) => (a as { write: boolean }).write,
+      const expected = [...layer.allowed].sort();
+      expect(writes.sort()).toEqual(expected);
+      // An agent's instructions are also read by its manager's ordinary agents.
+      expect(reads.sort()).toEqual(
+        layer === agentLayer
+          ? [...expected, "ownerPlainAgent"].sort()
+          : expected,
       );
-      expect(writes).toContain(true);
-      expect(writes).toContain(false);
       expect(layer.stored(o)).toBeNull();
     });
   },
 );
 
 describe("office instructions and office settings", () => {
-  it("the instructions version covers only the text, and the settings version still covers the text", async () => {
+  it("each version covers only its own fields, so neither write makes the other stale", async () => {
     const o = await office();
     const settings = async () =>
       (await call(o.srv, "GET", "/api/office/settings", owner(o))).body as {
-        prompt: string | null;
         name: string | null;
         version: string;
         memberUsageShare: number;
@@ -505,38 +375,25 @@ describe("office instructions and office settings", () => {
     ).toBe(204);
     expect((await readNew(o, officeLayer)).version).toBe(i0);
 
-    // A text change moves the settings version, so a settings write made
-    // from a read before it cannot overwrite the text unseen.
+    // An instructions write changes the text and nothing else, and leaves the
+    // settings version alone: a settings write from a read before it lands.
     const s1 = await settings();
     expect(
       (await writeNew(o, officeLayer, { instructions: "Rules", version: i0 }))
         .status,
     ).toBe(200);
-    expect((await settings()).version).not.toBe(s1.version);
-    const stale = await call(o.srv, "PUT", "/api/office/settings", {
-      ...owner(o),
-      body: { prompt: "Clobber", version: s1.version },
-    });
-    expect(stale.status).toBe(409);
-    expect(officeLayer.stored(o)).toBe("Rules");
-
-    // An instructions write changes the text and nothing else.
-    const before = await settings();
+    expect(await settings()).toEqual(s1);
     expect(
       (
-        await writeNew(o, officeLayer, {
-          instructions: "Only text",
-          version: versionOf("Rules"),
+        await call(o.srv, "PUT", "/api/office/settings", {
+          ...owner(o),
+          body: { name: "Acme 2", version: s1.version },
         })
       ).status,
-    ).toBe(200);
-    const after = await settings();
-    expect(after).toEqual({
-      ...before,
-      prompt: "Only text",
-      version: after.version,
-    });
-    expect(after.name).toBe("Acme");
+    ).toBe(204);
+    expect(o.srv.agentManager.getOfficeSettings()).toEqual(
+      expect.objectContaining({ prompt: "Rules", name: "Acme 2" }),
+    );
   });
 });
 
@@ -585,32 +442,42 @@ describe("member instructions write", () => {
     expect(getUserByName("Renamed")).toBeUndefined();
   });
 
-  it("reaches other members only with an owner's reach, as the old route does", async () => {
+  it("reaches other members only with an owner's reach, checked live on each request", async () => {
     const o = await office();
     const path = "/api/users/Morgan/instructions";
-    const allowed: string[] = [];
-    for (const [who, auth] of Object.entries(o.callers)) {
-      const read = await call(o.srv, "GET", path, auth);
-      const write = await call(o.srv, "PUT", path, {
-        ...auth,
-        body: { instructions: "x", version: "000000000000" },
-      });
-      const oldRead = await call(
-        o.srv,
-        "GET",
-        "/api/users/Morgan/member-prompt",
-        auth,
-      );
-      expect([who, read.status === 403]).toEqual([who, oldRead.status === 403]);
-      expect([who, write.status === 403]).toEqual([who, read.status === 403]);
-      expect([who, read.status]).not.toEqual([who, 401]);
-      if (read.status !== 403) allowed.push(who);
-    }
-    expect(allowed.sort()).toEqual([
+    const reached = async () => {
+      const allowed: string[] = [];
+      for (const [who, auth] of Object.entries(o.callers)) {
+        const read = await call(o.srv, "GET", path, auth);
+        const write = await call(o.srv, "PUT", path, {
+          ...auth,
+          body: { instructions: "x", version: "000000000000" },
+        });
+        expect([who, write.status === 403]).toEqual([who, read.status === 403]);
+        expect([who, read.status]).not.toEqual([who, 401]);
+        if (read.status !== 403) allowed.push(who);
+      }
+      return allowed.sort();
+    };
+    expect(await reached()).toEqual([
       "ownerApiToken",
       "ownerPrivilegedAgent",
       "ownerSession",
     ]);
+    // Mia's agent and token, demoted Morgan's: the reach goes with the role.
+    // Morgan's own still reach Morgan's text.
+    expect(setUserRoleById(o.miaId, "owner")).toBe(true);
+    expect(setUserRoleById(o.morganId, "member")).toBe(true);
+    const mias = (await reached()).filter((who) => who.startsWith("member"));
+    expect(mias).toEqual([
+      "memberApiToken",
+      "memberPrivilegedAgent",
+      "memberSession",
+    ]);
+    const memberRead = await call(o.srv, "GET", "/api/users/Mia/instructions", {
+      bearer: o.callers.ownerApiToken.bearer,
+    });
+    expect(memberRead.status).toBe(403);
   });
 });
 
@@ -627,7 +494,7 @@ describe("schedule instructions", () => {
   });
 });
 
-describe("agent instructions field aliases", () => {
+describe("agent instructions fields", () => {
   it("PATCH /api/agents/:id takes instructions with instructionsVersion", async () => {
     const o = await office();
     const patch = (body: unknown) =>
@@ -652,91 +519,55 @@ describe("agent instructions field aliases", () => {
       instructionsVersion: versionOf(""),
     });
     expect(stale.status).toBe(409);
-
-    // The new and the old name of one field together: refused, equal or not.
-    for (const body of [
-      {
-        instructions: "Both",
-        customInstructions: "Both",
-        instructionsVersion: versionOf("Patched"),
-      },
-      {
-        instructions: "Both",
-        customInstructions: "Other",
-        customInstructionsVersion: versionOf("Patched"),
-      },
-      {
-        instructions: "Both",
-        instructionsVersion: versionOf("Patched"),
-        customInstructionsVersion: versionOf("Patched"),
-      },
-    ]) {
-      const r = await patch(body);
-      expect([body, r.status]).toEqual([body, 400]);
-    }
     expect(agentLayer.stored(o)).toBe("Patched");
   });
 
   it("POST /api/agents and the system prompt preview take instructions", async () => {
     const o = await office();
-    const spawn = (desk: number, fields: Record<string, unknown>) =>
-      call(o.srv, "POST", "/api/agents", {
-        ...owner(o),
-        body: {
-          name: `Spawned ${desk}`,
-          cwd: o.srv.stateRoot,
-          roomId: o.roomId,
-          desk,
-          permissionMode: "default",
-          ...fields,
-        },
-      });
-    const made = await spawn(1, { instructions: "Spawn text" });
+    const made = await call(o.srv, "POST", "/api/agents", {
+      ...owner(o),
+      body: {
+        name: "Spawned",
+        cwd: o.srv.stateRoot,
+        roomId: o.roomId,
+        desk: 1,
+        permissionMode: "default",
+        instructions: "Spawn text",
+      },
+    });
     expect(made.status).toBe(201);
     const id = (made.body as { agent: { id: string } }).agent.id;
     expect(o.srv.agentManager.getAgent(id)!.customInstructions).toBe(
       "Spawn text",
     );
-    const count = o.srv.agentManager.getAllAgents().length;
-    const both = await spawn(2, {
-      instructions: "Spawn text",
-      customInstructions: "Spawn text",
-    });
-    expect(both.status).toBe(400);
-    expect(o.srv.agentManager.getAllAgents().length).toBe(count);
 
-    const draft = {
-      roomId: o.roomId,
-      name: "Draft",
-      agentType: "claude",
-      privileged: false,
-    };
-    const preview = (fields: Record<string, unknown>) =>
-      call(o.srv, "POST", "/api/agents/system-prompt-preview", {
+    const shown = await call(
+      o.srv,
+      "POST",
+      "/api/agents/system-prompt-preview",
+      {
         ...owner(o),
-        body: { ...draft, ...fields },
-      });
-    const shown = await preview({ instructions: "Preview sentinel 4d1c" });
+        body: {
+          roomId: o.roomId,
+          name: "Draft",
+          agentType: "claude",
+          privileged: false,
+          instructions: "Preview sentinel 4d1c",
+        },
+      },
+    );
     expect(shown.status).toBe(200);
     expect((shown.body as { prompt: string }).prompt).toContain(
       "Preview sentinel 4d1c",
     );
-    expect(
-      (
-        await preview({
-          instructions: "Preview sentinel 4d1c",
-          customInstructions: "Preview sentinel 4d1c",
-        })
-      ).status,
-    ).toBe(400);
   });
 
-  it("GET /api/agents/:id/instructions answers in the new and the old names", async () => {
+  it("GET /api/agents/:id/instructions answers with the text and its version only", async () => {
     const o = await office();
     expect(
       (
         await writeNew(o, agentLayer, {
-          instructions: "Both names",
+          instructions: "One name",
           version: versionOf(""),
         })
       ).status,
@@ -748,36 +579,254 @@ describe("agent instructions field aliases", () => {
       owner(o),
     );
     expect(r.body).toEqual({
-      instructions: "Both names",
-      version: versionOf("Both names"),
-      customInstructions: "Both names",
-      customInstructionsVersion: versionOf("Both names"),
+      instructions: "One name",
+      version: versionOf("One name"),
     });
   });
 });
 
-describe("member instructions field alias on create", () => {
-  it("POST /api/users takes instructions, and refuses both names", async () => {
+describe("member instructions field on create", () => {
+  it("POST /api/users takes instructions", async () => {
     const o = await office();
-    const create = (body: unknown) =>
-      call(o.srv, "POST", "/api/users", { ...owner(o), body });
     expect(
       (
-        await create({
-          name: "Briefed",
-          role: "member",
-          instructions: "Member text",
+        await call(o.srv, "POST", "/api/users", {
+          ...owner(o),
+          body: {
+            name: "Briefed",
+            role: "member",
+            instructions: "Member text",
+          },
         })
       ).status,
     ).toBe(201);
     expect(getUserByName("Briefed")!.memberPrompt).toBe("Member text");
-    const both = await create({
-      name: "Twice",
-      role: "member",
-      instructions: "Member text",
-      memberPrompt: "Member text",
+  });
+});
+
+// The old names of task 379ae5db, one release later (task 744fa64a).
+describe("old routes and field names", () => {
+  it("the old routes answer 404 like any unknown route, and write nothing", async () => {
+    const o = await office();
+    for (const [method, path, body] of [
+      [
+        "PUT",
+        `/api/rooms/${o.roomId}/settings`,
+        { prompt: "Old", version: "x" },
+      ],
+      ["GET", "/api/users/Mia/member-prompt", undefined],
+      ["PUT", "/api/cron-prompt", { value: "Old" }],
+    ] as const) {
+      const r = await call(o.srv, method, path, { ...owner(o), body });
+      expect([method, path, r.status, errOf(r)?.code]).toEqual([
+        method,
+        path,
+        404,
+        "not_found",
+      ]);
+    }
+    expect(roomLayer.stored(o)).toBeNull();
+    expect(cronLayer.stored(o)).toBeNull();
+  });
+
+  it("the reads that carried an old field no longer carry it", async () => {
+    const o = await office();
+    for (const layer of [roomLayer, agentLayer])
+      expect(
+        (
+          await writeNew(o, layer, {
+            instructions: "Stored",
+            version: versionOf(""),
+          })
+        ).status,
+      ).toBe(200);
+    const room = await call(
+      o.srv,
+      "GET",
+      `/api/rooms/${o.roomId}/settings`,
+      owner(o),
+    );
+    // The room settings read keeps the room's look and folder.
+    expect(room.status).toBe(200);
+    expect(Object.keys(room.body as object)).not.toContain("prompt");
+    expect(Object.keys(room.body as object)).not.toContain("version");
+    const agent = await call(
+      o.srv,
+      "GET",
+      `/api/agents/${o.agentId}/instructions`,
+      owner(o),
+    );
+    expect(Object.keys(agent.body as object).sort()).toEqual([
+      "instructions",
+      "version",
+    ]);
+  });
+
+  // Each write route that took an old field name. The refusal comes before
+  // any other check, so a stale caller learns the new name first.
+  it("a write that carries an old field name is refused with the new name, and writes nothing", async () => {
+    const o = await office();
+    const agentPatch = (body: Record<string, unknown>) =>
+      call(o.srv, "PATCH", `/api/agents/${o.agentId}`, { ...owner(o), body });
+    expect(
+      (
+        await agentPatch({
+          instructions: "Agent kept",
+          instructionsVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(200);
+    const memberSaved = await writeNew(o, memberLayer, {
+      instructions: "Member kept",
+      version: versionOf(""),
     });
-    expect(both.status).toBe(400);
-    expect(getUserByName("Twice")).toBeUndefined();
+    expect(memberSaved.status).toBe(200);
+    const agents = o.srv.agentManager.getAllAgents().length;
+    const spawnBody = {
+      name: "Old spawn",
+      cwd: o.srv.stateRoot,
+      roomId: o.roomId,
+      desk: 3,
+      permissionMode: "default",
+    };
+    const preview = {
+      roomId: o.roomId,
+      name: "Draft",
+      agentType: "claude",
+      privileged: false,
+    };
+    const cases: [string, () => Promise<Res>][] = [
+      [
+        "PATCH agent customInstructions",
+        () =>
+          agentPatch({
+            customInstructions: "Old",
+            customInstructionsVersion: versionOf("Agent kept"),
+          }),
+      ],
+      [
+        "PATCH agent customInstructions without a version",
+        () => agentPatch({ customInstructions: "Old" }),
+      ],
+      [
+        "PATCH agent customInstructionsVersion with instructions",
+        () =>
+          agentPatch({
+            instructions: "Old",
+            customInstructionsVersion: versionOf("Agent kept"),
+          }),
+      ],
+      [
+        "PATCH agent customInstructions with a stale version",
+        () =>
+          agentPatch({
+            customInstructions: "Old",
+            customInstructionsVersion: versionOf(""),
+          }),
+      ],
+      [
+        "POST agent customInstructions",
+        () =>
+          call(o.srv, "POST", "/api/agents", {
+            ...owner(o),
+            body: { ...spawnBody, customInstructions: "Old" },
+          }),
+      ],
+      [
+        "preview customInstructions",
+        () =>
+          call(o.srv, "POST", "/api/agents/system-prompt-preview", {
+            ...owner(o),
+            body: { ...preview, customInstructions: "Old" },
+          }),
+      ],
+      [
+        "preview customInstructions with instructions",
+        () =>
+          call(o.srv, "POST", "/api/agents/system-prompt-preview", {
+            ...owner(o),
+            body: {
+              ...preview,
+              instructions: "New",
+              customInstructions: "Old",
+            },
+          }),
+      ],
+      [
+        "POST user memberPrompt",
+        () =>
+          call(o.srv, "POST", "/api/users", {
+            ...owner(o),
+            body: { name: "Old member", role: "member", memberPrompt: "Old" },
+          }),
+      ],
+      [
+        "PATCH user memberPrompt by an owner",
+        () =>
+          call(o.srv, "PATCH", "/api/users/Mia", {
+            ...owner(o),
+            body: {
+              memberPrompt: "Old",
+              memberPromptVersion: versionOf("Member kept"),
+            },
+          }),
+      ],
+      [
+        "PATCH user memberPrompt by the member, with another field",
+        () =>
+          call(o.srv, "PATCH", "/api/users/Mia", {
+            ...o.callers.memberSession,
+            body: {
+              avatarColor: "#123456",
+              memberPrompt: "Old",
+              memberPromptVersion: versionOf("Member kept"),
+            },
+          }),
+      ],
+    ];
+    for (const [label, send] of cases) {
+      const r = await send();
+      expect([label, r.status, errOf(r)?.code]).toEqual([
+        label,
+        400,
+        "invalid_request",
+      ]);
+      expect([label, errOf(r)?.message]).toEqual([
+        label,
+        expect.stringContaining("instructions"),
+      ]);
+    }
+    expect(agentLayer.stored(o)).toBe("Agent kept");
+    expect(memberLayer.stored(o)).toBe("Member kept");
+    expect(getUserByName("Mia")!.avatarColor).not.toBe("#123456");
+    expect(o.srv.agentManager.getAllAgents().length).toBe(agents);
+    expect(getUserByName("Old member")).toBeUndefined();
+  });
+
+  it("an agent or API token edits no member record field at all", async () => {
+    const o = await office();
+    expect(
+      (
+        await writeNew(o, memberLayer, {
+          instructions: "Member kept",
+          version: versionOf(""),
+        })
+      ).status,
+    ).toBe(200);
+    const before = structuredClone(getUserByName("Mia")!);
+    for (const [who, auth] of Object.entries(o.callers)) {
+      if (who.endsWith("Session")) continue;
+      for (const body of [
+        { memberPrompt: "Old", memberPromptVersion: versionOf("Member kept") },
+        { avatarColor: "#123456" },
+      ]) {
+        const r = await call(o.srv, "PATCH", "/api/users/Mia", {
+          ...auth,
+          body,
+        });
+        expect([who, body, r.status]).toEqual([who, body, 403]);
+      }
+    }
+    expect(getUserByName("Mia")).toEqual(before);
   });
 });

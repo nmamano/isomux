@@ -877,8 +877,8 @@ export interface PersistedAgent {
   // the agent's manager, shown in the system prompt user section. Set at
   // spawn; agents.setManager and a member deletion change it. `manager` is
   // the matching display snapshot of the manager's name; it can go stale
-  // across renames. On disk it is also written as `username` (see
-  // MANAGER_ALIAS). Both null on legacy unowned agents.
+  // across renames. Old files store it as `username` (see MANAGER_ALIAS). Both
+  // null on legacy unowned agents.
   userId?: string | null;
   manager?: string | null;
   // Stable room id (matches the container Room.id). Persisted agents
@@ -916,11 +916,10 @@ export interface PersistedUsage {
 }
 
 // MANAGER_ALIAS: before task f41c93e9 the manager snapshot was stored as
-// `username`. agents.json and agent-history.json write it under both keys, so
-// an older release still finds the manager after a rollback. On load a present
-// `manager` key wins, even when null; otherwise `username` is used. The loaded
-// record carries `manager` only. Returns false when neither key was present
-// (the record is stamped manager:null).
+// `username`, and the releases up to task 744fa64a wrote both keys. On load a
+// present `manager` key wins, even when null; otherwise `username` is used.
+// The loaded record carries `manager` only. Returns false when neither key was
+// present (the record is stamped manager:null).
 function resolveManagerAlias(record: {
   manager?: string | null;
   username?: string | null;
@@ -929,12 +928,6 @@ function resolveManagerAlias(record: {
   if (!("manager" in record)) record.manager = record.username ?? null;
   delete record.username;
   return known;
-}
-
-function withManagerAlias<T extends { manager?: string | null }>(
-  record: T,
-): T & { username: string | null } {
-  return { ...record, username: record.manager ?? null };
 }
 
 // Migrate a persisted agent that may have the legacy `model: "claude-opus-4-6"`
@@ -1108,17 +1101,7 @@ export function loadAgents(): Room[] {
 
 export function saveAgents(rooms: Room[]) {
   try {
-    atomicWriteFileSync(
-      AGENTS_FILE,
-      JSON.stringify(
-        rooms.map((room) => ({
-          ...room,
-          agents: room.agents.map(withManagerAlias),
-        })),
-        null,
-        2,
-      ),
-    );
+    atomicWriteFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
   } catch (err) {
     console.error("Failed to save agents:", err);
   }
@@ -1166,8 +1149,6 @@ export function buildManifest(agents: ManifestAgentInput[]) {
     permissionMode: a.permissionMode,
     sandbox: a.sandbox,
     manager: a.manager,
-    // Alias of `manager` for readers written before task f41c93e9.
-    username: a.manager,
     logDir: join(LOGS_DIR, a.id),
   }));
 }
@@ -1604,7 +1585,7 @@ export interface AgentHistoryEntry {
   topic?: string | null;
   customInstructions?: string | null;
   userId?: string | null;
-  // Written to disk as `username` too (MANAGER_ALIAS).
+  // Old files store it as `username` (MANAGER_ALIAS).
   manager?: string | null;
   // Privileged-token flag, snapshotted so a killed agent revives with the
   // same privilege it had. Absent ⇒ false (legacy/normal agents).
@@ -1633,19 +1614,7 @@ export function loadAgentHistory(): AgentHistory {
 
 export function saveAgentHistory(history: AgentHistory) {
   try {
-    atomicWriteFileSync(
-      AGENT_HISTORY_FILE,
-      JSON.stringify(
-        Object.fromEntries(
-          Object.entries(history).map(([id, entry]) => [
-            id,
-            withManagerAlias(entry),
-          ]),
-        ),
-        null,
-        2,
-      ),
-    );
+    atomicWriteFileSync(AGENT_HISTORY_FILE, JSON.stringify(history, null, 2));
   } catch (err) {
     console.error("Failed to save agent history:", err);
   }

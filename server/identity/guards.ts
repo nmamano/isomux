@@ -457,19 +457,6 @@ export const proxyMemberPrompt: Guard = ({ identity, params, deps }) => {
     : FORBIDDEN;
 };
 
-// The same callers send only the prompt fields: the executor's role check
-// reads the caller's user, so any other key would act with that user's role.
-export const proxyMemberPromptUpdate: Guard = (ctx) => {
-  if (!proxyMemberPrompt(ctx).ok) return FORBIDDEN;
-  if (!ctx.body || typeof ctx.body !== "object" || Array.isArray(ctx.body))
-    return FORBIDDEN;
-  return Object.keys(ctx.body).every(
-    (key) => key === "memberPrompt" || key === "memberPromptVersion",
-  )
-    ? ALLOW
-    : FORBIDDEN;
-};
-
 // AGENT-only self-affordance gate: the `:id` path param must equal the token's
 // agentId. USER and CRON-RUN identities carry no agentId, so they can NEVER
 // satisfy it (impossibility-by-construction). The binding must be a NON-EMPTY

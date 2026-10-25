@@ -4,9 +4,9 @@
 // stored text after the write in its audit row, for humans and agents alike,
 // so a restore can write an earlier row's text back through the same route.
 //
-// One row per write route below. office.setSettings and users.update keep
-// their prompt-text rows in routes-office-settings-rest and routes-users-rest;
-// a refused write adds no row (route-executor "executor audit").
+// One row per write route below; a refused write adds no row (route-executor
+// "executor audit"). office.setSettings and users.update write no prompt text
+// since task 744fa64a, so their rows keep none.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -106,43 +106,26 @@ async function bodyOf<T>(
   return res.body as T;
 }
 
-const roomPrompt: Surface = {
-  operation: "rooms.setSettings",
-  target: (o) => o.roomId,
-  write: async (o, auth, text) => {
-    const path = `/api/rooms/${o.roomId}/settings`;
-    const { version } = await bodyOf<{ version: string }>(o, path);
-    return (
-      await call(o.srv, "PUT", path, {
-        ...auth,
-        body: { prompt: text, version },
-      })
-    ).status;
-  },
-  stored: (o) =>
-    o.srv.agentManager.getRooms().find((room) => room.id === o.roomId)!
-      .prompt ?? null,
-};
-
 let targetAgentId = "";
 const agentInstructions: Surface = {
   operation: "agents.update",
   target: () => targetAgentId,
   write: async (o, auth, text) => {
-    const { customInstructionsVersion } = await bodyOf<{
-      customInstructionsVersion: string;
-    }>(o, `/api/agents/${targetAgentId}/instructions`);
+    const { version } = await bodyOf<{ version: string }>(
+      o,
+      `/api/agents/${targetAgentId}/instructions`,
+    );
     return (
       await call(o.srv, "PATCH", `/api/agents/${targetAgentId}`, {
         ...auth,
-        body: { customInstructions: text, customInstructionsVersion },
+        body: { instructions: text, instructionsVersion: version },
       })
     ).status;
   },
   stored: (o) => o.srv.agentManager.getAgent(targetAgentId)!.customInstructions,
 };
 
-// The same surfaces through their instructions routes (task 379ae5db).
+// The surfaces through their instructions routes (task 379ae5db).
 function instructionsRoute(
   operation: string,
   path: (o: Office) => string,
@@ -174,8 +157,10 @@ const officeInstructions = instructionsRoute(
 const roomInstructions = instructionsRoute(
   "rooms.setInstructions",
   (o) => `/api/rooms/${o.roomId}/instructions`,
-  roomPrompt.target,
-  roomPrompt.stored,
+  (o) => o.roomId,
+  (o) =>
+    o.srv.agentManager.getRooms().find((room) => room.id === o.roomId)!
+      .prompt ?? null,
 );
 const agentInstructionsRoute = instructionsRoute(
   "agents.setInstructions",
@@ -212,9 +197,8 @@ describe("rows that keep prompt text", () => {
     const asAgent = { bearer: o.agent };
     for (const [label, surface] of [
       ["office instructions route", officeInstructions],
-      ["room prompt", roomPrompt],
       ["room instructions route", roomInstructions],
-      ["agent custom instructions", agentInstructions],
+      ["agent update", agentInstructions],
       ["agent instructions route", agentInstructionsRoute],
       ["member instructions route", memberInstructions],
     ] as const) {
@@ -283,7 +267,7 @@ describe("rows that keep no prompt text", () => {
   it("a member created with special instructions keeps them, and one created without keeps no text", async () => {
     const o = await office();
     for (const body of [
-      { name: "Briefed", role: "member", memberPrompt: "Member text" },
+      { name: "Briefed", role: "member", instructions: "Member text" },
       { name: "Plain", role: "member" },
     ])
       expect(
@@ -316,7 +300,7 @@ describe("rows that keep no prompt text", () => {
         roomId: o.roomId,
         desk: 1,
         permissionMode: "default",
-        customInstructions: "Spawn text",
+        instructions: "Spawn text",
       },
     });
     expect(res.status).toBe(201);

@@ -1,10 +1,8 @@
 // Room resource handlers. The room-structure
-// mutation surface (opIds rooms.{create,close,rename,setSettings}) on the
-// unified REST surface, plus the read side of the settings pair
-// (rooms.getSettings - same ACL as the PUT, so a writer can read the prompt
-// it would overwrite). The route table gates create with room:manage +
-// authenticated, and close/rename/getSettings/setSettings with room:manage +
-// requiresRoomAccess(:roomId).
+// mutation surface (opIds rooms.{create,close,rename,setInstructions}) on the
+// unified REST surface, plus rooms.getSettings (the room's look) and
+// rooms.readInstructions. The route table gates create with room:manage +
+// authenticated, and the others with room:manage + requiresRoomAccess(:roomId).
 //
 // Strangler EXPAND+CUT in one slice: 3a/3b declared these routes in the table
 // but never landed a handler (the rooms surface stayed WS-only). This slice
@@ -105,10 +103,10 @@ export interface RoomsDeps {
   // Sets the folder new agents in the room start in; null clears it. Returns
   // false if the room does not exist (-> 404).
   setCwd(roomId: string, cwd: string | null): boolean;
-  // Reads a room's settings (the prompt; null means no prompt set) plus the
-  // prompt's optimistic-concurrency version, and the room's look so an agent
-  // can read it before changing it. The version covers the prompt only.
-  // Returns null if the room does not exist (→ 404).
+  // Reads a room's prompt (null means none set) plus the prompt's
+  // optimistic-concurrency version, and the room's look so an agent can read
+  // it before changing it. The version covers the prompt only. Returns null if
+  // the room does not exist (→ 404).
   getSettings(roomId: string): {
     prompt: string | null;
     version: string;
@@ -332,8 +330,7 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       return noContent();
     },
 
-    // The room's instructions: the same core as rooms.{get,set}Settings, whose
-    // prompt fields are the old names, kept for one release.
+    // The room's instructions: the prompt of the settings cores.
     "rooms.readInstructions": (ctx) => {
       const settings = deps.getSettings(ctx.params.roomId);
       return settings
@@ -359,39 +356,12 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         : fail(404, "room_not_found", "Room not found");
     },
 
+    // The room's look; the instructions are at rooms.readInstructions.
     "rooms.getSettings": (ctx) => {
       const settings = deps.getSettings(ctx.params.roomId);
-      return settings
-        ? ok(settings)
-        : fail(404, "room_not_found", "Room not found");
-    },
-
-    "rooms.setSettings": (ctx) => {
-      const b = (ctx.body ?? {}) as { prompt?: unknown; version?: unknown };
-      const prompt = typeof b.prompt === "string" ? b.prompt : null;
-      // Version is required (shape check, never an existence oracle): the write
-      // replaces the whole prompt blob, so it must carry the version from a
-      // preceding GET - same rail as memory.replace.
-      if (typeof b.version !== "string" || b.version.length === 0) {
-        return fail(
-          400,
-          "invalid_version",
-          "version is required (from a preceding GET of the settings)",
-        );
-      }
-      const r = deps.setSettings(ctx.params.roomId, prompt, b.version);
-      if (!r.ok) {
-        if (r.reason === "version_conflict") {
-          return fail(
-            409,
-            "version_conflict",
-            "the room prompt changed since your read; re-read and retry",
-            { version: r.version },
-          );
-        }
-        return fail(404, "room_not_found", "Room not found");
-      }
-      return noContent();
+      if (!settings) return fail(404, "room_not_found", "Room not found");
+      const { prompt: _prompt, version: _version, ...look } = settings;
+      return ok(look);
     },
   };
 }

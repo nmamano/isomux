@@ -1,6 +1,6 @@
 // Office-settings resource handlers. The office-wide
-// prompt / display-name surface on the unified REST surface (opIds
-// office.{getSettings,setSettings}). The route table gates both with
+// settings and instructions on the unified REST surface (opIds
+// office.{getSettings,setSettings,readInstructions,setInstructions}). The route table gates both with
 // office:settings + officeSettingsOwner: an owner, or a privileged agent whose
 // manager is an office owner.
 //
@@ -13,19 +13,17 @@
 // existing AgentManager event sink - the handler never emits.
 //
 // office.{read,set}Instructions read and write the prompt alone, with a
-// version over the text only. The prompt field of the settings routes is their
-// old name, kept for one release.
+// version over the text only. The settings routes do not carry it.
 //
-// office.getSettings returns the editable prompt and display name, the member
-// usage cap switch, the member share and the cap's status lines.
+// office.getSettings returns the display name, the member usage cap switch,
+// the member share and the cap's status lines.
 // The legacy envFile field remains persistence-only until
 // the boot migration clears it.
 //
-// prompt and name omitted-vs-null are preserved end to end: an absent `prompt`
-// or `name` (an agent that changes one field, or a stale client tab from before
-// the name existed) PRESERVES the stored value; an explicit null CLEARS it
-// (Lead, 2026-10-14). The handler passes undefined for absent so the core can
-// tell the two apart.
+// name omitted-vs-null is preserved end to end: an absent `name` (an agent
+// that changes one field, or a stale client tab from before the name existed)
+// PRESERVES the stored value; an explicit null CLEARS it (Lead, 2026-10-14).
+// The handler passes undefined for absent so the core can tell the two apart.
 //
 // LEAF over the executor + shared types. Only the injected OfficeSettingsDeps.
 
@@ -43,6 +41,7 @@ import {
   instructionsConflict,
   instructionsRes,
   parseInstructionsWrite,
+  refuseOldFields,
 } from "./instructions.ts";
 
 // setSettings outcome the seam shapes: ok, a status-mapped validation failure
@@ -57,7 +56,6 @@ export type ApplyOfficeSettingsResult =
 export interface OfficeSettingsDeps {
   getSettings(): Promise<OfficeSettingsRes>;
   // Validate-then-apply, guarded by the version from a preceding getSettings.
-  // `prompt === undefined` preserves the current prompt; null clears it.
   // `name === undefined` preserves the current name; null or empty clears it.
   // `memberUsageCap === undefined` preserves the switch, and
   // `memberUsageShare === undefined` the share, and `recordTerminals ===
@@ -66,7 +64,6 @@ export interface OfficeSettingsDeps {
   // writer for the switch's own audit row.
   applySettings(
     input: {
-      prompt?: string | null;
       name?: string | null;
       memberUsageCap?: boolean;
       memberUsageShare?: number;
@@ -75,8 +72,8 @@ export interface OfficeSettingsDeps {
     },
     ctx: RouteHandlerContext,
   ): ApplyOfficeSettingsResult;
-  // The office instructions (the settings' prompt field). Their version covers
-  // the text only, so a name change does not touch it.
+  // The office instructions. Their version covers the text only, so a name
+  // change does not touch it.
   readInstructions(): string | null;
   // Writes the text alone, guarded by the version of the text.
   applyInstructions(
@@ -104,8 +101,11 @@ export function officeSettingsHandlers(
     },
 
     "office.setSettings": (ctx) => {
+      const old = refuseOldFields(ctx.body, {
+        prompt: "instructions to PUT /api/office/instructions",
+      });
+      if (old) return old;
       const b = (ctx.body ?? {}) as {
-        prompt?: unknown;
         name?: unknown;
         version?: unknown;
         memberUsageCap?: unknown;
@@ -113,15 +113,8 @@ export function officeSettingsHandlers(
         recordTerminals?: unknown;
       };
       // Distinguish "omitted" (undefined → preserve) from "set to null" (→
-      // clear), for the prompt and the name. JSON access yields undefined for
-      // an absent key and null for an explicit null, so a direct read carries
-      // the distinction.
-      const prompt =
-        b.prompt === undefined
-          ? undefined
-          : typeof b.prompt === "string"
-            ? b.prompt
-            : null;
+      // clear) for the name. JSON access yields undefined for an absent key and
+      // null for an explicit null, so a direct read carries the distinction.
       const name =
         b.name === undefined
           ? undefined
@@ -165,7 +158,6 @@ export function officeSettingsHandlers(
       }
       const r = deps.applySettings(
         {
-          prompt,
           name,
           memberUsageCap: b.memberUsageCap,
           memberUsageShare: b.memberUsageShare,

@@ -72,8 +72,6 @@ export interface SpawnReq {
   desk?: number | null;
   permissionMode?: AgentInfo["permissionMode"];
   instructions?: string;
-  // Old name of `instructions`, kept for one release. Not both.
-  customInstructions?: string;
   outfit?: AgentInfo["outfit"];
   modelFamily?: string;
   // Optional concrete model. Without modelFamily, the server derives the
@@ -99,7 +97,9 @@ export interface AgentSystemPromptPreviewReq {
   codexSandbox?: AgentInfo["codexSandbox"];
 }
 
-export type EditAgentReq = Partial<
+// The agent fields an edit changes, by their stored names: the edit core's
+// input. The wire body is EditAgentReq.
+export type AgentEdit = Partial<
   Pick<
     AgentInfo,
     | "name"
@@ -124,16 +124,21 @@ export type EditAgentReq = Partial<
 > & {
   // Optional concrete model; see SpawnReq.model.
   model?: string;
-  // REQUIRED iff customInstructions is present in the body:
-  // echo back AgentInfo.customInstructionsVersion as read off full_state /
+  customInstructionsVersion?: string;
+};
+
+// PATCH /api/agents/:id. The instructions go in as `instructions`.
+export type EditAgentReq = Omit<
+  AgentEdit,
+  "customInstructions" | "customInstructionsVersion"
+> & {
+  instructions?: string | null;
+  // REQUIRED iff instructions is present in the body: echo back
+  // AgentInfo.customInstructionsVersion as read off full_state /
   // agent_updated (UI) or GET /api/agents/:id/instructions
   // (agents.readInstructions, the agent-facing read). Missing
   // then -> 400 invalid_version; stale -> 409 version_conflict with the
   // current version. Scalar-only edits omit it and stay friction-free.
-  customInstructionsVersion?: string;
-  // The new names of customInstructions and customInstructionsVersion. The
-  // old names stay for one release; a body carries one name of each, not both.
-  instructions?: string | null;
   instructionsVersion?: string;
 };
 
@@ -640,20 +645,9 @@ export interface RoomRenameReq {
   cwd?: string | null;
 }
 
-// Room-prompt write. `version` is the token from a preceding rooms.getSettings
-// read - a mismatch means the prompt changed under you (409 version_conflict),
-// mirroring the memory read-before-replace contract.
-export interface RoomSettingsReq {
-  prompt: string | null;
-  version: string;
-}
-
-// rooms.getSettings response: the prompt + its optimistic-concurrency version
-// (sha of the prompt bytes; a never-set/cleared prompt hashes "").
+// rooms.getSettings response: the room's look, for reading before a PATCH.
+// The room's instructions are at rooms.readInstructions.
 export interface RoomSettingsRes {
-  prompt: string | null;
-  version: string;
-  // The room's look, for reading before a PATCH. `version` does not cover it.
   skin: RoomSkin | null;
   pet: RoomPet | null;
   decor: RoomDecor | null;
@@ -847,16 +841,9 @@ export interface ApiTokenInboxDrainRes {
   drainedAt: number;
 }
 
-export interface MemberPromptRes {
-  memberPrompt: string | null;
-  memberPromptVersion: string;
-}
-
 export type UserUpdateReq = Partial<{
   role: UserRecord["role"];
   name: string;
-  memberPrompt: string | null;
-  memberPromptVersion: string;
   avatarColor: string;
   avatarVariant: UserRecord["avatarVariant"];
 }>;
@@ -885,8 +872,6 @@ export interface UserCreateReq {
   name: string;
   role: UserRecord["role"];
   instructions?: string | null;
-  // Old name of `instructions`, kept for one release. Not both.
-  memberPrompt?: string | null;
   avatarColor?: string;
   avatarVariant?: UserRecord["avatarVariant"];
   // Member room grants; refused for an owner (owners reach every room by
@@ -900,16 +885,12 @@ export interface AccessSettingsReq {
 }
 
 export interface OfficeSettingsReq {
-  // Optional like `name`: omitted preserves the stored office prompt, explicit
-  // null clears it.
-  prompt?: string | null;
   // Optional: omitted preserves the current office name (a stale client tab),
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
-  // Token from a preceding office.getSettings read. The PUT replaces the whole
-  // settings blob (prompt/name), so ONE version guards the whole
-  // clobber surface - a mismatch is a 409 version_conflict, mirroring memory
+  // Token from a preceding office.getSettings read. ONE version guards every
+  // settings field - a mismatch is a 409 version_conflict, mirroring memory
   // REPLACE.
   version: string;
   // The member usage cap switch. Omitted preserves it (a stale client tab).
@@ -1318,7 +1299,7 @@ export type OfficeUsageStatusWire =
 
 // office.getSettings response: the editable settings plus their
 // optimistic-concurrency version.
-export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
+export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   // Optional only while a new UI bundle can talk to the old server before the
   // server-side half of an update restarts.
   version: string;
@@ -1571,11 +1552,6 @@ export interface CronRunMessageReq {
   device?: string;
   // Member composer attempt id: a resend with the same id is not sent twice.
   clientMessageId?: string;
-}
-
-// Cronjobs-prompt write body (cron.setPrompt). Inline `{ value }` in the spec.
-export interface CronPromptReq {
-  value: string | null;
 }
 
 // Every instruction layer (office, room, agent, member, schedules) reads and

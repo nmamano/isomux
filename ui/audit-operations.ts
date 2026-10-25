@@ -68,6 +68,7 @@ export const AUDIT_OPERATIONS = [
   "cron.runNow",
   "cron.runReadFile",
   "cron.setInstructions",
+  // Old opId, gone in task 744fa64a: old audit rows.
   "cron.setPrompt",
   "cron.update",
   "githubSync.delete",
@@ -132,6 +133,7 @@ export const AUDIT_OPERATIONS = [
   "rooms.create",
   "rooms.rename",
   "rooms.setInstructions",
+  // Old opId, gone in task 744fa64a: old audit rows.
   "rooms.setSettings",
   "rooms.swapDesks",
   "secrets.create",

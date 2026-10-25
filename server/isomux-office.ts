@@ -2071,15 +2071,15 @@ async function applyAccessSettings(
 // office/tasks slice). Object-level AUTH is NOT here: REST enforces it in the
 // route table (guard + precondition).
 
-// Optimistic-concurrency version over the WHOLE office-settings blob. The
-// persisted envFile remains in the version until the boot import clears it.
+// Optimistic-concurrency version over the office settings. The prompt is not
+// in it: the office instructions have their own version. The persisted envFile
+// remains in the version until the boot import clears it.
 // Canonical array serialization (stable order, distinguishes
 // null from ""), hashed with the same versionOf as memory files.
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
   return versionOf(
     JSON.stringify([
-      s.prompt,
       s.envFile,
       s.name,
       memberUsageCap().isEnabled(),
@@ -2090,8 +2090,8 @@ function officeSettingsVersion(): string {
 }
 
 // office.setInstructions core: the prompt alone, guarded by the version of the
-// text (not of the whole settings blob). The same setOfficeSettings write as
-// applyOfficeSettings, so the event and the audit text are the same.
+// text. The same setOfficeSettings write as applyOfficeSettings, so the event
+// is the same.
 function applyOfficeInstructions(
   prompt: string | null,
   expectedVersion: string,
@@ -2109,12 +2109,11 @@ function applyOfficeInstructions(
 // office.setSettings core. The version guard runs FIRST (a stale writer is told
 // to re-read before hearing about field validation), then validates the name
 // before it mutates/emits. Omitted fields PRESERVE their current values, for
-// stale clients and for an agent that changes one field. A null prompt CLEARS
-// it, and so does a null or empty name. setOfficeSettings emits
-// office_settings_updated via the sink.
+// stale clients and for an agent that changes one field. A null or empty name
+// CLEARS it. The prompt is kept: office.setInstructions writes it.
+// setOfficeSettings emits office_settings_updated via the sink.
 function applyOfficeSettings(
   input: {
-    prompt?: string | null;
     name?: string | null;
     memberUsageCap?: boolean;
     memberUsageShare?: number;
@@ -2144,13 +2143,10 @@ function applyOfficeSettings(
     };
   }
   agentManager.setOfficeSettings(
-    input.prompt === undefined
-      ? agentManager.getOfficeSettings().prompt
-      : input.prompt,
+    agentManager.getOfficeSettings().prompt,
     agentManager.getOfficeSettings().envFile,
     rawName,
   );
-  notePromptContent(agentManager.getOfficeSettings().prompt);
   if (
     input.memberUsageCap !== undefined &&
     input.memberUsageCap !== memberUsageCap().isEnabled()
@@ -4742,12 +4738,7 @@ function buildExecutorDeps(
     usersHandlers({
       readMemberPrompt: (username) => {
         const user = getUser(username);
-        return user
-          ? {
-              memberPrompt: user.memberPrompt,
-              memberPromptVersion: versionOf(user.memberPrompt ?? ""),
-            }
-          : null;
+        return user ? { memberPrompt: user.memberPrompt } : null;
       },
       create: async ({
         name,
@@ -5213,7 +5204,6 @@ function buildExecutorDeps(
         // The editable fields and their version are read together, before
         // the status read awaits a provider.
         const settings = {
-          prompt: agentManager.getOfficeSettings().prompt,
           name: agentManager.getOfficeSettings().name,
           version: officeSettingsVersion(),
           memberUsageCap: memberUsageCap().isEnabled(),
@@ -5735,7 +5725,7 @@ function buildExecutorDeps(
         }
         if (changes.cwd) saveRecentCwd(changes.cwd);
         try {
-          // EditAgentReq.customInstructions is string|null|undefined (the
+          // AgentEdit.customInstructions is string|null|undefined (the
           // AgentInfo Pick widens it); editAgent wants string|undefined. The WS
           // edit_agent command never carried null (the dialog clears via ""), so
           // coerce null->undefined to preserve parity. The version token was

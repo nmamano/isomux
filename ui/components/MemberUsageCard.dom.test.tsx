@@ -13,16 +13,15 @@ const t = translatorFor("en").t;
 
 // The member usage cap switch and member share (task 6de8f530), on the office
 // half of Connections: they round-trip through the version-guarded settings
-// PUT, which carries back the prompt it read (an absent prompt clears it) and
-// no name (an absent name keeps it). The share select shows while the switch is
-// on, and the status lines show once it is saved on.
+// PUT, which carries only these fields (an absent name keeps it). The share
+// select shows while the switch is on, and the status lines show once it is
+// saved on.
 let enabled = false;
 let share = 80;
 let savedBody: Record<string, unknown> | null = null;
 setApiShim(async (method, path, body) => {
   if (path === "/api/office/settings" && method === "GET")
     return {
-      prompt: "Office rules",
       name: "Office name",
       version: enabled ? "2" : "1",
       memberUsageCap: enabled,
@@ -67,9 +66,9 @@ it("saves the switch and share with the settings and shows one status line per p
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: t("common.save") })),
   );
-  expect(savedBody).not.toHaveProperty("name");
-  expect(savedBody).toMatchObject({
-    prompt: "Office rules",
+  // Only its own fields and the version: no name, and no `prompt`, the old
+  // field the server refuses since task 744fa64a.
+  expect(savedBody).toEqual({
     version: "1",
     memberUsageCap: true,
     memberUsageShare: 70,
@@ -196,7 +195,6 @@ it("saves and says so when Save is clicked with nothing changed", async () => {
   await act(async () => fireEvent.click(save));
   expect(writes).toEqual([
     {
-      prompt: null,
       version: "1",
       memberUsageCap: true,
       memberUsageShare: 80,

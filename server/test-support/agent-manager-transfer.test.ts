@@ -270,8 +270,8 @@ describe("agents.setManager: the agent itself", () => {
       manager: "Bea",
       privileged: true,
     });
-    // agents.json keeps the old `username` key beside `manager`, so a
-    // rollback to an older release still finds the manager (task f41c93e9).
+    // agents.json names the manager under `manager` only: the old
+    // `username` key went one release after task f41c93e9 (task 744fa64a).
     await waitUntil(
       () => persistedAgent(srv, agent.id)?.manager === "Bea",
       "agents.json names the new manager",
@@ -279,8 +279,10 @@ describe("agents.setManager: the agent itself", () => {
     expect(persistedAgent(srv, agent.id)).toMatchObject({
       userId: idOf("Bea"),
       manager: "Bea",
-      username: "Bea",
     });
+    expect(Object.keys(persistedAgent(srv, agent.id)!)).not.toContain(
+      "username",
+    );
 
     // The token is re-minted for the new manager, with the same privilege.
     const token = getAgentTokenRaw(agent.id)!;
@@ -678,7 +680,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       manager: "Morgan",
       privileged: true,
     });
-    // Both stores keep `username` beside `manager` for a rollback.
+    // Both stores name the manager under `manager` only.
     await waitUntil(
       () =>
         persistedAgent(srv, live.id)?.manager === "Morgan" &&
@@ -688,13 +690,16 @@ describe("deleting a member passes their agents to the oldest office owner", () 
     expect(persistedAgent(srv, live.id)).toMatchObject({
       userId: morganId,
       manager: "Morgan",
-      username: "Morgan",
     });
     expect(persistedHistory(srv, killed.id)).toMatchObject({
       userId: morganId,
       manager: "Morgan",
-      username: "Morgan",
     });
+    for (const record of [
+      persistedAgent(srv, live.id)!,
+      persistedHistory(srv, killed.id)!,
+    ])
+      expect(Object.keys(record)).not.toContain("username");
     expect(resolveToken(getAgentTokenRaw(live.id)!)?.userId).toBe(morganId);
     expect(old.closed).toBe(true);
     expect(srv.agentManager.killedAgentManagerUserId(killed.id)).toBe(morganId);

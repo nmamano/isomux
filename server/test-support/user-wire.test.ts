@@ -264,7 +264,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     expect(bobForMia).toHaveLength(0);
   });
 
-  it("a private-only record edit (memberPrompt) fans self(full)+admin(full), and NOTHING public to other members (0236f470)", async () => {
+  it("a private-only record edit (the member's instructions) fans self(full)+admin(full), and NOTHING public to other members (0236f470)", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
@@ -281,10 +281,19 @@ describe("user-wire projection leak closure (3b.5)", () => {
       (m) => m.type === "users_list",
     ).length;
 
-    await ownerUpdate(server, owner.rawSessionId, mia.username, {
-      memberPrompt: "be concise",
-      memberPromptVersion: versionOf(""),
-    });
+    const saved = await server.http(
+      `/api/users/${encodeURIComponent(mia.username)}/instructions`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instructions: "be concise",
+          version: versionOf(""),
+        }),
+        rawSessionId: owner.rawSessionId,
+      },
+    );
+    expect(saved.status).toBe(200);
 
     // Subject (Mia): own full record via self, carrying the new private field.
     const miaSelf = await waitForWhere(

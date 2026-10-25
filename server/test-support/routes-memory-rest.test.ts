@@ -19,7 +19,6 @@ import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import type { AgentInfo, MemoryItem } from "../../shared/types.ts";
 import { MEMORY_LINE_MAX } from "../memory-store.ts";
-import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -611,11 +610,11 @@ describe("routes/memory REST: member scope", () => {
   });
 });
 
-// Task f41c93e9 renamed the scope `boss` to `member`. `boss` stays an alias at
-// parse time: agents and members still send it, and audit rows and transcripts
-// written before the rename carry it.
-describe("routes/memory REST: the boss alias of member scope", () => {
-  it("scope=boss reads, appends and replaces the member file, and audits as member", async () => {
+// Task f41c93e9 renamed the scope `boss` to `member`, and `boss` stayed an alias
+// for one release (removed in task 744fa64a). Audit rows and transcripts
+// written before the rename still carry it, so the audit filter reads both.
+describe("routes/memory REST: the old boss name of member scope", () => {
+  it("scope=boss is refused like any unknown scope on read, append and replace, and writes nothing", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -623,58 +622,48 @@ describe("routes/memory REST: the boss alias of member scope", () => {
     const bot = await spawnAgent(srv, "MemBot");
     const token = mintAgentToken(bot.id, ownerId);
 
-    // APPEND through the alias, scopeId omitted -> the manager's file.
-    const a = await api(srv, "/api/memory", {
+    const seeded = await api(srv, "/api/memory", {
       method: "POST",
       bearer: token,
-      body: { scope: "boss", text: "written through the alias" },
+      body: { scope: "member", text: "kept fact" },
     });
-    expect(a.status).toBe(201);
-    expect(readMem(srv, "bosses", `${ownerId}.md`)).toContain(
-      "written through the alias",
+    expect(seeded.status).toBe(201);
+    const before = readMem(srv, "bosses", `${ownerId}.md`);
+    const { version } = asRead(
+      (await api(srv, "/api/memory?scope=member", { bearer: token })).body,
     );
+    const audited = opLog(srv).length;
 
-    // READ: both names resolve to the same file, version, target and cap.
-    const viaMember = await api(srv, "/api/memory?scope=member", {
-      bearer: token,
-    });
-    const viaAlias = await api(srv, "/api/memory?scope=boss", {
-      bearer: token,
-    });
-    expect(viaMember.status).toBe(200);
-    expect(viaAlias.status).toBe(200);
-    expect(asRead(viaMember.body).text).toContain("written through the alias");
-    expect(viaAlias.body).toEqual(viaMember.body);
-    expect(asRead(viaAlias.body).cap).toBe(MEMORY_CAPS.member);
-
-    // REPLACE through the alias with the version from the member read.
-    const rep = await api(srv, "/api/memory", {
-      method: "PUT",
-      bearer: token,
-      body: {
-        scope: "boss",
-        text: "- replaced through the alias\n",
-        version: asRead(viaMember.body).version,
-      },
-    });
-    expect(rep.status).toBe(200);
-    expect(readMem(srv, "bosses", `${ownerId}.md`)).toBe(
-      "- replaced through the alias\n",
-    );
-
-    // New audit rows name the member scope, whichever name the caller used.
-    const rows = opLog(srv);
-    expect(rows.map((row) => row.operation)).toEqual([
-      "memory.append",
-      "memory.replace",
-    ]);
-    for (const row of rows)
-      expect(row.targets).toEqual([`memory:member:${ownerId}`]);
-
-    // A scope that is neither name is still refused.
-    const bad = await api(srv, "/api/memory?scope=bosses", { bearer: token });
-    expect(bad.status).toBe(400);
-    expect(errCode(bad.body)).toBe("unsupported_scope");
+    for (const [label, send] of [
+      ["read", () => api(srv, "/api/memory?scope=boss", { bearer: token })],
+      [
+        "append",
+        () =>
+          api(srv, "/api/memory", {
+            method: "POST",
+            bearer: token,
+            body: { scope: "boss", text: "through the old name" },
+          }),
+      ],
+      [
+        "replace",
+        () =>
+          api(srv, "/api/memory", {
+            method: "PUT",
+            bearer: token,
+            body: { scope: "boss", text: "- replaced\n", version },
+          }),
+      ],
+    ] as const) {
+      const r = await send();
+      expect([label, r.status, errCode(r.body)]).toEqual([
+        label,
+        400,
+        "unsupported_scope",
+      ]);
+    }
+    expect(readMem(srv, "bosses", `${ownerId}.md`)).toBe(before);
+    expect(opLog(srv).length).toBe(audited);
   });
 
   it("an audit targetId filter on either name finds member-memory rows of both names", async () => {

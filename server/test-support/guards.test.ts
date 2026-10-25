@@ -217,9 +217,8 @@ describe("guard: selfUser", () => {
 
 describe("guard: selfOrOwner", () => {
   it("scope-gate: an AGENT cannot pass via owner OR self branch", () => {
-    // A privileged agent holds user:prompt, so it clears stage 1 on
-    // users.update; this guard must still refuse it (its member-prompt path is
-    // proxyMemberPromptUpdate, with its body-key limit).
+    // Stage 1 already keeps agents off users.update; this guard is the second
+    // lock on it and on users.delete.
     const agentMatches = makeDeps({ userIdForUsername: () => "u-spawn" });
     for (const identity of [agent, privilegedAgent])
       expect(

@@ -19,14 +19,12 @@ import { demoAppFixtures } from "./demo-app.ts";
 import type {
   CronCreateReq,
   CronUpdateReq,
-  CronPromptReq,
   InstructionsReq,
   BackupStatusWire,
   OfficeSettingsReq,
   TaskCreateReq,
   RoomCreateReq,
   RoomRenameReq,
-  RoomSettingsReq,
   MoveAgentReq,
   SwapDesksReq,
   TopicReq,
@@ -2891,13 +2889,6 @@ export async function demoApi(
       shimEmit({ type: "cronjob_added", cronjob: demoCronjobWire(cronjob) });
       return demoCronjobWire(cronjob);
     }
-    // cron.setPrompt - set + broadcast; no body returned (204-like).
-    case "PUT /api/cron-prompt": {
-      const b = (body ?? {}) as CronPromptReq;
-      cronjobsPrompt = b.value && b.value.trim() ? b.value : null;
-      shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
-      return undefined;
-    }
     // cron.{read,set}Instructions - the schedule instructions dialog.
     case "GET /api/cron-instructions":
       return demoInstructions(cronjobsPrompt);
@@ -2927,7 +2918,6 @@ export async function demoApi(
     // PUT below ignore it.
     case "GET /api/office/settings":
       return {
-        prompt: state.office.prompt,
         name: state.office.name,
         version: "demo-version",
       };
@@ -3015,8 +3005,13 @@ export async function demoApi(
           : b.name && b.name.trim()
             ? b.name.trim()
             : null;
-      const prompt = b.prompt === undefined ? state.office.prompt : b.prompt;
-      emitEvents(state.setOfficeSettings(prompt, state.office.envFile, name));
+      emitEvents(
+        state.setOfficeSettings(
+          state.office.prompt,
+          state.office.envFile,
+          name,
+        ),
+      );
       return undefined;
     }
     // tasks.create - push + broadcast the `tasks` event; return the created task
@@ -3292,7 +3287,7 @@ export async function demoApi(
             ? null
             : b.desk,
         roomId: b.roomId,
-        customInstructions: b.instructions ?? b.customInstructions,
+        customInstructions: b.instructions,
         outfit: b.outfit,
         modelFamily: b.modelFamily,
         effort: b.effort,
@@ -3683,19 +3678,6 @@ export async function demoApi(
       return updated.memberPrompt;
     });
   }
-  const memberPromptMatch = pathname.match(
-    /^\/api\/users\/([^/]+)\/member-prompt$/,
-  );
-  if (memberPromptMatch && method === "GET") {
-    const user = users.get(
-      decodeURIComponent(memberPromptMatch[1]).toLowerCase(),
-    );
-    if (!user) throw new ApiError(404, "not_found", "Member not found.");
-    return {
-      memberPrompt: user.memberPrompt,
-      memberPromptVersion: versionOf(user.memberPrompt ?? ""),
-    };
-  }
   // users.update (PATCH) / users.delete (DELETE) on /api/users/:username.
   // PATCH = record fields only; view prefs ride the no-op view.* routes; this
   // mirrors the retired update_user record path (rename-collision 409,
@@ -3717,33 +3699,9 @@ export async function demoApi(
     }
     const c = (body ?? {}) as {
       name?: string;
-      memberPrompt?: string | null;
-      memberPromptVersion?: string;
       avatarColor?: string;
       avatarVariant?: string;
     };
-    if (
-      c.memberPrompt !== undefined &&
-      (typeof c.memberPromptVersion !== "string" ||
-        c.memberPromptVersion.length === 0)
-    ) {
-      throw new ApiError(
-        400,
-        "invalid_version",
-        "memberPromptVersion is required when memberPrompt is present (read it via GET /api/users/:username/member-prompt first)",
-      );
-    }
-    if (
-      c.memberPrompt !== undefined &&
-      c.memberPromptVersion !== versionOf(existing.memberPrompt ?? "")
-    ) {
-      throw new ApiError(
-        409,
-        "version_conflict",
-        "the member's special instructions changed since your read; re-read and retry",
-        { version: versionOf(existing.memberPrompt ?? "") },
-      );
-    }
     const trimmedName = c.name?.trim();
     const renamed = !!trimmedName && trimmedName !== existing.name;
     if (renamed && trimmedName) {
@@ -3759,11 +3717,6 @@ export async function demoApi(
     const updated: UserRecord = {
       ...existing,
       ...(renamed && trimmedName ? { name: trimmedName } : {}),
-      ...(c.memberPrompt !== undefined
-        ? {
-            memberPrompt: c.memberPrompt?.trim() ? c.memberPrompt.trim() : null,
-          }
-        : {}),
       ...(c.avatarColor !== undefined && isHexColor(c.avatarColor)
         ? { avatarColor: normalizeHexColor(c.avatarColor) }
         : {}),
@@ -3783,10 +3736,8 @@ export async function demoApi(
     if (stephen && updated.id === stephen.id) emitStephenPresence();
     return { user: updated };
   }
-  // rooms.setSettings (PUT .../settings) - set the prompt + broadcast
-  // room_settings_updated. No settings_save_response (the dialog reads the HTTP
-  // response now); returns no body (204-like). Listed before the bare /:id route.
-  // rooms.{read,set}Instructions - the room pane's text.
+  // rooms.{read,set}Instructions - the room pane's text. Listed before the bare
+  // /:id route.
   const roomInstructionsMatch = pathname.match(
     /^\/api\/rooms\/([^/]+)\/instructions$/,
   );
@@ -3802,27 +3753,17 @@ export async function demoApi(
     });
   }
   const roomSettingsMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
-  // rooms.getSettings - the settings modal reads the optimistic-concurrency
-  // version on open (production requires it back on the PUT). Single-writer
-  // demo: fixed token, PUT ignores it.
+  // rooms.getSettings - the room's look.
   if (roomSettingsMatch && method === "GET") {
     const id = decodeURIComponent(roomSettingsMatch[1]);
     const room = state.rooms.find((r) => r.id === id);
     return {
-      prompt: room?.prompt ?? null,
-      version: "demo-version",
       skin: room?.skin ?? null,
       pet: room?.pet ?? null,
       decor: room?.decor ?? null,
       backRoom: room?.backRoom === true,
       cwd: room?.cwd ?? null,
     };
-  }
-  if (roomSettingsMatch && method === "PUT") {
-    const id = decodeURIComponent(roomSettingsMatch[1]);
-    const b = (body ?? {}) as RoomSettingsReq;
-    emitEvents(state.setRoomSettings(id, b.prompt));
-    return undefined;
   }
   // rooms.rename (PATCH) / rooms.close (DELETE) - mutate + broadcast
   // room_renamed / room_closed; no body (204-like). The production close also
@@ -3955,14 +3896,12 @@ export async function demoApi(
         ...changes
       } = (body ?? {}) as EditAgentReq;
       // OfficeState.editAgent wants customInstructions string|undefined; the REST
-      // type widens it to allow null (the AgentInfo Pick). The dialog clears via
-      // "", never null, so coerce to preserve parity. `instructions` is the
-      // field's new name.
+      // type allows null. The dialog clears via "", never null, so coerce to
+      // preserve parity.
       emitEvents(
         state.editAgent(id, {
           ...changes,
-          customInstructions:
-            instructions ?? changes.customInstructions ?? undefined,
+          customInstructions: instructions ?? undefined,
         }),
       );
       // A rename carries the agent's tasks along, as on the server.

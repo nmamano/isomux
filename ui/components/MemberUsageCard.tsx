@@ -25,11 +25,10 @@ import {
 import { useI18n } from "../i18n.tsx";
 
 // The member usage cap, on the Integrations page's Model providers tab beside
-// the office sign-ins it limits. It shares the office settings blob (and its version)
-// with the Office pane's name and prompt, so the PUT sends back the prompt it
-// read and omits the name: the server treats an absent prompt as a clear and
-// an absent name as keep. Owners only; a server from before the switch
-// omits it, and then the card does not render.
+// the office sign-ins it limits. It shares the office settings blob (and its
+// version) with the Office pane's name, so the PUT omits the name, which the
+// server keeps. Owners only; a server from before the switch omits it, and
+// then the card does not render.
 //
 // While the settings load, the switch is neither on nor off, and the card
 // holds the space of the share row and status lines it showed last on this
@@ -125,7 +124,6 @@ export function MemberUsageCard({
     setSaving(true);
     setError(null);
     const body: OfficeSettingsReq = {
-      prompt: settings.prompt ?? null,
       version: settings.version,
       memberUsageCap: usageCap,
       ...(shareKnown ? { memberUsageShare: usageShare } : {}),

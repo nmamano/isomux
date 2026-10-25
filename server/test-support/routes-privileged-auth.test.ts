@@ -8,7 +8,7 @@
 //                       listSessions, converse, lifecycle, full cron over OWN jobs)
 //   STILL-BLOCKED       the escalation / owner-admin routes stay shut - invites.*
 //                       (durable login mint), sessions.* (kill the human's browser
-//                       session), users/office admin, cron.setPrompt
+//                       session), users/office admin, cron.setInstructions
 //   NO-IMPERSONATION    sendMessage takes the AGENT branch (attributes to the agent)
 //   TOGGLE DOUBLE-GATE  agents.setPrivileged is unreachable by ANY agent; a USER
 //                       with room access reaches it
@@ -245,7 +245,7 @@ describe("privileged agent: room management (Nil-approved expansion)", () => {
     for (const op of [
       "rooms.rename",
       "rooms.getSettings",
-      "rooms.setSettings",
+      "rooms.setInstructions",
       "rooms.close",
     ]) {
       expect(can(op, privilegedAgent, ROOM_PARAMS)).toBe(true); // room access granted
@@ -257,7 +257,7 @@ describe("privileged agent: room management (Nil-approved expansion)", () => {
     for (const op of [
       "rooms.rename",
       "rooms.getSettings",
-      "rooms.setSettings",
+      "rooms.setInstructions",
       "rooms.close",
     ]) {
       expect(can(op, privilegedAgent, ROOM_PARAMS, undefined, noAccess)).toBe(
@@ -283,9 +283,9 @@ describe("privileged agent: full cron over its OWN jobs (Nil-approved)", () => {
       can("cron.delete", privilegedAgent, CRON_PARAMS, undefined, otherOwner),
     ).toBe(false);
   });
-  it("cron.setPrompt stays OFFICE-OWNER only - blocked for a privileged agent", () => {
-    expect(can("cron.setPrompt", privilegedAgent)).toBe(false);
-    expect(can("cron.setPrompt", owner)).toBe(true);
+  it("cron.setInstructions stays OFFICE-OWNER only - blocked for a privileged agent", () => {
+    expect(can("cron.setInstructions", privilegedAgent)).toBe(false);
+    expect(can("cron.setInstructions", owner)).toBe(true);
   });
 });
 
@@ -338,11 +338,7 @@ describe("ordinary agent: cron over only the jobs it made", () => {
   });
 
   it("keeps the schedule instructions out of reach", () => {
-    for (const op of [
-      "cron.setPrompt",
-      "cron.readInstructions",
-      "cron.setInstructions",
-    ]) {
+    for (const op of ["cron.readInstructions", "cron.setInstructions"]) {
       expect([op, can(op, normalAgent)]).toEqual([op, false]);
     }
   });

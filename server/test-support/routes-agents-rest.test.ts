@@ -929,14 +929,15 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(loadRecentCwds()).not.toContain("/tmp");
   });
 
-  // --- customInstructions version guard (task 44a2c98d) ----------------------
-  // Blob-bearing PATCHes must echo AgentInfo.customInstructionsVersion (read
+  // --- instructions version guard (task 44a2c98d) ----------------------------
+  // Blob-bearing PATCHes must echo AgentInfo.customInstructionsVersion as
+  // instructionsVersion (read
   // surfaces: the wire object for the UI, GET /api/agents/:id/instructions for
   // agents - pinned in the "agents.readInstructions REST" block below).
   // Scalar-only edits stay version-free (pinned by "owner edits" above, which
   // PATCHes name without a version and gets 200).
 
-  it("PATCH customInstructions with a STALE version -> 409 version_conflict carrying the CURRENT version; blob untouched", async () => {
+  it("PATCH instructions with a STALE version -> 409 version_conflict carrying the CURRENT version; blob untouched", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -949,8 +950,8 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(staleVersion).toMatch(/^[0-9a-f]{12}$/);
     const saved = await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {
-        customInstructions: "B's instructions",
-        customInstructionsVersion: staleVersion,
+        instructions: "B's instructions",
+        instructionsVersion: staleVersion,
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -969,8 +970,8 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(returned.customInstructionsVersion).not.toBe(staleVersion);
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {
-        customInstructions: "A's clobber",
-        customInstructionsVersion: staleVersion,
+        instructions: "A's clobber",
+        instructionsVersion: staleVersion,
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -1019,8 +1020,8 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {
         cwd: "/tmp",
-        customInstructions: "be terse",
-        customInstructionsVersion: v0,
+        instructions: "be terse",
+        instructionsVersion: v0,
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -1039,8 +1040,8 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     // left behind by the rollback).
     const retry = await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {
-        customInstructions: "be terse",
-        customInstructionsVersion: v0,
+        instructions: "be terse",
+        instructionsVersion: v0,
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -1060,8 +1061,8 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const version = srv.agentManager.getAgent(x.id)!.customInstructionsVersion;
     await req(srv, "PATCH", `/api/agents/${x.id}`, {
       body: {
-        customInstructions: "be terse",
-        customInstructionsVersion: version,
+        instructions: "be terse",
+        instructionsVersion: version,
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -1309,8 +1310,7 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
 
 describe("agents.readInstructions REST (task 68891fa1)", () => {
   // The sanctioned read half of the read-then-PATCH flow: GET
-  // /api/agents/:id/instructions -> { customInstructions,
-  // customInstructionsVersion }. Nil-decided policy pinned here: the read is
+  // /api/agents/:id/instructions -> { instructions, version }. Nil-decided policy pinned here: the read is
   // `authenticated` + room access - EVERY agent (privileged or not) may read
   // any agent it can see; privilege gates only the WRITE (agents.update), and
   // the version token is a lost-update guard, not an authorization mechanism.
@@ -1369,13 +1369,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     const version = srv.agentManager.getAgent(
       target.id,
     )!.customInstructionsVersion;
-    // The new names, and the old ones for one release (task 379ae5db).
-    expect(res.body).toEqual({
-      instructions: "be terse",
-      version,
-      customInstructions: "be terse",
-      customInstructionsVersion: version,
-    });
+    expect(res.body).toEqual({ instructions: "be terse", version });
   });
 
   it("an agent bearer without room access to the target -> uniform 403 (same for a nonexistent id - no existence oracle)", async () => {
@@ -1464,7 +1458,7 @@ describe("agents.previewSystemPrompt REST", () => {
       roomId,
       name: "Draft name sentinel",
       agentType: "codex",
-      customInstructions: "Draft instructions sentinel",
+      instructions: "Draft instructions sentinel",
       privileged: false,
       memory: "Draft memory sentinel",
     };
@@ -1519,7 +1513,7 @@ describe("agents.previewSystemPrompt REST", () => {
       roomId,
       name: "Draft",
       agentType: "claude",
-      customInstructions: "",
+      instructions: "",
       privileged: false,
     };
     const preview = (body: unknown, rawSessionId = owner.rawSessionId) =>
@@ -1539,7 +1533,7 @@ describe("agents.previewSystemPrompt REST", () => {
       { agentType: "bad" },
       { name: [] },
       { privileged: "true" },
-      { customInstructions: null },
+      { instructions: null },
       // A mode or sandbox the engine does not have (task 11e311db).
       { permissionMode: "never" },
       { permissionMode: "plan" },

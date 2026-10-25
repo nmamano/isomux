@@ -37,10 +37,10 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import {
-  foldFieldAlias,
   instructionsConflict,
   instructionsRes,
   parseInstructionsWrite,
+  refuseOldFields,
 } from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AbortResult } from "../../internal-types.ts";
@@ -113,6 +113,7 @@ import {
 } from "../../agent-validators.ts";
 import type {
   SpawnReq,
+  AgentEdit,
   EditAgentReq,
   ReviveReq,
 } from "../../../shared/contract-shapes.ts";
@@ -254,7 +255,7 @@ export interface AgentsDeps {
   // changedBy: the caller's display name, for the agent's settings notice.
   edit(
     agentId: string,
-    changes: EditAgentReq,
+    changes: AgentEdit,
     changedBy: string,
   ): Promise<EditResult>;
   // Toggles the agent's privileged flag: persists it, re-mints the bearer token
@@ -295,7 +296,7 @@ export interface AgentsDeps {
 // malformed input is a 422 contract error rather than a 500 from a string path
 // (trim / resolveCwd) or wire corruption from a non-string stored verbatim. null
 // and undefined are tolerated (falsy: the cores' `if (changes.x)` guards skip
-// them, and EditAgentReq permits null for customInstructions). Shared by spawn +
+// them, and EditAgentReq permits null for instructions). Shared by spawn +
 // update (the two write paths carrying these fields).
 function malformedAgentFields(b: Record<string, unknown>): boolean {
   const badStr = (v: unknown) =>
@@ -303,8 +304,8 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
   if (
     badStr(b.name) ||
     badStr(b.cwd) ||
-    badStr(b.customInstructions) ||
-    badStr(b.customInstructionsVersion) ||
+    badStr(b.instructions) ||
+    badStr(b.instructionsVersion) ||
     badStr(b.modelFamily) ||
     badStr(b.model) ||
     badStr(b.effort) ||
@@ -351,20 +352,16 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       return noContent();
     },
 
-    // Sanctioned read of the customInstructions blob + version token: the read
+    // Sanctioned read of the agent's instructions + version token: the read
     // half of the read-then-write flow the version guard expects.
     // Authorization is the route's `authenticated` + agentParam guard (every
     // agent with room access may read - see table.ts); this just projects the
-    // text off the live agent, in the new names and, for one release, the old.
+    // text off the live agent.
     "agents.readInstructions": (ctx) => {
       const agent = deps.getAgent(ctx.params.id);
       // agentParam proved the agent existed; a miss here is a post-guard race.
       if (!agent) return fail(404, "agent_not_found", "Agent not found");
-      return ok({
-        ...instructionsRes(agent.customInstructions),
-        customInstructions: agent.customInstructions,
-        customInstructionsVersion: agent.customInstructionsVersion,
-      });
+      return ok(instructionsRes(agent.customInstructions));
     },
 
     // The write half: the same edit core as agents.update, with the text alone.
@@ -398,11 +395,11 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.previewSystemPrompt": (ctx) => {
-      const body = { ...(ctx.body ?? {}) } as Record<string, unknown>;
-      // customInstructions is the old name of instructions.
-      const both = foldFieldAlias(body, "customInstructions", "instructions");
-      if (both) return both;
-      const b = body as Partial<AgentSystemPromptPreviewReq>;
+      const old = refuseOldFields(ctx.body, {
+        customInstructions: "instructions",
+      });
+      if (old) return old;
+      const b = (ctx.body ?? {}) as Partial<AgentSystemPromptPreviewReq>;
       if (
         typeof b.roomId !== "string" ||
         !b.roomId ||
@@ -507,11 +504,11 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.spawn": async (ctx) => {
-      const body = { ...(ctx.body ?? {}) } as Record<string, unknown>;
-      // instructions is the new name of customInstructions.
-      const both = foldFieldAlias(body, "instructions", "customInstructions");
-      if (both) return both;
-      const b = body as Partial<SpawnReq>;
+      const old = refuseOldFields(ctx.body, {
+        customInstructions: "instructions",
+      });
+      if (old) return old;
+      const b = (ctx.body ?? {}) as Partial<SpawnReq>;
       if (typeof b.name !== "string" || b.name.trim().length === 0) {
         return fail(422, "invalid_name", "name is required");
       }
@@ -575,7 +572,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
             : spawnDesk.desk,
         permissionMode,
         profileKey: b.profileKey,
-        customInstructions: b.customInstructions,
+        customInstructions: b.instructions,
         outfit: b.outfit,
         modelFamily: b.modelFamily,
         model: b.model,
@@ -634,26 +631,25 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.update": async (ctx) => {
-      const b = { ...(ctx.body ?? {}) } as Record<string, unknown>;
-      // instructions and instructionsVersion are the new names of
-      // customInstructions and customInstructionsVersion.
-      const both =
-        foldFieldAlias(b, "instructions", "customInstructions") ??
-        foldFieldAlias(b, "instructionsVersion", "customInstructionsVersion");
-      if (both) return both;
+      const old = refuseOldFields(ctx.body, {
+        customInstructions: "instructions",
+        customInstructionsVersion: "instructionsVersion",
+      });
+      if (old) return old;
+      const b = (ctx.body ?? {}) as Record<string, unknown>;
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
-      // Blob-bearing writes are version-guarded: a PATCH that
-      // carries customInstructions must echo the agent's
-      // customInstructionsVersion - read off full_state / agent_updated (UI)
-      // or GET /api/agents/:id/instructions (agents.readInstructions, the
+      // Blob-bearing writes are version-guarded: a PATCH that carries
+      // instructions must echo the agent's customInstructionsVersion as
+      // instructionsVersion - read off full_state / agent_updated (UI) or
+      // GET /api/agents/:id/instructions (agents.readInstructions, the
       // agent-facing read). Scalar-only edits skip this entirely - no version,
       // no friction.
       if (
-        b.customInstructions !== undefined &&
-        (typeof b.customInstructionsVersion !== "string" ||
-          b.customInstructionsVersion.length === 0)
+        b.instructions !== undefined &&
+        (typeof b.instructionsVersion !== "string" ||
+          b.instructionsVersion.length === 0)
       ) {
         return fail(
           400,
@@ -661,9 +657,23 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           "instructionsVersion is required when instructions is present (read it via GET /api/agents/:id/instructions first)",
         );
       }
+      // The core takes the stored names. The old wire names never reach it,
+      // so a stale body cannot write under them.
+      const {
+        instructions,
+        instructionsVersion,
+        customInstructions: _old,
+        customInstructionsVersion: _oldVersion,
+        ...fields
+      } = b as EditAgentReq & AgentEdit;
+      const changes: AgentEdit = fields;
+      if (instructions !== undefined) {
+        changes.customInstructions = instructions;
+        changes.customInstructionsVersion = instructionsVersion;
+      }
       const r = await deps.edit(
         ctx.params.id,
-        b,
+        changes,
         deps.attributionFor(ctx.identity).createdBy,
       );
       if (!r.ok) {

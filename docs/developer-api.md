@@ -352,8 +352,6 @@ Both return `{instructions,version}`. The PUT takes `{instructions,version}` wit
 
 A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
 
-The old names stay until the next release: `GET`/`PUT /api/office/settings` with `prompt`, `GET`/`PUT /api/rooms/:roomId/settings` with `prompt`, `customInstructions` and `customInstructionsVersion`, `GET /api/users/:username/member-prompt` and `memberPrompt` on `PATCH /api/users/:username`, and `PUT /api/cron-prompt`.
-
 ### Office settings
 
 `GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,memberUsageStatus,recordTerminals}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. Owners, their API tokens and privileged agents whose manager is an owner can call both.

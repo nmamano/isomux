@@ -1291,10 +1291,6 @@ const SPEC_ROUTE_CONTRACT: Record<
     ],
   },
   "rooms.getSettings": { caps: ["room:manage"], emits: [] },
-  "rooms.setSettings": {
-    caps: ["room:manage"],
-    emits: ["room_settings_updated"],
-  },
   // A room's GitHub issue link (task 7fc83592): an office owner's reach.
   "githubSync.get": { caps: ["task:read"], emits: [] },
   "githubSync.set": { caps: ["task:write"], emits: [] },
@@ -1420,10 +1416,6 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:admin", "user:create"],
     emits: ["users_list"],
   },
-  "users.readMemberPrompt": {
-    caps: ["user:self", "user:admin", "user:prompt"],
-    emits: [],
-  },
   "users.readInstructions": {
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: [],
@@ -1433,8 +1425,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: ["user_updated", "users_list"],
   },
+  // No agent or API token edits a member record: the member's instructions
+  // are users.setInstructions.
   "users.update": {
-    caps: ["user:self", "user:admin", "user:prompt"],
+    caps: ["user:self", "user:admin"],
     emits: ["user_updated", "users_list", "full_state"],
   },
   "users.setAccess": {
@@ -1566,10 +1560,6 @@ const SPEC_ROUTE_CONTRACT: Record<
   "cron.runNow": {
     caps: ["cron:manage", "cron:own"],
     emits: ["cronjob_run_updated"],
-  },
-  "cron.setPrompt": {
-    caps: ["cron:manage"],
-    emits: ["cronjobs_prompt_updated"],
   },
   "cron.readInstructions": { caps: ["cron:manage"], emits: [] },
   "cron.setInstructions": {
@@ -2142,7 +2132,6 @@ const API_REACHABLE_OPIDS = [
   "rooms.close",
   "rooms.rename",
   "rooms.getSettings",
-  "rooms.setSettings",
   "githubSync.get",
   "githubSync.set",
   "githubSync.delete",
@@ -2197,9 +2186,6 @@ const API_REACHABLE_OPIDS = [
   "pushDevices.remove",
   "pushDevices.test",
   "apiTokenInbox.drain",
-  // users.update is absent only because this body carries keys other than the
-  // prompt fields; routes-users-rest.test.ts covers a token's prompt edit.
-  "users.readMemberPrompt",
   "users.readInstructions",
   "users.setInstructions",
   "office.getSettings",
@@ -2419,7 +2405,7 @@ describe("member prompt route authority", () => {
           route.auth,
           identity,
           { username: "manager" },
-          { memberPrompt: "draft", memberPromptVersion: "v" },
+          { instructions: "draft", version: "v" },
           deps,
         ).ok,
     )
@@ -2427,9 +2413,7 @@ describe("member prompt route authority", () => {
       .sort();
     expect(reachable).toEqual([
       "users.readInstructions",
-      "users.readMemberPrompt",
       "users.setInstructions",
-      "users.update",
     ]);
     for (const opId of reachable) {
       const route = API_ROUTES.find((r) => r.opId === opId)!;
@@ -2438,7 +2422,7 @@ describe("member prompt route authority", () => {
           route.auth,
           identity,
           { username: "other" },
-          { memberPrompt: "draft", memberPromptVersion: "v" },
+          { instructions: "draft", version: "v" },
           deps,
         ).ok,
       ).toBe(false);
@@ -2447,7 +2431,7 @@ describe("member prompt route authority", () => {
           route.auth,
           identity,
           { username: "other" },
-          { memberPrompt: "draft", memberPromptVersion: "v" },
+          { instructions: "draft", version: "v" },
           { ...deps, isOfficeOwnerUserId: () => true },
         ).ok,
       ).toBe(true);

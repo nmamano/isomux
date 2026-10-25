@@ -117,9 +117,9 @@ transcript already holds that).
 Four scopes, but **the `member` scope is "context-scoped for auto-load," NOT a
 confidentiality guarantee or a REST-private read**:
 
-- The `member` scope was called `boss` before task f41c93e9. The routes still
-  accept `boss`, and old audit rows name `memory:boss:<id>`; an audit filter on
-  either name finds both.
+- The `member` scope was called `boss` before task f41c93e9, and the routes
+  accepted `boss` until task 744fa64a. Old audit rows name `memory:boss:<id>`;
+  an audit filter on either name finds both.
 - `office`, `room`, `agent` are cross-member visible by scope.
 - `bosses/<userId>.md` is structurally scoped only at **auto-load** time (below),
   not over REST.

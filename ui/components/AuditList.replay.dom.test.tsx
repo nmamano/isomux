@@ -208,7 +208,7 @@ it("turns Record terminals on with the version of a fresh read, once the switch 
   setApiShim(async (method, path, body) => {
     if (path === "/api/office/settings" && method === "GET") {
       if (reads++ === 0) await firstRead;
-      return { prompt: null, name: null, version, recordTerminals: false };
+      return { name: null, version, recordTerminals: false };
     }
     if (path === "/api/office/settings" && method === "PUT") {
       puts.push(body);

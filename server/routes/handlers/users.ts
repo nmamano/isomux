@@ -3,7 +3,8 @@
 // update,setAccess,delete}).
 //
 // users.update carries ONLY the
-// record fields (name/env/prompt/avatar) via UserUpdateReq; users.setAccess
+// record fields (name/role/avatar) via UserUpdateReq, and users.setInstructions
+// the member's instructions; users.setAccess
 // carries allowedRooms and PRUNE-clamps the target's existing notif/default
 // against the new accessible set in ONE write. View prefs (notif/default) are
 // SELF-only via view.* - owners do not set a member's personal prefs. That
@@ -30,15 +31,13 @@ import type {
   UserAdminWire,
   UserCreateReq,
   UserSelfWire,
-  MemberPromptRes,
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
-import { versionOf } from "../../../shared/blob-version.ts";
 import {
-  foldFieldAlias,
   instructionsConflict,
   instructionsRes,
   parseInstructionsWrite,
+  refuseOldFields,
 } from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
 
@@ -59,21 +58,31 @@ type DeleteOutcome =
   | { ok: true }
   | { ok: false; status: HandlerErrorStatus; code: string; error: string };
 
+// The record fields the update core writes, by their stored names: the wire
+// fields of users.update, plus the member's instructions from
+// users.setInstructions.
+export type UserRecordChanges = UserUpdateReq & {
+  memberPrompt?: string | null;
+  memberPromptVersion?: string;
+};
+
 export interface UsersDeps {
-  readMemberPrompt(username: string): MemberPromptRes | null;
+  readMemberPrompt(username: string): { memberPrompt: string | null } | null;
   // Owner creates a member (officeOwner already passed). Validates the name and
   // the room grants, creates the record with pendingSignIn, emits users_list.
   create(
-    input: UserCreateReq,
+    input: Omit<UserCreateReq, "instructions"> & {
+      memberPrompt?: string | null;
+    },
   ): Promise<
     | { ok: true; user: UserAdminWire }
     | { ok: false; status: HandlerErrorStatus; code: string; error: string }
   >;
-  // Record edit (name/prompt/avatar). selfOrOwner already passed. On ok emits
-  // user_updated + users_list + presence.
+  // Record edit (name/role/prompt/avatar). The route guard already passed. On
+  // ok emits user_updated + users_list + presence.
   update(input: {
     username: string;
-    changes: UserUpdateReq;
+    changes: UserRecordChanges;
     identity: Identity;
   }): Promise<UserOutcome>;
   // Access grant (allowedRooms). officeOwner already passed. Prune-clamps the
@@ -95,9 +104,12 @@ export interface UsersDeps {
 
 // Reject a present-but-wrong-typed optional field with 422 BEFORE the core (the
 // slice-7/8 malformed-boundary pattern): a non-string name/avatar or a value
-// that is neither string nor null for the prompt would otherwise corrupt the
-// record. Absent fields (undefined) are tolerated - UserUpdateReq is a Partial.
-function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
+// that is neither string nor null for the instructions would otherwise corrupt
+// the record. Absent fields (undefined) are tolerated - UserUpdateReq is a
+// Partial.
+function malformedUserUpdate(
+  body: Partial<UserUpdateReq> & { instructions?: unknown },
+): string | null {
   if (
     body.role !== undefined &&
     body.role !== "member" &&
@@ -111,11 +123,11 @@ function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
     return "name cannot be empty";
   }
   if (
-    body.memberPrompt !== undefined &&
-    body.memberPrompt !== null &&
-    typeof body.memberPrompt !== "string"
+    body.instructions !== undefined &&
+    body.instructions !== null &&
+    typeof body.instructions !== "string"
   ) {
-    return "memberPrompt must be a string or null";
+    return "instructions must be a string or null";
   }
   if (body.avatarColor !== undefined && typeof body.avatarColor !== "string") {
     return "avatarColor must be a string";
@@ -132,10 +144,9 @@ function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
 export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
   return {
     "users.create": async (ctx) => {
-      const body = { ...(ctx.body ?? {}) } as Partial<UserCreateReq>;
-      // `instructions` is the new name of memberPrompt.
-      const both = foldFieldAlias(body, "instructions", "memberPrompt");
-      if (both) return both;
+      const old = refuseOldFields(ctx.body, { memberPrompt: "instructions" });
+      if (old) return old;
+      const body = (ctx.body ?? {}) as Partial<UserCreateReq>;
       if (typeof body.name !== "string" || body.name.trim().length === 0)
         return fail(422, "invalid_request", "name must be a non-empty string");
       if (body.role !== "member" && body.role !== "owner")
@@ -155,7 +166,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       const r = await deps.create({
         name: body.name,
         role: body.role,
-        memberPrompt: body.memberPrompt,
+        memberPrompt: body.instructions,
         avatarColor: body.avatarColor,
         avatarVariant: body.avatarVariant,
         allowedRooms: body.allowedRooms,
@@ -163,11 +174,9 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
     },
 
-    // The member's instructions: the same core as users.readMemberPrompt and
-    // the memberPrompt fields of users.update, the old names kept for one
-    // release. The write passes ONLY the text and its version to the core,
-    // never the body: the route has no body-key check, and a proxy agent's
-    // role check would read its owner's role.
+    // The member's instructions. The write passes ONLY the text and its
+    // version to the core, never the body: the route has no body-key check,
+    // and a proxy agent's role check would read its owner's role.
     "users.readInstructions": (ctx) => {
       const prompt = deps.readMemberPrompt(ctx.params.username);
       return prompt
@@ -193,30 +202,23 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       return ok(instructionsRes(r.user.memberPrompt));
     },
 
-    "users.readMemberPrompt": (ctx) => {
-      const prompt = deps.readMemberPrompt(ctx.params.username);
-      return prompt ? ok(prompt) : fail(404, "not_found", "Member not found.");
-    },
-
     "users.update": async (ctx) => {
+      const old = refuseOldFields(ctx.body, {
+        memberPrompt: "instructions to PUT /api/users/:username/instructions",
+        memberPromptVersion: "version to PUT /api/users/:username/instructions",
+      });
+      if (old) return old;
       const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
-      const changes = { ...body };
-      const malformed = malformedUserUpdate(changes);
+      const malformed = malformedUserUpdate(body);
       if (malformed) return fail(422, "invalid_request", malformed);
-      if (
-        changes.memberPrompt !== undefined &&
-        (typeof changes.memberPromptVersion !== "string" ||
-          changes.memberPromptVersion.length === 0)
-      ) {
-        return fail(
-          400,
-          "invalid_version",
-          "memberPromptVersion is required when memberPrompt is present (read it via GET /api/users/:username/member-prompt first)",
-        );
-      }
       const r = await deps.update({
         username: ctx.params.username,
-        changes,
+        changes: {
+          role: body.role,
+          name: body.name,
+          avatarColor: body.avatarColor,
+          avatarVariant: body.avatarVariant,
+        },
         identity: ctx.identity,
       });
       if (!r.ok)
@@ -226,13 +228,6 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           r.error,
           r.version === undefined ? undefined : { version: r.version },
         );
-      // Only a human gets the record; every other caller wrote through the
-      // prompt-only guard and gets the prompt-only answer.
-      if (ctx.identity.scope !== "user")
-        return ok({
-          memberPrompt: r.user.memberPrompt,
-          memberPromptVersion: versionOf(r.user.memberPrompt ?? ""),
-        });
       return ok({ user: r.user });
     },
 

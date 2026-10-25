@@ -6,9 +6,9 @@ differs. References name files and symbols, not line numbers.
 
 ## What manager means
 
-An agent has two persisted manager fields (`AgentInfo.userId`, `username` in
+An agent has two persisted manager fields (`AgentInfo.userId`, `manager` in
 `shared/types.ts`). `userId` is the stable identity of the member who manages
-the agent; `username` is a display snapshot. Both are set at spawn from the
+the agent; `manager` is a display snapshot. Both are set at spawn from the
 authenticated identity, never the request body, and change together at a
 transfer. They are saved in the live-agent file and in agent history
 (`persistAll`, `updateAgentHistory` in `server/agent-manager.ts`).

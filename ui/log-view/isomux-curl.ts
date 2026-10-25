@@ -829,6 +829,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["DELETE", "/api/me/api-tokens/*", "apiCall.apiTokens.revoke"],
   ["GET", "/api/me/provider-accounts", "apiCall.providerAccounts.check"],
   ["POST", "/api/users", "apiCall.users.create"],
+  // Old routes and uses, gone in task 744fa64a: cards in old transcripts.
   ["GET", "/api/users/*/member-prompt", "apiCall.users.readMemberPrompt"],
   ["PATCH", "/api/users/*", "apiCall.users.updatePrompt"],
   ["GET", "/api/office/settings", "apiCall.office.readSettings"],
@@ -1003,7 +1004,7 @@ function truncateLabel(s: string, max: number): string {
 
 // One whole sentence per scope, never a scope word glued into a frame: word
 // order and article differ per language (ruling 16). "boss" is the member
-// scope's name before task f41c93e9, still accepted by the route.
+// scope's name before task f41c93e9, kept for curl cards in old transcripts.
 const MEMORY_READ_KEYS: Record<string, RouteLabelKey> = {
   agent: "apiCall.memory.readAgent",
   room: "apiCall.memory.readRoom",
@@ -1270,6 +1271,7 @@ export function humanizeIsomuxRequest(
       if (m === "DELETE") return t("apiCall.rooms.close");
     }
     if (segs.length === 3) {
+      // An old route, gone in task 744fa64a: cards in old transcripts.
       if (segs[2] === "settings" && m === "PUT")
         return t("apiCall.rooms.updateSettings");
       if (segs[2] === "swap-desks" && m === "POST")

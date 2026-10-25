@@ -1,6 +1,6 @@
 // The rooms REST contract: rooms.create / rooms.close / rooms.rename (a
-// partial PATCH over name, pet, skin and decor) and the settings pair
-// rooms.getSettings / rooms.setSettings.
+// partial PATCH over name, pet, skin and decor) and the settings read
+// rooms.getSettings. The room's instructions: routes-instructions.test.ts.
 //
 //   - create: room:manage is a USER capability and the guard is
 //     `authenticated`, so any user (owner OR member) creates -> 201 { room }.
@@ -13,16 +13,10 @@
 //   - PATCH applies each field only when the body carries it, validates all
 //     of them before it writes any, and refuses the lobby a skin or decor
 //     before it looks at the value.
-//   - The settings PUT requires the GET's version (missing -> 400
-//     invalid_version, stale -> 409 version_conflict carrying the CURRENT
-//     version); existence is checked before the version.
 //
 // The value rules are unit-pinned: parseRoomPet (ui/office/RoomProps.test.ts),
 // parseRoomSkin (ui/office/skins/skins.test.ts), the decor parse and the
-// stored-decor filter (room-state.test.ts). The room prompt's read/write round
-// trip, its version and its broadcast ride the instructions route too:
-// routes-instructions.test.ts (room layer, "shares one store with the old
-// route").
+// stored-decor filter (room-state.test.ts).
 //
 // Seam: startTestServer() - real auth + /api executor. Zero LLM.
 
@@ -305,74 +299,24 @@ describe("rooms.rename REST: a partial update", () => {
   });
 });
 
-describe("rooms.getSettings and rooms.setSettings REST", () => {
-  it("an unknown id is the owner's 404 before any version check; a member without access gets 403 on both and the prompt stays", async () => {
-    const { srv, owner, member, id, room } = await office();
-    const version = (
-      (
-        await req(srv, "GET", `/api/rooms/${id}/settings`, {
-          rawSessionId: owner.rawSessionId,
-        })
-      ).body as { version: string }
-    ).version;
-    for (const [method, body] of [
-      ["GET", undefined],
-      // Any version: an unknown room is a 404, never a bogus 409.
-      ["PUT", { prompt: "x", version: "0123456789ab" }],
-    ] as const) {
-      const unknown = await req(srv, method, "/api/rooms/deadbeef/settings", {
-        body,
-        rawSessionId: owner.rawSessionId,
-      });
-      expect([method, unknown.status, errCode(unknown.body)]).toEqual([
-        method,
-        404,
-        "room_not_found",
-      ]);
-      const denied = await req(srv, method, `/api/rooms/${id}/settings`, {
-        body: body && { prompt: "y", version },
-        rawSessionId: member.rawSessionId,
-      });
-      expect([method, denied.status]).toEqual([method, 403]);
-    }
-    expect(room().prompt).toBeNull();
-  });
-
-  it("a PUT needs the GET's version: missing is 400, stale is 409 with the current version, and neither writes", async () => {
-    const { srv, owner, id, room } = await office();
-    const settings = `/api/rooms/${id}/settings`;
-    const put = (body: unknown) =>
-      req(srv, "PUT", settings, { body, rawSessionId: owner.rawSessionId });
-    const readVersion = async () =>
-      (
-        (await req(srv, "GET", settings, { rawSessionId: owner.rawSessionId }))
-          .body as { version: string }
-      ).version;
-
-    const missing = await put({ prompt: "x" });
-    expect([missing.status, errCode(missing.body)]).toEqual([
-      400,
-      "invalid_version",
+describe("rooms.getSettings REST", () => {
+  it("an unknown id is the owner's 404; a member without access gets 403", async () => {
+    const { srv, owner, member, id } = await office();
+    const unknown = await req(srv, "GET", "/api/rooms/deadbeef/settings", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect([unknown.status, errCode(unknown.body)]).toEqual([
+      404,
+      "room_not_found",
     ]);
-    expect(room().prompt).toBeNull();
-
-    // Writer A reads, then writer B saves: A's version is now stale.
-    const stale = await readVersion();
-    expect((await put({ prompt: "B's prompt", version: stale })).status).toBe(
-      204,
-    );
-    const clobber = await put({ prompt: "A's clobber", version: stale });
-    expect(clobber.status).toBe(409);
-    const err = (clobber.body as { error: { code: string; version: string } })
-      .error;
-    expect(err.code).toBe("version_conflict");
-    expect(err.version).toBe(await readVersion());
-    expect(room().prompt).toBe("B's prompt");
+    const denied = await req(srv, "GET", `/api/rooms/${id}/settings`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(denied.status).toBe(403);
   });
 
-  // An agent reads the look before it changes it; the version guards the
-  // prompt alone, so a look write does not move it.
-  it("the settings read carries the look, and a look write does not move the version", async () => {
+  // An agent reads the look before it changes it.
+  it("the settings read carries the look", async () => {
     const { srv, owner, id, patch } = await office();
     const read = async () =>
       (
@@ -380,20 +324,17 @@ describe("rooms.getSettings and rooms.setSettings REST", () => {
           rawSessionId: owner.rawSessionId,
         })
       ).body as Record<string, unknown>;
-    const before = await read();
-    expect(before).toMatchObject({ skin: null, pet: null, decor: null });
+    expect(await read()).toMatchObject({ skin: null, pet: null, decor: null });
     await patch({
       skin: "hospital",
       pet: { species: "cat", coat: 1 },
       decor: { pet: "shown" },
     });
-    const after = await read();
-    expect(after).toMatchObject({
+    expect(await read()).toMatchObject({
       skin: "hospital",
       pet: { species: "cat", coat: 1 },
       decor: { pet: "shown" },
     });
-    expect(after.version).toBe(before.version);
   });
 });
 

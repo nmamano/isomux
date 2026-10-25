@@ -501,7 +501,7 @@ describe("receptionist profile and lobby", () => {
       desk: 4,
       permissionMode: "bypassPermissions",
       profileKey: "isomux-receptionist",
-      customInstructions: "My edited voice.",
+      instructions: "My edited voice.",
     };
     const result = await api(srv, "POST", "/api/agents", {
       rawSessionId: cookie,

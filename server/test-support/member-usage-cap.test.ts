@@ -697,7 +697,6 @@ describe("member usage cap: owner switch", () => {
       headers: { "Content-Type": "application/json" },
       rawSessionId: owner.rawSessionId,
       body: JSON.stringify({
-        prompt: null,
         version: before.body.version,
         memberUsageCap: true,
       }),
@@ -731,7 +730,7 @@ describe("member usage cap: owner switch", () => {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       rawSessionId: owner.rawSessionId,
-      body: JSON.stringify({ prompt: "p", version: after.body.version }),
+      body: JSON.stringify({ version: after.body.version }),
     });
     expect(keep.status).toBe(204);
     expect((await get(owner.rawSessionId)).body.memberUsageCap).toBe(true);
@@ -740,7 +739,6 @@ describe("member usage cap: owner switch", () => {
       headers: { "Content-Type": "application/json" },
       rawSessionId: owner.rawSessionId,
       body: JSON.stringify({
-        prompt: "p",
         version: (await get(owner.rawSessionId)).body.version,
         memberUsageCap: "yes",
       }),
@@ -765,7 +763,7 @@ describe("member usage cap: owner switch", () => {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         rawSessionId: owner.rawSessionId,
-        body: JSON.stringify({ prompt: null, ...body }),
+        body: JSON.stringify(body),
       });
 
     const before = await get();

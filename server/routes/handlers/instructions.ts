@@ -1,8 +1,7 @@
 // Shared parsing for the instruction layers (office, room, agent, member,
 // schedules). Each layer reads and writes its text at GET/PUT .../instructions
-// with {instructions, version}; the old routes and field names stay for one
-// release and reach the same core. Each layer's handler calls its own core;
-// this module only parses the body and shapes the answer.
+// with {instructions, version}. Each layer's handler calls its own core; this
+// module only parses the body and shapes the answer.
 //
 // LEAF over the executor + shared types.
 
@@ -60,18 +59,20 @@ export function instructionsConflict(version: string): HandlerResult {
   );
 }
 
-// Old field names, kept for one release. A body may carry the new or the old
-// name of a field, never both (400, equal values or not). Moves the value from
-// `from` to `to`, so the rest of the handler reads one name.
-export function foldFieldAlias(
-  body: Record<string, unknown>,
-  from: string,
-  to: string,
+// Field names that task 379ae5db renamed and task 744fa64a removed, each
+// mapped to what to send instead. A body that still carries one is refused, so
+// a stale caller does not get a success that wrote nothing.
+export function refuseOldFields(
+  body: unknown,
+  replacements: Readonly<Record<string, string>>,
 ): HandlerResult | null {
-  if (!Object.hasOwn(body, from)) return null;
-  if (Object.hasOwn(body, to))
-    return fail(400, "invalid_request", `send ${from} or ${to}, not both`);
-  body[to] = body[from];
-  delete body[from];
+  if (!body || typeof body !== "object") return null;
+  for (const [old, replacement] of Object.entries(replacements))
+    if (Object.hasOwn(body, old))
+      return fail(
+        400,
+        "invalid_request",
+        `${old} was renamed: send ${replacement}`,
+      );
   return null;
 }

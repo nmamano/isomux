@@ -247,10 +247,9 @@ describe("GET /agents (discovery manifest)", () => {
       effort: DEFAULT_EFFORT,
       permissionMode: "default",
       sandbox: null,
-      // `manager` is the field; `username` is its alias for older readers
-      // until the alias task removes it (task f41c93e9).
+      // `username`, its old name, went one release after task f41c93e9
+      // (task 744fa64a); toEqual pins its absence.
       manager: owner.username,
-      username: owner.username,
       logDir: join(srv.stateRoot, "logs", a.id),
       // Live parked-prompt state (task 29daebe2). Null for an agent that is
       // not waiting on a prompt.

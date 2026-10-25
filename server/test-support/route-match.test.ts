@@ -53,9 +53,11 @@ describe("routes/match: longest-static-wins", () => {
     );
   });
 
-  it("the off-:id paths /api/cron-runs and /api/cron-prompt don't shadow /api/cronjobs/:id", () => {
+  it("the off-:id paths /api/cron-runs and /api/cron-instructions don't shadow /api/cronjobs/:id", () => {
     expect(m("GET", "/api/cron-runs")?.route.opId).toBe("cron.listAllRuns");
-    expect(m("PUT", "/api/cron-prompt")?.route.opId).toBe("cron.setPrompt");
+    expect(m("PUT", "/api/cron-instructions")?.route.opId).toBe(
+      "cron.setInstructions",
+    );
     expect(m("GET", "/api/cronjobs/cron-runs")?.route.opId).toBe("cron.get");
   });
 });

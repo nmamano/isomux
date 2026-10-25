@@ -44,6 +44,7 @@ import {
   loadAgents,
   saveAgents,
   loadAgentHistory,
+  saveAgentHistory,
   loadOfficeConfig,
   loadLog,
 } from "../persistence.ts";
@@ -285,9 +286,10 @@ describe("agents.json field migrations (Phase 1.3)", () => {
     expect(Object.hasOwn(agent, "model")).toBe(false);
   });
 
-  // The manager snapshot was stored as `username` before task f41c93e9 and is
-  // written as both keys until the alias is removed. A present `manager` key
-  // wins even when null; only a record with neither key is stamped null.
+  // The manager snapshot was stored as `username` before task f41c93e9, and
+  // written under both keys for one release (removed in task 744fa64a). The
+  // loader still reads it from older files: a present `manager` key wins even
+  // when null; only a record with neither key is stamped null.
   const MANAGER_CASES: [string, Record<string, unknown>, string | null][] = [
     ["neither key (pre user/device split)", {}, null],
     ["username only (older release)", { username: "Nil" }, "Nil"],
@@ -344,6 +346,57 @@ describe("agents.json field migrations (Phase 1.3)", () => {
     expect(MANAGER_CASES.map((_, i) => history[`h${i}`]?.manager)).toEqual(
       MANAGER_CASES.map(([, , manager]) => manager),
     );
+  });
+
+  it("a loaded record is saved with `manager` only, whatever `username` it was loaded with", () => {
+    const agents = MANAGER_CASES.map(([, keys], desk) => ({
+      id: `a${desk}`,
+      name: `Agent ${desk}`,
+      desk,
+      cwd: "/",
+      outfit: {},
+      permissionMode: "default",
+      modelFamily: "opus",
+      lastSessionId: null,
+      topic: null,
+      customInstructions: null,
+      ...keys,
+    }));
+    seed("agents.json", [
+      { id: "aaaa0001", name: "Room 1", prompt: null, agents },
+    ]);
+    seed(
+      "agent-history.json",
+      Object.fromEntries(
+        MANAGER_CASES.map(([, keys], i) => [
+          `h${i}`,
+          { name: `Killed ${i}`, cwd: "/", userId: null, ...keys },
+        ]),
+      ),
+    );
+    saveAgents(loadAgents());
+    saveAgentHistory(loadAgentHistory());
+    const savedAgents = (
+      JSON.parse(readFileSync(stateFile("agents.json"), "utf8")) as {
+        agents: Record<string, unknown>[];
+      }[]
+    )[0].agents;
+    const savedHistory = Object.values(
+      JSON.parse(
+        readFileSync(stateFile("agent-history.json"), "utf8"),
+      ) as Record<string, Record<string, unknown>>,
+    );
+    const expected = MANAGER_CASES.map(([, , manager]) => ({
+      manager,
+      username: false,
+    }));
+    for (const saved of [savedAgents, savedHistory])
+      expect(
+        saved.map((record) => ({
+          manager: record.manager,
+          username: Object.hasOwn(record, "username"),
+        })),
+      ).toEqual(expected);
   });
 
   it("backfills a missing room id (generated hex) and coerces a non-string prompt to null", () => {

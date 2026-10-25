@@ -277,11 +277,12 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // default. The exclusions bind the agent token only: in a Chrome tab that its
 // manager offered on the office, an agent acts with the manager's browser
 // session (docs/security-audit.md section 6.5).
-// user:prompt grants only member-prompt reads and edits through its guards.
+// user:prompt grants only member-instructions reads and writes through its
+// guards.
 // integration:manage changes its manager's variables, secrets and MCP servers
 // (and the office's and other members' while the manager is an owner); user:env
 // and secret:show stay out, so no value comes back.
-// office:settings reaches only office.getSettings and office.setSettings, and
+// office:settings reaches only the office settings and instructions routes, and
 // only while the manager is an office owner; office:admin stays out.
 // user:create reaches member creation: it reaches only users.create,
 // whose guard allows a member (room grants allowed), and only while the

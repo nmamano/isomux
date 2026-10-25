@@ -15,17 +15,16 @@ afterAll(() => {
   setApiShim(null);
 });
 
-// A fake office with the server's two version rules during the alias release
-// (task 379ae5db): the settings version covers the name AND the text, the
-// instructions version covers the text only. A PUT with any other version is
-// a 409, as on the server.
+// A fake office with the server's two version rules: the settings version
+// covers the name, the instructions version the text (task 744fa64a). A PUT
+// with any other version is a 409, and a settings PUT with the old prompt
+// field a 400, as on the server.
 function fakeOffice() {
   const state = {
     prompt: null as string | null,
     name: null as string | null,
   };
-  const settingsVersion = () =>
-    `s:${JSON.stringify([state.prompt, state.name])}`;
+  const settingsVersion = () => `s:${JSON.stringify(state.name)}`;
   const instructionsVersion = () => `i:${JSON.stringify(state.prompt)}`;
   const writes: { path: string; body: Record<string, unknown> }[] = [];
   const conflict = () =>
@@ -36,7 +35,6 @@ function fakeOffice() {
       return { text: "", version: "0", size: 0, cap: 4000 };
     if (path === "/api/office/settings" && method === "GET")
       return {
-        prompt: state.prompt,
         name: state.name,
         experimental: { browserPanel: true }, // stale server data is ignored
         version: settingsVersion(),
@@ -45,9 +43,10 @@ function fakeOffice() {
       return { instructions: state.prompt, version: instructionsVersion() };
     if (path === "/api/office/settings" && method === "PUT") {
       writes.push({ path, body: b });
+      if ("prompt" in b)
+        throw new ApiError(400, "invalid_request", "prompt was renamed");
       if (b.version !== settingsVersion()) throw conflict();
       if ("name" in b) state.name = (b.name as string | null) || null;
-      if ("prompt" in b) state.prompt = (b.prompt as string | null) || null;
       return undefined;
     }
     if (path === "/api/office/instructions" && method === "PUT") {

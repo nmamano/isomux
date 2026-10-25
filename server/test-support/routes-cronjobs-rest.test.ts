@@ -595,37 +595,6 @@ describe("cronjob REST", () => {
         ).status,
       ).toBe(204);
     });
-
-    it("cron-prompt is office-owner-only (REST)", async () => {
-      const srv = await startTestServer();
-      server = srv;
-      const owner = await srv.seedOwner("Morgan");
-      const member = await srv.seedMember("Mallory");
-
-      expect(
-        (
-          await api(srv, "/api/cron-prompt", {
-            method: "PUT",
-            rawSessionId: member.rawSessionId,
-            body: { value: "members can't" },
-          })
-        ).status,
-      ).toBe(403);
-
-      // The denied PUT left the prompt unchanged.
-      expect(srv.cronjobManager.getCronjobsPrompt()).toBe(null);
-
-      expect(
-        (
-          await api(srv, "/api/cron-prompt", {
-            method: "PUT",
-            rawSessionId: owner.rawSessionId,
-            body: { value: "owner can" },
-          })
-        ).status,
-      ).toBe(204);
-      expect(srv.cronjobManager.getCronjobsPrompt()).toBe("owner can");
-    });
   });
 
   describe("routes/cron REST: runNow + emit double-signal", () => {

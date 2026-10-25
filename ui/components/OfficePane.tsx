@@ -98,18 +98,16 @@ export function OfficePane({
   async function handleSave() {
     // The name (settings PUT), the instructions (instructions PUT) and the
     // memory REPLACE are separate calls, each sent only when its field
-    // changed. Settings go first: until the old prompt field is retired, the
-    // settings version also covers the text, so an instructions write first
-    // would spend the version the settings write carries. A failure surfaces
-    // server.message in the shared status slot and keeps the reader on the
-    // pane; what saved before it stays saved, and the rest stays dirty.
+    // changed. A failure surfaces server.message in the shared status slot and
+    // keeps the reader on the pane; what saved before it stays saved, and the
+    // rest stays dirty.
     if (settingsVersion == null || instructionsVersion == null) return;
     setSaving(true);
-    // Either write moves the settings version, so it is re-read after any
-    // write lands - also when a later step fails, or the next Save would
-    // blame a phantom concurrent writer. Its own try/catch, because a failed
-    // re-read is not a failed save.
-    let wrote = false;
+    // The name write moves the settings version and answers no body, so the
+    // version is re-read after it lands - also when a later step fails, or the
+    // next Save would blame a phantom concurrent writer. Its own try/catch,
+    // because a failed re-read is not a failed save.
+    let wroteName = false;
     const refreshSettingsVersion = async () => {
       try {
         const next = await apiFetch<OfficeSettingsRes>(
@@ -137,7 +135,7 @@ export function OfficePane({
           version: settingsVersion,
         };
         await apiFetch<void>("PUT", "/api/office/settings", body);
-        wrote = true;
+        wroteName = true;
         setBaselineName(name);
       }
       if (text !== baselinePrompt) {
@@ -153,14 +151,13 @@ export function OfficePane({
           "/api/office/instructions",
           body,
         );
-        wrote = true;
         setText(saved.instructions ?? "");
         setBaselinePrompt(saved.instructions ?? "");
         setInstructionsVersion(saved.version);
       }
       // Before anything that can fail and return: a memory conflict must not
       // leave the settings token spent.
-      if (wrote) await refreshSettingsVersion();
+      if (wroteName) await refreshSettingsVersion();
       setSavedAt(Date.now());
       const m = await mem.save();
       if (!m.ok) {
@@ -168,7 +165,7 @@ export function OfficePane({
         return;
       }
     } catch (e) {
-      if (wrote) await refreshSettingsVersion();
+      if (wroteName) await refreshSettingsVersion();
       if (e instanceof ApiError && e.code === "version_conflict") {
         setStatus({
           kind: "error",

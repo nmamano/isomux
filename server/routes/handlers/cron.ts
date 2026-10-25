@@ -1,6 +1,6 @@
 // Cronjob resource handlers. Cronjob metadata + runs on the
-// unified REST surface (opIds cron.list/get/create/update/delete/runNow/setPrompt
-// /listRuns/listAllRuns/getRun). The run-message + RUN-bearer affordance handlers
+// unified REST surface (opIds cron.list/get/create/update/delete/runNow
+// /readInstructions/setInstructions/listRuns/listAllRuns/getRun). The run-message + RUN-bearer affordance handlers
 // live alongside these once 3a.2b lands.
 //
 // These handlers are the ONLY cronjob surface: the legacy /cronjobs HTTP reads
@@ -12,7 +12,8 @@
 // Handlers never emit directly.
 //
 // [behavior-change] cron.update/delete/runNow tighten to cronjobOwnerOrOfficeOwner
-// and cron.setPrompt to officeOwner (the legacy WS arms had no role check). The
+// and the schedule instructions to officeOwner (the legacy WS arms had no role
+// check). The
 // REST routes are now the SOLE path and enforce via authorize(); the WS command
 // arms (and their wsCanMutateCronjob / wsIsOfficeOwner shims) were retired in 3d.4.
 //
@@ -52,7 +53,6 @@ import {
 import type {
   CronCreateReq,
   CronUpdateReq,
-  CronPromptReq,
   CronRunMessageReq,
   EditMessageReq,
   AffordanceReadFileReq,
@@ -416,8 +416,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       return run ? ok({ runId: run.id }) : fail(404, "not_found");
     },
 
-    // The schedule instructions: the same store as cron.setPrompt, the old
-    // name kept for one release. The version guards one owner tab's write
+    // The schedule instructions. The version guards one owner tab's write
     // against another's. Check-then-write is atomic on the event loop.
     "cron.readInstructions": () => ok(instructionsRes(deps.getPrompt())),
 
@@ -429,16 +428,6 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         return instructionsConflict(current.version);
       deps.setPrompt(input.instructions);
       return ok(instructionsRes(deps.getPrompt()));
-    },
-
-    "cron.setPrompt": (ctx) => {
-      const body = (ctx.body ?? {}) as Partial<CronPromptReq>;
-      const value =
-        typeof body.value === "string" && body.value.length > 0
-          ? body.value
-          : null;
-      deps.setPrompt(value);
-      return noContent();
     },
 
     "cron.listRuns": (ctx) =>

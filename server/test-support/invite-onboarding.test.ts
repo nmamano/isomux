@@ -28,7 +28,7 @@ describe("invite onboarding", () => {
       body: JSON.stringify({
         name: "Marc",
         role: "member",
-        memberPrompt: "Explain each step.",
+        instructions: "Explain each step.",
       }),
     });
     expect(created.status).toBe(201);

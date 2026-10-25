@@ -101,8 +101,6 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     scope: unknown,
     rawScopeId: unknown,
   ): Target {
-    // "boss" is the scope's name before task f41c93e9, still accepted.
-    if (scope === "boss") scope = "member";
     if (scope === "agent") {
       if (rawScopeId === undefined || rawScopeId === null) {
         if (identity.scope === "agent" && identity.agentId) {

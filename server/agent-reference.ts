@@ -212,12 +212,7 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "agentReference.list": "Reference bootstrap route.",
   "agentReference.get": "Reference bootstrap route.",
   "agents.readSystemPrompt": "Human UI inspection route.",
-  "users.readMemberPrompt":
-    "Old name of users.readInstructions, kept for one release.",
-  "rooms.setSettings":
-    "Old name of rooms.setInstructions, kept for one release.",
-  "users.update":
-    "Human record edit; its prompt fields for agents are the old names of users.setInstructions, kept for one release.",
+  "users.update": "Human record edit.",
   "agents.previewSystemPrompt": "Human UI preview route.",
   "agents.respondInteraction":
     "Harness interaction response, not an office feature call.",
