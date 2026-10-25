@@ -6096,13 +6096,15 @@ export function createAgentManager(deps: ManagerDeps) {
   //     deliberate and documented; the 60s guarantee does not cover an
   //     adapter that violates close/send teardown.
   const QUEUE_WATCHDOG_STUCK_MS = 60_000;
-  // Busy-turn recovery against Agent SDK 0.3.219. Anthropic
-  // issues #333 and #403 document silent async-iterator hangs. This arm covers
-  // only the measured #333-like tool_executing shape; a silent thinking-state
-  // recurrence is observed but never acted on. Remove this arm when the SDK
-  // supplies a reliable terminal event or transport liveness signal. Its
-  // action shares the older forced-recovery cooldown because both replace the
-  // session; warn-only observations never consume that recovery budget.
+  // Busy-turn recovery for the silent Agent SDK async-iterator hangs in
+  // issues #333 and #403 in anthropics/claude-agent-sdk-typescript. Rechecked
+  // 2026-10-25 against 0.3.293: both issues are open and no changelog entry
+  // fixes them. This arm covers only the measured #333-like tool_executing
+  // shape; a silent thinking-state recurrence is observed but never acted on.
+  // Remove this arm when the SDK supplies a reliable terminal event or
+  // transport liveness signal. Its action shares the older forced-recovery
+  // cooldown because both replace the session; warn-only observations never
+  // consume that recovery budget.
   const BUSY_TURN_WATCHDOG_STUCK_MS = 10 * 60_000;
   const FORCED_RECOVERY_COOLDOWN_MS = 5 * 60_000;
 
