@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useId,
+  useContext,
   memo,
 } from "react";
 import type { ReactNode } from "react";
@@ -36,10 +37,13 @@ import { SecretRequestCard } from "./SecretRequestCard.tsx";
 import { BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
 import { IsomuxCurlHeader, IsomuxCurlFields } from "./IsomuxCurlSummary.tsx";
 import { AgentAvatar, AgentLink, MemberAvatar } from "./chat-avatars.tsx";
+import { jumpToLogEntry } from "./jump-to-entry.ts";
 import {
   commandForPermissionDenial,
   isFoldedToolResult,
   isomuxRequestForToolCall,
+  DetachedSubagentSteps,
+  type DetachedSubagentStep,
 } from "./tool-call-groups.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
@@ -101,48 +105,97 @@ function subagentOf(entry: LogEntry): SubagentOrigin | undefined {
 function SubagentPill({
   origin,
   isMobile,
+  detached,
+  ownLine,
 }: {
   origin: SubagentOrigin;
   isMobile?: boolean;
+  // Set for a step that sits after a later member message
+  // (detachedSubagentSteps): the pill names the job, says when it runs in
+  // the background, and is a button that jumps to the card that started it.
+  // Never pass it to a pill inside another button.
+  detached?: DetachedSubagentStep;
+  // The detached pill has a line of its own, so it may take the full width.
+  ownLine?: boolean;
 }) {
   const { t } = useI18n();
+  const { type, description } = origin;
+  const background = detached?.background === true;
   // Both fields are model-authored, so the pill is bounded and ellipsized
   // rather than trusted to be short - the backend's 200-char cap still leaves
   // room for a label that would squeeze a mobile tool row. The full text lives
   // in the hover title, one whole key per combination (ruling 16) with the
   // model's own words as data.
-  const title = origin.type
-    ? origin.description
-      ? t("cards.subagent.titleTypedDescribed", {
-          type: origin.type,
-          description: origin.description,
-        })
-      : t("cards.subagent.titleTyped", { type: origin.type })
-    : origin.description
-      ? t("cards.subagent.titleDescribed", { description: origin.description })
-      : t("cards.subagent.title");
+  const title = background
+    ? type
+      ? description
+        ? t("cards.subagent.titleBackgroundTypedDescribed", {
+            type,
+            description,
+          })
+        : t("cards.subagent.titleBackgroundTyped", { type })
+      : description
+        ? t("cards.subagent.titleBackgroundDescribed", { description })
+        : t("cards.subagent.titleBackground")
+    : type
+      ? description
+        ? t("cards.subagent.titleTypedDescribed", { type, description })
+        : t("cards.subagent.titleTyped", { type })
+      : description
+        ? t("cards.subagent.titleDescribed", { description })
+        : t("cards.subagent.title");
+  // A detached step names its job (the description) rather than the
+  // subagent's type, so it reads as part of that job.
+  const label = background
+    ? description
+      ? t("cards.subagent.pillBackground", { description })
+      : type
+        ? t("cards.subagent.pillBackgroundTyped", { type })
+        : t("cards.subagent.pillBackgroundPlain")
+    : detached && description
+      ? t("cards.subagent.pillDescribed", { description })
+      : type
+        ? t("cards.subagent.pillTyped", { type })
+        : t("cards.subagent.pill");
+  const style = {
+    flexShrink: 0,
+    maxWidth: isMobile ? 120 : 160,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    padding: "0 5px",
+    borderRadius: 4,
+    border: "1px solid var(--border-light)",
+    background: "var(--bg-subtle)",
+    color: "var(--text-dim)",
+    fontSize: isMobile ? 11 : 10,
+    fontWeight: 500,
+    whiteSpace: "nowrap",
+  } as const;
+  if (!detached)
+    return (
+      <span title={title} data-subagent-pill="plain" style={style}>
+        {label}
+      </span>
+    );
   return (
-    <span
-      title={title}
+    <button
+      type="button"
+      title={`${title}\n${t("cards.subagent.jumpHint")}`}
+      data-subagent-pill={background ? "background" : "detached"}
+      data-jump-target={detached.target}
+      onClick={() => jumpToLogEntry(detached.target)}
       style={{
-        flexShrink: 0,
-        maxWidth: isMobile ? 120 : 160,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        padding: "0 5px",
-        borderRadius: 4,
-        border: "1px solid var(--border-light)",
-        background: "var(--bg-subtle)",
-        color: "var(--text-dim)",
-        fontSize: isMobile ? 11 : 10,
-        fontWeight: 500,
-        whiteSpace: "nowrap",
+        ...style,
+        // Its text is the job's name, so it gets more room than the plain
+        // pill: a line of its own where it has one, else room beside the card.
+        maxWidth: ownLine ? "100%" : 280,
+        fontFamily: "'JetBrains Mono',monospace",
+        lineHeight: "inherit",
+        cursor: "pointer",
       }}
     >
-      {origin.type
-        ? t("cards.subagent.pillTyped", { type: origin.type })
-        : t("cards.subagent.pill")}
-    </span>
+      {label}
+    </button>
   );
 }
 
@@ -531,6 +584,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   // A server-written line in the reader's language (task c37a7365). Only what
   // is shown reads it; the detectors below keep reading entry.content.
   const display = logEntryText(i18n, entry);
+  const detached = useContext(DetachedSubagentSteps).get(entry.id);
   switch (entry.kind) {
     case "user_message": {
       const { label: senderLabel, fromHuman } = describeMessageSender(
@@ -660,6 +714,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           resultIsError={resultIsError}
           durationMs={durationMs}
           subagent={subagentOf(entry)}
+          detached={detached}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
           isMobile={isMobile}
@@ -671,6 +726,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       return (
         <ToolResult
           entry={entry}
+          detached={detached}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
           isMobile={isMobile}
@@ -904,6 +960,45 @@ function BubbleCorner({
 const TIMESTAMP_GAP = 8;
 const BUTTON_GAP = 4;
 
+/**
+ * The header row of a tool card whose step is detached: the jump pill is a
+ * button of its own, so it sits beside the card's toggle button, never
+ * inside it - on a phone on its own line above it, where the job's name has
+ * room. Other cards render the toggle alone.
+ */
+function DetachedPillRow({
+  subagent,
+  detached,
+  isMobile,
+  children,
+}: {
+  subagent?: SubagentOrigin;
+  detached?: DetachedSubagentStep;
+  isMobile?: boolean;
+  children: ReactNode;
+}) {
+  if (!subagent || !detached) return <>{children}</>;
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: isMobile ? 2 : 6,
+        ...(isMobile
+          ? { flexDirection: "column" as const, alignItems: "flex-start" }
+          : { alignItems: "center" }),
+      }}
+    >
+      <SubagentPill
+        origin={subagent}
+        isMobile={isMobile}
+        detached={detached}
+        ownLine={isMobile}
+      />
+      {children}
+    </div>
+  );
+}
+
 export function RawToolCallGroupCard({
   entries,
   isLastInTurn,
@@ -920,6 +1015,9 @@ export function RawToolCallGroupCard({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const subagent = subagentOf(entries[0]);
+  // A group never spans a member message or two subagents, so its first
+  // entry speaks for all of them.
+  const detached = useContext(DetachedSubagentSteps).get(entries[0].id);
   if (open) {
     return (
       <div>
@@ -962,33 +1060,42 @@ export function RawToolCallGroupCard({
         }),
       }}
     >
-      <button
-        onClick={() => setOpen(true)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "3px 10px",
-          paddingRight: isLastInTurn ? 40 : 10,
-          border: "1px solid var(--green-border)",
-          borderRadius: 6,
-          background: "var(--tool-call-bg)",
-          color: "var(--green-text)",
-          fontSize: isMobile ? 14 : 12,
-          cursor: "pointer",
-          fontFamily: "'JetBrains Mono',monospace",
-          width: "100%",
-          textAlign: "left",
-        }}
+      <DetachedPillRow
+        subagent={subagent}
+        detached={detached}
+        isMobile={isMobile}
       >
-        <span style={{ fontSize: 8 }}>
-          <StatusShape kind="triangle" />
-        </span>
-        {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
-        <span style={{ fontWeight: 600 }}>
-          {t("cards.toolCall.groupCount", { count: entries.length })}
-        </span>
-      </button>
+        <button
+          onClick={() => setOpen(true)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 10px",
+            paddingRight: isLastInTurn ? 40 : 10,
+            border: "1px solid var(--green-border)",
+            borderRadius: 6,
+            background: "var(--tool-call-bg)",
+            color: "var(--green-text)",
+            fontSize: isMobile ? 14 : 12,
+            cursor: "pointer",
+            fontFamily: "'JetBrains Mono',monospace",
+            width: "100%",
+            minWidth: 0,
+            textAlign: "left",
+          }}
+        >
+          <span style={{ fontSize: 8 }}>
+            <StatusShape kind="triangle" />
+          </span>
+          {subagent && !detached && (
+            <SubagentPill origin={subagent} isMobile={isMobile} />
+          )}
+          <span style={{ fontWeight: 600 }}>
+            {t("cards.toolCall.groupCount", { count: entries.length })}
+          </span>
+        </button>
+      </DetachedPillRow>
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
     </div>
   );
@@ -1712,6 +1819,7 @@ function ToolCall({
   resultIsError,
   durationMs,
   subagent,
+  detached,
   isLastInTurn,
   turnEntries,
   isMobile,
@@ -1723,6 +1831,7 @@ function ToolCall({
   resultIsError?: boolean;
   durationMs?: number;
   subagent?: SubagentOrigin;
+  detached?: DetachedSubagentStep;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
@@ -1781,80 +1890,89 @@ function ToolCall({
         }),
       }}
     >
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "3px 10px",
-          paddingRight: isLastInTurn ? 40 : 10,
-          border: `1px solid ${borderColor}`,
-          borderRadius: 6,
-          background: bgColor,
-          color: textColor,
-          fontSize: isMobile ? 14 : 12,
-          cursor: "pointer",
-          fontFamily: "'JetBrains Mono',monospace",
-          width: "100%",
-          textAlign: "left",
-          ...((curlReq || errorPreview) && { flexWrap: "wrap" as const }),
-        }}
+      <DetachedPillRow
+        subagent={subagent}
+        detached={detached}
+        isMobile={isMobile}
       >
-        <span
+        <button
+          onClick={() => setOpen(!open)}
           style={{
-            transform: open ? "rotate(90deg)" : "rotate(0deg)",
-            transition: "transform 0.15s",
-            display: "inline-block",
-            fontSize: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 10px",
+            paddingRight: isLastInTurn ? 40 : 10,
+            border: `1px solid ${borderColor}`,
+            borderRadius: 6,
+            background: bgColor,
+            color: textColor,
+            fontSize: isMobile ? 14 : 12,
+            cursor: "pointer",
+            fontFamily: "'JetBrains Mono',monospace",
+            width: "100%",
+            minWidth: 0,
+            textAlign: "left",
+            ...((curlReq || errorPreview) && { flexWrap: "wrap" as const }),
           }}
         >
-          <StatusShape kind="triangle" />
-        </span>
-        {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
-        {curlReq ? (
-          <IsomuxCurlHeader req={curlReq} isMobile={isMobile} />
-        ) : (
-          <>
-            <span style={{ fontWeight: 600 }}>{name}</span>
-            {summary && (
-              <span
-                style={{
-                  color: "var(--text-faint)",
-                  marginLeft: 4,
-                  fontSize: isMobile ? 13 : 11,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  flex: 1,
-                }}
-              >
-                {summary}
-              </span>
-            )}
-          </>
-        )}
-        {durationMs != null && (
-          <DurationLabel ms={durationMs} isMobile={isMobile} />
-        )}
-        {curlReq && <IsomuxCurlFields req={curlReq} isMobile={isMobile} />}
-        {errorPreview && (
           <span
             style={{
-              flexBasis: "100%",
-              paddingLeft: 20,
-              marginTop: 2,
-              color: "var(--red-text)",
-              fontSize: isMobile ? 12 : 10,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              transform: open ? "rotate(90deg)" : "rotate(0deg)",
+              transition: "transform 0.15s",
+              display: "inline-block",
+              fontSize: 8,
             }}
           >
-            {errorPreview}
+            <StatusShape kind="triangle" />
           </span>
-        )}
-      </button>
+          {subagent && !detached && (
+            <SubagentPill origin={subagent} isMobile={isMobile} />
+          )}
+          {curlReq ? (
+            <IsomuxCurlHeader req={curlReq} isMobile={isMobile} />
+          ) : (
+            <>
+              <span style={{ fontWeight: 600 }}>{name}</span>
+              {summary && (
+                <span
+                  style={{
+                    color: "var(--text-faint)",
+                    marginLeft: 4,
+                    fontSize: isMobile ? 13 : 11,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                  }}
+                >
+                  {summary}
+                </span>
+              )}
+            </>
+          )}
+          {durationMs != null && (
+            <DurationLabel ms={durationMs} isMobile={isMobile} />
+          )}
+          {curlReq && <IsomuxCurlFields req={curlReq} isMobile={isMobile} />}
+          {errorPreview && (
+            <span
+              style={{
+                flexBasis: "100%",
+                paddingLeft: 20,
+                marginTop: 2,
+                color: "var(--red-text)",
+                fontSize: isMobile ? 12 : 10,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {errorPreview}
+            </span>
+          )}
+        </button>
+      </DetachedPillRow>
       {open && (
         <div
           style={{
@@ -1930,11 +2048,13 @@ function SectionLabel({
 
 function ToolResult({
   entry,
+  detached,
   isLastInTurn,
   turnEntries,
   isMobile,
 }: {
   entry: LogEntry;
+  detached?: DetachedSubagentStep;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
@@ -1999,7 +2119,12 @@ function ToolResult({
     >
       {subagent && (
         <div style={{ marginBottom: 4 }}>
-          <SubagentPill origin={subagent} isMobile={isMobile} />
+          <SubagentPill
+            origin={subagent}
+            isMobile={isMobile}
+            detached={detached}
+            ownLine
+          />
         </div>
       )}
       {showText && content && (

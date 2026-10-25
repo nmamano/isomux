@@ -2140,6 +2140,17 @@ Cosas que puedes hacer por él:
   "cards.subagent.titleTyped": "Subagente ({type})",
   "cards.subagent.titleDescribed": "Subagente: {description}",
   "cards.subagent.titleTypedDescribed": "Subagente ({type}): {description}",
+  "cards.subagent.pillBackground": "en segundo plano · {description}",
+  "cards.subagent.pillBackgroundTyped": "en segundo plano · {type}",
+  "cards.subagent.pillBackgroundPlain": "subagente en segundo plano",
+  "cards.subagent.pillDescribed": "subagente · {description}",
+  "cards.subagent.titleBackground": "Subagente en segundo plano",
+  "cards.subagent.titleBackgroundTyped": "Subagente en segundo plano ({type})",
+  "cards.subagent.titleBackgroundDescribed":
+    "Subagente en segundo plano: {description}",
+  "cards.subagent.titleBackgroundTypedDescribed":
+    "Subagente en segundo plano ({type}): {description}",
+  "cards.subagent.jumpHint": "Haz clic para ver la tarjeta que lo inició.",
   "cards.fileView.viewedFile": "Ha visto {file} (haz clic para mostrarlo)",
   "cards.fileView.viewedImages":
     "Ha visto {count} imágenes adjuntas (haz clic para mostrarlas)",

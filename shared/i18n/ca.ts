@@ -2147,6 +2147,17 @@ Coses que pots fer per ell:
   "cards.subagent.titleTyped": "Subagent ({type})",
   "cards.subagent.titleDescribed": "Subagent: {description}",
   "cards.subagent.titleTypedDescribed": "Subagent ({type}): {description}",
+  "cards.subagent.pillBackground": "en segon pla · {description}",
+  "cards.subagent.pillBackgroundTyped": "en segon pla · {type}",
+  "cards.subagent.pillBackgroundPlain": "subagent en segon pla",
+  "cards.subagent.pillDescribed": "subagent · {description}",
+  "cards.subagent.titleBackground": "Subagent en segon pla",
+  "cards.subagent.titleBackgroundTyped": "Subagent en segon pla ({type})",
+  "cards.subagent.titleBackgroundDescribed":
+    "Subagent en segon pla: {description}",
+  "cards.subagent.titleBackgroundTypedDescribed":
+    "Subagent en segon pla ({type}): {description}",
+  "cards.subagent.jumpHint": "Fes clic per veure la targeta que el va iniciar.",
   "cards.fileView.viewedFile": "Ha vist {file} (fes clic per mostrar-lo)",
   "cards.fileView.viewedImages":
     "Ha vist {count} imatges adjuntes (fes clic per mostrar-les)",

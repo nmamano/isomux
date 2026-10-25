@@ -2093,6 +2093,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.subagent.titleTyped": "Subagent ({type})",
   "cards.subagent.titleDescribed": "Subagent: {description}",
   "cards.subagent.titleTypedDescribed": "Subagent ({type}): {description}",
+  "cards.subagent.pillBackground": "background · {description}",
+  "cards.subagent.pillBackgroundTyped": "background · {type}",
+  "cards.subagent.pillBackgroundPlain": "background subagent",
+  "cards.subagent.pillDescribed": "subagent · {description}",
+  "cards.subagent.titleBackground": "Background subagent",
+  "cards.subagent.titleBackgroundTyped": "Background subagent ({type})",
+  "cards.subagent.titleBackgroundDescribed":
+    "Background subagent: {description}",
+  "cards.subagent.titleBackgroundTypedDescribed":
+    "Background subagent ({type}): {description}",
+  "cards.subagent.jumpHint": "Click to show the card that started it.",
   "cards.fileView.viewedFile": "Viewed {file} (click to show)",
   "cards.fileView.viewedImages":
     "Viewed {count} attached images (click to show)",

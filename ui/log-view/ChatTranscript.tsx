@@ -14,6 +14,8 @@ import {
   senderIsHuman,
 } from "./LogEntryCard.tsx";
 import {
+  DetachedSubagentSteps,
+  detachedSubagentSteps,
   findRawToolCallGroups,
   liveTailEntryIds,
   lastVisibleEntryIndex,
@@ -66,6 +68,10 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
   const rawToolGroupByFirstId = useMemo(
     () => new Map(rawToolGroups.map((group) => [group.firstId, group])),
     [rawToolGroups],
+  );
+  const detachedSteps = useMemo(
+    () => detachedSubagentSteps(logs, rawToolGroups),
+    [logs, rawToolGroups],
   );
   const groupedChildIds = useMemo(
     () =>
@@ -143,6 +149,7 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
     toggleMessage,
     groupedChildIds,
     rawToolGroupByFirstId,
+    detachedSteps,
     turnData,
   };
 }
@@ -187,45 +194,47 @@ export function ChatTranscript({
   return (
     <SecretRequestOutcomes.Provider value={outcomes}>
       <AskOrigins.Provider value={origins}>
-        {logs.map((entry) => {
-          if (entry.metadata?.interactionFallback === true) return null;
-          if (view.groupedChildIds.has(entry.id)) return null;
-          const td = view.turnData.get(entry.id);
-          const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
-          const isUserMsg =
-            entry.kind === "user_message" && senderIsHuman(entry.metadata);
-          return (
-            <div
-              key={entry.id}
-              data-log-entry-id={entry.id}
-              ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}
-              onCopy={copySelectionAsPlainText}
-            >
-              {rawToolGroup ? (
-                <RawToolCallGroupCard
-                  entries={rawToolGroup.entries}
-                  isLastInTurn={td?.isLastInTurn}
-                  turnEntries={td?.turnEntries}
-                  isMobile={isMobile}
-                  onCopyToTerminal={onCopyToTerminal}
-                />
-              ) : (
-                <LogEntryCard
-                  entry={entry}
-                  messageExpanded={view.expandedMessages.has(entry.id)}
-                  onToggleMessage={view.toggleMessage}
-                  isLastInTurn={td?.isLastInTurn}
-                  turnEntries={td?.turnEntries}
-                  isMobile={isMobile}
-                  {...entryProps?.(entry)}
-                />
-              )}
-              {afterEntry?.(entry)}
-            </div>
-          );
-        })}
-        {interaction}
-        {activity && <ActivityIndicator {...activity} />}
+        <DetachedSubagentSteps.Provider value={view.detachedSteps}>
+          {logs.map((entry) => {
+            if (entry.metadata?.interactionFallback === true) return null;
+            if (view.groupedChildIds.has(entry.id)) return null;
+            const td = view.turnData.get(entry.id);
+            const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
+            const isUserMsg =
+              entry.kind === "user_message" && senderIsHuman(entry.metadata);
+            return (
+              <div
+                key={entry.id}
+                data-log-entry-id={entry.id}
+                ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}
+                onCopy={copySelectionAsPlainText}
+              >
+                {rawToolGroup ? (
+                  <RawToolCallGroupCard
+                    entries={rawToolGroup.entries}
+                    isLastInTurn={td?.isLastInTurn}
+                    turnEntries={td?.turnEntries}
+                    isMobile={isMobile}
+                    onCopyToTerminal={onCopyToTerminal}
+                  />
+                ) : (
+                  <LogEntryCard
+                    entry={entry}
+                    messageExpanded={view.expandedMessages.has(entry.id)}
+                    onToggleMessage={view.toggleMessage}
+                    isLastInTurn={td?.isLastInTurn}
+                    turnEntries={td?.turnEntries}
+                    isMobile={isMobile}
+                    {...entryProps?.(entry)}
+                  />
+                )}
+                {afterEntry?.(entry)}
+              </div>
+            );
+          })}
+          {interaction}
+          {activity && <ActivityIndicator {...activity} />}
+        </DetachedSubagentSteps.Provider>
       </AskOrigins.Provider>
     </SecretRequestOutcomes.Provider>
   );

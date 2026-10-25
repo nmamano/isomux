@@ -15,6 +15,7 @@ import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { describeIsomuxRoute } from "./isomux-curl.ts";
 import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
+import { jumpToLogEntry } from "./jump-to-entry.ts";
 
 /** The ask a user_message answers, from its metadata, or null. */
 export function askRefOf(entry: LogEntry): AskRef | null {
@@ -111,22 +112,8 @@ export function AskLink({
 }) {
   const { t } = useI18n();
   const origin = useContext(AskOrigins).get(ask.id);
-  // Scroll to the card and ring it for a moment, so the eye finds it.
   const jump = () => {
-    if (!origin) return;
-    const card = document.querySelector<HTMLElement>(
-      `[data-log-entry-id="${origin}"]`,
-    );
-    if (!card) return;
-    card.scrollIntoView({ block: "center", behavior: "smooth" });
-    card.style.outline = "2px solid var(--orange)";
-    card.style.outlineOffset = "2px";
-    card.style.borderRadius = "8px";
-    setTimeout(() => {
-      card.style.outline = "";
-      card.style.outlineOffset = "";
-      card.style.borderRadius = "";
-    }, 1600);
+    if (origin) jumpToLogEntry(origin);
   };
   const label = (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>

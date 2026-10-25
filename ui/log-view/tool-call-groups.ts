@@ -1,3 +1,4 @@
+import { createContext } from "react";
 import type { LogEntry, SubagentOrigin } from "../../shared/types.ts";
 import { parseIsomuxCurl, type IsomuxCurlRequest } from "./isomux-curl.ts";
 import { isomuxUiPorts } from "./IsomuxCurlSummary.tsx";
@@ -178,6 +179,61 @@ export function findRawToolCallGroups(
   flush();
   return groups;
 }
+
+/**
+ * A subagent step that sits after a member message which came later than the
+ * card that started its subagent, so by position it reads as a reply to that
+ * message. `target` is the entry id a click on its pill jumps to: the
+ * starting tool_call, or the firstId of the collapsed raw group that hides
+ * it. `background` is true only when that subagent runs in the background
+ * (Claude: the starting call's input.run_in_background); a foreground
+ * subagent whose turn took a steer is selected too, without the word.
+ */
+export type DetachedSubagentStep = { target: string; background: boolean };
+
+/**
+ * Entry id -> DetachedSubagentStep for every selected entry, group children
+ * included: an expanded RawToolCallGroupCard renders each child through
+ * LogEntryCard, and each child's pill shows the same state. An entry whose
+ * starting card is not in `entries` is not selected.
+ */
+export function detachedSubagentSteps(
+  entries: LogEntry[],
+  groups: RawToolCallGroup[],
+): ReadonlyMap<string, DetachedSubagentStep> {
+  const groupOf = new Map<string, string>();
+  for (const group of groups)
+    for (const entry of group.entries) groupOf.set(entry.id, group.firstId);
+  // toolId -> index of the tool_call that carries it.
+  const callAt = new Map<unknown, number>();
+  const steps = new Map<string, DetachedSubagentStep>();
+  let lastMemberAt = -1;
+  entries.forEach((entry, at) => {
+    if (entry.kind === "user_message") lastMemberAt = at;
+    const parentToolUseId = subagentIdentity(entry);
+    if (parentToolUseId) {
+      const parentAt = callAt.get(parentToolUseId);
+      if (parentAt !== undefined && parentAt < lastMemberAt) {
+        const parent = entries[parentAt];
+        const input = parent.metadata?.input as
+          | { run_in_background?: unknown }
+          | undefined;
+        steps.set(entry.id, {
+          target: groupOf.get(parent.id) ?? parent.id,
+          background: input?.run_in_background === true,
+        });
+      }
+    }
+    if (entry.kind === "tool_call" && entry.metadata?.toolId)
+      callAt.set(entry.metadata.toolId, at);
+  });
+  return steps;
+}
+
+/** The chat's detached subagent steps; empty outside ChatTranscript. */
+export const DetachedSubagentSteps = createContext<
+  ReadonlyMap<string, DetachedSubagentStep>
+>(new Map());
 
 export function commandForPermissionDenial(
   denial: { toolUseId?: string },

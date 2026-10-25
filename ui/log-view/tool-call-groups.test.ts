@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
 import {
   commandForPermissionDenial,
+  detachedSubagentSteps,
   findRawToolCallGroups,
   liveTailEntryIds,
   MAX_LIVE_TAIL_ENTRIES,
@@ -199,5 +200,100 @@ describe("permission-denied command recovery", () => {
       commandForPermissionDenial({ toolUseId: "x" }, [call("a")]),
     ).toBeNull();
     expect(commandForPermissionDenial({}, [call("a")])).toBeNull();
+  });
+});
+
+describe("detached subagent steps", () => {
+  // The call that starts a subagent (Claude's Agent tool) and one step of it.
+  function start(id: string, background: boolean) {
+    return entry(id, "tool_call", "Agent", {
+      toolId: `${id}-tool`,
+      input: {
+        description: "Submit the listing",
+        run_in_background: background,
+      },
+    });
+  }
+  function step(e: LogEntry, parent: string): LogEntry {
+    e.metadata!.subagent = {
+      parentToolUseId: `${parent}-tool`,
+      type: "general-purpose",
+      description: "Submit the listing",
+    };
+    return e;
+  }
+  const member = (id: string) => entry(id, "user_message", "go on");
+  const steps = (entries: LogEntry[]) =>
+    detachedSubagentSteps(entries, findRawToolCallGroups(entries));
+
+  test("only steps after a member message that came after the starting call are detached", () => {
+    const entries = [
+      member("u0"),
+      start("agent", true),
+      result("agent-r", "agent"),
+      step(call("s0"), "agent"),
+      step(result("s0-r", "s0"), "agent"),
+      step(call("s1"), "agent"),
+      member("u1"),
+      // The incident: the result of a call made before u1 lands after it.
+      step(result("s1-r", "s1", true), "agent"),
+      // Two later steps fold into one raw group: both carry the state.
+      step(call("s2"), "agent"),
+      step(result("s2-r", "s2"), "agent"),
+      step(call("s3"), "agent"),
+      step(result("s3-r", "s3"), "agent"),
+    ];
+    const groups = findRawToolCallGroups(entries);
+    expect(groups.map((g) => g.entries.map((e) => e.id))).toContainEqual([
+      "s2",
+      "s3",
+    ]);
+    const map = detachedSubagentSteps(entries, groups);
+    const detached = { target: "agent", background: true };
+    expect(map.get("s1-r")).toEqual(detached);
+    expect(map.get("s2")).toEqual(detached);
+    expect(map.get("s3")).toEqual(detached);
+    // u0 sits before the starting call, so it separates nothing.
+    for (const id of ["s0", "s0-r", "s1", "agent", "u1"]) {
+      expect(map.has(id)).toBe(false);
+    }
+  });
+
+  test("a foreground subagent whose turn took a steer is detached, not background", () => {
+    const entries = [
+      start("agent", false),
+      member("steer"),
+      step(call("s1"), "agent"),
+    ];
+    expect(steps(entries).get("s1")).toEqual({
+      target: "agent",
+      background: false,
+    });
+  });
+
+  test("a starting call hidden in a collapsed group jumps to the group", () => {
+    const entries = [
+      call("a"),
+      result("a-r", "a"),
+      start("agent", true),
+      result("agent-r", "agent"),
+      member("u1"),
+      step(call("s1"), "agent"),
+    ];
+    const groups = findRawToolCallGroups(entries);
+    expect(groups.map((g) => g.entries.map((e) => e.id))).toEqual([
+      ["a", "agent"],
+    ]);
+    expect(detachedSubagentSteps(entries, groups).get("s1")).toEqual({
+      target: "a",
+      background: true,
+    });
+    // Without the group (a live tail, say) the call itself is the target.
+    expect(detachedSubagentSteps(entries, []).get("s1")?.target).toBe("agent");
+  });
+
+  test("a step whose starting call is not in the chat is not detached", () => {
+    const entries = [member("u1"), step(call("s1"), "agent")];
+    expect(steps(entries).size).toBe(0);
   });
 });
