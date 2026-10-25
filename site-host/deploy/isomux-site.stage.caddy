@@ -1,0 +1,44 @@
+# /etc/wg-caddy/isomux-site.caddy on a stage install (the DNS cut-over replaces it with
+# isomux-site.caddy). Cloudflare proxies stage.isomux.com with SSL full (strict), so the
+# origin needs a real certificate: ACME over HTTP-01, as for the production names.
+# Plain HTTP gets a 308 to HTTPS, as on isomux.com (isomux-site.caddy).
+http://stage.isomux.com {
+	redir https://stage.isomux.com{uri} 308
+}
+
+stage.isomux.com {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+	encode zstd gzip
+	header X-Robots-Tag "noindex, nofollow, noarchive"
+	request_body {
+		max_size 1MiB
+	}
+	reverse_proxy unix//run/isomux-site/site.sock {
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-Proto https
+		flush_interval -1
+		lb_try_duration 15s
+		lb_try_interval 250ms
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 70s
+		}
+	}
+	log {
+		output file /var/log/wg-caddy/isomux-site-access.json {
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format filter {
+			wrap json
+			fields {
+				request delete
+			}
+		}
+	}
+}

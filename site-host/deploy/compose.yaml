@@ -1,0 +1,86 @@
+# isomux.com on the shared VPS (~/nil/self-host-playbook.md on the office box; the
+# model is nilmamano.com's ops/self-host/compose.yaml). auto-deploy.sh runs it as:
+#   docker compose -p isomux-site -f /opt/isomux-site/compose.yaml --env-file /opt/isomux-site/release.env up -d --wait
+# release.env holds ISOMUX_SITE_IMAGE=ghcr.io/nmamano/isomux-site@sha256:<digest>
+# (auto-deploy.sh rewrites it) and ISOMUX_SITE_UID / ISOMUX_SITE_GID, the dedicated
+# system user both containers run as (set once by hand; auto-deploy.sh keeps them).
+# Compose refuses to start without them.
+#
+# Networks: the site container is only on `egress`, an internal network (no route out),
+# shared with the allowlist proxy. Caddy on the host reaches the site through the Unix
+# socket in /run/isomux-site (isomux-site.tmpfiles.conf: 0755; server.ts makes the
+# socket 0666), so no port is published. Only the proxy is also on `outbound`, and it
+# opens tunnels only to EGRESS_ALLOW.
+name: isomux-site
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  user: "${ISOMUX_SITE_UID:?set in release.env}:${ISOMUX_SITE_GID:?set in release.env}"
+  restart: unless-stopped
+  tmpfs: ["/tmp:size=64m"]
+  logging:
+    driver: local
+    options:
+      max-size: 20m
+      max-file: "5"
+
+services:
+  site:
+    <<: *hardening
+    image: ${ISOMUX_SITE_IMAGE:?set in release.env}
+    command:
+      ["bun", "site-host/server.ts", "--socket", "/run/isomux-site/site.sock"]
+    # ANTHROPIC_API_KEY, DISCORD_WEBHOOK_URL (root-only, 0600). Without the key the
+    # chat's call to the Anthropic API fails; the pages do not need either.
+    env_file: /etc/isomux-site/site.env
+    environment:
+      HTTPS_PROXY: http://egress:3128
+      HTTP_PROXY: http://egress:3128
+      NO_PROXY: 127.0.0.1,localhost
+    volumes:
+      - type: bind
+        source: /run/isomux-site
+        target: /run/isomux-site
+    networks: [egress]
+    depends_on:
+      egress:
+        condition: service_healthy
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    # The image's HEALTHCHECK fetches /robots.txt on 127.0.0.1:3000 inside the container.
+
+  egress:
+    <<: *hardening
+    # The same image and digest as the site: one artifact to pin and roll back.
+    image: ${ISOMUX_SITE_IMAGE:?set in release.env}
+    command: ["bun", "site-host/deploy/egress-proxy.ts"]
+    environment:
+      # The chat calls the Anthropic API and posts to a Discord webhook.
+      EGRESS_ALLOW: api.anthropic.com:443,discord.com:443
+      EGRESS_PORT: "3128"
+    networks: [egress, outbound]
+    cpus: 0.25
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 64
+    # Replaces the image's health check, which asks for the site on port 3000.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "require('node:net').connect(3128, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  egress:
+    internal: true
+  outbound: {}

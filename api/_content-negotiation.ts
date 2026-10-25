@@ -36,6 +36,8 @@ function quality(
   return { q: best, order: bestOrder };
 }
 
+// The Cloudflare cache rule (site-host/deploy/README.md) caches only the Accept
+// values that get HTML here; site-host/deploy/cache-rule.test.ts holds them.
 export function negotiate(accept: string | null): Representation | null {
   if (!accept) return "text/html";
   const markdown = quality(accept, "text/markdown");

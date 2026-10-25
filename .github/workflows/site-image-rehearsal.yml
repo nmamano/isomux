@@ -1,0 +1,65 @@
+name: Site image rehearsal
+
+# Rehearsal images for the isomux.com deploy on the VPS (site-host/deploy/), run by
+# hand. They never move the main tag. Each is one layer on the image main points to,
+# so it has its own digest and a tick that follows it deploys it:
+#   rehearsal-good  main's image with only a label added: a deploy of it succeeds
+#   rehearsal-bad   main's image with a health check that always fails: a deploy of it
+#                   must roll back by itself
+# The VPS follows one of them when ISOMUX_SITE_TAG names it in
+# /etc/isomux-site/auto-deploy.env. The order: good (deployed), bad (rolled back to
+# good), then no ISOMUX_SITE_TAG (deployed back to main). site-host/deploy/README.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Rehearsal tag to push (main is never changed)
+        type: choice
+        options: [rehearsal-good, rehearsal-bad]
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-image-rehearsal
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/nmamano/isomux-site
+
+jobs:
+  rehearsal:
+    if: github.repository == 'nmamano/isomux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # One layer on the exact main digest: the same site and commit label. For
+      # rehearsal-bad the health check fails, so `compose up --wait` fails and
+      # auto-deploy.sh rolls back.
+      - name: Build the rehearsal image from the main image
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            rehearsal-good) healthcheck='' ;;
+            rehearsal-bad) healthcheck='HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=2 CMD ["bun", "-e", "process.exit(1)"]' ;;
+            *) echo "Not a rehearsal tag: $TAG"; exit 1 ;;
+          esac
+          digest=$(docker buildx imagetools inspect "$IMAGE:main" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s\n' "FROM $IMAGE@$digest" "$healthcheck" "LABEL com.isomux.rehearsal=${TAG#rehearsal-}" |
+            docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+              -t "$IMAGE:$TAG" --push -
+
+      - name: Log out
+        if: always()
+        run: docker logout ghcr.io

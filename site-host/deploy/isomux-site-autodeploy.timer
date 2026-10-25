@@ -1,0 +1,10 @@
+# isomux.com: run the automatic deploy five minutes after the last tick ends.
+[Unit]
+Description=Deploy isomux.com from its GHCR main tag every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -9,6 +9,7 @@ COPY node_modules/path-to-regexp-6 ./node_modules/path-to-regexp-6
 COPY vercel.json middleware.ts ./
 COPY api ./api
 COPY site-host/server.ts ./site-host/server.ts
+COPY site-host/deploy/egress-proxy.ts ./site-host/deploy/egress-proxy.ts
 COPY site ./site
 USER bun
 EXPOSE 3000

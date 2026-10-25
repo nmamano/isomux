@@ -40,8 +40,8 @@ jobs:
       - name: Build the site
         run: bun install --frozen-lockfile && bun run build:demo && bun run build:docs
 
-      - name: Test the site server and the chat
-        run: bun test ./site-host/server.test.ts ./api/_*.test.ts
+      - name: Test the site server, the chat and the egress proxy
+        run: bun test ./site-host/server.test.ts ./site-host/deploy/egress-proxy.test.ts ./api/_*.test.ts
 
       # The key covers the built files the image copies (site-host/Dockerfile.dockerignore),
       # so a change anywhere that the build reads is seen. A build that is not
@@ -49,7 +49,7 @@ jobs:
       - name: Key the image inputs
         id: key
         run: |
-          key=$(find site api middleware.ts vercel.json site-host/server.ts site-host/Dockerfile site-host/Dockerfile.dockerignore node_modules/path-to-regexp-6 -type f ! -name '_*.test.ts' -print0 \
+          key=$(find site api middleware.ts vercel.json site-host/server.ts site-host/deploy/egress-proxy.ts site-host/Dockerfile site-host/Dockerfile.dockerignore node_modules/path-to-regexp-6 -type f ! -name '_*.test.ts' -print0 \
             | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-32)
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
