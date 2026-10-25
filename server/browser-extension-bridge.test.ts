@@ -2305,3 +2305,251 @@ describe("office gate", () => {
     }
   });
 });
+
+// Chrome keeps auto-attach on (waitForDebuggerOnStart) after a retained
+// client leaves, and it announces an auto-attached frame only once per
+// debugger session. The bridge resumes the frames nobody else will resume
+// and announces earlier frames to each client, as Chrome does for a new one.
+describe("child frames across clients", () => {
+  type H = Awaited<ReturnType<typeof harness>>;
+  type Client = ReturnType<H["connection"]["assign"]>;
+  const frameInfo = (targetId: string) => ({
+    targetId,
+    type: "iframe",
+    parentFrameId: "owned",
+    parentId: "owned",
+    url: "",
+    title: "",
+    attached: true,
+  });
+  const attachChild = (
+    h: H,
+    child: string,
+    waiting: boolean,
+    parent?: string,
+  ) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method: "Target.attachedToTarget",
+      ...(parent ? { sessionId: parent } : {}),
+      params: {
+        sessionId: child,
+        targetInfo: frameInfo(`${child}-target`),
+        waitingForDebugger: waiting,
+      },
+    });
+  const detachChild = (h: H, child: string) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method: "Target.detachedFromTarget",
+      params: { sessionId: child, targetId: `${child}-target` },
+    });
+  // Bridge-side resumes and client resumes both reach the extension.
+  const resumes = (h: H) =>
+    h.extension.messages
+      .filter(
+        (m) =>
+          m.method === "cdp" &&
+          fields(m.params).method === "Runtime.runIfWaitingForDebugger",
+      )
+      .map((m) => fields(m.params).sessionId);
+  const announced = (client: ReturnType<typeof peer>) =>
+    client.messages
+      .filter(
+        (m) =>
+          m.method === "Target.attachedToTarget" &&
+          fields(fields(m.params).targetInfo).type === "iframe",
+      )
+      .map((m) => ({
+        parent: m.sessionId,
+        child: fields(m.params).sessionId,
+        targetInfo: fields(m.params).targetInfo,
+        waiting: fields(m.params).waitingForDebugger,
+      }));
+  const lastCdp = async (h: H, method: string) => {
+    for (let i = 0; i < 20; i++) {
+      const command = h.extension.messages.at(-1);
+      if (command?.method === "cdp" && fields(command.params).method === method)
+        return command;
+      await Promise.resolve();
+    }
+    throw new Error(`${method} did not reach the extension`);
+  };
+  const result = (h: H, command: Fields) =>
+    h.connection.receive({
+      kind: "result",
+      generation: h.connection.generation,
+      id: command.id,
+      result: {},
+    });
+  // Playwright turns auto-attach on for each frame session it opens. The
+  // optional hooks deliver extension traffic before the result (Chrome
+  // announces existing frames first) and right after it.
+  const autoAttach = async (
+    h: H,
+    client: Client,
+    sessionId: unknown,
+    hooks: { before?: () => void; after?: () => void } = {},
+  ) => {
+    const work = client.receive({
+      id: 900,
+      sessionId,
+      method: "Target.setAutoAttach",
+      params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
+    });
+    const command = await lastCdp(h, "Target.setAutoAttach");
+    expect(fields(command.params).sessionId ?? sessionId).toBe(sessionId);
+    hooks.before?.();
+    result(h, command);
+    hooks.after?.();
+    await work;
+  };
+
+  test("a frame that starts while no client is connected is resumed when it waits", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h);
+      await autoAttach(h, h.agent, sessionId);
+      h.agent.close();
+      expect(h.connection.offered("agent")).toBe(assignment);
+      attachChild(h, "waiting", true);
+      attachChild(h, "running", false);
+      attachChild(h, "nested", true, "waiting");
+      expect(resumes(h)).toEqual(["waiting", "nested"]);
+      expect(h.client.messages.some((m) => m.method === "cdp")).toBe(false);
+      // The resume is outside the action fence: an unanswered one does not
+      // block the next client, and its late result changes nothing.
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      const nextPeer = peer();
+      h.connection.assign("agent", nextPeer, true);
+      const [first] = h.extension.messages.filter(
+        (m) =>
+          m.method === "cdp" &&
+          fields(m.params).method === "Runtime.runIfWaitingForDebugger",
+      );
+      result(h, first);
+      expect(nextPeer.closed).toBe(false);
+      expect(nextPeer.messages).toEqual([]);
+      expect(h.connection.offered("agent")).toBe(assignment);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a retained client's close resumes only the frames it left waiting", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId } = await create(h);
+      await autoAttach(h, h.agent, sessionId);
+      attachChild(h, "left", true);
+      attachChild(h, "resumed", true);
+      attachChild(h, "running", false);
+      expect(announced(h.client).map((a) => a.child)).toEqual([
+        "left",
+        "resumed",
+        "running",
+      ]);
+      // A connected client resumes its own frames.
+      expect(resumes(h)).toEqual([]);
+      const work = h.agent.receive({
+        id: 5,
+        sessionId: "resumed",
+        method: "Runtime.runIfWaitingForDebugger",
+        params: {},
+      });
+      result(h, await lastCdp(h, "Runtime.runIfWaitingForDebugger"));
+      await work;
+      expect(resumes(h)).toEqual(["resumed"]);
+      h.agent.close();
+      expect(resumes(h)).toEqual(["resumed", "left"]);
+      h.agent.close();
+      expect(resumes(h)).toEqual(["resumed", "left"]);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a later client learns each earlier frame once, on auto-attach of its parent", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId } = await create(h);
+      await autoAttach(h, h.agent, sessionId);
+      attachChild(h, "frame", true);
+      await autoAttach(h, h.agent, "frame");
+      attachChild(h, "nested", false, "frame");
+      h.agent.close();
+      attachChild(h, "gone", false);
+      detachChild(h, "gone");
+
+      const nextPeer = peer();
+      const next = h.connection.assign("agent", nextPeer, true);
+      await next.receive({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      expect(
+        nextPeer.messages.some((m) => m.method === "Target.attachedToTarget"),
+      ).toBe(true);
+      expect(announced(nextPeer)).toEqual([]);
+
+      await autoAttach(h, next, sessionId);
+      // Chrome's own targetInfo, with the parentFrameId Playwright places the
+      // frame by, and the frame's waiting state now: the close resumed it.
+      expect(announced(nextPeer)).toEqual([
+        {
+          parent: sessionId,
+          child: "frame",
+          targetInfo: frameInfo("frame-target"),
+          waiting: false,
+        },
+      ]);
+      await autoAttach(h, next, sessionId);
+      expect(announced(nextPeer)).toHaveLength(1);
+
+      await autoAttach(h, next, "frame");
+      await autoAttach(h, next, "frame");
+      expect(announced(nextPeer).map((a) => [a.parent, a.child])).toEqual([
+        [sessionId, "frame"],
+        ["frame", "nested"],
+      ]);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a frame that attaches before the client turns on auto-attach is held, then announced once", async () => {
+    const h = await harness();
+    try {
+      const { sessionId } = await create(h);
+      attachChild(h, "early", true);
+      expect(announced(h.client)).toEqual([]);
+      // The client is connected, so the frame is its to resume.
+      expect(resumes(h)).toEqual([]);
+      await autoAttach(h, h.agent, sessionId, {
+        before: () => attachChild(h, "existing", false),
+        after: () => attachChild(h, "racing", false),
+      });
+      const first = announced(h.client);
+      expect(first.map((a) => a.child).sort()).toEqual([
+        "early",
+        "existing",
+        "racing",
+      ]);
+      expect(first.every((a) => a.parent === sessionId)).toBe(true);
+      expect(first.find((a) => a.child === "early")!.waiting).toBe(true);
+      attachChild(h, "live", true);
+      expect(announced(h.client).map((a) => a.child)).toHaveLength(4);
+      expect(announced(h.client).at(-1)!.child).toBe("live");
+      await autoAttach(h, h.agent, sessionId);
+      expect(announced(h.client)).toHaveLength(4);
+      expect(resumes(h)).toEqual([]);
+    } finally {
+      h.connection.close();
+    }
+  });
+});

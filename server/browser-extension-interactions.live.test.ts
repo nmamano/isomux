@@ -25,6 +25,7 @@ async function withOfferedTab(
     act: (body: Record<string, unknown>) => Promise<Timed>;
     setupPage: Page;
     closeSetup: () => Promise<void>;
+    stopClient: () => void;
   }) => Promise<void>,
   deadlineMs = 5000,
 ) {
@@ -109,6 +110,8 @@ async function withOfferedTab(
       setupPage: offered,
       // The setup client is a second CDP client on the offered page.
       closeSetup: () => setupBrowser.close(),
+      // Ends the agent's CDP client; the grant stays, as at a session end.
+      stopClient: () => owned.stop(),
       act: async (body) => {
         const started = performance.now();
         const result = await owned.run("fixture-agent", body);
@@ -859,4 +862,104 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     );
   },
   120_000,
+);
+
+const FRAME_TEXT = "Cross-site frame content";
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a cross-site frame stays readable and rendered across agent client sessions",
+  async () => {
+    await withOfferedTab(
+      (url) => {
+        const frame = `http://localhost:${url.port}/frame`;
+        return html(
+          url.pathname === "/frame"
+            ? `<p>${FRAME_TEXT}</p>`
+            : url.pathname === "/present"
+              ? `<main>Shell</main><iframe src="${frame}"></iframe>`
+              : url.pathname === "/later"
+                ? `<main>Shell</main><script>setTimeout(() => { const f = document.createElement("iframe"); f.src = ${JSON.stringify(frame)}; document.querySelector("main").append(f); }, 1500)</script>`
+                : "<title>Start</title>",
+        );
+      },
+      async ({ origin, act, setupPage, stopClient }) => {
+        const { ok } = expectations(act);
+        // Counts closes of the agent's bridge clients.
+        let closes = 0;
+        const prototype = ExtensionConnection.prototype as unknown as {
+          assign: (...args: unknown[]) => { close(): void };
+        };
+        const original = prototype.assign;
+        const assign = spyOn(prototype, "assign").mockImplementation(function (
+          this: unknown,
+          ...args: unknown[]
+        ) {
+          const client = original.apply(this, args);
+          return {
+            ...client,
+            close() {
+              closes++;
+              client.close();
+            },
+          };
+        });
+        const waitFor = async (
+          check: () => boolean | Promise<boolean>,
+          what: string,
+        ) => {
+          const deadline = Date.now() + 8000;
+          while (!(await check())) {
+            if (Date.now() >= deadline) throw new Error(`Timed out: ${what}`);
+            await Bun.sleep(100);
+          }
+        };
+        const endClient = async () => {
+          const before = closes;
+          stopClient();
+          await waitFor(() => closes > before, "agent client closed");
+        };
+        try {
+          // A frame that attached under an earlier client.
+          ok(await act({ action: "goto", url: `${origin}/present` }));
+          await waitFor(
+            async () =>
+              ok(await act({ action: "text" })).text!.includes(FRAME_TEXT),
+            "first client reads the frame",
+          );
+          await endClient();
+          const again = ok(await act({ action: "text" })).text!;
+          expect(again).toContain("framePath=[0]");
+          expect(again).toContain(FRAME_TEXT);
+          expect(
+            ok(await act({ action: "text", framePath: [0] })).text,
+          ).toContain(FRAME_TEXT);
+
+          // A frame that starts while no agent client is connected.
+          ok(await act({ action: "goto", url: `${origin}/later` }));
+          await endClient();
+          expect(setupPage.frames()).toHaveLength(1);
+          await waitFor(
+            () => setupPage.frames().length === 2,
+            "frame inserted",
+          );
+          // The member's page renders it: nobody left it waiting.
+          await waitFor(
+            async () =>
+              (
+                await setupPage
+                  .frames()[1]
+                  .locator("body")
+                  .innerText({ timeout: 500 })
+                  .catch(() => "")
+              ).includes(FRAME_TEXT),
+            "frame renders for the member",
+          );
+          expect(ok(await act({ action: "text" })).text).toContain(FRAME_TEXT);
+        } finally {
+          assign.mockRestore();
+        }
+      },
+    );
+  },
+  60_000,
 );

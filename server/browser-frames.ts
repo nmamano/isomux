@@ -4,6 +4,21 @@ export const MAX_FRAME_DEPTH = 8;
 const MAX_READ_FRAMES = 64;
 /** Replaces the value of a password field in a snapshot. */
 export const PASSWORD_MASK = "[password masked]";
+const CHILD_READ_MS = 1500;
+
+// The marker names the class of failure only: an error message can carry
+// page content.
+function unreadFrame(frame: Frame, error: unknown): string {
+  if (error instanceof Error && error.name === "TimeoutError")
+    return "[frame not read: no answer in time; read it alone with framePath]";
+  if (
+    frame.isDetached() ||
+    (error instanceof Error &&
+      error.message.includes("Execution context was destroyed"))
+  )
+    return "[frame not read: it closed or navigated; read again]";
+  return "[frame not read: the read failed]";
+}
 
 // Paths describe the current frame tree, not a persistent frame identity.
 export function resolveBrowserFrame(root: Frame, path: number[]): Frame {
@@ -66,7 +81,7 @@ export async function readBrowserFrames(
       if (frame.isDetached()) throw new Error("Detached frame");
       const remaining = Math.max(1, deadline - Date.now());
       const options = {
-        timeout: path.length ? Math.min(1500, remaining) : remaining,
+        timeout: path.length ? Math.min(CHILD_READ_MS, remaining) : remaining,
       };
       const body = frame.locator(scope?.selector ?? "body");
       append(
@@ -81,7 +96,7 @@ export async function readBrowserFrames(
       );
     } catch (error) {
       if (!path.length) throw error;
-      append("[frame unavailable]");
+      append(unreadFrame(frame, error));
     }
   }
   if (omitted) append("\n[additional frames omitted]");

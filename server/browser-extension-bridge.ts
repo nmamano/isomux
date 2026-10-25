@@ -63,7 +63,7 @@ type Assignment = {
   browserSession: string;
   peer: BridgePeer;
   target?: Fields;
-  children: Map<string, string>;
+  children: Map<string, ChildFrame>;
   popups: Map<string, Fields>;
   leafTargetId?: string;
   // The office gate (browser-office-gate.ts). The offer origin is pinned at the
@@ -75,12 +75,26 @@ type Assignment = {
   creating: boolean;
   connected: boolean;
   announced: boolean;
+  // Sessions whose Target.setAutoAttach the current client got a result for.
+  autoAttached: Set<string>;
   closed: boolean;
   recovery?: {
     done: Promise<void>;
     finish(): void;
     timer: ReturnType<typeof setTimeout>;
   };
+};
+
+// An iframe session. parent is the session its attach came on. Chrome holds a
+// new frame until a client resumes it, and announces a frame only once per
+// debugger session, so the bridge resumes a frame no client will resume and
+// announces each frame to each client, as Chrome does: only once the client
+// has turned on auto-attach for the parent.
+type ChildFrame = {
+  targetInfo: Fields;
+  parent: string;
+  waiting: boolean;
+  deliveredTo?: BridgePeer;
 };
 
 type BrowserTab = {
@@ -288,6 +302,19 @@ export class ExtensionConnection {
     const page = a.pages.get(key);
     if (!page || page.gated) return;
     page.gated = true;
+    this.unfenced(a, "Page.stopLoading", key);
+  }
+
+  // A frame that waits for a client no client will resume stays blank, on the
+  // member's screen as in every read. Like a stop, outside the action fence.
+  private resumeChild(a: Assignment, key: string): void {
+    const child = a.children.get(key);
+    if (!child?.waiting) return;
+    child.waiting = false;
+    this.unfenced(a, "Runtime.runIfWaitingForDebugger", key);
+  }
+
+  private unfenced(a: Assignment, method: string, key: string): void {
     if (!this.active || a.closed || a.recovery) return;
     try {
       this.peer.send({
@@ -297,13 +324,32 @@ export class ExtensionConnection {
         assignment: a.id,
         method: "cdp",
         params: {
-          method: "Page.stopLoading",
+          method,
           params: {},
           ...(key === a.session ? {} : { sessionId: key }),
         },
       });
     } catch {
       this.close();
+    }
+  }
+
+  // The frames under a session the client now auto-attaches that it has not
+  // seen: earlier frames, and attaches held until now.
+  private announceChildren(a: Assignment, parent: string): void {
+    a.autoAttached.add(parent);
+    for (const [sessionId, child] of a.children) {
+      if (child.parent !== parent || child.deliveredTo === a.peer) continue;
+      child.deliveredTo = a.peer;
+      a.peer.send({
+        method: "Target.attachedToTarget",
+        params: {
+          sessionId,
+          targetInfo: { ...child.targetInfo, attached: true },
+          waitingForDebugger: child.waiting,
+        },
+        sessionId: parent,
+      });
     }
   }
 
@@ -411,6 +457,7 @@ export class ExtensionConnection {
     assignment.peer = peer;
     assignment.connected = true;
     assignment.announced = false;
+    assignment.autoAttached = new Set();
     return {
       receive: (message) =>
         assignment.peer === peer && assignment.connected
@@ -424,6 +471,8 @@ export class ExtensionConnection {
         }
         assignment.connected = false;
         assignment.peer = { send() {}, close() {} };
+        for (const key of assignment.children.keys())
+          this.resumeChild(assignment, key);
       },
     };
   }
@@ -552,6 +601,7 @@ export class ExtensionConnection {
       creating: true,
       connected: false,
       announced: false,
+      autoAttached: new Set(),
       closed: false,
     };
     this.assignments.set(id, a);
@@ -737,7 +787,9 @@ export class ExtensionConnection {
       (a) =>
         a.target?.targetId === targetId ||
         [...a.popups.values()].some((t) => t.targetId === targetId) ||
-        [...a.children.values()].includes(targetId),
+        [...a.children.values()].some(
+          (child) => child.targetInfo.targetId === targetId,
+        ),
     );
   }
 
@@ -925,15 +977,28 @@ export class ExtensionConnection {
           )
         )
           throw new Error("Invalid child target");
-        a.children.set(params.sessionId, info.targetId);
+        const parent = child ?? a.session;
+        const frame: ChildFrame = {
+          targetInfo: info,
+          parent,
+          waiting: params.waitingForDebugger === true,
+        };
+        a.children.set(params.sessionId, frame);
         a.childPages.set(params.sessionId, page);
-      } else if (msg.method === "Target.detachedFromTarget") {
-        if (
-          typeof params.sessionId !== "string" ||
-          !a.children.delete(params.sessionId)
-        )
+        // Held until the client auto-attaches the parent; with no client,
+        // nobody else resumes the frame.
+        if (!a.connected || !a.autoAttached.has(parent)) {
+          if (!a.connected) this.resumeChild(a, params.sessionId);
           return;
+        }
+        frame.deliveredTo = a.peer;
+      } else if (msg.method === "Target.detachedFromTarget") {
+        if (typeof params.sessionId !== "string") return;
+        const frame = a.children.get(params.sessionId);
+        if (!frame) return;
+        a.children.delete(params.sessionId);
         a.childPages.delete(params.sessionId);
+        if (frame.deliveredTo !== a.peer) return;
       } else if (msg.method.startsWith("Target.")) return;
       a.peer.send({
         method: msg.method,
@@ -1063,6 +1128,21 @@ export class ExtensionConnection {
       throw new Error("Unsupported page command");
     this.officeCommand(a, method, params, sessionId);
     const target = sessionId === a.session ? undefined : sessionId;
+    if (method === "Runtime.runIfWaitingForDebugger") {
+      const child = a.children.get(sessionId);
+      if (child) child.waiting = false;
+    }
+    if (method === "Target.setAutoAttach") {
+      const peer = a.peer;
+      const result = await this.request(a, "cdp", {
+        method,
+        params,
+        sessionId: target,
+      });
+      // In the same step as the result, so no attach falls in between.
+      if (a.peer === peer && a.connected) this.announceChildren(a, sessionId);
+      return result;
+    }
     if (method === "Page.getFrameTree" && !a.children.has(sessionId)) {
       // A new client's first look at a page that may have committed while no
       // client watched.

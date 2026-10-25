@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from "bun:test";
-import type { Frame } from "playwright-core";
+import { errors, type Frame } from "playwright-core";
 import {
   PASSWORD_MASK,
   readBrowserFrames,
@@ -82,6 +82,70 @@ test("unavailable frames keep readable siblings and hide exception content", asy
   expect(read).toContain("framePath=[2]");
   expect(read).not.toContain("private exception content");
   expect(read).not.toContain("Detached");
+});
+
+// A frame read fails for one of three reasons the agent can act on: it ran
+// out of time (read the frame alone), the frame closed or navigated away
+// (read again), or something else. The marker names the class only.
+test("an unavailable frame names its reason class without exception content", async () => {
+  const failing = (
+    error: () => Error,
+    detachedAfter = false,
+    detachedBefore = false,
+  ) => {
+    let failed = false;
+    const fail = async () => {
+      failed = true;
+      throw error();
+    };
+    const child = frame("unused");
+    child.isDetached = () => detachedBefore || (detachedAfter && failed);
+    child.locator = (selector: string) =>
+      (selector === PASSWORD_FIELDS
+        ? noPasswordFields
+        : { innerText: fail, ariaSnapshot: fail }) as unknown as ReturnType<
+        Frame["locator"]
+      >;
+    return child;
+  };
+  const timeout = () => new errors.TimeoutError("private timeout content");
+  const children = {
+    timeout: failing(timeout),
+    secondTimeout: failing(timeout),
+    closedDuringRead: failing(() => new Error("private closed content"), true),
+    closedBeforeRead: failing(() => new Error("unused"), false, true),
+    navigated: failing(
+      () =>
+        new Error(
+          "Execution context was destroyed, most likely because of a navigation",
+        ),
+    ),
+    other: failing(() => new Error("private other content")),
+  };
+  const names = Object.keys(children);
+  const root = frame("Shell", Object.values(children));
+  for (const action of ["text", "snapshot"] as const) {
+    const read = await readBrowserFrames(root, action, 20_000, 1000);
+    expect(read).not.toContain("private");
+    const marker = Object.fromEntries(
+      names.map((name, index) => [
+        name,
+        read
+          .split(`--- Frame framePath=[${index}] ---\n`)[1]
+          .split("\n\n--- Frame")[0],
+      ]),
+    );
+    expect(marker.secondTimeout).toBe(marker.timeout);
+    expect(marker.closedBeforeRead).toBe(marker.closedDuringRead);
+    expect(marker.navigated).toBe(marker.closedDuringRead);
+    expect(
+      new Set([marker.timeout, marker.closedDuringRead, marker.other]).size,
+    ).toBe(3);
+    // A slow frame gets the whole budget when read alone.
+    expect(marker.timeout).toContain("framePath");
+    for (const value of Object.values(marker))
+      expect(value.trim()).not.toBe("");
+  }
 });
 
 test("one output budget covers root, frame boundaries and child content", async () => {
