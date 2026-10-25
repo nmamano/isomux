@@ -30,6 +30,7 @@ import {
   TLSSocket,
   type SecureContext,
 } from "node:tls";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Readable, type Duplex } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
@@ -75,6 +76,9 @@ export interface ProxySnapshot {
   // The server's own company proxy (HTTPS_PROXY), chained for every
   // upstream connection unless `noProxy` matches the host.
   upstreamProxy: { url: string; noProxy: string } | null;
+  // The password a client must send in Proxy-Authorization (Basic) on every
+  // CONNECT (placeholders.ts, proxyClientToken).
+  clientToken: string;
 }
 
 // Seams for tests. The production child (main.ts) passes none.
@@ -197,11 +201,16 @@ function parseAuthority(
   return { host: host.toLowerCase(), port };
 }
 
-function errorResponse(status: number, text: string): Buffer {
+function errorResponse(
+  status: number,
+  text: string,
+  extra: HeaderList = [],
+): Buffer {
   const reasons: Record<number, string> = {
     400: "Bad Request",
     403: "Forbidden",
     405: "Method Not Allowed",
+    407: "Proxy Authentication Required",
     421: "Misdirected Request",
     431: "Request Header Fields Too Large",
     501: "Not Implemented",
@@ -214,6 +223,7 @@ function errorResponse(status: number, text: string): Buffer {
       ["Content-Type", "text/plain; charset=utf-8"],
       ["Content-Length", String(body.length)],
       ["Connection", "close"],
+      ...extra,
     ]),
     body,
   ]);
@@ -732,6 +742,21 @@ async function serveTerminated(
 
 // --- the listener ---
 
+const digest = (text: string) => createHash("sha256").update(text).digest();
+
+// One Proxy-Authorization header, Basic, whose password is the office's
+// client token. The user name is not checked.
+function authorized(headers: HeaderList, token: string): boolean {
+  const values = headerValues(headers, "proxy-authorization");
+  if (values.length !== 1) return false;
+  const [scheme, encoded = ""] = values[0].trim().split(/\s+/, 2);
+  if (scheme.toLowerCase() !== "basic") return false;
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const colon = decoded.indexOf(":");
+  if (colon < 0) return false;
+  return timingSafeEqual(digest(decoded.slice(colon + 1)), digest(token));
+}
+
 export interface SecretProxy {
   update(snapshot: ProxySnapshot): void;
   listen(port: number): Promise<number>;
@@ -764,6 +789,17 @@ export function createSecretProxy(
       return;
     }
     if (!head) return void socket.end();
+    // Before anything else: another OS user on the box reaches this port too,
+    // and must get neither a tunnel nor the company proxy's login. No log
+    // line: git sends its first CONNECT without the password on purpose.
+    if (!authorized(head.headers, state.snapshot.clientToken))
+      return void socket.end(
+        errorResponse(
+          407,
+          "the secret proxy needs the password in HTTPS_PROXY",
+          [["Proxy-Authenticate", 'Basic realm="isomux"']],
+        ),
+      );
     const start = /^([^ ]+) ([^ ]+) HTTP\/1\.[01]$/.exec(head.startLine);
     if (!start) return refuse(400, "invalid request line");
     if (start[1] !== "CONNECT")

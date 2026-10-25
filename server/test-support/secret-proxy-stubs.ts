@@ -250,9 +250,11 @@ export async function startEchoStub() {
 }
 
 // A company proxy: answers CONNECT for the hosts in `routes` and pipes to
-// the stub port given; logs every CONNECT target.
+// the stub port given; logs every CONNECT target and the Proxy-Authorization
+// it carried.
 export async function startCompanyProxy(routes: Record<string, number>) {
   const connects: string[] = [];
+  const authorizations: (string | undefined)[] = [];
   const server = createTcpServer((socket) => {
     socket.on("error", () => {});
     const reader = new ByteReader(socket);
@@ -261,6 +263,11 @@ export async function startCompanyProxy(routes: Record<string, number>) {
       if (!head) return void socket.destroy();
       const [, target] = head.startLine.split(" ");
       connects.push(target);
+      authorizations.push(
+        head.headers.find(
+          ([name]) => name.toLowerCase() === "proxy-authorization",
+        )?.[1],
+      );
       const port = routes[target];
       if (port === undefined) {
         socket.end("HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n");
@@ -281,11 +288,22 @@ export async function startCompanyProxy(routes: Record<string, number>) {
   return {
     port,
     connects,
+    authorizations,
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
 }
 
 // --- the agent side ---
+
+// The proxy password of the test snapshots (ProxySnapshot.clientToken).
+export const TEST_CLIENT_TOKEN = "fake-proxy-client-token-0001";
+
+// The Proxy-Authorization line that an agent's HTTPS_PROXY userinfo gives.
+export function proxyBasic(token: string, user = "isomux"): string {
+  return `Proxy-Authorization: Basic ${Buffer.from(`${user}:${token}`).toString("base64")}`;
+}
+
+const AGENT_AUTH = [proxyBasic(TEST_CLIENT_TOKEN)];
 
 export interface ProxyResponse {
   status: number;
@@ -294,10 +312,12 @@ export interface ProxyResponse {
 }
 
 // CONNECT through the proxy; resolves with the raw socket after a 200, or
-// with the refusal response.
+// with the refusal response. `auth` holds the extra header lines; the default
+// is an agent's, with the test password.
 export function connectThrough(
   proxyPort: number,
   authority: string,
+  auth: string[] = AGENT_AUTH,
 ): Promise<
   { socket: Socket; reader: ByteReader } | { refused: ProxyResponse }
 > {
@@ -306,7 +326,7 @@ export function connectThrough(
   return new Promise((resolve, reject) => {
     const socket = netConnect(proxyPort, "127.0.0.1", () => {
       socket.write(
-        `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`,
+        `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n${auth.map((line) => `${line}\r\n`).join("")}\r\n`,
       );
     });
     socket.on("error", reject);
@@ -333,8 +353,9 @@ export async function tlsThrough(
   host: string,
   ca: CertificateAuthority,
   servername: string | null = host,
+  auth: string[] = AGENT_AUTH,
 ): Promise<TLSSocket> {
-  const tunnel = await connectThrough(proxyPort, `${host}:443`);
+  const tunnel = await connectThrough(proxyPort, `${host}:443`, auth);
   if ("refused" in tunnel)
     throw new Error(`CONNECT refused ${tunnel.refused.status}`);
   tunnel.reader.detach();

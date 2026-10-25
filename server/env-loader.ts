@@ -197,7 +197,14 @@ function mergeEnvForUserId(
   }
   if (secrets) {
     layer("server", secrets.fixed);
-    layer("server", gitCredentialHelpers(env, secrets.gitCredentials));
+    layer(
+      "server",
+      gitCredentialHelpers(
+        env,
+        secrets.fixed.HTTPS_PROXY,
+        secrets.gitCredentials,
+      ),
+    );
   }
   return { env, sources };
 }
@@ -208,14 +215,23 @@ function mergeEnvForUserId(
 // helper first resets the host's helper list: else the system and global
 // helpers answer first (with the member's own token), and git's store and
 // erase calls would reach them with the placeholder.
+// The proxy's address gets an empty helper list too: git hands the password
+// in HTTPS_PROXY to the helpers after each request, and a store helper would
+// keep it.
 function gitCredentialHelpers(
   env: { [key: string]: string | undefined },
+  proxy: string | undefined,
   hosts: { host: string; placeholder: string }[],
 ): Record<string, string> {
-  if (hosts.length === 0) return {};
   const added: Record<string, string> = {};
   const count = Number(env.GIT_CONFIG_COUNT ?? "0");
   let next = Number.isSafeInteger(count) && count > 0 ? count : 0;
+  if (proxy && URL.canParse(proxy)) {
+    added[`GIT_CONFIG_KEY_${next}`] =
+      `credential.${new URL(proxy).origin}.helper`;
+    added[`GIT_CONFIG_VALUE_${next}`] = "";
+    next++;
+  }
   for (const { host, placeholder } of hosts) {
     added[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
     added[`GIT_CONFIG_VALUE_${next}`] = "";
@@ -226,6 +242,7 @@ function gitCredentialHelpers(
       `!f() { test "$1" = get && printf 'username=x-access-token\\npassword=%s\\n' '${placeholder}'; }; f`;
     next++;
   }
+  if (Object.keys(added).length === 0) return {};
   added.GIT_CONFIG_COUNT = String(next);
   return added;
 }
@@ -324,8 +341,8 @@ export function environmentSourceRevisionForUserId(
     a.localeCompare(b),
   );
   const hash = createHash("sha256").update(JSON.stringify(entries));
-  // The non-value secret state, the proxy port and the git helper hosts: an
-  // add, a delete, a new placeholder, a new port, or a hosts or form edit
+  // The non-value secret state, the proxy address and the git helper hosts: an
+  // add, a delete, a new placeholder, a new proxy address, or a hosts or form edit
   // that changes the git helpers replaces the server; a value rotation does
   // not. No secret in scope: the hash is as before.
   const secrets = getSecretEnvironment(userId);

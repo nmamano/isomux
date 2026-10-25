@@ -5,6 +5,7 @@
 import { createCertificateAuthority } from "../secret-proxy/x509.ts";
 import { createProxySupervisor } from "../secret-proxy/supervisor.ts";
 import { join } from "node:path";
+import { TEST_CLIENT_TOKEN } from "./secret-proxy-stubs.ts";
 
 const ca = createCertificateAuthority();
 const supervisor = createProxySupervisor({
@@ -15,6 +16,7 @@ const supervisor = createProxySupervisor({
     caKeyPem: ca.keyPem,
     rootsPem: "",
     upstreamProxy: null,
+    clientToken: TEST_CLIENT_TOKEN,
   }),
   savedPort: null,
   onPort: () => {},

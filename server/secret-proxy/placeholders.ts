@@ -73,3 +73,11 @@ export function placeholderFor(
   const input = `${scopeId(scope)}\0${name}\0${generation}`;
   return prefix + base62(key, input, body);
 }
+
+// The proxy password that agents send in HTTPS_PROXY. The proxy refuses a
+// CONNECT without it, so another OS user on the box cannot use its tunnels or
+// the company proxy behind them. Derived from the placeholder key, so it is the
+// same across restarts and changes with the key.
+export function proxyClientToken(key: Buffer): string {
+  return createHmac("sha256", key).update("secret-proxy-client").digest("hex");
+}

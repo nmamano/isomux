@@ -4,7 +4,13 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { rootCertificates } from "node:tls";
 import { tmpdir } from "node:os";
@@ -25,6 +31,12 @@ import {
   writeManagedOfficeEnv,
   writeManagedUserEnv,
 } from "../user-env.ts";
+import {
+  connectThrough,
+  proxyBasic,
+  startCompanyProxy,
+  startEchoStub,
+} from "../test-support/secret-proxy-stubs.ts";
 import { saveProxyPort, secretMaterialPaths } from "./material.ts";
 import {
   createSecretsRuntime,
@@ -125,6 +137,13 @@ afterEach(async () => {
     rmSync(path, { recursive: true, force: true });
 });
 
+// An agent's HTTPS_PROXY without the proxy password.
+function proxyAddress(url: string | undefined) {
+  if (url === undefined) return url;
+  const parsed = new URL(url);
+  return `${parsed.protocol}//${parsed.host}`;
+}
+
 function envText(env: Record<string, string | undefined> | undefined) {
   return JSON.stringify(env ?? {});
 }
@@ -195,14 +214,19 @@ describe("an office with secrets", () => {
       GIT_CONFIG_VALUE_0: "Base Entry",
     };
     const env = buildEnvForUserId(ALICE, base)!;
-    // Per host: an empty helper that resets the list, then ours.
-    expect(env.GIT_CONFIG_COUNT).toBe("5");
+    // The proxy address gets an empty helper list; per host: an empty helper
+    // that resets the list, then ours.
+    expect(env.GIT_CONFIG_COUNT).toBe("6");
     expect(env.GIT_CONFIG_KEY_0).toBe("user.name");
     expect(env.GIT_CONFIG_VALUE_0).toBe("Base Entry");
     expect(env.GIT_CONFIG_KEY_1).toBe(
-      "credential.https://both.example-stub.test.helper",
+      `credential.${proxyAddress(env.HTTPS_PROXY)}.helper`,
     );
     expect(env.GIT_CONFIG_VALUE_1).toBe("");
+    expect(env.GIT_CONFIG_KEY_2).toBe(
+      "credential.https://both.example-stub.test.helper",
+    );
+    expect(env.GIT_CONFIG_VALUE_2).toBe("");
 
     // The helper itself, as git runs it (a "!" helper goes to the shell).
     const helper = (index: number, action: string) =>
@@ -213,12 +237,12 @@ describe("an office with secrets", () => {
           encoding: "utf8",
         },
       ).stdout;
-    expect(helper(4, "get")).toBe(
+    expect(helper(5, "get")).toBe(
       `username=x-access-token\npassword=${secrets.office.OFFICE_GIT}\n`,
     );
     expect(secrets.office.OFFICE_GIT).toStartWith("FlyV1 fm2_");
-    expect(helper(4, "store")).toBe("");
-    expect(helper(4, "erase")).toBe("");
+    expect(helper(5, "store")).toBe("");
+    expect(helper(5, "erase")).toBe("");
 
     const home = mkdtempSync(join(tmpdir(), "b3-git-helper-"));
     const fill = (host: string) =>
@@ -241,7 +265,7 @@ describe("an office with secrets", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("a scope whose secrets are all in a named header gets no git configuration", async () => {
+  test("git never stores the proxy password in a member's credential store, also for a scope with no git helper", async () => {
     await runtime.enable();
     const result = store.create(AT_BOB, {
       name: "HEADER_KEY",
@@ -251,11 +275,32 @@ describe("an office with secrets", () => {
     });
     if (!result.ok) throw new Error(`create failed: ${result.kind}`);
     await runtime.changed();
-    const env = buildEnvForUserId(BOB, { PATH: "/usr/bin" })!;
-    expect(env.HTTPS_PROXY).toBeDefined();
-    expect(Object.keys(env).filter((k) => k.startsWith("GIT_CONFIG"))).toEqual(
-      [],
-    );
+    const env = buildEnvForUserId(BOB, { PATH: process.env.PATH ?? "" })!;
+    const proxy = new URL(env.HTTPS_PROXY!);
+    const home = mkdtempSync(join(tmpdir(), "proxy-git-store-"));
+    try {
+      const storeFile = join(home, ".git-credentials");
+      writeFileSync(
+        join(home, ".gitconfig"),
+        `[credential]\n\thelper = store --file=${storeFile}\n`,
+      );
+      // What git does after a request through HTTPS_PROXY succeeds.
+      const approve = (protocol: string, host: string) =>
+        spawnSync("git", ["credential", "approve"], {
+          input: `protocol=${protocol}\nhost=${host}\nusername=${proxy.username}\npassword=${proxy.password}\n\n`,
+          env: { ...env, HOME: home, GIT_TERMINAL_PROMPT: "0" },
+          encoding: "utf8",
+        }).status;
+      expect(approve("http", proxy.host)).toBe(0);
+      expect(existsSync(storeFile)).toBe(false);
+      // The member's store helper itself works: another address is stored.
+      expect(approve("http", "company.example-stub.test:3128")).toBe(0);
+      expect(readFileSync(storeFile, "utf8")).toContain(
+        "company.example-stub.test",
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("agents get placeholders and the proxy, never a value", async () => {
@@ -269,7 +314,7 @@ describe("an office with secrets", () => {
     const alice = buildEnvForUserId(ALICE)!;
     expect(alice.OFFICE_KEY).toBeDefined();
     expect(alice.GH_TOKEN).toMatch(/^ghp_[A-Za-z0-9]{36}$/);
-    expect(alice.HTTPS_PROXY).toBe(`http://127.0.0.1:${port}`);
+    expect(proxyAddress(alice.HTTPS_PROXY)).toBe(`http://127.0.0.1:${port}`);
     for (const name of FIXED) expect(alice[name]).toBeDefined();
     expect(alice.SSL_CERT_FILE).toBe(
       secretMaterialPaths(STATE_ROOT, STATE_ROOT).bundle,
@@ -307,7 +352,9 @@ describe("an office with secrets", () => {
     expect(env.ALL).toBe(secrets.member.ALL);
     expect(env.OS).toBe(secrets.office.OS);
     expect(env.MV).toBe("member-var");
-    expect(env.HTTPS_PROXY).toBe(`http://127.0.0.1:${runtime.proxyPort}`);
+    expect(proxyAddress(env.HTTPS_PROXY)).toBe(
+      `http://127.0.0.1:${runtime.proxyPort}`,
+    );
   });
 
   test("two members with personal secrets and no env file get separate OpenCode profiles and only their own placeholders", async () => {
@@ -457,12 +504,98 @@ describe("restarts", () => {
       await runtime.enable();
       expect(runtime.proxyPort).not.toBe(taken);
       expect(changes).toContainEqual("all");
-      expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBe(
+      expect(proxyAddress(buildEnvForUserId(BOB)?.HTTPS_PROXY)).toBe(
         `http://127.0.0.1:${runtime.proxyPort}`,
       );
     } finally {
       squatter.close();
     }
+  });
+});
+
+// Task 91296ea8: every OS user on the box can reach the proxy's loopback
+// port; only the office's agents have the password in their HTTPS_PROXY.
+describe("the proxy password", () => {
+  const passwordOf = (userId: string) =>
+    new URL(buildEnvForUserId(userId)!.HTTPS_PROXY!).password;
+
+  test("a CONNECT without it gets 407 and never reaches the company proxy; one with an agent's HTTPS_PROXY chains", async () => {
+    const target = "unlisted.example-stub.test:22";
+    const echo = await startEchoStub();
+    const company = await startCompanyProxy({ [target]: echo.port });
+    try {
+      await runtime.stop();
+      runtime = makeRuntime({
+        serverEnv: {
+          HTTPS_PROXY: `http://dummyuser:dummypass@127.0.0.1:${company.port}`,
+        },
+      });
+      add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
+      await runtime.enable();
+      const env = buildEnvForUserId(ALICE)!;
+      expect(env.https_proxy).toBe(env.HTTPS_PROXY);
+      const agentProxy = new URL(env.HTTPS_PROXY!);
+      const port = Number(agentProxy.port);
+      expect(port).toBe(runtime.proxyPort!);
+
+      const stranger = await connectThrough(port, target, []);
+      if (!("refused" in stranger)) {
+        stranger.socket.destroy();
+        throw new Error("the proxy opened a tunnel without the password");
+      }
+      expect(stranger.refused.status).toBe(407);
+      expect(company.connects).toEqual([]);
+
+      const agent = await connectThrough(port, target, [
+        proxyBasic(
+          decodeURIComponent(agentProxy.password),
+          decodeURIComponent(agentProxy.username),
+        ),
+      ]);
+      if ("refused" in agent)
+        throw new Error(`refused ${agent.refused.status}`);
+      agent.socket.write("ping");
+      expect((await agent.reader.read(16))?.toString()).toBe("ping");
+      agent.socket.destroy();
+      expect(company.connects).toEqual([target]);
+      expect(company.authorizations).toEqual([
+        `Basic ${Buffer.from("dummyuser:dummypass").toString("base64")}`,
+      ]);
+    } finally {
+      await company.close();
+      await echo.close();
+    }
+  });
+
+  test("is the same after a restart, and another office's key gives another one", async () => {
+    add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
+    await runtime.enable();
+    const first = passwordOf(ALICE);
+    // A bearer another OS user cannot guess.
+    expect(first.length).toBeGreaterThanOrEqual(32);
+
+    await runtime.stop();
+    runtime = makeRuntime();
+    await runtime.enable();
+    expect(passwordOf(ALICE)).toBe(first);
+
+    // New secret material: a new placeholder key, as in another office.
+    await runtime.stop();
+    rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
+    add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
+    runtime = makeRuntime();
+    await runtime.enable();
+    expect(passwordOf(ALICE).length).toBeGreaterThanOrEqual(32);
+    expect(passwordOf(ALICE)).not.toBe(first);
+  });
+
+  test("the OpenCode revision covers the proxy URL agents get", async () => {
+    // A restart adopts a running OpenCode server whose revision matches, so
+    // a server started before the password existed must not match.
+    add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
+    await runtime.enable();
+    const secrets = runtime.environmentFor(ALICE)!;
+    expect(secrets.revision).toContain(secrets.fixed.HTTPS_PROXY);
   });
 });
 
@@ -533,7 +666,7 @@ describe("failure paths", () => {
     while (Date.now() < deadline && !changes.includes("all"))
       await Bun.sleep(50);
     expect(changes).toContain("all");
-    expect(runtime.environmentFor(ALICE)?.fixed.HTTPS_PROXY).toBe(
+    expect(proxyAddress(runtime.environmentFor(ALICE)?.fixed.HTTPS_PROXY)).toBe(
       `http://127.0.0.1:${runtime.proxyPort}`,
     );
   });
@@ -548,7 +681,9 @@ describe("failure paths", () => {
     await runtime.enable();
     const alice = buildEnvForUserId(ALICE)!;
     expect(alice.GH_TOKEN).toMatch(/^ghp_/);
-    expect(alice.HTTPS_PROXY).toBe(`http://127.0.0.1:${runtime.proxyPort}`);
+    expect(proxyAddress(alice.HTTPS_PROXY)).toBe(
+      `http://127.0.0.1:${runtime.proxyPort}`,
+    );
     expect(() => buildEnvForUserId(BOB)).not.toThrow();
     expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBeUndefined();
     expect(logs).toContain("store_unreadable");

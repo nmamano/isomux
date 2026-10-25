@@ -11,7 +11,9 @@ import {
   exchange,
   startCompanyProxy,
   startEchoStub,
+  proxyBasic,
   startHttpsStub,
+  TEST_CLIENT_TOKEN,
   tlsThrough,
 } from "../test-support/secret-proxy-stubs.ts";
 import { ByteReader } from "./http1.ts";
@@ -62,6 +64,7 @@ function snapshot(extra: Partial<ProxySnapshot> = {}): ProxySnapshot {
     // Production roots that do not trust the stubs.
     rootsPem: createCertificateAuthority().certPem,
     upstreamProxy: null,
+    clientToken: TEST_CLIENT_TOKEN,
     ...extra,
   };
 }
@@ -319,7 +322,7 @@ test("no output or log code of the child holds a value or a placeholder: snapsho
     // A 405 with the placeholder in it.
     const plain = connect(port, "127.0.0.1");
     plain.write(
-      `GET / HTTP/1.1\r\nAuthorization: Bearer ${PLACEHOLDER}\r\n\r\n`,
+      `GET / HTTP/1.1\r\n${proxyBasic(TEST_CLIENT_TOKEN)}\r\nAuthorization: Bearer ${PLACEHOLDER}\r\n\r\n`,
     );
     // A 421 with the placeholder in it.
     const socket = await tlsThrough(port, "api.stub.test", officeCa);

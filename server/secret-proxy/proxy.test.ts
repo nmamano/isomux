@@ -15,9 +15,11 @@ import { connect as netConnect, type Socket } from "node:net";
 import {
   connectThrough,
   exchange,
+  proxyBasic,
   startCompanyProxy,
   startEchoStub,
   startHttpsStub,
+  TEST_CLIENT_TOKEN,
   tlsThrough,
 } from "../test-support/secret-proxy-stubs.ts";
 import { ByteReader } from "./http1.ts";
@@ -97,6 +99,7 @@ function snapshot(extra: Partial<ProxySnapshot> = {}): ProxySnapshot {
     // stub CA through the upstreamRoots option.
     rootsPem: createCertificateAuthority().certPem,
     upstreamProxy: null,
+    clientToken: TEST_CLIENT_TOKEN,
     ...extra,
   };
 }
@@ -347,7 +350,7 @@ describe("tunnels", () => {
     });
     const reader = new ByteReader(socket);
     socket.write(
-      "GET http://api.stub.test/ HTTP/1.1\r\nHost: api.stub.test\r\n\r\n",
+      `GET http://api.stub.test/ HTTP/1.1\r\nHost: api.stub.test\r\n${proxyBasic(TEST_CLIENT_TOKEN)}\r\n\r\n`,
     );
     const head = (await reader.read(4096))?.toString() ?? "";
     socket.destroy();
@@ -814,6 +817,189 @@ describe("a company proxy is chained", () => {
   });
 });
 
+// Task 91296ea8: the proxy listens on loopback TCP, which every OS user on the
+// box can reach. Only a client with the office's proxy password gets a tunnel,
+// a terminated host or the company proxy's login.
+describe("only a client with the office's proxy password is served", () => {
+  const COMPANY_AUTH = `Basic ${Buffer.from("dummyuser:dummypass").toString("base64")}`;
+  let company: Awaited<ReturnType<typeof startCompanyProxy>>;
+  let chained: SecretProxy;
+  let chainedPort = 0;
+  const chainedLogs: string[] = [];
+
+  beforeAll(async () => {
+    company = await startCompanyProxy({
+      "unlisted.stub.test:22": echo.port,
+      "api.stub.test:443": https.port,
+    });
+    chained = createSecretProxy(
+      snapshot({
+        upstreamProxy: {
+          url: `http://dummyuser:dummypass@127.0.0.1:${company.port}`,
+          noProxy: "",
+        },
+      }),
+      { use: () => {}, log: (code) => chainedLogs.push(code) },
+      { upstreamRoots: https.ca.certPem },
+    );
+    chainedPort = await chained.listen(0);
+  });
+
+  afterAll(async () => {
+    await chained.close();
+    await company.close();
+  });
+
+  beforeEach(() => {
+    company.connects.length = 0;
+    company.authorizations.length = 0;
+    chainedLogs.length = 0;
+  });
+
+  const encoded = (text: string) =>
+    `Proxy-Authorization: Basic ${Buffer.from(text).toString("base64")}`;
+  const refused: [string, string, string[]][] = [
+    ["no credential, to a tunnel", "unlisted.stub.test:22", []],
+    ["no credential, to a listed host", "api.stub.test:443", []],
+    [
+      "a wrong password",
+      "unlisted.stub.test:22",
+      [proxyBasic("fake-wrong-token")],
+    ],
+    [
+      "the password with one more character",
+      "unlisted.stub.test:22",
+      [proxyBasic(`${TEST_CLIENT_TOKEN}x`)],
+    ],
+    [
+      "the password without its last character",
+      "unlisted.stub.test:22",
+      [proxyBasic(TEST_CLIENT_TOKEN.slice(0, -1))],
+    ],
+    [
+      "the password as the user name",
+      "unlisted.stub.test:22",
+      [encoded(`${TEST_CLIENT_TOKEN}:other`)],
+    ],
+    [
+      "the password with no user name separator",
+      "unlisted.stub.test:22",
+      [encoded(TEST_CLIENT_TOKEN)],
+    ],
+    [
+      "another scheme",
+      "unlisted.stub.test:22",
+      [proxyBasic(TEST_CLIENT_TOKEN).replace("Basic", "Bearer")],
+    ],
+    [
+      "the right password, then a wrong one",
+      "unlisted.stub.test:22",
+      [proxyBasic(TEST_CLIENT_TOKEN), proxyBasic("fake-wrong-token")],
+    ],
+    [
+      "a wrong password, then the right one",
+      "unlisted.stub.test:22",
+      [proxyBasic("fake-wrong-token"), proxyBasic(TEST_CLIENT_TOKEN)],
+    ],
+    [
+      "the right password, then a wrong one in lower case",
+      "unlisted.stub.test:22",
+      [
+        proxyBasic(TEST_CLIENT_TOKEN),
+        proxyBasic("fake-wrong-token").toLowerCase(),
+      ],
+    ],
+  ];
+
+  for (const [name, authority, auth] of refused)
+    test(`${name}: 407 with a Basic challenge, nothing opened, no log line`, async () => {
+      const outcome = await connectThrough(chainedPort, authority, auth);
+      if (!("refused" in outcome)) {
+        outcome.socket.destroy();
+        throw new Error("the proxy opened a tunnel");
+      }
+      expect(outcome.refused.status).toBe(407);
+      const challenge = outcome.refused.headers.find(
+        ([header]) => header.toLowerCase() === "proxy-authenticate",
+      )?.[1];
+      // git sends its credential only after this challenge.
+      expect(challenge?.toLowerCase().startsWith("basic")).toBe(true);
+      expect(company.connects).toEqual([]);
+      expect(https.seen).toEqual([]);
+      // git's first CONNECT on every connection gets a 407.
+      expect(chainedLogs).toEqual([]);
+    });
+
+  const served: [string, string[]][] = [
+    ["an agent's credential", [proxyBasic(TEST_CLIENT_TOKEN)]],
+    ["another user name", [proxyBasic(TEST_CLIENT_TOKEN, "git")]],
+    [
+      "a lower-case header name and scheme",
+      [
+        proxyBasic(TEST_CLIENT_TOKEN).replace(
+          "Proxy-Authorization: Basic",
+          "proxy-authorization: basic",
+        ),
+      ],
+    ],
+  ];
+
+  for (const [name, auth] of served)
+    test(`${name}: the tunnel chains with the company proxy's login`, async () => {
+      const tunnel = await connectThrough(
+        chainedPort,
+        "unlisted.stub.test:22",
+        auth,
+      );
+      if ("refused" in tunnel)
+        throw new Error(`refused ${tunnel.refused.status}`);
+      tunnel.socket.write("ping");
+      expect((await tunnel.reader.read(16))?.toString()).toBe("ping");
+      tunnel.socket.destroy();
+      expect(company.connects).toEqual(["unlisted.stub.test:22"]);
+      expect(company.authorizations).toEqual([COMPANY_AUTH]);
+    });
+
+  test("an agent's credential reaches a listed host, with the value swapped", async () => {
+    const socket = await tlsThrough(chainedPort, "api.stub.test", officeCa);
+    const response = await exchange(
+      socket,
+      new ByteReader(socket),
+      get("/headers", [`Authorization: Bearer ${PH_A}`]),
+    );
+    socket.destroy();
+    expect(response?.status).toBe(200);
+    expect(header("authorization")).toBe(`Bearer ${VALUE_A}`);
+    expect(company.connects).toEqual(["api.stub.test:443"]);
+  });
+
+  test("a new snapshot's password applies on the next CONNECT", async () => {
+    const base = {
+      upstreamProxy: {
+        url: `http://dummyuser:dummypass@127.0.0.1:${company.port}`,
+        noProxy: "",
+      },
+    };
+    chained.update(snapshot({ ...base, clientToken: "fake-next-token-0002" }));
+    try {
+      const old = await connectThrough(chainedPort, "unlisted.stub.test:22");
+      if (!("refused" in old)) {
+        old.socket.destroy();
+        throw new Error("the previous password opened a tunnel");
+      }
+      expect(old.refused.status).toBe(407);
+      const next = await connectThrough(chainedPort, "unlisted.stub.test:22", [
+        proxyBasic("fake-next-token-0002"),
+      ]);
+      if ("refused" in next) throw new Error(`refused ${next.refused.status}`);
+      next.socket.destroy();
+      expect(company.connects).toEqual(["unlisted.stub.test:22"]);
+    } finally {
+      chained.update(snapshot(base));
+    }
+  });
+});
+
 describe("updates", () => {
   test("a new snapshot applies on the next request", async () => {
     proxy.update(
@@ -843,6 +1029,6 @@ test("the proxy's log codes never carry a value or a placeholder", () => {
   expect(logs.length).toBeGreaterThan(0);
   const all = logs.join("\n");
   expectNoValue(all);
-  for (const placeholder of [PH_A, PH_B, PH_N])
+  for (const placeholder of [PH_A, PH_B, PH_N, TEST_CLIENT_TOKEN])
     expect(all).not.toContain(placeholder);
 });

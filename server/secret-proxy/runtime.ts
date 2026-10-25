@@ -15,7 +15,7 @@ import {
   type StoredSecret,
 } from "../secret-store.ts";
 import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
-import { scopeId, placeholderFor } from "./placeholders.ts";
+import { placeholderFor, proxyClientToken, scopeId } from "./placeholders.ts";
 import {
   ensureSecretMaterial,
   readProxyPort,
@@ -37,7 +37,7 @@ export interface SecretEnvironment {
   // Basic password. env-loader appends them as GIT_CONFIG_* entries.
   gitCredentials: { host: string; placeholder: string }[];
   // Non-value secret state for the OpenCode revision: each secret's scope,
-  // name, generation and placeholder, and the proxy port.
+  // name, generation and placeholder, and the proxy address with its password.
   revision: string;
 }
 
@@ -224,6 +224,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       caKeyPem: current.ca.keyPem,
       rootsPem: systemRoots ?? "",
       upstreamProxy: companyProxy(deps.serverEnv),
+      clientToken: proxyClientToken(current.placeholderKey),
     };
   }
 
@@ -354,7 +355,8 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         logOnce("no_proxy_port", "no_proxy_port");
         return null;
       }
-      const proxyUrl = `http://127.0.0.1:${proxyPort}`;
+      const token = proxyClientToken(material.placeholderKey);
+      const proxyUrl = `http://isomux:${token}@127.0.0.1:${proxyPort}`;
       const bundle = material.bundlePath;
       const gitCredentials = [...git]
         .sort(([a], [b]) => a.localeCompare(b))
@@ -380,7 +382,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         // The git helpers too: they follow the hosts and forms.
         revision: JSON.stringify({
           secrets: state.sort(),
-          port: proxyPort,
+          proxy: proxyUrl,
           git: gitCredentials.map(({ host, placeholder }) => [
             host,
             placeholder,
