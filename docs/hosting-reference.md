@@ -12,7 +12,7 @@ Everything below is one script, [`deploy/install.sh`](https://github.com/nmamano
 
 - Installs bun, build-essential, python3, GitHub CLI, git, Caddy, and Chrome (headless, for page-preview cards); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
-- Makes files the office and its agents create readable only by the `isomux` account. To share them with another account, such as a web server, run `sudo systemctl edit isomux`, add `UMask=0022` under `[Service]`, run `sudo systemctl restart isomux`, and keep the shared files outside `/home/isomux`, which other accounts cannot enter. Updates and installer re-runs keep this setting.
+- Makes new files readable only by the `isomux` account. To share them, for example with a web server, set `UMask=0022` with `sudo systemctl edit isomux`, restart, and keep the files outside `/home/isomux`.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy keeps a size-bounded request log for 14 days and redacts invite and app sign-in credentials from URLs. Its admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
 - Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth in the general SSH settings (a `Match` rule for one user or address keeps its own setting); unattended security updates (a standard Ubuntu feature - it patches system packages, never isomux itself).
