@@ -30,6 +30,7 @@ import {
   createTestTempRoot,
   removeTestTempRoot,
   sweepStaleTestTempRoots,
+  testTempBase,
 } from "./temp-root.ts";
 
 const MODULE = join(import.meta.dir, "temp-root.ts");
@@ -134,6 +135,23 @@ function orphan(
   expect(alive(pid)).toBe(true);
   return pid;
 }
+
+// A Unix socket path must fit in 104 bytes on macOS, and its per-user temp
+// dir is already ~50 (task dc88b94d).
+describe("testTempBase", () => {
+  it("is the real /tmp on macOS, whatever the OS temp dir is", () => {
+    const macTemp = "/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T";
+    expect(testTempBase("darwin", macTemp)).toBe(realpathSync("/tmp"));
+    expect(testTempBase("darwin", scratchDir())).toBe(realpathSync("/tmp"));
+  });
+
+  it("is the real OS temp dir elsewhere", () => {
+    const base = scratchDir();
+    const link = join(scratchDir(), "temp-link");
+    symlinkSync(base, link);
+    expect(testTempBase("linux", link)).toBe(base);
+  });
+});
 
 describe("createTestTempRoot", () => {
   it("makes a traversable run folder for this process, directly in the real base", () => {

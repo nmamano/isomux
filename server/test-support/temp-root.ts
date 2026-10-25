@@ -1,5 +1,5 @@
 // One temp folder per test process (task 1ea8ab19). The preload creates it
-// under the OS temp dir and points TMPDIR at it, so every tmpdir() caller in
+// under the OS temp dir (/tmp on macOS) and points TMPDIR at it, so every tmpdir() caller in
 // the run writes inside it. A run that is killed leaves it behind; the next
 // run's preload removes it, and stops the processes the killed run left.
 //
@@ -59,6 +59,16 @@ function readOwner(root: string): { pid: number; start?: string } | null {
   }
   const match = (linux ? /^(\d+) (\d+)$/ : /^(\d+)(?: (\d+))?$/).exec(text);
   return match ? { pid: Number(match[1]), start: match[2] } : null;
+}
+
+// The folder that holds the run folders: the OS temp dir, or /tmp on macOS,
+// whose per-user temp dir is ~50 bytes and leaves too little of the 104-byte
+// socket path limit.
+export function testTempBase(
+  platform: NodeJS.Platform,
+  osTemp: string,
+): string {
+  return realpathSync(platform === "darwin" ? "/tmp" : osTemp);
 }
 
 // Make `<base>/isomux-run-<pid>-XXXXXX` and record its owner. Returns the

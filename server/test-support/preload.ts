@@ -21,6 +21,7 @@ import {
   createTestTempRoot,
   removeTestTempRoot,
   sweepStaleTestTempRoots,
+  testTempBase,
 } from "./temp-root.ts";
 import { inheritedGitRepoEnv } from "./git-env.ts";
 
@@ -107,12 +108,14 @@ process.env.ISOMUX_TEST_APP_PORT_MIN = String(testAppPortBlock.min);
 process.env.ISOMUX_TEST_APP_PORT_MAX = String(testAppPortBlock.max);
 afterAll(() => testAppPortBlock.sentinel.stop(true));
 
-// One temp folder per test process, so a run that is killed or times out
-// leaves its temp files in one place: TMPDIR points into it, and every
-// tmpdir() caller writes there. Each start first removes the folders of runs
-// that are gone and stops the processes they left (see temp-root.ts). Bun.spawn
-// without an env still gives a child the startup TMPDIR.
-const tempBase = realpathSync(tmpdir());
+// One temp folder per test process, under the OS temp dir (/tmp on macOS),
+// so a run that is killed or times out leaves its temp files in one place:
+// TMPDIR points into it, and every tmpdir() caller writes there. Each start
+// first removes the folders of runs that are gone and stops the processes they
+// left (see temp-root.ts). Bun.spawn without an env still gives a child the
+// startup TMPDIR.
+const osTemp = realpathSync(tmpdir());
+const tempBase = testTempBase(process.platform, tmpdir());
 try {
   sweepStaleTestTempRoots(tempBase);
 } catch (err) {
@@ -133,7 +136,7 @@ function assertSafeTestHome(home: string): void {
         `(${realHome}); refusing to run the test suite against real user state.`,
     );
   }
-  const realTmp = canonicalize(tempBase);
+  const realTmp = canonicalize(osTemp);
   if (!canonical.startsWith(realTmp + sep)) {
     throw new Error(
       `[test preload] ISOMUX_HOME (${home}) resolves to ${canonical}, which is ` +
