@@ -11,7 +11,6 @@ import type {
 } from "../../shared/types.ts";
 import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
 import {
-  dialogCancelBtn,
   dialogSaveBtn,
   disabledLook,
   filledSecondaryBtn,
@@ -673,7 +672,7 @@ function ProviderScopeConnection({
         <p style={{ ...hint, margin: "12px 0 0" }}>
           {t("settings.signIn.linkNotOpen")}{" "}
           <button
-            style={{ ...dialogCancelBtn, padding: "3px 10px" }}
+            style={{ ...filledSecondaryBtn, padding: "3px 10px" }}
             onClick={() =>
               void navigator.clipboard
                 .writeText(authUrl)
@@ -708,7 +707,7 @@ function ProviderScopeConnection({
               {deviceCode}
             </span>
             <button
-              style={dialogCancelBtn}
+              style={filledSecondaryBtn}
               onClick={() =>
                 void navigator.clipboard
                   .writeText(deviceCode)
