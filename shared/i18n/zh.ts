@@ -3034,6 +3034,9 @@ App 的一些原则：
   "pager.view.allRooms": "所有房间",
   "pager.view.noRoom": "无房间",
   "pager.view.empty": "没有呼叫",
+  "pager.view.hiddenElsewhere.one": "房间筛选隐藏了 {count} 个未处理的呼叫",
+  "pager.view.hiddenElsewhere.other": "房间筛选隐藏了 {count} 个未处理的呼叫",
+  "pager.view.showAllRooms": "显示所有房间",
   "pager.view.discordUnset":
     "未设置 Discord 或设备通知，你的呼叫只保留在办公室中。",
   "pager.view.settingsLink": "呼叫设置",

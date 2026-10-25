@@ -3380,6 +3380,11 @@ Cosas que puedes hacer por él:
   "pager.view.allRooms": "Todas las salas",
   "pager.view.noRoom": "Sin sala",
   "pager.view.empty": "No hay avisos",
+  "pager.view.hiddenElsewhere.one":
+    "{count} aviso abierto oculto por el filtro de sala",
+  "pager.view.hiddenElsewhere.other":
+    "{count} avisos abiertos ocultos por el filtro de sala",
+  "pager.view.showAllRooms": "Mostrar todas las salas",
   "pager.view.discordUnset":
     "Ni Discord ni las notificaciones del dispositivo están configurados, así que tus avisos se quedan en la oficina.",
   "pager.view.settingsLink": "Ajustes de avisos",

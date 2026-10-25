@@ -3349,6 +3349,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.view.allRooms": "All rooms",
   "pager.view.noRoom": "No room",
   "pager.view.empty": "No pages",
+  "pager.view.hiddenElsewhere.one":
+    "{count} open page hidden by the room filter",
+  "pager.view.hiddenElsewhere.other":
+    "{count} open pages hidden by the room filter",
+  "pager.view.showAllRooms": "Show all rooms",
   "pager.view.discordUnset":
     "Neither Discord nor device notifications are set up, so your pages stay in the office.",
   "pager.view.settingsLink": "Pager settings",

@@ -9,7 +9,12 @@ import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import { openingRoomFilter } from "../room-filter.ts";
+import {
+  openingRoomFilter,
+  ROOM_FILTER_ALL,
+  roomFilterMatches,
+  type RoomFilter,
+} from "../room-filter.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
@@ -26,6 +31,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import {
   comparePagerEntries,
+  pagerOpeningRoomFilter,
   resolvedCursor,
   sliceFull,
 } from "../pager-sync.ts";
@@ -39,8 +45,6 @@ export interface PagerSelectRequest {
 }
 
 type StateFilter = "active" | PagerState | "all";
-// "all", "none" (app pages with no room), or a room id.
-type RoomFilter = string;
 
 const STATE_COLOR: Record<PagerState, string> = {
   open: "var(--red-text)",
@@ -143,9 +147,18 @@ export function PagerView({
   const { t, tn, language } = useI18n();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const [stateFilter, setStateFilter] = useState<StateFilter>("active");
-  const [roomFilter, setRoomFilter] = useState<RoomFilter>(() =>
-    openingRoomFilter(currentRoomId, lobbyOpen, rooms),
-  );
+  // Null until the pages and the member are both known: the filter then
+  // settles once (pagerOpeningRoomFilter) and moves only on the member's
+  // change or a deep link.
+  const [chosenRoomFilter, setRoomFilter] = useState<RoomFilter | null>(null);
+  const userId = sessionContext?.userId ?? null;
+  if (chosenRoomFilter === null && pagerLoaded && userId !== null) {
+    setRoomFilter(
+      pagerOpeningRoomFilter(pager, userId, currentRoomId, lobbyOpen, rooms),
+    );
+  }
+  const roomFilter =
+    chosenRoomFilter ?? openingRoomFilter(currentRoomId, lobbyOpen, rooms);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // The deep link named a page this member cannot see, or one that is gone.
   const [unavailable, setUnavailable] = useState(false);
@@ -335,12 +348,22 @@ export function PagerView({
         .filter(
           (e) =>
             matchesState(stateFilter, e.state) &&
-            (roomFilter === "all" ||
-              (roomFilter === "none"
-                ? e.source.roomId === null
-                : e.source.roomId === roomFilter)),
+            roomFilterMatches(roomFilter, e.source.roomId),
         )
         .sort(comparePagerEntries),
+    [pager, stateFilter, roomFilter],
+  );
+  // Open pages the room filter hides while the state filter keeps them: an
+  // empty list counts them and offers all rooms, in place of "No pages".
+  const hiddenElsewhere = useMemo(
+    () =>
+      matchesState(stateFilter, "open")
+        ? pager.filter(
+            (e) =>
+              e.state === "open" &&
+              !roomFilterMatches(roomFilter, e.source.roomId),
+          ).length
+        : 0,
     [pager, stateFilter, roomFilter],
   );
 
@@ -596,21 +619,41 @@ export function PagerView({
               padding: "24px 0",
             }}
           >
-            {t("pager.view.empty")}
+            {hiddenElsewhere > 0 ? (
+              <>
+                <div data-pager-hidden-elsewhere="">
+                  {tn("pager.view.hiddenElsewhere", hiddenElsewhere)}
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setRoomFilter(ROOM_FILTER_ALL)}
+                    data-pager-show-all-rooms=""
+                    style={actionBtn(false)}
+                  >
+                    {t("pager.view.showAllRooms")}
+                  </button>
+                </div>
+              </>
+            ) : (
+              t("pager.view.empty")
+            )}
             {/* The notice above already links there when Discord is not
                 set up. */}
-            {destinationSet !== false && onOpenPagerSettings && (
-              <div style={{ marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={onOpenPagerSettings}
-                  data-pager-settings-link=""
-                  style={actionBtn(false)}
-                >
-                  {t("pager.view.settingsLink")}
-                </button>
-              </div>
-            )}
+            {hiddenElsewhere === 0 &&
+              destinationSet !== false &&
+              onOpenPagerSettings && (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={onOpenPagerSettings}
+                    data-pager-settings-link=""
+                    style={actionBtn(false)}
+                  >
+                    {t("pager.view.settingsLink")}
+                  </button>
+                </div>
+              )}
           </div>
         ) : (
           <ul

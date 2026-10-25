@@ -3387,6 +3387,11 @@ Coses que pots fer per ell:
   "pager.view.allRooms": "Totes les sales",
   "pager.view.noRoom": "Sense sala",
   "pager.view.empty": "No hi ha avisos",
+  "pager.view.hiddenElsewhere.one":
+    "{count} avís obert amagat pel filtre de sala",
+  "pager.view.hiddenElsewhere.other":
+    "{count} avisos oberts amagats pel filtre de sala",
+  "pager.view.showAllRooms": "Mostra totes les sales",
   "pager.view.discordUnset":
     "Ni Discord ni les notificacions del dispositiu estan configurats, així que els teus avisos es queden a l'oficina.",
   "pager.view.settingsLink": "Configuració dels avisos",

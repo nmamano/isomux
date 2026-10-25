@@ -187,3 +187,137 @@ describe("the deep link", () => {
     expect(view.container.querySelector(".pager-unavailable")).toBeNull();
   });
 });
+
+// The badge counts the member's open pages in every room, so the list must
+// not open on a room that holds none of them, and an empty list says what the
+// room filter hides.
+describe("the opening room filter and the hidden pages", () => {
+  const me = { sessionContext: { userId: "u1" } } as Parameters<
+    typeof mount
+  >[1];
+  const inR2 = {
+    source: { kind: "agent", agentId: "a2", name: "B", roomId: "r2" },
+  } as const;
+  // The hint line's text, or null when there is no hint.
+  const hint = (view: Awaited<ReturnType<typeof mount>>["view"]) =>
+    view.container.querySelector<HTMLElement>("[data-pager-hidden-elsewhere]")
+      ?.textContent ?? null;
+  const showAll = (view: Awaited<ReturnType<typeof mount>>["view"]) =>
+    view.container.querySelector<HTMLButtonElement>(
+      "[data-pager-show-all-rooms]",
+    );
+
+  it("opens on all rooms when the room the office shows has none of the member's open pages", async () => {
+    // r1 holds an acked page of the member and an open page of another
+    // member: neither is in the badge, so neither keeps the list on r1.
+    const { view } = await mount(
+      [
+        page("mine-r2", inR2),
+        page("mine-acked-r1", { state: "acked" }),
+        page("theirs-r1", { targetUserId: "u2" }),
+      ],
+      { ...me, currentRoomId: "r1" },
+    );
+    expect(selects(view)[1].value).toBe("all");
+    expect(rowIds(view)).toContain("mine-r2");
+  });
+
+  it("stays on the room the office shows when it has one of them, or when the member has none open", async () => {
+    const withMine = await mount([page("mine-r1"), page("mine-r2", inR2)], {
+      ...me,
+      currentRoomId: "r1",
+    });
+    expect(selects(withMine.view)[1].value).toBe("r1");
+    expect(rowIds(withMine.view)).toEqual(["mine-r1"]);
+    withMine.view.unmount();
+
+    // The badge is 0: the list keeps today's room. The open page of another
+    // member counts in the hint; the acked page does not.
+    const noneMine = await mount(
+      [
+        page("theirs-r2", { ...inR2, targetUserId: "u2" }),
+        page("mine-acked-r2", { ...inR2, state: "acked" }),
+      ],
+      { ...me, currentRoomId: "r1" },
+    );
+    expect(selects(noneMine.view)[1].value).toBe("r1");
+    expect(rowIds(noneMine.view)).toEqual([]);
+    expect(hint(noneMine.view)).toBe(EN.tn("pager.view.hiddenElsewhere", 1));
+  });
+
+  it("settles once the pages and the member are both known, and then stays", async () => {
+    // A cold load: the pages arrive after the view mounts.
+    const cold = await mount([], {
+      ...me,
+      currentRoomId: "r1",
+      pagerLoaded: false,
+    });
+    expect(selects(cold.view)[1].value).toBe("r1");
+    await act(async () =>
+      h.dispatch({
+        type: "pager_loaded",
+        entries: [page("mine-r2", inR2)],
+        revision: h.latest.pagerRevision,
+        more: false,
+      }),
+    );
+    expect(selects(cold.view)[1].value).toBe("all");
+    // A page that arrives later does not move the filter.
+    await act(async () =>
+      h.dispatch({ type: "pager_upserted", entry: page("mine-r1") }),
+    );
+    expect(selects(cold.view)[1].value).toBe("all");
+    cold.view.unmount();
+
+    // The member arrives after the pages.
+    const noMember = await mount([page("mine-r2", inR2)], {
+      currentRoomId: "r1",
+      sessionContext: null,
+    });
+    expect(selects(noMember.view)[1].value).toBe("r1");
+    await act(async () =>
+      h.dispatch({
+        type: "session_context",
+        context: { userId: "u1" } as NonNullable<
+          NonNullable<Parameters<typeof mount>[1]>["sessionContext"]
+        >,
+      }),
+    );
+    expect(selects(noMember.view)[1].value).toBe("all");
+  });
+
+  it("says how many open pages other rooms hold and shows them on a click, unless the state filter hides them", async () => {
+    const { view } = await mount(
+      [
+        page("mine-r2", inR2),
+        page("theirs-r2", { ...inR2, targetUserId: "u2" }),
+        page("acked-r2", { ...inR2, state: "acked" }),
+      ],
+      { ...me, currentRoomId: "r1" },
+    );
+    const [state, room] = selects(view);
+    fireEvent.change(room, { target: { value: "r1" } });
+    expect(rowIds(view)).toEqual([]);
+    expect(hint(view)).toBe(EN.tn("pager.view.hiddenElsewhere", 2));
+    // The hint takes the place of the plain empty line and the settings link.
+    expect(view.container.textContent).not.toContain(en["pager.view.empty"]);
+    expect(
+      view.container.querySelector("[data-pager-settings-link]"),
+    ).toBeNull();
+
+    fireEvent.click(showAll(view)!);
+    expect(room.value).toBe("all");
+    expect(rowIds(view).sort()).toEqual(["acked-r2", "mine-r2", "theirs-r2"]);
+
+    // Acked hides the open pages: the button would not show them.
+    fireEvent.change(room, { target: { value: "r1" } });
+    fireEvent.change(state, { target: { value: "acked" } });
+    expect(rowIds(view)).toEqual([]);
+    expect(hint(view)).toBeNull();
+    expect(showAll(view)).toBeNull();
+    expect(view.container.textContent).toContain(en["pager.view.empty"]);
+    expect(
+      view.container.querySelector("[data-pager-settings-link]"),
+    ).not.toBeNull();
+  });
+});

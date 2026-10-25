@@ -6,6 +6,11 @@ import { useEffect } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
 import { apiFetch } from "./api.ts";
 import {
+  openingRoomFilter,
+  ROOM_FILTER_ALL,
+  type RoomFilter,
+} from "./room-filter.ts";
+import {
   comparePagerResolve,
   PAGER_RESOLVED_SLICE,
   type PagerEntry,
@@ -97,6 +102,28 @@ export function openPagesFor(
     if (e.state === "open" && e.targetUserId === userId) count++;
   }
   return count;
+}
+
+/**
+ * The room filter the Pages tab opens with: the room the office shows, or all
+ * rooms when the member has open pages and none of them is in that room, so
+ * the list never hides every page the badge counts.
+ */
+export function pagerOpeningRoomFilter(
+  entries: readonly PagerEntry[],
+  userId: string | null,
+  currentRoomId: string | null,
+  lobbyOpen: boolean,
+  rooms: readonly { id: string }[],
+): RoomFilter {
+  const opening = openingRoomFilter(currentRoomId, lobbyOpen, rooms);
+  if (opening === ROOM_FILTER_ALL || userId === null) return opening;
+  const mine = entries.filter(
+    (e) => e.state === "open" && e.targetUserId === userId,
+  );
+  return mine.length > 0 && !mine.some((e) => e.source.roomId === opening)
+    ? ROOM_FILTER_ALL
+    : opening;
 }
 
 /** The view's order: open pages first, then the newest raise. */
