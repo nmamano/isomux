@@ -50,6 +50,7 @@ const baseView: ProgressView = {
     },
   },
   liveness: null,
+  checkoutOver: false,
   restart: { state: "none", active: false, lastRequestedAt: null },
   subscription: {
     status: "canceled",
@@ -538,6 +539,32 @@ test("a deleted office reads as ended, with nothing to open, reach or restart", 
   expect(notReady).toContain('data-testid="cancel-ended"');
   expect(notReady).toContain('data-testid="handoff"');
   expect(notReady).toContain('data-testid="restart-button"');
+});
+
+test("a reservation whose checkout is over offers a new signup for its name, not Continue", () => {
+  const render = (view: ProgressView) =>
+    renderToStaticMarkup(
+      <OfficeView language="en" initial={view} instanceId={view.instanceId} />,
+    );
+  const live = render({ ...baseView, subscription: null });
+  const over = render({ ...baseView, subscription: null, checkoutOver: true });
+  // The enabling contrast: a live unpaid reservation posts Continue.
+  expect(live).toContain('name="signupIntent" value="continue"');
+  expect(live).not.toContain('data-testid="payment-over"');
+
+  // The route refuses Continue for a reservation whose checkout is over, so
+  // the page offers the new-office form with the name filled in instead.
+  expect(over).not.toContain('name="signupIntent"');
+  expect(over).not.toContain('data-testid="payment-guidance"');
+  expect(over).toContain('data-testid="payment-over"');
+  expect(over).toContain('href="/signup?name=test-office"');
+  // A paid or ended office shows neither.
+  for (const view of [
+    { ...baseView, checkoutOver: true },
+    { ...baseView, subscription: null, ended: true, checkoutOver: true },
+  ]) {
+    expect(render(view)).not.toContain('data-testid="payment-over"');
+  }
 });
 
 test("an ended office does not poll as if it were still being built", () => {

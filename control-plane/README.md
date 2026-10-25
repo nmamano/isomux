@@ -2370,9 +2370,15 @@ office still goes through `reserveOffice`; there is no second creation path.
 `instances.name` is the office's durable full hostname and answers where an
 existing office lives. `OFFICE_DOMAIN` composes a hostname only while a new
 office is being reserved; later reads use the stored instance value.
-The launch admission bound counts reservations globally, so one account can
-consume the whole 40-office-per-seven-days certificate budget. There is no
-separate per-account quota.
+The launch admission bound (40 offices per seven days, for the certificate
+budget) counts reservations globally, but only those that can still spend a
+certificate: paid ones (a subscription or a create operation) and unpaid ones
+whose Checkout can still be paid. An unpaid reservation is DEAD once Stripe
+confirms its session expired, or once it has recorded no session for
+`UNPAID_OPENING_HOLD_MS` (four days). A pending session past its expiry is not
+dead until the poll confirms it. An account may hold one live unpaid reservation
+at a time; `reserveOffice` checks that under the admission lock and refuses a
+second name. Several accounts can still each hold one.
 
 THE TENANT KEY IS THE ACCOUNT ID, NOT THE EMAIL. Both providers resolve to a
 durable account before a session exists, and the session carries that id;
@@ -2439,8 +2445,18 @@ retained-office reinstatement does not change the setup window. A rollback
 cannot turn an unsupported old row into a supported office or move its stored
 instant.
 
-An abandoned checkout keeps its name. Releasing one is slice-5 work with its own
-ruling, and a state column nobody transitions is a claim the code cannot keep.
+An abandoned checkout keeps its name only while the reservation is live. The
+next signup for a dead name, the owner's own included, takes the row over: it
+keeps the name and gets a new id (both Stripe idempotency keys derive from it),
+account, plan and instance, and goes through the admission count and the
+per-account bound like any new office. The old instance is set to
+`deprovisioned` with a `release_office` audit row; its asset never reached a
+provider, so nothing reconciles it. Continue refuses a dead reservation, and the
+signup page offers the new-office form instead. The office page of a dead
+reservation (`ProgressView.checkoutOver`, computed in `progressRows` from the same
+predicate) shows no Continue button, but a link to the signup form with its name
+filled in. The web holds no DELETE: a
+takeover is an UPDATE of the locked row.
 
 ### Progress, and what the browser is not told
 

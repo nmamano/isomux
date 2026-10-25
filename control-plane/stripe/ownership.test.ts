@@ -132,6 +132,7 @@ describe("the subscription insert", () => {
       "reinstatement.test.ts",
       "requests.test.ts",
       "resume.test.ts",
+      "signup.test.ts",
       "stripe/billing-store.test.ts",
       "stripe/billing-store.ts",
       "stripe/billing-tick.test.ts",

@@ -130,6 +130,8 @@ export const zh: Catalog = {
   "office.ready": "办公室已就绪。",
   "office.notReady": "办公室尚未就绪。",
   "office.completePayment": "完成付款后开始订购服务器。",
+  "office.paymentOver":
+    "此办公室的付款页面已过期。<link>重新设置办公室</link>。",
   "office.openOffice": "打开办公室",
   "office.progressHeading": "进度",
   "office.otherWorkHeading": "此办公室的其他工作",

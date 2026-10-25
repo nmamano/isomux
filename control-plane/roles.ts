@@ -710,7 +710,10 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "signupPageState and officesForAccount -> signup:reservationsForAccount; " +
       "continueSignup and officeRouteForAccount -> signup:reservationByName; " +
-      "reinstateOffice -> signup:instanceOwnedBy; signup:reserveOffice admission count",
+      "reinstateOffice -> signup:instanceOwnedBy; signup:reserveOffice admission count, " +
+      "its locked read of a held name (select ... for update) and its one-unpaid-office " +
+      "bound; signupPageState -> signup:heldUnpaidReservation; continueSignup -> " +
+      "signup:reservationIsDead",
   },
   {
     table: "name_reservations",
@@ -723,7 +726,9 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "continueSignup and signUpOffice -> openReservedCheckout -> " +
       "signup:recordOrdinaryCheckoutSession, signup:recordTerminalOrdinarySession, " +
-      "signup:advanceExpiredOrdinaryCheckout; the 42501 of 2026-08-24",
+      "signup:advanceExpiredOrdinaryCheckout; the 42501 of 2026-08-24; " +
+      "signUpOffice -> signup:reserveOffice takes over a dead reservation, and " +
+      "locks the held row it reads",
   },
   {
     table: "instances",
@@ -743,7 +748,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     verb: "update",
     via:
       "acknowledgeOpsInstance -> ops:acknowledgeInstance -> attention-ack.ts " +
-      "acknowledgeAttentionIn -> store.refreshAttentionSummary",
+      "acknowledgeAttentionIn -> store.refreshAttentionSummary; signUpOffice -> " +
+      "signup:reserveOffice retires a taken-over office (store.casInstance)",
   },
   {
     table: "provider_assets",
@@ -764,7 +770,9 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "progress:projectionFor (store.progressRows, store.getOperation); requests:" +
       "requestInvite, requests:confirmHandoff, requests:requestRestart -> " +
-      "store.operationsFor / activeOperation; ops:opsFloor (store.overdueOperations)",
+      "store.operationsFor / activeOperation; ops:opsFloor (store.overdueOperations); " +
+      "signup:reserveOffice, signupPageState -> signup:heldUnpaidReservation and " +
+      "continueSignup -> signup:reservationIsDead read whether a create exists",
   },
   {
     table: "operations",
@@ -828,7 +836,9 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "signupPageState and continueSignup -> stripe/billing-store:" +
       "subscriptionForInstance; cancel:requestCancel and requests:requestRestart " +
       "-> reinstatement.ts currentSubscriptionForInstance; progress:projectionFor; " +
-      "stripeCustomersFor -> signup:stripeCustomersForAccount",
+      "stripeCustomersFor -> signup:stripeCustomersForAccount; signup:reserveOffice, " +
+      "signupPageState -> signup:heldUnpaidReservation and continueSignup -> " +
+      "signup:reservationIsDead read whether a reservation is paid",
   },
   {
     table: "reinstatement_attempts",
@@ -907,12 +917,14 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "checkoutInputsFor",
       "customerReason",
       "emailChangeRefusal",
+      "heldUnpaidReservation",
       "instanceOwnedBy",
       "originIsTrusted",
       "recordOrdinaryCheckoutSession",
       "recordTerminalOrdinarySession",
       "removeGoogleSignIn",
       "reservationByName",
+      "reservationIsDead",
       "reservationsForAccount",
       "reserveOffice",
       "stripeCustomersForAccount",

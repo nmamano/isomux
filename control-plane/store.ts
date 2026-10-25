@@ -36,6 +36,7 @@ import { randomBytes } from "node:crypto";
 import pg from "pg";
 import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
 import { ASSET_GONE_REASON, LIFECYCLE_ASSET_GONE } from "./lifecycle.ts";
+import { deadSql, UNPAID_OPENING_HOLD_MS } from "./reservation-hold.ts";
 
 export type Clock = () => number;
 
@@ -264,6 +265,8 @@ export interface ProgressRows {
   attention: string;
   liveness: string | null;
   subscription: string | null;
+  /** The reservation is unpaid and its Checkout is over (reservation-hold.ts). */
+  checkout_over: boolean | null;
 }
 
 export interface WorkSchedule {
@@ -2060,8 +2063,9 @@ export class Store {
         "(select row_to_json(a)::text from provider_assets a where a.instance_id = $1 order by a.created_at limit 1) as asset, " +
         "coalesce((select json_agg(r order by r.raised_at, r.id)::text from attention_reasons r where r.instance_id = $1 and r.cleared_at is null), '[]') as attention, " +
         "(select row_to_json(l)::text from instance_liveness l where l.instance_id = $1) as liveness, " +
-        "(select row_to_json(s)::text from current_subscription s) as subscription",
-      [instanceId],
+        "(select row_to_json(s)::text from current_subscription s) as subscription, " +
+        `(select ${deadSql("n", "$2")} from name_reservations n where n.instance_id = $1) as checkout_over`,
+      [instanceId, this.now() - UNPAID_OPENING_HOLD_MS],
     );
     if (!row) throw new Error("progress read returned no row");
     return row;

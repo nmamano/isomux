@@ -13,7 +13,12 @@ import { acknowledgeAttention } from "./attention-ack.ts";
 import { raiseAttention } from "./attention.ts";
 import { DECLARED_UNIMPLEMENTED_KINDS } from "./operations.ts";
 import { ladderFor, projectionFor } from "./progress.ts";
-import { accountForDevSignIn, reserveOffice } from "./signup.ts";
+import {
+  accountForDevSignIn,
+  recordOrdinaryCheckoutSession,
+  recordTerminalOrdinarySession,
+  reserveOffice,
+} from "./signup.ts";
 import {
   CUSTOMER_CANCELLATION_REASON,
   LIFECYCLE_REASON,
@@ -162,6 +167,35 @@ describe("the ladder is walked, not written down", () => {
 });
 
 describe("it does not invent progress", () => {
+  // The office page offers Continue only while the checkout can be paid; once
+  // it is over, the name is free and a new signup takes it (task 9ed7430a).
+  test("a reservation whose checkout is over says so; a live or paid one does not", async () => {
+    const store = await tempStore();
+    const { reservation, account } = await signedUp(store);
+    const view = async () =>
+      (await projectionFor(store, {
+        accountId: account.id,
+        instanceId: reservation.instance_id,
+      }))!.checkoutOver;
+    expect(await view()).toBe(false);
+
+    expect(
+      await recordOrdinaryCheckoutSession(store, reservation, {
+        id: "cs-over",
+        expiresAt: store.now() + 86_400_000,
+      }),
+    ).toBe(true);
+    expect(await view()).toBe(false);
+    expect(
+      await recordTerminalOrdinarySession(store, reservation.id, "cs-over"),
+    ).toBe(true);
+    expect(await view()).toBe(true);
+
+    // A create operation means it is paid, whatever the checkout says.
+    await addOp(store, reservation.instance_id, "create_instance", "pending");
+    expect(await view()).toBe(false);
+  });
+
   test("a fresh signup shows every step waiting and is not ready", async () => {
     const store = await tempStore();
     const { reservation, account } = await signedUp(store);

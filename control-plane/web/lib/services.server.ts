@@ -227,24 +227,23 @@ export type SignupPageState =
 export async function signupPageState(
   accountId: string,
 ): Promise<SignupPageState> {
-  const [{ reservationsForAccount }, { subscriptionForInstance }] =
-    await Promise.all([
-      import("../../signup"),
-      import("../../stripe/billing-store"),
-    ]);
+  const [
+    { heldUnpaidReservation, reservationsForAccount },
+    { subscriptionForInstance },
+  ] = await Promise.all([
+    import("../../signup"),
+    import("../../stripe/billing-store"),
+  ]);
   return withStore(async (store) => {
-    const reservations = await reservationsForAccount(store, accountId);
-    let hasSubscription = false;
-    for (const reservation of reservations) {
-      const subscription = await subscriptionForInstance(
-        store,
-        reservation.instance_id,
-      );
-      if (!subscription)
-        return { kind: "continue", officeName: reservation.name };
-      hasSubscription = true;
+    // Continue only while the checkout can still be paid. Once it is over the
+    // name is free, and the new-office form takes it over afresh.
+    const held = await heldUnpaidReservation(store, accountId, store.now());
+    if (held) return { kind: "continue", officeName: held.name };
+    for (const reservation of await reservationsForAccount(store, accountId)) {
+      if (await subscriptionForInstance(store, reservation.instance_id))
+        return { kind: "paid" };
     }
-    return hasSubscription ? { kind: "paid" } : { kind: "new" };
+    return { kind: "new" };
   });
 }
 
@@ -350,7 +349,10 @@ async function openReservedCheckout(args: {
     const current = await withStore((store) =>
       reservationByName(store, reservation.name),
     );
-    if (current?.checkout_state !== "opening") return false;
+    // The same row only: after a takeover the name holds another account's
+    // reservation, with its instance and its Stripe keys.
+    if (current?.id !== reservation.id || current.checkout_state !== "opening")
+      return false;
     reservation = current;
     return true;
   };
@@ -518,7 +520,7 @@ export async function continueSignup(
   officeName: string,
 ): Promise<SignupResult | { ok: false; officeName: string }> {
   const context: CustomerFailureContext = { accountId, officeName };
-  const { reservationByName } = await import("../../signup");
+  const { reservationByName, reservationIsDead } = await import("../../signup");
   const { getAccount, subscriptionForInstance } =
     await import("../../stripe/billing-store");
   const owned = await withStore(async (store) => {
@@ -529,6 +531,10 @@ export async function continueSignup(
       reservation.instance_id,
     );
     if (subscription) return { paid: true as const, reservation };
+    // Its checkout is over, so its name is free: re-arming it here would hold
+    // the name past the admission count and the one-unpaid-office bound.
+    if (await reservationIsDead(store, reservation, store.now()))
+      return { over: true as const };
     const account = await getAccount(store, accountId);
     if (!account) return null;
     return { paid: false as const, reservation, account };
@@ -539,6 +545,15 @@ export async function continueSignup(
       reason: safeCustomerReason(
         language,
         "we do not recognise this account",
+        context,
+      ),
+    };
+  if ("over" in owned)
+    return {
+      ok: false,
+      reason: safeCustomerReason(
+        language,
+        `the payment page for "${officeName}" expired. Set up the office again`,
         context,
       ),
     };

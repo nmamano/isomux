@@ -21,6 +21,7 @@ import {
   recordTerminalOrdinarySession,
   reserveOffice,
   reservationByName,
+  UNPAID_OPENING_HOLD_MS,
 } from "../signup.ts";
 import { ensureAccount, getSubscription, listEvents } from "./billing-store.ts";
 import { pollPendingCheckouts } from "./checkout-poll.ts";
@@ -123,13 +124,19 @@ function subscription(
   };
 }
 
-async function pending(store: Store, officeName: string, sessionId: string) {
-  await store.tx(() =>
-    ensureAccount(store, { id: "acct-1", email: "a@example.com" }),
-  );
+/** A reservation with a recorded session, due for the poll. One account holds
+ * one live unpaid reservation, so a second office needs its own account. */
+async function pending(
+  store: Store,
+  officeName: string,
+  sessionId: string,
+  accountId = "acct-1",
+  email = "a@example.com",
+) {
+  await store.tx(() => ensureAccount(store, { id: accountId, email }));
   const made = await reserveOffice(
     store,
-    { accountId: "acct-1", officeName, plan: "office" },
+    { accountId, officeName, plan: "office" },
     { newId: () => officeName, now: () => NOW },
   );
   if (!made.ok) throw new Error(made.reason);
@@ -303,17 +310,10 @@ describe("pending ordinary Checkout polling", () => {
     ]);
   });
 
-  test("Continue advances after the poll has already marked the session expired", async () => {
-    const store = await tempStore();
-    const reservation = await pending(store, "returning", "cs_old");
-    const reader = new FakeReader();
-    reader.sessions.set("cs_old", session("cs_old", "expired"));
-    await pollPendingCheckouts(store, reader, NOW);
-    expect(await reservationByName(store, "returning")).toMatchObject({
-      checkout_generation: 1,
-      checkout_state: "expired",
-    });
-
+  /** continueSignup's configuration, and a Stripe that answers every call
+   * like a fresh session would. `before` runs ahead of each answer, as
+   * another request running between our reads would. */
+  function stripeFor(store: Store, before?: (path: string) => Promise<void>) {
     (
       globalThis as {
         [STORE_SLOT]?: { opening?: Promise<Store> };
@@ -323,39 +323,113 @@ describe("pending ordinary Checkout polling", () => {
     process.env.CONTROL_PLANE_ENTRY_PRICE_ID = "price_entry";
     process.env.CONTROL_PLANE_STRIPE_MODE = "test";
     process.env.STRIPE_TEST_SECRET_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
-    const posts: string[] = [];
+    const calls: string[] = [];
     globalThis.fetch = (async (url: string | URL | Request) => {
       const requestUrl =
         typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       const path = new URL(requestUrl).pathname;
-      posts.push(path);
+      calls.push(path);
+      await before?.(path);
       const body =
-        path === "/v1/customers"
-          ? { id: "cus_new", livemode: false }
-          : {
-              id: "cs_new",
-              url: "https://checkout.stripe.test/cs_new",
-              expires_at: Math.floor((NOW + 86_400_000) / 1000),
-              payment_method_collection: "always",
+        path === "/v1/checkout/sessions/cs_old"
+          ? {
+              id: "cs_old",
+              status: "expired",
+              expires_at: Math.floor(NOW / 1000),
               livemode: false,
-            };
+            }
+          : path === "/v1/customers"
+            ? { id: "cus_new", livemode: false }
+            : {
+                id: "cs_new",
+                url: "https://checkout.stripe.test/cs_new",
+                expires_at: Math.floor((NOW + 86_400_000) / 1000),
+                payment_method_collection: "always",
+                livemode: false,
+              };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     }) as typeof fetch;
+    return calls;
+  }
 
-    expect(await continueSignup("en", "acct-1", "returning")).toEqual({
-      ok: true,
-      checkoutUrl: "https://checkout.stripe.test/cs_new",
-      instanceId: reservation.instance_id,
+  // Once a reservation's Checkout is over, its name and admission place are
+  // free (task 9ed7430a), so Continue may not re-arm it: that would hold a
+  // name past the admission count and the one-unpaid-office bound. The
+  // customer signs up again, which takes the name over afresh.
+  test.each([
+    [
+      "the poll has marked its session expired",
+      async (store: Store) => {
+        await pending(store, "returning", "cs_old");
+        const reader = new FakeReader();
+        reader.sessions.set("cs_old", session("cs_old", "expired"));
+        await pollPendingCheckouts(store, reader, NOW);
+      },
+    ],
+    [
+      "it recorded no session for the whole hold",
+      async (store: Store) => {
+        await store.tx(() =>
+          ensureAccount(store, { id: "acct-1", email: "a@example.com" }),
+        );
+        const made = await reserveOffice(
+          store,
+          { accountId: "acct-1", officeName: "returning", plan: "office" },
+          { now: () => NOW - UNPAID_OPENING_HOLD_MS },
+        );
+        if (!made.ok) throw new Error(made.reason);
+      },
+    ],
+  ])(
+    "Continue refuses a reservation whose checkout is over: %s",
+    async (_, arrange) => {
+      const store = await tempStore();
+      await arrange(store);
+      const before = await reservationByName(store, "returning");
+      expect(before?.account_id).toBe("acct-1");
+      const calls = stripeFor(store);
+
+      const result = await continueSignup("en", "acct-1", "returning");
+      expect(result.ok).toBe(false);
+      expect("officeName" in result).toBe(false);
+      expect(calls).toEqual([]);
+      expect(await reservationByName(store, "returning")).toEqual(before);
+    },
+  );
+
+  test("Continue never adopts a name another account took over while Stripe answered", async () => {
+    const store = await tempStore();
+    const mine = await pending(store, "contested", "cs_old");
+    await store.tx(() =>
+      ensureAccount(store, { id: "acct-2", email: "b@example.com" }),
+    );
+    let takeover: Awaited<ReturnType<typeof reserveOffice>> | undefined;
+    const calls = stripeFor(store, async (path) => {
+      if (path !== "/v1/checkout/sessions/cs_old" || takeover) return;
+      // While Continue waits on Stripe, the poll marks the session expired
+      // and a second account signs up for the released name.
+      await recordTerminalOrdinarySession(store, mine.id, "cs_old");
+      takeover = await reserveOffice(store, {
+        accountId: "acct-2",
+        officeName: "contested",
+        plan: "office",
+      });
     });
-    expect(posts).toEqual(["/v1/customers", "/v1/checkout/sessions"]);
-    expect(await reservationByName(store, "returning")).toMatchObject({
-      checkout_generation: 2,
-      checkout_state: "pending",
-      checkout_session_id: "cs_new",
+
+    const result = await continueSignup("en", "acct-1", "contested");
+    expect(takeover).toMatchObject({ ok: true });
+    if (!takeover?.ok) return;
+    expect(result).toEqual({
+      ok: false,
+      reason: translatorFor("en").t("errors.checkoutSessionUnavailable"),
     });
+    expect(calls).toEqual(["/v1/checkout/sessions/cs_old"]);
+    expect(await reservationByName(store, "contested")).toEqual(
+      takeover.reservation,
+    );
   });
 
   test("Continue opens the next generation when Stripe reports pending as expired", async () => {
@@ -571,7 +645,13 @@ describe("pending ordinary Checkout polling", () => {
   test("one thrown candidate does not stop the next customer", async () => {
     const store = await tempStore();
     await pending(store, "foxtrot", "cs_bad");
-    const good = await pending(store, "golf", "cs_good");
+    const good = await pending(
+      store,
+      "golf",
+      "cs_good",
+      "acct-2",
+      "b@example.com",
+    );
     const reader = new FakeReader();
     reader.throws.add("cs_bad");
     reader.sessions.set(
@@ -686,8 +766,20 @@ privileged("the poll as the provisioner's role", () => {
     const dsn = await freshDsn();
     const owner = await openTestStoreOn(dsn, () => NOW);
     const open = await pending(owner, "lima", "cs_lp_open");
-    const gone = await pending(owner, "mike", "cs_lp_gone");
-    const paid = await pending(owner, "november", "cs_lp_paid");
+    const gone = await pending(
+      owner,
+      "mike",
+      "cs_lp_gone",
+      "acct-2",
+      "b@example.com",
+    );
+    const paid = await pending(
+      owner,
+      "november",
+      "cs_lp_paid",
+      "acct-3",
+      "c@example.com",
+    );
     const role = await Store.openRuntime(
       await leastPrivilegedDsn({ dsn, grants }),
       () => NOW,

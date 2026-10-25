@@ -736,7 +736,22 @@ export function OfficeView({
             ? i18n.t("office.ready")
             : i18n.t("office.notReady")}
       </p>
-      {!view.subscription && !view.ended && (
+      {!view.subscription && !view.ended && view.checkoutOver && (
+        // Continue is refused once the checkout is over: the name is free, and
+        // a new signup for it starts afresh.
+        <section className="card" data-testid="payment-over">
+          <p>
+            {i18n.rich("office.paymentOver", {
+              link: (chunk) => (
+                <a href={`/signup?name=${encodeURIComponent(view.officeName)}`}>
+                  {chunk}
+                </a>
+              ),
+            })}
+          </p>
+        </section>
+      )}
+      {!view.subscription && !view.ended && !view.checkoutOver && (
         <section className="card" data-testid="payment-guidance">
           <p>{i18n.t("office.completePayment")}</p>
           <form className="form" method="post" action="/api/signup">

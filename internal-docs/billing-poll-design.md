@@ -68,11 +68,13 @@ subscription:
 - `complete` with a subscription ID: fetch that subscription, then call the
   existing reconciliation writer and provisioning gate in one transaction.
 - `expired` or absent: mark this generation terminal. Do not raise attention.
-  Stop polling it. Only this terminal state permits the customer's next Continue
-  action to advance the generation and use a new generation-derived session
-  idempotency key. The reservation and name stay with that account. No other
-  Continue path advances the generation, so one reservation cannot have two
-  customer-reachable open sessions.
+  Stop polling it. The reservation is then dead (task 9ed7430a): Continue
+  refuses it, and the next signup for the name, the owner's own included, takes
+  the row over as a fresh reservation with a new id (control-plane/README.md).
+  Only a Continue that itself finds a pending session expired at Stripe
+  advances the generation and uses a new generation-derived session
+  idempotency key, so one reservation cannot have two customer-reachable open
+  sessions.
 - unavailable, malformed, or mode-mismatched: write no billing truth. Retry
   transient reads with bounded backoff; surface malformed or mode mismatch as
   an operational failure, without treating customer abandonment as one.

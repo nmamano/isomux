@@ -3,7 +3,7 @@
 // the clock. The race for one name is in pg-concurrency.test.ts, on two
 // backends at once.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import {
   ACCESS_WINDOW_MS,
   MAX_NEW_OFFICES_PER_WINDOW,
@@ -19,20 +19,32 @@ import {
   reservationByName,
   customerReason,
   originIsTrusted,
+  recordOrdinaryCheckoutSession,
+  recordTerminalOrdinarySession,
   reservationsForAccount,
   reserveOffice,
   SubjectBindingConflict,
+  UNPAID_OPENING_HOLD_MS,
+  type ReservationRow,
 } from "./signup.ts";
+import { sweepCustomerKeyRetention } from "./access-retention.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
-import { accountByEmail } from "./stripe/billing-store.ts";
-import { signUpOffice } from "./web/lib/services.server.ts";
+import { accountByEmail, insertSubscription } from "./stripe/billing-store.ts";
+import { signUpOffice, signupPageState } from "./web/lib/services.server.ts";
 import { safeCustomerReason } from "./web/lib/customer-error.ts";
-import { isUniqueViolation, type Store } from "./store.ts";
+import { isUniqueViolation, Store } from "./store.ts";
+import { WEB_GRANTS } from "./roles.ts";
 import {
+  dropLeastPrivilegedRoles,
+  leastPrivilegedDsn,
+} from "./testing/least-privilege.ts";
+import {
+  freshDsn,
   openTestStore,
   openTestStoreOn,
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
+  TARGET_IS_LOCAL,
   testDsn,
 } from "./testing/pg.ts";
 
@@ -89,6 +101,58 @@ async function seedAdmissions(
       ],
     );
   }
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The subscription row reconciliation writes once a Checkout is paid. */
+async function payFor(
+  store: Store,
+  reservation: Pick<ReservationRow, "account_id" | "instance_id">,
+): Promise<void> {
+  await store.tx(() =>
+    insertSubscription(store, {
+      id: `sub-${reservation.instance_id}`,
+      account_id: reservation.account_id,
+      instance_id: reservation.instance_id,
+      stripe_customer_id: `cus-${reservation.instance_id}`,
+      status: "active",
+      current_period_end: null,
+      cancel_at_period_end: 0,
+      ended_at: null,
+      canceled_at: null,
+      cancellation_reason: null,
+      discount_percent_off: null,
+      discount_coupon_id: null,
+      discount_ends_at: null,
+      ever_full_discount: 0,
+      latest_invoice_id: null,
+      payment_failures: 0,
+      exhaustion_observed_at: null,
+      coupon_grace_until: null,
+      episode_id: null,
+      last_event_id: null,
+      last_event_created: null,
+    }),
+  );
+}
+
+/** Open a Checkout session on the reservation and have Stripe report it
+ * expired unpaid, through the writes the poll and Continue make. */
+async function expireCheckout(
+  store: Store,
+  reservation: ReservationRow,
+): Promise<void> {
+  const sessionId = `cs-${reservation.id}`;
+  expect(
+    await recordOrdinaryCheckoutSession(store, reservation, {
+      id: sessionId,
+      expiresAt: store.now() + DAY_MS,
+    }),
+  ).toBe(true);
+  expect(
+    await recordTerminalOrdinarySession(store, reservation.id, sessionId),
+  ).toBe(true);
 }
 
 describe("refusals that never reach the database", () => {
@@ -305,7 +369,8 @@ describe("the reservation", () => {
     if (!first.ok) throw new Error("signup failed");
     const fixed = now + ACCESS_WINDOW_MS;
 
-    now += 6 * 24 * 60 * 60 * 1000;
+    // Inside the opening hold, so the reservation is still live and reused.
+    now += UNPAID_OPENING_HOLD_MS - 1;
     const retry = await signup(store);
     expect(retry.ok).toBe(true);
     if (!retry.ok) return;
@@ -620,10 +685,11 @@ describe("refusal copy", () => {
 });
 
 describe("several offices per account", () => {
-  test("a second name for the same account creates an independent office", async () => {
+  test("a second name for an account whose first office is paid creates an independent office", async () => {
     const store = await tempStore();
     const first = await signup(store);
     if (!first.ok) throw new Error("signup failed");
+    await payFor(store, first.reservation);
     const second = await signup(store, { officeName: "acme-two" });
     expect(second.ok).toBe(true);
     expect((await reservationByName(store, "acme-two"))?.account_id).toBe(
@@ -642,10 +708,449 @@ describe("several offices per account", () => {
         { now: () => 123 },
       );
       if (!result.ok) throw new Error(result.reason);
+      // Paid, so the account may reserve the next name.
+      await payFor(store, result.reservation);
     }
     expect(
       (await reservationsForAccount(store, account.id)).map((r) => r.name),
     ).toEqual(["alpha", "beta"]);
+  });
+});
+
+// An unpaid reservation holds its name and an admission place only while its
+// Checkout can still be paid. Once it is over, the name goes to the next signup
+// for it and the place to the next office, so a free account cannot close
+// signups for everyone by reserving names it never pays for (task 9ed7430a).
+describe("an unpaid reservation whose checkout is over", () => {
+  const NOW = 1_700_000_000_000;
+  const CREATED = NOW - 5 * DAY_MS;
+
+  interface Held {
+    state: ReservationRow["checkout_state"];
+    updatedAt: number;
+    expiresAt?: number;
+    paidBy?: "subscription" | "create_instance";
+  }
+
+  /** The name "held", reserved by another account inside the admission window,
+   * with its office rows as signup writes them. */
+  async function seedHeld(store: Store, held: Held): Promise<void> {
+    const session =
+      held.state === "pending" || held.state === "expired" ? "cs-held" : null;
+    await store.tx(async () => {
+      await store.sqlRun(
+        "insert into name_reservations (name, id, account_id, instance_id, plan, coupon_id, " +
+          "checkout_session_id, checkout_generation, checkout_expires_at, checkout_state, " +
+          "version, created_at, updated_at) values ('held', 'res-held', 'held-account', " +
+          "'inst-held', 'office', null, $1, 1, $2, $3, 1, $4, $5)",
+        [session, held.expiresAt ?? null, held.state, CREATED, held.updatedAt],
+      );
+      await store.createInstance({
+        id: "inst-held",
+        run_id: null,
+        name: hostnameForNewOffice("held"),
+        plan: planById("office")!.providerProduct,
+        region: planById("office")!.region,
+        service_state: "provisioning",
+        goal: "live",
+        access_window_expires_at: CREATED + ACCESS_WINDOW_MS,
+        customer_ssh_key: null,
+        ssh_login_user: null,
+      });
+    });
+    if (held.paidBy === "subscription") {
+      await payFor(store, {
+        account_id: "held-account",
+        instance_id: "inst-held",
+      });
+    }
+    if (held.paidBy === "create_instance") {
+      await store.enqueue({
+        id: "op-held-create",
+        instance_id: "inst-held",
+        kind: "create_instance",
+        inactivity_deadline_at: NOW + DAY_MS,
+        absolute_deadline_at: NOW + DAY_MS,
+      });
+    }
+  }
+
+  async function inWindow(store: Store): Promise<number> {
+    const row = await store.sqlGet<{ n: number }>(
+      "select count(*) as n from name_reservations where created_at >= $1",
+      [NOW - NEW_OFFICE_WINDOW_MS],
+    );
+    return Number(row?.n);
+  }
+
+  const OVER: [string, Held][] = [
+    [
+      "Stripe reported its session expired",
+      { state: "expired", updatedAt: NOW },
+    ],
+    [
+      "it recorded no session for the whole hold",
+      { state: "opening", updatedAt: NOW - UNPAID_OPENING_HOLD_MS },
+    ],
+    [
+      "a legacy row recorded no session for the whole hold",
+      { state: null, updatedAt: NOW - UNPAID_OPENING_HOLD_MS },
+    ],
+  ];
+  const LIVE: [string, Held][] = [
+    [
+      "it is opening inside the hold",
+      { state: "opening", updatedAt: NOW - UNPAID_OPENING_HOLD_MS + 1 },
+    ],
+    [
+      "its session is past expiry and Stripe has not confirmed that",
+      { state: "pending", updatedAt: CREATED, expiresAt: NOW - 4 * DAY_MS },
+    ],
+    [
+      "its checkout expired but it has a subscription",
+      { state: "expired", updatedAt: NOW, paidBy: "subscription" },
+    ],
+    [
+      "its checkout expired but its office is being created",
+      { state: "expired", updatedAt: NOW, paidBy: "create_instance" },
+    ],
+  ];
+
+  test.each(OVER)("frees its admission place when %s", async (_, held) => {
+    const store = await tempStore(() => NOW);
+    await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, NOW);
+    await seedHeld(store, held);
+    expect(await inWindow(store)).toBe(MAX_NEW_OFFICES_PER_WINDOW);
+    const out = await signup(store, {
+      email: "next@example.com",
+      officeName: "next",
+    });
+    expect(out.ok).toBe(true);
+  });
+
+  test.each(LIVE)("keeps its admission place when %s", async (_, held) => {
+    const store = await tempStore(() => NOW);
+    await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, NOW);
+    await seedHeld(store, held);
+    expect(await inWindow(store)).toBe(MAX_NEW_OFFICES_PER_WINDOW);
+    const refused = await signup(store, {
+      email: "next@example.com",
+      officeName: "next",
+    });
+    expect(refused).toMatchObject({ ok: false, kind: "customer" });
+    expect(await reservationByName(store, "next")).toBeNull();
+    // The held row was the place that decided it: without it, "next" fits.
+    await store.sqlRun("delete from name_reservations where name = 'held'");
+    expect(
+      (await signup(store, { email: "next@example.com", officeName: "next" }))
+        .ok,
+    ).toBe(true);
+  });
+
+  test.each(OVER)(
+    "gives its name to the next signup when %s",
+    async (_, held) => {
+      const store = await tempStore(() => NOW);
+      await seedHeld(store, held);
+      const out = await signup(store, {
+        email: "next@example.com",
+        officeName: "held",
+        plan: "poweruser",
+      });
+      expect(out.ok).toBe(true);
+      if (!out.ok) return;
+      expect(out.reused).toBe(false);
+      expect(out.reservation).toMatchObject({
+        account_id: out.account.id,
+        plan: "poweruser",
+        checkout_generation: 1,
+        checkout_session_id: null,
+        checkout_state: "opening",
+        created_at: NOW,
+      });
+      expect(out.reservation.id).not.toBe("res-held");
+      expect(out.reservation.instance_id).not.toBe("inst-held");
+      expect((await store.getInstance("inst-held"))?.service_state).toBe(
+        "deprovisioned",
+      );
+      expect(await reservationsForAccount(store, "held-account")).toEqual([]);
+    },
+  );
+
+  test.each(LIVE)("keeps its name when %s", async (_, held) => {
+    const store = await tempStore(() => NOW);
+    await seedHeld(store, held);
+    const refused = await signup(store, {
+      email: "next@example.com",
+      officeName: "held",
+    });
+    expect(refused).toMatchObject({ ok: false, kind: "customer" });
+    expect(await reservationByName(store, "held")).toMatchObject({
+      id: "res-held",
+      account_id: "held-account",
+      instance_id: "inst-held",
+    });
+    expect((await store.getInstance("inst-held"))?.service_state).toBe(
+      "provisioning",
+    );
+  });
+
+  test("a name taken over gets new Stripe keys and a new office, and the old office is released", async () => {
+    let now = NOW;
+    const store = await tempStore(() => now);
+    const first = await signup(store, { customerSshKey: VALID_KEY });
+    if (!first.ok) throw new Error("signup failed");
+    await expireCheckout(store, first.reservation);
+    now += 60 * 60 * 1000;
+
+    const other = await accountFor(store, "b@example.com");
+    const out = await reserveOffice(store, {
+      accountId: other.id,
+      officeName: "acme",
+      plan: "office",
+      customerSshKey: VALID_KEY,
+    });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    // Both Stripe idempotency keys derive from the reservation id: the old
+    // ones would replay the first account's customer and session.
+    const before = checkoutKeysFor(first.reservation);
+    const after = checkoutKeysFor(out.reservation);
+    expect(after.customer).not.toBe(before.customer);
+    expect(after.session).not.toBe(before.session);
+
+    const made = await store.getInstance(out.reservation.instance_id);
+    expect(made).toMatchObject({
+      name: hostnameForNewOffice("acme"),
+      service_state: "provisioning",
+      access_window_expires_at: now + ACCESS_WINDOW_MS,
+      customer_ssh_key: `ssh-ed25519 ${keyBlob()}`,
+    });
+    expect(
+      (await store.assetForInstance(out.reservation.instance_id))?.asset_state,
+    ).toBe("none");
+    expect(
+      (await store.getInstance(first.reservation.instance_id))?.service_state,
+    ).toBe("deprovisioned");
+    const released = (await store.auditEvents()).filter(
+      (e) => e.action === "release_office",
+    );
+    expect(released).toHaveLength(1);
+    expect(released[0]).toMatchObject({
+      actor: `account:${other.id}`,
+      instance_id: first.reservation.instance_id,
+    });
+    expect(await reservationsForAccount(store, first.account.id)).toEqual([]);
+    expect(
+      (await reservationsForAccount(store, other.id)).map((r) => r.id),
+    ).toEqual([out.reservation.id]);
+  });
+
+  test("a takeover is an admission: at the limit it is refused and the name stays where it was", async () => {
+    const store = await tempStore(() => NOW);
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    await expireCheckout(store, first.reservation);
+    await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW, NOW);
+
+    const refused = await signup(store, { email: "b@example.com" });
+    expect(refused).toMatchObject({ ok: false, kind: "customer" });
+    expect(await reservationByName(store, "acme")).toMatchObject({
+      id: first.reservation.id,
+      account_id: first.account.id,
+    });
+    expect(
+      (await store.getInstance(first.reservation.instance_id))?.service_state,
+    ).toBe("provisioning");
+    expect(await store.listInstances()).toHaveLength(1);
+    // The limit was what refused it: with the window empty, the same
+    // takeover is admitted.
+    await store.sqlRun(
+      "delete from name_reservations where name like 'seed-%'",
+    );
+    expect((await signup(store, { email: "b@example.com" })).ok).toBe(true);
+  });
+
+  test("the owner's own reservation whose checkout is over starts afresh, past the access window too", async () => {
+    let now = NOW;
+    const store = await tempStore(() => now);
+    const first = await signup(store, { customerSshKey: VALID_KEY });
+    if (!first.ok) throw new Error("signup failed");
+    now += ACCESS_WINDOW_MS + 60 * 60 * 1000;
+    await sweepCustomerKeyRetention(store);
+    // The state a returning owner meets: the retention sweep has cleared the
+    // key from the office the old reservation names.
+    expect(
+      (await store.getInstance(first.reservation.instance_id))
+        ?.customer_ssh_key,
+    ).toBeNull();
+
+    const again = await signup(store, { customerSshKey: VALID_KEY });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.reused).toBe(false);
+    expect(again.reservation.instance_id).not.toBe(
+      first.reservation.instance_id,
+    );
+    expect(
+      await store.getInstance(again.reservation.instance_id),
+    ).toMatchObject({
+      access_window_expires_at: now + ACCESS_WINDOW_MS,
+      customer_ssh_key: `ssh-ed25519 ${keyBlob()}`,
+    });
+    expect(
+      (await store.getInstance(first.reservation.instance_id))?.service_state,
+    ).toBe("deprovisioned");
+  });
+});
+
+// THE ROLE THE DEPLOYED WEB TIER RUNS AS. A takeover locks and rewrites a
+// reservation and retires an instance, and a write the web matrix does not
+// grant is a 42501 the customer reads as a 500 (the 2026-08-24 signup). LOCAL
+// ENGINE ONLY: it creates a login role.
+const privileged = TARGET_IS_LOCAL ? describe : describe.skip;
+
+privileged("a takeover as the web role", () => {
+  afterAll(async () => {
+    await dropLeastPrivilegedRoles();
+  }, PG_TEST_HOOK_TIMEOUT_MS);
+
+  test("runs on the deployed web grants", async () => {
+    const now = 1_700_000_000_000;
+    const dsn = await freshDsn();
+    const owner = await openTestStoreOn(dsn, () => now);
+    const first = await signup(owner);
+    if (!first.ok) throw new Error("signup failed");
+    await expireCheckout(owner, first.reservation);
+    const other = await accountFor(owner, "b@example.com");
+    const web = await Store.openRuntime(
+      await leastPrivilegedDsn({ dsn, grants: WEB_GRANTS }),
+      () => now,
+    );
+    try {
+      const out = await reserveOffice(web, {
+        accountId: other.id,
+        officeName: "acme",
+        plan: "office",
+      });
+      expect(out).toMatchObject({ ok: true, reused: false });
+      expect(
+        (await owner.getInstance(first.reservation.instance_id))?.service_state,
+      ).toBe("deprovisioned");
+    } finally {
+      await web.close();
+    }
+  });
+});
+
+describe("one live unpaid reservation per account", () => {
+  test("a second name waits until the first checkout is over, and the refusal writes nothing", async () => {
+    const store = await tempStore(() => 1_700_000_000_000);
+    const first = await signup(store, { officeName: "alpha" });
+    if (!first.ok) throw new Error("signup failed");
+
+    const refused = await signup(store, { officeName: "bravo" });
+    expect(refused).toMatchObject({ ok: false, kind: "customer" });
+    // It names the office whose checkout the customer can finish.
+    if (!refused.ok) expect(refused.reason).toContain("alpha");
+    expect(await reservationByName(store, "bravo")).toBeNull();
+    expect(await store.listInstances()).toHaveLength(1);
+    expect(await store.auditEvents()).toHaveLength(1);
+
+    await expireCheckout(store, first.reservation);
+    expect((await signup(store, { officeName: "bravo" })).ok).toBe(true);
+  });
+
+  test("an account holding a live unpaid office cannot take over a released name either", async () => {
+    const store = await tempStore(() => 1_700_000_000_000);
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    await expireCheckout(store, first.reservation);
+    const beta = await signup(store, {
+      email: "b@example.com",
+      officeName: "beta",
+    });
+    if (!beta.ok) throw new Error("signup failed");
+
+    const refused = await signup(store, { email: "b@example.com" });
+    expect(refused).toMatchObject({ ok: false, kind: "customer" });
+    if (!refused.ok) expect(refused.reason).toContain("beta");
+    expect(await reservationByName(store, "acme")).toMatchObject({
+      id: first.reservation.id,
+      account_id: first.account.id,
+    });
+    expect(
+      (await store.getInstance(first.reservation.instance_id))?.service_state,
+    ).toBe("provisioning");
+  });
+
+  test("two concurrent signups from one account admit one office", async () => {
+    const now = 1_700_000_000_000;
+    const dsn = await testDsn();
+    const a = await openTestStoreOn(dsn, () => now);
+    const b = await openTestStoreOn(dsn, () => now);
+    const account = await accountForDevSignIn(a, "racer@example.com");
+    const [one, two] = await Promise.all([
+      reserveOffice(a, {
+        accountId: account.id,
+        officeName: "one",
+        plan: "office",
+      }),
+      reserveOffice(b, {
+        accountId: account.id,
+        officeName: "two",
+        plan: "office",
+      }),
+    ]);
+    expect([one.ok, two.ok].filter(Boolean)).toHaveLength(1);
+    expect(one.ok ? two : one).toMatchObject({ ok: false, kind: "customer" });
+    expect(await reservationsForAccount(a, account.id)).toHaveLength(1);
+    expect(await a.listInstances()).toHaveLength(1);
+    await a.close();
+    await b.close();
+  });
+});
+
+// The page offers Continue for the reservation the account may still pay, and
+// the new-office form once none is live.
+describe("the signup page state", () => {
+  const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
+
+  afterEach(() => {
+    delete (globalThis as { [STORE_SLOT]?: unknown })[STORE_SLOT];
+  });
+
+  test("follows the live unpaid reservation, not the oldest unpaid one", async () => {
+    let now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    (globalThis as { [STORE_SLOT]?: { opening?: Promise<Store> } })[
+      STORE_SLOT
+    ] = { opening: Promise.resolve(store) };
+    const alpha = await signup(store, { officeName: "alpha" });
+    if (!alpha.ok) throw new Error("signup failed");
+    const id = alpha.account.id;
+    expect(await signupPageState(id)).toEqual({
+      kind: "continue",
+      officeName: "alpha",
+    });
+
+    await expireCheckout(store, alpha.reservation);
+    expect(await signupPageState(id)).toEqual({ kind: "new" });
+
+    const bravo = await signup(store, { officeName: "bravo" });
+    if (!bravo.ok) throw new Error(bravo.reason);
+    await payFor(store, bravo.reservation);
+    expect(await signupPageState(id)).toEqual({ kind: "paid" });
+
+    const charlie = await signup(store, { officeName: "charlie" });
+    if (!charlie.ok) throw new Error(charlie.reason);
+    expect(await signupPageState(id)).toEqual({
+      kind: "continue",
+      officeName: "charlie",
+    });
+
+    now += UNPAID_OPENING_HOLD_MS;
+    expect(await signupPageState(id)).toEqual({ kind: "paid" });
   });
 });
 

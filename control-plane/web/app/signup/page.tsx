@@ -38,7 +38,9 @@ export default async function Signup({
     plans(),
     signupPageState(session.accountId),
   ]);
-  if (state.kind === "paid" && !settingUpAnother) redirect("/");
+  // A name means a signup in progress: the office page's link to set an
+  // expired office up again, or a refused new-office form.
+  if (state.kind === "paid" && !settingUpAnother && !name) redirect("/");
   return (
     <main lang={language}>
       <DocumentLanguage language={language} />

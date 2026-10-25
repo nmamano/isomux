@@ -216,6 +216,9 @@ export interface ProgressView {
   liveness: LivenessView | null;
   restart: RestartView;
   subscription: SubscriptionView | null;
+  /** Unpaid with its Checkout over: Continue is refused, and a new signup for
+   * the name takes it over. */
+  checkoutOver: boolean;
   /** Null until the customer's cancellation has actually taken effect. */
   lifecycle: LifecycleView | null;
 }
@@ -718,6 +721,7 @@ export async function projectionFor(
     handoff: handoffFor(access, byKind, operations),
     liveness,
     restart: restartFor(byKind),
+    checkoutOver: rows.checkout_over === true,
     subscription: subscriptionRow
       ? subscriptionViewOf(subscriptionRow, asOf)
       : null,

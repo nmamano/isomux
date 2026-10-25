@@ -222,6 +222,7 @@ const baseView: ProgressView = {
     revocation: { state: "done", customerConfirmed: true, confirmedAt: 0 },
   },
   liveness: null,
+  checkoutOver: false,
   restart: { state: "none", active: false, lastRequestedAt: null },
   subscription: null,
   lifecycle: null,

@@ -339,6 +339,34 @@ describe("office route authorization", () => {
       officeName: "route-owner",
       plan: "office",
     });
+    if (!owned.ok) throw new Error(owned.reason);
+    // Paid, so its owner may reserve a second office.
+    await seed.tx(async () =>
+      insertSubscription(seed, {
+        id: "sub-route-owner",
+        account_id: owner.id,
+        instance_id: owned.reservation.instance_id,
+        stripe_customer_id: "cus-route-owner",
+        status: "active",
+        current_period_end: null,
+        cancel_at_period_end: 0,
+        ended_at: null,
+        canceled_at: null,
+        cancellation_reason: null,
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 0,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        episode_state: "none",
+        last_event_id: null,
+        last_event_created: null,
+      }),
+    );
     const ownedSecond = await reserveOffice(seed, {
       accountId: owner.id,
       officeName: "route-owner-two",

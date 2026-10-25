@@ -173,6 +173,8 @@ export const en = {
   "office.ready": "Your office is ready.",
   "office.notReady": "Your office is not ready yet.",
   "office.completePayment": "Complete payment to start ordering your server.",
+  "office.paymentOver":
+    "The payment page for this office expired. <link>Set up the office again</link>.",
   "office.openOffice": "Open your office",
   "office.progressHeading": "Progress",
   "office.otherWorkHeading": "Other work on this office",

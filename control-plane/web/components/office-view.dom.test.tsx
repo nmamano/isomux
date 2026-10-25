@@ -82,6 +82,7 @@ const liveView: ProgressView = {
     revocation: { state: "none", customerConfirmed: false, confirmedAt: null },
   },
   liveness: null,
+  checkoutOver: false,
   restart: { state: "none", active: false, lastRequestedAt: null },
   subscription: {
     status: "active",

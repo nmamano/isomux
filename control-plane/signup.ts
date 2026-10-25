@@ -22,6 +22,12 @@
 
 import { isUniqueViolation, type Store } from "./store.ts";
 import {
+  checkoutOverSql,
+  deadSql,
+  paidSql,
+  UNPAID_OPENING_HOLD_MS,
+} from "./reservation-hold.ts";
+import {
   casAccount,
   ensureAccount,
   getAccount,
@@ -81,9 +87,25 @@ const NEW_OFFICE_LIMIT_REASON =
   "we cannot accept another office signup yet; try again later";
 const NEW_OFFICE_LIMIT = new Error("new office admission limit");
 
+/** Thrown, not returned, so the transaction rolls back what it wrote. */
+class UnpaidReservationHeld extends Error {
+  constructor(readonly officeName: string) {
+    super("the account holds a live unpaid reservation");
+  }
+}
+
 function admissionOutcome(err: unknown): SignupOutcome {
   if (err === NEW_OFFICE_LIMIT) {
     return { ok: false, kind: "customer", reason: NEW_OFFICE_LIMIT_REASON };
+  }
+  if (err instanceof UnpaidReservationHeld) {
+    return {
+      ok: false,
+      kind: "customer",
+      reason:
+        `complete payment for "${err.officeName}" before you set up ` +
+        `another office`,
+    };
   }
   throw err;
 }
@@ -150,6 +172,38 @@ export async function reservationForInstance(
     "select * from name_reservations where instance_id = $1",
     [instanceId],
   );
+}
+
+export { UNPAID_OPENING_HOLD_MS };
+
+/** The account's first unpaid reservation whose Checkout is not over, or null.
+ * `except` leaves out the name being reserved. */
+export async function heldUnpaidReservation(
+  store: Store,
+  accountId: string,
+  now: number,
+  except?: string,
+): Promise<ReservationRow | null> {
+  return store.sqlGet<ReservationRow>(
+    "select r.* from name_reservations r where r.account_id = $1 " +
+      "and ($3::text is null or r.name <> $3) " +
+      `and not ${paidSql("r")} and not ${checkoutOverSql("r", "$2")} ` +
+      "order by r.created_at, r.name limit 1",
+    [accountId, now - UNPAID_OPENING_HOLD_MS, except ?? null],
+  );
+}
+
+/** Whether the reservation is dead: unpaid, with its Checkout over. */
+export async function reservationIsDead(
+  store: Store,
+  reservation: ReservationRow,
+  now: number,
+): Promise<boolean> {
+  const row = await store.sqlGet<{ dead: boolean }>(
+    `select ${deadSql("r", "$2")} as dead from name_reservations r where r.id = $1`,
+    [reservation.id, now - UNPAID_OPENING_HOLD_MS],
+  );
+  return row?.dead === true;
 }
 
 /** Every office reserved by an account, in creation order. The name tie-breaker
@@ -541,6 +595,71 @@ export type SignupOutcome =
   | Refusal;
 
 /**
+ * Give a dead reservation's name to a new signup. The row keeps its name and
+ * gets everything else new; the caller has it locked and creates the office the
+ * new instance id names.
+ */
+async function takeOverReservation(
+  store: Store,
+  old: ReservationRow,
+  next: {
+    id: string;
+    accountId: string;
+    instanceId: string;
+    plan: string;
+    coupon: string | null;
+    ts: number;
+  },
+): Promise<void> {
+  const taken = await store.sqlGet<{ id: string }>(
+    "update name_reservations set id=$1, account_id=$2, instance_id=$3, plan=$4, " +
+      "coupon_id=$5, checkout_generation=1, checkout_session_id=null, " +
+      "checkout_expires_at=null, checkout_state='opening', checkout_next_check_at=null, " +
+      "version=version+1, created_at=$6, updated_at=$6 where name=$7 and id=$8 returning id",
+    [
+      next.id,
+      next.accountId,
+      next.instanceId,
+      next.plan,
+      next.coupon,
+      next.ts,
+      old.name,
+      old.id,
+    ],
+  );
+  if (!taken) throw new Error("the locked reservation moved during takeover");
+}
+
+/** Retire the office a taken-over reservation named. Its asset never reached a
+ * provider (provider_id is null), so nothing reconciles it. */
+async function releaseOffice(
+  store: Store,
+  old: ReservationRow,
+  takerAccountId: string,
+  ts: number,
+): Promise<void> {
+  const instance = await store.getInstance(old.instance_id);
+  if (!instance) throw new Error("released instance is missing");
+  const retired = await store.casInstance(instance.id, instance.version, {
+    service_state: "deprovisioned",
+  });
+  if (!retired) throw new Error(`instance ${instance.id} moved while released`);
+  await store.appendAudit({
+    actor: `account:${takerAccountId}`,
+    instance_id: old.instance_id,
+    action: "release_office",
+    target: old.name,
+    outcome: "released",
+    detail: JSON.stringify({
+      reservation: old.id,
+      account: old.account_id,
+      checkout_state: old.checkout_state,
+    }),
+    ts,
+  });
+}
+
+/**
  * Reserve an office name for an account, creating everything the name needs to
  * become a box.
  *
@@ -580,6 +699,7 @@ export async function reserveOffice(
       };
     }
     const instanceId = `inst-${uuid}`;
+    let released: ReservationRow | null = null;
     try {
       // AWAITED INSIDE THE TRY. Without the await the UNIQUE violation would
       // reject after this frame has left, so the catch below - the arm that
@@ -609,89 +729,126 @@ export async function reserveOffice(
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       // The name constraint decides collisions. Read it back rather than
-      // guessing from the engine's error text.
-      const held = await reservationByName(store, req.officeName);
-      if (!held) {
-        // A database that has not received the multi-office owner migration can
-        // still refuse a second name on its legacy account_id constraint. The
-        // runtime schema check normally prevents that database from opening;
-        // this arm keeps a direct caller from turning the same condition into
-        // an unexplained 500.
-        const mine = await reservationsForAccount(store, account.id);
-        if (mine.length > 0) {
+      // guessing from the engine's error text. Locked, so the takeover below
+      // decides on the row it then rewrites.
+      const held = await store.sqlGet<ReservationRow & { dead: boolean }>(
+        `select r.*, ${deadSql("r", "$2")} as dead from name_reservations r ` +
+          "where r.name = $1 for update",
+        [req.officeName, ts - UNPAID_OPENING_HOLD_MS],
+      );
+      if (held?.dead) {
+        // Its Checkout is over and nobody paid: the name goes to this signup,
+        // the owner's own included, as a fresh reservation with a new id. Both
+        // Stripe idempotency keys derive from the id, so keeping the old one
+        // would replay the old account's customer and session.
+        const { dead: _, ...old } = held;
+        await takeOverReservation(store, old, {
+          id: `res-${uuid}`,
+          accountId: account.id,
+          instanceId,
+          plan: plan.id,
+          coupon,
+          ts,
+        });
+        released = old;
+      } else {
+        if (!held) {
+          // A database that has not received the multi-office owner migration can
+          // still refuse a second name on its legacy account_id constraint. The
+          // runtime schema check normally prevents that database from opening;
+          // this arm keeps a direct caller from turning the same condition into
+          // an unexplained 500.
+          const mine = await reservationsForAccount(store, account.id);
+          if (mine.length > 0) {
+            return {
+              ok: false,
+              kind: "configuration",
+              reason:
+                "this deployment needs its multi-office database migration",
+            };
+          }
+          throw err;
+        }
+        if (held.account_id !== account.id) {
           return {
             ok: false,
-            kind: "configuration",
-            reason: "this deployment needs its multi-office database migration",
+            kind: "customer",
+            reason: `"${req.officeName}" is taken`,
           };
         }
-        throw err;
+        // The owner's own retry. Checkout inputs come from the row, so the only
+        // question is whether this request AGREES with it: silently using the
+        // stored plan would leave someone believing they had changed it.
+        if (held.plan !== plan.id) {
+          return {
+            ok: false,
+            kind: "customer",
+            reason:
+              `"${req.officeName}" is already reserved on the ` +
+              `${held.plan} plan; finish or abandon that checkout before ` +
+              `choosing a different one`,
+          };
+        }
+        if ((held.coupon_id ?? null) !== coupon) {
+          return {
+            ok: false,
+            kind: "customer",
+            reason:
+              `"${req.officeName}" is already reserved ` +
+              (held.coupon_id
+                ? `with the code ${held.coupon_id}`
+                : "without a code") +
+              `; finish or abandon that checkout before changing it`,
+          };
+        }
+        const heldInstance = await store.getInstance(held.instance_id);
+        if (!heldInstance)
+          throw new Error("reserved instance is missing", { cause: err });
+        if (
+          heldInstance.access_window_expires_at !==
+          held.created_at + ACCESS_WINDOW_MS
+        ) {
+          return {
+            ok: false,
+            kind: "customer",
+            reason:
+              `"${req.officeName}" was reserved before the seven-day ` +
+              `setup-access policy; recycle it from a new signup`,
+          };
+        }
+        if ((heldInstance.customer_ssh_key ?? null) !== customerSshKey) {
+          return {
+            ok: false,
+            kind: "customer",
+            reason: heldInstance.customer_ssh_key
+              ? `"${req.officeName}" is already reserved with an SSH key; finish or abandon that checkout before changing it`
+              : `"${req.officeName}" is already reserved without an SSH key; finish or abandon that checkout before adding one`,
+          };
+        }
+        const { dead: _, ...row } = held;
+        return { ok: true, reservation: row, account, reused: true };
       }
-      if (held.account_id !== account.id) {
-        return {
-          ok: false,
-          kind: "customer",
-          reason: `"${req.officeName}" is taken`,
-        };
-      }
-      // The owner's own retry. Checkout inputs come from the row, so the only
-      // question is whether this request AGREES with it: silently using the
-      // stored plan would leave someone believing they had changed it.
-      if (held.plan !== plan.id) {
-        return {
-          ok: false,
-          kind: "customer",
-          reason:
-            `"${req.officeName}" is already reserved on the ` +
-            `${held.plan} plan; finish or abandon that checkout before ` +
-            `choosing a different one`,
-        };
-      }
-      if ((held.coupon_id ?? null) !== coupon) {
-        return {
-          ok: false,
-          kind: "customer",
-          reason:
-            `"${req.officeName}" is already reserved ` +
-            (held.coupon_id
-              ? `with the code ${held.coupon_id}`
-              : "without a code") +
-            `; finish or abandon that checkout before changing it`,
-        };
-      }
-      const heldInstance = await store.getInstance(held.instance_id);
-      if (!heldInstance)
-        throw new Error("reserved instance is missing", { cause: err });
-      if (
-        heldInstance.access_window_expires_at !==
-        held.created_at + ACCESS_WINDOW_MS
-      ) {
-        return {
-          ok: false,
-          kind: "customer",
-          reason:
-            `"${req.officeName}" was reserved before the seven-day ` +
-            `setup-access policy; recycle it from a new signup`,
-        };
-      }
-      if ((heldInstance.customer_ssh_key ?? null) !== customerSshKey) {
-        return {
-          ok: false,
-          kind: "customer",
-          reason: heldInstance.customer_ssh_key
-            ? `"${req.officeName}" is already reserved with an SSH key; finish or abandon that checkout before changing it`
-            : `"${req.officeName}" is already reserved without an SSH key; finish or abandon that checkout before adding one`,
-        };
-      }
-      return { ok: true, reservation: held, account, reused: true };
     }
 
     await store.sqlRun("select pg_advisory_xact_lock($1)", [
       NEW_OFFICE_ADMISSION_LOCK,
     ]);
+    // One live unpaid reservation per account, read under the lock so two
+    // concurrent signups from one account see each other. It throws so the
+    // transaction rolls back the row written above.
+    const other = await heldUnpaidReservation(
+      store,
+      account.id,
+      ts,
+      req.officeName,
+    );
+    if (other) throw new UnpaidReservationHeld(other.name);
+    // Dead reservations hold no place: only a paid office or a Checkout that
+    // can still be paid may spend a certificate.
     const admitted = await store.sqlGet<{ n: number }>(
-      "select count(*) as n from name_reservations where created_at >= $1",
-      [ts - NEW_OFFICE_WINDOW_MS],
+      "select count(*) as n from name_reservations r where r.created_at >= $1 " +
+        `and not ${deadSql("r", "$2")}`,
+      [ts - NEW_OFFICE_WINDOW_MS, ts - UNPAID_OPENING_HOLD_MS],
     );
     if (!admitted) throw new Error("new-office admission count is missing");
     if (admitted.n > MAX_NEW_OFFICES_PER_WINDOW) throw NEW_OFFICE_LIMIT;
@@ -724,6 +881,7 @@ export async function reserveOffice(
       host_key_fingerprint: null,
       next_reconcile_at: ts,
     });
+    if (released) await releaseOffice(store, released, account.id, ts);
     await store.appendAudit({
       actor: `account:${account.id}`,
       instance_id: instanceId,

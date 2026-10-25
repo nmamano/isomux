@@ -168,6 +168,8 @@ export const ca: Catalog = {
   "office.notReady": "La teva oficina encara no està a punt.",
   "office.completePayment":
     "Completa el pagament per començar a demanar el teu servidor.",
+  "office.paymentOver":
+    "La pàgina de pagament d'aquesta oficina ha caducat. <link>Torna a configurar l'oficina</link>.",
   "office.openOffice": "Obre la teva oficina",
   "office.progressHeading": "Progrés",
   "office.otherWorkHeading": "Altres tasques en aquesta oficina",
