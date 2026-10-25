@@ -3416,22 +3416,56 @@ function heirOwnerFor(deletedUserId: string): UserRecord | undefined {
     .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0];
 }
 
-// A deleted member's schedules and webhooks that did not move with an agent
-// pass to the heir too (task 438900d2). The member could read the secret of
-// every hook they owned, so each of `hookIds` (all the hooks they owned when
-// the delete began, also those that already moved with an agent) passes with
-// a secret they never saw. Off before the new secret: a throw part way must
-// leave the hook off, not on with the secret the member kept.
+// A deleted member's webhooks and schedules turn off before their agents pass
+// to the heir (task be7708d3). An agent transfer moves the records its agent
+// made to the heir, and the delete then awaits the next agent's drain. A hook
+// still on in that window would take the secret the member kept, and a
+// schedule would fire their prompt, both with the heir's environment and
+// secrets. The heir reads each one and turns it back on.
+function turnOffMemberRecords(memberId: string, hookIds: string[]): void {
+  for (const id of hookIds) turnOffWebhook(id);
+  for (const job of cronjobManager.listCronjobs())
+    if (job.userId === memberId) turnOffCronjob(job.id);
+}
+
+function turnOffWebhook(id: string): void {
+  try {
+    const hook = webhookRegistry.get(id);
+    if (hook?.enabled) webhookRegistry.update(id, { ...hook, enabled: false });
+  } catch (err) {
+    console.error(`[users] webhook ${id} did not turn off:`, err);
+  }
+}
+
+function turnOffCronjob(id: string): void {
+  try {
+    if (cronjobManager.listCronjobs().find((job) => job.id === id)?.enabled)
+      cronjobManager.updateCronjob(id, { enabled: false });
+  } catch (err) {
+    console.error(`[users] schedule ${id} did not turn off:`, err);
+  }
+}
+
+// After the agent transfers, a deleted member's schedules and webhooks that
+// did not move with an agent pass to the heir too (task 438900d2), turned
+// off. The member could read the secret of every hook they owned, so each of
+// `hookIds` (all the hooks they owned when the delete began, also those that
+// already moved with an agent) and each hook still theirs (made during the
+// transfers) passes with a secret they never saw. Off before the new secret
+// and the new owner: a throw part way must leave the record off.
 function passMemberRecordsToHeir(
   memberId: string,
   hookIds: string[],
   heir: UserRecord,
 ): void {
-  for (const id of hookIds) {
+  const ids = new Set(hookIds);
+  for (const hook of webhookRegistry.list())
+    if (hook.userId === memberId) ids.add(hook.id);
+  for (const id of ids) {
     try {
       const hook = webhookRegistry.get(id);
       if (!hook) continue;
-      webhookRegistry.update(id, { ...hook, enabled: false });
+      if (hook.enabled) webhookRegistry.update(id, { ...hook, enabled: false });
       webhookRegistry.rotateSecret(id);
       if (hook.userId === memberId)
         webhookRegistry.setOwner(id, heir.id, heir.name);
@@ -3439,12 +3473,17 @@ function passMemberRecordsToHeir(
       console.error(`[users] webhook ${id} did not pass to the heir:`, err);
     }
   }
-  try {
-    for (const job of cronjobManager.listCronjobs())
-      if (job.userId === memberId)
-        cronjobManager.setCronjobOwner(job.id, heir.id, heir.name);
-  } catch (err) {
-    console.error("[users] the schedules did not pass to the heir:", err);
+  for (const job of cronjobManager.listCronjobs()) {
+    if (job.userId !== memberId) continue;
+    try {
+      if (job.enabled) cronjobManager.updateCronjob(job.id, { enabled: false });
+      cronjobManager.setCronjobOwner(job.id, heir.id, heir.name);
+    } catch (err) {
+      console.error(
+        `[users] schedule ${job.id} did not pass to the heir:`,
+        err,
+      );
+    }
   }
 }
 
@@ -5051,7 +5090,8 @@ function buildExecutorDeps(
         // The member's agents, live and killed, pass to the oldest office
         // owner with the apps, schedules and webhooks they made (Nil,
         // 2026-10-20), and so do the member's own schedules and webhooks.
-        // After the 409s above, so a refused delete moves nothing; before the
+        // All the schedules and webhooks pass off (Nil, 2026-10-25). After
+        // the 409s above, so a refused delete moves nothing; before the
         // record goes, so the sessions' manager stamps still find the
         // member's name. The caller can be the member.
         if (target) {
@@ -5065,6 +5105,7 @@ function buildExecutorDeps(
             const hookAudienceBefore = snapshotWebhookAudience((hook) =>
               hookIds.includes(hook.id),
             );
+            turnOffMemberRecords(target.id, hookIds);
             for (const agent of agentManager.getAllAgents())
               if (agent.userId === target.id)
                 await transferAgentManager(agent.id, heir.id, actor);

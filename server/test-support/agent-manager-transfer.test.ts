@@ -11,9 +11,10 @@
 //   - a resumed session from an earlier manager names that manager;
 //   - deleting a member passes their live and killed agents to the oldest
 //     office owner, not to the owner who deletes;
-//   - deleting a member passes every webhook they own to that owner turned
-//     off with a new secret, so a secret they read stops working, and their
-//     own schedules pass too (task 438900d2).
+//   - deleting a member passes every webhook and schedule they own to that
+//     owner turned off, each webhook with a new secret, so a secret they read
+//     stops working (task 438900d2); a record their agent made is off before
+//     it becomes the owner's (task be7708d3).
 //
 // Seam: startTestServer() with a FakeBackend. Zero LLM. Copy is never matched:
 // a system line is found by the member names it carries.
@@ -721,7 +722,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
 
   // The member could read the secret of every hook they owned, so each one
   // passes turned off, with a secret they never saw (task 438900d2).
-  it("passes every webhook the member owns turned off with a new secret, and their own schedules, to the oldest owner", async () => {
+  it("passes every webhook and schedule the member owns turned off, each webhook with a new secret, to the oldest owner", async () => {
     const { srv, morgan, alice } = await office();
     const morganId = idOf("Morgan");
     const as = (rawSessionId: string) => ({ rawSessionId });
@@ -802,7 +803,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       srv.cronjobManager.listCronjobs().find((j) => j.id === jobId)!;
     expect(job().userId).toBe(idOf("Alice"));
     expect(job().createdByAgentId).toBeUndefined();
-    const enabledBefore = job().enabled;
+    expect(job().enabled).toBe(true);
     const runs = () => srv.cronjobManager.getRunsForCronjob(jobId).length;
     const byHand = await makeHook(as(alice.rawSessionId), "by-hand", {
       kind: "cronjob",
@@ -816,6 +817,31 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       { bearer: getAgentTokenRaw(live.id)! },
       "by-agent",
     );
+    const agentCron = await api(
+      srv,
+      "POST",
+      "/api/cronjobs",
+      { bearer: getAgentTokenRaw(live.id)! },
+      {
+        name: "by agent",
+        prompt: "Check the build.",
+        cwd: srv.stateRoot,
+        schedule: { type: "interval", minutes: 60 },
+        agentType: "claude",
+        modelFamily: "opus",
+        effort: "medium",
+        permissionMode: "bypassPermissions",
+      },
+    );
+    expect(agentCron.status).toBe(201);
+    const agentJobId = (agentCron.body as Cronjob).id;
+    const agentJob = () =>
+      srv.cronjobManager.listCronjobs().find((j) => j.id === agentJobId)!;
+    expect(agentJob()).toMatchObject({
+      userId: idOf("Alice"),
+      createdByAgentId: live.id,
+      enabled: true,
+    });
     const gone = await spawn(srv, "Gone", "Alice");
     await srv.agentManager.setPrivileged(gone.id, true);
     const byKilled = await makeHook(
@@ -867,12 +893,14 @@ describe("deleting a member passes their agents to the oldest office owner", () 
     });
     expect(await secretOf(morgan.rawSessionId, morgans.id)).toBe(morgansSecret);
 
-    // Her own schedule passes to Morgan, on or off as it was.
-    expect(job()).toMatchObject({
-      userId: morganId,
-      username: "Morgan",
-      enabled: enabledBefore,
-    });
+    // Her schedules pass to Morgan turned off, also the one her agent made
+    // (Nil, 2026-10-25): Morgan reads each one and turns it on again.
+    for (const passed of [job(), agentJob()])
+      expect(passed).toMatchObject({
+        userId: morganId,
+        username: "Morgan",
+        enabled: false,
+      });
 
     // Alice's secret no longer starts a run: the hook is off...
     expect(await deliver(byHand.id, oldSecrets.get(byHand.id)!)).toBe(404);
@@ -893,6 +921,139 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       await deliver(byHand.id, await secretOf(morgan.rawSessionId, byHand.id)),
     ).toBe(202);
     expect(runs()).toBe(2);
+  });
+  // An agent's records become the heir's when its transfer returns, and the
+  // delete then awaits the next agent's drain. A record that became the
+  // heir's on would run in that window with the heir's environment, on what
+  // the member wrote (task be7708d3).
+  it("turns the member's records off before an agent transfer gives them to the heir", async () => {
+    // A closed session's stream stays open until the test ends it, which
+    // parks the delete in each agent's transfer.
+    const { srv, morgan } = await office(
+      new FakeBackend({
+        session: {
+          onSend: (_t, _a, session) => session.completeTurn({ text: "ok" }),
+          hangOnClose: true,
+        },
+      }),
+    );
+    const morganId = idOf("Morgan");
+    const agents = [
+      await spawn(srv, "One", "Alice"),
+      await spawn(srv, "Two", "Alice"),
+    ];
+    const made = new Map<string, { jobId: string; hookId: string }>();
+    for (const agent of agents) {
+      await srv.agentManager.setPrivileged(agent.id, true);
+      await runTurn(srv, agent.id);
+      const bearer = getAgentTokenRaw(agent.id)!;
+      const cron = await api(
+        srv,
+        "POST",
+        "/api/cronjobs",
+        { bearer },
+        {
+          name: `by ${agent.name}`,
+          prompt: "Check the build.",
+          cwd: srv.stateRoot,
+          schedule: { type: "interval", minutes: 60 },
+          agentType: "claude",
+          modelFamily: "opus",
+          effort: "medium",
+          permissionMode: "bypassPermissions",
+        },
+      );
+      expect(cron.status).toBe(201);
+      const hook = await api(
+        srv,
+        "POST",
+        "/api/webhooks",
+        { bearer },
+        {
+          name: `wake-${agent.name.toLowerCase()}`,
+          scheme: "github-hmac-sha256",
+          rules: [{ event: "push" }],
+        },
+      );
+      expect(hook.status).toBe(201);
+      made.set(agent.id, {
+        jobId: (cron.body as Cronjob).id,
+        hookId: (hook.body as WebhookWire).id,
+      });
+    }
+    const jobOf = (agentId: string) =>
+      srv.cronjobManager
+        .listCronjobs()
+        .find((j) => j.id === made.get(agentId)!.jobId)!;
+    const hookOf = async (agentId: string): Promise<WebhookWire> => {
+      const res = await api(
+        srv,
+        "GET",
+        `/api/webhooks/${made.get(agentId)!.hookId}`,
+        { rawSessionId: morgan.rawSessionId },
+      );
+      expect(res.status).toBe(200);
+      return res.body as WebhookWire;
+    };
+    for (const agent of agents) {
+      expect(jobOf(agent.id)).toMatchObject({
+        userId: idOf("Alice"),
+        enabled: true,
+      });
+      expect(await hookOf(agent.id)).toMatchObject({
+        userId: idOf("Alice"),
+        enabled: true,
+      });
+    }
+
+    const sessions = new Map(
+      agents.map((a) => [a.id, latestSession(srv, a.id)] as const),
+    );
+    const removing = api(srv, "DELETE", "/api/users/Alice", {
+      rawSessionId: morgan.rawSessionId,
+    });
+    try {
+      // The delete parks in the first transfer; ending that drain lets the
+      // first agent's records move, and the delete parks in the second.
+      await waitUntil(
+        () => agents.some((a) => sessions.get(a.id)!.closed),
+        "the delete parked in the first transfer",
+      );
+      const first = agents.find((a) => sessions.get(a.id)!.closed)!;
+      const second = agents.find((a) => a.id !== first.id)!;
+      expect(sessions.get(second.id)!.closed).toBe(false);
+      sessions.get(first.id)!.endStream();
+      await waitUntil(
+        () => sessions.get(second.id)!.closed,
+        "the delete parked in the second transfer",
+      );
+
+      // The first agent's records are the heir's now, and off.
+      expect(jobOf(first.id)).toMatchObject({
+        userId: morganId,
+        enabled: false,
+      });
+      expect(await hookOf(first.id)).toMatchObject({
+        userId: morganId,
+        enabled: false,
+      });
+    } finally {
+      // A red run must not leave the delete parked into the next test.
+      for (const session of sessions.values()) session.endStream();
+      await removing.catch(() => null);
+    }
+    expect((await removing).status).toBeLessThan(300);
+    expect(getUserByName("Alice")).toBeUndefined();
+    for (const agent of agents) {
+      expect(jobOf(agent.id)).toMatchObject({
+        userId: morganId,
+        enabled: false,
+      });
+      expect(await hookOf(agent.id)).toMatchObject({
+        userId: morganId,
+        enabled: false,
+      });
+    }
   });
 });
 

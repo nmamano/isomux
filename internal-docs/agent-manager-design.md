@@ -178,3 +178,10 @@ Task 438900d2: a deleted member's own schedules and webhooks pass to the
 oldest office owner too. Every webhook the member owned, also one that moved
 with an agent, passes turned off with a new secret, because the member could
 read its secret. The heir gives the sender the new secret and turns it on.
+
+Task be7708d3 (Nil, 2026-10-25): the member's schedules, also those that move
+with an agent, pass turned off too: a passed schedule would otherwise run on
+its own with the heir's environment and secrets, on a prompt the member wrote.
+The heir reads each schedule and turns it back on. The schedules and webhooks
+turn off before the agent transfers, because the delete awaits the next
+agent's drain after a transfer moves its agent's records to the heir.

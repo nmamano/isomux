@@ -50,7 +50,7 @@ A session ends after 30 days without use, and after 1 year in any case. Server r
 
 ## Delete a member
 
-Deleting a member ends their sessions, sign-in links and API tokens. Their agents, schedules and webhooks pass to the oldest office owner. Their webhooks pass turned off, with a new secret: give the sender the new secret, then turn the webhook on.
+Deleting a member ends their sessions, sign-in links and API tokens. Their agents, schedules and webhooks pass to the oldest office owner. Their schedules and webhooks pass turned off, and their webhooks get a new secret. Read each schedule, then turn it back on. Give each webhook's sender the new secret, then turn the webhook on.
 
 ## External access on a self-hosted office
 
