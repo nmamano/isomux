@@ -99,9 +99,9 @@ const RELAY_OWNED_HEADER_PREFIX = "x-isomux-";
 // `__Host-isomux_app` is the load-bearing one and the explicit handoff:
 // it is the credential that opens THIS app, and an app holding it could open
 // itself as its own visitor. The office session names (any office's, and the
-// shared names of the one-release fallback) are stripped for the same reason
-// one level up - an app handed a live office session could act as that user
-// against the office API. No browser sends any of them to a child host (all
+// bare names an office on an older release writes) are stripped for the same
+// reason one level up - an app handed a live office session could act as that
+// user against the office API. No browser sends any of them to a child host (all
 // are host-only), so a request carrying one was hand-built, and there is
 // nothing to preserve for it.
 //

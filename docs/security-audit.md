@@ -395,7 +395,7 @@ All three files are written atomically (temp + rename) and serialized under a si
 
 ### Cookie semantics
 
-- Name: `__Host-isomux_session_<office id>`, or `isomux_session_<office id>` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Browsers scope cookies by host, not by port, so the office id keeps two offices on one host from reading or clearing each other's cookie. Both names are accepted, and the name the office writes is checked first, valid or not. The names `__Host-isomux_session` and `isomux_session` that every office used before are still read for one release, and an existing session moves onto the office's own name on its next page load, WebSocket connection, or read-only API request.
+- Name: `__Host-isomux_session_<office id>`, or `isomux_session_<office id>` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Browsers scope cookies by host, not by port, so the office id keeps two offices on one host from reading or clearing each other's cookie. Both names are accepted, and the name the office writes is checked first, valid or not.
 - Attributes: `HttpOnly; Path=/; SameSite=Lax`. `Secure` is set when the configured Public URL is `https://`, and omitted when the server is on `http://localhost*` (pre-claim, or post-claim with external access off).
 - Rolling expiry: 30 days, refreshed on activity. Absolute cap: 1 year from creation.
 

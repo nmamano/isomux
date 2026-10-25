@@ -10,11 +10,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mintMemberLink } from "./member-link.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
-import {
-  SHARED_COOKIE_NAME,
-  buildPublicOrigin,
-  officeSessionCookieNames,
-} from "../auth.ts";
+import { buildPublicOrigin, officeSessionCookieNames } from "../auth.ts";
 
 let a: TestServer | null = null;
 let stopB: (() => Promise<void>) | null = null;
@@ -122,7 +118,7 @@ function acceptForm(token: string): RequestInit {
 }
 
 describe("two offices on one host, one browser jar", () => {
-  it("a session from before the update survives, and signing out of one office leaves the other signed in", async () => {
+  it("signing out of one office leaves the other signed in", async () => {
     const b = await startB();
     a = await startTestServer();
     await a.seedOwner("Morgan");
@@ -133,17 +129,16 @@ describe("two offices on one host, one browser jar", () => {
     };
     const jar = new Jar();
 
-    // Before the update, office A wrote the shared name.
-    const yu = await a.seedMember("Yu");
-    jar.cookies.set(SHARED_COOKIE_NAME, yu.rawSessionId);
-    expect(await whoAmI(jar, officeA)).toBe("Yu");
-    // The first request copied it to A's own name; the next one retired the
-    // shared copy.
-    expect(jar.cookies.get(officeSessionCookieNames().plain)).toBe(
-      yu.rawSessionId,
+    // Office A writes its own plain name.
+    const signedInYu = await send(
+      jar,
+      officeA,
+      "/auth/accept",
+      acceptForm((await mintMemberLink("Yu")).rawToken),
     );
+    expect(signedInYu.status).toBe(302);
+    expect(jar.cookies.has(officeSessionCookieNames().plain)).toBe(true);
     expect(await whoAmI(jar, officeA)).toBe("Yu");
-    expect(jar.cookies.has(SHARED_COOKIE_NAME)).toBe(false);
 
     // Sign in to B in the same jar. B is HTTPS: it writes its own __Host-
     // name, which A never reads.

@@ -50,7 +50,7 @@ import {
   type RawResponse,
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { SHARED_COOKIE_NAME, officeSessionCookieNames } from "../auth.ts";
+import { officeSessionCookieNames } from "../auth.ts";
 import { createHash } from "crypto";
 import { runInNewContext } from "node:vm";
 import {
@@ -814,14 +814,14 @@ describe("app-host handshake: the office mint endpoint", () => {
     // cookie. Reaching an app while still holding only the shadowable name
     // would be exactly the case the prerequisite exists for.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    const { host } = officeSessionCookieNames();
-    const shared = `${SHARED_COOKIE_NAME}=${rawSessionId}`;
-    // Step 1, UPGRADE: the request authenticated through a shared name and
-    // carries none of this office's names, so the same session id is
-    // re-issued under the office's `__Host-` name - and the handshake response
-    // is otherwise untouched.
+    const { host, plain } = officeSessionCookieNames();
+    const old = `${plain}=${rawSessionId}`;
+    // Step 1, UPGRADE: the request authenticated through the office's plain
+    // name (left from a loopback past), so the same session id is re-issued
+    // under the office's `__Host-` name - and the handshake response is
+    // otherwise untouched.
     const upgrade = await mint(srv, `?app=${label}&r=%2F`, {
-      headers: { Cookie: shared },
+      headers: { Cookie: old },
     });
     expect(upgrade.status).toBe(302);
     expect(upgrade.headers.get("location")).toStartWith(
@@ -831,18 +831,18 @@ describe("app-host handshake: the office mint endpoint", () => {
     expect(issued.length).toBe(1);
     expect(issued[0]).toStartWith(`${host}=${rawSessionId};`);
     expect(issued[0]).toContain("Secure");
-    // Step 2, RETIRE: the browser came back with both, so the shared name is
+    // Step 2, RETIRE: the browser came back with both, so the plain name is
     // cleared - and nothing about the handshake changes.
     const retire = await srv.http(`/auth/app?app=${label}&r=%2F`, {
       redirect: "manual",
-      headers: { Cookie: `${host}=${rawSessionId}; ${shared}` },
+      headers: { Cookie: `${host}=${rawSessionId}; ${old}` },
     });
     expect(retire.status).toBe(302);
     expect(retire.headers.get("location")).toStartWith(
       `https://${appHost(label)}/__isomux/auth?code=`,
     );
     expect(retire.headers.getSetCookie()).toEqual([
-      `${SHARED_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
+      `${plain}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
     ]);
   });
 

@@ -653,8 +653,7 @@ export async function handleLogout(
   // cleanup only - the session revoked above is the one the request actually
   // selected.
   const headers = new Headers({ Location: "/", ...securityHeaders() });
-  for (const line of clearCookieHeaders(cookies))
-    headers.append("Set-Cookie", line);
+  for (const line of clearCookieHeaders()) headers.append("Set-Cookie", line);
   return new Response(null, { status: 302, headers });
 }
 

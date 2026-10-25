@@ -35,9 +35,8 @@ export interface OfficeId {
 // every restart and sign out every browser each time.
 //
 // A file that exists but holds no valid id (empty, wrong length, not hex) is
-// renamed aside, never overwritten, and a new id replaces it. Browsers that
-// still carry the shared cookie names move to the new id through the
-// migration in server/auth.ts.
+// renamed aside, never overwritten, and a new id replaces it. Every browser
+// must then sign in again.
 export function readOrCreateOfficeId(
   path: string = officeIdFile(),
   now: number = Date.now(),
