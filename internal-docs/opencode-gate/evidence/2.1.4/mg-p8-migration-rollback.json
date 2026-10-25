@@ -1,0 +1,1389 @@
+{
+  "item": "P8 migration and rollback on a real office profile copy",
+  "date": "2026-10-25",
+  "source": "office profile <id> (~699 MB, 28 v1 sessions); read only",
+  "preconditions": {
+    "method": "pgrep -f opencode (only the checking shell matched); /proc/<pid>/cwd and /proc/<pid>/fd scanned for the profile id across ALL processes (0 hits); server.lock wc -c = 0. /proc/<pid>/environ reads are blocked by the office safety hook, so the fd/cwd scan replaced the environ grep.",
+    "serverLockBytes": 0,
+    "processesUsingProfile": 0,
+    "sourceCredentialFiles": "ls data/opencode | grep -c auth.json = 0 (control: same grep on copy1 after planting = 1)"
+  },
+  "copies": {
+    "method": "cp -a twice into run/mg-<ts>/copy1 and /keep (mode 0700 run dir); after the office restart a third copy /keep2 was taken the same way for a clean rollback",
+    "duBytes": {
+      "source": 699045765,
+      "copy1": 699045765,
+      "keep": 699045765,
+      "keep2": 699045765
+    },
+    "sha256OpencodeDbPrefix": {
+      "source": "683697a2b58ac6fe",
+      "copy1": "683697a2b58ac6fe",
+      "keep": "683697a2b58ac6fe",
+      "keep2": "683697a2b58ac6fe"
+    },
+    "sha256WalPrefix": {
+      "source": "a04d6c56c87732a2",
+      "all_copies": "a04d6c56c87732a2"
+    },
+    "sourceUnchangedAtEnd": "re-hashed after all runs: same prefixes",
+    "plantedFakeAuthJson": {
+      "format": "v1 auth.json: {openai:{type:api,key}, anthropic:{type:oauth,refresh,access,expires}}",
+      "values": "fake",
+      "mode": "600",
+      "copies": [
+        "copy1",
+        "keep",
+        "keep2"
+      ]
+    }
+  },
+  "censusDiff": "mg-p8-census-diff.json",
+  "v2FirstStart": {
+    "date": "2026-10-25",
+    "phase": "v2first",
+    "target": "copy1",
+    "binary": "2.1.4",
+    "healthyAfterMs": 818,
+    "migration": {
+      "finalStatus": "completed",
+      "pollMsFromHealthy": 2050,
+      "timeline": [
+        {
+          "sig": "{\"st\":\"running\",\"label\":\"Migrating sessions\"}",
+          "atMs": 833,
+          "httpStatus": 200,
+          "status": "running",
+          "progress": {
+            "label": "Migrating sessions",
+            "numerator": 0,
+            "denominator": 28
+          }
+        },
+        {
+          "sig": "{\"st\":\"completed\"}",
+          "atMs": 2050,
+          "httpStatus": 200,
+          "status": "completed",
+          "progress": null
+        }
+      ],
+      "firstSeenStatus": "running"
+    },
+    "migrationSecondRead": "completed",
+    "sessions": {
+      "v2ListCount": 28,
+      "v1DbCount": 28,
+      "v1IdsVisible": 28,
+      "v1GlobalCount": 19,
+      "v1GlobalVisible": 19,
+      "v1GlobalStillProjectGlobal": 1,
+      "v1GlobalRehomed": 18,
+      "v1NonGitMissingDirCount": 8,
+      "v1NonGitMissingDirVisible": 8,
+      "v1ChildCount": 4,
+      "v1ChildVisible": 4
+    },
+    "sampleReads": [
+      {
+        "i": 0,
+        "httpStatus": 200,
+        "v1Messages": 86,
+        "v1Parts": 255,
+        "v2Messages": 87,
+        "v2ByType": {
+          "user": 11,
+          "assistant": 75,
+          "system": 1
+        },
+        "v2ContentItems": 100
+      },
+      {
+        "i": 7,
+        "httpStatus": 200,
+        "v1Messages": 104,
+        "v1Parts": 420,
+        "v2Messages": 105,
+        "v2ByType": {
+          "user": 1,
+          "assistant": 103,
+          "system": 1
+        },
+        "v2ContentItems": 197
+      },
+      {
+        "i": 16,
+        "httpStatus": 400,
+        "v1Messages": 242,
+        "v1Parts": 847,
+        "v2Messages": 200,
+        "v2ByType": {
+          "user": 1,
+          "assistant": 199
+        },
+        "v2ContentItems": 295
+      },
+      {
+        "i": 17,
+        "httpStatus": 200,
+        "v1Messages": 4,
+        "v1Parts": 13,
+        "v2Messages": 5,
+        "v2ByType": {
+          "user": 1,
+          "assistant": 3,
+          "system": 1
+        },
+        "v2ContentItems": 6
+      },
+      {
+        "i": 25,
+        "httpStatus": 200,
+        "v1Messages": 4,
+        "v1Parts": 11,
+        "v2Messages": 5,
+        "v2ByType": {
+          "user": 1,
+          "assistant": 3,
+          "system": 1
+        },
+        "v2ContentItems": 4
+      }
+    ],
+    "credentials": {
+      "httpStatus": 200,
+      "entries": [
+        {
+          "integrationID": "openai",
+          "label": "API key",
+          "keys": [
+            "active",
+            "id",
+            "integrationID",
+            "label",
+            "value"
+          ],
+          "valueType": "key"
+        },
+        {
+          "integrationID": "anthropic",
+          "label": "OAuth",
+          "keys": [
+            "active",
+            "id",
+            "integrationID",
+            "label",
+            "value"
+          ],
+          "valueType": "oauth"
+        }
+      ]
+    },
+    "continueOldSession": {
+      "i": 17,
+      "v1Messages": 4,
+      "dirCat": "tmp",
+      "dirExists": false,
+      "modelSwitchStatus": 404,
+      "promptStatus": 404,
+      "promptError": "{\"_tag\":\"LocationNotFoundError\",\"location\":{\"directory\":\"<path>\"},\"message\":\"Location not found: <path>\"}",
+      "turnEnd": "timeout",
+      "mockRequests": 0,
+      "mockRecallRequest": null,
+      "answerMarker": null,
+      "eventTypes": [
+        "server.connected",
+        "project.updated"
+      ]
+    },
+    "plugins": [],
+    "serverExit": {
+      "code": 130,
+      "signal": null
+    },
+    "repoWriteSentinel": {
+      "dirs": 10,
+      "changed": []
+    },
+    "serverLog": {
+      "bytes": 16691,
+      "lines": 101,
+      "errorLines": 0,
+      "warnLines": 0,
+      "migrationLines": 48,
+      "skippedV1Rows": 0,
+      "reassigned": 0,
+      "resolveTimeout": 0,
+      "gateKeyInLog": 0,
+      "fakeKeyInLog": 0
+    },
+    "perSessionSummary": {
+      "total": 28,
+      "visible": 28
+    }
+  },
+  "v2SecondStart": {
+    "date": "2026-10-25",
+    "phase": "v2again",
+    "target": "copy1",
+    "binary": "2.1.4",
+    "migrationStatus": "completed",
+    "paginationCursorKeys": [
+      "previous",
+      "next"
+    ],
+    "pagination": {
+      "firstStatus": 200,
+      "firstCount": 200,
+      "secondNoOrderStatus": 200,
+      "secondNoOrderCount": 42,
+      "secondWithOrderStatus": 400,
+      "secondWithOrderErrTag": "InvalidCursorError",
+      "secondWithOrderErr": "Cursor cannot be combined with order",
+      "noLimitStatus": 200,
+      "noLimitCount": 50,
+      "v1Messages": 242,
+      "total": 242
+    },
+    "continueAfterMove": {
+      "i": 17,
+      "v1Messages": 4,
+      "moveStatus": 204,
+      "modelSwitchStatus": 204,
+      "promptStatus": 200,
+      "turnEnd": "session.execution.succeeded",
+      "messagesBefore": 8,
+      "messagesAfter": 11,
+      "mockRequests": 1,
+      "mockRecallRequest": {
+        "messageCount": 10,
+        "roles": {
+          "system": 1,
+          "user": 4,
+          "assistant": 3,
+          "tool": 2
+        },
+        "historyChars": 9546
+      },
+      "answerMarker": "RECALLED:HISTORY_8"
+    },
+    "controlFreshSession": {
+      "createStatus": 200,
+      "turnEnd": "session.execution.succeeded",
+      "answerMarker": "RECALLED:EMPTY"
+    },
+    "pluginsAtScratch": [
+      {
+        "id": "opencode.tool.input.repair",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.worktree",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.mcp",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.mcp.codemode.defaults",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.wellknown",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.vcs.git",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.agent",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.plan",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.command",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.skill",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.vcs.hg",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.models.dev",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.amazon.bedrock",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.azure",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.cerebras",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.chatgpt",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.cloudflare.ai.gateway",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.cloudflare.workers.ai",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.cohere",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.databricks",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.digitalocean",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.github.copilot",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.gitlab",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.google.vertex",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.kilo",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.llmgateway",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.lmstudio",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.modal",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.neon",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.nvidia",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.ollama",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.opencode",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.snowflake.cortex",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.openai",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.openai-context-caps",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.openrouter",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.perplexity",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.poe",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.prompt-cache-key",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.sap.ai.core",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.vercel",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.vllm",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.xai",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.zenmux",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.provider.dynamic",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.websearch.exa",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.websearch.firecrawl",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.websearch.parallel",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.websearch.tavily",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.websearch.tinyfish",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.patch",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.openai",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.anthropic",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.kimi",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.arcee",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.meta",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.verbosity",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.prompt.identity",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.edit",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.glob",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.grep",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tools",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tools.mcp-resources",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.question",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.read",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.shell",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.skill",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.subagent",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.todo",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.webfetch",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.websearch",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.tool.write",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.warming",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.instruction",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.reference",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.agent",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.browser",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.command",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.compaction",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.formatter",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.image",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.location-watcher",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.shell",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.snapshot",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.tool-output",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.compatibility",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.skill",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.provider",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.websearch",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      },
+      {
+        "id": "opencode.config.policy",
+        "source": {
+          "type": "builtin"
+        },
+        "status": "active"
+      }
+    ],
+    "sessionCountNow": 29
+  },
+  "rollbackV1OnKeptCopy_first": {
+    "date": "2026-10-25",
+    "phase": "v1keep",
+    "target": "keep",
+    "binary": "1.18.35",
+    "healthyAfterMs": 360480,
+    "v1DocHasExperimentalSession": true,
+    "v1ExperimentalSessionParams": [
+      "directory",
+      "workspace",
+      "roots",
+      "start",
+      "cursor",
+      "search",
+      "limit",
+      "archived"
+    ],
+    "sessions": {
+      "listHttpStatus": 200,
+      "listShape": "array",
+      "listCount": 28,
+      "v1DbCount": 28,
+      "v1IdsVisible": 28,
+      "getByIdOk": 28,
+      "getByIdFail": []
+    },
+    "sampleReads": [
+      {
+        "i": 0,
+        "httpStatus": 200,
+        "v1DbMessages": 86,
+        "v1DbParts": 255,
+        "apiMessages": 86,
+        "apiParts": 255
+      },
+      {
+        "i": 7,
+        "httpStatus": 200,
+        "v1DbMessages": 104,
+        "v1DbParts": 420,
+        "apiMessages": 104,
+        "apiParts": 420
+      },
+      {
+        "i": 16,
+        "httpStatus": 200,
+        "v1DbMessages": 242,
+        "v1DbParts": 847,
+        "apiMessages": 242,
+        "apiParts": 847
+      },
+      {
+        "i": 17,
+        "httpStatus": 200,
+        "v1DbMessages": 4,
+        "v1DbParts": 13,
+        "apiMessages": 4,
+        "apiParts": 13
+      },
+      {
+        "i": 25,
+        "httpStatus": 200,
+        "v1DbMessages": 4,
+        "v1DbParts": 11,
+        "apiMessages": 4,
+        "apiParts": 11
+      }
+    ],
+    "continueOldSession": {
+      "i": 17,
+      "v1DbMessages": 4,
+      "promptStatus": 204,
+      "apiMessagesBefore": 4,
+      "apiMessagesAfter": 6,
+      "answerMarker": null,
+      "lastErr": null,
+      "mockRequests": 0,
+      "mockRecallRequest": null
+    },
+    "serverExit": {
+      "code": null,
+      "signal": "SIGTERM"
+    },
+    "repoWriteSentinel": {
+      "dirs": 10,
+      "changed": [
+        {
+          "key": "4c88cbfd53e2",
+          "before": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792617527118.8542,
+            "cacheExists": false,
+            "cacheMtimeMs": null,
+            "cacheSha": null,
+            "missingDirExists": true
+          },
+          "after": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792890963320.2527,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792890963320.2527,
+            "cacheSha": "ec469876dcbd",
+            "missingDirExists": true
+          }
+        },
+        {
+          "key": "e9ca08908bf8",
+          "before": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792202507365.1155,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792871672952.3787,
+            "cacheSha": "2ed0340acc63",
+            "missingDirExists": true
+          },
+          "after": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792202507365.1155,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792890963973.2285,
+            "cacheSha": "2ed0340acc63",
+            "missingDirExists": true
+          }
+        }
+      ]
+    },
+    "serverLog": {
+      "bytes": 10052,
+      "lines": 92,
+      "errorLines": 1,
+      "warnLines": 1,
+      "migrationLines": 0,
+      "skippedV1Rows": 0,
+      "reassigned": 0,
+      "resolveTimeout": 0,
+      "gateKeyInLog": 0,
+      "fakeKeyInLog": 0
+    },
+    "note": "keep copy; continue failed because the session's own directory (a deleted /tmp worktree) no longer exists (ENOENT); healthyAfterMs inflated by the harness (see harnessNote)"
+  },
+  "rollbackV1OnKeptCopy_clean": {
+    "date": "2026-10-25",
+    "phase": "v1keep",
+    "target": "keep2",
+    "binary": "1.18.35",
+    "healthyAfterMs": 5557,
+    "v1DocHasExperimentalSession": true,
+    "v1ExperimentalSessionParams": [
+      "directory",
+      "workspace",
+      "roots",
+      "start",
+      "cursor",
+      "search",
+      "limit",
+      "archived"
+    ],
+    "sessions": {
+      "listHttpStatus": 200,
+      "listShape": "array",
+      "listCount": 28,
+      "v1DbCount": 28,
+      "v1IdsVisible": 28,
+      "getByIdOk": 0,
+      "getByIdFail": []
+    },
+    "sampleReads": [
+      {
+        "i": 0,
+        "httpStatus": 200,
+        "v1DbMessages": 86,
+        "v1DbParts": 255,
+        "apiMessages": 86,
+        "apiParts": 255
+      },
+      {
+        "i": 7,
+        "httpStatus": 200,
+        "v1DbMessages": 104,
+        "v1DbParts": 420,
+        "apiMessages": 104,
+        "apiParts": 420
+      },
+      {
+        "i": 16,
+        "httpStatus": 200,
+        "v1DbMessages": 242,
+        "v1DbParts": 847,
+        "apiMessages": 242,
+        "apiParts": 847
+      },
+      {
+        "i": 17,
+        "httpStatus": 200,
+        "v1DbMessages": 4,
+        "v1DbParts": 13,
+        "apiMessages": 6,
+        "apiParts": 14
+      },
+      {
+        "i": 25,
+        "httpStatus": 200,
+        "v1DbMessages": 4,
+        "v1DbParts": 11,
+        "apiMessages": 4,
+        "apiParts": 11
+      }
+    ],
+    "v1ContinueDirectory": "scratch repo under run dir",
+    "continueOldSession": {
+      "i": 17,
+      "v1DbMessages": 4,
+      "promptStatus": 204,
+      "apiMessagesBefore": 6,
+      "apiMessagesAfter": 8,
+      "answerMarker": "RECALLED:HISTORY_7",
+      "lastErr": null,
+      "mockRequests": 1,
+      "mockRecallRequest": {
+        "messageCount": 9,
+        "roles": {
+          "system": 1,
+          "user": 3,
+          "assistant": 3,
+          "tool": 2
+        },
+        "historyChars": 11046
+      }
+    },
+    "serverExit": {
+      "code": null,
+      "signal": "SIGTERM"
+    },
+    "repoWriteSentinel": {
+      "dirs": 10,
+      "changed": [
+        {
+          "key": "e9ca08908bf8",
+          "before": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792202507365.1155,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792892244352.89,
+            "cacheSha": "2ed0340acc63",
+            "missingDirExists": true
+          },
+          "after": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792202507365.1155,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792892357709.583,
+            "cacheSha": "2ed0340acc63",
+            "missingDirExists": true
+          }
+        }
+      ]
+    },
+    "serverLog": {
+      "bytes": 13010,
+      "lines": 108,
+      "errorLines": 1,
+      "warnLines": 1,
+      "migrationLines": 0,
+      "v1InstancesCreated": 10,
+      "infoLines": 103,
+      "skippedV1Rows": 0,
+      "reassigned": 0,
+      "resolveTimeout": 0,
+      "gateKeyInLog": 0,
+      "fakeKeyInLog": 0
+    },
+    "note": "keep2 copy; the v1 session row of sample 17 was pointed at a scratch repo under the run dir (copy only) because v1 ignores ?directory= and needs the session's own directory"
+  },
+  "v1AfterV2Migration_copy1": {
+    "date": "2026-10-25",
+    "phase": "v1copy1",
+    "target": "copy1",
+    "binary": "1.18.35",
+    "healthyAfterMs": 5200,
+    "v1DocHasExperimentalSession": true,
+    "v1ExperimentalSessionParams": [
+      "directory",
+      "workspace",
+      "roots",
+      "start",
+      "cursor",
+      "search",
+      "limit",
+      "archived"
+    ],
+    "sessions": {
+      "listHttpStatus": 200,
+      "listShape": "array",
+      "listCount": 28,
+      "v1DbCount": 28,
+      "v1IdsVisible": 28,
+      "getByIdOk": 0,
+      "getByIdFail": []
+    },
+    "sampleReads": [
+      {
+        "i": 0,
+        "httpStatus": 200,
+        "v1DbMessages": 86,
+        "v1DbParts": 255,
+        "apiMessages": 86,
+        "apiParts": 255
+      },
+      {
+        "i": 7,
+        "httpStatus": 200,
+        "v1DbMessages": 104,
+        "v1DbParts": 420,
+        "apiMessages": 104,
+        "apiParts": 420
+      },
+      {
+        "i": 16,
+        "httpStatus": 200,
+        "v1DbMessages": 242,
+        "v1DbParts": 847,
+        "apiMessages": 242,
+        "apiParts": 847
+      },
+      {
+        "i": 17,
+        "httpStatus": 200,
+        "v1DbMessages": 4,
+        "v1DbParts": 13,
+        "apiMessages": 4,
+        "apiParts": 13
+      },
+      {
+        "i": 25,
+        "httpStatus": 200,
+        "v1DbMessages": 4,
+        "v1DbParts": 11,
+        "apiMessages": 4,
+        "apiParts": 11
+      }
+    ],
+    "v1ContinueDirectory": "scratch repo under run dir",
+    "continueOldSession": {
+      "i": 17,
+      "v1DbMessages": 4,
+      "promptStatus": 204,
+      "apiMessagesBefore": 4,
+      "apiMessagesAfter": 6,
+      "answerMarker": "RECALLED:HISTORY_6",
+      "lastErr": null,
+      "mockRequests": 1,
+      "mockRecallRequest": {
+        "messageCount": 8,
+        "roles": {
+          "system": 1,
+          "user": 2,
+          "assistant": 3,
+          "tool": 2
+        },
+        "historyChars": 11023
+      }
+    },
+    "serverExit": {
+      "code": null,
+      "signal": "SIGTERM"
+    },
+    "repoWriteSentinel": {
+      "dirs": 10,
+      "changed": [
+        {
+          "key": "e9ca08908bf8",
+          "before": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792202507365.1155,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792892357709.583,
+            "cacheSha": "2ed0340acc63",
+            "missingDirExists": true
+          },
+          "after": {
+            "git": true,
+            "gitIsDir": true,
+            "gitMtimeMs": 1792202507365.1155,
+            "cacheExists": true,
+            "cacheMtimeMs": 1792892398327.0396,
+            "cacheSha": "2ed0340acc63",
+            "missingDirExists": true
+          }
+        }
+      ]
+    },
+    "serverLog": {
+      "bytes": 7341,
+      "lines": 59,
+      "errorLines": 0,
+      "warnLines": 0,
+      "migrationLines": 0,
+      "v1InstancesCreated": 5,
+      "infoLines": 57,
+      "skippedV1Rows": 0,
+      "reassigned": 0,
+      "resolveTimeout": 0,
+      "gateKeyInLog": 0,
+      "fakeKeyInLog": 0
+    },
+    "note": "copy1 after 2.1.4 migrated it; session 17 v1 row pointed at the scratch repo the same way"
+  },
+  "splitBrainCheck": {
+    "method": "bun:sqlite readonly on a db copy of copy1 after v1copy1 then v2again",
+    "v1TurnOnMigratedCopyVisibleInV2": false,
+    "v1MessageRowsSession17": 6,
+    "v2RowsWithV1Marker": 0,
+    "v2SessionsAfterV2Again": 29,
+    "v1SessionsAfterV2Again": 28,
+    "meaning": "after the one-time import, v1 and v2 write to different tables of the same file: a v1 turn after migration never reaches v2, a v2 session never reaches v1"
+  },
+  "harnessNote": "common.ts startServer has no per-request timeout on its health fetch. 1.18.35 on this profile accepted the first early /global/health request and never answered it; Bun's 300 s default fetch timeout made boot look like 360 s. mg-server.ts (3 s per request) measured 5.2-6.0 s boot (boot-v1keep2-t3, p8-v1keep-keep2).",
+  "repoWritesByV1": "1.18.35 opened instances in session directories when their messages were read (5-10 'creating instance' lines) and wrote <gitdir>/opencode (40 bytes, project id) in real repos: created once in one repo under ~/nil, rewritten with the same content in another. 2.1.4 wrote nothing there (repoWriteSentinel empty for v2first).",
+  "credentials": {
+    "method": "fake v1 auth.json planted (mode 600) in every copy; GET /api/credential (names/types only); census diff; bun:sqlite readonly on the db copy taken after the first 2.1.4 start; source read",
+    "importedOnFirstStart": "yes: DB migration 20260805200742_import_legacy_credentials reads <XDG_DATA_HOME>/opencode/auth.json once (core/src/database/migration/20260805200742_import_legacy_credentials.ts:36-41) and inserts rows into table credential",
+    "apiList": {
+      "httpStatus": 200,
+      "entries": [
+        {
+          "integrationID": "openai",
+          "label": "API key",
+          "keys": [
+            "active",
+            "id",
+            "integrationID",
+            "label",
+            "value"
+          ],
+          "valueType": "key"
+        },
+        {
+          "integrationID": "anthropic",
+          "label": "OAuth",
+          "keys": [
+            "active",
+            "id",
+            "integrationID",
+            "label",
+            "value"
+          ],
+          "valueType": "oauth"
+        }
+      ]
+    },
+    "apiReturnsSecretValue": "GET /api/credential entries carry a value object (type key/oauth); the value holds the key/tokens, so any holder of the server password can read provider secrets over HTTP",
+    "storedIn": "data/opencode/opencode.db table credential, value column = plaintext JSON (openai row: keys key,type with the fake key present; anthropic row: access,expires,methodID,refresh,type)",
+    "dbRowsBefore": 0,
+    "dbRowsAfter": 2,
+    "authJsonAfter": "left in place, unchanged (census diff: not added/changed/removed)",
+    "newCredentialFiles": "none (census diff added only data/opencode/shell/<project>/ dirs and tmp/ files)",
+    "mcpAuthJson": "not imported: the only mcp-auth.json references in packages/**/*.ts are 3 lines in a test (core/test/config/agent.test.ts:196-235); no runtime reader (control: the auth.json grep finds the import migration). MCP OAuth tokens go to the same credential table (core/src/mcp/oauth.ts:278-312)",
+    "laterAuthJsonChanges": "inference: ignored, the import is a one-time DB migration",
+    "isomuxDenyList": {
+      "file": "server/backend-credential-paths.ts:63-75",
+      "covers": [
+        "data/opencode/auth.json",
+        "data/opencode/mcp-auth.json",
+        "profiles/<id>/opencode.json"
+      ],
+      "needs": [
+        "opencode/profiles/<id>/data/opencode/opencode.db plus -wal and -shm (credential table, plaintext)",
+        ".local/share/opencode/opencode.db* for a member home profile",
+        "opencode-<channel>.db* if a non-latest channel or OPENCODE_DB is ever used (cli/src/database-path.ts:4-12)"
+      ],
+      "backupNote": "the same entries must be added to archivePatterns, or the backup carries provider keys"
+    }
+  }
+}

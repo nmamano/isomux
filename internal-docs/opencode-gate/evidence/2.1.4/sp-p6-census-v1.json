@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p6-census",
+  "version": "v1",
+  "runDir": "/tmp/t-4840abc5/run/sp-p6c-v1-1792892981873",
+  "before": {
+    "realDirs": {
+      "~/.config/opencode": {
+        "mtimeMs": 1789069063681
+      },
+      "~/.local/share/opencode": {
+        "mtimeMs": 1792733496232
+      },
+      "~/.cache/opencode": {
+        "mtimeMs": 1792733881603
+      },
+      "~/.local/state/opencode": {
+        "mtimeMs": 1788052815580
+      }
+    },
+    "tmpOpencode": [
+      {
+        "name": "opencode",
+        "mtimeMs": 1792640960405
+      },
+      {
+        "name": "opencode-pty-1001",
+        "mtimeMs": 1792891993641
+      }
+    ]
+  },
+  "serverComm": "opencode",
+  "v1SessionStatus": 200,
+  "toolResults": [
+    200,
+    200,
+    200
+  ],
+  "toolStates": [
+    "bash:completed",
+    "read:completed",
+    "edit:completed"
+  ],
+  "sideEffects": {
+    "shellFile": true,
+    "editApplied": true
+  },
+  "processesDuringRun": [
+    {
+      "pid": 4153301,
+      "comm": "opencode",
+      "startTicks": "55531314"
+    }
+  ],
+  "listeners": {
+    "tcp": [
+      "LISTEN 0 512 127.0.0.1:45651 0.0.0.0:* users:((\"opencode\",pid=4153301,fd=17)) "
+    ],
+    "unix": [],
+    "udp": []
+  },
+  "stoppedBySigterm": true,
+  "leftAfterStop": [],
+  "after": {
+    "realDirs": {
+      "~/.config/opencode": {
+        "mtimeMs": 1789069063681
+      },
+      "~/.local/share/opencode": {
+        "mtimeMs": 1792733496232
+      },
+      "~/.cache/opencode": {
+        "mtimeMs": 1792733881603
+      },
+      "~/.local/state/opencode": {
+        "mtimeMs": 1788052815580
+      }
+    },
+    "tmpOpencode": [
+      {
+        "name": "opencode",
+        "mtimeMs": 1792640960405
+      },
+      {
+        "name": "opencode-pty-1001",
+        "mtimeMs": 1792891993641
+      }
+    ]
+  },
+  "realDirsChanged": [],
+  "strace": {
+    "lines": 6307,
+    "positiveControlProfileWrites": 245,
+    "writesOutsideProfile": [],
+    "socketsOpened": {
+      "AF_NETLINK/SOCK_RAW": 2,
+      "AF_INET/SOCK_STREAM": 4,
+      "AF_UNIX/SOCK_STREAM": 4,
+      "AF_INET/SOCK_DGRAM": 2,
+      "AF_INET6/SOCK_DGRAM": 1,
+      "AF_INET6/SOCK_STREAM": 2
+    },
+    "binds": {
+      "127.0.0.1:45651": 1
+    },
+    "connects": {
+      "127.0.0.53:53": 1,
+      "172.66.173.149:443": 2,
+      "104.20.32.17:443": 2,
+      "2606:4700:10::ac42:ad95:443": 2,
+      "2606:4700:10::6814:2011:443": 2,
+      "127.0.0.1:35149": 2
+    }
+  },
+  "tmpTopLevelNewer": {
+    "total": 0,
+    "attributedToServer": [],
+    "otherProcessesCount": 0
+  }
+}

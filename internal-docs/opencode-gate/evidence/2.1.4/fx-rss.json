@@ -1,0 +1,851 @@
+{
+  "item": "S8 memory, OpenCode 2.1.4",
+  "date": "2026-10-25",
+  "host": "auntie-2",
+  "kernel": "6.8.0-147-generic",
+  "binary": "opencode 2.1.4",
+  "method": [
+    "Each run: own systemd-run --user --scope -p MemoryMax=4G (memory.max 4294967296 recorded); memory.events read from the scope before and after.",
+    "Fresh profile (HOME/XDG_*/TMPDIR under the run dir), one scratch git repo, mock provider in OPENCODE_CONFIG_CONTENT (mg-mock.ts, GATE_ABORT_MS=180000 holds every response open), OPENCODE_DISABLE_MODELS_FETCH=1, OPENCODE_DISABLE_FREE_MODELS=1, proxies to a closed port.",
+    "Idle: after /api/info healthy, GET /api/plugin for the repo location, then 8 s; created-idle: N POST /api/session in the repo, then 3 s; mid-turn: N concurrent POST /api/session/:id/prompt with GATE_ABORT, wait until every session has session.execution.started and session.step.started with no terminal event and the mock holds >= N requests, then 3 s, then sample, then re-check busy.",
+    "Sample = sum over the server pid and every descendant (ppid walk over /proc/*/stat) of Rss and Pss from /proc/<pid>/smaps_rollup. The mock is not counted.",
+    "Then interrupt (resume=false) every session, SIGTERM the server."
+  ],
+  "freeMinusMBefore16": "               total        used        free      shared  buff/cache   available\nMem:           24031        5462       12338         139        6771       18569\nSwap:           8191        1265        6926\n",
+  "summary": {
+    "idleRssMiB_all9runs": {
+      "min": 220.5,
+      "max": 227.6,
+      "median": 224.8
+    },
+    "idleN0_3repeats": {
+      "rssMiB": [
+        227.5,
+        227.6,
+        224.2
+      ],
+      "pssMiB": [
+        223.5,
+        223.6,
+        220.3
+      ]
+    },
+    "midTurn16_3repeats": {
+      "rssMiB": [
+        281.4,
+        276.6,
+        283.1
+      ],
+      "pssMiB": [
+        277.4,
+        272.5,
+        279.1
+      ],
+      "incrementRssMiB": [
+        60.9,
+        52.7,
+        57.2
+      ],
+      "incrementMedian": 57.2
+    },
+    "processesInServerTree": "1 in every sample (no descendants: no shell, pty daemon or LSP child while turns wait on the provider)",
+    "oomKill": "0 -> 0 in all 9 scopes",
+    "table": [
+      {
+        "activeSessions": 1,
+        "repeats": 1,
+        "serverIdleRssMiB": [
+          225.4
+        ],
+        "createdNotPromptedRssMiB": [
+          226.1
+        ],
+        "allMidTurnRssMiB": [
+          226.4
+        ],
+        "allMidTurnPssMiB": [
+          222.3
+        ],
+        "midTurnMinusIdleRssMiB": [
+          1
+        ],
+        "midTurnMinusIdlePssMiB": [
+          0.9
+        ],
+        "busyConfirmed": [
+          "1/1"
+        ],
+        "oomKillBeforeAfter": [
+          "0 -> 0"
+        ]
+      },
+      {
+        "activeSessions": 8,
+        "repeats": 1,
+        "serverIdleRssMiB": [
+          222.8
+        ],
+        "createdNotPromptedRssMiB": [
+          227.5
+        ],
+        "allMidTurnRssMiB": [
+          250.5
+        ],
+        "allMidTurnPssMiB": [
+          246.4
+        ],
+        "midTurnMinusIdleRssMiB": [
+          27.7
+        ],
+        "midTurnMinusIdlePssMiB": [
+          27.6
+        ],
+        "busyConfirmed": [
+          "8/8"
+        ],
+        "oomKillBeforeAfter": [
+          "0 -> 0"
+        ]
+      },
+      {
+        "activeSessions": 16,
+        "repeats": 3,
+        "serverIdleRssMiB": [
+          220.5,
+          223.9,
+          226.0
+        ],
+        "createdNotPromptedRssMiB": [
+          230.5,
+          231.1,
+          234.0
+        ],
+        "allMidTurnRssMiB": [
+          281.4,
+          276.6,
+          283.1
+        ],
+        "allMidTurnPssMiB": [
+          277.4,
+          272.5,
+          279.1
+        ],
+        "midTurnMinusIdleRssMiB": [
+          60.9,
+          52.7,
+          57.2
+        ],
+        "midTurnMinusIdlePssMiB": [
+          60.8,
+          52.6,
+          57.1
+        ],
+        "busyConfirmed": [
+          "16/16",
+          "16/16",
+          "16/16"
+        ],
+        "oomKillBeforeAfter": [
+          "0 -> 0",
+          "0 -> 0",
+          "0 -> 0"
+        ]
+      }
+    ]
+  },
+  "comparison1_18": {
+    "source": "internal-docs/opencode-gate/report.md \"RSS results\" + evidence/rss-v1-{1,8,16}.json (worktree t-4840abc5)",
+    "date": "2026-08-27",
+    "note": "the report names 1.18.35 but the rss-v1-*.json files record cliVersion 1.18.23; RSS only, no PSS",
+    "rows": [
+      {
+        "activeSessions": 1,
+        "serverIdleMiB": 378.4,
+        "allMidTurnMiB": 472.4,
+        "midTurnMinusIdleMiB": 94.1
+      },
+      {
+        "activeSessions": 8,
+        "serverIdleMiB": 380.8,
+        "allMidTurnMiB": 477.7,
+        "midTurnMinusIdleMiB": 96.9
+      },
+      {
+        "activeSessions": 16,
+        "serverIdleMiB": 351.3,
+        "allMidTurnMiB": 552.8,
+        "midTurnMinusIdleMiB": 201.5
+      }
+    ]
+  },
+  "comparisonNote": "2.1.4 idle ~223 MiB vs ~351-381 MiB (-130..-160 MiB). Increments over idle: 1 session ~1 MiB vs 94; 8 sessions ~28 MiB vs 97; 16 sessions 53-61 MiB vs 202. Floors only: the mock holds one open response with no token flow and no tool output.",
+  "statusEventsNote": "GET /api/event carried 0 session.status events in these runs; busy was confirmed from execution.started + step.started + no terminal event + mock holding the request.",
+  "runs": {
+    "n0-r1": {
+      "N": 0,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:27:07.414Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 232916,
+            "pssKiB": 228815
+          }
+        ],
+        "totalRssKiB": 232916,
+        "totalPssKiB": 228815,
+        "totalRssMiB": 227.5,
+        "totalPssMiB": 223.5
+      },
+      "createdIdle": null,
+      "midTurn": null,
+      "increments": null,
+      "busyConfirmed": null,
+      "busyRecheckAfterSample": null,
+      "mockRequestsHeld": null,
+      "sessionStatusEventsSeen": null,
+      "terminalEventsDuringHold": null,
+      "msToAllBusy": null,
+      "promptHttp": null,
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-0-1.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n0-r2": {
+      "N": 0,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:27:26.552Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 233044,
+            "pssKiB": 228972
+          }
+        ],
+        "totalRssKiB": 233044,
+        "totalPssKiB": 228972,
+        "totalRssMiB": 227.6,
+        "totalPssMiB": 223.6
+      },
+      "createdIdle": null,
+      "midTurn": null,
+      "increments": null,
+      "busyConfirmed": null,
+      "busyRecheckAfterSample": null,
+      "mockRequestsHeld": null,
+      "sessionStatusEventsSeen": null,
+      "terminalEventsDuringHold": null,
+      "msToAllBusy": null,
+      "promptHttp": null,
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-0-2.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n0-r3": {
+      "N": 0,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:27:45.483Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 229576,
+            "pssKiB": 225547
+          }
+        ],
+        "totalRssKiB": 229576,
+        "totalPssKiB": 225547,
+        "totalRssMiB": 224.2,
+        "totalPssMiB": 220.3
+      },
+      "createdIdle": null,
+      "midTurn": null,
+      "increments": null,
+      "busyConfirmed": null,
+      "busyRecheckAfterSample": null,
+      "mockRequestsHeld": null,
+      "sessionStatusEventsSeen": null,
+      "terminalEventsDuringHold": null,
+      "msToAllBusy": null,
+      "promptHttp": null,
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-0-3.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n1-r1": {
+      "N": 1,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:28:04.572Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 230804,
+            "pssKiB": 226732
+          }
+        ],
+        "totalRssKiB": 230804,
+        "totalPssKiB": 226732,
+        "totalRssMiB": 225.4,
+        "totalPssMiB": 221.4
+      },
+      "createdIdle": {
+        "label": "1-created-idle-sessions",
+        "at": "2026-10-25T02:28:07.641Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 231572,
+            "pssKiB": 227500
+          }
+        ],
+        "totalRssKiB": 231572,
+        "totalPssKiB": 227500,
+        "totalRssMiB": 226.1,
+        "totalPssMiB": 222.2
+      },
+      "midTurn": {
+        "label": "1-mid-turn-sessions",
+        "at": "2026-10-25T02:28:22.899Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 231796,
+            "pssKiB": 227661
+          }
+        ],
+        "totalRssKiB": 231796,
+        "totalPssKiB": 227661,
+        "totalRssMiB": 226.4,
+        "totalPssMiB": 222.3
+      },
+      "increments": {
+        "midTurnMinusIdle": {
+          "rssMiB": 1,
+          "pssMiB": 0.9
+        },
+        "createdMinusIdle": {
+          "rssMiB": 0.8
+        }
+      },
+      "busyConfirmed": "1/1",
+      "busyRecheckAfterSample": "1/1",
+      "mockRequestsHeld": 3,
+      "sessionStatusEventsSeen": 0,
+      "terminalEventsDuringHold": 0,
+      "msToAllBusy": 12240,
+      "promptHttp": [
+        200
+      ],
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-1-1.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n8-r1": {
+      "N": 8,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:28:42.035Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 228112,
+            "pssKiB": 224040
+          }
+        ],
+        "totalRssKiB": 228112,
+        "totalPssKiB": 224040,
+        "totalRssMiB": 222.8,
+        "totalPssMiB": 218.8
+      },
+      "createdIdle": {
+        "label": "8-created-idle-sessions",
+        "at": "2026-10-25T02:28:45.335Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 232920,
+            "pssKiB": 228848
+          }
+        ],
+        "totalRssKiB": 232920,
+        "totalPssKiB": 228848,
+        "totalRssMiB": 227.5,
+        "totalPssMiB": 223.5
+      },
+      "midTurn": {
+        "label": "8-mid-turn-sessions",
+        "at": "2026-10-25T02:29:00.579Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 256476,
+            "pssKiB": 252340
+          }
+        ],
+        "totalRssKiB": 256476,
+        "totalPssKiB": 252340,
+        "totalRssMiB": 250.5,
+        "totalPssMiB": 246.4
+      },
+      "increments": {
+        "midTurnMinusIdle": {
+          "rssMiB": 27.7,
+          "pssMiB": 27.6
+        },
+        "createdMinusIdle": {
+          "rssMiB": 4.7
+        }
+      },
+      "busyConfirmed": "8/8",
+      "busyRecheckAfterSample": "8/8",
+      "mockRequestsHeld": 24,
+      "sessionStatusEventsSeen": 0,
+      "terminalEventsDuringHold": 0,
+      "msToAllBusy": 12010,
+      "promptHttp": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-8-1.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n16-r1": {
+      "N": 16,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:29:27.513Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 225812,
+            "pssKiB": 221783
+          }
+        ],
+        "totalRssKiB": 225812,
+        "totalPssKiB": 221783,
+        "totalRssMiB": 220.5,
+        "totalPssMiB": 216.6
+      },
+      "createdIdle": {
+        "label": "16-created-idle-sessions",
+        "at": "2026-10-25T02:29:31.035Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 235984,
+            "pssKiB": 231955
+          }
+        ],
+        "totalRssKiB": 235984,
+        "totalPssKiB": 231955,
+        "totalRssMiB": 230.5,
+        "totalPssMiB": 226.5
+      },
+      "midTurn": {
+        "label": "16-mid-turn-sessions",
+        "at": "2026-10-25T02:29:46.392Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 288136,
+            "pssKiB": 284044
+          }
+        ],
+        "totalRssKiB": 288136,
+        "totalPssKiB": 284044,
+        "totalRssMiB": 281.4,
+        "totalPssMiB": 277.4
+      },
+      "increments": {
+        "midTurnMinusIdle": {
+          "rssMiB": 60.9,
+          "pssMiB": 60.8
+        },
+        "createdMinusIdle": {
+          "rssMiB": 9.9
+        }
+      },
+      "busyConfirmed": "16/16",
+      "busyRecheckAfterSample": "16/16",
+      "mockRequestsHeld": 48,
+      "sessionStatusEventsSeen": 0,
+      "terminalEventsDuringHold": 0,
+      "msToAllBusy": 12014,
+      "promptHttp": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-16-1.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n16-r2": {
+      "N": 16,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:30:05.494Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 229296,
+            "pssKiB": 225142
+          }
+        ],
+        "totalRssKiB": 229296,
+        "totalPssKiB": 225142,
+        "totalRssMiB": 223.9,
+        "totalPssMiB": 219.9
+      },
+      "createdIdle": {
+        "label": "16-created-idle-sessions",
+        "at": "2026-10-25T02:30:10.026Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 236664,
+            "pssKiB": 232510
+          }
+        ],
+        "totalRssKiB": 236664,
+        "totalPssKiB": 232510,
+        "totalRssMiB": 231.1,
+        "totalPssMiB": 227.1
+      },
+      "midTurn": {
+        "label": "16-mid-turn-sessions",
+        "at": "2026-10-25T02:30:25.634Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 283252,
+            "pssKiB": 279035
+          }
+        ],
+        "totalRssKiB": 283252,
+        "totalPssKiB": 279035,
+        "totalRssMiB": 276.6,
+        "totalPssMiB": 272.5
+      },
+      "increments": {
+        "midTurnMinusIdle": {
+          "rssMiB": 52.7,
+          "pssMiB": 52.6
+        },
+        "createdMinusIdle": {
+          "rssMiB": 7.2
+        }
+      },
+      "busyConfirmed": "16/16",
+      "busyRecheckAfterSample": "16/16",
+      "mockRequestsHeld": 48,
+      "sessionStatusEventsSeen": 0,
+      "terminalEventsDuringHold": 0,
+      "msToAllBusy": 12398,
+      "promptHttp": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-16-2.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    },
+    "n16-r3": {
+      "N": 16,
+      "idle": {
+        "label": "server-idle-no-sessions",
+        "at": "2026-10-25T02:30:44.981Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 231384,
+            "pssKiB": 227309
+          }
+        ],
+        "totalRssKiB": 231384,
+        "totalPssKiB": 227309,
+        "totalRssMiB": 226,
+        "totalPssMiB": 222
+      },
+      "createdIdle": {
+        "label": "16-created-idle-sessions",
+        "at": "2026-10-25T02:30:48.825Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 239608,
+            "pssKiB": 235535
+          }
+        ],
+        "totalRssKiB": 239608,
+        "totalPssKiB": 235535,
+        "totalRssMiB": 234,
+        "totalPssMiB": 230
+      },
+      "midTurn": {
+        "label": "16-mid-turn-sessions",
+        "at": "2026-10-25T02:31:04.287Z",
+        "processes": [
+          {
+            "comm": "opencode",
+            "rssKiB": 289924,
+            "pssKiB": 285788
+          }
+        ],
+        "totalRssKiB": 289924,
+        "totalPssKiB": 285788,
+        "totalRssMiB": 283.1,
+        "totalPssMiB": 279.1
+      },
+      "increments": {
+        "midTurnMinusIdle": {
+          "rssMiB": 57.2,
+          "pssMiB": 57.1
+        },
+        "createdMinusIdle": {
+          "rssMiB": 8
+        }
+      },
+      "busyConfirmed": "16/16",
+      "busyRecheckAfterSample": "16/16",
+      "mockRequestsHeld": 48,
+      "sessionStatusEventsSeen": 0,
+      "terminalEventsDuringHold": 0,
+      "msToAllBusy": 12095,
+      "promptHttp": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "serverExit": {
+        "code": 130,
+        "signal": null
+      },
+      "cgroup": {
+        "scope": "fx-rss-16-3.scope",
+        "memoryMax": "4294967296",
+        "eventsBefore": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        },
+        "eventsAfter": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      },
+      "error": null
+    }
+  }
+}

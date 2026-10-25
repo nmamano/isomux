@@ -1,0 +1,152 @@
+{
+  "prompts": [
+    {
+      "label": "s2-t1-A",
+      "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+      "text": "first prompt EV_CANARY_A_1792890760333 S4_CONTEXT_CANARY",
+      "sentAt": 1792890761163,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709df0b4001184nRmJwBE4MJf",
+          "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+          "time": {
+            "created": 1792890763095
+          },
+          "type": "user",
+          "payload": {
+            "text": "first prompt EV_CANARY_A_1792890760333 S4_CONTEXT_CANARY"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "s2-t1-B",
+      "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+      "text": "first prompt EV_CANARY_B_1792890760333 S4_CONTEXT_CANARY",
+      "sentAt": 1792890761164,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709df0c0001RjOITjUt3gpz53",
+          "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+          "time": {
+            "created": 1792890763213
+          },
+          "type": "user",
+          "payload": {
+            "text": "first prompt EV_CANARY_B_1792890760333 S4_CONTEXT_CANARY"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "s2-t2-A",
+      "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+      "text": "EV_CANARY_A_1792890760333 GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf EV_CANARY_A_1792890760333 > ev-a.txt\"}}",
+      "sentAt": 1792890763607,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709df95b001b8DYy2tKZvNhaO",
+          "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+          "time": {
+            "created": 1792890763612
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_CANARY_A_1792890760333 GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf EV_CANARY_A_1792890760333 > ev-a.txt\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "s2-t2-B",
+      "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+      "text": "EV_CANARY_B_1792890760333 GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf EV_CANARY_B_1792890760333 > ev-b.txt\"}}",
+      "sentAt": 1792890763607,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709df997001841AOWh6rme5XF",
+          "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+          "time": {
+            "created": 1792890763673
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_CANARY_B_1792890760333 GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf EV_CANARY_B_1792890760333 > ev-b.txt\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "s3-recall-B",
+      "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+      "text": "GATE_RECALL",
+      "sentAt": 1792890766753,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709e076e001gWjfbIEQE4PhsO",
+          "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+          "time": {
+            "created": 1792890768140
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_RECALL"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "s3-recall-A",
+      "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+      "text": "GATE_RECALL",
+      "sentAt": 1792890766753,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709e0762001ryo2duZgkgQiyM",
+          "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+          "time": {
+            "created": 1792890768154
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_RECALL"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "s3-follow-A",
+      "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+      "text": "follow check",
+      "sentAt": 1792890769348,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709e1005001YVPJ1gLuvaGz8z",
+          "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+          "time": {
+            "created": 1792890769414
+          },
+          "type": "user",
+          "payload": {
+            "text": "follow check"
+          },
+          "delivery": "steer"
+        }
+      }
+    }
+  ],
+  "notes": {}
+}

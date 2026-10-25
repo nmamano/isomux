@@ -1,0 +1,38 @@
+{
+  "prompts": [
+    {
+      "label": "inflight",
+      "sessionID": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+      "text": "GATE_ABORT inflight at sigterm",
+      "sentAt": 1792890501715,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17099fb13001oaA8Ckb74dviPw",
+          "sessionID": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+          "time": {
+            "created": 1792890503428
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT inflight at sigterm"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "denied-next",
+      "sessionID": "ses_none",
+      "text": "EV after deny next turn",
+      "sentAt": 1792890515320,
+      "status": 404,
+      "response": {
+        "_tag": "SessionNotFoundError",
+        "sessionID": "ses_none",
+        "message": "Session not found: ses_none"
+      }
+    }
+  ],
+  "notes": {}
+}

@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "method": "no OPENCODE_CONFIG / CONTENT, no provider; OPENCODE_DISABLE_FREE_MODELS=1; one prompt",
+  "end": "session.execution.failed",
+  "models": [],
+  "textEnded": 0,
+  "failure": [
+    {
+      "type": "session.execution.failed",
+      "error": "No model is available for session ses_e8f5983ddffejcAMbCpaXTOsG0"
+    }
+  ]
+}

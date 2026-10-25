@@ -1,0 +1,211 @@
+{
+  "item": "S10 update and pin",
+  "date": "2026-10-25",
+  "repeatPin": {
+    "method": "fresh scratch copy of oc2 package.json+bun.lock in run/mg-<ts>/s10-pin; bun 1.4.4: bun install --frozen-lockfile, bun add @opencode/cli@2.1.4 --exact, bun install --frozen-lockfile; sha256 prefixes after each step",
+    "steps": [
+      {
+        "step": "copied",
+        "lock": "fc37fc278bc58ed2",
+        "pkg": "4859fd38d2ccd414",
+        "bin": "none"
+      },
+      {
+        "step": "frozen install",
+        "lock": "fc37fc278bc58ed2",
+        "pkg": "4859fd38d2ccd414",
+        "bin": "ca9b3ee262e33bb4"
+      },
+      {
+        "step": "add --exact",
+        "lock": "fc37fc278bc58ed2",
+        "pkg": "4859fd38d2ccd414",
+        "bin": "ca9b3ee262e33bb4"
+      },
+      {
+        "step": "second frozen install",
+        "lock": "fc37fc278bc58ed2",
+        "pkg": "4859fd38d2ccd414",
+        "bin": "ca9b3ee262e33bb4"
+      }
+    ],
+    "oc2Reference": {
+      "lock": "fc37fc278bc58ed2",
+      "bin": "ca9b3ee262e33bb4"
+    },
+    "binaryVersion": "opencode v2.1.4",
+    "verdict": "PASS",
+    "note": "oc2 package.json also carries devDependency @types/bun \"latest\" (floating); it does not affect the OpenCode packages but a cut-over package.json should pin it or leave it out"
+  },
+  "platforms": {
+    "method": "npm view @opencode/cli@2.1.4 optionalDependencies; npm view each platform package os/cpu; compared with server/backends/opencode/runtime.ts:23-60 and the 1.18.35 entries in the worktree bun.lock",
+    "published2_1_4": [
+      "@opencode/cli-linux-x64",
+      "@opencode/cli-linux-arm64",
+      "@opencode/cli-linux-x64-baseline",
+      "@opencode/cli-linux-x64-musl",
+      "@opencode/cli-linux-arm64-musl",
+      "@opencode/cli-linux-x64-baseline-musl",
+      "@opencode/cli-darwin-x64",
+      "@opencode/cli-darwin-arm64",
+      "@opencode/cli-darwin-x64-baseline",
+      "@opencode/cli-windows-x64",
+      "@opencode/cli-windows-arm64",
+      "@opencode/cli-windows-x64-baseline"
+    ],
+    "published1_18_35_sameMatrix": true,
+    "runtimeResolves": [
+      "linux-<arch>",
+      "linux-x64-baseline (no AVX2)",
+      "linux-<arch>-musl / -baseline-musl (/etc/alpine-release)",
+      "darwin-arm64",
+      "darwin-x64 / darwin-x64-baseline (sysctl avx2)"
+    ],
+    "gap": "No platform gap: every variant runtime.ts can pick exists in 2.1.4 (12 = the 1.18.35 matrix). The package NAMES change: runtime.ts:30,44 build unscoped opencode-<platform>; 2.1.4 ships scoped @opencode/cli-<platform> (bin/opencode inside, same layout). OPENCODE_CLI_VERSION (runtime.ts:5) and the dependency name opencode-ai -> @opencode/cli change too. The platform packages declare os+cpu but no libc, so bun installs glibc and musl variants side by side (4 x64 variants installed here), as with 1.18.35.",
+    "postinstall": "@opencode/cli has scripts.postinstall node ./postinstall.mjs; Isomux resolves the platform binary directly, so the script is not needed",
+    "verdict": "PASS-with-condition (rename the package prefix in runtime.ts)"
+  },
+  "advisories": {
+    "method": "bun audit --json in s10-pin (cli+client+plugin 2.1.4 + deps); npm audit --json on npm install --package-lock-only of the same three (285 deps); gh api /advisories?ecosystem=npm&affects=<pkg>",
+    "bunAudit": "{} (no advisories)",
+    "npmAudit": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "dependencies": {
+        "prod": 265,
+        "dev": 0,
+        "optional": 15,
+        "peer": 6,
+        "peerOptional": 0,
+        "total": 285
+      }
+    },
+    "positiveControl": {
+      "target": "opencode-ai@1.0.200",
+      "npmAudit": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 1,
+        "total": 1
+      },
+      "bunAuditFinds": "GHSA-c83v-7274-4vgp critical <1.1.10"
+    },
+    "github": {
+      "@opencode/cli": 0,
+      "@opencode/client": 0,
+      "@opencode/plugin": 0,
+      "opencode-ai": [
+        {
+          "ghsa": "GHSA-c83v-7274-4vgp",
+          "severity": "critical",
+          "range": "< 1.1.10",
+          "fixed": "1.1.10"
+        },
+        {
+          "ghsa": "GHSA-vxw4-wv6m-9hhh",
+          "severity": "high",
+          "range": "< 1.0.216",
+          "fixed": "1.0.216"
+        }
+      ]
+    },
+    "verdict": "PASS (no advisory affects 2.1.4; every opencode-ai advisory has a fixed version, and 1.18.35 is outside both ranges)"
+  },
+  "selfUpdate": {
+    "method": "strace -f -e trace=connect,sendto,sendmmsg over mg-s10-net.ts: one 2.1.4 serve (common.ts env: OPENCODE_DISABLE_AUTOUPDATE=1, config update:\"disable\"), one session + one mock turn, idle to 60 s. Run A with models fetch on, run B with OPENCODE_DISABLE_MODELS_FETCH=1. No proxy.",
+    "runA_modelsFetchOn": {
+      "run": {
+        "date": "2026-10-25",
+        "modelsFetch": "on",
+        "serverPid": 4151226,
+        "mockPort": 44245,
+        "serverPort": 44391,
+        "turn": "session.execution.succeeded",
+        "ranMs": 60280
+      },
+      "external": [
+        {
+          "host": "models.opencode.ai (DNS query + TLS SNI)",
+          "port": 443,
+          "addresses": [
+            "104.20.32.17",
+            "172.66.173.149",
+            "2606:4700:10::6814:2011",
+            "2606:4700:10::ac42:ad95"
+          ]
+        }
+      ],
+      "dns": "127.0.0.53:53 (systemd-resolved), nscd socket attempt (absent)",
+      "loopback": [
+        "server port (health/API)",
+        "mock port",
+        "127.0.0.1:8000 (vllm probe)",
+        "127.0.0.1:1234 (lmstudio probe)",
+        "127.0.0.1:11434 (ollama probe)"
+      ]
+    },
+    "runB_modelsFetchOff": {
+      "run": {
+        "date": "2026-10-25",
+        "modelsFetch": "off",
+        "serverPid": 4153499,
+        "mockPort": 36305,
+        "serverPort": 38999,
+        "turn": "session.execution.succeeded",
+        "ranMs": 60436
+      },
+      "external": [],
+      "loopback": [
+        "server port",
+        "mock port",
+        "127.0.0.1:8000",
+        "127.0.0.1:1234",
+        "127.0.0.1:11434"
+      ]
+    },
+    "updateRequests": 0,
+    "updateLogLines": "grep -c \"update check|updater|upgrade\" = 0 in both server logs (control: \"Sent HTTP response\" = 3 each)",
+    "sources": "cli/src/services/updater.ts:534-540 (env gate); serve path (cli/src/commands/handlers/serve.ts, cli/src/server-process.ts) never references the updater; local probes: core/src/plugin/provider/vllm.ts:18, lmstudio.ts:27, ollama.ts:48",
+    "instrumentControl": "run A shows the external models.opencode.ai connect, so the observer sees outbound TLS",
+    "verdict": "PASS"
+  },
+  "reinstall": {
+    "method": "mg-s10-reinstall.ts: profile at s10-reinstall/isomux-state/opencode/profiles/p1 (outside node_modules), 2.1.4 from s10-pin, one session+turn; find node_modules -newer stamp; sha256 of every profile file; mv node_modules aside; bun install --frozen-lockfile; re-hash; start again and list sessions",
+    "first": {
+      "date": "2026-10-25",
+      "phase": "first",
+      "version": "2.1.4",
+      "turn": "session.execution.succeeded",
+      "sessionID": "ses_e8f3e3b75ffeThwhbcYduP8zak",
+      "sessions": [
+        "ses_e8f3e3b75ffeThwhbcYduP8zak"
+      ]
+    },
+    "nodeModulesFilesWrittenByRun": 0,
+    "controlAfterReinstall_newerFiles": 2139,
+    "binaryHashBeforeAfter": "ca9b3ee262e33bb4 / ca9b3ee262e33bb4",
+    "profileFileHashes": "26 files, identical before and after reinstall (cmp)",
+    "after": {
+      "date": "2026-10-25",
+      "phase": "after",
+      "version": "2.1.4",
+      "sessions": [
+        "ses_e8f3e3b75ffeThwhbcYduP8zak"
+      ]
+    },
+    "productionPaths": {
+      "profile": "<AGENT_ROOT>/opencode/profiles/<16 hex> (server/backends/opencode/profile-paths.ts:23-35), e.g. ~/.isomux/opencode/profiles/<id>: data/opencode/opencode.db, log, snapshot; config, state, cache (plugin npm cache = cache/opencode/npm)",
+      "binary": "<isomux checkout>/node_modules/@opencode/cli-<platform>/bin/opencode (runtime.ts:53-58 after the rename)"
+    },
+    "caveat": "start-server.ts does not set TMPDIR; 2.1.4 writes $TMPDIR/opencode and $TMPDIR/.bun-<uid>-*.so|.node (observed in the copy1 census), outside the profile and outside node_modules",
+    "verdict": "PASS"
+  }
+}

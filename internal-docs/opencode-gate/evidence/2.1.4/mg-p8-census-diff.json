@@ -1,0 +1,171 @@
+{
+  "label": "copy1: before vs after first 2.1.4 start",
+  "date": "2026-10-25",
+  "method": "mg-census.ts: every path with size+sha256+mode; tables via bun:sqlite readonly on a db copy taken with the server stopped. Path components outside a fixed list of OpenCode layout names are hashed (h:<8 hex>).",
+  "fileCountBefore": 8087,
+  "fileCountAfter": 8093,
+  "added": [
+    {
+      "path": "data/opencode/shell",
+      "type": "dir",
+      "mode": "775"
+    },
+    {
+      "path": "data/opencode/shell/h:cdc88765",
+      "type": "dir",
+      "mode": "775"
+    },
+    {
+      "path": "data/opencode/shell/h:2a582e56",
+      "type": "dir",
+      "mode": "775"
+    },
+    {
+      "path": "tmp",
+      "type": "dir",
+      "mode": "700"
+    },
+    {
+      "path": "tmp/opencode",
+      "type": "dir",
+      "mode": "775"
+    },
+    {
+      "path": "tmp/h:d376fc5e",
+      "type": "file",
+      "size": 5255600,
+      "mode": "600"
+    },
+    {
+      "path": "tmp/h:3bcb97d5",
+      "type": "file",
+      "size": 514960,
+      "mode": "600"
+    },
+    {
+      "path": "tmp/h:bf553b1a",
+      "type": "file",
+      "size": 12846400,
+      "mode": "600"
+    }
+  ],
+  "removed": [
+    {
+      "path": "data/opencode/opencode.db-shm",
+      "type": "file",
+      "size": 32768
+    },
+    {
+      "path": "data/opencode/opencode.db-wal",
+      "type": "file",
+      "size": 6530232
+    }
+  ],
+  "changed": [
+    {
+      "path": "data/opencode/opencode.db",
+      "type": "file",
+      "sizeBefore": 252014592,
+      "sizeAfter": 252096512,
+      "modeBefore": "600",
+      "modeAfter": "600",
+      "contentChanged": true
+    },
+    {
+      "path": "data/opencode/log/opencode.log",
+      "type": "file",
+      "sizeBefore": 3068468,
+      "sizeAfter": 3085359,
+      "modeBefore": "600",
+      "modeAfter": "600",
+      "contentChanged": true
+    }
+  ],
+  "tablesChanged": {
+    "credential": {
+      "before": 0,
+      "after": 2
+    },
+    "data_migration": {
+      "before": 0,
+      "after": "absent"
+    },
+    "event": {
+      "before": 19633,
+      "after": 0
+    },
+    "migration": {
+      "before": 38,
+      "after": 50
+    },
+    "project": {
+      "before": 8,
+      "after": 13
+    },
+    "session_context_epoch": {
+      "before": 0,
+      "after": "absent"
+    },
+    "session_input": {
+      "before": 0,
+      "after": "absent"
+    },
+    "session_message": {
+      "before": 0,
+      "after": 1653
+    },
+    "instruction_blob": {
+      "before": "absent",
+      "after": 0
+    },
+    "instruction_entry": {
+      "before": "absent",
+      "after": 0
+    },
+    "instruction_state": {
+      "before": "absent",
+      "after": 0
+    },
+    "kv": {
+      "before": "absent",
+      "after": 1
+    },
+    "session_inbox": {
+      "before": "absent",
+      "after": 0
+    },
+    "session_pending": {
+      "before": "absent",
+      "after": 0
+    },
+    "session_v2": {
+      "before": "absent",
+      "after": 28
+    },
+    "worktree": {
+      "before": "absent",
+      "after": 7
+    }
+  },
+  "tablesBefore": 20,
+  "tablesAfter": 25,
+  "extraBefore": {
+    "v1_sessions": 28,
+    "v1_sessions_global_project": 19,
+    "v1_root_sessions": 24,
+    "v1_archived_sessions": 0,
+    "credentials": []
+  },
+  "extraAfter": {
+    "v1_sessions": 28,
+    "v1_sessions_global_project": 19,
+    "v1_root_sessions": 24,
+    "v1_archived_sessions": 0,
+    "v2_sessions": 28,
+    "kv_migration_state": "completed",
+    "credentials": [
+      "anthropic",
+      "openai"
+    ]
+  }
+}

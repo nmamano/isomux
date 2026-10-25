@@ -60,7 +60,7 @@ ordering. Later startup testing proved that several OpenCode processes cannot
 safely start against one profile at the same time. The gate also found contract
 and security defects that the adapter must contain.
 
-This is a bridge to stable V2, not throwaway work. Isomux's backend adapter,
+This is a bridge to OpenCode 2, not throwaway work. Isomux's backend adapter,
 supervisor, normalized events, persistence, UI, cron support, and tests survive
 the move. One version-scoped transport module contains the OC1 HTTP and SSE
 contract so V2 does not spread through the product.
@@ -86,9 +86,8 @@ difference. In particular:
 
 Fork and edit-message are enabled from S4 after the selected boundary, child
 history, first child turn, first-message boundary, and parent preservation all
-passed against the pinned binary. A stable V2 release during this work does not
-change the target: finish the pinned OC1 backend, and migrate only after a
-separate V2 gate.
+passed against the pinned binary. The move to OpenCode 2 is decided (below,
+"V2 migration budget").
 
 ## OC1 contract
 
@@ -398,11 +397,19 @@ the run instead of leaving it parked until the 30-minute hard timeout.
 
 ## V2 migration budget
 
-When a stable V2 CLI/client pair ships, rerun the full gate before changing the
-adapter. The known beta pair's prompt fails with `Missing key at ["prompt"]`,
-its `/api/server` route serves HTML, and its fork and compaction routes disagree
-with the client. Migration therefore stays inside the version-scoped transport
-module.
+Upstream never ships a "stable" OpenCode 2 pair: `@opencode/cli` 2.x is the
+release line since 2026-09-11, and OpenCode 1 gets only security builds. Nil
+decided the move on 2026-10-23 and 2026-10-25: an exact pin of `@opencode/cli`
+2.1.4 (self-update and plugin update off), one cut-over, no OpenCode 1
+fallback, and a copy of the version 1 profile database kept before the first
+version 2 start, which a rollback to the previous Isomux release uses. The gate
+ran on 2.1.4 on 2026-10-25 and passed with conditions
+([`opencode-gate/report-2.1.4.md`](opencode-gate/report-2.1.4.md)).
+
+The move is wider than the transport module. It also rewrites the safety plugin
+for the version 2 plugin API, the config layers and permission keys, the
+server environment in `start-server.ts`, the binary names in `runtime.ts`, the
+credential read-deny paths, and adds the database copy and rollback.
 
 Keep unchanged:
 
@@ -425,10 +432,10 @@ Discard:
 - the OC1 transport module and its 1.18.23 fixtures;
 - OC1-only compatibility code and route names.
 
-Budget 4-7 focused days after a stable V2 pair exists: 1-2 days to rerun and
-review the gate, 2-3 days to replace the transport and fixtures, and 1-2 days
-for regression and live certification. A failed V2 gate pauses migration; it
-does not invalidate the OC1 product work.
+Budget 2-3 weeks after the gate (estimate of the 2026-10-23 packet). The
+cut-over tasks are the transport rewrite, the safety plugin, config layers and
+environment, migration and rollback, and the release note; the gate report
+lists the conditions each one must meet.
 
 ## Approved tracer slices
 

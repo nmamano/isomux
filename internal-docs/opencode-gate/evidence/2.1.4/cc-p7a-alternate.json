@@ -1,0 +1,236 @@
+{
+  "item": "P7a",
+  "date": "2026-10-25",
+  "runDir": "/tmp/t-4840abc5/run/cc-p7a-1792892503102",
+  "v1": "opencode 1.18.35",
+  "v2": "opencode 2.1.4",
+  "cases": [
+    {
+      "case": "both live: alternate 1.18.35 and 2.1.4 turns on one v1-created session (imported by 2.1.4)",
+      "seed": [
+        {
+          "session": "JdjfR4",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 6271
+        }
+      ],
+      "dbAfterImport": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 1,
+          "message": 3,
+          "part": 9,
+          "session_v2": 1,
+          "session_message": 4,
+          "event": 0,
+          "event_sequence": 1
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "rounds": [
+        {
+          "r": 0,
+          "v1": {
+            "outcome": "idle",
+            "lastText": "RECOVERED_AFTER_TOOL",
+            "tools": [
+              "bash:completed"
+            ],
+            "ms": 1764
+          },
+          "v2": {
+            "outcome": "session.execution.succeeded",
+            "ms": 2406
+          }
+        },
+        {
+          "r": 1,
+          "v1": {
+            "outcome": "idle",
+            "lastText": "RECOVERED_AFTER_TOOL",
+            "tools": [
+              "bash:completed"
+            ],
+            "ms": 2012
+          },
+          "v2": {
+            "outcome": "session.execution.succeeded",
+            "ms": 630
+          }
+        },
+        {
+          "r": 2,
+          "v1": {
+            "outcome": "idle",
+            "lastText": "RECOVERED_AFTER_TOOL",
+            "tools": [
+              "bash:completed"
+            ],
+            "ms": 2359
+          },
+          "v2": {
+            "outcome": "session.execution.succeeded",
+            "ms": 467
+          }
+        },
+        {
+          "r": 3,
+          "v1": {
+            "outcome": "idle",
+            "lastText": "RECOVERED_AFTER_TOOL",
+            "tools": [
+              "bash:completed"
+            ],
+            "ms": 1796
+          },
+          "v2": {
+            "outcome": "session.execution.succeeded",
+            "ms": 534
+          }
+        }
+      ],
+      "historyCounts": {
+        "v1Messages": 15,
+        "v2Messages": 20
+      },
+      "aliveBeforeStop": {
+        "v1": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        },
+        "v2": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        }
+      },
+      "dbAfterBothStopped": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 1,
+          "message": 15,
+          "part": 45,
+          "session_v2": 1,
+          "session_message": 20,
+          "event": 112,
+          "event_sequence": 1
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "logs": {
+        "v1": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892503102/alternate/alternate-v1.log",
+          "lines": 101,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:41:46.958Z level=INFO run=170b6971 message=bootstrapping directory=/tmp/t-4840abc5/run/cc-p7a-1792892503102/alternate/repo",
+            "timestamp=2026-10-25T01:41:47.179Z level=INFO run=170b6971 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892503102/alternate/v1-config.json",
+            "timestamp=2026-10-25T01:41:52.452Z level=INFO run=170b6971 message=evaluated permission=bash pattern=\"printf seed-0 >> v1-seed.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:41:57.824Z level=INFO run=170b6971 message=evaluated permission=bash pattern=\"printf v1-0 >> alt.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:42:02.165Z level=INFO run=170b6971 message=evaluated permission=bash pattern=\"printf v1-1 >> alt.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:42:04.860Z level=INFO run=170b6971 message=evaluated permission=bash pattern=\"printf v1-2 >> alt.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:42:07.388Z level=INFO run=170b6971 message=evaluated permission=bash pattern=\"printf v1-3 >> alt.txt\" action.permission=* action.action=allow action.pattern=*"
+          ]
+        },
+        "v2": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892503102/alternate/alternate-v2.log",
+          "lines": 146,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:41:54.277Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260804233008_loose_psylocke role=server",
+            "timestamp=2026-10-25T01:41:54.291Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260804233008_loose_psylocke durationMs=14 role=server",
+            "timestamp=2026-10-25T01:41:54.292Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260805200742_import_legacy_credentials role=server",
+            "timestamp=2026-10-25T01:41:54.300Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260805200742_import_legacy_credentials durationMs=8 role=server",
+            "timestamp=2026-10-25T01:41:54.300Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260808023530_workspace_domain role=server",
+            "timestamp=2026-10-25T01:41:54.302Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260808023530_workspace_domain durationMs=2 role=server",
+            "timestamp=2026-10-25T01:41:54.302Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260811161259_execution_claim_attempts role=server",
+            "timestamp=2026-10-25T01:41:54.303Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260811161259_execution_claim_attempts durationMs=1 role=server",
+            "timestamp=2026-10-25T01:41:54.303Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260812181746_session_inbox role=server",
+            "timestamp=2026-10-25T01:41:54.304Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260812181746_session_inbox durationMs=1 role=server",
+            "timestamp=2026-10-25T01:41:54.304Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260812213948_worktree role=server",
+            "timestamp=2026-10-25T01:41:54.305Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260812213948_worktree durationMs=1 role=server",
+            "timestamp=2026-10-25T01:41:54.305Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260819222447_session_viewed_state role=server",
+            "timestamp=2026-10-25T01:41:54.308Z level=INFO run=52b60c3f message=\"database migration completed\" migration=20260819222447_session_viewed_state durationMs=3 role=server",
+            "timestamp=2026-10-25T01:41:54.308Z level=INFO run=52b60c3f message=\"database migration started\" migration=20260823191254_nullable_workspace_binding role=server"
+          ]
+        }
+      },
+      "eventStreamSeqPattern": {
+        "/tmp/t-4840abc5/run/cc-p7a-1792892503102/alternate-v1-events.jsonl": 0,
+        "/tmp/t-4840abc5/run/cc-p7a-1792892503102/alternate-v2-events.jsonl": 0
+      }
+    }
+  ],
+  "grepControl": {
+    "file": "/tmp/t-4840abc5/run/cc-p7a-1792892503102/planted-control.log",
+    "linesPlanted": 6,
+    "totalMatched": 6,
+    "perPattern": {
+      "UNIQUE constraint failed": 1,
+      "SQLITE_CONSTRAINT": 1,
+      "Sequence mismatch": 1,
+      "Replay diverged": 1,
+      "already exists at aggregate": 1,
+      "InvalidDurableEvent": 1
+    }
+  },
+  "serversStarted": [
+    {
+      "label": "alternate-v1",
+      "pid": 4142330
+    },
+    {
+      "label": "alternate-v2",
+      "pid": 4142486
+    }
+  ]
+}

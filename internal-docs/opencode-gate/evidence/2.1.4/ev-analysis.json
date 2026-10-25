@@ -1,0 +1,1236 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "inputs": [
+    "ev-fx-abort-plain.jsonl",
+    "ev-fx-abort-queue-default.jsonl",
+    "ev-fx-abort-resume-false.jsonl",
+    "ev-fx-abort-steer-default.jsonl",
+    "ev-fx-abort-steer-resume-false.jsonl",
+    "ev-fx-abort-steer-resume-true.jsonl",
+    "ev-fx-abort-tool.jsonl",
+    "ev-fx-auth-error.jsonl",
+    "ev-fx-compaction-ok.jsonl",
+    "ev-fx-compaction.jsonl",
+    "ev-fx-edit-write.jsonl",
+    "ev-fx-fixed-ids.jsonl",
+    "ev-fx-fork.jsonl",
+    "ev-fx-shell-allow.jsonl",
+    "ev-fx-shell-deny.jsonl",
+    "ev-fx-text-reasoning.jsonl",
+    "ev-fx-tool-fail.jsonl",
+    "ev-s2-events.jsonl",
+    "ev-s3-events.jsonl",
+    "ev-s4-restart-boot1-events.jsonl",
+    "ev-s4-restart-boot2-events.jsonl",
+    "ev-s4-restart-c-boot1-events.jsonl",
+    "ev-s4-restart-c-boot2-events.jsonl"
+  ],
+  "manifests": [
+    "ev-s4-manifest.json",
+    "ev-s2s3-manifest.json",
+    "ev-compact-manifest.json",
+    "ev-s4-restart-manifest.json",
+    "ev-s4-restart-b-manifest.json",
+    "ev-s4-restart-c-manifest.json"
+  ],
+  "s5": {
+    "totalCalls": 13,
+    "allHaveInputStarted": true,
+    "allHaveCalled": true,
+    "allExactlyOneTerminal": true,
+    "allOrderedStartedCalledTerminal": true,
+    "allOneAssistantMessage": true,
+    "violations": [],
+    "terminalsByType": {
+      "session.tool.failed": 2,
+      "session.tool.success": 11
+    },
+    "permissionSourceIdMatchesToolId": [
+      {
+        "file": "ev-fx-shell-allow.jsonl",
+        "sessionID": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+        "sourceId": "call_2",
+        "matched": true
+      },
+      {
+        "file": "ev-fx-shell-deny.jsonl",
+        "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+        "sourceId": "call_4",
+        "matched": true
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "sourceId": "call_1",
+        "matched": true
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "sourceId": "call_2",
+        "matched": true
+      }
+    ],
+    "idsSharedAcrossSessionsInS4Server": [
+      {
+        "id": "call_gate_001",
+        "sessions": 2
+      }
+    ],
+    "sameIdTwiceInOneSession": [
+      {
+        "key": "ses_e8f6817bbffeE7ZtevcaLBpl2K|call_gate_001",
+        "assistantMessages": 2
+      }
+    ],
+    "calls": [
+      {
+        "file": "ev-fx-abort-tool.jsonl",
+        "sessionID": "ses_e8f684879ffeg96C16yo6cniwe",
+        "id": "call_12",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.failed"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.failed",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-compaction-ok.jsonl",
+        "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+        "id": "call_1",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-edit-write.jsonl",
+        "sessionID": "ses_e8f68d218ffeOIz135IJmo4IHy",
+        "id": "call_6",
+        "names": [
+          "write"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-edit-write.jsonl",
+        "sessionID": "ses_e8f68d218ffeOIz135IJmo4IHy",
+        "id": "call_8",
+        "names": [
+          "edit"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sessionID": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+        "id": "call_gate_001",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sessionID": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+        "id": "call_gate_001",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sessionID": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+        "id": "call_gate_001",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sessionID": "ses_e8f68257dffecWsls05Fv9ANM4",
+        "id": "call_13",
+        "names": [
+          "write"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-shell-allow.jsonl",
+        "sessionID": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+        "id": "call_2",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-shell-deny.jsonl",
+        "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+        "id": "call_4",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.failed"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.failed",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-fx-tool-fail.jsonl",
+        "sessionID": "ses_e8f68cda1ffe7OTB5JwG0ANpAA",
+        "id": "call_10",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "id": "call_1",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "id": "call_2",
+        "names": [
+          "shell"
+        ],
+        "sequence": [
+          "session.tool.input.started",
+          "session.tool.input.ended",
+          "session.tool.called",
+          "session.tool.success"
+        ],
+        "hasInputStarted": true,
+        "hasCalled": true,
+        "terminalCount": 1,
+        "terminal": "session.tool.success",
+        "ordered": true,
+        "oneAssistantMessage": true
+      }
+    ]
+  },
+  "s6": {
+    "busyPeriods": 53,
+    "everyBusyPeriodExactlyOneTerminal": false,
+    "periodsWithoutTerminal": [
+      {
+        "file": "ev-s4-restart-boot1-events.jsonl",
+        "sid": "ses_e8f66a696ffeu2c01v3KfHAS4z"
+      },
+      {
+        "file": "ev-s4-restart-c-boot1-events.jsonl",
+        "sid": "ses_e8f6605efffel0ZCA5a6jvEFT6"
+      },
+      {
+        "file": "ev-s4-restart-c-boot1-events.jsonl",
+        "sid": "ses_e8f65817fffeAf9vTMsgt1NPzA"
+      }
+    ],
+    "periodsWithMultipleTerminals": [],
+    "terminalAfterLastTextEndedAndToolTerminal_byArrival": true,
+    "terminalAfter_byDurableSeq": true,
+    "eventsSeenAfterTerminalInSamePeriod": [
+      "session.usage.updated",
+      "session.renamed",
+      "session.inbox.enqueued"
+    ],
+    "promptAccounting": [
+      {
+        "file": "ev-fx-abort-plain.jsonl",
+        "sid": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "abort_plain",
+          "abort_plain-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-queue-default.jsonl",
+        "sid": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+        "prompts": 3,
+        "terminals": 2,
+        "equal": false,
+        "detail": [
+          "abort_queue_default",
+          "abort_queue_default-followup[queue]",
+          "abort_queue_default-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-resume-false.jsonl",
+        "sid": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "abort_resume_false",
+          "abort_resume_false-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-steer-default.jsonl",
+        "sid": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+        "prompts": 3,
+        "terminals": 2,
+        "equal": false,
+        "detail": [
+          "abort_steer_default",
+          "abort_steer_default-followup[steer]",
+          "abort_steer_default-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-steer-resume-false.jsonl",
+        "sid": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+        "prompts": 3,
+        "terminals": 2,
+        "equal": false,
+        "detail": [
+          "abort_steer_resume_false",
+          "abort_steer_resume_false-followup[steer]",
+          "abort_steer_resume_false-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-steer-resume-true.jsonl",
+        "sid": "ses_e8f687551ffehyt9fNIhoPxfsq",
+        "prompts": 3,
+        "terminals": 3,
+        "equal": true,
+        "detail": [
+          "abort_steer_resume_true",
+          "abort_steer_resume_true-followup[steer]",
+          "abort_steer_resume_true-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-tool.jsonl",
+        "sid": "ses_e8f684879ffeg96C16yo6cniwe",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "abort_tool",
+          "abort_tool-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-auth-error.jsonl",
+        "sid": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "auth_error"
+        ],
+        "terminalsList": [
+          "failed:provider.auth"
+        ]
+      },
+      {
+        "file": "ev-fx-compaction-ok.jsonl",
+        "sid": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+        "prompts": 6,
+        "terminals": 6,
+        "equal": true,
+        "detail": [
+          "c-t1",
+          "c-t2",
+          "c-t3",
+          "c-t4",
+          "c-t5"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-compaction.jsonl",
+        "sid": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+        "prompts": 4,
+        "terminals": 4,
+        "equal": true,
+        "detail": [
+          "compact-t1",
+          "compact-t2",
+          "compact-t3"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-edit-write.jsonl",
+        "sid": "ses_e8f68d218ffeOIz135IJmo4IHy",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "write",
+          "edit"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sid": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "fixed-x1-t1",
+          "fixed-x1-t2"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sid": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "fixed-x2-t1"
+        ],
+        "terminalsList": [
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sid": "ses_e8f6828aaffe8R6SfgsysFa6er",
+        "prompts": 3,
+        "terminals": 3,
+        "equal": true,
+        "detail": [
+          "fork-p1",
+          "fork-p2",
+          "fork-p3"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sid": "ses_e8f68257dffecWsls05Fv9ANM4",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "fork-child-recall",
+          "fork-child-write"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sid": "ses_e8f682563ffeWYhK9vH4J59C2k",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "fork-child2-recall"
+        ],
+        "terminalsList": [
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-shell-allow.jsonl",
+        "sid": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "shell_allow"
+        ],
+        "terminalsList": [
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-shell-deny.jsonl",
+        "sid": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "shell_deny"
+        ],
+        "terminalsList": [
+          "interrupted:shutdown"
+        ]
+      },
+      {
+        "file": "ev-fx-text-reasoning.jsonl",
+        "sid": "ses_e8f68e2e0ffeRLF2O8EMZ36obo",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "text_reasoning"
+        ],
+        "terminalsList": [
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-tool-fail.jsonl",
+        "sid": "ses_e8f68cda1ffe7OTB5JwG0ANpAA",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "tool_fail"
+        ],
+        "terminalsList": [
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sid": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "s2-t1-B",
+          "s2-t2-B"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sid": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "s2-t1-A",
+          "s2-t2-A"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-s3-events.jsonl",
+        "sid": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "prompts": 1,
+        "terminals": 1,
+        "equal": true,
+        "detail": [
+          "s3-recall-B"
+        ],
+        "terminalsList": [
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-s3-events.jsonl",
+        "sid": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "prompts": 2,
+        "terminals": 2,
+        "equal": true,
+        "detail": [
+          "s3-recall-A",
+          "s3-follow-A"
+        ],
+        "terminalsList": [
+          "succeeded",
+          "succeeded"
+        ]
+      }
+    ],
+    "promptsNotOneToOne": [
+      {
+        "file": "ev-fx-abort-queue-default.jsonl",
+        "sid": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+        "prompts": 3,
+        "terminals": 2,
+        "equal": false,
+        "detail": [
+          "abort_queue_default",
+          "abort_queue_default-followup[queue]",
+          "abort_queue_default-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-steer-default.jsonl",
+        "sid": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+        "prompts": 3,
+        "terminals": 2,
+        "equal": false,
+        "detail": [
+          "abort_steer_default",
+          "abort_steer_default-followup[steer]",
+          "abort_steer_default-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      },
+      {
+        "file": "ev-fx-abort-steer-resume-false.jsonl",
+        "sid": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+        "prompts": 3,
+        "terminals": 2,
+        "equal": false,
+        "detail": [
+          "abort_steer_resume_false",
+          "abort_steer_resume_false-followup[steer]",
+          "abort_steer_resume_false-after"
+        ],
+        "terminalsList": [
+          "interrupted:user",
+          "succeeded"
+        ]
+      }
+    ],
+    "interruptedReasons": {
+      "user": 7,
+      "shutdown": 1
+    },
+    "failedErrorTypes": [
+      "provider.auth"
+    ],
+    "sessionStatusOrIdleEventCounts": {
+      "ev-fx-abort-plain.jsonl": 0,
+      "ev-fx-abort-queue-default.jsonl": 0,
+      "ev-fx-abort-resume-false.jsonl": 0,
+      "ev-fx-abort-steer-default.jsonl": 0,
+      "ev-fx-abort-steer-resume-false.jsonl": 0,
+      "ev-fx-abort-steer-resume-true.jsonl": 0,
+      "ev-fx-abort-tool.jsonl": 0,
+      "ev-fx-auth-error.jsonl": 0,
+      "ev-fx-compaction-ok.jsonl": 0,
+      "ev-fx-compaction.jsonl": 0,
+      "ev-fx-edit-write.jsonl": 0,
+      "ev-fx-fixed-ids.jsonl": 0,
+      "ev-fx-fork.jsonl": 0,
+      "ev-fx-shell-allow.jsonl": 0,
+      "ev-fx-shell-deny.jsonl": 0,
+      "ev-fx-text-reasoning.jsonl": 0,
+      "ev-fx-tool-fail.jsonl": 0,
+      "ev-s2-events.jsonl": 0,
+      "ev-s3-events.jsonl": 0,
+      "ev-s4-restart-boot1-events.jsonl": 0,
+      "ev-s4-restart-boot2-events.jsonl": 0,
+      "ev-s4-restart-c-boot1-events.jsonl": 0,
+      "ev-s4-restart-c-boot2-events.jsonl": 0
+    },
+    "sessionStatusOrIdleTotal": 0,
+    "instrumentControl_distinctEventTypesSeen": 49,
+    "instrumentControl_executionStartedSeen": 53,
+    "sessions": [
+      {
+        "file": "ev-fx-abort-plain.jsonl",
+        "sid": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+        "prompts": [
+          "abort_plain",
+          "abort_plain-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "interrupted:user",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-abort-queue-default.jsonl",
+        "sid": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+        "prompts": [
+          "abort_queue_default",
+          "abort_queue_default-followup[queue]",
+          "abort_queue_default-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "interrupted:user",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-abort-resume-false.jsonl",
+        "sid": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+        "prompts": [
+          "abort_resume_false",
+          "abort_resume_false-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "interrupted:user",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-abort-steer-default.jsonl",
+        "sid": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+        "prompts": [
+          "abort_steer_default",
+          "abort_steer_default-followup[steer]",
+          "abort_steer_default-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "interrupted:user",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-abort-steer-resume-false.jsonl",
+        "sid": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+        "prompts": [
+          "abort_steer_resume_false",
+          "abort_steer_resume_false-followup[steer]",
+          "abort_steer_resume_false-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "interrupted:user",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-abort-steer-resume-true.jsonl",
+        "sid": "ses_e8f687551ffehyt9fNIhoPxfsq",
+        "prompts": [
+          "abort_steer_resume_true",
+          "abort_steer_resume_true-followup[steer]",
+          "abort_steer_resume_true-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 3,
+        "terminals": [
+          "interrupted:user",
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-abort-tool.jsonl",
+        "sid": "ses_e8f684879ffeg96C16yo6cniwe",
+        "prompts": [
+          "abort_tool",
+          "abort_tool-after"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "interrupted:user",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-auth-error.jsonl",
+        "sid": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+        "prompts": [
+          "auth_error"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "failed:provider.auth"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-compaction-ok.jsonl",
+        "sid": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+        "prompts": [
+          "c-t1",
+          "c-t2",
+          "c-t3",
+          "c-t4",
+          "c-t5"
+        ],
+        "compactCalls": 1,
+        "busyPeriods": 6,
+        "terminals": [
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-compaction.jsonl",
+        "sid": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+        "prompts": [
+          "compact-t1",
+          "compact-t2",
+          "compact-t3"
+        ],
+        "compactCalls": 1,
+        "busyPeriods": 4,
+        "terminals": [
+          "succeeded",
+          "succeeded",
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-edit-write.jsonl",
+        "sid": "ses_e8f68d218ffeOIz135IJmo4IHy",
+        "prompts": [
+          "write",
+          "edit"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sid": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+        "prompts": [
+          "fixed-x1-t1",
+          "fixed-x1-t2"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-fixed-ids.jsonl",
+        "sid": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+        "prompts": [
+          "fixed-x2-t1"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sid": "ses_e8f6828aaffe8R6SfgsysFa6er",
+        "prompts": [
+          "fork-p1",
+          "fork-p2",
+          "fork-p3"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 3,
+        "terminals": [
+          "succeeded",
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sid": "ses_e8f68257dffecWsls05Fv9ANM4",
+        "prompts": [
+          "fork-child-recall",
+          "fork-child-write"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-fork.jsonl",
+        "sid": "ses_e8f682563ffeWYhK9vH4J59C2k",
+        "prompts": [
+          "fork-child2-recall"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-shell-allow.jsonl",
+        "sid": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+        "prompts": [
+          "shell_allow"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-shell-deny.jsonl",
+        "sid": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+        "prompts": [
+          "shell_deny"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "interrupted:shutdown"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-text-reasoning.jsonl",
+        "sid": "ses_e8f68e2e0ffeRLF2O8EMZ36obo",
+        "prompts": [
+          "text_reasoning"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-fx-tool-fail.jsonl",
+        "sid": "ses_e8f68cda1ffe7OTB5JwG0ANpAA",
+        "prompts": [
+          "tool_fail"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sid": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "prompts": [
+          "s2-t1-B",
+          "s2-t2-B"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s2-events.jsonl",
+        "sid": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "prompts": [
+          "s2-t1-A",
+          "s2-t2-A"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s3-events.jsonl",
+        "sid": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "prompts": [
+          "s3-recall-B"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s3-events.jsonl",
+        "sid": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "prompts": [
+          "s3-recall-A",
+          "s3-follow-A"
+        ],
+        "compactCalls": 0,
+        "busyPeriods": 2,
+        "terminals": [
+          "succeeded",
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s4-restart-boot1-events.jsonl",
+        "sid": "ses_e8f66a696ffeu2c01v3KfHAS4z",
+        "prompts": [],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s4-restart-boot2-events.jsonl",
+        "sid": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+        "prompts": [],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s4-restart-c-boot1-events.jsonl",
+        "sid": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+        "prompts": [],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s4-restart-c-boot1-events.jsonl",
+        "sid": "ses_e8f65817fffeAf9vTMsgt1NPzA",
+        "prompts": [],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [],
+        "orphanTerminals": []
+      },
+      {
+        "file": "ev-s4-restart-c-boot2-events.jsonl",
+        "sid": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+        "prompts": [],
+        "compactCalls": 0,
+        "busyPeriods": 1,
+        "terminals": [
+          "succeeded"
+        ],
+        "orphanTerminals": []
+      }
+    ]
+  }
+}

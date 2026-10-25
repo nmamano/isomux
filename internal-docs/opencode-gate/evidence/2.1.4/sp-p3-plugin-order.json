@@ -1,0 +1,959 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p3",
+  "runDir": "/tmp/t-4840abc5/run/sp-p3-1792890481690",
+  "serverPid": 4073982,
+  "pluginDir": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety",
+  "results": {
+    "repoA": {
+      "listByQueryBeforeSession": {
+        "builtinCount": 0,
+        "total": 0,
+        "rows": []
+      },
+      "listByHeader": {
+        "builtinCount": 0,
+        "total": 0,
+        "rows": []
+      },
+      "unscopedLocation": "server cwd (profile dir)",
+      "queryLocationEcho": true,
+      "headerLocationEcho": true,
+      "controlShell": {
+        "sessionID": "ses_e8f66472bffe7mwIEE2NeAS2jl",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 17,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_2",
+            "input": {
+              "command": "printf allowed > control-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.success",
+            "callID": "call_2"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "controlShellSideFile": true,
+      "denyShell": {
+        "sessionID": "ses_e8f664348ffehJvO7n6JY5tYuZ",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 12,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_4",
+            "input": {
+              "command": "echo GATE_DENY_ME > deny-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_4",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY shell command holds GATE_DENY_ME\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "denyShellSideFileExists": false,
+      "controlEdit": {
+        "sessionID": "ses_e8f6641b9ffe7AFv1MW5WuGGdt",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 6,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_6",
+            "input": {
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoA/allowed-target.txt",
+              "oldString": "original",
+              "newString": "changed"
+            }
+          },
+          {
+            "type": "session.tool.success",
+            "callID": "call_6"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "controlEditContent": "changed",
+      "denyEdit": {
+        "sessionID": "ses_e8f663fadffecKUS3Wef7y8dd0",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 9,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_8",
+            "input": {
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoA/denied-target.txt",
+              "oldString": "original",
+              "newString": "changed"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_8",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY edit on a denied- path\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "denyEditContent": "original",
+      "setupRecords": 1
+    },
+    "repoB": {
+      "listByQueryBeforeSession": {
+        "builtinCount": 0,
+        "total": 0,
+        "rows": []
+      },
+      "listByHeader": {
+        "builtinCount": 0,
+        "total": 0,
+        "rows": []
+      },
+      "unscopedLocation": "server cwd (profile dir)",
+      "queryLocationEcho": true,
+      "headerLocationEcho": true,
+      "controlShell": {
+        "sessionID": "ses_e8f663d87ffePW3RAgJi34Y6J5",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 119,
+          "polls": 4,
+          "emptyPolls": 3,
+          "withoutIsomuxPolls": 3,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_10",
+            "input": {
+              "command": "printf allowed > control-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.success",
+            "callID": "call_10"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "controlShellSideFile": true,
+      "denyShell": {
+        "sessionID": "ses_e8f6639bdffeEm50bIYsz9o8o5",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 9,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_12",
+            "input": {
+              "command": "echo GATE_DENY_ME > deny-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_12",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY shell command holds GATE_DENY_ME\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "denyShellSideFileExists": false,
+      "controlEdit": {
+        "sessionID": "ses_e8f6637f2ffe6mOId0NyTv1qpI",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 7,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_14",
+            "input": {
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoB/allowed-target.txt",
+              "oldString": "original",
+              "newString": "changed"
+            }
+          },
+          {
+            "type": "session.tool.success",
+            "callID": "call_14"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "controlEditContent": "changed",
+      "denyEdit": {
+        "sessionID": "ses_e8f663664ffeispdQLzxByhFcO",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 5,
+          "polls": 1,
+          "emptyPolls": 0,
+          "withoutIsomuxPolls": 0,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_16",
+            "input": {
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoB/denied-target.txt",
+              "oldString": "original",
+              "newString": "changed"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_16",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY edit on a denied- path\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "denyEditContent": "original",
+      "setupRecords": 1
+    },
+    "order": {
+      "pluginsBefore": {
+        "builtinCount": 0,
+        "total": 0,
+        "rows": []
+      },
+      "turn": {
+        "sessionID": "ses_e8f66347fffeRtOg4mZtpy0EQd",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 289,
+          "polls": 10,
+          "emptyPolls": 9,
+          "withoutIsomuxPolls": 9,
+          "last": {
+            "builtinCount": 90,
+            "total": 92,
+            "rows": [
+              {
+                "id": "project-rewrite",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoRewrite/.opencode/plugins/rewrite.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              },
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_18",
+            "input": {
+              "command": "echo HARMLESS_REWRITE > rewrite-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_18",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY shell command holds GATE_DENY_ME\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "sideFileExists": false,
+      "projectHookSaw": [
+        "echo HARMLESS_REWRITE > rewrite-side.txt"
+      ],
+      "isomuxHookSaw": [
+        {
+          "command": "echo GATE_DENY_ME > rewrite-side.txt",
+          "decision": "deny",
+          "at": 1792890490355
+        }
+      ],
+      "projectHookAt": [
+        1792890490354
+      ],
+      "pluginsAfter": {
+        "builtinCount": 90,
+        "total": 92,
+        "rows": [
+          {
+            "id": "project-rewrite",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoRewrite/.opencode/plugins/rewrite.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          },
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          }
+        ]
+      }
+    },
+    "repoRemoveById": {
+      "projectPlugins": [
+        "-isomux-safety"
+      ],
+      "turn": {
+        "sessionID": "ses_e8f663124ffe9pemOXXQoxRwPG",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 390,
+          "polls": 8,
+          "emptyPolls": 7,
+          "withoutIsomuxPolls": 7,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_20",
+            "input": {
+              "command": "echo GATE_DENY_ME > remove-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_20",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY shell command holds GATE_DENY_ME\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "plugins": {
+        "builtinCount": 90,
+        "total": 91,
+        "rows": [
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          }
+        ]
+      },
+      "sideFileExists": false
+    },
+    "repoRemoveAll": {
+      "projectPlugins": [
+        "-*"
+      ],
+      "turn": {
+        "sessionID": "ses_e8f662d90ffe8ZBhT7276UkNpr",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 282,
+          "polls": 4,
+          "emptyPolls": 3,
+          "withoutIsomuxPolls": 3,
+          "last": {
+            "builtinCount": 2,
+            "total": 3,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.failed",
+        "tools": [],
+        "text": []
+      },
+      "plugins": {
+        "builtinCount": 2,
+        "total": 3,
+        "rows": [
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          }
+        ]
+      },
+      "sideFileExists": false
+    },
+    "repoRemoveByPath": {
+      "projectPlugins": [
+        "-/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety"
+      ],
+      "turn": {
+        "sessionID": "ses_e8f662c0effeK3F1xWpSIvwOTP",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 377,
+          "polls": 9,
+          "emptyPolls": 8,
+          "withoutIsomuxPolls": 8,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_22",
+            "input": {
+              "command": "echo GATE_DENY_ME > remove-side.txt"
+            }
+          },
+          {
+            "type": "session.tool.failed",
+            "callID": "call_22",
+            "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY shell command holds GATE_DENY_ME\"}"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "plugins": {
+        "builtinCount": 90,
+        "total": 91,
+        "rows": [
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          }
+        ]
+      },
+      "sideFileExists": false
+    },
+    "repoRemoveDotOpencode": {
+      "turn": {
+        "sessionID": "ses_e8f66285affe0WV7Qy7m3X9x0A",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 166,
+          "polls": 2,
+          "emptyPolls": 1,
+          "withoutIsomuxPolls": 1,
+          "last": {
+            "builtinCount": 2,
+            "total": 3,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.failed",
+        "tools": [],
+        "text": []
+      },
+      "plugins": {
+        "builtinCount": 2,
+        "total": 3,
+        "rows": [
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          }
+        ]
+      },
+      "sideFileExists": false
+    },
+    "sameId": {
+      "check": {
+        "verdict": "failed",
+        "naiveIdCheck": true,
+        "ms": 385,
+        "polls": 11,
+        "emptyPolls": 10,
+        "withoutIsomuxPolls": 10,
+        "last": {
+          "builtinCount": 90,
+          "total": 92,
+          "rows": [
+            {
+              "id": "isomux-safety",
+              "source": {
+                "type": "local",
+                "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoSameId/.opencode/plugins/impostor.js"
+              },
+              "state": {
+                "status": "active"
+              }
+            },
+            {
+              "id": "isomux-safety",
+              "source": {
+                "type": "local",
+                "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+              },
+              "state": {
+                "status": "failed",
+                "error": "Duplicate plugin ID: isomux-safety"
+              }
+            }
+          ]
+        }
+      },
+      "plugins": {
+        "builtinCount": 90,
+        "total": 92,
+        "rows": [
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/repoSameId/.opencode/plugins/impostor.js"
+            },
+            "state": {
+              "status": "active"
+            }
+          },
+          {
+            "id": "isomux-safety",
+            "source": {
+              "type": "local",
+              "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+            },
+            "state": {
+              "status": "failed",
+              "error": "Duplicate plugin ID: isomux-safety"
+            }
+          }
+        ]
+      },
+      "end": "session.execution.succeeded",
+      "tools": [
+        {
+          "type": "session.tool.called",
+          "callID": "call_24",
+          "input": {
+            "command": "echo GATE_DENY_ME > dup-side.txt"
+          }
+        },
+        {
+          "type": "session.tool.success",
+          "callID": "call_24"
+        }
+      ],
+      "sideFileExists": true,
+      "isomuxSetupInThisFolder": 0
+    },
+    "malformedJson": {
+      "sessionCreateStatus": 200,
+      "settle": 200,
+      "pluginListStatus": 200,
+      "agentListStatus": 200,
+      "agentFromMalformedFile": false,
+      "agentFromValidSiblingFile": true,
+      "configStatus": 200,
+      "configDocumentPaths": false,
+      "end": "session.execution.succeeded",
+      "sideFileExists": false
+    },
+    "schemaInvalid": {
+      "sessionCreateStatus": 200,
+      "settle": 200,
+      "agentListStatus": 200,
+      "configListsInvalidFile": true,
+      "agentFromInvalidFile": true,
+      "end": "session.execution.succeeded",
+      "sideFileExists": false
+    },
+    "agentListBeforeActivation": {
+      "count": 0
+    },
+    "configInstrumentControl": {
+      "listsValidFile": true,
+      "settle": 200
+    },
+    "agentInstrumentControl": {
+      "status": 200,
+      "listed": true,
+      "sampleKeys": [
+        "id",
+        "name",
+        "request",
+        "description",
+        "mode",
+        "hidden",
+        "permissions"
+      ],
+      "ids": [
+        "build",
+        "general",
+        "explore",
+        "compaction",
+        "title",
+        "summary",
+        "plan",
+        "probe-good"
+      ]
+    },
+    "subagent": {
+      "turn": {
+        "sessionID": "ses_e8f661a38ffeLBdsah5lNaxU4I",
+        "check": {
+          "verdict": "active",
+          "naiveIdCheck": true,
+          "ms": 398,
+          "polls": 11,
+          "emptyPolls": 10,
+          "withoutIsomuxPolls": 10,
+          "last": {
+            "builtinCount": 90,
+            "total": 91,
+            "rows": [
+              {
+                "id": "isomux-safety",
+                "source": {
+                  "type": "local",
+                  "path": "/tmp/t-4840abc5/run/sp-p3-1792890481690/isomux-safety/index.js"
+                },
+                "state": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        },
+        "end": "session.execution.succeeded",
+        "tools": [
+          {
+            "type": "session.tool.called",
+            "callID": "call_30",
+            "input": {
+              "agent": "general",
+              "description": "probe child",
+              "prompt": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"echo GATE_DENY_ME > child-side.txt\"}}"
+            }
+          },
+          {
+            "type": "session.tool.success",
+            "callID": "call_30"
+          }
+        ],
+        "text": [
+          "RECOVERED_AFTER_TOOL"
+        ]
+      },
+      "childSessionIDs": [
+        "ses_e8f661751ffeUviWmuCBrCy5qC"
+      ],
+      "childTools": [
+        {
+          "type": "session.tool.called",
+          "callID": "call_31",
+          "input": {
+            "command": "echo GATE_DENY_ME > child-side.txt"
+          }
+        },
+        {
+          "type": "session.tool.failed",
+          "callID": "call_31",
+          "error": "{\"type\":\"unknown\",\"message\":\"ISOMUX_DENY shell command holds GATE_DENY_ME\"}"
+        }
+      ],
+      "childHookRecords": [
+        {
+          "tool": "shell",
+          "command": "echo GATE_DENY_ME > child-side.txt",
+          "agent": "general",
+          "decision": "deny"
+        }
+      ],
+      "childSideFileExists": false,
+      "childText": [
+        "RECOVERED_AFTER_TOOL"
+      ]
+    }
+  },
+  "hookRecordCount": 27
+}

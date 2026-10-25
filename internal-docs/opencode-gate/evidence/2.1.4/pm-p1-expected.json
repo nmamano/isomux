@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-25",
+  "item": "P1 expected permission matrix (written BEFORE any v2 run)",
+  "source": "Isomux worktree server/backends/opencode/supervisor.ts:42-77 (DEFAULT_OPENCODE_CONFIG), adapter.ts:115-124 (permissionMode bypassPermissions -> isomux-interactive-bypass when interactive, else isomux-cron; default mode -> no agent = default_agent build), safety-plugin-tool.ts:4. Unlisted actions take OpenCode 1.18.35 defaults, measured in pm-v1-effective-rules.json (GET /agent on v1 with this config).",
+  "v1_to_v2_names": {"bash": "shell", "task": "subagent", "edit/write/patch": "edit", "question": "question", "external_directory": "external_directory", "read": "read", "webfetch": "webfetch", "glob": "glob", "grep": "grep", "doom_loop": "(gone in v2)", "isomux_safety_active": "isomux_safety_active (plugin tool)"},
+  "note_on_brief": "The task brief says cron 'allows shell/edit'. Today's code (supervisor.ts:66-75) gives isomux-cron bash:ask and edit:ask; Isomux applies bypass itself by answering the ask. The expectation below follows the code: ask. The brief's statement matches an older S6 probe config (oldharness s6-permission-probe.ts:189), not today's supervisor.ts.",
+  "matrix": {
+    "build": {
+      "shell": "ask", "edit (edit tool)": "ask", "edit (write tool)": "ask", "question": "deny",
+      "subagent": "allow (v1 task falls to the * allow)", "external_directory": "ask (v1 default)",
+      "read": "allow", "read .env": "ask (v1 default)", "webfetch": "allow", "glob": "allow", "grep": "allow",
+      "isomux_safety_active": "deny"
+    },
+    "isomux-interactive-bypass": {
+      "shell": "ask", "edit (edit tool)": "ask", "edit (write tool)": "ask", "question": "deny",
+      "subagent": "allow (explicit task:allow)", "external_directory": "ask (v1 default)",
+      "read": "allow", "read .env": "ask (v1 default)", "webfetch": "allow", "glob": "allow", "grep": "allow",
+      "isomux_safety_active": "deny"
+    },
+    "isomux-cron": {
+      "shell": "ask", "edit (edit tool)": "ask", "edit (write tool)": "ask", "question": "deny",
+      "subagent": "deny (explicit task:deny)", "external_directory": "ask (v1 default)",
+      "read": "allow", "read .env": "ask (v1 default)", "webfetch": "allow", "glob": "allow", "grep": "allow",
+      "isomux_safety_active": "deny"
+    }
+  },
+  "external_directory_rule": "A read, write, or shell call that touches a path outside the session's directory must raise an ask (action external_directory) on all three agents.",
+  "hard_fail_if": "v2 cannot express ask for shell or edit, or deny for question, on any of the three agents."
+}

@@ -1,0 +1,158 @@
+{
+  "date": "2026-10-25",
+  "run": "/tmp/t-4840abc5/run/ev-restart2-1792890490771",
+  "denySid": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+  "deniedBefore": {
+    "id": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+    "projectID": "89827d7403cf5904ef4726815f8cfb054d011a0b",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1792890501701,
+      "updated": 1792890504392
+    },
+    "location": {
+      "directory": "/tmp/t-4840abc5/run/ev-restart2-1792890490771/repo"
+    }
+  },
+  "boot1": {
+    "deniedSessionEvents": [],
+    "allExecutionEvents": [],
+    "permissionAsked": [],
+    "mockRequests": 2,
+    "deniedAfter": {
+      "id": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+      "projectID": "89827d7403cf5904ef4726815f8cfb054d011a0b",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1792890501701,
+        "updated": 1792890504392
+      },
+      "location": {
+        "directory": "/tmp/t-4840abc5/run/ev-restart2-1792890490771/repo"
+      }
+    }
+  },
+  "inflightSid": "ses_e8f65817fffeAf9vTMsgt1NPzA",
+  "boot1Exit": {
+    "code": 130,
+    "sig": null
+  },
+  "boot1InflightEvents": [
+    {
+      "type": "session.created",
+      "seq": 0
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "seq": 1
+    },
+    {
+      "type": "session.execution.started",
+      "seq": 2
+    },
+    {
+      "type": "session.instructions.updated",
+      "seq": 3
+    },
+    {
+      "type": "session.inbox.delivered",
+      "seq": 4
+    }
+  ],
+  "boot2": {
+    "inflightEvents": [],
+    "deniedEvents": [],
+    "allExecutionEvents": [],
+    "inflightSession": {
+      "id": "ses_e8f65817fffeAf9vTMsgt1NPzA",
+      "projectID": "89827d7403cf5904ef4726815f8cfb054d011a0b",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1792890535605,
+        "updated": 1792890537786
+      },
+      "location": {
+        "directory": "/tmp/t-4840abc5/run/ev-restart2-1792890490771/repo"
+      }
+    },
+    "inflightMessages": [
+      {
+        "type": "user",
+        "text": "\"\""
+      },
+      {
+        "type": "assistant",
+        "text": "[]"
+      }
+    ],
+    "mockPrompts": [
+      "{\"at\":\"2026-10-25T01:08:23.536Z\",\"prompt\":\"Here is the first message of the conversation:\\n\\n<message>\\nGATE_ABORT inflight at sigterm\\n</message>\\n\\nReply with only the title.\",\"messageCount\":2}",
+      "{\"at\":\"2026-10-25T01:08:23.569Z\",\"prompt\":\"GATE_ABORT inflight at sigterm\",\"messageCount\":2}",
+      "{\"at\":\"2026-10-25T01:08:56.913Z\",\"prompt\":\"Here is the first message of the conversation:\\n\\n<message>\\nGATE_ABORT inflight at sigterm\\n</message>\\n\\nReply with only the title.\",\"messageCount\":2}",
+      "{\"at\":\"2026-10-25T01:08:56.980Z\",\"prompt\":\"GATE_ABORT inflight at sigterm\",\"messageCount\":2}"
+    ]
+  },
+  "deniedNextTurn": {
+    "terminal": "session.execution.succeeded",
+    "events": [
+      {
+        "type": "session.text.delta"
+      },
+      {
+        "type": "session.text.ended",
+        "seq": 15
+      },
+      {
+        "type": "session.step.streamed",
+        "seq": 16
+      },
+      {
+        "type": "session.step.ended",
+        "seq": 17
+      },
+      {
+        "type": "session.usage.updated"
+      },
+      {
+        "type": "session.execution.succeeded",
+        "seq": 18
+      }
+    ]
+  },
+  "boot2Exit": {
+    "code": 130,
+    "sig": null
+  },
+  "processes": [
+    "mock pid=4078229",
+    "server-restart1 pid=4078241",
+    "server-restart2 pid=4078916"
+  ]
+}

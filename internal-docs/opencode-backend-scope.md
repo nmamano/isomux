@@ -1,15 +1,15 @@
 # OpenCode third-backend scope
 
-Status: V2 path on hold; OC1 implementation scoped separately\
+Status: OC1 backend shipped; move to OpenCode 2 (`@opencode/cli` 2.1.4) decided\
 Research date: 2026-08-26  
-OpenCode 2 review: 2026-08-27
+OpenCode 2 review: 2026-08-27  
+OpenCode 2.1.4 gate: 2026-10-25
 
 ## Decision summary
 
 Integrate OpenCode as a third native Isomux backend through OpenCode's typed
-TypeScript client and headless server API. Design for OpenCode 2, but do not
-start the production adapter against its beta contract. Do not use ACP, and do
-not route OpenCode through a terminal emulator.
+TypeScript client and headless server API. Do not use ACP, and do not route
+OpenCode through a terminal emulator.
 
 The intended product boundary is:
 
@@ -26,18 +26,26 @@ the shared UI, its normalized transcript, office permissions, and the task,
 app, file, and inter-agent APIs.
 
 The integration is feasible on paper. OpenCode 1.18.23 and
-`@opencode-ai/sdk` 1.18.23 were the stable npm releases on 2026-08-26. Use V1
-as the current capability reference, not as the production target. OpenCode 2
-is the future API and requires V1 integrations to migrate, but its server API,
-clients, configuration, plugin API, and durable runtime behavior were still
-beta on 2026-08-27. Upstream warns that contracts may change and beta data may
-be reset.
+`@opencode-ai/sdk` 1.18.23 were the stable npm releases on 2026-08-26, and V1
+became the production target of the OC1 backend. OpenCode 2 requires V1
+integrations to migrate; on 2026-08-27 its server API, clients, configuration,
+plugin API, and durable runtime behavior were still beta.
 
-The V2 production path remains on hold until its client and server contract is
-stable. The V1 topology passed the feasibility gate. Nil ruled on 2026-08-27
-that the next step is to scope an adapter against the stable OC1 stack. That
-temporary path and its V2 migration budget live in
-[`opencode-oc1-scope.md`](opencode-oc1-scope.md). OpenCode stores credentials and
+The V1 topology passed the feasibility gate. Nil ruled on 2026-08-27 that the
+next step is to scope an adapter against the stable OC1 stack; that backend
+and its V2 migration budget live in
+[`opencode-oc1-scope.md`](opencode-oc1-scope.md).
+
+OpenCode 2 is the release line since `@opencode/cli` 2.0.0 (2026-09-11), and
+OpenCode 1 gets only security builds. Upstream never calls 2.x "stable" and
+still marks its server API "Experimental"; no later stable event is coming to
+wait for. Nil decided the move on 2026-10-23 and 2026-10-25: an exact pin of
+`@opencode/cli` 2.1.4, one cut-over, no OpenCode 1 fallback, and a kept copy
+of the version 1 profile database for rollback. The gate passed on
+2026-10-25 with conditions that the cut-over tasks carry; see
+[`opencode-gate/report-2.1.4.md`](opencode-gate/report-2.1.4.md).
+
+OpenCode stores credentials and
 session state in a shared local profile, and its project has an open request
 for a documented parallel-headless-worker isolation contract. Isomux must not
 run several OpenCode processes against one profile and hope that database
@@ -58,19 +66,17 @@ and provider support.
 
 ## Upstream interface selected
 
-Run the feasibility gate against OpenCode 2 first. Use its separate headless
-service and generated network client, not its embedded host:
+For OpenCode 2, use its separate headless server, not its embedded host:
 
-- `opencode serve --service` keeps the harness outside Isomux's Bun process;
-- `@opencode-ai/client` provides the generated V2 network client;
+- `opencode serve` keeps the harness outside Isomux's Bun process. Do not use
+  `--service`: it reads its own `service.json`, changes to HOME and checks for
+  an incumbent service;
+- the HTTP contract lives entirely under `/api`. The gate drove it with plain
+  HTTP, not with `@opencode/client`, as the OC1 transport uses its own narrow
+  HTTP client;
 - the separate process preserves crash, memory, and lifecycle isolation.
 
-Do not start a V2 adapter until its server and client contracts are stable.
-Nil's 2026-08-27 ruling allows the separate OC1 path in
-[`opencode-oc1-scope.md`](opencode-oc1-scope.md), including its explicit V2
-migration budget.
-
-Use stable OpenCode 1.x only as the comparison baseline for the gate:
+The OC1 backend uses OpenCode 1.x:
 
 - `opencode serve` runs a loopback HTTP server and publishes an OpenAPI 3.1
   contract.
@@ -321,10 +327,14 @@ interactive agents. Their permission policy must be unattended-safe:
 
 ## Feasibility gate
 
-Complete this gate before the production adapter. Run it against the exact
-pinned OpenCode 2 beta CLI and client first, with stable V1 as the behavior
-baseline. The gate can validate the design, but passing it does not override
-the requirement for a stable V2 integration contract.
+Complete this gate before the production adapter, and again before a move to
+a new OpenCode line. The first run (2026-08-27,
+[`opencode-gate/report.md`](opencode-gate/report.md)) used the V2 beta and
+V1 1.18.23. The second run (2026-10-25,
+[`opencode-gate/report-2.1.4.md`](opencode-gate/report-2.1.4.md)) used
+`@opencode/cli` 2.1.4 with 1.18.35 as the baseline, and added the nine items
+of the move's packet. Item 7 below is superseded: since 2026-10-15 Isomux loads
+project code, and the second run records what loads instead.
 
 1. Start one authenticated loopback server under an isolated test profile.
 2. Run two simultaneous sessions in different repositories and prove that
@@ -354,7 +364,9 @@ at server startup without an enforceable opt-out.
 
 ## Implementation slices
 
-After the gate passes and the V2 integration contract is stable:
+These slices are the original adapter plan. OC1 built the backend in the
+tracer slices of [`opencode-oc1-scope.md`](opencode-oc1-scope.md), and the
+move to OpenCode 2 has its own cut-over tasks, listed in the 2.1.4 gate report.
 
 1. **Runtime client and supervisor**: pin dependencies; add the per-user server
    registry, lifecycle, authentication, event multiplexing, and fake client.
@@ -421,7 +433,7 @@ number of model providers.
 
 ## Primary upstream references
 
-- OpenCode 2 beta warning: <https://v2.opencode.ai/docs/>
+- OpenCode 2 docs: <https://opencode.ai/v2/docs/>
 - OpenCode 2 client: <https://opencode.ai/v2/docs/build/client>
 - OpenCode 2 embedded SDK: <https://opencode.ai/v2/docs/build/sdk>
 - OpenCode 2 migration from V1: <https://opencode.ai/v2/docs/migrate-v1>

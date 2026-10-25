@@ -1,0 +1,859 @@
+{
+  "prompts": [
+    {
+      "label": "text_reasoning",
+      "sessionID": "ses_e8f68e2e0ffeRLF2O8EMZ36obo",
+      "text": "EV text streaming check",
+      "sentAt": 1792890314105,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170971ee3001Ezygeny2mOsJmu",
+          "sessionID": "ses_e8f68e2e0ffeRLF2O8EMZ36obo",
+          "time": {
+            "created": 1792890316155
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV text streaming check"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "shell_allow",
+      "sessionID": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+      "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf allowed > ev-allow.txt\"}}",
+      "sentAt": 1792890316910,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170972878001IhnYsuHZhO7eUJ",
+          "sessionID": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+          "time": {
+            "created": 1792890316922
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf allowed > ev-allow.txt\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "shell_deny",
+      "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+      "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf denied > ev-deny.txt\"}}",
+      "sentAt": 1792890317951,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170972c82001C40IsDaQdDhEwl",
+          "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+          "time": {
+            "created": 1792890317956
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf denied > ev-deny.txt\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "write",
+      "sessionID": "ses_e8f68d218ffeOIz135IJmo4IHy",
+      "text": "GATE_CALL:{\"tool\":\"write\",\"args\":{\"path\":\"ev-edit.txt\",\"content\":\"alpha beta\\n\"}}",
+      "sentAt": 1792890318357,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170972e3a001KfHl4XL74nipBI",
+          "sessionID": "ses_e8f68d218ffeOIz135IJmo4IHy",
+          "time": {
+            "created": 1792890318396
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_CALL:{\"tool\":\"write\",\"args\":{\"path\":\"ev-edit.txt\",\"content\":\"alpha beta\\n\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "edit",
+      "sessionID": "ses_e8f68d218ffeOIz135IJmo4IHy",
+      "text": "GATE_CALL:{\"tool\":\"edit\",\"args\":{\"path\":\"ev-edit.txt\",\"oldString\":\"alpha\",\"newString\":\"gamma\"}}",
+      "sentAt": 1792890318947,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097306b001qJWoY4pmrDKXRg",
+          "sessionID": "ses_e8f68d218ffeOIz135IJmo4IHy",
+          "time": {
+            "created": 1792890318957
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_CALL:{\"tool\":\"edit\",\"args\":{\"path\":\"ev-edit.txt\",\"oldString\":\"alpha\",\"newString\":\"gamma\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "tool_fail",
+      "sessionID": "ses_e8f68cda1ffe7OTB5JwG0ANpAA",
+      "text": "GATE_FAIL run the failing command",
+      "sentAt": 1792890319552,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709732c6001iDZh0AI3yz7ADs",
+          "sessionID": "ses_e8f68cda1ffe7OTB5JwG0ANpAA",
+          "time": {
+            "created": 1792890319560
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_FAIL run the failing command"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_plain",
+      "sessionID": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+      "text": "GATE_ABORT slow turn",
+      "sentAt": 1792890320120,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709734ff001coQH4oxAEBPXFD",
+          "sessionID": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+          "time": {
+            "created": 1792890320131
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT slow turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_plain-after",
+      "sessionID": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+      "text": "EV after abort abort_plain",
+      "sentAt": 1792890325039,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170974833001kclT1F1j4SOB4Z",
+          "sessionID": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+          "time": {
+            "created": 1792890325045
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_plain"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_resume_false",
+      "sessionID": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+      "text": "GATE_ABORT slow turn",
+      "sentAt": 1792890325564,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170974a41001mqg698mK2pKMrb",
+          "sessionID": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+          "time": {
+            "created": 1792890325571
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT slow turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_resume_false-after",
+      "sessionID": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+      "text": "EV after abort abort_resume_false",
+      "sentAt": 1792890330499,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170975d86001I0pee75VGUGdA5",
+          "sessionID": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+          "time": {
+            "created": 1792890330504
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_resume_false"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_default",
+      "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+      "text": "GATE_ABORT slow turn",
+      "sentAt": 1792890330990,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170975f760017Otv5ighNBZSWa",
+          "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+          "time": {
+            "created": 1792890331003
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT slow turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_default-followup",
+      "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+      "text": "EV_FOLLOWUP_abort_steer_default",
+      "sentAt": 1792890331691,
+      "delivery": "steer",
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170976241001lc8jFpjymtlvJb",
+          "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+          "time": {
+            "created": 1792890331714
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_steer_default"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_default-after",
+      "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+      "text": "EV after abort abort_steer_default",
+      "sentAt": 1792890335946,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709772cd001IuYyH2o5XFFKC8",
+          "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+          "time": {
+            "created": 1792890335952
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_steer_default"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_resume_false",
+      "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+      "text": "GATE_ABORT slow turn",
+      "sentAt": 1792890336518,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709775090014CXIIgdULGsYyB",
+          "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+          "time": {
+            "created": 1792890336523
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT slow turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_resume_false-followup",
+      "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+      "text": "EV_FOLLOWUP_abort_steer_resume_false",
+      "sentAt": 1792890337260,
+      "delivery": "steer",
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709777f3001TMKA49QBR9yVES",
+          "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+          "time": {
+            "created": 1792890337269
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_steer_resume_false"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_resume_false-after",
+      "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+      "text": "EV after abort abort_steer_resume_false",
+      "sentAt": 1792890341493,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097887a001MEKJPhVNl093jt",
+          "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+          "time": {
+            "created": 1792890341500
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_steer_resume_false"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_resume_true",
+      "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+      "text": "GATE_ABORT slow turn",
+      "sentAt": 1792890342107,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170978ae0001JdzyIgrU3jWpQV",
+          "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+          "time": {
+            "created": 1792890342114
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT slow turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_resume_true-followup",
+      "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+      "text": "EV_FOLLOWUP_abort_steer_resume_true",
+      "sentAt": 1792890342828,
+      "delivery": "steer",
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170978db5001S1iRz63MbYVY40",
+          "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+          "time": {
+            "created": 1792890342839
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_steer_resume_true"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_steer_resume_true-after",
+      "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+      "text": "EV after abort abort_steer_resume_true",
+      "sentAt": 1792890347121,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170979e780011jpfeIDvGxpBYj",
+          "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+          "time": {
+            "created": 1792890347129
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_steer_resume_true"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_queue_default",
+      "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+      "text": "GATE_ABORT slow turn",
+      "sentAt": 1792890347757,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097a0f5001Qn4PAC8XRrl29i",
+          "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+          "time": {
+            "created": 1792890347766
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT slow turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_queue_default-followup",
+      "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+      "text": "EV_FOLLOWUP_abort_queue_default",
+      "sentAt": 1792890348507,
+      "delivery": "queue",
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097a3e5001hB1urj2rQRXS7Q",
+          "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+          "time": {
+            "created": 1792890348519
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_queue_default"
+          },
+          "delivery": "queue"
+        }
+      }
+    },
+    {
+      "label": "abort_queue_default-after",
+      "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+      "text": "EV after abort abort_queue_default",
+      "sentAt": 1792890352812,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097b4b40019fzYd3WAk5Uz86",
+          "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+          "time": {
+            "created": 1792890352822
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_queue_default"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_tool",
+      "sessionID": "ses_e8f684879ffeg96C16yo6cniwe",
+      "text": "GATE_ABORT_TOOL long tool",
+      "sentAt": 1792890353720,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097b87b001Io9KriLa04ebfz",
+          "sessionID": "ses_e8f684879ffeg96C16yo6cniwe",
+          "time": {
+            "created": 1792890353789
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT_TOOL long tool"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "abort_tool-after",
+      "sessionID": "ses_e8f684879ffeg96C16yo6cniwe",
+      "text": "EV after abort abort_tool",
+      "sentAt": 1792890360871,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097d436001M1fwcxSCJKPshQ",
+          "sessionID": "ses_e8f684879ffeg96C16yo6cniwe",
+          "time": {
+            "created": 1792890360904
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after abort abort_tool"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fork-p1",
+      "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+      "text": "EV fork turn one",
+      "sentAt": 1792890361737,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097d795001PV3w2uHLTyNafJ",
+          "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+          "time": {
+            "created": 1792890361752
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV fork turn one"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fork-p2",
+      "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+      "text": "EV fork turn two S4_CONTEXT_CANARY",
+      "sentAt": 1792890362002,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097d8960017NaRHjQmaonu4H",
+          "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+          "time": {
+            "created": 1792890362009
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV fork turn two S4_CONTEXT_CANARY"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fork-p3",
+      "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+      "text": "EV fork turn three",
+      "sentAt": 1792890362229,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097d97a001BqUDNLaWYB11QW",
+          "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+          "time": {
+            "created": 1792890362237
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV fork turn three"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fork-child-recall",
+      "sessionID": "ses_e8f68257dffecWsls05Fv9ANM4",
+      "text": "GATE_RECALL child",
+      "sentAt": 1792890362561,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097dac8001sJa36FcND43j0r",
+          "sessionID": "ses_e8f68257dffecWsls05Fv9ANM4",
+          "time": {
+            "created": 1792890362571
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_RECALL child"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fork-child2-recall",
+      "sessionID": "ses_e8f682563ffeWYhK9vH4J59C2k",
+      "text": "GATE_RECALL child2",
+      "sentAt": 1792890363033,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097dcac001AmtfCMLJF4SxoN",
+          "sessionID": "ses_e8f682563ffeWYhK9vH4J59C2k",
+          "time": {
+            "created": 1792890363054
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_RECALL child2"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fork-child-write",
+      "sessionID": "ses_e8f68257dffecWsls05Fv9ANM4",
+      "text": "GATE_CALL:{\"tool\":\"write\",\"args\":{\"path\":\"ev-fork-child.txt\",\"content\":\"child\\n\"}}",
+      "sentAt": 1792890363439,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097de3b001INx2cuP4PwNvwv",
+          "sessionID": "ses_e8f68257dffecWsls05Fv9ANM4",
+          "time": {
+            "created": 1792890363453
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_CALL:{\"tool\":\"write\",\"args\":{\"path\":\"ev-fork-child.txt\",\"content\":\"child\\n\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "compact-t1",
+      "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+      "text": "EV compaction turn one S4_CONTEXT_CANARY",
+      "sentAt": 1792890364043,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e08e001oTxRGGrQYxsxbZ",
+          "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+          "time": {
+            "created": 1792890364047
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV compaction turn one S4_CONTEXT_CANARY"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "compact-t2",
+      "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+      "text": "EV compaction turn two",
+      "sentAt": 1792890364266,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e171001mvKuTrfsVEcXoC",
+          "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+          "time": {
+            "created": 1792890364277
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV compaction turn two"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "compact",
+      "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+      "text": "(POST compact)",
+      "sentAt": 1792890364482,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e23b001wMGCnGBO7dqeUI",
+          "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+          "time": {
+            "created": 1792890364477
+          },
+          "type": "compaction",
+          "payload": {},
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "compact-t3",
+      "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+      "text": "GATE_RECALL after compaction",
+      "sentAt": 1792890364962,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e4630017ZdNMo3qQuU5I1",
+          "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+          "time": {
+            "created": 1792890365031
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_RECALL after compaction"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "auth_error",
+      "sessionID": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+      "text": "EV auth error turn",
+      "sentAt": 1792890365298,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e575001qBfYY5LrH6Chiv",
+          "sessionID": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+          "time": {
+            "created": 1792890365302
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV auth error turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fixed-x1-t1",
+      "sessionID": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+      "text": "GATE_TOOL one",
+      "sentAt": 1792890366096,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e8940013MRIultLOrrOLL",
+          "sessionID": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+          "time": {
+            "created": 1792890366108
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_TOOL one"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fixed-x2-t1",
+      "sessionID": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+      "text": "GATE_TOOL one",
+      "sentAt": 1792890366096,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097e8a7001xsdayGp64BRxrL",
+          "sessionID": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+          "time": {
+            "created": 1792890366121
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_TOOL one"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "fixed-x1-t2",
+      "sessionID": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+      "text": "GATE_TOOL two",
+      "sentAt": 1792890366854,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_17097eb8e001psNR8NVgiOt2D1",
+          "sessionID": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+          "time": {
+            "created": 1792890366865
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_TOOL two"
+          },
+          "delivery": "steer"
+        }
+      }
+    }
+  ],
+  "notes": {
+    "fixtureSessions": {
+      "text_reasoning": [
+        "ses_e8f68e2e0ffeRLF2O8EMZ36obo"
+      ],
+      "shell_allow": [
+        "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe"
+      ],
+      "shell_deny": [
+        "ses_e8f68d3a8ffeRRyU3TTXdllpSj"
+      ],
+      "edit_write": [
+        "ses_e8f68d218ffeOIz135IJmo4IHy"
+      ],
+      "tool_fail": [
+        "ses_e8f68cda1ffe7OTB5JwG0ANpAA"
+      ],
+      "abort_plain": [
+        "ses_e8f68cb29ffeObI42omb1A5UQ0"
+      ],
+      "abort_resume_false": [
+        "ses_e8f68b5e8ffeRBS6B8PbUCnpht"
+      ],
+      "abort_steer_default": [
+        "ses_e8f68a0b1ffeflItvVlPg9A3zq"
+      ],
+      "abort_steer_resume_false": [
+        "ses_e8f688b21ffeCmGA1RF1bdE8sy"
+      ],
+      "abort_steer_resume_true": [
+        "ses_e8f687551ffehyt9fNIhoPxfsq"
+      ],
+      "abort_queue_default": [
+        "ses_e8f685f4dffefRuRvW4BfvZ3LQ"
+      ],
+      "abort_tool": [
+        "ses_e8f684879ffeg96C16yo6cniwe"
+      ],
+      "fork": [
+        "ses_e8f6828aaffe8R6SfgsysFa6er",
+        "ses_e8f68257dffecWsls05Fv9ANM4",
+        "ses_e8f682563ffeWYhK9vH4J59C2k"
+      ],
+      "compaction": [
+        "ses_e8f681fa2ffe0VR4vL1rwRpJue"
+      ],
+      "auth_error": [
+        "ses_e8f681aaaffe3Xn4a6okVEYd8W"
+      ],
+      "fixed_ids": [
+        "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+        "ses_e8f68178fffeLtAOvLbbcrmI9G"
+      ]
+    }
+  }
+}

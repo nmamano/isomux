@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-25",
+  "run": "/tmp/t-4840abc5/run/ev-restart2-1792890490771",
+  "denySid": "ses_none",
+  "boot1": {
+    "deniedSessionEvents": [],
+    "allExecutionEvents": [],
+    "permissionAsked": [],
+    "mockRequests": 0
+  },
+  "inflightSid": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+  "boot1Exit": {
+    "code": 130,
+    "sig": null
+  },
+  "boot1InflightEvents": [
+    {
+      "type": "session.created",
+      "seq": 0
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "seq": 1
+    },
+    {
+      "type": "session.execution.started",
+      "seq": 2
+    },
+    {
+      "type": "session.instructions.updated",
+      "seq": 3
+    },
+    {
+      "type": "session.inbox.delivered",
+      "seq": 4
+    }
+  ],
+  "boot2": {
+    "inflightEvents": [],
+    "deniedEvents": [],
+    "allExecutionEvents": [],
+    "inflightSession": {
+      "id": "ses_e8f6605efffel0ZCA5a6jvEFT6",
+      "projectID": "89827d7403cf5904ef4726815f8cfb054d011a0b",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1792890501701,
+        "updated": 1792890504392
+      },
+      "location": {
+        "directory": "/tmp/t-4840abc5/run/ev-restart2-1792890490771/repo"
+      }
+    },
+    "inflightMessages": [
+      {
+        "type": "user",
+        "text": "\"\""
+      },
+      {
+        "type": "assistant",
+        "text": "[]"
+      }
+    ],
+    "mockPrompts": [
+      "{\"at\":\"2026-10-25T01:08:23.536Z\",\"prompt\":\"Here is the first message of the conversation:\\n\\n<message>\\nGATE_ABORT inflight at sigterm\\n</message>\\n\\nReply with only the title.\",\"messageCount\":2}",
+      "{\"at\":\"2026-10-25T01:08:23.569Z\",\"prompt\":\"GATE_ABORT inflight at sigterm\",\"messageCount\":2}"
+    ]
+  },
+  "error": "Error: prompt denied-next 404 {\"_tag\":\"SessionNotFoundError\",\"sessionID\":\"ses_none\",\"message\":\"Session not found: ses_none\"}\n    at sendPrompt (/tmp/t-4840abc5/harness/ev-lib.ts:41:35)",
+  "processes": [
+    "mock pid=4075237",
+    "server-restart1 pid=4075256",
+    "server-restart2 pid=4076864"
+  ]
+}

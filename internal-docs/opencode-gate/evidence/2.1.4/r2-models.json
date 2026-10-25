@@ -1,0 +1,625 @@
+{
+  "item": "r2 Probe A: models catalog and free models with/without OPENCODE_DISABLE_MODELS_FETCH",
+  "date": "2026-10-25",
+  "runDir": "/tmp/t-4840abc5/run/r2-models-1792896724",
+  "method": [
+    "Fresh profile per run (HOME/XDG_*/TMPDIR inside the run dir), no OPENCODE_CONFIG, no OPENCODE_CONFIG_CONTENT, no provider, no OPENCODE_DISABLE_FREE_MODELS, GATE_API_KEY unset, real network (no proxy).",
+    "2.1.4: startServer2 (cc-start.ts); SSE tap on /api/event from right after health; read GET /api/provider, /api/model, /api/model/default at t0; wait up to 30 s for an event of type models-dev.refreshed; read again (t1).",
+    "1.18.35: startServer2 v1 with OPENCODE_SERVER_USERNAME=isomux; plugin SDK marked installed (as Isomux does); NO models.json seeded; SSE taps on /event and /global/event; read GET /provider and /config/providers at t0, wait 30 s, read again.",
+    "free = no cost entry with input > 0 (same rule as 2.1.4 core/src/model.ts:227 and :306); strictFree = input and output both 0.",
+    "Contact evidence: 2.1.4 models-dev.refreshed event, the kv row for models-dev:catalog in opencode.db (copied after stop), 'Failed to fetch models.dev' log lines; 1.18.35 the cache/opencode/models.json file (written only by ModelsDev.fetchAndWrite) and its size."
+  ],
+  "runs": [
+    {
+      "label": "v2-default",
+      "opencode": "2.1.4",
+      "env": {},
+      "startMs": 547,
+      "t0": {
+        "at": "2026-10-25T02:52:08.892Z",
+        "ms": 1592,
+        "provider": {
+          "status": 200,
+          "count": 0,
+          "ids": []
+        },
+        "model": {
+          "status": 200,
+          "models": 9,
+          "enabled": 9,
+          "providersInModelList": 1,
+          "opencodeModels": 9,
+          "freeModels": 9,
+          "strictFreeModels": 9,
+          "freeOpencodeModels": 9,
+          "freeOpencodeModelIDs": [
+            "big-pickle",
+            "deepseek-v4.1-flash-free",
+            "glm-5.3-flash-free",
+            "flint-40b-free",
+            "nemotron-3.5-super-vl-free",
+            "beam-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3.5-lightning-free",
+            "nemotron-3-ultra-free"
+          ],
+          "enabledModelIDs": [
+            "opencode/big-pickle",
+            "opencode/deepseek-v4.1-flash-free",
+            "opencode/glm-5.3-flash-free",
+            "opencode/flint-40b-free",
+            "opencode/nemotron-3.5-super-vl-free",
+            "opencode/beam-free",
+            "opencode/mimo-v2.6-flash-free",
+            "opencode/nemotron-3.5-lightning-free",
+            "opencode/nemotron-3-ultra-free"
+          ]
+        },
+        "defaultModel": {
+          "status": 200,
+          "id": "opencode/big-pickle"
+        }
+      },
+      "refreshedEvent": {
+        "seen": true,
+        "afterStartMs": 1803,
+        "waitedMs": 0
+      },
+      "t1": {
+        "at": "2026-10-25T02:52:10.421Z",
+        "ms": 25,
+        "provider": {
+          "status": 200,
+          "count": 1,
+          "ids": [
+            "opencode"
+          ]
+        },
+        "model": {
+          "status": 200,
+          "models": 9,
+          "enabled": 9,
+          "providersInModelList": 1,
+          "opencodeModels": 9,
+          "freeModels": 9,
+          "strictFreeModels": 9,
+          "freeOpencodeModels": 9,
+          "freeOpencodeModelIDs": [
+            "big-pickle",
+            "deepseek-v4.1-flash-free",
+            "glm-5.3-flash-free",
+            "flint-40b-free",
+            "nemotron-3.5-super-vl-free",
+            "beam-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3.5-lightning-free",
+            "nemotron-3-ultra-free"
+          ],
+          "enabledModelIDs": [
+            "opencode/big-pickle",
+            "opencode/deepseek-v4.1-flash-free",
+            "opencode/glm-5.3-flash-free",
+            "opencode/flint-40b-free",
+            "opencode/nemotron-3.5-super-vl-free",
+            "opencode/beam-free",
+            "opencode/mimo-v2.6-flash-free",
+            "opencode/nemotron-3.5-lightning-free",
+            "opencode/nemotron-3-ultra-free"
+          ]
+        },
+        "defaultModel": {
+          "status": 200,
+          "id": "opencode/big-pickle"
+        }
+      },
+      "eventTypes": [
+        "server.connected",
+        "project.updated",
+        "models-dev.refreshed",
+        "integration.updated",
+        "provider.updated",
+        "model.updated",
+        "agent.updated",
+        "command.updated",
+        "skill.updated",
+        "websearch.updated",
+        "reference.updated",
+        "plugin.updated"
+      ],
+      "eventsTotal": 12,
+      "kvAfterStop": {
+        "db": true,
+        "kvTables": [
+          "kv"
+        ],
+        "rows": [
+          {
+            "table": "kv",
+            "key": "models-dev:catalog",
+            "valueBytes": 6697199
+          }
+        ],
+        "allKeys": 1
+      },
+      "log": {
+        "lines": 49,
+        "failedFetch": {
+          "count": 0,
+          "lines": []
+        },
+        "modelsMentions": {
+          "count": 0,
+          "lines": []
+        }
+      }
+    },
+    {
+      "label": "v2-fetchoff",
+      "opencode": "2.1.4",
+      "env": {
+        "OPENCODE_DISABLE_MODELS_FETCH": "1"
+      },
+      "startMs": 706,
+      "t0": {
+        "at": "2026-10-25T02:52:12.258Z",
+        "ms": 912,
+        "provider": {
+          "status": 200,
+          "count": 0,
+          "ids": []
+        },
+        "model": {
+          "status": 200,
+          "models": 9,
+          "enabled": 9,
+          "providersInModelList": 1,
+          "opencodeModels": 9,
+          "freeModels": 9,
+          "strictFreeModels": 9,
+          "freeOpencodeModels": 9,
+          "freeOpencodeModelIDs": [
+            "big-pickle",
+            "deepseek-v4.1-flash-free",
+            "glm-5.3-flash-free",
+            "flint-40b-free",
+            "nemotron-3.5-super-vl-free",
+            "beam-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3.5-lightning-free",
+            "nemotron-3-ultra-free"
+          ],
+          "enabledModelIDs": [
+            "opencode/big-pickle",
+            "opencode/deepseek-v4.1-flash-free",
+            "opencode/glm-5.3-flash-free",
+            "opencode/flint-40b-free",
+            "opencode/nemotron-3.5-super-vl-free",
+            "opencode/beam-free",
+            "opencode/mimo-v2.6-flash-free",
+            "opencode/nemotron-3.5-lightning-free",
+            "opencode/nemotron-3-ultra-free"
+          ]
+        },
+        "defaultModel": {
+          "status": 200,
+          "id": "opencode/big-pickle"
+        }
+      },
+      "refreshedEvent": {
+        "seen": false,
+        "waitedMs": 30002
+      },
+      "t1": {
+        "at": "2026-10-25T02:52:42.303Z",
+        "ms": 42,
+        "provider": {
+          "status": 200,
+          "count": 1,
+          "ids": [
+            "opencode"
+          ]
+        },
+        "model": {
+          "status": 200,
+          "models": 9,
+          "enabled": 9,
+          "providersInModelList": 1,
+          "opencodeModels": 9,
+          "freeModels": 9,
+          "strictFreeModels": 9,
+          "freeOpencodeModels": 9,
+          "freeOpencodeModelIDs": [
+            "big-pickle",
+            "deepseek-v4.1-flash-free",
+            "glm-5.3-flash-free",
+            "flint-40b-free",
+            "nemotron-3.5-super-vl-free",
+            "beam-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3.5-lightning-free",
+            "nemotron-3-ultra-free"
+          ],
+          "enabledModelIDs": [
+            "opencode/big-pickle",
+            "opencode/deepseek-v4.1-flash-free",
+            "opencode/glm-5.3-flash-free",
+            "opencode/flint-40b-free",
+            "opencode/nemotron-3.5-super-vl-free",
+            "opencode/beam-free",
+            "opencode/mimo-v2.6-flash-free",
+            "opencode/nemotron-3.5-lightning-free",
+            "opencode/nemotron-3-ultra-free"
+          ]
+        },
+        "defaultModel": {
+          "status": 200,
+          "id": "opencode/big-pickle"
+        }
+      },
+      "eventTypes": [
+        "server.connected",
+        "project.updated",
+        "integration.updated",
+        "provider.updated",
+        "model.updated",
+        "agent.updated",
+        "command.updated",
+        "skill.updated",
+        "websearch.updated",
+        "reference.updated",
+        "plugin.updated"
+      ],
+      "eventsTotal": 11,
+      "kvAfterStop": {
+        "db": true,
+        "kvTables": [
+          "kv"
+        ],
+        "rows": [],
+        "allKeys": 0
+      },
+      "log": {
+        "lines": 50,
+        "failedFetch": {
+          "count": 0,
+          "lines": []
+        },
+        "modelsMentions": {
+          "count": 0,
+          "lines": []
+        }
+      }
+    },
+    {
+      "label": "v1-default",
+      "opencode": "1.18.35",
+      "env": {},
+      "startMs": 2844,
+      "t0": {
+        "at": "2026-10-25T02:52:49.988Z",
+        "msProvider": 4059,
+        "provider": {
+          "status": 200,
+          "providers": 232,
+          "providerIDsSample": [
+            "alibaba-token-plan-cn",
+            "cerebras",
+            "nvidia",
+            "qvac",
+            "inceptron",
+            "ai21",
+            "drun",
+            "umans-ai-coding-plan",
+            "aihubmix",
+            "perplexity",
+            "watsonx",
+            "kimi-code-plan-global",
+            "reflection",
+            "berget",
+            "edenai"
+          ],
+          "models": 8939,
+          "opencodeModels": 9,
+          "freeOpencodeModels": 9,
+          "strictFreeOpencodeModels": 9,
+          "freeOpencodeModelIDs": [
+            "nemotron-3.5-lightning-free",
+            "glm-5.3-flash-free",
+            "big-pickle",
+            "flint-40b-free",
+            "nemotron-3.5-super-vl-free",
+            "beam-free",
+            "deepseek-v4.1-flash-free",
+            "nemotron-3-ultra-free",
+            "mimo-v2.6-flash-free"
+          ],
+          "connected": [
+            "opencode"
+          ]
+        },
+        "configProviders": {
+          "status": 200,
+          "providers": 1,
+          "ids": [
+            "opencode"
+          ]
+        }
+      },
+      "cacheAtT0": {
+        "exists": true,
+        "bytes": 5942697,
+        "writtenAfterStartMs": 2810.63037109375
+      },
+      "t1": {
+        "at": "2026-10-25T02:53:21.696Z",
+        "msProvider": 1688,
+        "provider": {
+          "status": 200,
+          "providers": 232,
+          "providerIDsSample": [
+            "alibaba-token-plan-cn",
+            "cerebras",
+            "nvidia",
+            "qvac",
+            "inceptron",
+            "ai21",
+            "drun",
+            "umans-ai-coding-plan",
+            "aihubmix",
+            "perplexity",
+            "watsonx",
+            "kimi-code-plan-global",
+            "reflection",
+            "berget",
+            "edenai"
+          ],
+          "models": 8939,
+          "opencodeModels": 9,
+          "freeOpencodeModels": 9,
+          "strictFreeOpencodeModels": 9,
+          "freeOpencodeModelIDs": [
+            "nemotron-3.5-lightning-free",
+            "glm-5.3-flash-free",
+            "big-pickle",
+            "flint-40b-free",
+            "nemotron-3.5-super-vl-free",
+            "beam-free",
+            "deepseek-v4.1-flash-free",
+            "nemotron-3-ultra-free",
+            "mimo-v2.6-flash-free"
+          ],
+          "connected": [
+            "opencode"
+          ]
+        },
+        "configProviders": {
+          "status": 200,
+          "providers": 1,
+          "ids": [
+            "opencode"
+          ]
+        }
+      },
+      "cacheAtT1": {
+        "exists": true,
+        "bytes": 5942697,
+        "writtenAfterStartMs": 2811
+      },
+      "eventTypes": [
+        "server.connected",
+        "server.heartbeat"
+      ],
+      "modelsEvents": 0,
+      "log": {
+        "lines": 16,
+        "modelsMentions": {
+          "count": 0,
+          "lines": []
+        }
+      }
+    },
+    {
+      "label": "v1-fetchoff",
+      "opencode": "1.18.35",
+      "env": {
+        "OPENCODE_DISABLE_MODELS_FETCH": "1"
+      },
+      "startMs": 2719,
+      "t0": {
+        "at": "2026-10-25T02:53:28.315Z",
+        "msProvider": 3328,
+        "provider": {
+          "status": 200,
+          "providers": 226,
+          "providerIDsSample": [
+            "deepinfra",
+            "perplexity-agent",
+            "bailing",
+            "poe",
+            "cerebras",
+            "groq",
+            "blueclaw",
+            "zai",
+            "empiriolabs",
+            "sensenova",
+            "alibaba-token-plan",
+            "cloudflare-workers-ai",
+            "engy",
+            "poolside",
+            "nano-gpt"
+          ],
+          "models": 8400,
+          "opencodeModels": 10,
+          "freeOpencodeModels": 10,
+          "strictFreeOpencodeModels": 10,
+          "freeOpencodeModelIDs": [
+            "ling-3.0-flash-fin-free",
+            "fledge-alpha-free",
+            "ling-3.1-flash-free",
+            "longcat-2.5-preview-free",
+            "space-bunny-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3-ultra-free",
+            "nemotron-3.5-lightning-free",
+            "big-pickle",
+            "muse-spark-1.3-contributor-free"
+          ],
+          "connected": [
+            "opencode"
+          ]
+        },
+        "configProviders": {
+          "status": 200,
+          "providers": 1,
+          "ids": [
+            "opencode"
+          ]
+        }
+      },
+      "cacheAtT0": {
+        "exists": false
+      },
+      "t1": {
+        "at": "2026-10-25T02:54:00.083Z",
+        "msProvider": 1656,
+        "provider": {
+          "status": 200,
+          "providers": 226,
+          "providerIDsSample": [
+            "deepinfra",
+            "perplexity-agent",
+            "bailing",
+            "poe",
+            "cerebras",
+            "groq",
+            "blueclaw",
+            "zai",
+            "empiriolabs",
+            "sensenova",
+            "alibaba-token-plan",
+            "cloudflare-workers-ai",
+            "engy",
+            "poolside",
+            "nano-gpt"
+          ],
+          "models": 8400,
+          "opencodeModels": 10,
+          "freeOpencodeModels": 10,
+          "strictFreeOpencodeModels": 10,
+          "freeOpencodeModelIDs": [
+            "ling-3.0-flash-fin-free",
+            "fledge-alpha-free",
+            "ling-3.1-flash-free",
+            "longcat-2.5-preview-free",
+            "space-bunny-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3-ultra-free",
+            "nemotron-3.5-lightning-free",
+            "big-pickle",
+            "muse-spark-1.3-contributor-free"
+          ],
+          "connected": [
+            "opencode"
+          ]
+        },
+        "configProviders": {
+          "status": 200,
+          "providers": 1,
+          "ids": [
+            "opencode"
+          ]
+        }
+      },
+      "cacheAtT1": {
+        "exists": false
+      },
+      "eventTypes": [
+        "server.connected",
+        "server.heartbeat"
+      ],
+      "modelsEvents": 0,
+      "log": {
+        "lines": 16,
+        "modelsMentions": {
+          "count": 0,
+          "lines": []
+        }
+      }
+    }
+  ],
+  "v1ReadsFetchFlag": {
+    "method": "strings <1.18.35 bin> | grep -c OPENCODE_DISABLE_MODELS_FETCH",
+    "count": 2
+  },
+  "serversStarted": [
+    {
+      "label": "v2-default",
+      "pid": 21988,
+      "bin": "2.1.4"
+    },
+    {
+      "label": "v2-fetchoff",
+      "pid": 22040,
+      "bin": "2.1.4"
+    },
+    {
+      "label": "v1-default",
+      "pid": 22252,
+      "bin": "1.18.35"
+    },
+    {
+      "label": "v1-fetchoff",
+      "pid": 22833,
+      "bin": "1.18.35"
+    }
+  ],
+  "rawCatalogOffline": {
+    "method": "python over (a) the models-dev:catalog kv body 2.1.4 fetched in v2-default (copied db), (b) 2.1.4 bundled snapshot packages/core/src/models-dev/snapshot.txt at tag v2.1.4, (c) 1.18.35 cache/opencode/models.json fetched in v1-default. zero-cost = cost.input absent or 0. These are raw catalog rows; the servers list fewer free models (status/enabled filtering).",
+    "v2LiveFetched_2026-10-25": {
+      "providers": 232,
+      "models": 8936,
+      "opencodeModels": 130,
+      "zeroCostOpencodeModelsInRawCatalog": 46
+    },
+    "v2BundledSnapshot": {
+      "providers": 232,
+      "models": 9149,
+      "opencodeModels": 130,
+      "zeroCostOpencodeModelsInRawCatalog": 46
+    },
+    "v1LiveFetched_2026-10-25": {
+      "providers": 232,
+      "models": 8936,
+      "opencodeModels": 130,
+      "zeroCostOpencodeModelsInRawCatalog": 46
+    }
+  },
+  "v2IntegrationCatalog": {
+    "method": "r2-integration.ts: fresh 2.1.4 profile per mode, no provider, GET /api/integration at t0 and after models-dev.refreshed (or 20 s)",
+    "runDir": "/tmp/t-4840abc5/run/r2-integ-1792896885",
+    "runs": [
+      {
+        "label": "v2-default",
+        "refreshedEvent": true,
+        "t0Count": 235,
+        "t1Count": 235,
+        "stopped": true
+      },
+      {
+        "label": "v2-fetchoff",
+        "refreshedEvent": false,
+        "t0Count": 235,
+        "t1Count": 235,
+        "stopped": true
+      }
+    ]
+  },
+  "summary": {
+    "2.1.4 default": "contacts models.opencode.ai at boot: models-dev.refreshed at ~1.8 s, kv models-dev:catalog row 6,697,199 bytes; /api/model 9 models, all provider opencode, all 9 cost 0, default opencode/big-pickle; /api/provider [] at t0, [opencode] at t1",
+    "2.1.4 OPENCODE_DISABLE_MODELS_FETCH=1": "no refreshed event in 30 s, no kv catalog row; catalog = bundled snapshot; /api/model the SAME 9 free opencode models (same IDs), same default opencode/big-pickle; /api/integration 235 in both modes",
+    "conclusion": "On 2.1.4 the flag stops the network fetch and the 5-minute refresh only. It does not remove or reduce the free models: the bundled snapshot is the boot floor (core/src/models-dev.ts populate: file > kv cache > bundled snapshot > fetch). Only OPENCODE_DISABLE_FREE_MODELS=1 (core/src/model.ts:224-228) removes them (see pm-p4-free-models.json).",
+    "1.18.35 default": "fetches models.json (5,942,697 bytes, written 2.8 s after start); GET /provider 232 providers, 8939 models, opencode 9 models all free, connected [opencode]",
+    "1.18.35 OPENCODE_DISABLE_MODELS_FETCH=1": "binary reads the flag (strings count 2); no models.json written; falls back to its own older bundled snapshot: 226 providers, 8400 models, opencode 10 free models with a different ID set; connected [opencode]",
+    "compare": "Today (1.18.35, Isomux does not set the flag) both versions show 9 free opencode models from the live catalog. With the flag, 2.1.4 keeps showing 9 (its snapshot matches today's live list), 1.18.35 would show a stale 10. Neither version empties the free list with this flag."
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "prompts": [
+    {
+      "label": "inflight",
+      "sessionID": "ses_e8f66a696ffeu2c01v3KfHAS4z",
+      "text": "GATE_ABORT inflight at sigterm",
+      "sentAt": 1792890460589,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170995b190014SZHJu2qgtQWmG",
+          "sessionID": "ses_e8f66a696ffeu2c01v3KfHAS4z",
+          "time": {
+            "created": 1792890461702
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_ABORT inflight at sigterm"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "denied-next",
+      "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+      "text": "EV after deny next turn",
+      "sentAt": 1792890473334,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_170998c38001EIcLU0V16XexqP",
+          "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+          "time": {
+            "created": 1792890474530
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV after deny next turn"
+          },
+          "delivery": "steer"
+        }
+      }
+    }
+  ],
+  "notes": {}
+}

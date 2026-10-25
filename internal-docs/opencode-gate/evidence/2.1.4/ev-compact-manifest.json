@@ -1,0 +1,129 @@
+{
+  "prompts": [
+    {
+      "label": "c-t1",
+      "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+      "text": "EV compaction turn one S4_CONTEXT_CANARY",
+      "sentAt": 1792890689364,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709cd88f0010EPxwGJhduh6c1",
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "time": {
+            "created": 1792890691270
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV compaction turn one S4_CONTEXT_CANARY"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "c-t2",
+      "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+      "text": "EV compaction turn two",
+      "sentAt": 1792890691541,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709cdfdb001UscvUds7hKC3WA",
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "time": {
+            "created": 1792890691548
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV compaction turn two"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "c-t3",
+      "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+      "text": "EV compaction turn three",
+      "sentAt": 1792890691716,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709ce088001jWme250K3p6BJs",
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "time": {
+            "created": 1792890691721
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV compaction turn three"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "compact",
+      "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+      "text": "(POST compact)",
+      "sentAt": 1792890691952,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709ce143001Romhn6LMwSKLIh",
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "time": {
+            "created": 1792890691946
+          },
+          "type": "compaction",
+          "payload": {},
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "c-t4",
+      "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+      "text": "GATE_RECALL after compaction",
+      "sentAt": 1792890692407,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709ce33c001sNugT8ageYNCjv",
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "time": {
+            "created": 1792890692413
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_RECALL after compaction"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "label": "c-t5",
+      "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+      "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf after-compact > ev-after-compact.txt\"}}",
+      "sentAt": 1792890692586,
+      "status": 200,
+      "response": {
+        "data": {
+          "id": "msg_1709ce404001DXtEYQRbwZqDSV",
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "time": {
+            "created": 1792890692615
+          },
+          "type": "user",
+          "payload": {
+            "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf after-compact > ev-after-compact.txt\"}}"
+          },
+          "delivery": "steer"
+        }
+      }
+    }
+  ],
+  "notes": {}
+}

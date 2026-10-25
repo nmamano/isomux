@@ -1,0 +1,56 @@
+{
+ "item": "P7b",
+ "date": "2026-10-25",
+ "method": "bun:sqlite read-only on the stopped-server DB copies dbcopy-1 (after SIGTERM) and dbcopy-2 (after SIGKILL) of run1; newest 3 session_message rows of the first session (harness/cc-lastmsgs.ts)",
+ "runDir": "/tmp/t-4840abc5/run/cc-p7b-1792890335936-r1",
+ "afterSIGTERM": {
+  "session": "0Uwm5F",
+  "sessionRow": {
+   "time_suspended": 1792890358245,
+   "resume_attempts": 0,
+   "idle_outcome": "succeeded"
+  },
+  "newest": [
+   {
+    "seq": 63,
+    "type": "assistant",
+    "data": "{\"time\":{\"created\":1792890358312,\"streamed\":1792890359512,\"completed\":1792890361142},\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"tool\",\"id\":\"call_98\",\"name\":\"shell\",\"executed\":false,\"state\":{\"status\":\"error\",\"input\":{\"command\":\"sleep 8; printf done >> /tmp/t-4840abc5/run/cc-p7b-1792890335936-r1/repoA/slow-K1-SIGTERM-0.txt\"},\"error\":{\"type\":\"unknown\",\"message\":\"Command cancelled\"},\"metadata\":{\"shellID\":\"sh_17097cee0001nxaj8c0GZM0Ga5\"}},\"time\":{\"created\":1792890359503,\"ran\":1792890359509,\"completed\":1792890360870}}],\"snapshot\":{\"start\":\"6d1b9bc8ef6381410407222b8c1405d3de2ac2f9\",\"end\":\"6d1b9bc8ef6381410407222b8c1405d3de2ac2f9\",\"files\":[]},\"finish\":\"tool-c"
+   },
+   {
+    "seq": 61,
+    "type": "user",
+    "data": "{\"time\":{\"created\":1792890358260},\"text\":\"slow K1-SIGTERM GATE_CALL:{\\\"tool\\\":\\\"shell\\\",\\\"args\\\":{\\\"command\\\":\\\"sleep 8; printf done >> /tmp/t-4840abc5/run/cc-p7b-1792890335936-r1/repoA/slow-K1-SIGTERM-0.txt\\\"}}\"}"
+   },
+   {
+    "seq": 58,
+    "type": "idle",
+    "data": "{\"time\":{\"created\":1792890357799},\"outcome\":\"succeeded\"}"
+   }
+  ]
+ },
+ "afterSIGKILL": {
+  "session": "0Uwm5F",
+  "sessionRow": {
+   "time_suspended": 1792890384709,
+   "resume_attempts": 0,
+   "idle_outcome": "succeeded"
+  },
+  "newest": [
+   {
+    "seq": 132,
+    "type": "assistant",
+    "data": "{\"time\":{\"created\":1792890384764,\"streamed\":1792890386142},\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"tool\",\"id\":\"call_226\",\"name\":\"shell\",\"executed\":false,\"state\":{\"status\":\"running\",\"input\":{\"command\":\"sleep 8; printf done >> /tmp/t-4840abc5/run/cc-p7b-1792890335936-r1/repoA/slow-K2-SIGKILL-0.txt\"},\"metadata\":{}},\"time\":{\"created\":1792890386129,\"ran\":1792890386139}}],\"snapshot\":{\"start\":\"4f74deb7f18a4c86978010e718227a7604074733\"}}"
+   },
+   {
+    "seq": 130,
+    "type": "user",
+    "data": "{\"time\":{\"created\":1792890384722},\"text\":\"slow K2-SIGKILL GATE_CALL:{\\\"tool\\\":\\\"shell\\\",\\\"args\\\":{\\\"command\\\":\\\"sleep 8; printf done >> /tmp/t-4840abc5/run/cc-p7b-1792890335936-r1/repoA/slow-K2-SIGKILL-0.txt\\\"}}\"}"
+   },
+   {
+    "seq": 127,
+    "type": "idle",
+    "data": "{\"time\":{\"created\":1792890384192},\"outcome\":\"succeeded\"}"
+   }
+  ]
+ }
+}

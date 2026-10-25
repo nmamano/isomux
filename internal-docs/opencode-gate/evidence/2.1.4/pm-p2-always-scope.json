@@ -1,0 +1,509 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "item": "P2",
+  "steps": [
+    {
+      "name": "project ids",
+      "A": "561bebb59cad4f8f5eed8c2b4c6ab372a2127b1c",
+      "B": "561bebb59cad4f8f5eed8c2b4c6ab372a2127b1c",
+      "clone": "561bebb59cad4f8f5eed8c2b4c6ab372a2127b1c",
+      "sameProjectForClone": true
+    },
+    {
+      "name": "A shell, answered always",
+      "outcome": "ask:shell",
+      "asks": [
+        {
+          "session": "self",
+          "action": "shell",
+          "resources": [
+            "printf p2 > p2-always.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "always"
+        }
+      ],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "saved after always",
+      "saved": {
+        "noQuery": {
+          "data": []
+        },
+        "byProject": {
+          "data": [
+            {
+              "id": "psv_170a1169a002ptBr3v1YQbQUbf",
+              "projectID": "561bebb59cad4f8f5eed8c2b4c6ab372a2127b1c",
+              "action": "shell",
+              "resource": "printf *",
+              "time": {
+                "created": 1792890967706,
+                "updated": 1792890967706
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "B same command (same repo, other session)",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "B other printf command (prefix rule printf *)",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "clone session same command (other directory, same root commit)",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "repo2 session same command (other project) - control that asks are visible",
+      "outcome": "ask:shell",
+      "asks": [
+        {
+          "session": "self",
+          "action": "shell",
+          "resources": [
+            "printf p2 > p2-always.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "reject"
+        }
+      ],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.failed",
+          "error": "The user declined this tool call"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "after restart: saved",
+      "saved": {
+        "noQuery": {
+          "data": []
+        },
+        "byProject": {
+          "data": [
+            {
+              "id": "psv_170a1169a002ptBr3v1YQbQUbf",
+              "projectID": "561bebb59cad4f8f5eed8c2b4c6ab372a2127b1c",
+              "action": "shell",
+              "resource": "printf *",
+              "time": {
+                "created": 1792890967706,
+                "updated": 1792890967706
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "after restart: new session C same command",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "DELETE saved",
+      "id": "psv_170a1169a002ptBr3v1YQbQUbf",
+      "status": 204
+    },
+    {
+      "name": "after DELETE: saved",
+      "saved": {
+        "noQuery": {
+          "data": []
+        },
+        "byProject": {
+          "data": []
+        }
+      }
+    },
+    {
+      "name": "after DELETE: C same command",
+      "outcome": "ask:shell",
+      "asks": [
+        {
+          "session": "self",
+          "action": "shell",
+          "resources": [
+            "printf p2 > p2-always.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "reject"
+        }
+      ],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.failed",
+          "error": "The user declined this tool call"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "A2 subagent before PATCH (child C1)",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "<subagent sessionID=\"ses_e8f5ec986ffekSfrz4nqKK0sWi\" state=\"completed\">\nANSWER:You are a subagent spawned by another session. say hi\n</subagent>"
+        }
+      ],
+      "children": [
+        "ses_e8f5ec986ffekSfrz4nqKK0sWi"
+      ]
+    },
+    {
+      "name": "A2 shell, answered once",
+      "outcome": "ask:shell",
+      "asks": [
+        {
+          "session": "self",
+          "action": "shell",
+          "resources": [
+            "printf w > p2-work.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "once"
+        }
+      ],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "PATCH A2 permissions",
+      "status": 204,
+      "sessionPermissionsEvent": 0
+    },
+    {
+      "name": "GET A2 after PATCH",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "shell",
+          "resource": "printf w > p2-work.txt",
+          "effect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "A2 same command after PATCH",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "B2 same command",
+      "outcome": "ask:shell",
+      "asks": [
+        {
+          "session": "self",
+          "action": "shell",
+          "resources": [
+            "printf w > p2-work.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "reject"
+        }
+      ],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.failed",
+          "error": "The user declined this tool call"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "saved after workaround (repo2)",
+      "saved": {
+        "noQuery": {
+          "data": []
+        },
+        "byProject": {
+          "data": []
+        }
+      }
+    },
+    {
+      "name": "A2 new subagent after PATCH runs the command (child C2)",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "child",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        },
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "<subagent sessionID=\"ses_e8f5ec306ffeM8edxhOLrsZERc\" state=\"completed\">\nRECOVERED_AFTER_TOOL\n</subagent>"
+        }
+      ],
+      "children": [
+        "ses_e8f5ec306ffeM8edxhOLrsZERc"
+      ]
+    },
+    {
+      "name": "A2 continues pre-PATCH child C1 with the command",
+      "outcome": "ask:child.shell",
+      "asks": [
+        {
+          "session": "child",
+          "action": "shell",
+          "resources": [
+            "printf w > p2-work.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "reject"
+        }
+      ],
+      "tools": [
+        {
+          "session": "child",
+          "type": "session.tool.failed",
+          "error": "The user declined this tool call"
+        },
+        {
+          "session": "self",
+          "type": "session.tool.failed",
+          "error": "Subagent cancelled (sessionID: ses_e8f5ec986ffekSfrz4nqKK0sWi)"
+        }
+      ],
+      "children": [
+        "ses_e8f5ec986ffekSfrz4nqKK0sWi"
+      ]
+    },
+    {
+      "name": "child permissions",
+      "C1": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "ask"
+        }
+      ],
+      "C2": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "shell",
+          "resource": "printf w > p2-work.txt",
+          "effect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "after restart 2: GET A2",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "shell",
+          "resource": "printf w > p2-work.txt",
+          "effect": "allow"
+        }
+      ]
+    },
+    {
+      "name": "after restart 2: A2 same command",
+      "outcome": "allow",
+      "asks": [],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.success",
+          "output": "(no output)"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "after restart 2: B2 same command",
+      "outcome": "ask:shell",
+      "asks": [
+        {
+          "session": "self",
+          "action": "shell",
+          "resources": [
+            "printf w > p2-work.txt"
+          ],
+          "save": [
+            "printf *"
+          ],
+          "decision": "reject"
+        }
+      ],
+      "tools": [
+        {
+          "session": "self",
+          "type": "session.tool.failed",
+          "error": "The user declined this tool call"
+        }
+      ],
+      "children": []
+    },
+    {
+      "name": "after restart 2: saved",
+      "saved": {
+        "noQuery": {
+          "data": []
+        },
+        "byProject": {
+          "data": []
+        }
+      }
+    }
+  ],
+  "note_session_permissions_event": "PATCH step counted session.permissions on the tap immediately after the 204 and saw 0; the event arrived just after: events-2.jsonl in the run dir has 1 session.permissions frame."
+}

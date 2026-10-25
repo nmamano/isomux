@@ -1,0 +1,177 @@
+{
+  "item": "P9 member config with v1 keys and a v1-shaped plugin in OPENCODE_CONFIG_DIR",
+  "date": "2026-10-25",
+  "binary": "2.1.4",
+  "method": "harness/mg-p9.ts: member dir with opencode.json {permission:{bash:allow}, plugin:[\"./old.js\"], provider:{memberv1:v1 shape}, mode:{build:{...}}, autoupdate:true}, ./old.js and plugin/discovered.js both v1-shaped (export const OldPlugin = async ({client}) => ({\"tool.execute.before\": throw})), each writing marker files at import, init and hook. Mock provider via OPENCODE_CONFIG_CONTENT. A v2 plugin in the profile XDG config dir marks import/setup. Control run: same, without OPENCODE_CONFIG_DIR.",
+  "withConfigDir": {
+    "date": "2026-10-25",
+    "item": "P9",
+    "binary": "2.1.4",
+    "withConfigDir": true,
+    "started": true,
+    "sessionCreated": true,
+    "pluginsNonBuiltin": [
+      {
+        "id": null,
+        "source": {
+          "type": "local",
+          "path": "/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js"
+        },
+        "state": "failed",
+        "error": "\"Plugin must export a default definition with an id and an effect or setup function.\"",
+        "ref": "err_fc04ebb0"
+      }
+    ],
+    "pluginCounts": {
+      "total": 91,
+      "builtin": 90,
+      "failed": 1
+    },
+    "turn": {
+      "end": "session.execution.succeeded",
+      "toolEvents": [
+        "session.tool.called",
+        "session.tool.success"
+      ],
+      "shellFileWritten": true
+    },
+    "providers": {
+      "httpStatus": 200,
+      "hasMemberV1": true,
+      "hasGate": true,
+      "count": 3
+    },
+    "configDocuments": {
+      "httpStatus": 200,
+      "topKeys": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    "configMentionsMemberDir": true,
+    "configMentionsXdgDir": false,
+    "markers": {
+      "discovered.toplevel": 1
+    },
+    "markerControl": "every marker file the plugins write is listed with its byte count; absent = never written",
+    "logSummary": {
+      "lines": 89,
+      "warn": 2,
+      "error": 0,
+      "info": 85,
+      "relevantMessages": [
+        "\"configured plugin path must be a directory\"",
+        "timestamp=2026-10-25T01:44:10.492Z level=INFO run=d3402725 msg=\"loading plugin\" ",
+        "\"watcher subscribe\"",
+        "\"watcher started\"",
+        "\"failed to load plugin\"",
+        "event",
+        "\"watcher stopped\""
+      ],
+      "relevantLines": [
+        "level=WARN message=\"configured plugin path must be a directory\" target=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/old.js http.span=319 role=server",
+        "level=INFO msg=\"loading plugin\" id=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js entrypoint=file:///tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js http.span=326 role=server",
+        "level=INFO message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js type=file ignores=0 http.span=331 role=server",
+        "level=INFO message=\"watcher started\" path=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js type=file backend=node ignores=0 http.span=332 role=server",
+        "level=WARN message=\"failed to load plugin\" target=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js ref=err_fc04ebb0 cause=\"Cause([Fail(PluginModule.LoadError: Plugin must export a default definition with an id and an effect or setup function. (cause: SchemaError(Missing key\\n  at [\\\"default\\\"])))])\" http.span=333 role=server",
+        "level=INFO message=event event.id=evt_170bac6ab001l2T44PDBM43LCl event.created=1792892651179 event.type=model.updated event.location.directory=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/repo event.location.workspaceID=undefined event.data={} http.span=1013 role=server",
+        "level=INFO message=\"watcher stopped\" path=/tmp/t-4840abc5/run/mg-1792890083/p9-configdir-1792892649228/member-config/plugin/discovered.js type=file http.span=2297 role=server"
+      ]
+    }
+  },
+  "controlWithoutConfigDir": {
+    "date": "2026-10-25",
+    "item": "P9",
+    "binary": "2.1.4",
+    "withConfigDir": false,
+    "started": true,
+    "sessionCreated": true,
+    "pluginsNonBuiltin": [
+      {
+        "id": "mg.xdg",
+        "source": {
+          "type": "local",
+          "path": "/tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/profile/config/opencode/plugin/xdg.js"
+        },
+        "state": "active"
+      }
+    ],
+    "pluginCounts": {
+      "total": 91,
+      "builtin": 90,
+      "failed": 0
+    },
+    "turn": {
+      "end": "session.execution.succeeded",
+      "toolEvents": [
+        "session.tool.called",
+        "session.tool.success"
+      ],
+      "shellFileWritten": true
+    },
+    "providers": {
+      "httpStatus": 200,
+      "hasMemberV1": false,
+      "hasGate": true,
+      "count": 2
+    },
+    "configDocuments": {
+      "httpStatus": 200,
+      "topKeys": [
+        "0",
+        "1"
+      ]
+    },
+    "configMentionsMemberDir": false,
+    "configMentionsXdgDir": true,
+    "markers": {
+      "xdg.setup": 1,
+      "xdg.toplevel": 1
+    },
+    "markerControl": "every marker file the plugins write is listed with its byte count; absent = never written",
+    "logSummary": {
+      "lines": 88,
+      "warn": 0,
+      "error": 0,
+      "info": 86,
+      "relevantMessages": [
+        "timestamp=2026-10-25T01:45:20.105Z level=INFO run=eeb748c3 msg=\"loading plugin\" ",
+        "\"watcher subscribe\"",
+        "\"watcher started\"",
+        "event",
+        "\"watcher stopped\""
+      ],
+      "relevantLines": [
+        "level=INFO msg=\"loading plugin\" id=/tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/profile/config/opencode/plugin/xdg.js entrypoint=file:///tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/profile/config/opencode/plugin/xdg.js http.span=351 role=server",
+        "level=INFO message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/profile/config/opencode/plugin/xdg.js type=file ignores=0 http.span=355 role=server",
+        "level=INFO message=\"watcher started\" path=/tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/profile/config/opencode/plugin/xdg.js type=file backend=node ignores=0 http.span=356 role=server",
+        "level=INFO message=event event.id=evt_170bbd6c2001e7wH5XR1GjhB7G event.created=1792892720834 event.type=model.updated event.location.directory=/tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/repo event.location.workspaceID=undefined event.data={} http.span=1080 role=server",
+        "level=INFO message=\"watcher stopped\" path=/tmp/t-4840abc5/run/mg-1792890083/p9-control-1792892718856/profile/config/opencode/plugin/xdg.js type=file http.span=2591 role=server"
+      ]
+    }
+  },
+  "findings": {
+    "serverStarts": true,
+    "sessionOpens": true,
+    "turnRuns": "session.execution.succeeded",
+    "v1HookNeverRan": true,
+    "shellToolStillRan": true,
+    "discoveredV1PluginTopLevelCodeExecuted": true,
+    "discoveredV1PluginReportedAs": [
+      {
+        "id": null,
+        "state": "failed",
+        "error": "\"Plugin must export a default definition with an id and an effect or setup function.\""
+      }
+    ],
+    "configuredFileEntryOldJs": "skipped with WARN \"configured plugin path must be a directory\"; never imported (no configured.* marker) and ABSENT from GET /api/plugin",
+    "v1ProviderKeyHonoured": true,
+    "autoupdateAndModeKeys": "no warning, no error lines for them (warn=2 total, both plugin lines)",
+    "configDirReplacesXdgGlobalDir": {
+      "withConfigDir_xdgPluginLoaded": false,
+      "control_xdgPluginLoaded": true,
+      "control_xdgPluginState": "active"
+    }
+  }
+}

@@ -1,0 +1,394 @@
+{
+  "A": {
+    "status": 200,
+    "data": [
+      {
+        "id": "msg_1709df0b4001184nRmJwBE4MJf",
+        "time": {
+          "created": 1792890763139
+        },
+        "text": "first prompt EV_CANARY_A_1792890760333 S4_CONTEXT_CANARY",
+        "type": "user"
+      },
+      {
+        "id": "msg_1709df7a6001be76KsvF1OmxjF",
+        "time": {
+          "created": 1792890763203,
+          "streamed": 1792890763483,
+          "completed": 1792890763561
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gate-model",
+          "providerID": "gate"
+        },
+        "content": [
+          {
+            "type": "reasoning",
+            "text": "gate-reasoning",
+            "native": {
+              "reasoningField": "reasoning_content"
+            },
+            "time": {
+              "created": 1792890763459,
+              "completed": 1792890763472
+            }
+          },
+          {
+            "type": "text",
+            "text": "ANSWER:first prompt EV_CANARY_A_1792890760333 S4_CONTEXT_CANARY"
+          }
+        ],
+        "snapshot": {
+          "start": "35596c654df09e182449b8d9db87313ad2475ceb",
+          "end": "35596c654df09e182449b8d9db87313ad2475ceb",
+          "files": []
+        },
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1709df92e001sovSNd3Cl5KFvA",
+        "time": {
+          "created": 1792890763566
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      },
+      {
+        "id": "msg_1709df95b001b8DYy2tKZvNhaO",
+        "time": {
+          "created": 1792890763631
+        },
+        "text": "EV_CANARY_A_1792890760333 GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf EV_CANARY_A_1792890760333 > ev-a.txt\"}}",
+        "type": "user"
+      },
+      {
+        "id": "msg_1709df978001DCanafrNuuWMJ3",
+        "time": {
+          "created": 1792890763662,
+          "streamed": 1792890763763,
+          "completed": 1792890764346
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gate-model",
+          "providerID": "gate"
+        },
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_1",
+            "name": "shell",
+            "executed": false,
+            "state": {
+              "status": "completed",
+              "input": {
+                "command": "printf EV_CANARY_A_1792890760333 > ev-a.txt"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "(no output)"
+                }
+              ],
+              "metadata": {
+                "status": "completed",
+                "truncated": false,
+                "exit": 0
+              }
+            },
+            "time": {
+              "created": 1792890763748,
+              "ran": 1792890763757,
+              "completed": 1792890764215
+            }
+          }
+        ],
+        "snapshot": {
+          "start": "35596c654df09e182449b8d9db87313ad2475ceb",
+          "end": "022fdec7bedc7add10166ad89c22c914dae450b4",
+          "files": [
+            "ev-a.txt"
+          ]
+        },
+        "finish": "tool-calls",
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1709dfc53001uVWrUBBSAzvmc7",
+        "time": {
+          "created": 1792890764395,
+          "streamed": 1792890764595,
+          "completed": 1792890764659
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gate-model",
+          "providerID": "gate"
+        },
+        "content": [
+          {
+            "type": "reasoning",
+            "text": "gate-reasoning",
+            "native": {
+              "reasoningField": "reasoning_content"
+            },
+            "time": {
+              "created": 1792890764556,
+              "completed": 1792890764570
+            }
+          },
+          {
+            "type": "text",
+            "text": "RECOVERED_AFTER_TOOL"
+          }
+        ],
+        "snapshot": {
+          "start": "022fdec7bedc7add10166ad89c22c914dae450b4",
+          "end": "022fdec7bedc7add10166ad89c22c914dae450b4",
+          "files": []
+        },
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1709dfd80001AambyS2bLDpMza",
+        "time": {
+          "created": 1792890764672
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      }
+    ]
+  },
+  "B": {
+    "status": 200,
+    "data": [
+      {
+        "id": "msg_1709df0c0001RjOITjUt3gpz53",
+        "time": {
+          "created": 1792890763282
+        },
+        "text": "first prompt EV_CANARY_B_1792890760333 S4_CONTEXT_CANARY",
+        "type": "user"
+      },
+      {
+        "id": "msg_1709df82b0016lvrb07rFFXTpM",
+        "time": {
+          "created": 1792890763323,
+          "streamed": 1792890763557,
+          "completed": 1792890763580
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gate-model",
+          "providerID": "gate"
+        },
+        "content": [
+          {
+            "type": "reasoning",
+            "text": "gate-reasoning",
+            "native": {
+              "reasoningField": "reasoning_content"
+            },
+            "time": {
+              "created": 1792890763537,
+              "completed": 1792890763548
+            }
+          },
+          {
+            "type": "text",
+            "text": "ANSWER:first prompt EV_CANARY_B_1792890760333 S4_CONTEXT_CANARY"
+          }
+        ],
+        "snapshot": {
+          "start": "447a57d5cd41e260f8d2202d6cda38aede07a7b7",
+          "end": "447a57d5cd41e260f8d2202d6cda38aede07a7b7",
+          "files": []
+        },
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1709df943001zE91PJHfJmjXyv",
+        "time": {
+          "created": 1792890763587
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      },
+      {
+        "id": "msg_1709df997001841AOWh6rme5XF",
+        "time": {
+          "created": 1792890763693
+        },
+        "text": "EV_CANARY_B_1792890760333 GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf EV_CANARY_B_1792890760333 > ev-b.txt\"}}",
+        "type": "user"
+      },
+      {
+        "id": "msg_1709df9b5001YiB8JpvZXcfZ3a",
+        "time": {
+          "created": 1792890763718,
+          "streamed": 1792890763796,
+          "completed": 1792890764405
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gate-model",
+          "providerID": "gate"
+        },
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_2",
+            "name": "shell",
+            "executed": false,
+            "state": {
+              "status": "completed",
+              "input": {
+                "command": "printf EV_CANARY_B_1792890760333 > ev-b.txt"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "(no output)"
+                }
+              ],
+              "metadata": {
+                "status": "completed",
+                "truncated": false,
+                "exit": 0
+              }
+            },
+            "time": {
+              "created": 1792890763781,
+              "ran": 1792890763791,
+              "completed": 1792890764234
+            }
+          }
+        ],
+        "snapshot": {
+          "start": "447a57d5cd41e260f8d2202d6cda38aede07a7b7",
+          "end": "a59447f8608e2b03bde61adae000b1eb2ffe46c7",
+          "files": [
+            "ev-b.txt"
+          ]
+        },
+        "finish": "tool-calls",
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1709dfc98001yRUzdedwUB5iLN",
+        "time": {
+          "created": 1792890764462,
+          "streamed": 1792890764628,
+          "completed": 1792890764680
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gate-model",
+          "providerID": "gate"
+        },
+        "content": [
+          {
+            "type": "reasoning",
+            "text": "gate-reasoning",
+            "native": {
+              "reasoningField": "reasoning_content"
+            },
+            "time": {
+              "created": 1792890764605,
+              "completed": 1792890764619
+            }
+          },
+          {
+            "type": "text",
+            "text": "RECOVERED_AFTER_TOOL"
+          }
+        ],
+        "snapshot": {
+          "start": "a59447f8608e2b03bde61adae000b1eb2ffe46c7",
+          "end": "a59447f8608e2b03bde61adae000b1eb2ffe46c7",
+          "files": []
+        },
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1709dfd9000150OkVc9cO4VO85",
+        "time": {
+          "created": 1792890764688
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      }
+    ]
+  }
+}

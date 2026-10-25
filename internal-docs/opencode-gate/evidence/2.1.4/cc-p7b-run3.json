@@ -1,0 +1,608 @@
+{
+  "item": "P7b",
+  "label": "r3",
+  "date": "2026-10-25",
+  "runDir": "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3",
+  "binary": "opencode 2.1.4",
+  "phases": [
+    {
+      "phase": "A",
+      "kind": "normal",
+      "rounds": 3,
+      "turns": 48,
+      "ms": 16518,
+      "outcomes": {
+        "session.execution.succeeded": 48
+      }
+    },
+    {
+      "phase": "R1",
+      "kind": "continue",
+      "sessionEventsIn5sWithoutPrompt": 0,
+      "sessionEventTypes": [],
+      "activeEndpoint": {
+        "status": 200,
+        "body": "{\"data\":{}}"
+      },
+      "messagesBeforeContinue": [
+        {
+          "session": 0,
+          "status": 200,
+          "count": 14,
+          "last": [
+            "{\"id\":\"msg_17099c04e001W6J6CHdW1r83Vg\",\"time\":{\"created\":1792890486895,\"streamed\":1792890488000,\"completed\":1792890488851},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"reasoning\",\"text\":\"gate-reasoning\",\"native\":{\"reasoningField\":\"reasoning_content\"},\"time\":{\"created\":1792890487979,\"completed\":1792890487990}},{\"type\":\"text\",\"text\":\"RECOVERED_AFTER_TOOL\"}],\"snapshot\":{\"start\":\"b1420c9ddc1868f834b3935f05af25aae32bfbed\",\"end\":\"b1420c9ddc1868f834b3935f05af25aae32bfbed\",\"files\":[]},\"finish\":\"stop\",\"rawFinish\":\"stop\",\"cost\":0,\"tokens\":{\"input",
+            "{\"id\":\"msg_17099b64c001J6VdIUiBukUpjr\",\"time\":{\"created\":1792890484321,\"streamed\":1792890485250,\"completed\":1792890486832},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"tool\",\"id\":\"call_18\",\"name\":\"shell\",\"executed\":false,\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"printf 'A-0\\\\n' >> shell-0.txt && git status --short | wc -l\"},\"content\":[{\"type\":\"text\",\"text\":\"9\\n\"}],\"metadata\":{\"status\":\"completed\",\"truncated\":false,\"exit\":0}},\"time\":{\"created\":1792890485237,\"ran\":1792890485246,\"completed\":1792890485438}}],\"snapshot\":{\"start\":\"623",
+            "{\"id\":\"msg_17099ac75001x0z7U6zRLFOfHz\",\"time\":{\"created\":1792890484272},\"text\":\"turn A-0 GATE_CALL:{\\\"tool\\\":\\\"shell\\\",\\\"args\\\":{\\\"command\\\":\\\"printf 'A-0\\\\\\\\n' >> shell-0.txt && git status --short | wc -l\\\"}}\",\"type\":\"user\"}"
+          ]
+        },
+        {
+          "session": 1,
+          "status": 200,
+          "count": 14,
+          "last": [
+            "{\"id\":\"msg_17099bf0f00180QQMsQTy7csis\",\"time\":{\"created\":1792890486572,\"streamed\":1792890488037,\"completed\":1792890489295},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"reasoning\",\"text\":\"gate-reasoning\",\"native\":{\"reasoningField\":\"reasoning_content\"},\"time\":{\"created\":1792890488019,\"completed\":1792890488031}},{\"type\":\"text\",\"text\":\"RECOVERED_AFTER_TOOL\"}],\"snapshot\":{\"start\":\"f67ad60adbfd5dca1a9751a7186dff29377c0e97\",\"end\":\"065cd10d47c70768753a1aa5f062264b35eb75d4\",\"files\":[\"shell-5.txt\"]},\"finish\":\"stop\",\"rawFinish\":\"stop\",\"cost\":0,\"to",
+            "{\"id\":\"msg_17099b2bf001LLQTDpqcbnIpQ4\",\"time\":{\"created\":1792890483419,\"streamed\":1792890485159,\"completed\":1792890486517},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"tool\",\"id\":\"call_2\",\"name\":\"write\",\"executed\":false,\"state\":{\"status\":\"completed\",\"input\":{\"path\":\"/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/repoB/w-1.txt\",\"content\":\"written A-0\\n\"},\"content\":[{\"type\":\"text\",\"text\":\"Created file successfully: w-1.txt\"}],\"metadata\":{\"truncated\":false}},\"time\":{\"created\":1792890485141,\"ran\":1792890485154,\"completed\":1792890485206}}],\"sna",
+            "{\"id\":\"msg_17099a99d001n6v1GfyS2rFHpw\",\"time\":{\"created\":1792890483323},\"text\":\"turn A-0 GATE_CALL:{\\\"tool\\\":\\\"write\\\",\\\"args\\\":{\\\"path\\\":\\\"/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/repoB/w-1.txt\\\",\\\"content\\\":\\\"written A-0\\\\n\\\"}}\",\"type\":\"user\"}"
+          ]
+        }
+      ],
+      "continueOutcomes": {
+        "session.execution.succeeded": 16
+      }
+    },
+    {
+      "phase": "B",
+      "kind": "normal",
+      "rounds": 2,
+      "turns": 32,
+      "ms": 8128,
+      "outcomes": {
+        "session.execution.succeeded": 32
+      }
+    },
+    {
+      "phase": "R2",
+      "kind": "continue",
+      "sessionEventsIn5sWithoutPrompt": 0,
+      "sessionEventTypes": [],
+      "activeEndpoint": {
+        "status": 200,
+        "body": "{\"data\":{}}"
+      },
+      "messagesBeforeContinue": [
+        {
+          "session": 0,
+          "status": 200,
+          "count": 28,
+          "last": [
+            "{\"id\":\"msg_17099c04e001W6J6CHdW1r83Vg\",\"time\":{\"created\":1792890486895,\"streamed\":1792890488000,\"completed\":1792890488851},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"reasoning\",\"text\":\"gate-reasoning\",\"native\":{\"reasoningField\":\"reasoning_content\"},\"time\":{\"created\":1792890487979,\"completed\":1792890487990}},{\"type\":\"text\",\"text\":\"RECOVERED_AFTER_TOOL\"}],\"snapshot\":{\"start\":\"b1420c9ddc1868f834b3935f05af25aae32bfbed\",\"end\":\"b1420c9ddc1868f834b3935f05af25aae32bfbed\",\"files\":[]},\"finish\":\"stop\",\"rawFinish\":\"stop\",\"cost\":0,\"tokens\":{\"input",
+            "{\"id\":\"msg_17099b64c001J6VdIUiBukUpjr\",\"time\":{\"created\":1792890484321,\"streamed\":1792890485250,\"completed\":1792890486832},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"tool\",\"id\":\"call_18\",\"name\":\"shell\",\"executed\":false,\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"printf 'A-0\\\\n' >> shell-0.txt && git status --short | wc -l\"},\"content\":[{\"type\":\"text\",\"text\":\"9\\n\"}],\"metadata\":{\"status\":\"completed\",\"truncated\":false,\"exit\":0}},\"time\":{\"created\":1792890485237,\"ran\":1792890485246,\"completed\":1792890485438}}],\"snapshot\":{\"start\":\"623",
+            "{\"id\":\"msg_17099ac75001x0z7U6zRLFOfHz\",\"time\":{\"created\":1792890484272},\"text\":\"turn A-0 GATE_CALL:{\\\"tool\\\":\\\"shell\\\",\\\"args\\\":{\\\"command\\\":\\\"printf 'A-0\\\\\\\\n' >> shell-0.txt && git status --short | wc -l\\\"}}\",\"type\":\"user\"}"
+          ]
+        },
+        {
+          "session": 1,
+          "status": 200,
+          "count": 27,
+          "last": [
+            "{\"id\":\"msg_17099bf0f00180QQMsQTy7csis\",\"time\":{\"created\":1792890486572,\"streamed\":1792890488037,\"completed\":1792890489295},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"reasoning\",\"text\":\"gate-reasoning\",\"native\":{\"reasoningField\":\"reasoning_content\"},\"time\":{\"created\":1792890488019,\"completed\":1792890488031}},{\"type\":\"text\",\"text\":\"RECOVERED_AFTER_TOOL\"}],\"snapshot\":{\"start\":\"f67ad60adbfd5dca1a9751a7186dff29377c0e97\",\"end\":\"065cd10d47c70768753a1aa5f062264b35eb75d4\",\"files\":[\"shell-5.txt\"]},\"finish\":\"stop\",\"rawFinish\":\"stop\",\"cost\":0,\"to",
+            "{\"id\":\"msg_17099b2bf001LLQTDpqcbnIpQ4\",\"time\":{\"created\":1792890483419,\"streamed\":1792890485159,\"completed\":1792890486517},\"type\":\"assistant\",\"agent\":\"build\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"content\":[{\"type\":\"tool\",\"id\":\"call_2\",\"name\":\"write\",\"executed\":false,\"state\":{\"status\":\"completed\",\"input\":{\"path\":\"/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/repoB/w-1.txt\",\"content\":\"written A-0\\n\"},\"content\":[{\"type\":\"text\",\"text\":\"Created file successfully: w-1.txt\"}],\"metadata\":{\"truncated\":false}},\"time\":{\"created\":1792890485141,\"ran\":1792890485154,\"completed\":1792890485206}}],\"sna",
+            "{\"id\":\"msg_17099a99d001n6v1GfyS2rFHpw\",\"time\":{\"created\":1792890483323},\"text\":\"turn A-0 GATE_CALL:{\\\"tool\\\":\\\"write\\\",\\\"args\\\":{\\\"path\\\":\\\"/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/repoB/w-1.txt\\\",\\\"content\\\":\\\"written A-0\\\\n\\\"}}\",\"type\":\"user\"}"
+          ]
+        }
+      ],
+      "continueOutcomes": {
+        "session.execution.succeeded": 16
+      }
+    },
+    {
+      "phase": "C",
+      "kind": "normal",
+      "rounds": 2,
+      "turns": 32,
+      "ms": 9579,
+      "outcomes": {
+        "session.execution.succeeded": 32
+      }
+    }
+  ],
+  "restarts": [
+    {
+      "phase": "K1-SIGTERM",
+      "signal": "SIGTERM",
+      "allMidTurnAtKill": true,
+      "terminalEventsBeforeKill": 0,
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "exitMs": 803,
+      "forcedSigkillAfter15s": false,
+      "outcomes": {
+        "server_exited_no_terminal": 16
+      },
+      "orphanShellProcessesRightAfterExit": 0
+    },
+    {
+      "phase": "K2-SIGKILL",
+      "signal": "SIGKILL",
+      "allMidTurnAtKill": true,
+      "terminalEventsBeforeKill": 0,
+      "exit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "exitMs": 179,
+      "forcedSigkillAfter15s": false,
+      "outcomes": {
+        "server_exited_no_terminal": 16
+      },
+      "orphanShellProcessesRightAfterExit": 8
+    }
+  ],
+  "dbChecks": [
+    {
+      "when": "after SIGTERM mid-turn (server stopped)",
+      "copied": [
+        "opencode.db"
+      ],
+      "quickCheck": [
+        "ok"
+      ],
+      "sessions": 16,
+      "sessionMessageRows": 224,
+      "eventRows": 0,
+      "eventSequenceRows": 17,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "violatingSessions": 0,
+      "violations": [],
+      "otherAggregateViolations": 0,
+      "sessionsWithSuspendedClaim": 16,
+      "idleOutcomes": [
+        {
+          "o": "succeeded",
+          "c": 16
+        }
+      ],
+      "perSession": [
+        {
+          "s": "nuZp51",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "4cR3s8",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "h5jKb2",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "rAxhmw",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "6vkT5S",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "SPCtVt",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "6EngNW",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "QnVD3q",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "57zakS",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "llgCfG",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "0t5QP8",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "A57Fzq",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "EUIU1c",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "AYu5x2",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "Ba5bJS",
+          "es": 65,
+          "mm": 63,
+          "me": null
+        },
+        {
+          "s": "HhV6w4",
+          "es": 70,
+          "mm": 63,
+          "me": null
+        }
+      ]
+    },
+    {
+      "when": "after SIGKILL mid-turn (server stopped)",
+      "copied": [
+        "opencode.db",
+        "opencode.db-wal",
+        "opencode.db-shm"
+      ],
+      "quickCheck": [
+        "ok"
+      ],
+      "sessions": 16,
+      "sessionMessageRows": 440,
+      "eventRows": 0,
+      "eventSequenceRows": 17,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "violatingSessions": 0,
+      "violations": [],
+      "otherAggregateViolations": 0,
+      "sessionsWithSuspendedClaim": 16,
+      "idleOutcomes": [
+        {
+          "o": "succeeded",
+          "c": 16
+        }
+      ],
+      "perSession": [
+        {
+          "s": "nuZp51",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "4cR3s8",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "h5jKb2",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "rAxhmw",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "6vkT5S",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "SPCtVt",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "6EngNW",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "QnVD3q",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "57zakS",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "llgCfG",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "0t5QP8",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "A57Fzq",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "EUIU1c",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "AYu5x2",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        },
+        {
+          "s": "Ba5bJS",
+          "es": 126,
+          "mm": 125,
+          "me": null
+        },
+        {
+          "s": "HhV6w4",
+          "es": 136,
+          "mm": 132,
+          "me": null
+        }
+      ]
+    },
+    {
+      "when": "after final idle SIGTERM (server stopped)",
+      "copied": [
+        "opencode.db"
+      ],
+      "quickCheck": [
+        "ok"
+      ],
+      "sessions": 16,
+      "sessionMessageRows": 632,
+      "eventRows": 0,
+      "eventSequenceRows": 17,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "violatingSessions": 0,
+      "violations": [],
+      "otherAggregateViolations": 0,
+      "sessionsWithSuspendedClaim": 0,
+      "idleOutcomes": [
+        {
+          "o": "succeeded",
+          "c": 16
+        }
+      ],
+      "perSession": [
+        {
+          "s": "nuZp51",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "4cR3s8",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "h5jKb2",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "rAxhmw",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "6vkT5S",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "SPCtVt",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "6EngNW",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "QnVD3q",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "57zakS",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "llgCfG",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "0t5QP8",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "A57Fzq",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "EUIU1c",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "AYu5x2",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        },
+        {
+          "s": "Ba5bJS",
+          "es": 183,
+          "mm": 183,
+          "me": null
+        },
+        {
+          "s": "HhV6w4",
+          "es": 194,
+          "mm": 194,
+          "me": null
+        }
+      ]
+    }
+  ],
+  "toolEventCounts": {
+    "s1:session.tool.called:write": 16,
+    "s1:session.tool.success:write": 16,
+    "s1:session.tool.called:shell": 24,
+    "s1:session.tool.called:edit": 16,
+    "s1:session.tool.success:edit": 16,
+    "s1:session.tool.success:shell": 16,
+    "s2:session.tool.called:shell": 35,
+    "s2:session.tool.success:shell": 27,
+    "s2:session.tool.called:write": 11,
+    "s2:session.tool.success:write": 11,
+    "s2:session.tool.called:edit": 10,
+    "s2:session.tool.success:edit": 10,
+    "s3:session.tool.failed:shell:Tool execution interrupted: shell": 8,
+    "s3:session.tool.called:shell": 27,
+    "s3:session.tool.success:shell": 27,
+    "s3:session.tool.called:write": 11,
+    "s3:session.tool.success:write": 11,
+    "s3:session.tool.called:edit": 10,
+    "s3:session.tool.success:edit": 10
+  },
+  "turnsTotal": 176,
+  "turnOutcomes": {
+    "session.execution.succeeded": 144,
+    "server_exited_no_terminal": 32
+  },
+  "turnsByPhase": {
+    "A": {
+      "session.execution.succeeded": 48
+    },
+    "K1-SIGTERM": {
+      "server_exited_no_terminal": 16
+    },
+    "R1-continue": {
+      "session.execution.succeeded": 16
+    },
+    "B": {
+      "session.execution.succeeded": 32
+    },
+    "K2-SIGKILL": {
+      "server_exited_no_terminal": 16
+    },
+    "R2-continue": {
+      "session.execution.succeeded": 16
+    },
+    "C": {
+      "session.execution.succeeded": 32
+    }
+  },
+  "nonTerminalTurnsOutsideKillRounds": [],
+  "failedTurnsOutsideKillRounds": [],
+  "sideEffects": {
+    "slowShellDoneFiles_SIGTERM": 0,
+    "slowShellDoneFiles_SIGKILL": 8,
+    "slowShellTurnsPerKill": 8
+  },
+  "grep": {
+    "regex": "UNIQUE constraint failed|SQLITE_CONSTRAINT|Sequence mismatch|Replay diverged|already exists at aggregate|InvalidDurableEvent",
+    "method": "grep -c -E <regex> <file> per file",
+    "serverLogs": {
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/server-1.log": 0,
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/server-2.log": 0,
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/server-3.log": 0
+    },
+    "eventStreams": {
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/events-1.jsonl": 0,
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/events-2.jsonl": 0,
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/events-3.jsonl": 0
+    },
+    "control": {
+      "file": "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/planted-control.log",
+      "linesPlanted": 6,
+      "totalMatched": 6,
+      "perPattern": {
+        "UNIQUE constraint failed": 1,
+        "SQLITE_CONSTRAINT": 1,
+        "Sequence mismatch": 1,
+        "Replay diverged": 1,
+        "already exists at aggregate": 1,
+        "InvalidDurableEvent": 1
+      }
+    },
+    "errorLevelLines": {
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/server-1.log": 0,
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/server-2.log": 0,
+      "/tmp/t-4840abc5/run/cc-p7b-1792890479127-r3/server-3.log": 0
+    },
+    "distinctErrorMessages": []
+  },
+  "processes": {
+    "mockPid": 4073828
+  }
+}

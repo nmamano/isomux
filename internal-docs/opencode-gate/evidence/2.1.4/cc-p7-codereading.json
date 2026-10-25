@@ -1,0 +1,38 @@
+{
+  "item": "P7 code reading (read only)",
+  "date": "2026-10-25",
+  "tree": "isomux worktree server/ (task 4840abc5 checkout)",
+  "method": "grep -rn over server/ (non-test .ts) for resolveOpenCodeBinary, OPENCODE_BINARY, opencode-linux/darwin, spawn(, Bun.spawn, spawnSync(, host.run(; then reading the hits",
+  "opencodeSpawnSites": [
+    {"where": "backends/opencode/start-server.ts:267-308", "what": "the only spawn of the opencode binary: spawn(binary, ['serve','--hostname','127.0.0.1','--port','0',...], detached:true), then child.unref()"},
+    {"where": "backends/opencode/supervisor.ts:473 (startServer) and :391 (performShutdown)", "what": "host.run(helperCommand()) runs start-server.ts as a helper: flock --exclusive <profile>/server.lock bun run start-server.ts on Linux (:408-418); on macOS the helper locks itself (start-server.ts:52-55)"},
+    {"where": "backends/opencode/runtime.ts:23-66", "what": "resolveOpenCodeBinary: node_modules/opencode-<os>-<arch>[-baseline|-musl]/bin/opencode; called once per supervisor (supervisor.ts:426)"},
+    {"note": "No other spawn/Bun.spawn/spawnSync/host.run site in server/ runs opencode (runtime.ts:69 runs sysctl; the rest are unrelated tools). Supervisors: the default openCodeSupervisor (supervisor.ts:662, profile <AGENT_ROOT>/opencode/profiles/default) and one per environment profile (supervisor.ts:753-781, keyed by profile folder name). runAtServerStop stops all of them (supervisor.ts:784-791)."}
+  ],
+  "cases": {
+    "1_stop_refuses_unverifiable_pid": {
+      "code": "start-server.ts:128-134 returns without signalling when processIdentityMatches(pid,startTicks) is false; the stop action then writes an empty record (:57-63); the start path continues to spawn (:210 then :267)",
+      "twoServersPossible": true,
+      "when": "the recorded server is still alive but its identity cannot be verified: record without startTicks (older record shape), or /proc/<pid>/stat unreadable. A record without startTicks whose server answers 'busy' (slow) is not adoptable (:115-117), stop refuses, and a new server is spawned on the same profile while the old one keeps the database open. A dead pid or a reused pid is not an overlap."
+    },
+    "2_sigkill_without_wait": {
+      "code": "start-server.ts:135-146: SIGTERM, poll 40 x 25 ms (about 1 s), SIGKILL, return without waiting for exit; the caller then spawns at once",
+      "twoServersPossible": "only for a very short window (milliseconds) until the kernel reaps the killed process; a process stuck in uninterruptible IO could stay longer. SQLite releases its locks at process death, so after the kill it does not compete as a writer.",
+      "measured": "P7b (2026-10-25): 2.1.4 with 16 turns in flight took 0.52-1.14 s to exit on SIGTERM (cc-p7b-run1..3.json restarts[0].exitMs: 1138, 716, 803; earlier draft 521), so Isomux's ~1 s grace would SIGKILL it in some runs. The kill hits the pid only, not the process group (the server is its own group leader via detached:true): in every SIGKILL round 8/8 running shell tools survived the server and wrote their file after it died (orphanShellProcessesRightAfterExit=8, slowShellDoneFiles_SIGKILL=8; SIGTERM: 0 and 0)."
+    },
+    "3_second_isomux_same_state_root": {
+      "code": "each Isomux process has its own in-memory supervisors; every start/stop goes through the helper under flock on <profile>/server.lock, and the helper stops any prior server before it spawns (start-server.ts:194-210)",
+      "twoServersPossible": "not through the normal path: a second process adopts the first's server when revisions and safety plugin hash match (start-server.ts:101-118), otherwise it stops it (mid-turn) and starts its own; the first process later finds its pid gone (supervisor.ts:519-523) and does the same. They take turns killing each other's server (and an idle reap or office stop in one process stops the server the other is using, supervisor.ts:380-403), but under the lock only one is alive, except through holes 1 and 2. No single-instance guard on the state root was found besides the office port bind."
+    },
+    "4_first_boot_v2_isomux_with_live_v1_server": {
+      "adoptableRefuses": "yes, if the v2 Isomux keeps today's comparison: record.binary is node_modules/opencode-linux-x64/bin/opencode (1.18.35) and the 2.1.4 binary is node_modules/@opencode/cli-linux-x64/bin/opencode, so record.binary !== binary (start-server.ts:103); the safety plugin hash and config revision would also differ (:105-107).",
+      "stoppedBeforeNewServer": "yes when identity verifies: :210 stop(prior) runs before the spawn at :267, with the 1 s grace and the SIGKILL-without-wait of case 2. If identity does not verify (case 1), 2.1.4 starts on top of the live 1.18.35, which is exactly P7a's cut-over overlap: it starts, migrates the database under the live v1 server, and both serve with no error (cc-p7a-overlap.json case cutover).",
+      "requires": "the v2 Isomux must keep the same record file (server.lock), the same lock, and run stop(prior) before spawning; it must not move to a new record path or skip the old record."
+    },
+    "5_rollback_today_code_finds_live_2_1_4_record": {
+      "adopts": "no, if the v2 record's binary field is the 2.1.4 path: today's binary is the 1.18.35 path (start-server.ts:103). A different safetyPlugin hash also refuses it (:107).",
+      "v2RecordMustContain": "same file <profile>/server.lock, valid JSON, binary = the 2.1.4 path (anything != the 1.18.35 path), pid as a number, startTicks in today's format (Linux /proc/<pid>/stat field 22 as a decimal string; macOS microsecond start time). Missing or renamed pid/startTicks makes today's stop() refuse (case 1) and spawn 1.18.35 on top of the live 2.1.4. An unparsable record or a record under another file name makes readRecord() return null (:120-126): no stop at all, so 1.18.35 starts beside 2.1.4.",
+      "todayStopDoesTo2_1_4": "SIGTERM, ~1 s, then SIGKILL of the pid only (:128-147), then spawns 1.18.35 on the migrated database. Measured: 1.18.35 then starts and serves its old sessions on a migrated database (cutover v1RestartAloneAfterMigration), but sees none of the 2.1.4-created sessions or 2.1.4 turns; on a database that 2.1.4 created (no v1 session table) 1.18.35 refuses to start: 'Database is not empty and has no session table' (case rollback-fresh)."
+    }
+  }
+}

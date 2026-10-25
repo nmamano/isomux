@@ -1,0 +1,258 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "item": "P4",
+  "parts": {
+    "c": {
+      "OPENCODE_CONFIG": {
+        "withOPENCODE_CONFIG": {
+          "end": "session.execution.succeeded",
+          "mockRequestsWithMarker": 2,
+          "answerHasMarker": true,
+          "failure": null,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c1-true/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c1-file/isomux-config.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            }
+          ]
+        },
+        "control_without": {
+          "end": "session.execution.succeeded",
+          "mockRequestsWithMarker": 0,
+          "answerHasMarker": false,
+          "failure": null,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c1-false/config/opencode"
+            }
+          ]
+        },
+        "note": "control_without: the mock got 0 requests, yet the turn succeeded: v2 fell back to OpenCode's free cloud model (opencode/big-pickle, from events model field). See pm-p4-free-models.json: OPENCODE_DISABLE_FREE_MODELS=1 stops that fallback."
+      },
+      "OPENCODE_CONFIG_CONTENT": {
+        "content_valid": {
+          "shellOutcome": "ask:shell",
+          "meaning": "build agent (content default_agent and shell ask applied)",
+          "sessionAgent": null,
+          "pathlessDocumentPresent": true,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c2-content_valid/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-content_valid/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-repo-content_valid/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            },
+            {
+              "type": "document",
+              "path": null,
+              "keys": [
+                "default_agent",
+                "permissions"
+              ]
+            }
+          ],
+          "logRejectedMalformed": 0,
+          "logMentionsContentSource": 0
+        },
+        "content_malformed": {
+          "shellOutcome": "deny(tool removed)",
+          "meaning": "proj agent (project default_agent won)",
+          "sessionAgent": null,
+          "pathlessDocumentPresent": false,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c2-content_malformed/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-content_malformed/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-repo-content_malformed/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            }
+          ],
+          "logRejectedMalformed": 2,
+          "logMentionsContentSource": 2
+        },
+        "control_no_content": {
+          "shellOutcome": "deny(tool removed)",
+          "meaning": "proj agent (project default_agent won)",
+          "sessionAgent": null,
+          "pathlessDocumentPresent": false,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c2-control_no_content/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-control_no_content/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-repo-control_no_content/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            }
+          ],
+          "logRejectedMalformed": 0,
+          "logMentionsContentSource": 0
+        }
+      },
+      "OPENCODE_CONFIG_DIR": {
+        "withOPENCODE_CONFIG_DIR": {
+          "pollOk": true,
+          "hasXdgMarker": false,
+          "hasDirMarker": true,
+          "documents": [
+            {
+              "type": "document",
+              "path": "<run>/c4-true-userdir/opencode.json",
+              "keys": [
+                "agents"
+              ]
+            },
+            {
+              "type": "directory",
+              "path": "<run>/c4-true-userdir"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c4-true/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            }
+          ],
+          "hasXdgMarkerAfter2s": false
+        },
+        "control_without": {
+          "pollOk": true,
+          "hasXdgMarker": true,
+          "hasDirMarker": false,
+          "documents": [
+            {
+              "type": "document",
+              "path": "<run>/c4-false/config/opencode/opencode.json",
+              "keys": [
+                "agents"
+              ]
+            },
+            {
+              "type": "directory",
+              "path": "<run>/c4-false/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c4-false/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            }
+          ]
+        }
+      },
+      "OPENCODE_DISABLE_AUTOUPDATE": {
+        "OPENCODE_DISABLE_AUTOUPDATE=1": {
+          "proxiedRequests": [
+            "CONNECT models.opencode.ai:443"
+          ],
+          "count": 3,
+          "updateLike": 3,
+          "updateLike_note": "field 'updateLike' used a regex that also matched models.opencode.ai (the models catalog, the positive control); corrected count below",
+          "updateHostRequests": 0,
+          "updateHosts_source": "cli/src/services/updater.ts:283-284 (opencode.ai/update/api/..., formulae.brew.sh), :482 (opencode.ai/v2/install)"
+        },
+        "unset_and_no_update_key": {
+          "proxiedRequests": [
+            "CONNECT models.opencode.ai:443"
+          ],
+          "count": 3,
+          "updateLike": 3,
+          "updateLike_note": "field 'updateLike' used a regex that also matched models.opencode.ai (the models catalog, the positive control); corrected count below",
+          "updateHostRequests": 0,
+          "updateHosts_source": "cli/src/services/updater.ts:283-284 (opencode.ai/update/api/..., formulae.brew.sh), :482 (opencode.ai/v2/install)"
+        },
+        "method": "CONNECT-logging proxy via HTTPS_PROXY/HTTP_PROXY (NO_PROXY=127.0.0.1), one prompt, 8 s idle; with the env var and without it (config 'update' key also removed)"
+      },
+      "auth": {
+        "OPENCODE_SERVER_USERNAME": {
+          "set": "isomux",
+          "isomux_user_status": 401,
+          "opencode_user_status": 200,
+          "wrong_password_status": 401
+        },
+        "shellEnvCounts_OPENCODE_SERVER_PASSWORD_mode": {
+          "OPENCODE_SERVER_PASSWORD": "1",
+          "OPENCODE_SERVER_USERNAME": "1",
+          "control_XDG_CONFIG_HOME": "1",
+          "control_GATE_API_KEY": "1"
+        },
+        "OPENCODE_PASSWORD_only": {
+          "right_status": 200,
+          "wrong_status": 401
+        },
+        "shellEnvCounts_OPENCODE_PASSWORD_mode": {
+          "OPENCODE_PASSWORD": "1"
+        },
+        "both_set_different": {
+          "OPENCODE_PASSWORD_value_status": 200,
+          "OPENCODE_SERVER_PASSWORD_value_status": 401
+        },
+        "OPENCODE_SERVER_PASSWORD_only": {
+          "right_status": 200,
+          "wrong_status": 401,
+          "no_auth_status": 401
+        }
+      }
+    }
+  }
+}

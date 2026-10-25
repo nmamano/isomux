@@ -1,0 +1,2506 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "item": "P1",
+  "method": "Per variant: fresh profile; OPENCODE_CONFIG file = mock provider + Isomux v2 config; OPENCODE_CONFIG_CONTENT = Isomux v2 config (as start-server.ts does). GET /api/config and GET /api/agent with x-opencode-directory=<repo>. Then per agent and action: POST /api/session {location, agent}, prompt with GATE_CALL, every permission.asked in the session tree answered 'once', outcome from permission.asked / session.tool.success / session.tool.failed.",
+  "variants": {
+    "literal": {
+      "config_top_layer": {
+        "update": "disable",
+        "default_agent": "build",
+        "permissions": [
+          {
+            "action": "shell",
+            "resource": "*",
+            "effect": "ask"
+          },
+          {
+            "action": "edit",
+            "resource": "*",
+            "effect": "ask"
+          },
+          {
+            "action": "question",
+            "resource": "*",
+            "effect": "deny"
+          },
+          {
+            "action": "isomux_safety_active",
+            "resource": "*",
+            "effect": "deny"
+          }
+        ],
+        "agents": {
+          "build": {
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          },
+          "isomux-interactive-bypass": {
+            "description": "Isomux interactive non-asking agent",
+            "mode": "primary",
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "subagent",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          },
+          "isomux-cron": {
+            "description": "Isomux unattended cron run",
+            "mode": "primary",
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "subagent",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          }
+        }
+      },
+      "agents_api": {
+        "build": {
+          "mode": "primary",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "allow"
+            }
+          ]
+        },
+        "general": {
+          "mode": "subagent",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "deny"
+            },
+            {
+              "action": "subagent",
+              "resource": "*",
+              "effect": "deny"
+            }
+          ]
+        }
+      },
+      "calls": {
+        "build": {
+          "shell": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "printf p1 > p1-shell.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "(no output)"
+              }
+            ]
+          },
+          "edit": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "README.md"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Edited README.md (1 replacement)"
+              }
+            ]
+          },
+          "write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "p1-write.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: p1-write.txt"
+              }
+            ]
+          },
+          "question": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"question\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "subagent": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<subagent sessionID=\"ses_e8f631e69ffeh5qz7HVOK1z0UG\" state=\"completed\">\nANSWER:You are a subagent spawned by another session. say hi\n</subagent>"
+              }
+            ]
+          },
+          "read": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file README.md, lines 1-1\n1: gate repo edited"
+              }
+            ]
+          },
+          "read_env": {
+            "expected": "ask",
+            "outcome": "ask:read",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "read",
+                "resources": [
+                  ".env"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file .env, lines 1-1\n1: GATE_ENV_FILE=1"
+              }
+            ]
+          },
+          "webfetch": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "{\"ok\":true}"
+              }
+            ]
+          },
+          "glob": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<run>/literal/repo-build/README.md"
+              }
+            ]
+          },
+          "grep": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Found 1 matches\n<run>/literal/repo-build/README.md:\n  Line 1: gate repo edited\n"
+              }
+            ]
+          },
+          "ext_read": {
+            "expected": "ask",
+            "outcome": "allow",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file <run>/outside/secret.txt, lines 1-1\n1: outside-file"
+              }
+            ]
+          },
+          "ext_write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "<run>/outside/new.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: <run>/outside/new.txt"
+              }
+            ]
+          },
+          "ext_shell_workdir": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cd": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cat": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "cat <run>/outside/secret.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "outside-file\n"
+              }
+            ]
+          }
+        },
+        "isomux-interactive-bypass": {
+          "shell": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "printf p1 > p1-shell.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "(no output)"
+              }
+            ]
+          },
+          "edit": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "README.md"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Edited README.md (1 replacement)"
+              }
+            ]
+          },
+          "write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "p1-write.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: p1-write.txt"
+              }
+            ]
+          },
+          "question": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"question\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "subagent": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<subagent sessionID=\"ses_e8f63060cffea5iLTK430gvkPL\" state=\"completed\">\nANSWER:You are a subagent spawned by another session. say hi\n</subagent>"
+              }
+            ]
+          },
+          "read": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file README.md, lines 1-1\n1: gate repo edited"
+              }
+            ]
+          },
+          "read_env": {
+            "expected": "ask",
+            "outcome": "ask:read",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "read",
+                "resources": [
+                  ".env"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file .env, lines 1-1\n1: GATE_ENV_FILE=1"
+              }
+            ]
+          },
+          "webfetch": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "{\"ok\":true}"
+              }
+            ]
+          },
+          "glob": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<run>/literal/repo-isomux-interactive-bypass/README.md"
+              }
+            ]
+          },
+          "grep": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Found 1 matches\n<run>/literal/repo-isomux-interactive-bypass/README.md:\n  Line 1: gate repo edited\n"
+              }
+            ]
+          },
+          "ext_read": {
+            "expected": "ask",
+            "outcome": "allow",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file <run>/outside/secret.txt, lines 1-1\n1: outside-file"
+              }
+            ]
+          },
+          "ext_write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "<run>/outside/new.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Wrote file successfully: <run>/outside/new.txt"
+              }
+            ]
+          },
+          "ext_shell_workdir": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cd": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cat": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "cat <run>/outside/secret.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "outside-file\n"
+              }
+            ]
+          }
+        },
+        "isomux-cron": {
+          "shell": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "printf p1 > p1-shell.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "(no output)"
+              }
+            ]
+          },
+          "edit": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "README.md"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Edited README.md (1 replacement)"
+              }
+            ]
+          },
+          "write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "p1-write.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: p1-write.txt"
+              }
+            ]
+          },
+          "question": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"question\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "subagent": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"subagent\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "read": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file README.md, lines 1-1\n1: gate repo edited"
+              }
+            ]
+          },
+          "read_env": {
+            "expected": "ask",
+            "outcome": "ask:read",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "read",
+                "resources": [
+                  ".env"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file .env, lines 1-1\n1: GATE_ENV_FILE=1"
+              }
+            ]
+          },
+          "webfetch": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "{\"ok\":true}"
+              }
+            ]
+          },
+          "glob": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<run>/literal/repo-isomux-cron/README.md"
+              }
+            ]
+          },
+          "grep": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Found 1 matches\n<run>/literal/repo-isomux-cron/README.md:\n  Line 1: gate repo edited\n"
+              }
+            ]
+          },
+          "ext_read": {
+            "expected": "ask",
+            "outcome": "allow",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file <run>/outside/secret.txt, lines 1-1\n1: outside-file"
+              }
+            ]
+          },
+          "ext_write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "<run>/outside/new.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Wrote file successfully: <run>/outside/new.txt"
+              }
+            ]
+          },
+          "ext_shell_workdir": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cd": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cat": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "cat <run>/outside/secret.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "outside-file\n"
+              }
+            ]
+          }
+        }
+      },
+      "mismatches": [
+        {
+          "agent": "build",
+          "action": "ext_read",
+          "expected": "ask",
+          "outcome": "allow"
+        },
+        {
+          "agent": "build",
+          "action": "ext_write",
+          "expected": "ask",
+          "outcome": "ask:edit"
+        },
+        {
+          "agent": "build",
+          "action": "ext_shell_workdir",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "build",
+          "action": "ext_shell_cd",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "build",
+          "action": "ext_shell_cat",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-interactive-bypass",
+          "action": "ext_read",
+          "expected": "ask",
+          "outcome": "allow"
+        },
+        {
+          "agent": "isomux-interactive-bypass",
+          "action": "ext_write",
+          "expected": "ask",
+          "outcome": "ask:edit"
+        },
+        {
+          "agent": "isomux-interactive-bypass",
+          "action": "ext_shell_workdir",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-interactive-bypass",
+          "action": "ext_shell_cd",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-interactive-bypass",
+          "action": "ext_shell_cat",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-cron",
+          "action": "ext_read",
+          "expected": "ask",
+          "outcome": "allow"
+        },
+        {
+          "agent": "isomux-cron",
+          "action": "ext_write",
+          "expected": "ask",
+          "outcome": "ask:edit"
+        },
+        {
+          "agent": "isomux-cron",
+          "action": "ext_shell_workdir",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-cron",
+          "action": "ext_shell_cd",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-cron",
+          "action": "ext_shell_cat",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        }
+      ],
+      "config_api": {
+        "status": 200,
+        "documents": [
+          {
+            "type": "directory",
+            "path": "<run>/literal/config/opencode"
+          },
+          {
+            "type": "document",
+            "path": "<run>/literal/opencode.json",
+            "keys": [
+              "model",
+              "default_agent",
+              "update",
+              "permissions",
+              "agents",
+              "providers"
+            ],
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          },
+          {
+            "type": "document",
+            "path": "<run>/literal/opencode.json",
+            "keys": [
+              "model",
+              "default_agent",
+              "update",
+              "permissions",
+              "agents",
+              "providers"
+            ],
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          },
+          {
+            "type": "document",
+            "path": null,
+            "keys": [
+              "default_agent",
+              "update",
+              "permissions",
+              "agents"
+            ],
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          }
+        ]
+      },
+      "agents_api_status": 200,
+      "agents_api_note": "GET /api/agent was taken right after server start, before plugin activation finished for that directory: it lists only part of the catalog (no Isomux agents, build without config rules). pm-p4-layers-a.json agentCatalog: first response for a fresh directory is [], the Isomux agents appear after ~1.9 s; effectiveAgentRules there show the full assembled rules."
+    },
+    "proposed": {
+      "config_top_layer": {
+        "update": "disable",
+        "default_agent": "build",
+        "permissions": [
+          {
+            "action": "shell",
+            "resource": "*",
+            "effect": "ask"
+          },
+          {
+            "action": "edit",
+            "resource": "*",
+            "effect": "ask"
+          },
+          {
+            "action": "question",
+            "resource": "*",
+            "effect": "deny"
+          },
+          {
+            "action": "isomux_safety_active",
+            "resource": "*",
+            "effect": "deny"
+          },
+          {
+            "action": "external_directory",
+            "resource": "*",
+            "effect": "ask"
+          }
+        ],
+        "agents": {
+          "build": {
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          },
+          "isomux-interactive-bypass": {
+            "description": "Isomux interactive non-asking agent",
+            "mode": "primary",
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "subagent",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          },
+          "isomux-cron": {
+            "description": "Isomux unattended cron run",
+            "mode": "primary",
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "subagent",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              }
+            ]
+          }
+        }
+      },
+      "agents_api": {
+        "build": {
+          "mode": "primary",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "allow"
+            }
+          ]
+        },
+        "general": {
+          "mode": "subagent",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "ask"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "deny"
+            },
+            {
+              "action": "subagent",
+              "resource": "*",
+              "effect": "deny"
+            }
+          ]
+        }
+      },
+      "calls": {
+        "build": {
+          "shell": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "printf p1 > p1-shell.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "(no output)"
+              }
+            ]
+          },
+          "edit": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "README.md"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Edited README.md (1 replacement)"
+              }
+            ]
+          },
+          "write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "p1-write.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: p1-write.txt"
+              }
+            ]
+          },
+          "question": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"question\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "subagent": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<subagent sessionID=\"ses_e8f62cb87ffetLdzENP9NRMwNH\" state=\"completed\">\nANSWER:You are a subagent spawned by another session. say hi\n</subagent>"
+              }
+            ]
+          },
+          "read": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file README.md, lines 1-1\n1: gate repo edited"
+              }
+            ]
+          },
+          "read_env": {
+            "expected": "ask",
+            "outcome": "ask:read",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "read",
+                "resources": [
+                  ".env"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file .env, lines 1-1\n1: GATE_ENV_FILE=1"
+              }
+            ]
+          },
+          "webfetch": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "{\"ok\":true}"
+              }
+            ]
+          },
+          "glob": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<run>/proposed/repo-build/README.md"
+              }
+            ]
+          },
+          "grep": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Found 1 matches\n<run>/proposed/repo-build/README.md:\n  Line 1: gate repo edited\n"
+              }
+            ]
+          },
+          "ext_read": {
+            "expected": "ask",
+            "outcome": "ask:external_directory",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file <run>/outside/secret.txt, lines 1-1\n1: outside-file"
+              }
+            ]
+          },
+          "ext_write": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "<run>/outside/new.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Wrote file successfully: <run>/outside/new.txt"
+              }
+            ]
+          },
+          "ext_shell_workdir": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cd": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cat": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "cat <run>/outside/secret.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "outside-file\n"
+              }
+            ]
+          }
+        },
+        "isomux-interactive-bypass": {
+          "shell": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "printf p1 > p1-shell.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "(no output)"
+              }
+            ]
+          },
+          "edit": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "README.md"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Edited README.md (1 replacement)"
+              }
+            ]
+          },
+          "write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "p1-write.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: p1-write.txt"
+              }
+            ]
+          },
+          "question": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"question\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "subagent": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<subagent sessionID=\"ses_e8f62b29fffeTF6tfk208y9Vxm\" state=\"completed\">\nANSWER:You are a subagent spawned by another session. say hi\n</subagent>"
+              }
+            ]
+          },
+          "read": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file README.md, lines 1-1\n1: gate repo edited"
+              }
+            ]
+          },
+          "read_env": {
+            "expected": "ask",
+            "outcome": "ask:read",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "read",
+                "resources": [
+                  ".env"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file .env, lines 1-1\n1: GATE_ENV_FILE=1"
+              }
+            ]
+          },
+          "webfetch": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "{\"ok\":true}"
+              }
+            ]
+          },
+          "glob": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<run>/proposed/repo-isomux-interactive-bypass/README.md"
+              }
+            ]
+          },
+          "grep": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Found 1 matches\n<run>/proposed/repo-isomux-interactive-bypass/README.md:\n  Line 1: gate repo edited\n"
+              }
+            ]
+          },
+          "ext_read": {
+            "expected": "ask",
+            "outcome": "ask:external_directory",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file <run>/outside/secret.txt, lines 1-1\n1: outside-file"
+              }
+            ]
+          },
+          "ext_write": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "<run>/outside/new.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Wrote file successfully: <run>/outside/new.txt"
+              }
+            ]
+          },
+          "ext_shell_workdir": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cd": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cat": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "cat <run>/outside/secret.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "outside-file\n"
+              }
+            ]
+          }
+        },
+        "isomux-cron": {
+          "shell": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "printf p1 > p1-shell.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "(no output)"
+              }
+            ]
+          },
+          "edit": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "README.md"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Edited README.md (1 replacement)"
+              }
+            ]
+          },
+          "write": {
+            "expected": "ask",
+            "outcome": "ask:edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "p1-write.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Created file successfully: p1-write.txt"
+              }
+            ]
+          },
+          "question": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"question\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "subagent": {
+            "expected": "deny",
+            "outcome": "deny(tool removed)",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.failed",
+                "error": "No tool named \"subagent\" is currently available. Please use a tool from the available tool list."
+              }
+            ]
+          },
+          "read": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file README.md, lines 1-1\n1: gate repo edited"
+              }
+            ]
+          },
+          "read_env": {
+            "expected": "ask",
+            "outcome": "ask:read",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "read",
+                "resources": [
+                  ".env"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file .env, lines 1-1\n1: GATE_ENV_FILE=1"
+              }
+            ]
+          },
+          "webfetch": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "{\"ok\":true}"
+              }
+            ]
+          },
+          "glob": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "<run>/proposed/repo-isomux-cron/README.md"
+              }
+            ]
+          },
+          "grep": {
+            "expected": "allow",
+            "outcome": "allow",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Found 1 matches\n<run>/proposed/repo-isomux-cron/README.md:\n  Line 1: gate repo edited\n"
+              }
+            ]
+          },
+          "ext_read": {
+            "expected": "ask",
+            "outcome": "ask:external_directory",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Read file <run>/outside/secret.txt, lines 1-1\n1: outside-file"
+              }
+            ]
+          },
+          "ext_write": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,edit",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "edit",
+                "resources": [
+                  "<run>/outside/new.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "Wrote file successfully: <run>/outside/new.txt"
+              }
+            ]
+          },
+          "ext_shell_workdir": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cd": {
+            "expected": "ask",
+            "outcome": "ask:external_directory,shell",
+            "match": true,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "external_directory",
+                "resources": [
+                  "<run>/outside/*"
+                ],
+                "decision": "once"
+              },
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "ls"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "new.txt\nsecret.txt\n"
+              }
+            ]
+          },
+          "ext_shell_cat": {
+            "expected": "ask",
+            "outcome": "ask:shell",
+            "match": false,
+            "end": "session.execution.succeeded",
+            "asks": [
+              {
+                "session": "self",
+                "action": "shell",
+                "resources": [
+                  "cat <run>/outside/secret.txt"
+                ],
+                "decision": "once"
+              }
+            ],
+            "tools": [
+              {
+                "session": "self",
+                "type": "session.tool.success",
+                "output": "outside-file\n"
+              }
+            ]
+          }
+        }
+      },
+      "mismatches": [
+        {
+          "agent": "build",
+          "action": "ext_shell_cat",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-interactive-bypass",
+          "action": "ext_shell_cat",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        },
+        {
+          "agent": "isomux-cron",
+          "action": "ext_shell_cat",
+          "expected": "ask",
+          "outcome": "ask:shell"
+        }
+      ],
+      "config_api": {
+        "status": 200,
+        "documents": [
+          {
+            "type": "directory",
+            "path": "<run>/proposed/config/opencode"
+          },
+          {
+            "type": "document",
+            "path": "<run>/proposed/opencode.json",
+            "keys": [
+              "model",
+              "default_agent",
+              "update",
+              "permissions",
+              "agents",
+              "providers"
+            ],
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              }
+            ]
+          },
+          {
+            "type": "document",
+            "path": "<run>/proposed/opencode.json",
+            "keys": [
+              "model",
+              "default_agent",
+              "update",
+              "permissions",
+              "agents",
+              "providers"
+            ],
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              }
+            ]
+          },
+          {
+            "type": "document",
+            "path": null,
+            "keys": [
+              "default_agent",
+              "update",
+              "permissions",
+              "agents"
+            ],
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              }
+            ]
+          }
+        ]
+      },
+      "agents_api_status": 200,
+      "agents_api_note": "GET /api/agent was taken right after server start, before plugin activation finished for that directory: it lists only part of the catalog (no Isomux agents, build without config rules). pm-p4-layers-a.json agentCatalog: first response for a fresh directory is [], the Isomux agents appear after ~1.9 s; effectiveAgentRules there show the full assembled rules."
+    }
+  },
+  "ext_shell_cat_note": "v2 raises external_directory for shell only for workdir and cd/chdir/pushd/popd targets (src packages/core/src/shell/parse.ts:14,191-193). 1.18.35 also checked rm/cp/mv/mkdir/touch/chmod/chown/cat arguments (string 'Bi=new Set([...He,\"rm\",\"cp\",\"mv\",\"mkdir\",\"touch\",\"chmod\",\"chown\",\"cat\",...])' in the v1 binary; static, not run). With Isomux's shell:ask the call still asks, as action shell."
+}

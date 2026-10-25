@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4 (v1 comparison: 1.18.35)",
+  "P1": {
+    "verdict": "PASS-with-condition",
+    "reason": "v2 can express ask for shell and edit and deny for question on build, isomux-interactive-bypass and isomux-cron, and a real tool call confirmed each one (45/45 non-external cells match). A plain key-for-key rename loses v1's default external_directory ask (read outside the session's directory runs with no ask). Isomux must add {external_directory,*,ask}. Even then, a shell that touches an outside path through cat/rm/cp arguments asks only as action shell, not external_directory.",
+    "evidence": ["pm-p1-expected.json", "pm-v1-effective-rules.json", "pm-p1-observed.json"]
+  },
+  "P1_session_permissions": {
+    "verdict": "PASS",
+    "reason": "Rules set in POST /api/session {permissions} win over a project's agent allow-all rules in every case tried (pm-p4-layers-a.json with_session_rules).",
+    "evidence": ["pm-p4-layers-a.json"]
+  },
+  "P2": {
+    "verdict": "PASS-with-condition",
+    "reason": "'always' saves a prefix rule (printf *) for the whole project, so it covers other sessions, a git clone with the same root commit, and new sessions after a restart. Workaround proven: answer once, then PATCH /api/session/:id {permissions}. The PATCH replaces the whole list, so Isomux must send its base rules again. The allow then holds in that session only, survives a restart, and is inherited by children created after the PATCH, but not by a child created before it.",
+    "evidence": ["pm-p2-always-scope.json"]
+  },
+  "P4a": {
+    "verdict": "PASS-with-condition",
+    "reason": "Isomux's top layer wins for every rule it repeats in its own agents.<id> blocks: those come last among agent rules. A rule that is only top-level (external_directory) loses to a project agents.build or .opencode/agents/<isomux agent>.md allow-all. Session-level rules win in every case. Condition: send the full rule set at session create, and pass agent explicitly.",
+    "evidence": ["pm-p4-layers-a.json"]
+  },
+  "P4b": {
+    "verdict": "PASS-with-condition (not measured with content)",
+    "reason": "/etc/opencode does not exist on this box. strace shows the server opens /etc/opencode, /etc/opencode/opencode.json and /etc/opencode/opencode.jsonc (8 lines, ENOENT); the project opencode.json control shows 8 lines. Its effect, being managed and above Isomux, was not measured: creating it needs root.",
+    "evidence": ["pm-p4-layers-b.json"]
+  },
+  "P4c": {
+    "verdict": "PASS-with-condition",
+    "reason": "OPENCODE_CONFIG loads. OPENCODE_CONFIG_CONTENT wins default_agent. Malformed CONTENT is dropped silently: the only signs are a log warning and a missing pathless document in GET /api/config. OPENCODE_CONFIG_DIR replaces XDG_CONFIG_HOME/opencode. serve makes no update request with or without the autoupdate env. OPENCODE_DISABLE_SHARE and OPENCODE_SERVER_USERNAME have 0 readers, and username isomux gets 401. Both password vars work, and OPENCODE_PASSWORD wins. A shell tool sees the password var (count 1).",
+    "evidence": ["pm-p4-layers-c.json", "pm-p4-free-models.json"]
+  }
+}

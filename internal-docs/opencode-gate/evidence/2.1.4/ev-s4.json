@@ -1,0 +1,1290 @@
+{
+  "date": "2026-10-25",
+  "run": "/tmp/t-4840abc5/run/ev-s4-1792890313107",
+  "opencode": "2.1.4",
+  "fixtures": {
+    "text_reasoning": {
+      "sid": "ses_e8f68e2e0ffeRLF2O8EMZ36obo",
+      "terminal": "session.execution.succeeded",
+      "texts": [
+        "ANSWER:EV text streaming check"
+      ],
+      "reasoning": [
+        "gate-reasoning"
+      ],
+      "deltaCount": 1
+    },
+    "shell_allow": {
+      "sid": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+      "asked": {
+        "id": "per_1709729a3001fxEYGmonee55g9",
+        "sessionID": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+        "action": "shell",
+        "resources": [
+          "printf allowed > ev-allow.txt"
+        ],
+        "save": [
+          "printf *"
+        ],
+        "source": {
+          "type": "tool",
+          "messageID": "msg_1709728c1001Lk6sgeuiy2Si48",
+          "id": "call_2"
+        }
+      },
+      "reply": 204,
+      "terminal": "session.execution.succeeded",
+      "file": "allowed",
+      "texts": [
+        "RECOVERED_AFTER_TOOL"
+      ],
+      "replied": [
+        {
+          "sessionID": "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe",
+          "requestID": "per_1709729a3001fxEYGmonee55g9",
+          "reply": "once"
+        }
+      ]
+    },
+    "shell_deny": {
+      "sid": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+      "reply": 204,
+      "terminal": "session.execution.interrupted",
+      "fileExists": false,
+      "toolFailed": [
+        {
+          "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+          "assistantMessageID": "msg_170972ccb00142KF3hH2rGj9XC",
+          "id": "call_4",
+          "error": {
+            "type": "aborted",
+            "message": "The user declined this tool call"
+          },
+          "executed": false
+        }
+      ],
+      "texts": [],
+      "replied": [
+        {
+          "sessionID": "ses_e8f68d3a8ffeRRyU3TTXdllpSj",
+          "requestID": "per_170972d24001BtbLr2PPz2MnCb",
+          "reply": "reject"
+        }
+      ]
+    },
+    "edit_write": {
+      "sid": "ses_e8f68d218ffeOIz135IJmo4IHy",
+      "terminals": [
+        "session.execution.succeeded",
+        "session.execution.succeeded"
+      ],
+      "afterWrite": "alpha beta\n",
+      "afterEdit": "gamma beta\n",
+      "toolTerminals": [
+        {
+          "type": "session.tool.success",
+          "id": "call_6",
+          "metadataKeys": [
+            "truncated"
+          ]
+        },
+        {
+          "type": "session.tool.success",
+          "id": "call_8",
+          "metadataKeys": [
+            "files",
+            "truncated"
+          ]
+        }
+      ],
+      "texts": [
+        "RECOVERED_AFTER_TOOL",
+        "RECOVERED_AFTER_TOOL"
+      ]
+    },
+    "tool_fail": {
+      "sid": "ses_e8f68cda1ffe7OTB5JwG0ANpAA",
+      "terminal": "session.execution.succeeded",
+      "toolTerminals": [
+        {
+          "type": "session.tool.success",
+          "id": "call_10",
+          "content": [
+            {
+              "type": "text",
+              "text": "failed-before-exit"
+            },
+            {
+              "type": "text",
+              "text": "Exited with code 7"
+            }
+          ],
+          "metadata": {
+            "status": "completed",
+            "truncated": false,
+            "exit": 7
+          }
+        }
+      ],
+      "texts": [
+        "RECOVERED_AFTER_TOOL"
+      ]
+    },
+    "abort_plain": {
+      "sid": "ses_e8f68cb29ffeObI42omb1A5UQ0",
+      "interruptQuery": "(none)",
+      "followDelivery": null,
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 28,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        }
+      ],
+      "executionStarted": 1,
+      "followupReachedModel": null,
+      "inboxBefore": {
+        "data": []
+      },
+      "inboxAfter": {
+        "data": []
+      },
+      "toolTerminals": [],
+      "textsEnded": [],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV after abort abort_plain"
+        ],
+        "followupReachedModelAtEnd": null,
+        "terminalsTotal": 2
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "abort_resume_false": {
+      "sid": "ses_e8f68b5e8ffeRBS6B8PbUCnpht",
+      "interruptQuery": "?resume=false",
+      "followDelivery": null,
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 42,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        }
+      ],
+      "executionStarted": 1,
+      "followupReachedModel": null,
+      "inboxBefore": {
+        "data": []
+      },
+      "inboxAfter": {
+        "data": []
+      },
+      "toolTerminals": [],
+      "textsEnded": [],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV after abort abort_resume_false"
+        ],
+        "followupReachedModelAtEnd": null,
+        "terminalsTotal": 2
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "abort_steer_default": {
+      "sid": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+      "interruptQuery": "(none)",
+      "followDelivery": "steer",
+      "followResponse": {
+        "data": {
+          "id": "msg_170976241001lc8jFpjymtlvJb",
+          "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+          "time": {
+            "created": 1792890331714
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_steer_default"
+          },
+          "delivery": "steer"
+        }
+      },
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 35,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        }
+      ],
+      "executionStarted": 1,
+      "followupReachedModel": 0,
+      "inboxBefore": {
+        "data": [
+          {
+            "id": "msg_170976241001lc8jFpjymtlvJb",
+            "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+            "time": {
+              "created": 1792890331714
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_steer_default"
+            },
+            "delivery": "steer"
+          }
+        ]
+      },
+      "inboxAfter": {
+        "data": [
+          {
+            "id": "msg_170976241001lc8jFpjymtlvJb",
+            "sessionID": "ses_e8f68a0b1ffeflItvVlPg9A3zq",
+            "time": {
+              "created": 1792890331714
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_steer_default"
+            },
+            "delivery": "steer"
+          }
+        ]
+      },
+      "toolTerminals": [],
+      "textsEnded": [],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV after abort abort_steer_default"
+        ],
+        "followupReachedModelAtEnd": 0,
+        "terminalsTotal": 2
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "abort_steer_resume_false": {
+      "sid": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+      "interruptQuery": "?resume=false",
+      "followDelivery": "steer",
+      "followResponse": {
+        "data": {
+          "id": "msg_1709777f3001TMKA49QBR9yVES",
+          "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+          "time": {
+            "created": 1792890337269
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_steer_resume_false"
+          },
+          "delivery": "steer"
+        }
+      },
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 44,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        }
+      ],
+      "executionStarted": 1,
+      "followupReachedModel": 0,
+      "inboxBefore": {
+        "data": [
+          {
+            "id": "msg_1709777f3001TMKA49QBR9yVES",
+            "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+            "time": {
+              "created": 1792890337269
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_steer_resume_false"
+            },
+            "delivery": "steer"
+          }
+        ]
+      },
+      "inboxAfter": {
+        "data": [
+          {
+            "id": "msg_1709777f3001TMKA49QBR9yVES",
+            "sessionID": "ses_e8f688b21ffeCmGA1RF1bdE8sy",
+            "time": {
+              "created": 1792890337269
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_steer_resume_false"
+            },
+            "delivery": "steer"
+          }
+        ]
+      },
+      "toolTerminals": [],
+      "textsEnded": [],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV after abort abort_steer_resume_false"
+        ],
+        "followupReachedModelAtEnd": 0,
+        "terminalsTotal": 2
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "abort_steer_resume_true": {
+      "sid": "ses_e8f687551ffehyt9fNIhoPxfsq",
+      "interruptQuery": "?resume=true",
+      "followDelivery": "steer",
+      "followResponse": {
+        "data": {
+          "id": "msg_170978db5001S1iRz63MbYVY40",
+          "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+          "time": {
+            "created": 1792890342839
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_steer_resume_true"
+          },
+          "delivery": "steer"
+        }
+      },
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 101,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        },
+        {
+          "type": "session.execution.succeeded"
+        }
+      ],
+      "executionStarted": 2,
+      "followupReachedModel": 1,
+      "inboxBefore": {
+        "data": [
+          {
+            "id": "msg_170978db5001S1iRz63MbYVY40",
+            "sessionID": "ses_e8f687551ffehyt9fNIhoPxfsq",
+            "time": {
+              "created": 1792890342839
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_steer_resume_true"
+            },
+            "delivery": "steer"
+          }
+        ]
+      },
+      "inboxAfter": {
+        "data": []
+      },
+      "toolTerminals": [],
+      "textsEnded": [
+        "ANSWER:EV_FOLLOWUP_abort_steer_resume_true"
+      ],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV_FOLLOWUP_abort_steer_resume_true",
+          "ANSWER:EV after abort abort_steer_resume_true"
+        ],
+        "followupReachedModelAtEnd": 1,
+        "terminalsTotal": 3
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "abort_queue_default": {
+      "sid": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+      "interruptQuery": "(none)",
+      "followDelivery": "queue",
+      "followResponse": {
+        "data": {
+          "id": "msg_17097a3e5001hB1urj2rQRXS7Q",
+          "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+          "time": {
+            "created": 1792890348519
+          },
+          "type": "user",
+          "payload": {
+            "text": "EV_FOLLOWUP_abort_queue_default"
+          },
+          "delivery": "queue"
+        }
+      },
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 102,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        }
+      ],
+      "executionStarted": 1,
+      "followupReachedModel": 0,
+      "inboxBefore": {
+        "data": [
+          {
+            "id": "msg_17097a3e5001hB1urj2rQRXS7Q",
+            "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+            "time": {
+              "created": 1792890348519
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_queue_default"
+            },
+            "delivery": "queue"
+          }
+        ]
+      },
+      "inboxAfter": {
+        "data": [
+          {
+            "id": "msg_17097a3e5001hB1urj2rQRXS7Q",
+            "sessionID": "ses_e8f685f4dffefRuRvW4BfvZ3LQ",
+            "time": {
+              "created": 1792890348519
+            },
+            "type": "user",
+            "payload": {
+              "text": "EV_FOLLOWUP_abort_queue_default"
+            },
+            "delivery": "queue"
+          }
+        ]
+      },
+      "toolTerminals": [],
+      "textsEnded": [],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV after abort abort_queue_default",
+          "ANSWER:EV_FOLLOWUP_abort_queue_default"
+        ],
+        "followupReachedModelAtEnd": 1,
+        "terminalsTotal": 2
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "abort_tool": {
+      "sid": "ses_e8f684879ffeg96C16yo6cniwe",
+      "interruptQuery": "(none)",
+      "followDelivery": null,
+      "interruptResponse": {
+        "status": 200,
+        "body": {
+          "interrupted": true
+        }
+      },
+      "ackToTerminalMs": 69,
+      "terminalsAfter4s": [
+        {
+          "type": "session.execution.interrupted",
+          "reason": "user"
+        }
+      ],
+      "executionStarted": 1,
+      "followupReachedModel": null,
+      "inboxBefore": {
+        "data": []
+      },
+      "inboxAfter": {
+        "data": []
+      },
+      "toolTerminals": [
+        {
+          "type": "session.tool.failed",
+          "id": "call_12",
+          "error": {
+            "type": "aborted",
+            "message": "Tool execution interrupted"
+          }
+        }
+      ],
+      "textsEnded": [],
+      "nextTurn": {
+        "terminal": "session.execution.succeeded",
+        "texts": [
+          "ANSWER:EV after abort abort_tool"
+        ],
+        "followupReachedModelAtEnd": null,
+        "terminalsTotal": 2
+      },
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "idle"
+      ]
+    },
+    "fork": {
+      "parent": "ses_e8f6828aaffe8R6SfgsysFa6er",
+      "before": "msg_17097d8960017NaRHjQmaonu4H",
+      "forkResponse": {
+        "status": 200,
+        "keys": [
+          "id",
+          "fork",
+          "projectID",
+          "cost",
+          "tokens",
+          "time",
+          "title",
+          "location"
+        ],
+        "body": {
+          "data": {
+            "id": "ses_e8f68257dffecWsls05Fv9ANM4",
+            "fork": {
+              "sessionID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+              "boundary": {
+                "type": "before",
+                "messageID": "msg_17097d8960017NaRHjQmaonu4H"
+              }
+            },
+            "projectID": "68f4ab028c22240f5cc743a47f873f78d9b5b3b1",
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "time": {
+              "created": 1792890362499,
+              "updated": 1792890362499
+            },
+            "title": "ANSWER:Here is the first message of the conversation:  <message> EV fork turn one </message>  Rep... (fork #1)",
+            "location": {
+              "directory": "/tmp/t-4840abc5/run/ev-s4-1792890313107/repo"
+            }
+          }
+        }
+      },
+      "forkNoBeforeResponse": {
+        "status": 200
+      },
+      "parentMessages": [
+        {
+          "id": "msg_17097d795001PV3w2uHLTyNafJ",
+          "type": "user",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097d7dc001blylQTXr1DMCNw",
+          "type": "assistant",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097d8830019y2nTL9wTQRWBF",
+          "type": "idle"
+        },
+        {
+          "id": "msg_17097d8960017NaRHjQmaonu4H",
+          "type": "user",
+          "text": [
+            "EV fork turn two"
+          ]
+        },
+        {
+          "id": "msg_17097d8c6001KKRqxomE3atk4p",
+          "type": "assistant",
+          "text": [
+            "EV fork turn two"
+          ]
+        },
+        {
+          "id": "msg_17097d95000185OfyG4WasRauP",
+          "type": "idle"
+        },
+        {
+          "id": "msg_17097d97a001BqUDNLaWYB11QW",
+          "type": "user",
+          "text": [
+            "EV fork turn three"
+          ]
+        },
+        {
+          "id": "msg_17097d99d001XFJNE4PGbavXYq",
+          "type": "assistant",
+          "text": [
+            "EV fork turn three"
+          ]
+        },
+        {
+          "id": "msg_17097da65001jyyUaxDGd9N7vu",
+          "type": "idle"
+        }
+      ],
+      "childMessagesAtFork": [
+        {
+          "id": "msg_17097da83001qr6bGWua9dqkwg_4",
+          "type": "user",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097da83001qr6bGWua9dqkwg_7",
+          "type": "assistant",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097da83001qr6bGWua9dqkwg_14",
+          "type": "idle"
+        }
+      ],
+      "childNoBeforeMessagesAtFork": [
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_4",
+          "type": "user",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_7",
+          "type": "assistant",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_14",
+          "type": "idle"
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_17",
+          "type": "user",
+          "text": [
+            "EV fork turn two"
+          ]
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_18",
+          "type": "assistant",
+          "text": [
+            "EV fork turn two"
+          ]
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_25",
+          "type": "idle"
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_28",
+          "type": "user",
+          "text": [
+            "EV fork turn three"
+          ]
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_29",
+          "type": "assistant",
+          "text": [
+            "EV fork turn three"
+          ]
+        },
+        {
+          "id": "msg_17097da9d001oXirMcoYtJTe2F_36",
+          "type": "idle"
+        }
+      ],
+      "childIdsReuseParentIds": 0,
+      "childRecall": [
+        "RECALLED:EMPTY",
+        "RECOVERED_AFTER_TOOL"
+      ],
+      "child2Recall": [
+        "RECALLED:S4_CONTEXT_CANARY"
+      ],
+      "childAfter": [
+        {
+          "id": "msg_17097da83001qr6bGWua9dqkwg_4",
+          "type": "user",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097da83001qr6bGWua9dqkwg_7",
+          "type": "assistant",
+          "text": [
+            "EV fork turn one"
+          ]
+        },
+        {
+          "id": "msg_17097da83001qr6bGWua9dqkwg_14",
+          "type": "idle"
+        },
+        {
+          "id": "msg_17097dac8001sJa36FcND43j0r",
+          "type": "user",
+          "text": [
+            "GATE_RECALL child"
+          ]
+        },
+        {
+          "id": "msg_17097dafb001u4uq5X3nuK4Tsc",
+          "type": "assistant",
+          "text": [
+            "RECALLED:EMPTY"
+          ]
+        },
+        {
+          "id": "msg_17097dc67001ZQ6sK0rQjYS4BS",
+          "type": "idle"
+        },
+        {
+          "id": "msg_17097de3b001INx2cuP4PwNvwv",
+          "type": "user",
+          "text": [
+            "ev-fork-child"
+          ]
+        },
+        {
+          "id": "msg_17097de640010mHMVGxF0W7M6E",
+          "type": "assistant",
+          "text": [
+            "ev-fork-child",
+            "ev-fork-child"
+          ]
+        },
+        {
+          "id": "msg_17097df760013tzxG4odtX8fKH",
+          "type": "assistant"
+        },
+        {
+          "id": "msg_17097e014001GXe7sZm1aFSAlP",
+          "type": "idle"
+        }
+      ],
+      "parentUnchanged": true,
+      "parentCountBeforeAfter": [
+        9,
+        9
+      ],
+      "childWriteFile": true,
+      "forkedEvents": [
+        {
+          "sessionID": "ses_e8f68257dffecWsls05Fv9ANM4",
+          "parentID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+          "boundary": {
+            "type": "before",
+            "messageID": "msg_17097d8960017NaRHjQmaonu4H"
+          },
+          "instructions": {
+            "core/codemode": "e6428fd7742161f6c3a6c86e53cbbe2c6e4dcc462bbf1a1a07bc4fcbeb9e0b0b",
+            "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9",
+            "core/date": "6cca3aaa5d70c805feb813a8b749d6dcef1cd53b2bbcb9428aa093276b5a3a46",
+            "core/environment": "86675af94fb2cf52c51b90c80bbcc31fae7303351c1f0e19334d8aae47e3f8c2"
+          },
+          "instructionEntries": []
+        },
+        {
+          "sessionID": "ses_e8f682563ffeWYhK9vH4J59C2k",
+          "parentID": "ses_e8f6828aaffe8R6SfgsysFa6er",
+          "boundary": {
+            "type": "through",
+            "messageID": "msg_17097da65001jyyUaxDGd9N7vu"
+          },
+          "instructions": {
+            "core/codemode": "e6428fd7742161f6c3a6c86e53cbbe2c6e4dcc462bbf1a1a07bc4fcbeb9e0b0b",
+            "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9",
+            "core/date": "6cca3aaa5d70c805feb813a8b749d6dcef1cd53b2bbcb9428aa093276b5a3a46",
+            "core/environment": "86675af94fb2cf52c51b90c80bbcc31fae7303351c1f0e19334d8aae47e3f8c2"
+          },
+          "instructionEntries": []
+        }
+      ],
+      "mockRecallRequests": [
+        {
+          "at": "2026-10-25T01:06:02.659Z",
+          "prompt": "GATE_RECALL child",
+          "messageCount": 4
+        },
+        {
+          "at": "2026-10-25T01:06:03.225Z",
+          "prompt": "GATE_RECALL child2",
+          "messageCount": 8
+        }
+      ]
+    },
+    "compaction": {
+      "sid": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+      "compactResponse": {
+        "status": 200,
+        "body": {
+          "data": {
+            "id": "msg_17097e23b001wMGCnGBO7dqeUI",
+            "sessionID": "ses_e8f681fa2ffe0VR4vL1rwRpJue",
+            "time": {
+              "created": 1792890364477
+            },
+            "type": "compaction",
+            "payload": {},
+            "delivery": "steer"
+          }
+        }
+      },
+      "compactTerminal": "session.execution.succeeded",
+      "compactionEvents": [
+        {
+          "type": "session.compaction.started",
+          "keys": [
+            "sessionID",
+            "reason",
+            "inputID"
+          ]
+        },
+        {
+          "type": "session.compaction.delta",
+          "keys": [
+            "sessionID",
+            "text"
+          ]
+        },
+        {
+          "type": "session.compaction.delta",
+          "keys": [
+            "sessionID",
+            "text"
+          ]
+        },
+        {
+          "type": "session.compaction.delta",
+          "keys": [
+            "sessionID",
+            "text"
+          ]
+        },
+        {
+          "type": "session.compaction.delta",
+          "keys": [
+            "sessionID",
+            "text"
+          ]
+        },
+        {
+          "type": "session.compaction.failed",
+          "keys": [
+            "sessionID",
+            "reason",
+            "inputID",
+            "error",
+            "cost",
+            "tokens"
+          ]
+        }
+      ],
+      "laterTurnTerminal": "session.execution.succeeded",
+      "laterTexts": [
+        "RECALLED:S4_CONTEXT_CANARY"
+      ],
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "idle",
+        "compaction",
+        "idle",
+        "user",
+        "assistant",
+        "idle"
+      ],
+      "summaryRequests": 0
+    },
+    "auth_error": {
+      "sid": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+      "terminal": "session.execution.failed",
+      "terminalData": {
+        "sessionID": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+        "error": {
+          "type": "provider.auth",
+          "message": "invalid gate credential",
+          "status": 401,
+          "response": {
+            "body": "{\"error\":{\"message\":\"invalid gate credential\",\"type\":\"authentication_error\"}}"
+          }
+        }
+      },
+      "stepFailed": [
+        {
+          "sessionID": "ses_e8f681aaaffe3Xn4a6okVEYd8W",
+          "assistantMessageID": "msg_17097e5a7001ZdmWq2svlzg05D",
+          "error": {
+            "type": "provider.auth",
+            "message": "invalid gate credential",
+            "status": 401,
+            "response": {
+              "body": "{\"error\":{\"message\":\"invalid gate credential\",\"type\":\"authentication_error\"}}"
+            }
+          },
+          "snapshot": "f642adcde7ed7e63ea8c929ecef9eab9c8e540f4",
+          "files": []
+        }
+      ],
+      "retries": [],
+      "statuses": [],
+      "types": [
+        "session.created",
+        "session.inbox.enqueued",
+        "session.execution.started",
+        "session.instructions.updated",
+        "session.inbox.delivered",
+        "session.step.started",
+        "session.step.failed",
+        "session.execution.failed"
+      ],
+      "messageTypes": [
+        "user",
+        "assistant",
+        "idle"
+      ],
+      "sessionOutcome": "failed"
+    },
+    "fixed_ids": {
+      "x1": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+      "x2": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+      "x1Terminals": [
+        "session.execution.succeeded",
+        "session.execution.succeeded"
+      ],
+      "x2Terminals": [
+        "session.execution.succeeded"
+      ],
+      "x1t2": "session.execution.succeeded",
+      "toolIds": [
+        {
+          "sid": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+          "id": "call_gate_001",
+          "assistantMessageID": "msg_17097e8d3001J2Cdq7S7ULSZri"
+        },
+        {
+          "sid": "ses_e8f68178fffeLtAOvLbbcrmI9G",
+          "id": "call_gate_001",
+          "assistantMessageID": "msg_17097e913001u1JvfPMaQ77WnM"
+        },
+        {
+          "sid": "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+          "id": "call_gate_001",
+          "assistantMessageID": "msg_17097ebfb0010AoMWA4N78z2dZ"
+        }
+      ],
+      "x1ToolPartsInMessages": 2,
+      "x1Messages": [
+        {
+          "id": "msg_17097e8940013MRIultLOrrOLL",
+          "type": "user",
+          "contentTypes": []
+        },
+        {
+          "id": "msg_17097e8d3001J2Cdq7S7ULSZri",
+          "type": "assistant",
+          "contentTypes": [
+            "tool:call_gate_001:completed"
+          ]
+        },
+        {
+          "id": "msg_17097ea79001cVXxbva9RSlZbc",
+          "type": "assistant",
+          "contentTypes": [
+            "reasoning::",
+            "text::"
+          ]
+        },
+        {
+          "id": "msg_17097eb6c001HL0nY9bdYeAZaK",
+          "type": "idle",
+          "contentTypes": []
+        },
+        {
+          "id": "msg_17097eb8e001psNR8NVgiOt2D1",
+          "type": "user",
+          "contentTypes": []
+        },
+        {
+          "id": "msg_17097ebfb0010AoMWA4N78z2dZ",
+          "type": "assistant",
+          "contentTypes": [
+            "tool:call_gate_001:completed"
+          ]
+        },
+        {
+          "id": "msg_17097ecd2001Fvkczt1md3m1hg",
+          "type": "assistant",
+          "contentTypes": [
+            "reasoning::",
+            "text::"
+          ]
+        },
+        {
+          "id": "msg_17097ed6c0016tE7RQ4iAHbhwV",
+          "type": "idle",
+          "contentTypes": []
+        }
+      ]
+    }
+  },
+  "logReplay": {
+    "sid": "ses_e8f68e2e0ffeRLF2O8EMZ36obo",
+    "tapDurableSeqs": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14
+    ],
+    "replayAll": [
+      "log.synced@14"
+    ],
+    "replayAfter2": [
+      "log.synced@14"
+    ]
+  },
+  "serverExit": {
+    "code": 130,
+    "sig": null
+  },
+  "processes": [
+    "mock pid=4062475",
+    "mock-fixed pid=4062485",
+    "server pid=4062494"
+  ],
+  "fixtureSessions": {
+    "text_reasoning": [
+      "ses_e8f68e2e0ffeRLF2O8EMZ36obo"
+    ],
+    "shell_allow": [
+      "ses_e8f68d8a4ffe2Z4aW9S2TWcOPe"
+    ],
+    "shell_deny": [
+      "ses_e8f68d3a8ffeRRyU3TTXdllpSj"
+    ],
+    "edit_write": [
+      "ses_e8f68d218ffeOIz135IJmo4IHy"
+    ],
+    "tool_fail": [
+      "ses_e8f68cda1ffe7OTB5JwG0ANpAA"
+    ],
+    "abort_plain": [
+      "ses_e8f68cb29ffeObI42omb1A5UQ0"
+    ],
+    "abort_resume_false": [
+      "ses_e8f68b5e8ffeRBS6B8PbUCnpht"
+    ],
+    "abort_steer_default": [
+      "ses_e8f68a0b1ffeflItvVlPg9A3zq"
+    ],
+    "abort_steer_resume_false": [
+      "ses_e8f688b21ffeCmGA1RF1bdE8sy"
+    ],
+    "abort_steer_resume_true": [
+      "ses_e8f687551ffehyt9fNIhoPxfsq"
+    ],
+    "abort_queue_default": [
+      "ses_e8f685f4dffefRuRvW4BfvZ3LQ"
+    ],
+    "abort_tool": [
+      "ses_e8f684879ffeg96C16yo6cniwe"
+    ],
+    "fork": [
+      "ses_e8f6828aaffe8R6SfgsysFa6er",
+      "ses_e8f68257dffecWsls05Fv9ANM4",
+      "ses_e8f682563ffeWYhK9vH4J59C2k"
+    ],
+    "compaction": [
+      "ses_e8f681fa2ffe0VR4vL1rwRpJue"
+    ],
+    "auth_error": [
+      "ses_e8f681aaaffe3Xn4a6okVEYd8W"
+    ],
+    "fixed_ids": [
+      "ses_e8f6817bbffeE7ZtevcaLBpl2K",
+      "ses_e8f68178fffeLtAOvLbbcrmI9G"
+    ]
+  },
+  "fixtureFiles": {
+    "text_reasoning": 18,
+    "shell_allow": 28,
+    "shell_deny": 17,
+    "edit_write": 48,
+    "tool_fail": 26,
+    "abort_plain": 24,
+    "abort_resume_false": 24,
+    "abort_steer_default": 26,
+    "abort_steer_resume_false": 26,
+    "abort_steer_resume_true": 38,
+    "abort_queue_default": 36,
+    "abort_tool": 31,
+    "fork": 98,
+    "compaction": 58,
+    "auth_error": 8,
+    "fixed_ids": 76
+  },
+  "s9": {
+    "sentinel": {
+      "name": "GATE_HEADER_SECRET_SENTINEL",
+      "counts": {
+        "events": 0,
+        "authMessages": 0,
+        "serverLog": 0,
+        "mockLog": 0
+      }
+    },
+    "badKey": {
+      "name": "INVALID_GATE_KEY",
+      "counts": {
+        "events": 0,
+        "authMessages": 0,
+        "serverLog": 0,
+        "mockLog": 0
+      }
+    },
+    "gateKey": {
+      "name": "GATE_KEY_SENTINEL_7f3a",
+      "counts": {
+        "events": 0,
+        "authMessages": 0,
+        "serverLog": 0,
+        "mockLog": 0
+      }
+    },
+    "controlBodyMessage": {
+      "needle": "invalid gate credential",
+      "counts": {
+        "events": 4,
+        "authMessages": 4,
+        "serverLog": 2,
+        "mockLog": 0
+      }
+    },
+    "controlSessionID": {
+      "counts": {
+        "events": 16,
+        "authMessages": 0,
+        "serverLog": 1,
+        "mockLog": 0
+      }
+    },
+    "password": {
+      "counts": {
+        "events": 0,
+        "authMessages": 0,
+        "serverLog": 0,
+        "mockLog": 0
+      }
+    }
+  }
+}

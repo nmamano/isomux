@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "item": "P4",
+  "parts": {
+    "b": {
+      "etcExists": false,
+      "method": "server started via harness/pm-strace-wrap.sh (strace -f -e trace=%file), one session opened in a repo, then grep the trace",
+      "traceLines": 2088,
+      "etcOpencodeLines": [
+        "openat(AT_FDCWD, \"/etc/opencode\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.json\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.jsonc\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "statx(AT_FDCWD, \"/etc/opencode\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x791446bf6910) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.json\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.jsonc\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "statx(AT_FDCWD, \"/etc/opencode\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x791446bf6910) = -1 ENOENT (No such file or directory)"
+      ],
+      "etcOpencodeCount": 8,
+      "controlProjectOpencodeJsonCount": 8
+    }
+  }
+}

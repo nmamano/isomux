@@ -1,0 +1,882 @@
+{
+  "item": "P7a",
+  "date": "2026-10-25",
+  "runDir": "/tmp/t-4840abc5/run/cc-p7a-1792892307613",
+  "v1": "opencode 1.18.35",
+  "v2": "opencode 2.1.4",
+  "cases": [
+    {
+      "case": "cutover: 1.18.35 running, 2.1.4 starts on the same profile",
+      "v1Start": {
+        "ok": true,
+        "ms": 2873
+      },
+      "v1TurnsBeforeV2": [
+        {
+          "session": "ZFOKaP",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 6116
+        },
+        {
+          "session": "arns8F",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 1564
+        },
+        {
+          "session": "4ZhaHt",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 1851
+        }
+      ],
+      "dbBeforeV2": {
+        "tables": 20,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": false,
+        "rows": {
+          "session": 3,
+          "message": 9,
+          "part": 27,
+          "session_v2": null,
+          "session_message": 0,
+          "event": 89,
+          "event_sequence": 3
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 38,
+        "kvMigration": null,
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ]
+      },
+      "v2Start": {
+        "ok": true,
+        "ms": 571,
+        "v1AliveAfterV2Start": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        }
+      },
+      "v2SeesV1Sessions": {
+        "listStatus": 200,
+        "v2Count": 3,
+        "v1SessionsVisible": 3,
+        "v1SessionsCreated": 3
+      },
+      "dbAfterV2Start": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 3,
+          "message": 9,
+          "part": 27,
+          "session_v2": 3,
+          "session_message": 12,
+          "event": 0,
+          "event_sequence": 3
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "v1NextTurnExistingSession": {
+        "outcome": "idle",
+        "lastText": "RECOVERED_AFTER_TOOL",
+        "tools": [
+          "bash:completed"
+        ],
+        "ms": 1679
+      },
+      "v1TurnNewSessionAfterV2": [
+        {
+          "session": "yLagwY",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 1861
+        }
+      ],
+      "v2Turns": [
+        {
+          "session": "g9J57D",
+          "outcome": "session.execution.succeeded",
+          "ms": 1484
+        },
+        {
+          "session": "zinxbi",
+          "outcome": "session.execution.succeeded",
+          "ms": 515
+        }
+      ],
+      "v2TurnOnImportedV1Session": {
+        "outcome": "session.execution.succeeded",
+        "ms": 365
+      },
+      "v1AfterV2Turns": {
+        "outcome": "idle",
+        "lastText": "ANSWER:plain v1 turn after v2 turns",
+        "tools": [],
+        "ms": 646
+      },
+      "v2SeesV1SessionCreatedAfterImport": [
+        false
+      ],
+      "aliveBeforeStop": {
+        "v1": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        },
+        "v2": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        }
+      },
+      "dbAfterBothStopped": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 4,
+          "message": 17,
+          "part": 50,
+          "session_v2": 5,
+          "session_message": 24,
+          "event": 74,
+          "event_sequence": 6
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "logs": {
+        "v1": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/cutover-v1.log",
+          "lines": 118,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:38:30.940Z level=INFO run=4b510da9 message=bootstrapping directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/repo",
+            "timestamp=2026-10-25T01:38:30.987Z level=INFO run=4b510da9 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/v1-config.json",
+            "timestamp=2026-10-25T01:38:35.912Z level=INFO run=4b510da9 message=evaluated permission=bash pattern=\"printf v1pre-0 >> v1-v1pre.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:38:37.992Z level=INFO run=4b510da9 message=evaluated permission=bash pattern=\"printf v1pre-1 >> v1-v1pre.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:38:39.666Z level=INFO run=4b510da9 message=evaluated permission=bash pattern=\"printf v1pre-2 >> v1-v1pre.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:38:44.982Z level=INFO run=4b510da9 message=evaluated permission=bash pattern=\"printf v1post >> v1-post.txt\" action.permission=* action.action=allow action.pattern=*",
+            "timestamp=2026-10-25T01:38:46.869Z level=INFO run=4b510da9 message=evaluated permission=bash pattern=\"printf v1post-new-0 >> v1-v1post-new.txt\" action.permission=* action.action=allow action.pattern=*"
+          ]
+        },
+        "v2": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/cutover-v2.log",
+          "lines": 133,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:38:41.356Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260804233008_loose_psylocke role=server",
+            "timestamp=2026-10-25T01:38:41.370Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260804233008_loose_psylocke durationMs=14 role=server",
+            "timestamp=2026-10-25T01:38:41.370Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260805200742_import_legacy_credentials role=server",
+            "timestamp=2026-10-25T01:38:41.372Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260805200742_import_legacy_credentials durationMs=2 role=server",
+            "timestamp=2026-10-25T01:38:41.373Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260808023530_workspace_domain role=server",
+            "timestamp=2026-10-25T01:38:41.374Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260808023530_workspace_domain durationMs=1 role=server",
+            "timestamp=2026-10-25T01:38:41.374Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260811161259_execution_claim_attempts role=server",
+            "timestamp=2026-10-25T01:38:41.375Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260811161259_execution_claim_attempts durationMs=1 role=server",
+            "timestamp=2026-10-25T01:38:41.376Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260812181746_session_inbox role=server",
+            "timestamp=2026-10-25T01:38:41.377Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260812181746_session_inbox durationMs=1 role=server",
+            "timestamp=2026-10-25T01:38:41.377Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260812213948_worktree role=server",
+            "timestamp=2026-10-25T01:38:41.378Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260812213948_worktree durationMs=1 role=server",
+            "timestamp=2026-10-25T01:38:41.378Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260819222447_session_viewed_state role=server",
+            "timestamp=2026-10-25T01:38:41.380Z level=INFO run=53a253e1 message=\"database migration completed\" migration=20260819222447_session_viewed_state durationMs=2 role=server",
+            "timestamp=2026-10-25T01:38:41.380Z level=INFO run=53a253e1 message=\"database migration started\" migration=20260823191254_nullable_workspace_binding role=server"
+          ]
+        },
+        "v1Again": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/cutover-v1-again.log",
+          "lines": 48,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:38:54.191Z level=INFO run=96e4d844 message=bootstrapping directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/repo",
+            "timestamp=2026-10-25T01:38:54.216Z level=INFO run=96e4d844 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/cutover/v1-config.json",
+            "timestamp=2026-10-25T01:38:58.778Z level=INFO run=96e4d844 message=evaluated permission=bash pattern=\"printf v1again-0 >> v1-v1again.txt\" action.permission=* action.action=allow action.pattern=*"
+          ]
+        }
+      },
+      "v1RestartAloneAfterMigration": {
+        "ok": true,
+        "ms": 2449,
+        "sessionList": {
+          "status": 200,
+          "count": 4
+        },
+        "turnExisting": {
+          "outcome": "idle",
+          "lastText": "ANSWER:plain v1 turn on old session",
+          "tools": [],
+          "ms": 3814
+        },
+        "turnNew": [
+          {
+            "session": "1mtyJo",
+            "outcome": "idle",
+            "lastText": "RECOVERED_AFTER_TOOL",
+            "tools": [
+              "bash:completed"
+            ],
+            "ms": 1682
+          }
+        ]
+      },
+      "dbFinal": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 5,
+          "message": 22,
+          "part": 64,
+          "session_v2": 5,
+          "session_message": 24,
+          "event": 119,
+          "event_sequence": 7
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      }
+    },
+    {
+      "case": "rollback: v1 profile migrated by 2.1.4; 2.1.4 running, 1.18.35 starts",
+      "v1SeedStart": {
+        "ok": true,
+        "ms": 3307
+      },
+      "v1SeedTurns": [
+        {
+          "session": "SV0eQL",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 6176
+        },
+        {
+          "session": "EXZFDo",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 1921
+        }
+      ],
+      "v2Start": {
+        "ok": true,
+        "ms": 624
+      },
+      "v2TurnsBeforeV1": [
+        {
+          "session": "6OQibv",
+          "outcome": "session.execution.succeeded",
+          "ms": 1836
+        },
+        {
+          "session": "AAXP0v",
+          "outcome": "session.execution.succeeded",
+          "ms": 415
+        },
+        {
+          "session": "czixez",
+          "outcome": "session.execution.succeeded",
+          "ms": 521
+        }
+      ],
+      "dbBeforeV1": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 2,
+          "message": 6,
+          "part": 18,
+          "session_v2": 5,
+          "session_message": 20,
+          "event": 0,
+          "event_sequence": 5
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "v1Start": {
+        "ok": true,
+        "ms": 2938,
+        "v2AliveAfterV1Start": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        }
+      },
+      "v1SessionList": {
+        "status": 200,
+        "count": 2
+      },
+      "v1TurnOnOwnOldSession": {
+        "outcome": "idle",
+        "lastText": "ANSWER:plain v1 turn on old session",
+        "tools": [],
+        "ms": 4589
+      },
+      "v1TurnsWhileV2Live": [
+        {
+          "session": "mZOwXI",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 1917
+        },
+        {
+          "session": "4P4V93",
+          "outcome": "idle",
+          "lastText": "RECOVERED_AFTER_TOOL",
+          "tools": [
+            "bash:completed"
+          ],
+          "ms": 1813
+        }
+      ],
+      "v2TurnsAfterV1": [
+        {
+          "session": "HHefvO",
+          "outcome": "session.execution.succeeded",
+          "ms": 367
+        },
+        {
+          "session": "TrkFPP",
+          "outcome": "session.execution.succeeded",
+          "ms": 361
+        }
+      ],
+      "dbBothLive": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 4,
+          "message": 14,
+          "part": 41,
+          "session_v2": 7,
+          "session_message": 28,
+          "event": 76,
+          "event_sequence": 9
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "aliveBeforeStop": {
+        "v1": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        },
+        "v2": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        }
+      },
+      "dbAfterBothStopped": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 4,
+          "message": 14,
+          "part": 41,
+          "session_v2": 7,
+          "session_message": 28,
+          "event": 76,
+          "event_sequence": 9
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "logs": {
+        "v1Seed": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/rollback-v1origin-v1-seed.log",
+          "lines": 59,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:39:02.705Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/config.json",
+            "timestamp=2026-10-25T01:39:02.745Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.json",
+            "timestamp=2026-10-25T01:39:02.789Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.jsonc",
+            "timestamp=2026-10-25T01:39:03.539Z level=INFO run=9768a7a1 message=\"creating instance\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo",
+            "timestamp=2026-10-25T01:39:03.544Z level=INFO run=9768a7a1 message=fromDirectory directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo",
+            "timestamp=2026-10-25T01:39:03.990Z level=INFO run=9768a7a1 message=bootstrapping directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo",
+            "timestamp=2026-10-25T01:39:04.045Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/config.json",
+            "timestamp=2026-10-25T01:39:04.104Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.json",
+            "timestamp=2026-10-25T01:39:04.134Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.jsonc",
+            "timestamp=2026-10-25T01:39:04.137Z level=INFO run=9768a7a1 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/v1-config.json",
+            "timestamp=2026-10-25T01:39:04.434Z level=INFO run=9768a7a1 message=created id=ses_e8f49e78dffecHed1JrUSV0eQL slug=stellar-sailor version=1.18.35 projectID=ffbf05cd50d9e1928994287713199526f206360e directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo path=\"\" workspaceID=undefined parentID=undefined title=\"New session - 2026-10-25T01:39:04.434Z\" agent=undefined model=undefined me",
+            "timestamp=2026-10-25T01:39:06.799Z level=INFO run=9768a7a1 message=tracking hash=35596c654df09e182449b8d9db87313ad2475ceb cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo git=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/data/opencode/snapshot/ffbf05cd50d9e1928994287713199526f206360e/10a8c17c4ebbae0727200ec5466d334015fa991c",
+            "timestamp=2026-10-25T01:39:07.154Z level=INFO run=9768a7a1 message=\"watcher backend\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo platform=linux backend=inotify",
+            "timestamp=2026-10-25T01:39:08.387Z level=INFO run=9768a7a1 message=\"booting location services\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo workspaceID=undefined",
+            "timestamp=2026-10-25T01:39:08.856Z level=INFO run=9768a7a1 message=evaluated permission=bash pattern=\"printf v1seed-0 >> v1-v1seed.txt\" action.permission=* action.action=allow action.pattern=*"
+          ]
+        },
+        "v2": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/rollback-v1origin-v2.log",
+          "lines": 168,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:39:13.241Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260804233008_loose_psylocke role=server",
+            "timestamp=2026-10-25T01:39:13.259Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260804233008_loose_psylocke durationMs=18 role=server",
+            "timestamp=2026-10-25T01:39:13.259Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260805200742_import_legacy_credentials role=server",
+            "timestamp=2026-10-25T01:39:13.261Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260805200742_import_legacy_credentials durationMs=2 role=server",
+            "timestamp=2026-10-25T01:39:13.261Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260808023530_workspace_domain role=server",
+            "timestamp=2026-10-25T01:39:13.264Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260808023530_workspace_domain durationMs=3 role=server",
+            "timestamp=2026-10-25T01:39:13.264Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260811161259_execution_claim_attempts role=server",
+            "timestamp=2026-10-25T01:39:13.266Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260811161259_execution_claim_attempts durationMs=2 role=server",
+            "timestamp=2026-10-25T01:39:13.266Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260812181746_session_inbox role=server",
+            "timestamp=2026-10-25T01:39:13.269Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260812181746_session_inbox durationMs=3 role=server",
+            "timestamp=2026-10-25T01:39:13.269Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260812213948_worktree role=server",
+            "timestamp=2026-10-25T01:39:13.272Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260812213948_worktree durationMs=3 role=server",
+            "timestamp=2026-10-25T01:39:13.273Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260819222447_session_viewed_state role=server",
+            "timestamp=2026-10-25T01:39:13.277Z level=INFO run=34c66f94 message=\"database migration completed\" migration=20260819222447_session_viewed_state durationMs=4 role=server",
+            "timestamp=2026-10-25T01:39:13.277Z level=INFO run=34c66f94 message=\"database migration started\" migration=20260823191254_nullable_workspace_binding role=server"
+          ]
+        },
+        "v1": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/rollback-v1origin-v1.log",
+          "lines": 66,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:39:21.628Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/config.json",
+            "timestamp=2026-10-25T01:39:21.642Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.json",
+            "timestamp=2026-10-25T01:39:21.643Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.jsonc",
+            "timestamp=2026-10-25T01:39:22.301Z level=INFO run=c153f566 message=\"creating instance\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo",
+            "timestamp=2026-10-25T01:39:22.303Z level=INFO run=c153f566 message=fromDirectory directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo",
+            "timestamp=2026-10-25T01:39:22.535Z level=INFO run=c153f566 message=bootstrapping directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo",
+            "timestamp=2026-10-25T01:39:22.546Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/config.json",
+            "timestamp=2026-10-25T01:39:22.570Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.json",
+            "timestamp=2026-10-25T01:39:22.594Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/opencode.jsonc",
+            "timestamp=2026-10-25T01:39:22.597Z level=INFO run=c153f566 message=loading path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/v1-config.json",
+            "timestamp=2026-10-25T01:39:24.970Z level=INFO run=c153f566 message=tracking hash=6f19e932e75c330f07dc2012e9ad65849ef82e31 cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo git=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/data/opencode/snapshot/ffbf05cd50d9e1928994287713199526f206360e/10a8c17c4ebbae0727200ec5466d334015fa991c",
+            "timestamp=2026-10-25T01:39:25.397Z level=INFO run=c153f566 message=\"watcher backend\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo platform=linux backend=inotify",
+            "timestamp=2026-10-25T01:39:26.796Z level=INFO run=c153f566 message=\"booting location services\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo workspaceID=undefined",
+            "timestamp=2026-10-25T01:39:27.214Z level=INFO run=c153f566 message=tracking hash=6f19e932e75c330f07dc2012e9ad65849ef82e31 cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo git=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/data/opencode/snapshot/ffbf05cd50d9e1928994287713199526f206360e/10a8c17c4ebbae0727200ec5466d334015fa991c",
+            "timestamp=2026-10-25T01:39:27.505Z level=INFO run=c153f566 message=created id=ses_e8f498d6effeq5He3gd3mZOwXI slug=proud-river version=1.18.35 projectID=ffbf05cd50d9e1928994287713199526f206360e directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo path=\"\" workspaceID=undefined parentID=undefined title=\"New session - 2026-10-25T01:39:27.505Z\" agent=undefined model=undefined metad"
+          ]
+        },
+        "v2Again": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/rollback-v1origin-v2-again.log",
+          "lines": 78,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:39:32.877Z level=INFO run=3bfabd52 message=\"spawning process\" command=git args=\"[\\\"rev-parse\\\",\\\"--git-dir\\\",\\\"--git-common-dir\\\",\\\"--show-toplevel\\\"]\" cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo http.span=6 role=server",
+            "timestamp=2026-10-25T01:39:32.890Z level=INFO run=3bfabd52 message=\"spawning process\" command=git args=\"[\\\"remote\\\",\\\"get-url\\\",\\\"origin\\\"]\" cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo http.span=19 role=server",
+            "timestamp=2026-10-25T01:39:32.922Z level=INFO run=3bfabd52 message=\"spawning process\" command=git args=\"[\\\"rev-parse\\\",\\\"--git-dir\\\",\\\"--git-common-dir\\\",\\\"--show-toplevel\\\"]\" cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo http.span=6 role=server",
+            "timestamp=2026-10-25T01:39:32.930Z level=INFO run=3bfabd52 message=\"spawning process\" command=git args=\"[\\\"remote\\\",\\\"get-url\\\",\\\"origin\\\"]\" cwd=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo http.span=14 role=server",
+            "timestamp=2026-10-25T01:39:32.979Z level=INFO run=3bfabd52 message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode type=directory ignores=6 http.span=63 role=server",
+            "timestamp=2026-10-25T01:39:33.064Z level=INFO run=3bfabd52 message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin type=entries ignores=0 http.span=148 role=server",
+            "timestamp=2026-10-25T01:39:33.064Z level=INFO run=3bfabd52 message=\"watcher started\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin type=entries backend=node ignores=0 http.span=148 role=server",
+            "timestamp=2026-10-25T01:39:33.065Z level=INFO run=3bfabd52 message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo type=entries ignores=0 http.span=149 role=server",
+            "timestamp=2026-10-25T01:39:33.065Z level=INFO run=3bfabd52 message=\"watcher started\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo type=entries backend=node ignores=0 http.span=149 role=server",
+            "timestamp=2026-10-25T01:39:33.065Z level=INFO run=3bfabd52 message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/home type=entries ignores=0 http.span=149 role=server",
+            "timestamp=2026-10-25T01:39:33.066Z level=INFO run=3bfabd52 message=\"watcher started\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/home type=entries backend=node ignores=0 http.span=150 role=server",
+            "timestamp=2026-10-25T01:39:33.076Z level=INFO run=3bfabd52 message=\"watcher started\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode type=directory backend=inotify ignores=6 http.span=160 role=server",
+            "timestamp=2026-10-25T01:39:33.106Z level=INFO run=3bfabd52 message=\"location services booted\" directory=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/repo workspaceID=undefined durationMs=187 http.span=190 role=server",
+            "timestamp=2026-10-25T01:39:33.700Z level=INFO run=3bfabd52 message=\"watcher subscribe\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/AGENTS.md type=file ignores=0",
+            "timestamp=2026-10-25T01:39:33.701Z level=INFO run=3bfabd52 message=\"watcher started\" path=/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-v1origin/config/opencode/AGENTS.md type=file backend=node ignores=0 http.span=785 role=server"
+          ]
+        }
+      },
+      "v2RestartAfterV1": {
+        "ok": true,
+        "ms": 483,
+        "turns": [
+          {
+            "session": "Sa185E",
+            "outcome": "session.execution.succeeded",
+            "ms": 1606
+          }
+        ]
+      },
+      "dbFinal": {
+        "tables": 25,
+        "hasV1Session": true,
+        "hasV1Message": true,
+        "hasV2Session": true,
+        "rows": {
+          "session": 4,
+          "message": 14,
+          "part": 41,
+          "session_v2": 8,
+          "session_message": 32,
+          "event": 76,
+          "event_sequence": 10
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [
+          {
+            "key": "migration.v1-v2",
+            "v": "{\"phase\":\"completed\"}"
+          }
+        ],
+        "v1SessionColumns": 29,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      }
+    },
+    {
+      "case": "rollback: fresh 2.1.4 profile; 2.1.4 running, 1.18.35 starts",
+      "v2Start": {
+        "ok": true,
+        "ms": 588
+      },
+      "v2TurnsBeforeV1": [
+        {
+          "session": "aKdB0b",
+          "outcome": "session.execution.succeeded",
+          "ms": 1683
+        },
+        {
+          "session": "VsPDir",
+          "outcome": "session.execution.succeeded",
+          "ms": 415
+        },
+        {
+          "session": "d0xCJV",
+          "outcome": "session.execution.succeeded",
+          "ms": 465
+        }
+      ],
+      "dbBeforeV1": {
+        "tables": 20,
+        "hasV1Session": false,
+        "hasV1Message": false,
+        "hasV2Session": true,
+        "rows": {
+          "session": null,
+          "message": null,
+          "part": null,
+          "session_v2": 3,
+          "session_message": 12,
+          "event": 0,
+          "event_sequence": 4
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [],
+        "v1SessionColumns": null,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "v1Start": {
+        "ok": false,
+        "ms": 1664,
+        "error": "server did not become healthy; see /tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-fresh/rollback-fresh-v1.log",
+        "v2AliveAfterV1Start": {
+          "exitCode": null,
+          "signal": null,
+          "alive": true
+        }
+      },
+      "v1StartLogTail": [
+        "\u001b[91m\u001b[1mError: \u001b[0mUnexpected error",
+        "Database is not empty and has no session table"
+      ],
+      "dbAfterBothStopped": {
+        "tables": 20,
+        "hasV1Session": false,
+        "hasV1Message": false,
+        "hasV2Session": true,
+        "rows": {
+          "session": null,
+          "message": null,
+          "part": null,
+          "session_v2": 3,
+          "session_message": 12,
+          "event": 0,
+          "event_sequence": 4
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [],
+        "v1SessionColumns": null,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      },
+      "logs": {
+        "v2": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-fresh/rollback-fresh-v2.log",
+          "lines": 118,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": [
+            "timestamp=2026-10-25T01:39:35.226Z level=INFO run=6cc3e77e message=\"database schema bootstrap started\" migrations=50 role=server",
+            "timestamp=2026-10-25T01:39:35.250Z level=INFO run=6cc3e77e message=\"database schema bootstrap completed\" migrations=50 durationMs=24 role=server"
+          ]
+        },
+        "v1": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-fresh/rollback-fresh-v1.log",
+          "lines": 4,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": []
+        },
+        "v2Again": {
+          "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/rollback-fresh/rollback-fresh-v2-again.log",
+          "lines": 80,
+          "seqPatternCount": 0,
+          "errorLevelCount": 0,
+          "errorLines": [],
+          "warnLines": [],
+          "migrationLines": []
+        }
+      },
+      "v2RestartAfterV1": {
+        "ok": true,
+        "ms": 566,
+        "turns": [
+          {
+            "session": "AtuNll",
+            "outcome": "session.execution.succeeded",
+            "ms": 1607
+          }
+        ]
+      },
+      "dbFinal": {
+        "tables": 20,
+        "hasV1Session": false,
+        "hasV1Message": false,
+        "hasV2Session": true,
+        "rows": {
+          "session": null,
+          "message": null,
+          "part": null,
+          "session_v2": 4,
+          "session_message": 16,
+          "event": 0,
+          "event_sequence": 5
+        },
+        "v1DrizzleMigrations": null,
+        "v2MigrationRows": 50,
+        "kvMigration": [],
+        "v1SessionColumns": null,
+        "quickCheck": [
+          "ok"
+        ],
+        "seqCheck": {
+          "violatingSessions": 0,
+          "duplicateSessionMessageSeq": 0,
+          "otherAggregateViolations": 0
+        }
+      }
+    }
+  ],
+  "grepControl": {
+    "file": "/tmp/t-4840abc5/run/cc-p7a-1792892307613/planted-control.log",
+    "linesPlanted": 6,
+    "totalMatched": 6,
+    "perPattern": {
+      "UNIQUE constraint failed": 1,
+      "SQLITE_CONSTRAINT": 1,
+      "Sequence mismatch": 1,
+      "Replay diverged": 1,
+      "already exists at aggregate": 1,
+      "InvalidDurableEvent": 1
+    }
+  },
+  "grepRegex": "UNIQUE constraint failed|SQLITE_CONSTRAINT|Sequence mismatch|Replay diverged|already exists at aggregate|InvalidDurableEvent",
+  "serversStarted": [
+    {
+      "label": "cutover-v1",
+      "pid": 4138521
+    },
+    {
+      "label": "cutover-v2",
+      "pid": 4138961
+    },
+    {
+      "label": "cutover-v1-again",
+      "pid": 4139218
+    },
+    {
+      "label": "rollback-v1origin-v1-seed",
+      "pid": 4139382
+    },
+    {
+      "label": "rollback-v1origin-v2",
+      "pid": 4139876
+    },
+    {
+      "label": "rollback-v1origin-v1",
+      "pid": 4140146
+    },
+    {
+      "label": "rollback-v1origin-v2-again",
+      "pid": 4140562
+    },
+    {
+      "label": "rollback-fresh-v2",
+      "pid": 4140636
+    },
+    {
+      "label": "rollback-fresh-v2-again",
+      "pid": 4140832
+    }
+  ]
+}

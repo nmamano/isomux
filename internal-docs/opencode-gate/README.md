@@ -24,3 +24,12 @@ critical web UI XSS, and below `1.0.216` a high unauthenticated HTTP server
 RCE; every `0.0.0-beta-*` version is below both, so no V2 bump could clear
 them, which is why the pins were removed rather than bumped. The office
 backend uses OpenCode `1.18.23`, outside both ranges.
+
+## OpenCode 2.1.4 gate (2026-10-25)
+
+The second run of the gate, for the move to `@opencode/cli` 2.1.4 (task
+`4840abc5`), is [`report-2.1.4.md`](report-2.1.4.md). Its evidence is in
+`evidence/2.1.4/` and its probe scripts in `harness-2.1.4/`. The scripts are a
+frozen record of that run and have no package manifest, so no dependency alert
+attaches to them; the report gives the install line for the exact pin. They
+are outside the root `tsconfig.json` include and the ESLint scope.

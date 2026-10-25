@@ -1,0 +1,151 @@
+{
+  "date": "2026-10-25",
+  "run": "/tmp/t-4840abc5/run/ev-compact-1792890688475",
+  "processes": [
+    "ev-mock pid=4085192",
+    "server pid=4085203"
+  ],
+  "mockHeaderControl": {
+    "status": 401,
+    "sentinelHeaderFound": true
+  },
+  "compaction": {
+    "sid": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+    "compactResponse": {
+      "status": 200,
+      "type": "compaction",
+      "delivery": "steer"
+    },
+    "compactTerminal": "session.execution.succeeded",
+    "compactionEvents": [
+      {
+        "type": "session.compaction.started",
+        "data": {
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "reason": "manual",
+          "inputID": "msg_1709ce143001Romhn6LMwSKLIh"
+        }
+      },
+      {
+        "type": "session.compaction.ended",
+        "data": {
+          "sessionID": "ses_e8f632907ffeJtiQKWjzfjXFjp",
+          "reason": "manual",
+          "model": {
+            "id": "gate-model",
+            "providerID": "gate"
+          },
+          "tokens": {
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          },
+          "cost": 0
+        }
+      }
+    ],
+    "compactionDeltas": 2,
+    "laterTurnTerminal": "session.execution.succeeded",
+    "laterText": [
+      "RECALLED:S4_CONTEXT_CANARY",
+      "RECOVERED_AFTER_TOOL"
+    ],
+    "toolTurnAfterCompaction": "session.execution.succeeded",
+    "messageTypesBefore": [
+      "user",
+      "assistant",
+      "idle",
+      "user",
+      "assistant",
+      "idle",
+      "user",
+      "assistant",
+      "idle"
+    ],
+    "messageTypesAfter": [
+      "user",
+      "assistant",
+      "idle",
+      "user",
+      "assistant",
+      "idle",
+      "user",
+      "assistant",
+      "idle",
+      "compaction",
+      "idle",
+      "user",
+      "assistant",
+      "idle",
+      "user",
+      "assistant",
+      "assistant",
+      "idle"
+    ],
+    "compactionMessage": [
+      "{\"type\":\"compaction\",\"id\":\"msg_1709ce143001Romhn6LMwSKLIh\",\"metadata\":{\"keepID\":\"msg_1709ce088001jWme250K3p6BJs\"},\"time\":{\"created\":1792890691959},\"status\":\"completed\",\"reason\":\"manual\",\"model\":{\"id\":\"gate-model\",\"providerID\":\"gate\"},\"summary\":\"## Objective\\nEV_SUMMARY_MARK keep S4_CONTEXT_CANARY\\n## Next Move\\ncontinue\",\"cost\":0,\"tokens\":{\"input\":9,\"output\":4,\"reasoning\":3,\"cache\":{\"read\":2,\"write\":0}}}"
+    ],
+    "mockRequests": [
+      {
+        "prompt": "Here is the first message of the conversation:\n\n<message>\nEV",
+        "messageCount": 2,
+        "isSummary": false,
+        "hasTurnOne": true,
+        "hasSummaryMark": false
+      },
+      {
+        "prompt": "EV compaction turn one S4_CONTEXT_CANARY",
+        "messageCount": 2,
+        "isSummary": false,
+        "hasTurnOne": true,
+        "hasSummaryMark": false
+      },
+      {
+        "prompt": "EV compaction turn two",
+        "messageCount": 4,
+        "isSummary": false,
+        "hasTurnOne": true,
+        "hasSummaryMark": false
+      },
+      {
+        "prompt": "EV compaction turn three",
+        "messageCount": 6,
+        "isSummary": false,
+        "hasTurnOne": true,
+        "hasSummaryMark": false
+      },
+      {
+        "prompt": "You MUST summarize the conversation above into a structured ",
+        "messageCount": 8,
+        "isSummary": true,
+        "hasTurnOne": true,
+        "hasSummaryMark": false
+      },
+      {
+        "prompt": "GATE_RECALL after compaction",
+        "messageCount": 3,
+        "isSummary": false,
+        "hasTurnOne": false,
+        "hasSummaryMark": true
+      },
+      {
+        "prompt": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf after-co",
+        "messageCount": 5,
+        "isSummary": false,
+        "hasTurnOne": false,
+        "hasSummaryMark": true
+      },
+      {
+        "prompt": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf after-co",
+        "messageCount": 7,
+        "isSummary": false,
+        "hasTurnOne": false,
+        "hasSummaryMark": true
+      }
+    ]
+  }
+}

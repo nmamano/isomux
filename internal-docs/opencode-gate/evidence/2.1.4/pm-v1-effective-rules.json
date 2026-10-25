@@ -1,0 +1,333 @@
+{
+ "date": "2026-10-25",
+ "opencode": "1.18.35",
+ "method": "v1 serve with OPENCODE_CONFIG_CONTENT = supervisor.ts:42-77 DEFAULT_OPENCODE_CONFIG (isolated HOME/XDG under /tmp/t-4840abc5/run/pm-v1dbg-1); GET /agent with x-opencode-directory=<git repo>",
+ "agents": {
+  "build": [
+   {
+    "permission": "*",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "doom_loop",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/data/opencode/tool-output/*",
+    "action": "allow"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/tmp/opencode/*",
+    "action": "allow"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "plan_enter",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "plan_exit",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "plan_enter",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "bash",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "isomux_safety_active",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "bash",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/data/opencode/tool-output/*",
+    "action": "allow"
+   }
+  ],
+  "isomux-cron": [
+   {
+    "permission": "*",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "doom_loop",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/data/opencode/tool-output/*",
+    "action": "allow"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/tmp/opencode/*",
+    "action": "allow"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "plan_enter",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "plan_exit",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+   },
+   {
+    "permission": "bash",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "isomux_safety_active",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "bash",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "task",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/data/opencode/tool-output/*",
+    "action": "allow"
+   }
+  ],
+  "isomux-interactive-bypass": [
+   {
+    "permission": "*",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "doom_loop",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/data/opencode/tool-output/*",
+    "action": "allow"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/tmp/opencode/*",
+    "action": "allow"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "plan_enter",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "plan_exit",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "read",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env",
+    "action": "ask"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env.*",
+    "action": "ask"
+   },
+   {
+    "permission": "read",
+    "pattern": "*.env.example",
+    "action": "allow"
+   },
+   {
+    "permission": "bash",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "isomux_safety_active",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "bash",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "edit",
+    "pattern": "*",
+    "action": "ask"
+   },
+   {
+    "permission": "task",
+    "pattern": "*",
+    "action": "allow"
+   },
+   {
+    "permission": "question",
+    "pattern": "*",
+    "action": "deny"
+   },
+   {
+    "permission": "external_directory",
+    "pattern": "<profile>/data/opencode/tool-output/*",
+    "action": "allow"
+   }
+  ]
+ }
+}

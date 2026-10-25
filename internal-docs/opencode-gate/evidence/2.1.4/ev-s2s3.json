@@ -1,0 +1,501 @@
+{
+  "date": "2026-10-25",
+  "run": "/tmp/t-4840abc5/run/ev-s2s3-1792890760333",
+  "opencode": "2.1.4",
+  "s2": {
+    "sessions": {
+      "A": {
+        "id": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "status": 200,
+        "dir": "/tmp/t-4840abc5/run/ev-s2s3-1792890760333/repoA"
+      },
+      "B": {
+        "id": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "status": 200,
+        "dir": "/tmp/t-4840abc5/run/ev-s2s3-1792890760333/repoB"
+      }
+    },
+    "createdPermissions": {
+      "A": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        }
+      ],
+      "B": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        }
+      ]
+    },
+    "projectIDs": {
+      "A": "7af0c6d37e9555ff008c1c4621fb7b8b4c7bc7e4",
+      "B": "30dfb3ef13c77587c526e51a89260d682268dbf6",
+      "distinct": true
+    },
+    "turn1": [
+      "session.execution.succeeded",
+      "session.execution.succeeded"
+    ],
+    "permissionAsked": {
+      "A": {
+        "id": "per_1709dfa4900125pw9JDSEzCq8O",
+        "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+        "action": "shell",
+        "resources": [
+          "printf EV_CANARY_A_1792890760333 > ev-a.txt"
+        ],
+        "save": [
+          "printf *"
+        ],
+        "source": {
+          "type": "tool",
+          "messageID": "msg_1709df978001DCanafrNuuWMJ3",
+          "id": "call_1"
+        }
+      },
+      "B": {
+        "id": "per_1709dfa4d001xvaAUk6GHwVZ9U",
+        "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        "action": "shell",
+        "resources": [
+          "printf EV_CANARY_B_1792890760333 > ev-b.txt"
+        ],
+        "save": [
+          "printf *"
+        ],
+        "source": {
+          "type": "tool",
+          "messageID": "msg_1709df9b5001YiB8JpvZXcfZ3a",
+          "id": "call_2"
+        }
+      }
+    },
+    "pendingLists": {
+      "A": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "per_1709dfa4900125pw9JDSEzCq8O",
+              "sessionID": "ses_e8f62108effe0w721aH0ZaJeBO",
+              "action": "shell",
+              "resources": [
+                "printf EV_CANARY_A_1792890760333 > ev-a.txt"
+              ],
+              "save": [
+                "printf *"
+              ],
+              "source": {
+                "type": "tool",
+                "messageID": "msg_1709df978001DCanafrNuuWMJ3",
+                "id": "call_1"
+              }
+            }
+          ]
+        }
+      },
+      "B": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "per_1709dfa4d001xvaAUk6GHwVZ9U",
+              "sessionID": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+              "action": "shell",
+              "resources": [
+                "printf EV_CANARY_B_1792890760333 > ev-b.txt"
+              ],
+              "save": [
+                "printf *"
+              ],
+              "source": {
+                "type": "tool",
+                "messageID": "msg_1709df9b5001YiB8JpvZXcfZ3a",
+                "id": "call_2"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "crossGet": {
+      "AidUnderB": {
+        "status": 404,
+        "body": {
+          "_tag": "PermissionNotFoundError",
+          "requestID": "per_1709dfa4900125pw9JDSEzCq8O",
+          "message": "Permission request not found: per_1709dfa4900125pw9JDSEzCq8O"
+        }
+      },
+      "BidUnderA": {
+        "status": 404,
+        "body": {
+          "_tag": "PermissionNotFoundError",
+          "requestID": "per_1709dfa4d001xvaAUk6GHwVZ9U",
+          "message": "Permission request not found: per_1709dfa4d001xvaAUk6GHwVZ9U"
+        }
+      }
+    },
+    "crossReply": {
+      "AidUnderB": {
+        "status": 404,
+        "body": {
+          "_tag": "PermissionNotFoundError",
+          "requestID": "per_1709dfa4900125pw9JDSEzCq8O",
+          "message": "Permission request not found: per_1709dfa4900125pw9JDSEzCq8O"
+        }
+      },
+      "BidUnderA": {
+        "status": 404,
+        "body": {
+          "_tag": "PermissionNotFoundError",
+          "requestID": "per_1709dfa4d001xvaAUk6GHwVZ9U",
+          "message": "Permission request not found: per_1709dfa4d001xvaAUk6GHwVZ9U"
+        }
+      }
+    },
+    "afterCrossReply": {
+      "filesA": false,
+      "filesB": false,
+      "replied": []
+    },
+    "reply": {
+      "A": {
+        "status": 204,
+        "body": ""
+      },
+      "B": {
+        "status": 204,
+        "body": ""
+      }
+    },
+    "turn2": [
+      "session.execution.succeeded",
+      "session.execution.succeeded"
+    ],
+    "files": {
+      "repoA/ev-a.txt": "EV_CANARY_A_1792890760333",
+      "repoA/ev-b.txt": null,
+      "repoB/ev-b.txt": "EV_CANARY_B_1792890760333",
+      "repoB/ev-a.txt": null,
+      "profileDir_ev_a": false,
+      "profileDir_ev_b": false
+    },
+    "messageCanaries": {
+      "A_has_A": 5,
+      "A_has_B": 0,
+      "B_has_B": 5,
+      "B_has_A": 0,
+      "A_messageSessionIDs": [
+        null
+      ],
+      "B_messageSessionIDs": [
+        null
+      ],
+      "A_count": 7,
+      "B_count": 7
+    },
+    "eventCanaries": {
+      "A_mentions": 8,
+      "A_mentions_sessionIDs": [
+        "ses_e8f62108effe0w721aH0ZaJeBO",
+        null
+      ],
+      "B_mentions": 8,
+      "B_mentions_sessionIDs": [
+        "ses_e8f62108affeRK2TZSBcT7HRfJ",
+        null
+      ],
+      "eventsBySession": {
+        "A": 43,
+        "B": 43
+      },
+      "toolIdsA": [
+        "call_1"
+      ],
+      "toolIdsB": [
+        "call_2"
+      ],
+      "toolCalledInputs": [
+        {
+          "sid": "ses_e8f62108effe0w721aH0ZaJeBO",
+          "id": "call_1",
+          "input": {
+            "command": "printf EV_CANARY_A_1792890760333 > ev-a.txt"
+          }
+        },
+        {
+          "sid": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+          "id": "call_2",
+          "input": {
+            "command": "printf EV_CANARY_B_1792890760333 > ev-b.txt"
+          }
+        }
+      ]
+    },
+    "durable": {
+      "A": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "B": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "mismatched": 0
+    },
+    "logReplayLive": {
+      "status": 200,
+      "contentType": "text/event-stream",
+      "count": 1,
+      "endedByServer": true,
+      "sample": [
+        "data: {\"type\":\"log.synced\",\"aggregateID\":\"ses_e8f62108effe0w721aH0ZaJeBO\",\"seq\":32}"
+      ]
+    }
+  },
+  "s3": {
+    "lastSeqBeforeRestart": {
+      "A": 32,
+      "B": 32
+    },
+    "server1Exit": {
+      "code": 130,
+      "sig": null,
+      "ms": 211,
+      "signal": "SIGTERM"
+    },
+    "getSessions": {
+      "A": {
+        "status": 200,
+        "body": {
+          "data": {
+            "id": "ses_e8f62108effe0w721aH0ZaJeBO",
+            "projectID": "7af0c6d37e9555ff008c1c4621fb7b8b4c7bc7e4",
+            "cost": 0,
+            "tokens": {
+              "input": 36,
+              "output": 16,
+              "reasoning": 12,
+              "cache": {
+                "read": 8,
+                "write": 0
+              }
+            },
+            "outcome": "succeeded",
+            "time": {
+              "created": 1792890761157,
+              "updated": 1792890764659,
+              "idle": 1792890764672
+            },
+            "title": "ANSWER:Here is the first message of the conversation:  <message> first prompt EV_CANARY_A_1792890...",
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              }
+            ],
+            "location": {
+              "directory": "/tmp/t-4840abc5/run/ev-s2s3-1792890760333/repoA"
+            }
+          }
+        }
+      },
+      "B": {
+        "status": 200,
+        "body": {
+          "data": {
+            "id": "ses_e8f62108affeRK2TZSBcT7HRfJ",
+            "projectID": "30dfb3ef13c77587c526e51a89260d682268dbf6",
+            "cost": 0,
+            "tokens": {
+              "input": 36,
+              "output": 16,
+              "reasoning": 12,
+              "cache": {
+                "read": 8,
+                "write": 0
+              }
+            },
+            "outcome": "succeeded",
+            "time": {
+              "created": 1792890761143,
+              "updated": 1792890764680,
+              "idle": 1792890764688
+            },
+            "title": "ANSWER:Here is the first message of the conversation:  <message> first prompt EV_CANARY_B_1792890...",
+            "permissions": [
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              }
+            ],
+            "location": {
+              "directory": "/tmp/t-4840abc5/run/ev-s2s3-1792890760333/repoB"
+            }
+          }
+        }
+      }
+    },
+    "messagesAfterRestart": {
+      "A_count": 7,
+      "B_count": 7,
+      "A_sameIds": true,
+      "B_sameIds": true,
+      "A_types": [
+        "user",
+        "assistant",
+        "idle",
+        "user",
+        "assistant",
+        "assistant",
+        "idle"
+      ]
+    },
+    "pendingPermissionsAfterRestart": {
+      "location": {
+        "directory": "/tmp/t-4840abc5/run/ev-s2s3-1792890760333"
+      },
+      "data": []
+    },
+    "logAfterLastSeqBeforeTurn": {
+      "count": 1,
+      "types": [
+        "log.synced"
+      ]
+    },
+    "logAfterMidSeq": {
+      "after": 16,
+      "count": 1,
+      "seqs": [
+        32
+      ],
+      "expected": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ]
+    },
+    "recallTerminals": [
+      "session.execution.succeeded",
+      "session.execution.succeeded"
+    ],
+    "recallText": {
+      "A": [
+        "RECALLED:S4_CONTEXT_CANARY"
+      ],
+      "B": [
+        "RECALLED:S4_CONTEXT_CANARY"
+      ]
+    },
+    "logAfterLastSeqAfterTurn": {
+      "count": 1,
+      "types": [
+        "log.synced"
+      ]
+    },
+    "logFollow": {
+      "count": 1,
+      "endedByServer": false,
+      "lastTypes": [
+        "log.synced"
+      ]
+    },
+    "mockLogRecall": [
+      "{\"at\":\"2026-10-25T01:12:48.262Z\",\"prompt\":\"GATE_RECALL\",\"messageCount\":8}",
+      "{\"at\":\"2026-10-25T01:12:48.376Z\",\"prompt\":\"GATE_RECALL\",\"messageCount\":8}"
+    ],
+    "server2Exit": {
+      "code": 130,
+      "sig": null
+    }
+  },
+  "passwordInLogs": {
+    "server1": 0,
+    "server2": 0
+  },
+  "processes": [
+    "mock pid=4089805",
+    "server1 pid=4089836",
+    "server2 pid=4090172"
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "status": 200,
+  "data": [
+    {
+      "id": "msg_170972878001IhnYsuHZhO7eUJ",
+      "time": {
+        "created": 1792890316955
+      },
+      "text": "GATE_CALL:{\"tool\":\"shell\",\"args\":{\"command\":\"printf allowed > ev-allow.txt\"}}",
+      "type": "user"
+    },
+    {
+      "id": "msg_1709728c1001Lk6sgeuiy2Si48",
+      "time": {
+        "created": 1792890317020,
+        "streamed": 1792890317119,
+        "completed": 1792890317427
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "gate-model",
+        "providerID": "gate"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "call_2",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "printf allowed > ev-allow.txt"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            }
+          },
+          "time": {
+            "created": 1792890317099,
+            "ran": 1792890317111,
+            "completed": 1792890317264
+          }
+        }
+      ],
+      "snapshot": {
+        "start": "35596c654df09e182449b8d9db87313ad2475ceb",
+        "end": "bfed41e8ba157c37e431f644bee8cef49d0ae6b4",
+        "files": [
+          "ev-allow.txt"
+        ]
+      },
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0,
+      "tokens": {
+        "input": 9,
+        "output": 4,
+        "reasoning": 3,
+        "cache": {
+          "read": 2,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_170972a8f001Gk8ixWhUFlRJJ9",
+      "time": {
+        "created": 1792890317489,
+        "streamed": 1792890317789,
+        "completed": 1792890317839
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "gate-model",
+        "providerID": "gate"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "native": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1792890317756,
+            "completed": 1792890317772
+          }
+        },
+        {
+          "type": "text",
+          "text": "RECOVERED_AFTER_TOOL"
+        }
+      ],
+      "snapshot": {
+        "start": "bfed41e8ba157c37e431f644bee8cef49d0ae6b4",
+        "end": "bfed41e8ba157c37e431f644bee8cef49d0ae6b4",
+        "files": []
+      },
+      "finish": "stop",
+      "rawFinish": "stop",
+      "cost": 0,
+      "tokens": {
+        "input": 9,
+        "output": 4,
+        "reasoning": 3,
+        "cache": {
+          "read": 2,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_170972c2e001PR1mqZeDhH42CJ",
+      "time": {
+        "created": 1792890317870
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

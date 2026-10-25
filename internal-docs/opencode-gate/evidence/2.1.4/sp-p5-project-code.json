@@ -1,0 +1,300 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p5",
+  "runDir": "/tmp/t-4840abc5/run/sp-p5-1792891225723",
+  "runs": {
+    "default": {
+      "env": [],
+      "settle": 200,
+      "markersAfterOpen": {
+        "plugin-import": 1,
+        "plugin-setup": 1,
+        "mcp-spawned": 1,
+        "formatter-ran": 0,
+        "npm-plugin-import": 0
+      },
+      "turnEnd": "session.execution.succeeded",
+      "firstTurnMs": 2598,
+      "tools": [
+        "called",
+        "success"
+      ],
+      "markersAfterTurn": {
+        "plugin-import": 1,
+        "plugin-setup": 1,
+        "mcp-spawned": 1,
+        "formatter-ran": 1,
+        "npm-plugin-import": 0
+      },
+      "skills": [
+        "p5-claude-skill",
+        "p5-agents-skill",
+        "p5-opencode-skill"
+      ],
+      "agents": [
+        "p5-json-agent",
+        "p5-md-agent"
+      ],
+      "commands": [
+        "p5-command"
+      ],
+      "mcp": [
+        {
+          "name": "p5probe",
+          "status": "pending"
+        }
+      ],
+      "mcpRaw": "[{\"name\":\"p5probe\",\"status\":{\"status\":\"pending\"}}]",
+      "plugins": [
+        {
+          "id": "p5-project-plugin",
+          "status": "active",
+          "path": "<profile>/repo/.opencode/plugins/p.js"
+        },
+        {
+          "id": "isomux-safety",
+          "status": "active",
+          "path": "<profile>/isomux-safety/index.js"
+        }
+      ],
+      "instructions": {
+        "status": 200,
+        "agentsMd": false,
+        "claudeMd": false
+      },
+      "eventsMention": {
+        "agentsMd": false,
+        "claudeMd": false
+      },
+      "modelRequestsForRepo": [
+        {
+          "agentsMd": false,
+          "claudeMd": false,
+          "nested": false,
+          "skills": []
+        },
+        {
+          "agentsMd": true,
+          "claudeMd": false,
+          "nested": false,
+          "skills": [
+            "p5-claude-skill",
+            "p5-opencode-skill",
+            "p5-agents-skill"
+          ]
+        },
+        {
+          "agentsMd": true,
+          "claudeMd": false,
+          "nested": false,
+          "skills": [
+            "p5-claude-skill",
+            "p5-opencode-skill",
+            "p5-agents-skill"
+          ]
+        }
+      ],
+      "instructionKeys": {
+        "repo": [
+          "core/codemode",
+          "core/date",
+          "core/environment",
+          "core/instructions",
+          "core/skill-guidance"
+        ]
+      },
+      "readTurnEnd": "session.execution.succeeded",
+      "nestedAgentsMdReachedModel": true,
+      "readTools": [
+        "called",
+        "success",
+        "called",
+        "success"
+      ],
+      "fileAfterEdit": "changed",
+      "npm": {
+        "settleStatus": 200,
+        "settleMs": 1115,
+        "firstTurnMs": 1769,
+        "turnEnd": "session.execution.succeeded",
+        "registryRequests": [
+          "GET /p5-npm-plugin",
+          "GET /p5-npm-plugin/-/p5-npm-plugin-1.0.0.tgz"
+        ],
+        "plugins": [
+          {
+            "id": "p5-npm-plugin",
+            "status": "active",
+            "source": "package"
+          },
+          {
+            "id": "isomux-safety",
+            "status": "active",
+            "source": "local"
+          }
+        ],
+        "npmPluginImported": true
+      },
+      "after": {
+        "memberConfig": [],
+        "cache": [
+          "opencode/npm/",
+          "opencode/npm/p5-npm-plugin@1.0.0/",
+          "opencode/npm/p5-npm-plugin@1.0.0/1792891231951/",
+          "opencode/npm/p5-npm-plugin@1.0.0/1792891231951/node_modules/",
+          "opencode/npm/p5-npm-plugin@1.0.0/1792891231951/package-lock.json",
+          "opencode/npm/p5-npm-plugin@1.0.0/1792891231951/package.json"
+        ],
+        "npmRepoDotOpencode": [
+          "opencode.json"
+        ],
+        "repoDotOpencode": [
+          "agents/",
+          "agents/p5-md-agent.md",
+          "commands/",
+          "commands/p5-command.md",
+          "plugins/",
+          "plugins/p.js",
+          "skills/",
+          "skills/p5-opencode-skill/",
+          "skills/p5-opencode-skill/SKILL.md"
+        ]
+      },
+      "before": {
+        "memberConfig": [
+          "<absent>"
+        ],
+        "cache": [],
+        "npmRepoDotOpencode": [
+          "opencode.json"
+        ]
+      }
+    },
+    "disableProjectConfig": {
+      "env": [
+        "OPENCODE_DISABLE_PROJECT_CONFIG"
+      ],
+      "settle": 200,
+      "markersAfterOpen": {
+        "plugin-import": 0,
+        "plugin-setup": 0,
+        "mcp-spawned": 0,
+        "formatter-ran": 0,
+        "npm-plugin-import": 0
+      },
+      "turnEnd": "session.execution.succeeded",
+      "firstTurnMs": 2292,
+      "tools": [
+        "called",
+        "success"
+      ],
+      "markersAfterTurn": {
+        "plugin-import": 0,
+        "plugin-setup": 0,
+        "mcp-spawned": 0,
+        "formatter-ran": 0,
+        "npm-plugin-import": 0
+      },
+      "skills": [],
+      "agents": [],
+      "commands": [],
+      "mcp": [],
+      "mcpRaw": "[]",
+      "plugins": [
+        {
+          "id": "isomux-safety",
+          "status": "active",
+          "path": "<profile>/isomux-safety/index.js"
+        }
+      ],
+      "instructions": {
+        "status": 200,
+        "agentsMd": false,
+        "claudeMd": false
+      },
+      "eventsMention": {
+        "agentsMd": false,
+        "claudeMd": false
+      },
+      "modelRequestsForRepo": [
+        {
+          "agentsMd": false,
+          "claudeMd": false,
+          "nested": false,
+          "skills": []
+        },
+        {
+          "agentsMd": false,
+          "claudeMd": false,
+          "nested": false,
+          "skills": []
+        },
+        {
+          "agentsMd": false,
+          "claudeMd": false,
+          "nested": false,
+          "skills": []
+        }
+      ],
+      "instructionKeys": {
+        "repo": [
+          "core/codemode",
+          "core/date",
+          "core/environment",
+          "core/skill-guidance"
+        ]
+      },
+      "readTurnEnd": "session.execution.succeeded",
+      "nestedAgentsMdReachedModel": true,
+      "readTools": [
+        "called",
+        "success",
+        "called",
+        "success"
+      ],
+      "fileAfterEdit": "changed",
+      "npm": {
+        "settleStatus": 200,
+        "settleMs": 560,
+        "firstTurnMs": 1073,
+        "turnEnd": "session.execution.succeeded",
+        "registryRequests": [],
+        "plugins": [
+          {
+            "id": "isomux-safety",
+            "status": "active",
+            "source": "local"
+          }
+        ],
+        "npmPluginImported": false
+      },
+      "after": {
+        "memberConfig": [],
+        "cache": [],
+        "npmRepoDotOpencode": [
+          "opencode.json"
+        ],
+        "repoDotOpencode": [
+          "agents/",
+          "agents/p5-md-agent.md",
+          "commands/",
+          "commands/p5-command.md",
+          "plugins/",
+          "plugins/p.js",
+          "skills/",
+          "skills/p5-opencode-skill/",
+          "skills/p5-opencode-skill/SKILL.md"
+        ]
+      },
+      "before": {
+        "memberConfig": [
+          "<absent>"
+        ],
+        "cache": [],
+        "npmRepoDotOpencode": [
+          "opencode.json"
+        ]
+      }
+    }
+  }
+}

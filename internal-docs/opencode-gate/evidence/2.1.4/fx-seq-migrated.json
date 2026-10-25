@@ -1,0 +1,1615 @@
+{
+  "item": "#53146 single-writer / event_sequence check on v1-imported sessions (2.1.4)",
+  "date": "2026-10-25",
+  "binaries": {
+    "v2": "opencode 2.1.4",
+    "v1": "opencode 1.18.35 (synthetic seed only)"
+  },
+  "runDir": "/tmp/t-4840abc5/run/fx-1792893405",
+  "method": [
+    "Real office profile copied with cp -a after a /proc scan (ls -l /proc/*/fd and /proc/*/cwd | grep -c <profile id>) found 0 holders, with a positive control (a sleep holding a file and cwd under a path with the id: 2 fd hits, 2 cwd hits) and server.lock = 0 bytes; sha256 of opencode.db, -wal, -shm equal to the source.",
+    "2.1.4 started on the copy in the Isomux profile layout (HOME/XDG_*/TMPDIR inside the copy, the copy's opencode.json as OPENCODE_CONFIG, mock provider in OPENCODE_CONFIG_CONTENT, OPENCODE_DISABLE_MODELS_FETCH=1, OPENCODE_DISABLE_FREE_MODELS=1, HTTP(S)_PROXY to a closed port), GET /api/experimental/migration/v1 polled until completed, SIGTERM.",
+    "Seq check (fx-seq.ts seqCheck) on a copy of db+wal+shm taken with the server stopped: per session_v2 row, event_sequence.seq vs max(session_message.seq) and max(event.seq).",
+    "Second start: every imported session moved (POST /api/session/:id/move) to its own scratch git repo under the run dir, model switched to the mock, then turn 1 = GATE_CALL shell (printf original > fx-edit.txt), turn 2 = GATE_CALL edit (original -> changed); every permission.asked answered once. SIGTERM. Seq check. Third start: 1 GATE_CALL shell turn per session. SIGTERM. Seq check.",
+    "Server logs (--print-logs stdout/stderr and data/opencode/log/opencode.log) grepped with cc-lib ERROR_REGEX; planted-line control and a known-line control on the same files.",
+    "Same flow on a synthetic v1 profile seeded by 1.18.35 with the mock (5 sessions x 4 turns, bash and write tool calls); one of its 5 repos renamed away before the 2.1.4 start so one session takes the folder-gone move path.",
+    "Positive controls on copies of the finished synthetic profile: event_sequence of one session lowered (by 5, and set to 0) with the server stopped, then 1 turn."
+  ],
+  "preconditions": {
+    "procScan": {
+      "fdHits": 0,
+      "cwdHits": 0,
+      "control": {
+        "fdHits": 2,
+        "cwdHits": 2,
+        "afterControlStopped": {
+          "fdHits": 0,
+          "cwdHits": 0
+        }
+      }
+    },
+    "serverLockBytes": 0,
+    "sha256Match": {
+      "opencode.db": true,
+      "opencode.db-wal": true,
+      "opencode.db-shm": true
+    },
+    "fileCount": {
+      "source": 25,
+      "copy": 25
+    },
+    "sourceDbShaPrefixBeforeAndAfterBothCopies": "b54aa35e3cd2d02d (unchanged)"
+  },
+  "realProfile": {
+    "copy": "copy2 (fresh copy; copy1 was the first attempt, see firstAttemptCopy1)",
+    "v1Census": {
+      "tables": 20,
+      "session": 3,
+      "message": 31,
+      "part": 117,
+      "session_v2": null,
+      "session_message": 0,
+      "event": 419,
+      "event_sequence": 3,
+      "v1Dirs": {
+        "distinct": 2,
+        "exist": 2,
+        "underGateRoot": 0,
+        "gitAncestor": 2
+      },
+      "v1SessionsDirExists": 3,
+      "v1Children": 0
+    },
+    "v1CountersBeforeImport": [
+      {
+        "s": "s1",
+        "v1EventSequence": 217,
+        "v1MaxEventSeq": {
+          "m": 217,
+          "c": 218
+        },
+        "v1Messages": 17
+      },
+      {
+        "s": "s2",
+        "v1EventSequence": 33,
+        "v1MaxEventSeq": {
+          "m": 33,
+          "c": 34
+        },
+        "v1Messages": 4
+      },
+      {
+        "s": "s3",
+        "v1EventSequence": 166,
+        "v1MaxEventSeq": {
+          "m": 166,
+          "c": 167
+        },
+        "v1Messages": 10
+      }
+    ],
+    "migrate": {
+      "date": "2026-10-25",
+      "phase": "migrate",
+      "binary": "2.1.4",
+      "healthyMs": 739,
+      "migration": {
+        "finalStatus": "completed",
+        "timeline": [
+          {
+            "atMs": 4,
+            "http": 200,
+            "status": "running"
+          },
+          {
+            "atMs": 108,
+            "http": 200,
+            "status": "completed"
+          }
+        ],
+        "ms": 108
+      },
+      "sessionList": {
+        "http": 200,
+        "count": 3,
+        "importedVisible": 3,
+        "v1Ids": 3
+      },
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "repoWriteSentinel": {
+        "dirs": 2,
+        "changed": 0
+      },
+      "logs": {
+        "c2-migrate/server.log": {
+          "lines": 29,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 915,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      }
+    },
+    "seqCheckAfterMigration": {
+      "date": "2026-10-25",
+      "quickCheck": [
+        "ok"
+      ],
+      "kvMigrationPhase": "completed",
+      "sessionsV2": 3,
+      "importedV1Ids": 3,
+      "importedPresent": 3,
+      "vsMaxSessionMessageSeq": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 3,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "vsMaxEventSeq": {
+        "counterLtMaxEventSeq": 0,
+        "counterEqMaxEventSeq": 0,
+        "counterGtMaxEventSeq": 0,
+        "noEvents": 3
+      },
+      "violatingSessions_ccLibRule": 0,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "perSession": [
+        {
+          "s": "s3",
+          "imported": true,
+          "eventSequence": 10,
+          "maxMessageSeq": 10,
+          "messages": 11,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s2",
+          "imported": true,
+          "eventSequence": 3,
+          "maxMessageSeq": 3,
+          "messages": 4,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s1",
+          "imported": true,
+          "eventSequence": 17,
+          "maxMessageSeq": 17,
+          "messages": 18,
+          "maxEventSeq": null
+        }
+      ]
+    },
+    "turnsA_moveAndTwoToolTurns": {
+      "date": "2026-10-25",
+      "phase": "turns",
+      "spec": "a",
+      "binary": "2.1.4",
+      "sessions": [
+        {
+          "s": "s1",
+          "getHttp": 200,
+          "folder": "exists-outside-gate-root",
+          "move": {
+            "http": 204,
+            "appliedMs": 485
+          },
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 839,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 591,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        },
+        {
+          "s": "s2",
+          "getHttp": 200,
+          "folder": "exists-outside-gate-root",
+          "move": {
+            "http": 204,
+            "appliedMs": 488
+          },
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 571,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 420,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        },
+        {
+          "s": "s3",
+          "getHttp": 200,
+          "folder": "exists-outside-gate-root",
+          "move": {
+            "http": 204,
+            "appliedMs": 52
+          },
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 896,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 473,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        }
+      ],
+      "healthyMs": 537,
+      "migrationStatus": "completed",
+      "permissionReplies": [
+        {
+          "action": "shell",
+          "reply": 204
+        },
+        {
+          "action": "edit",
+          "reply": 204
+        },
+        {
+          "action": "shell",
+          "reply": 204
+        },
+        {
+          "action": "edit",
+          "reply": 204
+        },
+        {
+          "action": "shell",
+          "reply": 204
+        },
+        {
+          "action": "edit",
+          "reply": 204
+        }
+      ],
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "repoWriteSentinel": {
+        "dirs": 2,
+        "changed": 0
+      },
+      "allTurnsSucceeded": true,
+      "logs": {
+        "c2-turns-a/server.log": {
+          "lines": 278,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 1192,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      }
+    },
+    "seqCheckAfterTurnsA": {
+      "date": "2026-10-25",
+      "quickCheck": [
+        "ok"
+      ],
+      "kvMigrationPhase": "completed",
+      "sessionsV2": 3,
+      "importedV1Ids": 3,
+      "importedPresent": 3,
+      "vsMaxSessionMessageSeq": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 3,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "vsMaxEventSeq": {
+        "counterLtMaxEventSeq": 0,
+        "counterEqMaxEventSeq": 0,
+        "counterGtMaxEventSeq": 0,
+        "noEvents": 3
+      },
+      "violatingSessions_ccLibRule": 0,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "perSession": [
+        {
+          "s": "s3",
+          "imported": true,
+          "eventSequence": 53,
+          "maxMessageSeq": 53,
+          "messages": 22,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s2",
+          "imported": true,
+          "eventSequence": 46,
+          "maxMessageSeq": 46,
+          "messages": 15,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s1",
+          "imported": true,
+          "eventSequence": 60,
+          "maxMessageSeq": 60,
+          "messages": 29,
+          "maxEventSeq": null
+        }
+      ]
+    },
+    "turnsB_afterSigtermRestart_oneToolTurn": {
+      "date": "2026-10-25",
+      "phase": "turns",
+      "spec": "b",
+      "binary": "2.1.4",
+      "sessions": [
+        {
+          "s": "s1",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 2030,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        },
+        {
+          "s": "s2",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 1732,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        },
+        {
+          "s": "s3",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 1016,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        }
+      ],
+      "healthyMs": 600,
+      "migrationStatus": "completed",
+      "permissionReplies": [
+        {
+          "action": "shell",
+          "reply": 204
+        },
+        {
+          "action": "shell",
+          "reply": 204
+        },
+        {
+          "action": "shell",
+          "reply": 204
+        }
+      ],
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "repoWriteSentinel": {
+        "dirs": 2,
+        "changed": 0
+      },
+      "allTurnsSucceeded": true,
+      "logs": {
+        "c2-turns-b/server.log": {
+          "lines": 177,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 1368,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      }
+    },
+    "seqCheckAfterRestartTurn": {
+      "date": "2026-10-25",
+      "quickCheck": [
+        "ok"
+      ],
+      "kvMigrationPhase": "completed",
+      "sessionsV2": 3,
+      "importedV1Ids": 3,
+      "importedPresent": 3,
+      "vsMaxSessionMessageSeq": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 3,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "vsMaxEventSeq": {
+        "counterLtMaxEventSeq": 0,
+        "counterEqMaxEventSeq": 0,
+        "counterGtMaxEventSeq": 0,
+        "noEvents": 3
+      },
+      "violatingSessions_ccLibRule": 0,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "perSession": [
+        {
+          "s": "s3",
+          "imported": true,
+          "eventSequence": 71,
+          "maxMessageSeq": 71,
+          "messages": 26,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s2",
+          "imported": true,
+          "eventSequence": 64,
+          "maxMessageSeq": 64,
+          "messages": 19,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s1",
+          "imported": true,
+          "eventSequence": 78,
+          "maxMessageSeq": 78,
+          "messages": 33,
+          "maxEventSeq": null
+        }
+      ]
+    },
+    "serverLogGrep": {
+      "method": "grep -c -E 'UNIQUE constraint failed|SQLITE_CONSTRAINT|Sequence mismatch|Replay diverged|already exists at aggregate|InvalidDurableEvent' per file; knownLineControl = grep -c 'level=INFO' on the same file",
+      "files": [
+        {
+          "file": "<run>/c2-migrate/server.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 27
+        },
+        {
+          "file": "<run>/c2-turns-a/server.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 276
+        },
+        {
+          "file": "<run>/c2-turns-b/server.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 175
+        },
+        {
+          "file": "<run>/copy2/data/opencode/log/opencode.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 1367
+        }
+      ]
+    },
+    "firstAttemptCopy1": {
+      "note": "Same migrate + seq check gave the same counters. In turns-a the move of s1/s2 returned 204 but the location had not changed yet when the probe re-read it, so the probe skipped writing (never ran tools in a real folder). 2.1.4 queues a move in the session inbox when the source folder still exists (core/src/session/move.ts:129-156); fx-seq.ts now waits for the location (appliedMs). Copy1 is not used for the verdict.",
+      "seqCheckAfterMigration": {
+        "date": "2026-10-25",
+        "quickCheck": [
+          "ok"
+        ],
+        "kvMigrationPhase": "completed",
+        "sessionsV2": 3,
+        "importedV1Ids": 3,
+        "importedPresent": 3,
+        "vsMaxSessionMessageSeq": {
+          "noCounterRow": 0,
+          "counterLtMaxMessageSeq": 0,
+          "counterEqMaxMessageSeq": 3,
+          "counterGtMaxMessageSeq": 0,
+          "counterButNoMessages": 0,
+          "noCounterNoMessages": 0
+        },
+        "vsMaxEventSeq": {
+          "counterLtMaxEventSeq": 0,
+          "counterEqMaxEventSeq": 0,
+          "counterGtMaxEventSeq": 0,
+          "noEvents": 3
+        },
+        "violatingSessions_ccLibRule": 0,
+        "duplicateSessionMessageSeq": 0,
+        "duplicateEventSeq": 0,
+        "perSession": [
+          {
+            "s": "s3",
+            "imported": true,
+            "eventSequence": 10,
+            "maxMessageSeq": 10,
+            "messages": 11,
+            "maxEventSeq": null
+          },
+          {
+            "s": "s2",
+            "imported": true,
+            "eventSequence": 3,
+            "maxMessageSeq": 3,
+            "messages": 4,
+            "maxEventSeq": null
+          },
+          {
+            "s": "s1",
+            "imported": true,
+            "eventSequence": 17,
+            "maxMessageSeq": 17,
+            "messages": 18,
+            "maxEventSeq": null
+          }
+        ]
+      },
+      "turnsA": [
+        {
+          "s": "s1",
+          "move": {
+            "http": 204
+          },
+          "skipped": "location outside gate root; not writing"
+        },
+        {
+          "s": "s2",
+          "move": {
+            "http": 204
+          },
+          "skipped": "location outside gate root; not writing"
+        },
+        {
+          "s": "s3",
+          "move": {
+            "http": 204
+          },
+          "turns": [
+            "session.execution.succeeded",
+            "session.execution.succeeded"
+          ]
+        }
+      ]
+    }
+  },
+  "syntheticProfile": {
+    "seedBy1_18_35": [
+      {
+        "s": "s1",
+        "turns": [
+          "idle:bash:completed",
+          "idle:write:completed",
+          "idle:bash:completed",
+          "idle:write:completed"
+        ]
+      },
+      {
+        "s": "s2",
+        "turns": [
+          "idle:bash:completed",
+          "idle:write:completed",
+          "idle:bash:completed",
+          "idle:write:completed"
+        ]
+      },
+      {
+        "s": "s3",
+        "turns": [
+          "idle:bash:completed",
+          "idle:write:completed",
+          "idle:bash:completed",
+          "idle:write:completed"
+        ]
+      },
+      {
+        "s": "s4",
+        "turns": [
+          "idle:bash:completed",
+          "idle:write:completed",
+          "idle:bash:completed",
+          "idle:write:completed"
+        ]
+      },
+      {
+        "s": "s5",
+        "turns": [
+          "idle:bash:completed",
+          "idle:write:completed",
+          "idle:bash:completed",
+          "idle:write:completed"
+        ]
+      }
+    ],
+    "folderGoneSessions": 1,
+    "v1Census": {
+      "tables": 20,
+      "session": 5,
+      "message": 60,
+      "part": 180,
+      "session_v2": null,
+      "session_message": 0,
+      "event": 559,
+      "event_sequence": 5,
+      "v1Dirs": {
+        "distinct": 5,
+        "exist": 4,
+        "underGateRoot": 5,
+        "gitAncestor": 4
+      },
+      "v1SessionsDirExists": 4,
+      "v1Children": 0
+    },
+    "v1CountersBeforeImport": [
+      {
+        "s": "s1",
+        "v1EventSequence": 111,
+        "v1MaxEventSeq": {
+          "m": 111,
+          "c": 112
+        },
+        "v1Messages": 12
+      },
+      {
+        "s": "s2",
+        "v1EventSequence": 111,
+        "v1MaxEventSeq": {
+          "m": 111,
+          "c": 112
+        },
+        "v1Messages": 12
+      },
+      {
+        "s": "s3",
+        "v1EventSequence": 111,
+        "v1MaxEventSeq": {
+          "m": 111,
+          "c": 112
+        },
+        "v1Messages": 12
+      },
+      {
+        "s": "s4",
+        "v1EventSequence": 111,
+        "v1MaxEventSeq": {
+          "m": 111,
+          "c": 112
+        },
+        "v1Messages": 12
+      },
+      {
+        "s": "s5",
+        "v1EventSequence": 110,
+        "v1MaxEventSeq": {
+          "m": 110,
+          "c": 111
+        },
+        "v1Messages": 12
+      }
+    ],
+    "migrate": {
+      "date": "2026-10-25",
+      "phase": "migrate",
+      "binary": "2.1.4",
+      "healthyMs": 1726,
+      "migration": {
+        "finalStatus": "completed",
+        "timeline": [
+          {
+            "atMs": 23,
+            "http": 200,
+            "status": "running"
+          },
+          {
+            "atMs": 127,
+            "http": 200,
+            "status": "completed"
+          }
+        ],
+        "ms": 127
+      },
+      "sessionList": {
+        "http": 200,
+        "count": 5,
+        "importedVisible": 5,
+        "v1Ids": 5
+      },
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "repoWriteSentinel": {
+        "dirs": 5,
+        "changed": 0
+      },
+      "logs": {
+        "syn2-migrate/server.log": {
+          "lines": 28,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 438,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      }
+    },
+    "seqCheckAfterMigration": {
+      "date": "2026-10-25",
+      "quickCheck": [
+        "ok"
+      ],
+      "kvMigrationPhase": "completed",
+      "sessionsV2": 5,
+      "importedV1Ids": 5,
+      "importedPresent": 5,
+      "vsMaxSessionMessageSeq": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 5,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "vsMaxEventSeq": {
+        "counterLtMaxEventSeq": 0,
+        "counterEqMaxEventSeq": 0,
+        "counterGtMaxEventSeq": 0,
+        "noEvents": 5
+      },
+      "violatingSessions_ccLibRule": 0,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "perSession": [
+        {
+          "s": "s5",
+          "imported": true,
+          "eventSequence": 12,
+          "maxMessageSeq": 12,
+          "messages": 13,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s4",
+          "imported": true,
+          "eventSequence": 12,
+          "maxMessageSeq": 12,
+          "messages": 13,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s3",
+          "imported": true,
+          "eventSequence": 12,
+          "maxMessageSeq": 12,
+          "messages": 13,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s2",
+          "imported": true,
+          "eventSequence": 12,
+          "maxMessageSeq": 12,
+          "messages": 13,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s1",
+          "imported": true,
+          "eventSequence": 12,
+          "maxMessageSeq": 12,
+          "messages": 13,
+          "maxEventSeq": null
+        }
+      ]
+    },
+    "turnsA_moveAndTwoToolTurns": {
+      "date": "2026-10-25",
+      "phase": "turns",
+      "spec": "a",
+      "binary": "2.1.4",
+      "sessions": [
+        {
+          "s": "s1",
+          "getHttp": 200,
+          "folder": "exists-under-gate-root",
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 1762,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 473,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        },
+        {
+          "s": "s2",
+          "getHttp": 200,
+          "folder": "exists-under-gate-root",
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 899,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 467,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        },
+        {
+          "s": "s3",
+          "getHttp": 200,
+          "folder": "exists-under-gate-root",
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 963,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 422,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        },
+        {
+          "s": "s4",
+          "getHttp": 200,
+          "folder": "exists-under-gate-root",
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 1005,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 421,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        },
+        {
+          "s": "s5",
+          "getHttp": 200,
+          "folder": "gone",
+          "move": {
+            "http": 204,
+            "appliedMs": 82
+          },
+          "modelSwitchHttp": 204,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 778,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            },
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 467,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed"
+        }
+      ],
+      "healthyMs": 1045,
+      "migrationStatus": "completed",
+      "permissionReplies": [],
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "repoWriteSentinel": {
+        "dirs": 5,
+        "changed": 4
+      },
+      "allTurnsSucceeded": true,
+      "logs": {
+        "syn2-turns-a/server.log": {
+          "lines": 343,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 780,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      }
+    },
+    "seqCheckAfterTurnsA": {
+      "date": "2026-10-25",
+      "quickCheck": [
+        "ok"
+      ],
+      "kvMigrationPhase": "completed",
+      "sessionsV2": 5,
+      "importedV1Ids": 5,
+      "importedPresent": 5,
+      "vsMaxSessionMessageSeq": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 5,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "vsMaxEventSeq": {
+        "counterLtMaxEventSeq": 0,
+        "counterEqMaxEventSeq": 0,
+        "counterGtMaxEventSeq": 0,
+        "noEvents": 5
+      },
+      "violatingSessions_ccLibRule": 0,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "perSession": [
+        {
+          "s": "s5",
+          "imported": true,
+          "eventSequence": 56,
+          "maxMessageSeq": 56,
+          "messages": 23,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s4",
+          "imported": true,
+          "eventSequence": 53,
+          "maxMessageSeq": 53,
+          "messages": 21,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s3",
+          "imported": true,
+          "eventSequence": 53,
+          "maxMessageSeq": 53,
+          "messages": 21,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s2",
+          "imported": true,
+          "eventSequence": 53,
+          "maxMessageSeq": 53,
+          "messages": 21,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s1",
+          "imported": true,
+          "eventSequence": 53,
+          "maxMessageSeq": 53,
+          "messages": 21,
+          "maxEventSeq": null
+        }
+      ]
+    },
+    "turnsB_afterSigtermRestart_oneToolTurn": {
+      "date": "2026-10-25",
+      "phase": "turns",
+      "spec": "b",
+      "binary": "2.1.4",
+      "sessions": [
+        {
+          "s": "s1",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 1726,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        },
+        {
+          "s": "s2",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 946,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        },
+        {
+          "s": "s3",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 759,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        },
+        {
+          "s": "s4",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 886,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        },
+        {
+          "s": "s5",
+          "getHttp": 200,
+          "locationUnderGateRoot": true,
+          "turns": [
+            {
+              "outcome": "session.execution.succeeded",
+              "ms": 906,
+              "tools": {
+                "called": 1,
+                "success": 1,
+                "failed": 0,
+                "failedMsg": []
+              }
+            }
+          ],
+          "fileAfter": "changed",
+          "restartFile": "after-restart"
+        }
+      ],
+      "healthyMs": 636,
+      "migrationStatus": "completed",
+      "permissionReplies": [],
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "repoWriteSentinel": {
+        "dirs": 5,
+        "changed": 4
+      },
+      "allTurnsSucceeded": true,
+      "logs": {
+        "syn2-turns-b/server.log": {
+          "lines": 274,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 1053,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      }
+    },
+    "seqCheckAfterRestartTurn": {
+      "date": "2026-10-25",
+      "quickCheck": [
+        "ok"
+      ],
+      "kvMigrationPhase": "completed",
+      "sessionsV2": 5,
+      "importedV1Ids": 5,
+      "importedPresent": 5,
+      "vsMaxSessionMessageSeq": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 5,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "vsMaxEventSeq": {
+        "counterLtMaxEventSeq": 0,
+        "counterEqMaxEventSeq": 0,
+        "counterGtMaxEventSeq": 0,
+        "noEvents": 5
+      },
+      "violatingSessions_ccLibRule": 0,
+      "duplicateSessionMessageSeq": 0,
+      "duplicateEventSeq": 0,
+      "perSession": [
+        {
+          "s": "s5",
+          "imported": true,
+          "eventSequence": 76,
+          "maxMessageSeq": 76,
+          "messages": 27,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s4",
+          "imported": true,
+          "eventSequence": 73,
+          "maxMessageSeq": 73,
+          "messages": 25,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s3",
+          "imported": true,
+          "eventSequence": 73,
+          "maxMessageSeq": 73,
+          "messages": 25,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s2",
+          "imported": true,
+          "eventSequence": 73,
+          "maxMessageSeq": 73,
+          "messages": 25,
+          "maxEventSeq": null
+        },
+        {
+          "s": "s1",
+          "imported": true,
+          "eventSequence": 73,
+          "maxMessageSeq": 73,
+          "messages": 25,
+          "maxEventSeq": null
+        }
+      ]
+    },
+    "serverLogGrep": {
+      "method": "grep -c -E 'UNIQUE constraint failed|SQLITE_CONSTRAINT|Sequence mismatch|Replay diverged|already exists at aggregate|InvalidDurableEvent' per file; knownLineControl = grep -c 'level=INFO' on the same file",
+      "files": [
+        {
+          "file": "<run>/syn2-migrate/server.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 26
+        },
+        {
+          "file": "<run>/syn2-turns-a/server.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 341
+        },
+        {
+          "file": "<run>/syn2-turns-b/server.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 272
+        },
+        {
+          "file": "<run>/syn2/profile/data/opencode/log/opencode.log",
+          "seqErrorPatternCount": 0,
+          "knownLineControl_levelINFO": 1052
+        }
+      ]
+    }
+  },
+  "positiveControls": {
+    "lowerBy5": {
+      "edit": {
+        "changed": 1,
+        "before": 73,
+        "after": 68,
+        "maxMessageSeq": 73
+      },
+      "turn": [
+        {
+          "outcome": "session.execution.succeeded",
+          "ms": 1999,
+          "tools": {
+            "called": 1,
+            "success": 1,
+            "failed": 0,
+            "failedMsg": []
+          }
+        }
+      ],
+      "logs": {
+        "ctl-turns/server.log": {
+          "lines": 76,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        },
+        "log/opencode.log": {
+          "lines": 1128,
+          "seqPatternCount": 0,
+          "perPattern": {
+            "UNIQUE constraint failed": 0,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 0,
+          "firstErrorLines": []
+        }
+      },
+      "seqCheckAfter": {
+        "noCounterRow": 0,
+        "counterLtMaxMessageSeq": 0,
+        "counterEqMaxMessageSeq": 5,
+        "counterGtMaxMessageSeq": 0,
+        "counterButNoMessages": 0,
+        "noCounterNoMessages": 0
+      },
+      "note": "no collision: the events that took seq 69..73 did not insert a session_message row on an occupied seq; the counter ended equal to max again"
+    },
+    "setTo0": {
+      "edit": {
+        "changed": 1,
+        "before": 73,
+        "after": 0,
+        "maxMessageSeq": 73
+      },
+      "turn": [
+        {
+          "outcome": "timeout",
+          "ms": 60050,
+          "tools": {
+            "called": 0,
+            "success": 0,
+            "failed": 0,
+            "failedMsg": []
+          }
+        }
+      ],
+      "logs": {
+        "ctl2-turns/server.log": {
+          "lines": 62,
+          "seqPatternCount": 2,
+          "perPattern": {
+            "UNIQUE constraint failed": 2,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 2,
+          "firstErrorLines": [
+            "timestamp=2026-10-25T02:22:46.890Z level=ERROR message=\"Failed to drain Session\" cause=\"EffectDrizzleQueryError: Failed query: insert into \\\"session_message\\\" (\\\"id\\\", \\\"session_id\\\", \\\"type\\\", \\\"seq\\\", \\\"time_created\\\", \\\"time_updated\\\", \\\"data\\\") values (?, ",
+            "timestamp=2026-10-25T02:22:46.895Z level=ERROR message=\"Failed to publish Session execution lifecycle\" cause=\"EffectDrizzleQueryError: Failed query: insert into \\\"session_message\\\" (\\\"id\\\", \\\"session_id\\\", \\\"type\\\", \\\"seq\\\", \\\"time_created\\\", \\\"time_updated\\\","
+          ]
+        },
+        "log/opencode.log": {
+          "lines": 1114,
+          "seqPatternCount": 2,
+          "perPattern": {
+            "UNIQUE constraint failed": 2,
+            "SQLITE_CONSTRAINT": 0,
+            "Sequence mismatch": 0,
+            "Replay diverged": 0,
+            "already exists at aggregate": 0,
+            "InvalidDurableEvent": 0
+          },
+          "errorLevelLines": 2,
+          "firstErrorLines": [
+            "timestamp=2026-10-25T02:22:46.890Z level=ERROR message=\"Failed to drain Session\" cause=\"EffectDrizzleQueryError: Failed query: insert into \\\"session_message\\\" (\\\"id\\\", \\\"session_id\\\", \\\"type\\\", \\\"seq\\\", \\\"time_created\\\", \\\"time_updated\\\", \\\"data\\\") values (?, ",
+            "timestamp=2026-10-25T02:22:46.895Z level=ERROR message=\"Failed to publish Session execution lifecycle\" cause=\"EffectDrizzleQueryError: Failed query: insert into \\\"session_message\\\" (\\\"id\\\", \\\"session_id\\\", \\\"type\\\", \\\"seq\\\", \\\"time_created\\\", \\\"time_updated\\\","
+          ]
+        }
+      },
+      "note": "#53146 reproduced: UNIQUE constraint failed on insert into session_message; the turn produced no terminal event (probe timeout 60 s)"
+    }
+  },
+  "plantedPatternControl": {
+    "file": "<run>/planted-control.log",
+    "linesPlanted": 6,
+    "totalMatched": 6,
+    "perPattern": {
+      "UNIQUE constraint failed": 1,
+      "SQLITE_CONSTRAINT": 1,
+      "Sequence mismatch": 1,
+      "Replay diverged": 1,
+      "already exists at aggregate": 1,
+      "InvalidDurableEvent": 1
+    }
+  }
+}
