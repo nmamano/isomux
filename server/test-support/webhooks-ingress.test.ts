@@ -13,7 +13,7 @@ import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { STATE_ROOT } from "../config.ts";
-import { getUserByName, updateUserById } from "../users.ts";
+import { deleteUserById, getUserByName, updateUserById } from "../users.ts";
 import { formatWebhookSenderPrefix } from "../../shared/identity.ts";
 import { WEBHOOK_DELIVERY_LOG_MAX } from "../webhooks/registry.ts";
 import {
@@ -792,6 +792,36 @@ describe("POST /hooks/:id: verified deliveries", () => {
     expect(runIds(o, job.id)).toEqual([
       row.target?.kind === "cronjob" ? (row.target.runId ?? "") : "",
     ]);
+  });
+
+  // An office that removed a member before task 438900d2 kept their hooks
+  // on, with the secret they read, and the hook and the schedule still name
+  // the removed id. Removing the record alone builds that state.
+  it("a hook whose owner record is gone starts no run of the cronjob that names the same owner", async () => {
+    const o = await office({ fakeBackend: parkingBackend() });
+    const job = await cronjobTarget(o);
+    expect(deleteUserById(o.aliceId)).toBe(true);
+    expect(getUserByName("Alice")).toBeUndefined();
+    const live = o.srv.cronjobManager
+      .listCronjobs()
+      .find((candidate) => candidate.id === job.id);
+    expect(live?.userId).toBe(o.aliceId);
+    const res = await deliver(o, { body: prOpened(7) });
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: "target_unavailable" });
+    expect(runIds(o, job.id)).toEqual([]);
+    // Alice cannot read the log now; an office owner can.
+    const log = await o.srv.http(
+      `/api/webhooks/${o.hook.id}/deliveries?limit=1`,
+      { rawSessionId: o.morganSession },
+    );
+    const { deliveries } = (await log.json()) as {
+      deliveries: WebhookDelivery[];
+    };
+    expect(deliveries[0]).toMatchObject({
+      outcome: "target_unavailable",
+      target: { kind: "cronjob", cronjobId: job.id },
+    });
   });
 
   it("an office owner's hook runs a member's cronjob", async () => {

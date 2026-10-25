@@ -173,3 +173,8 @@ Implication of rulings 4 and 5, applied in task 6a9deaba: the webhooks the
 agent created move too, by the same rule. A webhook left with a deleted member
 stops at ingress, so the agent's own wake (a GitHub hook, for example) would
 fail without a message.
+
+Task 438900d2: a deleted member's own schedules and webhooks pass to the
+oldest office owner too. Every webhook the member owned, also one that moved
+with an agent, passes turned off with a new secret, because the member could
+read its secret. The heir gives the sender the new secret and turns it on.

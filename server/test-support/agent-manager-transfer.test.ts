@@ -10,12 +10,16 @@
 //     old manager owns them, and nothing else moves;
 //   - a resumed session from an earlier manager names that manager;
 //   - deleting a member passes their live and killed agents to the oldest
-//     office owner, not to the owner who deletes.
+//     office owner, not to the owner who deletes;
+//   - deleting a member passes every webhook they own to that owner turned
+//     off with a new secret, so a secret they read stops working, and their
+//     own schedules pass too (task 438900d2).
 //
 // Seam: startTestServer() with a FakeBackend. Zero LLM. Copy is never matched:
 // a system line is found by the member names it carries.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { createHmac, randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -713,6 +717,182 @@ describe("deleting a member passes their agents to the oldest office owner", () 
     // A session from Alice's time still names her after her record is gone.
     const lines = await resumeLines(srv, live.id, old.sessionId);
     expect(lines.filter((l) => l.includes("Alice"))).toHaveLength(1);
+  });
+
+  // The member could read the secret of every hook they owned, so each one
+  // passes turned off, with a secret they never saw (task 438900d2).
+  it("passes every webhook the member owns turned off with a new secret, and their own schedules, to the oldest owner", async () => {
+    const { srv, morgan, alice } = await office();
+    const morganId = idOf("Morgan");
+    const as = (rawSessionId: string) => ({ rawSessionId });
+    const makeHook = async (
+      caller: { rawSessionId?: string; bearer?: string },
+      name: string,
+      target?: unknown,
+    ): Promise<WebhookWire> => {
+      const res = await api(srv, "POST", "/api/webhooks", caller, {
+        name,
+        scheme: "github-hmac-sha256",
+        rules: [{ event: "push" }],
+        ...(target ? { target } : {}),
+      });
+      expect(res.status).toBe(201);
+      return res.body as WebhookWire;
+    };
+    const secretOf = async (rawSessionId: string, id: string) => {
+      const res = await api(srv, "GET", `/api/webhooks/${id}/secret`, {
+        rawSessionId,
+      });
+      expect(res.status).toBe(200);
+      return (res.body as { secret: string }).secret;
+    };
+    const hookNow = async (id: string): Promise<WebhookWire> => {
+      const res = await api(
+        srv,
+        "GET",
+        `/api/webhooks/${id}`,
+        as(morgan.rawSessionId),
+      );
+      expect(res.status).toBe(200);
+      return res.body as WebhookWire;
+    };
+    // A GitHub push, signed with `secret`: the signature is the only
+    // credential the public route takes. A body of its own each time, since
+    // the route drops a repeated body as a duplicate.
+    const deliver = async (id: string, secret: string) => {
+      const body = new TextEncoder().encode(
+        JSON.stringify({ ref: "main", after: randomUUID() }),
+      );
+      const signature = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+      const res = await fetch(`${srv.baseUrl}/hooks/${id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Connection: "close",
+          "X-GitHub-Event": "push",
+          "X-GitHub-Delivery": randomUUID(),
+          "X-Hub-Signature-256": signature,
+        },
+        body,
+      });
+      await res.text();
+      return res.status;
+    };
+
+    // Made by Alice herself: a schedule, and a hook that runs it.
+    const cron = await api(
+      srv,
+      "POST",
+      "/api/cronjobs",
+      as(alice.rawSessionId),
+      {
+        name: "by hand",
+        prompt: "Triage the push.",
+        cwd: srv.stateRoot,
+        schedule: { type: "none" },
+        agentType: "claude",
+        modelFamily: "opus",
+        effort: "medium",
+        permissionMode: "bypassPermissions",
+      },
+    );
+    expect(cron.status).toBe(201);
+    const jobId = (cron.body as Cronjob).id;
+    const job = () =>
+      srv.cronjobManager.listCronjobs().find((j) => j.id === jobId)!;
+    expect(job().userId).toBe(idOf("Alice"));
+    expect(job().createdByAgentId).toBeUndefined();
+    const enabledBefore = job().enabled;
+    const runs = () => srv.cronjobManager.getRunsForCronjob(jobId).length;
+    const byHand = await makeHook(as(alice.rawSessionId), "by-hand", {
+      kind: "cronjob",
+      cronjobId: jobId,
+    });
+
+    // Made by her agents: one still live, one killed before the delete.
+    const live = await spawn(srv, "Live", "Alice");
+    await srv.agentManager.setPrivileged(live.id, true);
+    const byAgent = await makeHook(
+      { bearer: getAgentTokenRaw(live.id)! },
+      "by-agent",
+    );
+    const gone = await spawn(srv, "Gone", "Alice");
+    await srv.agentManager.setPrivileged(gone.id, true);
+    const byKilled = await makeHook(
+      { bearer: getAgentTokenRaw(gone.id)! },
+      "by-killed",
+    );
+    await srv.agentManager.kill(gone.id);
+
+    // Morgan's own hook: not Alice's, so the delete leaves it as it is.
+    const morgans = await makeHook(as(morgan.rawSessionId), "morgans", {
+      kind: "agent",
+      agentId: live.id,
+    });
+
+    const aliceHooks = [byHand, byAgent, byKilled];
+    const oldSecrets = new Map<string, string>();
+    for (const hook of aliceHooks) {
+      expect(hook.userId).toBe(idOf("Alice"));
+      expect(hook.enabled).toBe(true);
+      oldSecrets.set(hook.id, await secretOf(alice.rawSessionId, hook.id));
+    }
+    const morgansSecret = await secretOf(morgan.rawSessionId, morgans.id);
+
+    // While Alice is a member, her secret starts a run of her schedule.
+    expect(await deliver(byHand.id, oldSecrets.get(byHand.id)!)).toBe(202);
+    expect(runs()).toBe(1);
+
+    const del = await api(
+      srv,
+      "DELETE",
+      "/api/users/Alice",
+      as(morgan.rawSessionId),
+    );
+    expect(del.status).toBeLessThan(300);
+    expect(getUserByName("Alice")).toBeUndefined();
+
+    for (const hook of aliceHooks) {
+      expect(await hookNow(hook.id)).toMatchObject({
+        userId: morganId,
+        enabled: false,
+      });
+      expect(await secretOf(morgan.rawSessionId, hook.id)).not.toBe(
+        oldSecrets.get(hook.id),
+      );
+    }
+    expect(await hookNow(morgans.id)).toMatchObject({
+      userId: morganId,
+      enabled: true,
+    });
+    expect(await secretOf(morgan.rawSessionId, morgans.id)).toBe(morgansSecret);
+
+    // Her own schedule passes to Morgan, on or off as it was.
+    expect(job()).toMatchObject({
+      userId: morganId,
+      username: "Morgan",
+      enabled: enabledBefore,
+    });
+
+    // Alice's secret no longer starts a run: the hook is off...
+    expect(await deliver(byHand.id, oldSecrets.get(byHand.id)!)).toBe(404);
+    expect(runs()).toBe(1);
+    // ...and when Morgan turns it on again, her secret is still refused,
+    // while the new one runs the schedule.
+    const on = await api(
+      srv,
+      "PATCH",
+      `/api/webhooks/${byHand.id}`,
+      as(morgan.rawSessionId),
+      { enabled: true },
+    );
+    expect(on.status).toBe(200);
+    expect(await deliver(byHand.id, oldSecrets.get(byHand.id)!)).toBe(401);
+    expect(runs()).toBe(1);
+    expect(
+      await deliver(byHand.id, await secretOf(morgan.rawSessionId, byHand.id)),
+    ).toBe(202);
+    expect(runs()).toBe(2);
   });
 });
 

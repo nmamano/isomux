@@ -48,6 +48,10 @@ Isomux refuses to sign out or revoke the last owner session in the office. Sign 
 
 A session ends after 30 days without use, and after 1 year in any case. Server restarts keep sessions.
 
+## Delete a member
+
+Deleting a member ends their sessions, sign-in links and API tokens. Their agents, schedules and webhooks pass to the oldest office owner. Their webhooks pass turned off, with a new secret: give the sender the new secret, then turn the webhook on.
+
 ## External access on a self-hosted office
 
 Until you turn on external access, the office answers only on its own machine or through an SSH tunnel. To open it to other devices, first make the machine reachable: see the [private Tailscale](hosting-private.md), [Tailscale Funnel](hosting-funnel.md) and [own domain](hosting-domain.md) guides. Then:

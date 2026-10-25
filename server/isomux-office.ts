@@ -1685,8 +1685,11 @@ function webhookAgentReachable(
   return accessibleRoomIdsFor(owner).has(target.roomId) ? "ok" : "unavailable";
 }
 
-// A webhook's cronjob target: the hook OWNER must still own the cronjob or be
-// an office owner. Checked when the target is set and again on each dispatch.
+// A webhook's cronjob target: the hook OWNER must still exist and own the
+// cronjob or be an office owner. Checked when the target is set and again on
+// each dispatch. The existence check is the fix for an office that deleted a
+// member before their hooks passed to the heir (task 438900d2): their hook and
+// schedule still name the same deleted id.
 function webhookCronjobRunnable(
   userId: string | null,
   cronjobId: string,
@@ -1696,7 +1699,9 @@ function webhookCronjobRunnable(
     .find((candidate) => candidate.id === cronjobId);
   if (!job) return "missing";
   if (userId === null) return "forbidden";
-  if (getUserById(userId)?.role === "owner") return "ok";
+  const owner = getUserById(userId);
+  if (!owner) return "forbidden";
+  if (owner.role === "owner") return "ok";
   return job.userId === userId ? "ok" : "forbidden";
 }
 
@@ -3409,6 +3414,38 @@ function heirOwnerFor(deletedUserId: string): UserRecord | undefined {
     .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0];
 }
 
+// A deleted member's schedules and webhooks that did not move with an agent
+// pass to the heir too (task 438900d2). The member could read the secret of
+// every hook they owned, so each of `hookIds` (all the hooks they owned when
+// the delete began, also those that already moved with an agent) passes with
+// a secret they never saw. Off before the new secret: a throw part way must
+// leave the hook off, not on with the secret the member kept.
+function passMemberRecordsToHeir(
+  memberId: string,
+  hookIds: string[],
+  heir: UserRecord,
+): void {
+  for (const id of hookIds) {
+    try {
+      const hook = webhookRegistry.get(id);
+      if (!hook) continue;
+      webhookRegistry.update(id, { ...hook, enabled: false });
+      webhookRegistry.rotateSecret(id);
+      if (hook.userId === memberId)
+        webhookRegistry.setOwner(id, heir.id, heir.name);
+    } catch (err) {
+      console.error(`[users] webhook ${id} did not pass to the heir:`, err);
+    }
+  }
+  try {
+    for (const job of cronjobManager.listCronjobs())
+      if (job.userId === memberId)
+        cronjobManager.setCronjobOwner(job.id, heir.id, heir.name);
+  } catch (err) {
+    console.error("[users] the schedules did not pass to the heir:", err);
+  }
+}
+
 function backupStatusWire(s: BackupStatus): BackupStatusWire {
   return {
     lastRunAt: s.lastBackupAt,
@@ -5002,12 +5039,21 @@ function buildExecutorDeps(
         }
         // The member's agents, live and killed, pass to the oldest office
         // owner with the apps, schedules and webhooks they made (Nil,
-        // 2026-10-20). After the 409s above, so a refused delete moves
-        // nothing; before the record goes, so the sessions' manager stamps
-        // still find the member's name. The caller can be the member.
+        // 2026-10-20), and so do the member's own schedules and webhooks.
+        // After the 409s above, so a refused delete moves nothing; before the
+        // record goes, so the sessions' manager stamps still find the
+        // member's name. The caller can be the member.
         if (target) {
           const heir = heirOwnerFor(target.id);
           if (heir) {
+            // Taken before the agent transfers move the hooks the agents made.
+            const hookIds = webhookRegistry
+              .list()
+              .filter((hook) => hook.userId === target.id)
+              .map((hook) => hook.id);
+            const hookAudienceBefore = snapshotWebhookAudience((hook) =>
+              hookIds.includes(hook.id),
+            );
             for (const agent of agentManager.getAllAgents())
               if (agent.userId === target.id)
                 await transferAgentManager(agent.id, heir.id, actor);
@@ -5015,6 +5061,8 @@ function buildExecutorDeps(
               userId: heir.id,
               manager: heir.name,
             });
+            passMemberRecordsToHeir(target.id, hookIds, heir);
+            announceWebhookAudienceChanges(hookAudienceBefore);
           }
         }
         // The member's own secrets, variables and MCP servers go with them
