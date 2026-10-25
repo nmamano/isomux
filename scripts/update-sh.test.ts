@@ -901,6 +901,191 @@ describe("update.sh downgrade guard", () => {
   });
 });
 
+// The root-owned record of the installed release. Its name is the protocol
+// between the installer, the updater and these tests.
+function recordPath(): string {
+  return join(fx.statusDir, "installed-release");
+}
+
+function writeRecord(content: string): void {
+  mkdirSync(fx.statusDir, { recursive: true });
+  writeFileSync(recordPath(), content);
+}
+
+function readRecord(): string | null {
+  return existsSync(recordPath())
+    ? readFileSync(recordPath(), "utf8").trim()
+    : null;
+}
+
+// What an update before the fix leaves behind: the root-owned trust repo
+// holds the tag it installed, and no record exists.
+async function seedTrust(tag: string): Promise<void> {
+  const trust = join(fx.statusDir, "trust.git");
+  mkdirSync(fx.statusDir, { recursive: true });
+  await sh(fx.base, `git init -q --bare ${trust}`);
+  await sh(
+    fx.base,
+    `git -C ${trust} fetch -q --depth 1 ${join(fx.base, "origin.git")} refs/tags/${tag}:refs/tags/${tag}`,
+  );
+}
+
+async function ancestry(older: string): Promise<string> {
+  return await sh(
+    fx.repo,
+    `git merge-base --is-ancestor ${older} HEAD && echo ancestor || echo not-ancestor`,
+  );
+}
+
+// Each leaves the service checkout clean, and each hides the older release
+// from the ancestry walk in the checkout. Run as the service user, which
+// owns the checkout.
+const TAMPERS: Record<string, string> = {
+  graft: "git replace --graft HEAD",
+  shallow: "git rev-parse HEAD > .git/shallow",
+  orphan: "git checkout -q --orphan tamper && git commit -qm orphan",
+};
+
+const INSTALLED_UPDATER = "# installed updater marker\n";
+
+describe("update.sh root-side downgrade basis", () => {
+  beforeEach(async () => {
+    // Same layout as the downgrade guard: v2026.7.18 at c1, v2026.7.20 at
+    // c2, the checkout at c2 with both tags.
+    fx = await buildFixture({ readyAfterStarts: 1 });
+    await sh(fx.repo, `git tag -a v2026.7.18 -m old ${fx.oldCommit}`);
+    await sh(fx.repo, "git push -q origin --tags");
+    await sh(fx.repo, "git tag -d v2026.7.18");
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    writeFileSync(join(fx.base, "installed-updater"), INSTALLED_UPDATER);
+    expect(await ancestry(fx.oldCommit)).toBe("ancestor");
+  });
+
+  async function tamper(name: string): Promise<string> {
+    await sh(fx.repo, TAMPERS[name]!);
+    // The enabling condition: the checkout passes the clean check, and its
+    // history no longer shows the older release.
+    expect(await sh(fx.repo, "git status --porcelain")).toBe("");
+    expect(await ancestry(fx.oldCommit)).toBe("not-ancestor");
+    return await head();
+  }
+
+  async function expectRefused(
+    r: { code: number; out: string },
+    headBefore: string,
+  ): Promise<void> {
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("--allow-downgrade");
+    expect(status().result).toBe("failed");
+    expect(await head()).toBe(headBefore);
+    expect(readFileSync(join(fx.base, "installed-updater"), "utf8")).toBe(
+      INSTALLED_UPDATER,
+    );
+    expect(stubCalls().filter((l) => / (stop|start) /.test(l))).toEqual([]);
+  }
+
+  for (const name of Object.keys(TAMPERS)) {
+    it(`the ${name} tamper does not let an older release pass the record`, async () => {
+      writeRecord("v2026.7.20\n");
+      const before = await tamper(name);
+      await expectRefused(await runUpdate(["v2026.7.18"]), before);
+      expect(readRecord()).toBe("v2026.7.20");
+    });
+  }
+
+  it("a checkout moved to the older release gets no root-side repair of it", async () => {
+    writeRecord("v2026.7.20\n");
+    // Clean, and the target is now the checkout's own HEAD and tag.
+    await sh(fx.repo, "git checkout -q --detach v2026.7.18");
+    expect(await sh(fx.repo, "git status --porcelain")).toBe("");
+    const r = await runUpdate(["v2026.7.18"]);
+    await expectRefused(r, fx.oldCommit);
+    // Refused before the target's dependency sync and Bun switch.
+    expect(r.out).not.toContain("--- deps");
+    expect(readRecord()).toBe("v2026.7.20");
+  });
+
+  it("with no record, the trust repo's newest release is the basis, and it is recorded", async () => {
+    await seedTrust("v2026.7.20");
+    expect(readRecord()).toBeNull();
+    const before = await tamper("graft");
+    await expectRefused(await runUpdate(["v2026.7.18"]), before);
+    expect(readRecord()).toBe("v2026.7.20");
+  });
+
+  it("a malformed record is not a basis; the trust repo is", async () => {
+    writeRecord("not-a-release\n");
+    await seedTrust("v2026.7.20");
+    const before = await tamper("graft");
+    await expectRefused(await runUpdate(["v2026.7.18"]), before);
+  });
+
+  it("an allowed downgrade records the older release", async () => {
+    writeRecord("v2026.7.20\n");
+    await tamper("graft");
+    const r = await runUpdate(["v2026.7.18", "--allow-downgrade"]);
+    expect(r.code).toBe(0);
+    expect(await head()).toBe(fx.oldCommit);
+    expect(readRecord()).toBe("v2026.7.18");
+  });
+
+  it("a failed update to a newer release does not raise the basis", async () => {
+    // v2026.7.21 at c3 and a broken v2026.7.22 at c4, both after c2.
+    const scratch = join(fx.base, "scratch");
+    await sh(fx.base, `git clone -q ${join(fx.base, "origin.git")} scratch`);
+    await sh(scratch, "git config user.email t@t && git config user.name T");
+    await sh(scratch, `git checkout -q --detach ${fx.newCommit}`);
+    writeFileSync(join(scratch, "app.txt"), "newer\n");
+    await sh(scratch, "git commit -qam c3 && git tag -a v2026.7.21 -m c3");
+    const c3 = await sh(scratch, "git rev-parse HEAD");
+    writeFileSync(join(scratch, "BREAK_BUILD"), "");
+    await sh(scratch, "git add . && git commit -qm c4");
+    await sh(scratch, "git tag -a v2026.7.22 -m c4");
+    await sh(scratch, "git push -q origin --tags");
+    await seedTrust("v2026.7.20");
+
+    const failed = await runUpdate(["v2026.7.22"]);
+    expect(failed.code).not.toBe(0);
+    expect(await head()).toBe(fx.newCommit);
+    expect(
+      await sh(fx.base, `git -C ${join(fx.statusDir, "trust.git")} tag -l`),
+    ).toContain("v2026.7.22");
+
+    const r = await runUpdate(["v2026.7.21"]);
+    expect(r.code).toBe(0);
+    expect(await head()).toBe(c3);
+    expect(readRecord()).toBe("v2026.7.21");
+  });
+});
+
+describe("update.sh installed-release record", () => {
+  beforeEach(async () => {
+    fx = await buildFixture({ readyAfterStarts: 1 });
+  });
+
+  it("an update records the release it installed", async () => {
+    expect(readRecord()).toBeNull();
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    expect(readRecord()).toBe("v2026.7.20");
+  });
+
+  it("a repair of the release the checkout is on records it", async () => {
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("--- deps");
+    expect(readRecord()).toBe("v2026.7.20");
+  });
+
+  it("a failed update does not record the release", async () => {
+    fx.env.FAIL_STARTS = "99";
+    expect((await runUpdate(["v2026.7.20"])).code).not.toBe(0);
+    expect(readRecord()).toBeNull();
+  });
+});
+
 describe("update.sh failure ladders", () => {
   it("failed install: restores old deps+UI, never touches the service", async () => {
     fx = await buildFixture({ newFiles: { BREAK_INSTALL: "1" } });

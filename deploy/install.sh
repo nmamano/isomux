@@ -3622,6 +3622,14 @@ EOF
   git -C "$trust" cat-file -p FETCH_HEAD:scripts/update.sh >"$tmp"
   install -m 755 "$tmp" "$UPDATER_PATH"
   rm -f "$tmp"
+  # The updater refuses a release older than this root-owned record without
+  # --allow-downgrade. A ref that is not a release leaves it as it is.
+  local calver='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
+  if [[ $ISOMUX_REF =~ $calver ]]; then
+    tmp=$(mktemp "$UPDATE_STATE_DIR/.installed-release.XXXXXXXXXX")
+    printf '%s\n' "$ISOMUX_REF" >"$tmp"
+    mv -fT "$tmp" "$UPDATE_STATE_DIR/installed-release"
+  fi
   # In-UI update trigger escalation (release-design.md → "Update trigger"): the
   # server runs unprivileged, so the owner's update button asks systemd to
   # start this ROOT-owned template unit; the polkit rule grants the service

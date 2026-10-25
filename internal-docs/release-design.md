@@ -201,6 +201,19 @@ non-forced tag fetch refuses a moved tag, and the service checkout is then
 pinned to the trust-resolved commit hash. The installer sources the initial
 updater copy the same way.
 
+The downgrade refusal follows the same rule. The service user can rewrite the
+checkout's history (a graft, a `.git/shallow` entry, an orphan commit) or
+check out an older release, so an ancestry check there decides nothing on its
+own. Root keeps `$STATUS_DIR/installed-release`, the tag of the last
+successful update, which the installer writes when it installs a release tag.
+Before anything else, the updater refuses a target that is older than that
+record unless `--allow-downgrade` is given. A box without a record (one from
+before it existed) takes the newest release tag in `trust.git` and records it
+on that run. The ancestry check in the checkout still runs after it and can
+only add a refusal. One limit remains: a box that was installed from a branch
+or a commit and was never updated has no record and no release tag in
+`trust.git`, so until its first update only the ancestry check applies.
+
 1. Record the currently checked-out tag.
 2. Resolve the target through the trust repo (above) and fetch the objects
    into the service checkout. Record the tag there too

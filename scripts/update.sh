@@ -30,8 +30,11 @@
 #   in the service checkout is never consulted), the non-forced tag fetch
 #   refuses a moved tag (release tags are immutable), and the service
 #   checkout is then pinned to the trust-resolved commit hash.
-# - The target must be an exact CalVer tag. A downgrade (target is an
-#   ancestor of the current checkout) needs --allow-downgrade.
+# - The target must be an exact CalVer tag. A downgrade needs
+#   --allow-downgrade. Git installs decide it first against the root-owned
+#   $STATUS_DIR/installed-release (the tag of the last successful update),
+#   never against the service checkout's history, which that user can
+#   rewrite; the ancestry check in the checkout can only add a refusal.
 # - A flock on $STATUS_DIR/lock makes concurrent invocations fail fast.
 #
 # SEQUENCE and per-phase recovery (the design doc has the rationale):
@@ -73,7 +76,8 @@
 #                  snapshot it and require it
 #   SNAPSHOT_DIR   (accepted, unused) where older updaters put pre-update
 #                  state tarballs; they require it
-#   STATUS_DIR     lock, status.json, deps-synced (outside STATE_ROOT)
+#   STATUS_DIR     lock, status.json, deps-synced, installed-release
+#                  (outside STATE_ROOT)
 #   BUN            bun binary the service uses
 #   BASE_URL       loopback base for the readiness poll
 #   UPDATER_PATH   (optional) installed copy to refresh on success
@@ -253,6 +257,7 @@ load_config() {
   READY_TIMEOUT_S=${READY_TIMEOUT_S:-90}
   UPDATER_PATH=${UPDATER_PATH:-}
   TRUST_REPO=$STATUS_DIR/trust.git
+  INSTALLED_RELEASE=$STATUS_DIR/installed-release
 }
 
 # git/bun act on the checkout as the service user in system mode (the repo is
@@ -503,6 +508,60 @@ record_deps_synced() {
     log "warning: could not record the dependency sync for $TARGET_TAG; the next update to it syncs again"
 }
 
+# Strictly older in CalVer order.
+calver_older() {
+  [[ $1 != "$2" && $(printf '%s\n' "$1" "$2" | sort -V | head -1) == "$1" ]]
+}
+
+# The root-owned record of the release a git install runs. A missing or
+# malformed record reads as empty.
+read_installed_release() {
+  local recorded=""
+  read -r recorded 2>/dev/null <"$INSTALLED_RELEASE" || true
+  [[ $recorded =~ $CALVER_RE ]] || recorded=""
+  printf '%s' "$recorded"
+}
+
+write_installed_release() {
+  local tmp
+  tmp=$(mktemp "$STATUS_DIR/.installed-release.XXXXXXXXXX" 2>/dev/null) || return 1
+  if { printf '%s\n' "$1" >"$tmp" && mv -fT "$tmp" "$INSTALLED_RELEASE"; } 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+record_installed_release() {
+  write_installed_release "$TARGET_TAG" ||
+    add_deps_warning "could not record $TARGET_TAG as the installed release in $INSTALLED_RELEASE, so a later update may be refused as a downgrade"
+}
+
+# The downgrade gate on root-owned state only: the service user can rewrite
+# the checkout's history (a graft, a shallow entry, an orphan commit) or move
+# it to an older release, so nothing from the checkout decides here. Without a
+# record (boxes from before it existed), the newest release the trust repo
+# fetched for an earlier update is the basis, recorded at once so a later
+# failed update cannot raise it.
+git_release_gate() {
+  local basis
+  basis=$(read_installed_release)
+  if [[ -z $basis ]]; then
+    basis=$(git -C "$TRUST_REPO" tag -l 'v*' | grep -E "$CALVER_RE" | grep -vxF "$TARGET_TAG" | sort -V | tail -1) || basis=""
+    if [[ -z $basis ]]; then
+      log "no record of the installed release; only the checkout's history can refuse a downgrade"
+      return 0
+    fi
+    log "no record of the installed release; recording $basis, the newest release an earlier update fetched"
+    write_installed_release "$basis" || log "warning: could not record $basis in $INSTALLED_RELEASE"
+  fi
+  if calver_older "$TARGET_TAG" "$basis"; then
+    [[ -n $ALLOW_DOWNGRADE ]] ||
+      die "$TARGET_TAG is older than the installed $basis; pass --allow-downgrade to do this anyway"
+    log "downgrading $basis -> $TARGET_TAG (--allow-downgrade)"
+  fi
+}
+
 ready_poll() {
   local timeout=$1 deadline=$((SECONDS + $1))
   until curl -fsS -o /dev/null --max-time 5 "$BASE_URL/readyz" 2>/dev/null; do
@@ -594,6 +653,7 @@ git_validate() {
  }
 
 git_prepare() {
+  git_release_gate
   # The Bun the target pins, from the trusted objects, and the one to point
   # $BUN back at on a rollback. Read BEFORE any mutation.
   TARGET_BUN=$(git -C "$TRUST_REPO" cat-file -p "$target_commit:package.json" 2>/dev/null |
@@ -720,6 +780,7 @@ git_prepare() {
     check_public_front_door
     phase finalize
     record_deps_synced "$target_commit"
+    record_installed_release
     if [[ -n $DEPS_WARNING ]]; then
       write_status ok "$repaired; warning: $DEPS_WARNING"
     else
@@ -729,6 +790,8 @@ git_prepare() {
     log "$repaired"
     exit 0
   fi
+  # A second, service-user-side check: it can only add a refusal, and it is
+  # the only one on a box with no root-side basis (git_release_gate).
   if as_repo_user git -C "$REPO_DIR" merge-base --is-ancestor "$target_commit" "$OLD_COMMIT"; then
     [[ -n $ALLOW_DOWNGRADE ]] ||
       die "$TARGET_TAG is older than the current $OLD_DESC; pass --allow-downgrade to do this anyway"
@@ -761,6 +824,7 @@ git_ready() {
 
 git_finalize() {
   record_deps_synced "$target_commit"
+  record_installed_release
   prune_bun || log "warning: could not remove old Bun versions from $(bun_dir)"
   # Refresh the installed updater from the ROOT-OWNED trust objects. The
   # service checkout must never be the source: the service user (which
@@ -801,7 +865,8 @@ container_prepare() {
     write_status ok "already on $TARGET_TAG"
     exit 0
   fi
-  if [[ $(printf '%s\n' "$TARGET_TAG" "$OLD_DESC" | sort -V | head -1) == "$TARGET_TAG" && -z $ALLOW_DOWNGRADE ]]; then
+  # An equal tag with another commit is refused too.
+  if [[ -z $ALLOW_DOWNGRADE ]] && { [[ $TARGET_TAG == "$OLD_DESC" ]] || calver_older "$TARGET_TAG" "$OLD_DESC"; }; then
     die "$TARGET_TAG is older than $OLD_DESC; pass --allow-downgrade to continue"
   fi
   phase image
