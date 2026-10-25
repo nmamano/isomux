@@ -127,6 +127,8 @@ WEB_HTTPS_RULE=443/tcp
 INSTALL_KIND_FILE=/etc/isomux/install-kind
 COOKIE_JAR=$STATE_DIR/session.cookies
 INVITE_FILE=$STATE_DIR/invite-url
+# Set to 1 when write_loopback_bind_if_proxied changed office-config.json.
+PROXY_SETTINGS_WRITTEN=
 CHROME_PATH=/usr/bin/google-chrome
 CHROME_DEB_URL=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 # The AppArmor profile that lets codex's bubblewrap sandbox start on a box
@@ -4192,9 +4194,10 @@ assert_caddy_file() {
 # Caddy on this box proxies to the office: bind the office to loopback, and
 # declare the same-host proxy so the office reads the client address from
 # Caddy's X-Forwarded-For (internal-docs/proxy-trust-design.md). Each key is
-# added only when absent, so an operator's explicit value stays.
+# added only when absent, so an operator's explicit value stays. A write sets
+# PROXY_SETTINGS_WRITTEN; the server reads both keys only at boot.
 write_loopback_bind_if_proxied() {
-  local config=$SERVICE_HOME/.isomux/office-config.json
+  local config=$SERVICE_HOME/.isomux/office-config.json out=""
   [[ -z $DRY_RUN ]] || {
     log "DRY-RUN: would set networkBind=loopback and trustedProxy=same-host only if caddy is active and proxies to $BASE_URL"
     return 0
@@ -4202,7 +4205,7 @@ write_loopback_bind_if_proxied() {
   systemctl is-active --quiet caddy || return 0
   grep -Eq '^[[:space:]]*reverse_proxy[[:space:]]+127\.0\.0\.1:4000([[:space:]]|$)' \
     "$CADDYFILE" || return 0
-  if ! run_as_service_user env "CONFIG=$config" bash -c '
+  if ! out=$(run_as_service_user env "CONFIG=$config" bash -c '
     set -Eeuo pipefail
     dir=$(dirname "$CONFIG")
     mkdir -p "$dir"
@@ -4223,9 +4226,24 @@ write_loopback_bind_if_proxied() {
     fi
     mv -f "$tmp" "$CONFIG"
     trap - EXIT
-  '; then
+    echo written
+  '); then
     log "warning: $config could not be merged as $SERVICE_USER; networkBind and trustedProxy were not changed"
   fi
+  [[ $out != written ]] || PROXY_SETTINGS_WRITTEN=1
+}
+
+# A full install writes the proxy settings after its last office restart, so
+# restart once more when they changed. An update restarts after its deps run.
+apply_proxy_settings() {
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would restart isomux if the proxy settings changed"
+    return 0
+  fi
+  [[ $PROXY_SETTINGS_WRITTEN == 1 ]] || return 0
+  step apply-proxy-settings
+  run systemctl restart isomux
+  wait_for_server
 }
 
 render_caddyfile_without_access_log() {
@@ -6226,6 +6244,7 @@ main() {
   mint_invite
   configure_caddy
   write_loopback_bind_if_proxied
+  apply_proxy_settings
   report
 }
 

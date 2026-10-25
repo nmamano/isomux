@@ -84,7 +84,7 @@ the comment at `handleClaim` calls inherent.
 
 | Setup | Setting | How it is set |
 | --- | --- | --- |
-| Installer + Caddy (self-hosted and hosted) | `same-host` | `deploy/install.sh` adds `"trustedProxy": "same-host"` to `office-config.json` in the step that writes `networkBind` (`write_loopback_bind_if_proxied`). That step runs on install and on each update, when Caddy is active and proxies to `127.0.0.1:4000`. Existing boxes get it on their next update, and it applies when the server next starts. |
+| Installer + Caddy (self-hosted and hosted) | `same-host` | `deploy/install.sh` adds `"trustedProxy": "same-host"` to `office-config.json` in the step that writes `networkBind` (`write_loopback_bind_if_proxied`). That step runs on install and on each update, when Caddy is active and proxies to `127.0.0.1:4000`. The server reads it only at boot: a full install restarts the office when this step wrote (`apply_proxy_settings`), and an update restarts it after the deps run. Existing boxes get it on their next update. |
 | Nil's office (Caddy, hand-mirrored) | `same-host` | By hand: add `"trustedProxy": "same-host"` to `~/.isomux/office-config.json`, then restart. Also check that `/etc/caddy/Caddyfile` does not remove `X-Forwarded-For` (`header_up -X-Forwarded-For`) and does not set `trusted_proxies`. Unchecked: the file is outside `~/nil`. |
 | Container: AWS Compose, EKS ALB, Render | `load-balancer` | The container entry `deploy/container/office.ts`, which all three images run, declares it. The manifests do not change. In Compose, the peer is the Docker gateway that carries the host Caddy's traffic. |
 | Plain self-hosted, no proxy | `none` | Nothing to do. |

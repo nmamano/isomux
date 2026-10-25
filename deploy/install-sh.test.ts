@@ -325,6 +325,28 @@ describe("install.sh: main() step order", () => {
       });
     }
   });
+
+  // The server reads networkBind and trustedProxy only at boot, so the office
+  // that serves internet traffic after a fresh install must start after
+  // write_loopback_bind_if_proxied (task 1ae5b2ba).
+  it("restarts the office after it writes the proxy settings", () => {
+    const tail = SRC.slice(SRC.lastIndexOf("\nmain() {\n"));
+    const body = tail.slice(0, tail.indexOf("\n}\n"));
+    const calls = body.match(/^ {2}[a-z_]+$/gm)!.map((l) => l.trim());
+    const steps = calls.slice(calls.indexOf("preflight"));
+    const restartsOffice = (name: string) => {
+      const start = SRC.indexOf(`\n${name}() {\n`);
+      expect({ name, defined: start > -1 }).toEqual({ name, defined: true });
+      const fn = SRC.slice(start, SRC.indexOf("\n}\n", start));
+      return fn.includes("systemctl restart isomux");
+    };
+    expect(steps.filter(restartsOffice)).toContain("configure_public_access");
+    expect(steps).toContain("write_loopback_bind_if_proxied");
+    const after = steps.slice(
+      steps.indexOf("write_loopback_bind_if_proxied") + 1,
+    );
+    expect(after.filter(restartsOffice)).toEqual(["apply_proxy_settings"]);
+  });
 });
 
 describe("install.sh: the box cannot ship with agents able to reach root", () => {

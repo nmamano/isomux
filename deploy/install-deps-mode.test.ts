@@ -111,6 +111,7 @@ const FORBIDDEN = [
   "configure_public_access",
   "mint_invite",
   "configure_caddy",
+  "apply_proxy_settings",
   "report",
 ];
 

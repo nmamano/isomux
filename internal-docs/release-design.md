@@ -152,6 +152,11 @@ dev use). When unset, it resolves the default from
 `GET api.github.com/repos/nmamano/isomux/releases/latest` (public,
 unauthenticated) - no moving `stable` branch to maintain.
 
+A full install restarts the office once more when its last step writes
+`networkBind` or `trustedProxy` (`apply_proxy_settings`), because the server
+reads both only at boot. Only fresh installs gain from this: existing boxes
+already converge through the deps-only write and `scripts/update.sh`'s restart.
+
 ## Update path on a customer box
 
 A `scripts/update.sh` committed in the repo (so each release ships updater

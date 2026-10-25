@@ -19,14 +19,22 @@ const END = INSTALL.indexOf("\nconfigure_caddy() {");
 if (START < 0 || END < START)
   throw new Error("install.sh no longer has write_loopback_bind_if_proxied");
 const FUNCTION = INSTALL.slice(START, END);
+const RUN_START = INSTALL.indexOf("\nrun() {\n");
+if (RUN_START < 0) throw new Error("install.sh no longer has run()");
+const RUN = INSTALL.slice(RUN_START, INSTALL.indexOf("\n}\n", RUN_START) + 3);
+// The installer's own default for the flag, if it declares one; the harness
+// runs under set -u, as the installer does.
+const FLAG_DEFAULT = INSTALL.match(/^PROXY_SETTINGS_WRITTEN=.*$/m)?.[0] ?? "";
 const roots: string[] = [];
 
 function run(options: {
   caddyState?: "active" | "inactive";
   proxyLine?: string;
   config?: Record<string, unknown> | null;
+  rawConfig?: string;
   mode?: number;
   twice?: boolean;
+  apply?: boolean;
 }) {
   const root = mkdtempSync(join(tmpdir(), "isomux-network-bind-"));
   roots.push(root);
@@ -37,6 +45,7 @@ function run(options: {
   writeFileSync(
     join(bin, "systemctl"),
     `#!/usr/bin/env bash
+if [[ $* == 'restart isomux' ]]; then echo restart >>"$CALLS"; exit 0; fi
 [[ $* == 'is-active --quiet caddy' ]] || exit 90
 [[ $CADDY_STATE == active ]]
 `,
@@ -50,15 +59,25 @@ function run(options: {
   const config = join(state, "office-config.json");
   const firstContent = join(root, "first-content");
   const firstStat = join(root, "first-stat");
+  const calls = join(root, "calls");
+  writeFileSync(calls, "");
   if (options.config !== null) {
-    writeFileSync(config, JSON.stringify(options.config ?? { sibling: 7 }));
+    writeFileSync(
+      config,
+      options.rawConfig ?? JSON.stringify(options.config ?? { sibling: 7 }),
+    );
     chmodSync(config, options.mode ?? 0o640);
   }
   const before = options.config !== null ? statSync(config) : null;
   const user = process.env.USER!;
-  const script = `${FUNCTION}
+  const script = `set -Eeuo pipefail
+${FLAG_DEFAULT}
+${FUNCTION}
+${RUN}
 log() { :; }
+step() { :; }
 run_as_service_user() { "$@"; }
+wait_for_server() { echo wait >>"$CALLS"; }
 SERVICE_USER=${JSON.stringify(user)}
 SERVICE_HOME=${JSON.stringify(serviceHome)}
 CADDYFILE=${JSON.stringify(caddyfile)}
@@ -72,12 +91,14 @@ stat -c '%i:%u:%g:%a:%s:%Y' ${JSON.stringify(config)} > ${JSON.stringify(firstSt
 write_loopback_bind_if_proxied`
     : ""
 }
+${options.apply ? "apply_proxy_settings" : ""}
 `;
   const result = Bun.spawnSync(["bash", "-c", script], {
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
       CADDY_STATE: options.caddyState ?? "active",
+      CALLS: calls,
     },
   });
   const after = statSync(config, { throwIfNoEntry: false });
@@ -86,6 +107,7 @@ write_loopback_bind_if_proxied`
   return {
     code: result.exitCode,
     out: `${result.stdout.toString()}${result.stderr.toString()}`,
+    calls: readFileSync(calls, "utf8").split("\n").filter(Boolean),
     before,
     after,
     contents: after ? readFileSync(config, "utf8") : null,
@@ -174,5 +196,41 @@ describe("deps-only networkBind and trustedProxy convergence", () => {
       config: { sibling: 7 },
     });
     expect(JSON.parse(result.contents!)).toEqual({ sibling: 7 });
+  });
+});
+
+// A full install writes the settings after its last office restart, and the
+// server reads them only at boot (task 1ae5b2ba).
+describe("full install: apply_proxy_settings", () => {
+  it("restarts the office once and waits for it after a write", () => {
+    const configs = [
+      null,
+      { sibling: 7 },
+      { networkBind: "all" },
+      { trustedProxy: "none" },
+    ];
+    for (const config of configs) {
+      const result = run({ config, apply: true });
+      // The merge replaced the file: this run wrote.
+      expect(result.after!.ino).not.toBe(result.before?.ino);
+      expect({ config, calls: result.calls }).toEqual({
+        config,
+        calls: ["restart", "wait"],
+      });
+    }
+  });
+
+  it("restarts nothing when the merge writes nothing", () => {
+    const cases = [
+      { config: { networkBind: "all", trustedProxy: "none" } },
+      { caddyState: "inactive" as const },
+      { proxyLine: "reverse_proxy 127.0.0.1:4001" },
+      { config: {}, rawConfig: "[1]" },
+    ];
+    for (const options of cases) {
+      const result = run({ ...options, apply: true });
+      expect(result.after!.ino).toBe(result.before!.ino);
+      expect({ options, calls: result.calls }).toEqual({ options, calls: [] });
+    }
   });
 });
