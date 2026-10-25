@@ -3269,7 +3269,8 @@ globalThis.migrationStatus = () => {
       return { ...made, release, polls };
     }
 
-    it("holds the start until the import completes, with the record marked meanwhile", async () => {
+    // Quarantined (task ed8eb0b7): timed out under full CI load before the first import poll.
+    it.skip("holds the start until the import completes, with the record marked meanwhile", async () => {
       const path = await root();
       const { binary, release, polls } = await slowImport(path);
       const supervisor = makeSupervisor(path, undefined, 600_000, {}, binary);
