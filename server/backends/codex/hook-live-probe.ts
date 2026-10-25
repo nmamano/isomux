@@ -18,6 +18,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { performance } from "perf_hooks";
 import { JsonRpcLiteClient, PASS } from "./client.ts";
+import { closeAndReap, waitForGroupExit } from "./live-client-reap.ts";
 import {
   copyScratchAuth,
   readHookPayloads,
@@ -70,6 +71,8 @@ const includeMatrix = process.env.ISOMUX_TEST_CODEX_HOOK_MATRIX !== "0";
 const includeManaged = process.env.ISOMUX_TEST_CODEX_HOOK_MANAGED !== "0";
 const includeReload = process.env.ISOMUX_TEST_CODEX_HOOK_RELOAD !== "0";
 const scratchRoots = new Set<string>();
+// App Server clients that run now; the signal handler stops their groups.
+const liveClients = new Set<JsonRpcLiteClient>();
 
 function makeScratchRoot(prefix: string): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
@@ -82,18 +85,84 @@ function removeScratchRoot(root: string): void {
   rmSync(root, { recursive: true, force: true });
 }
 
+// The signal handler sets this first. Its SIGKILL fails the current reading,
+// which is caught, and the probe starts the next reading at once: no App Server
+// may start after this, or it outlives the process and writes into a removed
+// root.
+let stopping = false;
+const pendingStarts = new Set<Promise<unknown>>();
+// The handler re-raises the signal and the process dies; until then a reading
+// that would start an App Server waits here.
+const halted = new Promise<never>(() => {});
+
+// Tracked before the start, so a signal during the start still stops it.
+async function startClient(client: JsonRpcLiteClient): Promise<void> {
+  if (stopping) return await halted;
+  liveClients.add(client);
+  const started = client.start();
+  pendingStarts.add(started);
+  try {
+    await started;
+  } finally {
+    pendingStarts.delete(started);
+  }
+  if (stopping) {
+    // The handler stops it too, unless this start outlasted its wait.
+    const pgid = client.pid();
+    if (pgid !== undefined) {
+      try {
+        process.kill(-pgid, "SIGKILL");
+      } catch {}
+    }
+    return await halted;
+  }
+}
+
+// A scratch root is removed only after this: a stopping App Server writes its
+// CODEX_HOME (auth.json too) again after close() returns.
+async function stopClient(client: JsonRpcLiteClient | null): Promise<void> {
+  if (!client) return;
+  await closeAndReap(client);
+  liveClients.delete(client);
+}
+
+// Each App Server leads its own process group, so a terminal Ctrl-C does not
+// reach it: the handler stops the groups before it removes the roots.
+const SIGNAL_REAP_MS = 1000;
+
 function installSignalCleanup(): () => void {
   const handlers = new Map<NodeJS.Signals, () => void>();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     const handler = () => {
-      for (const root of scratchRoots) {
-        rmSync(root, { recursive: true, force: true });
-      }
-      scratchRoots.clear();
+      stopping = true;
+      // Off first: a second signal kills the process at once.
       for (const [registeredSignal, registeredHandler] of handlers) {
         process.off(registeredSignal, registeredHandler);
       }
-      process.kill(process.pid, signal);
+      void (async () => {
+        // A start in flight has no pid yet; wait for it, bounded.
+        await Promise.race([
+          Promise.allSettled(pendingStarts),
+          Bun.sleep(SIGNAL_REAP_MS),
+        ]);
+        const groups: number[] = [];
+        for (const client of liveClients) {
+          const pgid = client.pid();
+          if (pgid === undefined) continue;
+          groups.push(pgid);
+          try {
+            process.kill(-pgid, "SIGKILL");
+          } catch {}
+        }
+        await Promise.all(
+          groups.map((pgid) => waitForGroupExit(pgid, SIGNAL_REAP_MS)),
+        );
+        for (const root of scratchRoots) {
+          rmSync(root, { recursive: true, force: true });
+        }
+        scratchRoots.clear();
+        process.kill(process.pid, signal);
+      })();
     };
     handlers.set(signal, handler);
     process.on(signal, handler);
@@ -103,11 +172,56 @@ function installSignalCleanup(): () => void {
   };
 }
 
-export async function runSignalCleanupFixture(root: string): Promise<never> {
+async function startFixtureClient(
+  root: string,
+  codexBin: string,
+): Promise<JsonRpcLiteClient> {
+  const client = new JsonRpcLiteClient({
+    cwd: root,
+    env: { ...process.env, CODEX_HOME: join(root, "codex-home") },
+    codexBin,
+    args: [],
+    skipSafetyPreflightForTestProbe: true,
+  });
+  await startClient(client);
+  return client;
+}
+
+// As runLiveProbe does after a reading fails: when an App Server exits, stop
+// it, remove its root and start the next reading's App Server in a new root.
+async function restartFixtureClients(
+  first: JsonRpcLiteClient,
+  root: string,
+  codexBin: string,
+): Promise<void> {
+  let client = first;
+  let current = root;
+  for (let n = 1; n <= 5; n++) {
+    await new Promise<void>((resolve) => {
+      if (client.exitStatus()) resolve();
+      else client.onExit(() => resolve());
+    });
+    await stopClient(client);
+    removeScratchRoot(current);
+    current = `${root}-${n}`;
+    mkdirSync(current, { recursive: true, mode: 0o700 });
+    scratchRoots.add(current);
+    client = await startFixtureClient(current, codexBin);
+  }
+}
+
+export async function runSignalCleanupFixture(
+  root: string,
+  opts?: { codexBin: string; restart?: boolean },
+): Promise<never> {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   scratchRoots.add(root);
   // Handlers first: the parent sends SIGTERM as soon as it sees "ready".
   installSignalCleanup();
+  if (opts) {
+    const client = await startFixtureClient(root, opts.codexBin);
+    if (opts.restart) void restartFixtureClients(client, root, opts.codexBin);
+  }
   writeFileSync(join(root, "ready"), "ready\n");
   return await new Promise<never>(() => {});
 }
@@ -256,8 +370,8 @@ async function prepareTrust(
     env: { ...process.env, CODEX_HOME: home },
     skipSafetyPreflightForTestProbe: true,
   });
-  await discovery.start();
   try {
+    await startClient(discovery);
     await initializeClient(discovery);
     const hook = await listHook(discovery, cwd);
     if (trusted) {
@@ -271,7 +385,7 @@ async function prepareTrust(
     }
     return { fixture, discovery: hook };
   } finally {
-    await discovery.close();
+    await stopClient(discovery);
   }
 }
 
@@ -424,7 +538,7 @@ async function runReading(
         success: true,
       };
     });
-    await client.start();
+    await startClient(client);
     await initializeClient(client);
     let thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
@@ -531,7 +645,7 @@ async function runReading(
       homeLayout,
     };
   } finally {
-    await client?.close();
+    await stopClient(client);
     removeScratchRoot(root);
   }
 }
@@ -548,7 +662,7 @@ async function runManagedReading(behavior: "allow" | "deny"): Promise<Reading> {
     const fixture = prepareManaged(root, home, behavior);
     client = managedClient(cwd, home, fixture.managedEtc);
     const events: Json[] = [];
-    await client.start();
+    await startClient(client);
     await initializeClient(client);
     const hookListing = await listHook(client, cwd);
     const thread = await client.request<{ thread: { id: string } }>(
@@ -608,7 +722,7 @@ async function runManagedReading(behavior: "allow" | "deny"): Promise<Reading> {
       homeLayout: "managed-system",
     };
   } finally {
-    await client?.close();
+    await stopClient(client);
     removeScratchRoot(root);
   }
 }
@@ -635,7 +749,7 @@ async function runOneShotReading(
       skipSafetyPreflightForTestProbe: true,
     });
     const events: Json[] = [];
-    await client.start();
+    await startClient(client);
     await initializeClient(client);
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
@@ -710,7 +824,7 @@ async function runOneShotReading(
       homeLayout: "default-replica",
     };
   } finally {
-    await client?.close();
+    await stopClient(client);
     removeScratchRoot(root);
   }
 }
@@ -752,7 +866,7 @@ async function runMidSessionReload(
       env: { ...process.env, CODEX_HOME: home },
       skipSafetyPreflightForTestProbe: true,
     });
-    await client.start();
+    await startClient(client);
     await initializeClient(client);
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
@@ -819,7 +933,7 @@ async function runMidSessionReload(
       listingAfter,
     };
   } finally {
-    await client?.close();
+    await stopClient(client);
     removeScratchRoot(root);
   }
 }

@@ -144,9 +144,11 @@ if (preset) {
   afterAll(() => {
     try {
       removeStateDir(home);
-    } catch {
-      // Swallow: the guard already prevents unsafe deletes; a leftover temp dir
-      // is harmless and gets reaped by the OS.
+    } catch (err) {
+      // Name the leftover: it can hold credential copies (a live test's
+      // auth.json), and nothing else removes it.
+      const code = (err as NodeJS.ErrnoException).code ?? String(err);
+      console.error(`[test preload] could not remove ${home}: ${code}`);
     }
   });
 }

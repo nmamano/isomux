@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  rmSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -13,6 +14,7 @@ import { join } from "path";
 import { STATE_ROOT } from "../../config.ts";
 import { JsonRpcLiteClient } from "./client.ts";
 import type { JsonRpcNotification } from "./client.ts";
+import { closeAndReap } from "./live-client-reap.ts";
 import {
   CODEX_HOOK_TRUST_HASH_PROVEN_VERSION,
   CODEX_SAFETY_HOOK_PATH,
@@ -89,45 +91,46 @@ describe.skipIf(!enabled || !authHome)(
       const cwd = join(STATE_ROOT, "codex-safety-trust-workspace");
       mkdirSync(home, { recursive: true });
       mkdirSync(cwd, { recursive: true });
-      copyFileSync(join(authHome!, "auth.json"), join(home, "auth.json"));
-      chmodSync(join(home, "auth.json"), 0o600);
-      const userCommand = join(home, "user-hook.sh");
-      const secondUserCommand = join(home, "second-user-hook.sh");
-      writeFileSync(userCommand, "#!/bin/sh\nprintf '{}\\n'\n", {
-        mode: 0o700,
-      });
-      writeFileSync(secondUserCommand, "#!/bin/sh\nprintf '{}\\n'\n", {
-        mode: 0o700,
-      });
-      const userEntry = { type: "command", command: userCommand };
-      const secondUserEntry = {
-        type: "command",
-        command: secondUserCommand,
-      };
-      writeFileSync(
-        join(home, "hooks.json"),
-        `${JSON.stringify(
-          {
-            hooks: {
-              PreToolUse: [
-                { matcher: ".*", hooks: [userEntry, secondUserEntry] },
-              ],
-            },
-          },
-          null,
-          2,
-        )}\n`,
-      );
-      const installed = await ensureCodexSafetyHook(home);
-      expect(installed.warning).toBeNull();
-      expect(installed.hookIdentity?.displayOrder).toBe(2);
-
-      const client = new JsonRpcLiteClient({
-        cwd,
-        env: { ...process.env, CODEX_HOME: home },
-        skipSafetyPreflightForTestProbe: true,
-      });
+      let client: JsonRpcLiteClient | null = null;
       try {
+        copyFileSync(join(authHome!, "auth.json"), join(home, "auth.json"));
+        chmodSync(join(home, "auth.json"), 0o600);
+        const userCommand = join(home, "user-hook.sh");
+        const secondUserCommand = join(home, "second-user-hook.sh");
+        writeFileSync(userCommand, "#!/bin/sh\nprintf '{}\\n'\n", {
+          mode: 0o700,
+        });
+        writeFileSync(secondUserCommand, "#!/bin/sh\nprintf '{}\\n'\n", {
+          mode: 0o700,
+        });
+        const userEntry = { type: "command", command: userCommand };
+        const secondUserEntry = {
+          type: "command",
+          command: secondUserCommand,
+        };
+        writeFileSync(
+          join(home, "hooks.json"),
+          `${JSON.stringify(
+            {
+              hooks: {
+                PreToolUse: [
+                  { matcher: ".*", hooks: [userEntry, secondUserEntry] },
+                ],
+              },
+            },
+            null,
+            2,
+          )}\n`,
+        );
+        const installed = await ensureCodexSafetyHook(home);
+        expect(installed.warning).toBeNull();
+        expect(installed.hookIdentity?.displayOrder).toBe(2);
+
+        client = new JsonRpcLiteClient({
+          cwd,
+          env: { ...process.env, CODEX_HOME: home },
+          skipSafetyPreflightForTestProbe: true,
+        });
         await client.start();
         await client.initialize(initializeParams());
         const response = await client.request<{
@@ -175,7 +178,10 @@ describe.skipIf(!enabled || !authHome)(
         expect(isomux?.currentHash).toBe(installerHash);
         expect(isomux?.trustStatus).toBe("trusted");
       } finally {
-        await client.close();
+        // The home holds an auth.json copy; remove it only after the App
+        // Server's group is gone, or the stopping server writes it back.
+        if (client) await closeAndReap(client);
+        rmSync(home, { recursive: true, force: true });
       }
     }, 30000);
   },
@@ -190,8 +196,9 @@ describe.skipIf(!paidEnabled || !authHome)(
         const home = join(STATE_ROOT, "codex-safety-paid-home");
         // Outside STATE_ROOT: the hook protects the state root, so a
         // workspace inside it would block the allow write too.
+        const presetCwd = process.env.ISOMUX_TEST_CODEX_SAFETY_WORKSPACE;
         const cwd =
-          process.env.ISOMUX_TEST_CODEX_SAFETY_WORKSPACE ??
+          presetCwd ??
           mkdtempSync(join(tmpdir(), "isomux-codex-safety-paid-workspace-"));
         const hooksPath = join(home, "hooks.json");
         const allowMarker = join(cwd, "allowed-marker");
@@ -203,16 +210,17 @@ describe.skipIf(!paidEnabled || !authHome)(
         writeFileSync(eventLog, "");
         mkdirSync(home, { recursive: true });
         mkdirSync(cwd, { recursive: true });
-        copyFileSync(join(authHome!, "auth.json"), join(home, "auth.json"));
-        chmodSync(join(home, "auth.json"), 0o600);
-        expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
-
-        const client = new JsonRpcLiteClient({
-          cwd,
-          env: { ...process.env, CODEX_HOME: home },
-        });
+        let client: JsonRpcLiteClient | null = null;
         const allEvents: JsonRpcNotification[] = [];
         try {
+          copyFileSync(join(authHome!, "auth.json"), join(home, "auth.json"));
+          chmodSync(join(home, "auth.json"), 0o600);
+          expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
+
+          client = new JsonRpcLiteClient({
+            cwd,
+            env: { ...process.env, CODEX_HOME: home },
+          });
           const start = await client.start();
           expect(start.warning).toBeNull();
           expect(start.hookIdentity).toEqual({
@@ -297,7 +305,11 @@ describe.skipIf(!paidEnabled || !authHome)(
             JSON.stringify({ evidence: output, cells: evidence.cells }),
           );
         } finally {
-          await client.close();
+          // The home holds an auth.json copy; remove it only after the App
+          // Server's group is gone, or the stopping server writes it back.
+          if (client) await closeAndReap(client);
+          rmSync(home, { recursive: true, force: true });
+          if (!presetCwd) rmSync(cwd, { recursive: true, force: true });
         }
       },
       5 * 60 * 1000,

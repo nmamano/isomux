@@ -51,7 +51,7 @@ const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch
 // Grace period between SIGTERM and the SIGKILL escalation when closing a codex
 // subprocess group. Long enough for a healthy process to flush and exit, short
 // enough that a hung (mid-turn) process is reclaimed promptly.
-const CODEX_KILL_GRACE_MS = 2000;
+export const CODEX_KILL_GRACE_MS = 2000;
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
