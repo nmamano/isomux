@@ -71,7 +71,19 @@ ${emitThemesCss()}
   ::placeholder { color: var(--text-hint); opacity: 1; }
 
   /* Markdown content styles */
-  .md-content { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+  /* Reply content can carry raw HTML with inline styles (task 1b92a224).
+     transform makes the box the containing block for fixed and absolute
+     descendants and a stacking context; overflow: clip then cuts everything
+     at its edge. Unlike contain or overflow: hidden, neither makes a
+     formatting context, so the text still wraps around the bubble's corner. */
+  .md-content {
+    font-size: 13px; line-height: 1.7; color: var(--text-secondary);
+    transform: translate(0); overflow: clip; overflow-clip-margin: 2px;
+  }
+  /* The corner (BubbleCorner in ui/log-view/LogEntryCard.tsx) paints above
+     the reply, and an open Speak error above the next bubble's corner. */
+  .bubble-corner { position: relative; z-index: 1; }
+  .bubble-corner:has([role="alert"]) { z-index: 2; }
   .md-content p { margin: 0 0 8px 0; }
   .md-content p:last-child { margin-bottom: 0; }
   .md-content strong { color: var(--text-primary); font-weight: 600; }

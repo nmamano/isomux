@@ -843,7 +843,9 @@ function EntryTimestamp({ timestamp }: { timestamp: number }) {
  * never reaches the gap between the buttons themselves. The bubble around it
  * needs `display: flow-root`, which makes the bubble contain the float.
  * Markdown blocks that scroll (code, tables, diagrams, display math) clear
- * the float in ui/styles.ts, so the date never narrows them.
+ * the float in ui/styles.ts, so the date never narrows them. Its class
+ * paints it above the Markdown box, which is a stacking context so that
+ * reply content cannot leave it (task 1b92a224).
  */
 function BubbleCorner({
   timestamp,
@@ -854,6 +856,7 @@ function BubbleCorner({
 }) {
   return (
     <div
+      className="bubble-corner"
       style={{
         float: "right",
         display: "flex",
