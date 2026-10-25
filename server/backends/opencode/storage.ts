@@ -246,6 +246,9 @@ export function inspectOpenCodeDatabase(
   }
 }
 
+// Names, not positions: ALTER TABLE ADD COLUMN appends, so a database that
+// OpenCode migrated holds the columns of a fresh one in another order. An
+// added column changes nothing the inspection reads.
 function assertColumns(
   database: Database,
   table: string,
@@ -256,12 +259,11 @@ function assertColumns(
       name?: unknown;
     }>
   ).map((row) => row.name);
-  if (
-    actual.length !== expected.length ||
-    actual.some((name, index) => name !== expected[index])
-  ) {
+  const present = new Set(actual);
+  const missing = expected.filter((name) => !present.has(name));
+  if (missing.length > 0) {
     throw new Error(
-      `OpenCode ${table} table schema drifted (expected ${expected.join(", ")}; received ${actual.join(", ") || "no columns"}).`,
+      `OpenCode ${table} table schema drifted (missing ${missing.join(", ")}; received ${actual.join(", ") || "no columns"}).`,
     );
   }
 }

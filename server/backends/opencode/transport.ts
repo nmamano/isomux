@@ -1278,10 +1278,35 @@ export class OpenCodeTransport {
       response.body.getReader();
     let decoder = new TextDecoder();
     const turn = this.turnInput;
-    // Text and reasoning by (message, ordinal), tools by (message, id) (T6).
-    const textByPart = new Map<string, string>();
-    const reasoningByPart = new Map<string, string>();
+    // Text and reasoning by (kind, message, ordinal), tools by (message, id)
+    // (T6). Each event is a chat entry, and OpenCode 2 sends a delta every
+    // few tokens: a part shows once, whole, when it ends (task 3cb130ad).
+    const parts = new Map<
+      string,
+      { reasoning: boolean; text: string; shown: boolean }
+    >();
     const reasoningStarted = new Map<string, number>();
+    const showPart = (
+      part: { reasoning: boolean; text: string; shown: boolean },
+      durationMs?: number,
+    ): void => {
+      if (part.shown) return;
+      part.shown = true;
+      if (!part.text) return;
+      sink(
+        part.reasoning
+          ? {
+              kind: "thinking",
+              text: part.text,
+              ...(durationMs !== undefined ? { durationMs } : {}),
+            }
+          : { kind: "assistant_text", text: part.text },
+      );
+    };
+    // A turn that ends in the middle of a part keeps what the model wrote.
+    const showOpenParts = (): void => {
+      for (const part of parts.values()) showPart(part);
+    };
     const tools = new Map<string, TrackedTool>();
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
@@ -1304,6 +1329,7 @@ export class OpenCodeTransport {
       if (settled) return;
       settled = true;
       this.deadlineScheduler.clearTimeout(progressTimer);
+      showOpenParts();
       if (options.authNeeded) {
         sink({ kind: "auth_needed" });
         sink(event);
@@ -1315,6 +1341,7 @@ export class OpenCodeTransport {
       if (settled) return;
       settled = true;
       this.deadlineScheduler.clearTimeout(progressTimer);
+      showOpenParts();
       onFailure(error, context);
     };
     let buffer = "";
@@ -1809,7 +1836,9 @@ export class OpenCodeTransport {
               )
             )
               continue;
-            this.contractShapeSink?.(`sse:${safeJournalName(type)}`);
+            // Isomux's own replay frames are no OpenCode shape.
+            if (!OPEN_PART_REPLAY_FRAMES.has(type))
+              this.contractShapeSink?.(`sse:${safeJournalName(type)}`);
             armProgress();
             const created = numberField(frame, "created") ?? undefined;
             const message = stringField(data, "assistantMessageID") ?? "";
@@ -1901,41 +1930,39 @@ export class OpenCodeTransport {
               type === "session.text.delta" ||
               type === "session.text.ended" ||
               type === "session.reasoning.delta" ||
-              type === "session.reasoning.ended"
+              type === "session.reasoning.ended" ||
+              (read.replay && OPEN_PART_REPLAY_FRAMES.has(type))
             ) {
               const ordinal = numberField(data, "ordinal") ?? 0;
+              const reasoning =
+                type.startsWith("session.reasoning.") ||
+                type === OPEN_REASONING_REPLAY;
               const key = `${message}:${ordinal}`;
-              const reasoning = type.startsWith("session.reasoning.");
-              const parts = reasoning ? reasoningByPart : textByPart;
-              const prior = parts.get(key) ?? "";
-              let delta = "";
-              if (type.endsWith(".delta")) {
-                delta = stringField(data, "delta") ?? "";
-                parts.set(key, prior + delta);
-              } else {
-                // The ended frame holds the whole part: only what the deltas
-                // missed is new.
-                const whole = stringField(data, "text") ?? "";
-                if (whole.startsWith(prior)) delta = whole.slice(prior.length);
-                if (whole.length >= prior.length) parts.set(key, whole);
+              const partKey = `${reasoning ? "reasoning" : "text"}:${key}`;
+              let part = parts.get(partKey);
+              if (!part) {
+                part = { reasoning, text: "", shown: false };
+                parts.set(partKey, part);
               }
-              if (!reasoning) {
-                if (delta) sink({ kind: "assistant_text", text: delta });
+              // A recovery can replay a part that already showed.
+              if (part.shown) continue;
+              if (type.endsWith(".delta")) {
+                part.text += stringField(data, "delta") ?? "";
                 continue;
               }
+              // An ended frame, or the replay of a part that can still
+              // stream, holds the whole part as far as it went. A shorter
+              // copy is a frame older than the deltas.
+              const whole = stringField(data, "text") ?? "";
+              if (whole.length >= part.text.length) part.text = whole;
+              if (!type.endsWith(".ended")) continue;
               const started = reasoningStarted.get(key);
-              const durationMs =
-                type === "session.reasoning.ended" &&
-                started !== undefined &&
-                created !== undefined
+              showPart(
+                part,
+                reasoning && started !== undefined && created !== undefined
                   ? Math.max(0, created - started)
-                  : undefined;
-              if (delta || durationMs !== undefined)
-                sink({
-                  kind: "thinking",
-                  text: delta,
-                  ...(durationMs !== undefined ? { durationMs } : {}),
-                });
+                  : undefined,
+              );
               continue;
             }
             if (type === "session.reasoning.started") {
@@ -2675,6 +2702,16 @@ const TERMINAL_FRAMES = new Set([
   "session.execution.interrupted",
 ]);
 
+// Isomux's own frames, never on OpenCode's stream: a recovery's replay of a
+// part that can still stream. It updates the part and does not end it, so
+// the deltas and the ended frame that follow still count.
+const OPEN_TEXT_REPLAY = "isomux.replay.text.open";
+const OPEN_REASONING_REPLAY = "isomux.replay.reasoning.open";
+const OPEN_PART_REPLAY_FRAMES = new Set([
+  OPEN_TEXT_REPLAY,
+  OPEN_REASONING_REPLAY,
+]);
+
 // A route that serves one folder names it in the query.
 function folderPath(path: string, cwd: string): string {
   return `${path}?${new URLSearchParams({ "location[directory]": cwd })}`;
@@ -2751,8 +2788,9 @@ function outcomeFrame(
 // The open turn's answers from its messages, as the frames the stream sends
 // for them: the assistant items after the turn's own input. Earlier ones
 // belong to earlier turns. The loop takes from them only what it has not
-// shown (R3): an ended part adds the text the stream missed, and a tool
-// already called or ended is not shown again.
+// shown (R3): an ended part shows once, whole, a part that can still stream
+// only updates its text, and a tool already called or ended is not shown
+// again.
 function turnReplayFrames(
   sessionId: string,
   raw: unknown[],
@@ -2773,15 +2811,32 @@ function turnReplayFrames(
     if (!message) continue;
     const at = { assistantMessageID: message };
     const ordinals = { text: 0, reasoning: 0 };
-    for (const part of Array.isArray(item.content)
+    const finished = numberField(asRecord(item.time), "completed") !== null;
+    const content = Array.isArray(item.content)
       ? item.content.map(asRecord)
-      : []) {
+      : [];
+    for (const [index, part] of content.entries()) {
       if (part.type === "text" || part.type === "reasoning") {
-        frame(`session.${part.type}.ended`, {
-          ...at,
-          ordinal: ordinals[part.type]++,
-          text: stringField(part, "text") ?? "",
-        });
+        // 2.1.4 stores the end of a reasoning part, not of a text part. A
+        // part without that mark can still stream when it is the last part
+        // of an unfinished message.
+        const time = asRecord(part.time);
+        const open =
+          part.type === "reasoning" && numberField(time, "created") !== null
+            ? numberField(time, "completed") === null
+            : !finished && index === content.length - 1;
+        frame(
+          open
+            ? part.type === "text"
+              ? OPEN_TEXT_REPLAY
+              : OPEN_REASONING_REPLAY
+            : `session.${part.type}.ended`,
+          {
+            ...at,
+            ordinal: ordinals[part.type]++,
+            text: stringField(part, "text") ?? "",
+          },
+        );
         continue;
       }
       if (part.type !== "tool") continue;
@@ -2811,7 +2866,7 @@ function turnReplayFrames(
       else if (state.status === "error" || state.status === "failed")
         frame("session.tool.failed", { ...at, id, error: state.error });
     }
-    if (numberField(asRecord(item.time), "completed") !== null)
+    if (finished)
       frame("session.step.ended", {
         ...at,
         tokens: item.tokens,

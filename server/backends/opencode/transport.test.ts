@@ -150,6 +150,47 @@ function editedTurn(
   return { ...recorded, frames: edit(recorded.frames) };
 }
 
+// The turn's streamed parts, in the order they reached the chat.
+const parts = (events: NormalizedEvent[]) =>
+  events.filter((e) => e.kind === "thinking" || e.kind === "assistant_text");
+
+const DELTAS = new Set(["session.text.delta", "session.reasoning.delta"]);
+// Each text and reasoning delta cut into deltas of `size` characters, as
+// 2.1.4 streams a real model's answer.
+function chunked(frames: Frame[], size = 3): Frame[] {
+  return frames.flatMap((frame) => {
+    if (!DELTAS.has(frame.type)) return [frame];
+    const delta = String(frame.data.delta);
+    const out: Frame[] = [];
+    for (let at = 0; at < delta.length; at += size)
+      out.push({
+        ...frame,
+        data: { ...frame.data, delta: delta.slice(at, at + size) },
+      });
+    return out;
+  });
+}
+
+// A second reasoning part with no text after the first one ends, as a model
+// that keeps its reasoning to itself streams it.
+function withEmptyReasoning(frames: Frame[]): Frame[] {
+  const ended = frames.findIndex((f) => f.type === "session.reasoning.ended");
+  const started = frames.find((f) => f.type === "session.reasoning.started")!;
+  const part = (type: string, offset: number, data = {}): Frame => ({
+    ...frames[ended],
+    id: `${frames[ended].id}_empty_${offset}`,
+    type,
+    created: frames[ended].created! + offset,
+    data: { ...started.data, ordinal: 1, ...data },
+  });
+  return [
+    ...frames.slice(0, ended + 1),
+    part("session.reasoning.started", 1),
+    part("session.reasoning.ended", 3, { text: "" }),
+    ...frames.slice(ended + 1),
+  ];
+}
+
 const terminalIndex = (frames: Frame[]) =>
   frames.findIndex(
     (frame) =>
@@ -824,27 +865,34 @@ describe("OpenCode 2 turn end (T1)", () => {
 });
 
 describe("OpenCode 2 event translation", () => {
-  it("streams the answer and the reasoning once, with the reasoning's duration", async () => {
-    const h = setup({ fake: { turns: [fixtureTurn("text-reasoning")] } });
-    const { events } = await h.turn();
-    const thinking = events.filter(
-      (e): e is Extract<NormalizedEvent, { kind: "thinking" }> =>
-        e.kind === "thinking",
+  // Task 3cb130ad: 2.1.4 sends a delta every few tokens (one GLM turn of
+  // 2026-10-25 had 343 reasoning deltas), and each one was a chat row.
+  it("shows each part once and whole, however many deltas stream it, with the reasoning's duration", async () => {
+    const frames = withEmptyReasoning(
+      chunked(fixtureTurn("text-reasoning").frames),
     );
-    expect(thinking.map((e) => e.text).join("")).toBe("gate-reasoning");
-    // reasoning.started at ...539, reasoning.ended at ...564.
     expect(
-      thinking.flatMap((e) =>
-        e.durationMs === undefined ? [] : [e.durationMs],
-      ),
-    ).toEqual([25]);
-    // text.ended repeats what the deltas sent: it adds nothing.
-    expect(kinds(events, "assistant_text")).toEqual([
+      frames.filter((f) => f.type === "session.text.delta").length,
+      "the answer streams in many deltas",
+    ).toBeGreaterThan(5);
+    expect(
+      frames.filter((f) => f.type === "session.reasoning.delta").length,
+      "the reasoning streams in many deltas",
+    ).toBeGreaterThan(2);
+    const h = setup({
+      fake: { turns: [{ ...fixtureTurn("text-reasoning"), frames }] },
+    });
+    const { events } = await h.turn();
+    // MUTANT: a delta is an entry. MUTANT: an empty reasoning part is a
+    // "Thinking" row with a timer.
+    // reasoning.started at ...539, reasoning.ended at ...564.
+    expect(parts(events)).toEqual([
+      { kind: "thinking", text: "gate-reasoning", durationMs: 25 },
       { kind: "assistant_text", text: "ANSWER:EV text streaming check" },
     ]);
   });
 
-  it("takes from the ended frame only the text the deltas missed", async () => {
+  it("takes the whole part from the ended frame when the deltas missed some of it", async () => {
     const h = setup({
       fake: {
         turns: [
@@ -861,12 +909,76 @@ describe("OpenCode 2 event translation", () => {
       },
     });
     const { events } = await h.turn();
-    // MUTANT: the ended frame's text is dropped, or sent whole a second time.
-    expect(textOf(events)).toBe("ANSWER:EV text streaming check");
-    expect(
-      events.flatMap((e) => (e.kind === "thinking" ? [e.text] : [])).join(""),
-    ).toBe("gate-reasoning");
+    // MUTANT: the ended frame's text is dropped, sent whole a second time, or
+    // sent as its own entry after the deltas' one.
+    expect(parts(events)).toEqual([
+      { kind: "thinking", text: "gate-reasoning", durationMs: 25 },
+      { kind: "assistant_text", text: "ANSWER:EV text streaming check" },
+    ]);
   });
+
+  // A stop, or a failure, before the part's ended frame keeps what the model
+  // wrote, as one entry before the turn's end.
+  for (const [where, cut, open] of [
+    [
+      "its reasoning",
+      (frames: Frame[]) =>
+        frames.findIndex((f) => f.type === "session.reasoning.delta") + 2,
+      [{ kind: "thinking", text: "gate-r" }],
+    ],
+    [
+      "its answer",
+      (frames: Frame[]) =>
+        frames.findIndex((f) => f.type === "session.text.delta") + 4,
+      [
+        { kind: "thinking", text: "gate-reasoning", durationMs: 25 },
+        { kind: "assistant_text", text: "ANSWER:EV te" },
+      ],
+    ],
+  ] as const)
+    for (const [end, frame, status] of [
+      ["stopped", { reason: "user" }, "interrupted"],
+      ["failed", { error: { message: "boom" } }, "failed"],
+    ] as const)
+      it(`keeps the open part once when the turn is ${end} in the middle of ${where}`, async () => {
+        const turn = editedTurn("text-reasoning", (frames) => {
+          const chunks = chunked(frames);
+          const session = chunks.find(
+            (f) => f.type === "session.inbox.enqueued",
+          )!.data.sessionID;
+          const at = cut(chunks);
+          return [
+            ...chunks.slice(0, at),
+            {
+              type:
+                end === "stopped"
+                  ? "session.execution.interrupted"
+                  : "session.execution.failed",
+              created: chunks[at - 1].created! + 1,
+              data: { sessionID: session, ...frame },
+            },
+          ];
+        });
+        expect(
+          turn.frames.some(
+            (f) =>
+              f.type === "session.text.ended" ||
+              (where === "its reasoning" &&
+                f.type === "session.reasoning.ended"),
+          ),
+          "the open part has no ended frame",
+        ).toBe(false);
+        const h = setup({ fake: { turns: [turn] } });
+        const { events, end: completion } = await h.turn();
+        expect(completion?.status).toBe(status);
+        // MUTANT: an open part is dropped at the end, or each delta is an
+        // entry.
+        expect(parts(events)).toEqual([...open]);
+        const order = events.map((e) => e.kind);
+        expect(order.lastIndexOf(open.at(-1)!.kind)).toBeLessThan(
+          order.indexOf("turn_completed"),
+        );
+      });
 
   it("pairs a tool call and its result, with the run's duration, and leaves exit 0 a success", async () => {
     const h = setup({

@@ -164,8 +164,8 @@ fails, stop. Do not fall back to several processes sharing one profile.
 | Isomux `NormalizedEvent` | OpenCode event or part | Notes |
 | --- | --- | --- |
 | `system_init` | `session.create` / `session.get` | Emit once after the session and event subscription are ready. |
-| `assistant_text` | text part update and delta | Use part IDs and accumulated lengths to prevent duplicate text. |
-| `thinking` | reasoning part update and delta | Preserve duration from part timestamps. |
+| `assistant_text` | text part deltas and end | One event per part, whole, at its end: each event is a chat entry. A turn that ends mid-part sends what the part holds. |
+| `thinking` | reasoning part deltas and end | One event per part, as for text. Preserve duration from part timestamps. |
 | `tool_call` | tool part entering pending/running | Use `callID` as `toolUseId`; preserve tool name and structured input. |
 | `tool_result` | tool part entering completed/error | Preserve output, attachments, duration, and error state. Emit once per terminal state. |
 | `approval_request` | `permission.asked` | Use the permission request ID. Map Allow once and Deny directly. Do not offer a wider choice unless its scope is proven session-only. |

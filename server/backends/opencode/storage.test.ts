@@ -113,6 +113,53 @@ describe("OpenCode stored session inspection", () => {
     },
   );
 
+  // Task 3cb130ad: 2.1.4 migrates an OpenCode 1 database with ALTER TABLE
+  // ADD COLUMN, which appends. Seen 2026-10-26: time_idle, time_viewed and
+  // idle_outcome came last, and the resume was refused.
+  it("reads a migrated table whose columns are in another order, and one with columns it does not know", () => {
+    const appended = [
+      "time_idle INTEGER",
+      "time_viewed INTEGER",
+      "idle_outcome TEXT",
+    ];
+    const root = mkdtempSync(join(tmpdir(), "isomux-opencode-storage-mig-"));
+    roots.push(root);
+    const path = join(root, "opencode.db");
+    const database = new Database(path);
+    let created = SESSION_COLUMNS;
+    for (const column of appended) created = created.replace(`${column},`, "");
+    expect(created, "the fresh table lacks the appended columns").not.toMatch(
+      /time_idle|time_viewed|idle_outcome/,
+    );
+    database.exec(`CREATE TABLE session_v2 (${created})`);
+    for (const column of appended)
+      database.exec(`ALTER TABLE session_v2 ADD COLUMN ${column}`);
+    database.exec(
+      "CREATE TABLE session_message (session_id TEXT, id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT)",
+    );
+    database.query("INSERT INTO session_v2 (id) VALUES (?)").run("migrated");
+    addMessage(database, "m-user", "migrated", "user");
+    const order = (
+      database.query("PRAGMA table_info(session_v2)").all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name);
+    expect(order.slice(-3), "the migrated order").toEqual([
+      "time_idle",
+      "time_viewed",
+      "idle_outcome",
+    ]);
+    // MUTANT: an index-by-index compare refuses the migrated order.
+    expect(inspectOpenCodeDatabase(path, "migrated")).toBe("durable");
+    // A later OpenCode may add a column. The inspection reads none of them.
+    database.exec("ALTER TABLE session_v2 ADD COLUMN time_future INTEGER");
+    database.exec("ALTER TABLE session_message ADD COLUMN future TEXT");
+    // MUTANT: a compare that also requires the same column count.
+    expect(inspectOpenCodeDatabase(path, "migrated")).toBe("durable");
+    expect(inspectOpenCodeDatabase(path, "absent")).toBe("missing");
+    database.close();
+  });
+
   it("fails loudly on schema drift and corruption", () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-opencode-storage-bad-"));
     roots.push(root);
@@ -231,6 +278,26 @@ describe("OpenCode stored sessions across the version 2 cut-over", () => {
     expect(inspectOpenCodeStoredSession("only-in-v1", key)).toBe("missing");
     expect(inspectOpenCodeStoredSession("both", key)).toBe("durable");
     expect(inspectOpenCodeStoredSession("only-in-v2", key)).toBe("empty");
+  });
+
+  // Task 3cb130ad: OpenCode 1's own migrations appended columns too.
+  it("reads a version 1 database whose columns a migration appended", () => {
+    const { key, profileDir } = profile();
+    const database = new Database(openCodeDatabasePath(profileDir, "v1"));
+    const created = V1_SESSION_COLUMNS.replace("time_compacting INTEGER,", "");
+    expect(created).not.toContain("time_compacting");
+    database.exec(`CREATE TABLE session (${created})`);
+    database.exec("ALTER TABLE session ADD COLUMN time_compacting INTEGER");
+    database.exec(
+      "CREATE TABLE message (session_id TEXT, id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)",
+    );
+    database.query("INSERT INTO session (id) VALUES (?)").run("migrated");
+    database
+      .query("INSERT INTO message (id, session_id) VALUES (?, ?)")
+      .run("m-1", "migrated");
+    database.close();
+    // MUTANT: the version 1 tables keep the index-by-index compare.
+    expect(inspectOpenCodeStoredSession("migrated", key)).toBe("durable");
   });
 
   it("answers missing for a profile with no database", () => {

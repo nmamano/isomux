@@ -865,8 +865,8 @@ it("moves a turn whose stream goes silent to a new stream, with the text it miss
   });
   await turn.sendDelivered();
   turn.fake.emit(f.stepStarted(answer), f.textDelta(answer, "Hello"));
-  await settleUntil(() => turn.texts.length > 0);
-  expect(turn.texts).toEqual(["Hello"]);
+  await settleUntil(() => false);
+  expect(turn.texts, "a part shows when it ends (task 3cb130ad)").toEqual([]);
   await missStreamDeadline(turn);
   expect(turn.fake.count("event"), "a second subscription").toBe(2);
   expect(turn.completions, "the turn goes on").toEqual([]);
@@ -889,8 +889,9 @@ it("moves a turn whose stream goes silent to a new stream, with the text it miss
   await settleUntil(() => turn.completions.length > 0);
   expect(turn.completions).toMatchObject([{ status: "completed" }]);
   // MUTANT: no replay leaves out " there"; a replay of all of it repeats
-  // "Hello"; the earlier turn's answer never shows again.
-  expect(turn.texts.join("")).toBe("Hello there, done");
+  // "Hello"; the earlier turn's answer shows again. MUTANT (task 3cb130ad):
+  // the replay ends the part that was still streaming, and ", done" is lost.
+  expect(turn.texts).toEqual(["Hello there, done"]);
   expect(turn.lease.marked, "the server is not marked").toEqual([]);
   expect(turn.fake.prompts(), "the prompt is never sent again").toBe(1);
 });
@@ -911,7 +912,9 @@ it("shows text once when the new stream repeats a part the recovery read", async
   });
   await turn.sendDelivered();
   await missStreamDeadline(turn);
-  expect(turn.texts.join(""), "the replay").toBe("Hi");
+  // The replay's part is the last of a message that has not finished: it
+  // may still stream (task 3cb130ad).
+  expect(turn.texts, "the replay leaves the part open").toEqual([]);
   // The part's end, sent between the new subscription and the message read.
   turn.fake.emit(
     f.textEnded(answer, "Hi"),
@@ -922,7 +925,178 @@ it("shows text once when the new stream repeats a part the recovery read", async
   );
   await settleUntil(() => turn.completions.length > 0);
   expect(turn.completions).toMatchObject([{ status: "completed" }]);
-  expect(turn.texts.join("")).toBe("Hi there");
+  // MUTANT: the replay ends the part, and its live end shows it again.
+  expect(turn.texts).toEqual(["Hi", " there"]);
+});
+
+// Task 3cb130ad: a part shows once, when it ends. A recovery replays every
+// part the session stores, the ones the chat already shows included.
+it("does not show a part again when a recovery replays it after its end", async () => {
+  const answer = "msg_answer";
+  const turn = driven({
+    fake: {
+      active: () => ({ [FAKE_SESSION]: { type: "running" } }),
+      messages: () => [
+        messageItems.user(INPUT_1, "go", 1_001),
+        messageItems.assistant(
+          answer,
+          [
+            { type: "text", text: "Hi" },
+            { type: "text", text: " th" },
+          ],
+          { created: 1_002, finished: false },
+        ),
+      ],
+    },
+  });
+  await turn.sendDelivered();
+  turn.fake.emit(
+    f.stepStarted(answer),
+    f.textDelta(answer, "H"),
+    f.textDelta(answer, "i"),
+    f.textEnded(answer, "Hi"),
+    f.textDelta(answer, " th", 1),
+  );
+  await settleUntil(() => turn.texts.length > 0);
+  expect(turn.texts, "the first part ended").toEqual(["Hi"]);
+  await missStreamDeadline(turn);
+  expect(turn.fake.count("event"), "a second subscription").toBe(2);
+  turn.fake.emit(
+    f.textDelta(answer, "ere", 1),
+    f.textEnded(answer, " there", 1),
+    f.stepEnded(answer),
+    f.succeeded(),
+  );
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "completed" }]);
+  // MUTANT: every ended frame shows its part, the replayed one included.
+  expect(turn.texts).toEqual(["Hi", " there"]);
+});
+
+// Task 3cb130ad: 2.1.4 stores a reasoning part's end as its time.completed,
+// and a text part's not at all. A later part does not end a reasoning part:
+// text can start before the reasoning ends.
+const reasoningFrame = (
+  type: "delta" | "ended",
+  message: string,
+  text: string,
+) => ({
+  id: `evt_reasoning_${type}_${text}`,
+  type: `session.reasoning.${type}`,
+  data: {
+    sessionID: FAKE_SESSION,
+    assistantMessageID: message,
+    ordinal: 0,
+    ...(type === "delta" ? { delta: text } : { text }),
+  },
+});
+const thoughts = (turn: Driven) =>
+  turn.events.flatMap((e) => (e.kind === "thinking" ? [e.text] : []));
+
+it("keeps a replayed reasoning part with no end mark open, before a later part", async () => {
+  const answer = "msg_answer";
+  const turn = driven({
+    fake: {
+      active: () => ({ [FAKE_SESSION]: { type: "running" } }),
+      messages: () => [
+        messageItems.user(INPUT_1, "go", 1_001),
+        messageItems.assistant(
+          answer,
+          [
+            { type: "reasoning", text: "Weigh", time: { created: 1_003 } },
+            { type: "text", text: "A" },
+          ],
+          { created: 1_002, finished: false },
+        ),
+      ],
+    },
+  });
+  await turn.sendDelivered();
+  await missStreamDeadline(turn);
+  expect(turn.fake.count("event"), "a second subscription").toBe(2);
+  expect(thoughts(turn), "the reasoning is open").toEqual([]);
+  turn.fake.emit(
+    reasoningFrame("delta", answer, " it"),
+    reasoningFrame("ended", answer, "Weigh it"),
+    f.textDelta(answer, "nswer"),
+    f.textEnded(answer, "Answer"),
+    f.stepEnded(answer),
+    f.succeeded(),
+  );
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "completed" }]);
+  // MUTANT: only the message's last part can be open, so the replay ends
+  // the reasoning at "Weigh" and " it" is lost.
+  expect(thoughts(turn)).toEqual(["Weigh it"]);
+  expect(turn.texts).toEqual(["Answer"]);
+});
+
+it("shows a replayed reasoning part with an end mark at the replay, even as its message's last part", async () => {
+  const answer = "msg_answer";
+  const turn = driven({
+    fake: {
+      active: () => ({ [FAKE_SESSION]: { type: "running" } }),
+      messages: () => [
+        messageItems.user(INPUT_1, "go", 1_001),
+        messageItems.assistant(
+          answer,
+          [
+            { type: "text", text: "Looking" },
+            {
+              type: "reasoning",
+              text: "Read the file",
+              time: { created: 1_003, completed: 1_004 },
+            },
+          ],
+          { created: 1_002, finished: false },
+        ),
+      ],
+    },
+  });
+  await turn.sendDelivered();
+  await missStreamDeadline(turn);
+  expect(turn.fake.count("event"), "a second subscription").toBe(2);
+  turn.fake.emit(
+    ...f.toolCalled(answer, "call_read", "read", { path: "a.txt" }),
+    f.toolSuccess(answer, "call_read", "content"),
+    f.stepEnded(answer),
+    f.succeeded(),
+  );
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "completed" }]);
+  // MUTANT: the last part of an unfinished message stays open whatever its
+  // mark, and the reasoning shows only at the turn's end, after the tool.
+  expect(
+    turn.events
+      .map((e) => e.kind)
+      .filter((kind) =>
+        ["assistant_text", "thinking", "tool_call"].includes(kind),
+      ),
+  ).toEqual(["assistant_text", "thinking", "tool_call"]);
+  expect(thoughts(turn)).toEqual(["Read the file"]);
+});
+
+// Task 3cb130ad: a part shows when it ends. A stream that ends first keeps
+// the part's text, once, before the failed end.
+it("keeps the text of a part that was open when its stream ended", async () => {
+  const turn = driven();
+  await turn.sendDelivered();
+  turn.fake.emit(
+    f.stepStarted("msg_answer"),
+    f.textDelta("msg_answer", "Half"),
+    f.textDelta("msg_answer", " a sentence"),
+  );
+  await settleUntil(() => false);
+  expect(turn.texts, "the part is open").toEqual([]);
+  turn.fake.endStreams();
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "failed" }]);
+  // MUTANT: the stream's fail drops the open part, or each delta is an entry.
+  expect(turn.texts).toEqual(["Half a sentence"]);
+  const order = turn.events.map((e) => e.kind);
+  expect(order.indexOf("assistant_text")).toBeLessThan(
+    order.indexOf("turn_completed"),
+  );
 });
 
 it("completes a turn that finished while its stream was silent, from its outcome, with its text and its bill", async () => {
@@ -1974,11 +2148,11 @@ it("journals a silent turn whose model step was open and that finished in the si
   });
   await turn.sendDelivered();
   turn.fake.emit(f.stepStarted("msg_answer"), f.textDelta("msg_answer", "All"));
-  await settleUntil(() => turn.texts.length > 0);
+  await settleUntil(() => false);
   await missStreamDeadline(turn);
   await settleUntil(() => turn.completions.length > 0);
   expect(turn.completions).toMatchObject([{ status: "completed" }]);
-  expect(turn.texts.join("")).toBe("All done");
+  expect(turn.texts).toEqual(["All done"]);
   expect(turn.silences).toMatchObject([
     { waitingOn: "model", probe: "healthy", outcome: "completed" },
   ]);
