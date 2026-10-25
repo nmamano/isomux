@@ -109,15 +109,6 @@ export function cronjobFormDirty(
   );
 }
 
-function updateCronjobMachineDefaults(
-  baseline: CronjobFormSnapshot,
-  modelFamily: string,
-  effort?: EffortLevel,
-): void {
-  baseline.modelFamily = modelFamily;
-  if (effort) baseline.effort = effort;
-}
-
 export function CronjobDialog({
   cronjob,
   defaultRoomId = "",
@@ -237,8 +228,7 @@ export function CronjobDialog({
     roomId,
   };
   const baselineRef = useRef<CronjobFormSnapshot | null>(null);
-  // Copy, never alias: the machine-defaults re-stamp mutates the baseline in
-  // place, and an aliased baseline would compare the form against itself.
+  // The form as it opened.
   if (baselineRef.current == null) baselineRef.current = { ...formSnapshot };
 
   // Codex models are fetched server-side (auth-aware via model/list). null =
@@ -337,7 +327,6 @@ export function CronjobDialog({
           const def = defaultBackendModel(r.models, isCodex);
           if (def) {
             setModelFamily(def.id);
-            updateCronjobMachineDefaults(baselineRef.current!, def.id);
             // Keep Isomux's DEFAULT_EFFORT when the model supports it; only
             // adopt the model's own reported default when it doesn't.
             const supportsDefault = def.supportedEfforts.some(
@@ -345,11 +334,6 @@ export function CronjobDialog({
             );
             if (!supportsDefault && def.defaultEffort) {
               setEffort(def.defaultEffort as EffortLevel);
-              updateCronjobMachineDefaults(
-                baselineRef.current!,
-                def.id,
-                def.defaultEffort as EffortLevel,
-              );
             } else if (
               isOpenCode &&
               !supportsDefault &&
@@ -358,11 +342,6 @@ export function CronjobDialog({
               const firstSupported = def.supportedEfforts[0]
                 .level as EffortLevel;
               setEffort(firstSupported);
-              updateCronjobMachineDefaults(
-                baselineRef.current!,
-                def.id,
-                firstSupported,
-              );
             }
           }
         }
