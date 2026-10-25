@@ -432,6 +432,198 @@ const cases: Case[] = [
     command: 'cat > "$HOME/.isomux-backup/x"',
     denied: false,
   },
+  // The shell removes quotes before a program parses its options, so a quoted
+  // flag is still a flag.
+  {
+    name: "sed single-quoted in-place flag",
+    command: "sed '-i' s/a/b/ ~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "sed double-quoted in-place flag",
+    command: 'sed "-i" s/a/b/ ~/.isomux/agents.json',
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "sed quoted long in-place flag",
+    command: "sed '--in-place' s/a/b/ ~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "sed quoted script that names -i stays a read",
+    command: "sed 's/-i/x/' ~/.isomux/agents.json",
+    denied: false,
+  },
+  {
+    name: "perl quoted in-place cluster",
+    command: "perl '-pi' -e 's/a/b/' ~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "perl quoted in-place flag",
+    command: "perl -p '-i' -e 's/a/b/' ~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "perl program text after -e is not a flag",
+    command: `perl -e '-d "/tmp" and print "is dir"' ~/.isomux/agents.json`,
+    denied: false,
+  },
+  {
+    name: "perl program text attached to -e is not a flag",
+    command: `perl -e'print "is dir"' ~/.isomux/agents.json`,
+    denied: false,
+  },
+  {
+    name: "perl -M module value is not an in-place cluster",
+    command: "perl -MList::Util=sum -ne 'print' ~/.isomux/agents.json",
+    denied: false,
+  },
+  {
+    name: "truncate quoted reference flag keeps its input readable",
+    command: "truncate '-r' ~/.isomux/agents.json /tmp/out",
+    denied: false,
+  },
+  {
+    name: "truncate quoted option terminator exposes dash-prefixed output",
+    command: "truncate -s 0 '--' -x",
+    cwd: STATE_ROOT,
+    denied: true,
+    reason: protectedWrite,
+  },
+  // A function body runs later, where the line's directory changes leave it.
+  {
+    name: "function keyword body keeps relative writes unresolved",
+    command: "function f { cd ~; cat > .isomux/x; }; f",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "function as an argument is not a definition",
+    command: "cd /tmp && grep function f > out",
+    denied: false,
+  },
+  {
+    name: "eval before a function call keeps relative writes unresolved",
+    command: "f() { cat > .isomux/x; }; eval 'cd ~'; f",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "quoted cd before a function call keeps relative writes unresolved",
+    command: "f() { cat > .isomux/x; }; 'cd' ~; f",
+    denied: true,
+    reason: changedCwd,
+  },
+  // eval runs its payload in the current shell.
+  {
+    name: "eval cd moves the parent",
+    command: "eval cd ~ && cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "quoted eval cd moves the parent",
+    command: "eval 'cd ~'; cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "command wrapper exposes eval cd",
+    command: "command eval cd ~ && cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "eval cd out of the protected cwd",
+    command: "eval cd /tmp && cat > .isomux/x",
+    cwd: home,
+    denied: false,
+  },
+  {
+    name: "eval OR branch keeps the original cwd",
+    command: "eval cd ~ || cat > .isomux/x",
+    denied: false,
+  },
+  {
+    name: "eval OR branch follows the payload's failed cd",
+    command: "eval 'cd ~ && cd /nonexistent' || cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "dynamic eval OR branch fails closed",
+    command: 'eval "$CMD" || cat > .isomux/x',
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "eval without cd keeps the cwd",
+    command: "eval 'echo hi'; cat > out.txt",
+    denied: false,
+  },
+  {
+    name: "nested shell cd does not move the parent",
+    command: "bash -c 'cd ~'; cat > .isomux/x",
+    denied: false,
+  },
+  {
+    name: "dynamic eval payload fails closed",
+    command: 'eval "$CMD"; cat > .isomux/x',
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "eval past the nesting limit fails closed",
+    command: "eval eval eval eval eval cd ~ && cat > .isomux/x",
+    denied: true,
+    reason: changedCwd,
+  },
+  // CDPATH and cdable_vars let bash resolve a relative cd somewhere else.
+  {
+    name: "CDPATH prefix cd fails closed",
+    command: "CDPATH=~ cd .isomux && cat > agents.json",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "exported CDPATH cd fails closed",
+    command: "export CDPATH=~; cd .isomux && cat > agents.json",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "CDPATH reaches an eval cd",
+    command: "CDPATH=~; eval cd .isomux && cat > agents.json",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "cdable_vars cd fails closed",
+    command: "shopt -s cdable_vars; d=~; cd d && cat > .isomux/x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "CDPATH leaves an absolute cd resolved",
+    command: "CDPATH=~ cd /tmp && cat > out.txt",
+    denied: false,
+  },
+  {
+    name: "CDPATH leaves a dot-relative cd resolved",
+    command: "CDPATH=~ cd ./sub && cat > out.txt",
+    denied: false,
+  },
+  {
+    name: "relative cd without CDPATH stays resolved",
+    command: "cd .isomux && cat > agents.json",
+    denied: false,
+  },
 ];
 
 function check(

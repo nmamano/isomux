@@ -2514,13 +2514,14 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
     const operands = args.filter((word) => !word.text.startsWith("-"));
     return [...redirects, ...(operands.length ? [operands.at(-1)!] : [])];
   }
+  // A program parses its options after the shell removed the quotes, so a
+  // quoted flag (`sed '-i'`) is still a flag.
   if (command.name === "sed") {
     const inPlace = args.some(
       (word) =>
-        !word.quoted &&
-        (/^-[^-]*i/.test(word.text) ||
-          word.text === "--in-place" ||
-          word.text.startsWith("--in-place=")),
+        /^-[^-]*i/.test(word.text) ||
+        word.text === "--in-place" ||
+        word.text.startsWith("--in-place="),
     );
     return inPlace
       ? [
@@ -2536,10 +2537,8 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
       : redirects;
   }
   if (command.name === "perl") {
-    const inPlace = args.some(
-      (word) => !word.quoted && /^-[^-]*i/.test(word.text),
-    );
-    return inPlace ? [...redirects, ...perlFileOperands(args)] : redirects;
+    const { inPlace, files } = perlSwitches(args);
+    return inPlace ? [...redirects, ...files] : redirects;
   }
   if (!WRITE_COMMANDS.includes(command.name)) return redirects;
   return [...redirects, ...args.filter((word) => !word.text.startsWith("-"))];
@@ -2551,47 +2550,75 @@ function truncateFileOperands(args: ShellWord[]): ShellWord[] {
   let endOfOptions = false;
   for (let i = 0; i < args.length; i++) {
     const word = args[i];
-    if (!endOfOptions && !word.quoted && word.text === "--") {
+    if (!endOfOptions && word.text === "--") {
       endOfOptions = true;
       continue;
     }
     if (
       !endOfOptions &&
-      !word.quoted &&
       ["-r", "--reference", "-s", "--size"].includes(word.text)
     ) {
       i++;
       continue;
     }
-    if (!endOfOptions && !word.quoted && word.text.startsWith("-")) continue;
+    if (!endOfOptions && word.text.startsWith("-")) continue;
     operands.push(word);
   }
   return operands;
 }
 
-/** Input files of an in-place Perl one-liner, excluding its program text. */
-function perlFileOperands(args: ShellWord[]): ShellWord[] {
-  const operands: ShellWord[] = [];
+/**
+ * Perl's switch walk: whether the one-liner edits in place, and its input
+ * files without the program text. A switch that takes the rest of its cluster
+ * as a value ends the cluster, so `-MList::Util` and the program after `-e`
+ * never read as `-i`.
+ */
+function perlSwitches(args: ShellWord[]): {
+  inPlace: boolean;
+  files: ShellWord[];
+} {
+  const files: ShellWord[] = [];
+  let inPlace = false;
   let programFromFlag = false;
   let endOfOptions = false;
   for (let i = 0; i < args.length; i++) {
     const word = args[i];
-    if (!endOfOptions && !word.quoted && word.text === "--") {
+    const text = word.text;
+    if (!endOfOptions && text === "--") {
       endOfOptions = true;
       continue;
     }
-    if (!endOfOptions && !word.quoted && /^-[^-]/.test(word.text)) {
-      const programIndex = word.text.search(/[eE]/);
-      if (programIndex !== -1) {
-        programFromFlag = true;
-        if (programIndex === word.text.length - 1) i++;
-      }
+    if (endOfOptions || !/^-[^-]/.test(text)) {
+      files.push(word);
       continue;
     }
-    operands.push(word);
+    for (let j = 1; j < text.length; j++) {
+      const flag = text[j];
+      const rest = text.slice(j + 1);
+      if (flag === "e" || flag === "E") {
+        programFromFlag = true;
+        if (!rest) i++;
+        break;
+      }
+      // The rest of the cluster is the backup extension (`-pi.bak`).
+      if (flag === "i") {
+        inPlace = true;
+        break;
+      }
+      if (flag === "I") {
+        if (!rest) i++;
+        break;
+      }
+      if ("MmxFDV".includes(flag)) break;
+      if (flag === "d" && /^[t:]/.test(rest)) break;
+      if (flag === "0") j += /^(?:x[0-9a-fA-F]*|[0-7]*)/.exec(rest)![0].length;
+      else if (flag === "l") j += /^[0-7]*/.exec(rest)![0].length;
+      else if (flag === "C")
+        j += /^(?:\d+|[IOEioeSDALa]*)/.exec(rest)![0].length;
+    }
   }
-  if (!programFromFlag) operands.shift();
-  return operands;
+  if (!programFromFlag) files.shift();
+  return { inPlace, files };
 }
 
 function dynamicDirectoryTarget(target: ShellWord | undefined): boolean {
@@ -2625,12 +2652,37 @@ function denyShellPath(filePath: string, nonLiteral: boolean): PolicyDecision {
   );
 }
 
+/**
+ * True when bash may look a relative cd target up through CDPATH or a
+ * cdable_vars variable. It never does for an absolute, `~`, `.` or `..` target.
+ */
+function cdMaySearch(target: string): boolean {
+  return !(
+    isAbsolute(target) ||
+    target === "~" ||
+    target.startsWith("~/") ||
+    /^\.\.?(?:\/|$)/.test(target)
+  );
+}
+
 function shellWriteDecision(
   command: string,
   initialCwd: unknown,
-  depth = 0,
-  inheritedDirectories?: DirectorySet,
 ): PolicyDecision | null {
+  return shellWriteFlow(command, initialCwd, 0).decision;
+}
+
+function shellWriteFlow(
+  command: string,
+  initialCwd: unknown,
+  depth: number,
+  inheritedDirectories?: DirectorySet,
+  inheritedCdSearch = false,
+): { decision: PolicyDecision | null; flow: DirectoryFlow } {
+  // CDPATH and cdable_vars can send a relative cd anywhere, so with either
+  // named on the line such a cd leaves the directory unresolved.
+  const cdSearch =
+    inheritedCdSearch || /\b(?:CDPATH|cdable_vars)\b/.test(command);
   const syntax: ShellSyntax[] = [];
   parseCommands(stripHeredocBodies(command), false, true, syntax);
   let decision: PolicyDecision | null = null;
@@ -2685,6 +2737,7 @@ function shellWriteDecision(
       for (const target of redirects) checkTarget(target, directories);
     }
     let success = directories;
+    let failure = directories;
     for (const candidate of candidates) {
       for (const target of writeTargets({
         ...candidate,
@@ -2698,7 +2751,10 @@ function shellWriteDecision(
         const target = candidate.args.find(
           (word) => !word.text.startsWith("-"),
         );
-        if (dynamicDirectoryTarget(target)) {
+        if (
+          dynamicDirectoryTarget(target) ||
+          (cdSearch && cdMaySearch(target!.text))
+        ) {
           success = new Set([UNKNOWN_DIRECTORY]);
         } else {
           success = new Set(
@@ -2709,21 +2765,33 @@ function shellWriteDecision(
           );
         }
       }
+      // eval runs its payload in this shell, so the payload's directory flow
+      // becomes this command's; bash -c runs it in a child. An expansion in the
+      // payload, or a payload past the nesting limit, can hold any cd.
+      const evalFollows =
+        candidate.name === "eval" &&
+        depth < 4 &&
+        !candidate.args.some((word) => !word.redirect && word.dynamic);
+      if (candidate.name === "eval" && !evalFollows) {
+        success = failure = new Set([UNKNOWN_DIRECTORY]);
+      }
       if (depth < 4) {
         for (const payload of shellPayloads(candidate)) {
-          const nested = shellWriteDecision(
+          const nested = shellWriteFlow(
             payload,
             initialCwd,
             depth + 1,
             directories,
+            cdSearch,
           );
-          if (nested) decision = nested;
+          if (nested.decision) decision = nested.decision;
+          if (evalFollows) ({ success, failure } = nested.flow);
         }
       }
     }
     // A failed cd leaves the old directory in place. && takes only success;
     // || takes only failure; ; and newline must preserve both possibilities.
-    return { success, failure: directories };
+    return { success, failure };
   };
 
   const walk = (
@@ -2784,6 +2852,13 @@ function shellWriteDecision(
     // groups use linear space instead of recursion and repeated array copies.
     for (const token of nodes) {
       if ("words" in token) {
+        // A function body runs at the call, not where it is defined.
+        if (
+          commandCandidates(
+            token.words.filter((word) => word.redirect !== "output"),
+          ).some((candidate) => candidate.name === "function")
+        )
+          opaque = true;
         append({ kind: "simple", command: token });
       } else if (token.operator === "(") {
         if (!needsValue) opaque = true;
@@ -2826,11 +2901,10 @@ function shellWriteDecision(
       if (!("words" in node)) return false;
       // Opaque syntax has no complete command grammar. A keyword list here
       // could hide a directory change behind an unrecognized control word.
+      // The shell removes quotes, so 'cd' runs cd; eval can run one.
       return node.words.some(
         (word) =>
-          !word.quoted &&
-          !word.redirect &&
-          ["cd", "pushd", "popd"].includes(word.text),
+          !word.redirect && ["cd", "pushd", "popd", "eval"].includes(word.text),
       );
     });
     let result = unchanged(directories);
@@ -2909,8 +2983,11 @@ function shellWriteDecision(
     return result;
   };
 
-  walk(syntax, inheritedDirectories ?? new Set([policyCwd(initialCwd)]));
-  return decision;
+  const flow = walk(
+    syntax,
+    inheritedDirectories ?? new Set([policyCwd(initialCwd)]),
+  );
+  return { decision, flow };
 }
 
 function checkBashSafety(
