@@ -8359,8 +8359,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           // fall through to the 404 path below if the asset isn't on disk
         }
 
-        // HEAD keeps the old bodyless redirect. GET waits for office auth and
-        // visibility before deciding whether to serve the app wrapper.
+        // Short app link. Only the lookup happens here: GET and HEAD both wait
+        // for office auth and visibility, so a stranger gets the same answer
+        // for a live name and an unknown one.
         let requestedApp: AppRecord | null = null;
         if (
           (req.method === "GET" || req.method === "HEAD") &&
@@ -8378,21 +8379,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               // A broken optional shortcut must not block the office shell.
               console.error("[apps] could not resolve short link:", err);
             }
-            if (req.method === "GET") requestedApp = app;
-            const publicUrl = app
-              ? appPublicUrl(app.hostLabel, appHostDomain())
-              : null;
-            if (
-              req.method === "HEAD" &&
-              appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null
-            ) {
-              const target = new URL(publicUrl!);
-              target.search = url.search;
-              return new Response(null, {
-                status: 302,
-                headers: { Location: target.href, "Cache-Control": "no-store" },
-              });
-            }
+            requestedApp = app;
           }
         }
 
@@ -8516,9 +8503,25 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         if (requestedApp && auth.identity.userId) {
           const app = requestedApp;
           if (app && canUserAccessApp(app, auth.identity.userId)) {
-            // The install manifest's scope is /<app>/: the page moves inside
-            // it. Only here, so a hidden or unknown name gets no redirect.
-            if (!url.pathname.endsWith("/")) {
+            const publicUrl = appPublicUrl(app.hostLabel, appHostDomain());
+            if (req.method === "HEAD") {
+              // HEAD keeps the old bodyless redirect to the app itself.
+              if (
+                appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null
+              ) {
+                const target = new URL(publicUrl!);
+                target.search = url.search;
+                return new Response(null, {
+                  status: 302,
+                  headers: {
+                    Location: target.href,
+                    "Cache-Control": "no-store",
+                  },
+                });
+              }
+            } else if (!url.pathname.endsWith("/")) {
+              // The install manifest's scope is /<app>/: the page moves inside
+              // it. Only here, so a hidden or unknown name gets no redirect.
               return new Response(null, {
                 status: 302,
                 headers: {
@@ -8526,18 +8529,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                   "Cache-Control": "no-store",
                 },
               });
+            } else {
+              return serveIndexHtml(req, auth.session, {
+                name: app.name,
+                registration: appRegistrationGeneration(app),
+                metadata: await readWidgetMetadata({
+                  app,
+                  host: new URL(publicUrl!).host,
+                  apps: appRegistry.list(),
+                  supervisor: appSupervisor,
+                }),
+              });
             }
-            return serveIndexHtml(req, auth.session, {
-              name: app.name,
-              registration: appRegistrationGeneration(app),
-              metadata: await readWidgetMetadata({
-                app,
-                host: new URL(appPublicUrl(app.hostLabel, appHostDomain())!)
-                  .host,
-                apps: appRegistry.list(),
-                supervisor: appSupervisor,
-              }),
-            });
           }
           // Hidden and unknown apps retain the normal office-shell fallback.
         }

@@ -5,9 +5,10 @@
 // dispatch: which requests redirect, which stay exactly as they were, and that
 // a broken registry never takes office pages down with it.
 //
-// Before/after comparisons use HEAD or a signed-in GET on purpose: a
-// signed-out GET meets the auth wall before anything app-specific can show,
-// so it would compare equal whatever the short-link code did.
+// The link answers only a member who can see the app: anyone else gets what a
+// name that was never registered gets, so a stranger cannot list app names
+// (docs/security-audit.md 4.6). The redirect itself is therefore asserted on a
+// member's HEAD or GET; a signed-out request is asserted unchanged.
 import { afterEach, describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +18,9 @@ import {
   anAgentToken,
   anOfficeWithAnApp,
   expectBounce,
+  grantMemberAppRoom,
   HTTPS_ORIGIN,
+  NAVIGATION_HEADERS,
   OFFICE_HOST,
   raw,
   registerApp,
@@ -45,15 +48,46 @@ async function getApp(
 }
 
 describe("short app links through the office request pipeline", () => {
-  it("redirects a signed-out HEAD on the office host for the app's whole life, and nothing else", async () => {
+  it("redirects HEAD on the office host only for a member who can see the app, for the app's whole life", async () => {
     const srv = await startFlatOffice((current) => {
       server = current;
     });
     const token = await anAgentToken(srv);
+    const member = await srv.seedMember("Member");
+    grantMemberAppRoom(srv, member.username);
+    const outsider = await srv.seedMember("Outsider");
+    const asMember = {
+      Cookie: `${sessionCookieName()}=${member.rawSessionId}`,
+    };
+    const asOutsider = {
+      Cookie: `${sessionCookieName()}=${outsider.rawSessionId}`,
+    };
+    // Who must learn nothing from HEAD /board: a stranger (plain and as a
+    // browser navigation, which the auth wall may answer differently) and a
+    // member who cannot see the app.
+    const blind = [
+      { who: "signed out", headers: {} },
+      { who: "signed-out navigation", headers: NAVIGATION_HEADERS },
+      { who: "outsider", headers: asOutsider },
+    ];
     // What these requests get while no app called `board` exists. Registering
-    // one may change exactly one of them: HEAD /board on the office host.
+    // one may change exactly one of them: the member's HEAD /board.
     const unchanged = [
+      ...blind.flatMap(({ headers }) =>
+        ["", "/", "?x=1"].map((suffix) => ({
+          host: OFFICE_HOST,
+          method: "HEAD",
+          path: `/board${suffix}`,
+          headers,
+        })),
+      ),
       { host: OFFICE_HOST, method: "HEAD", path: "/board/deeper" },
+      {
+        host: OFFICE_HOST,
+        method: "HEAD",
+        path: "/board/deeper",
+        headers: asMember,
+      },
       {
         host: OFFICE_HOST,
         method: "POST",
@@ -61,16 +95,32 @@ describe("short app links through the office request pipeline", () => {
         headers: { "Content-Length": "0" },
       },
       // The link is the office's: any other Host is not redirected.
-      { host: "other.example", method: "HEAD", path: "/board" },
+      {
+        host: "other.example",
+        method: "HEAD",
+        path: "/board",
+        headers: asMember,
+      },
     ];
     const before = await Promise.all(
       unchanged.map((request) => raw(srv.port, request)),
     );
-    const unregistered = await raw(srv.port, {
+    const expectUnchanged = async () => {
+      for (const [index, request] of unchanged.entries()) {
+        const response = await raw(srv.port, request);
+        expect({ request, stable: response.stable }).toEqual({
+          request,
+          stable: before[index].stable,
+        });
+      }
+    };
+    const memberHead = {
       host: OFFICE_HOST,
       method: "HEAD",
       path: "/board",
-    });
+      headers: asMember,
+    };
+    const unregistered = await raw(srv.port, memberHead);
     expect(unregistered.status).not.toBe(302);
 
     await registerApp(srv, token, "board");
@@ -91,8 +141,7 @@ describe("short app links through the office request pipeline", () => {
       "?//evil.example",
     ]) {
       const response = await raw(srv.port, {
-        host: OFFICE_HOST,
-        method: "HEAD",
+        ...memberHead,
         path: `/board${suffix}`,
       });
       const target = new URL(app.url!);
@@ -111,11 +160,18 @@ describe("short app links through the office request pipeline", () => {
         body: "",
       });
     }
-    for (const [index, request] of unchanged.entries()) {
-      const response = await raw(srv.port, request);
-      expect({ request, stable: response.stable }).toEqual({
-        request,
-        stable: before[index].stable,
+    await expectUnchanged();
+    // A stranger's HEAD of a live name reads byte for byte like one of a name
+    // that was never registered.
+    for (const { who, headers } of blind) {
+      const [live, unknown] = await Promise.all(
+        ["/board", "/zzunknown"].map((path) =>
+          raw(srv.port, { host: OFFICE_HOST, method: "HEAD", path, headers }),
+        ),
+      );
+      expect({ who, stable: live.stable }).toEqual({
+        who,
+        stable: unknown.stable,
       });
     }
     // On the app's own host the path belongs to the app arm, not the link.
@@ -136,13 +192,10 @@ describe("short app links through the office request pipeline", () => {
         `${HTTPS_ORIGIN}/board`,
       );
     }
-    const archived = await raw(srv.port, {
-      host: OFFICE_HOST,
-      path: "/board",
-      method: "HEAD",
-    });
+    const archived = await raw(srv.port, memberHead);
     expect(archived.status).toBe(302);
     expect(archived.headers.location).toBe(`https://board.${OFFICE_HOST}/`);
+    await expectUnchanged();
 
     // A deleted one does not: the path is back to what it was.
     expect(
@@ -153,11 +206,7 @@ describe("short app links through the office request pipeline", () => {
         })
       ).status,
     ).toBe(204);
-    const deleted = await raw(srv.port, {
-      host: OFFICE_HOST,
-      method: "HEAD",
-      path: "/board",
-    });
+    const deleted = await raw(srv.port, memberHead);
     expect(deleted.stable).toBe(unregistered.stable);
   });
 
