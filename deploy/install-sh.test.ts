@@ -369,14 +369,14 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
 function renderCaddyfile(
   domain: string,
   kind: "hosted" | "self-hosted" = "self-hosted",
-  accessLog = true,
+  renderer:
+    | "render_caddyfile"
+    | "render_caddyfile_without_access_log"
+    | "render_caddyfile_hosted_forward_auth" = "render_caddyfile",
 ): string {
-  const renderer = SRC.indexOf(
-    accessLog
-      ? "render_caddyfile() {"
-      : "render_caddyfile_without_access_log() {",
-  );
-  const first = SRC.indexOf('cat >"$output" <<EOF\n', renderer);
+  const at = SRC.indexOf(`\n${renderer}() {`);
+  expect({ renderer, found: at > -1 }).toEqual({ renderer, found: true });
+  const first = SRC.indexOf('cat >"$output" <<EOF\n', at);
   const from =
     kind === "hosted"
       ? first
@@ -405,15 +405,28 @@ function block(rendered: string, header: string): string {
 }
 
 describe("install.sh: the managed Caddyfile", () => {
-  it("pins both pre-log renderings used as the migration ownership proof", () => {
+  it("pins every shipped older rendering used as the migration ownership proof", () => {
     const sha = (text: string) =>
       createHash("sha256").update(text).digest("hex");
-    expect(sha(renderCaddyfile("office.example", "hosted", false))).toBe(
+    const old = "render_caddyfile_without_access_log";
+    expect(sha(renderCaddyfile("office.example", "hosted", old))).toBe(
       "09f4544624d0412cc03dfbfdd44b20bce34529761792a6823b29cb24c9ff85d4",
     );
-    expect(sha(renderCaddyfile("office.example", "self-hosted", false))).toBe(
+    expect(sha(renderCaddyfile("office.example", "self-hosted", old))).toBe(
       "fa001a042800a0805c71dc3a70933b6b4915615f85b98b5d5ca0ecbac7332fa0",
     );
+    // The hosted rendering with access logs and forward_auth, as main
+    // 76825fd6's render_caddyfile wrote it. Hosted boxes run these bytes until
+    // their first update after task 1fa3c1de.
+    expect(
+      sha(
+        renderCaddyfile(
+          "office.example",
+          "hosted",
+          "render_caddyfile_hosted_forward_auth",
+        ),
+      ),
+    ).toBe("d2c984c0d4d515889c93e0b910421e54abb7f33606c4be4c5da3477cbfccd8c4");
   });
 
   it("keeps bounded 14-day logs and redacts both URL credential forms", () => {
@@ -447,13 +460,18 @@ describe("install.sh: the managed Caddyfile", () => {
     }
   });
 
-  it("uses one explicit hosted wildcard certificate and a request-time gate", () => {
+  it("serves hosted app hosts on the wildcard certificate with no certificate gate", () => {
+    // The office's app-host arm refuses a label that is not live itself, and
+    // the gate refuses every proxied caller, so a forward_auth to it could
+    // only fail every app request (task 1fa3c1de).
     const hosted = renderCaddyfile("office.example", "hosted");
-    expect(hosted).toContain(
+    const apps = block(hosted, "*.office.example");
+    expect(apps).toContain(
       "tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem",
     );
-    expect(hosted).toContain("forward_auth 127.0.0.1:4000");
-    expect(hosted).toContain(`uri ${TLS_ASK_PATH}?domain={http.request.host}`);
+    expect(apps).toContain("reverse_proxy 127.0.0.1:4000");
+    expect(apps).not.toContain("forward_auth");
+    expect(apps).not.toContain(TLS_ASK_PATH);
     expect(hosted).not.toContain("on_demand");
   });
 

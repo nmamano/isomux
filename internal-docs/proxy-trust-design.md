@@ -66,6 +66,20 @@ first-owner claim (`handleClaim`) uses `onBox` in place of
 `requestIsLoopback`. This closes the "claim over a same-host proxy" gap that
 the comment at `handleClaim` calls inherent.
 
+## The certificate gate: unproxied requests (task 1fa3c1de, 2026-10-25)
+
+`/__isomux/tls-ask` tells a live app label from an unknown one, so only the
+TLS terminator may ask. `RequestSource.unproxied` is true when the request has
+no forwarding header of any kind (`X-Forwarded-*`, `Forwarded`, `X-Real-IP`,
+`Via`) and the peer is loopback or, under `load-balancer`, any known peer. The
+header set is wider than on-box's: a balancer that strips `X-Forwarded-For` can
+still send `X-Forwarded-Proto` or `Via`. Measured on Caddy 2.11.4: the
+`on_demand_tls` ask sends no forwarding header; in Compose it arrives from the
+Docker gateway, which is why loopback alone would refuse it. Every other caller
+gets the same 403 for every name. Residual: under `load-balancer`, a caller
+that reaches the office port without the balancer and sends no header can
+still ask. The edge rules (the managed Caddyfile, the Kubernetes ingress) stay.
+
 ## F8: rate limits on the real client
 
 - `/readyz` (`server/isomux-office.ts`, `server/ready-limiter.ts`): exempt only

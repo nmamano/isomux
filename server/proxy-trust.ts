@@ -11,6 +11,12 @@
 //            client cannot remove the one the proxy adds, so a header can only
 //            make a request off-box. Agent, cron-run and app tokens work only
 //            on-box.
+//   unproxied - no forwarding header of any kind, and the peer is loopback or,
+//            under load-balancer, any known peer. The request did not come
+//            through the proxy that relays public traffic: the TLS
+//            terminator's certificate ask (server/tls-ask.ts) is one. In
+//            Compose the host Caddy asks from the Docker gateway, so loopback
+//            alone would refuse it.
 //   client - the rate-limit key. The peer, except for a request that came
 //            through the declared proxy: then the rightmost X-Forwarded-For
 //            entry, which that proxy wrote. X-Real-IP and Forwarded are never
@@ -26,9 +32,26 @@ export const TRUSTED_PROXY_VALUES: readonly TrustedProxy[] = [
 
 const FORWARDING_HEADERS = ["x-forwarded-for", "forwarded", "x-real-ip"];
 
+// Wider than FORWARDING_HEADERS: a balancer that strips X-Forwarded-For can
+// still send X-Forwarded-Proto or Via, and the certificate ask sends none.
+function hasAnyProxyHeader(req: Request): boolean {
+  for (const name of req.headers.keys()) {
+    if (
+      name === "forwarded" ||
+      name === "x-real-ip" ||
+      name === "via" ||
+      name.startsWith("x-forwarded-")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export interface RequestSource {
   onBox: boolean;
   client: string;
+  unproxied: boolean;
 }
 
 function isLoopbackAddress(addr: string | null): boolean {
@@ -61,7 +84,10 @@ export function classifyRequest(
     (mode === "same-host" && loopback) ||
     (mode === "load-balancer" && peer !== null && !loopback);
   const forwarded = viaProxy ? rightmostForwardedFor(req) : null;
-  return { onBox, client: forwarded ?? peer ?? "unknown" };
+  const unproxied =
+    (loopback || (mode === "load-balancer" && peer !== null)) &&
+    !hasAnyProxyHeader(req);
+  return { onBox, client: forwarded ?? peer ?? "unknown", unproxied };
 }
 
 let bootTrustedProxy: TrustedProxy = "none";

@@ -730,4 +730,56 @@ describe("app hosts: the certificate gate", () => {
     const gone = await raw(srv.port, { host: OFFICE_HOST, path: ask(appName) });
     expect(gone.status).toBe(403);
   });
+
+  it("gives a caller through the public proxy one answer for a live and an unknown label, behind a same-host proxy and a load balancer", async () => {
+    // The terminator asks directly and sends no forwarding header; Caddy, a
+    // Render or ALB proxy all add one. So a forwarded ask is a stranger, and
+    // must not learn which labels are live (task 1fa3c1de). The harness peer
+    // is always loopback: what tells the two apart here is the header.
+    let srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const label = await registerApp(srv, token, "hello");
+    const live = ask(`${label}.${OFFICE_HOST}`);
+    const unknown = ask(`nope.${OFFICE_HOST}`);
+    const PROXIED: Record<string, string>[] = [
+      { "X-Forwarded-For": "203.0.113.9" },
+      { Forwarded: "for=203.0.113.9" },
+      { "X-Forwarded-Proto": "https" },
+      { Via: "1.1 Caddy" },
+    ];
+    for (const mode of ["same-host", "load-balancer"]) {
+      patchOfficeConfig({ trustedProxy: mode });
+      srv = await srv.restart();
+      server = srv;
+      // The enabling condition: a direct ask still tells the labels apart.
+      const direct = {
+        live: (await raw(srv.port, { host: OFFICE_HOST, path: live })).status,
+        unknown: (await raw(srv.port, { host: OFFICE_HOST, path: unknown }))
+          .status,
+      };
+      expect({ mode, ...direct }).toEqual({ mode, live: 200, unknown: 403 });
+      for (const headers of PROXIED) {
+        const a = await raw(srv.port, {
+          host: OFFICE_HOST,
+          path: live,
+          headers,
+        });
+        const b = await raw(srv.port, {
+          host: OFFICE_HOST,
+          path: unknown,
+          headers,
+        });
+        expect({ mode, headers, status: a.status }).toEqual({
+          mode,
+          headers,
+          status: 403,
+        });
+        expect({ mode, headers, response: a.stable }).toEqual({
+          mode,
+          headers,
+          response: b.stable,
+        });
+      }
+    }
+  });
 });

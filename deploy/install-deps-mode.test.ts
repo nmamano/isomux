@@ -84,7 +84,7 @@ const STAGES = [
   "configure_codex_sandbox",
   "configure_user_manager",
   "refresh_hosted_tls_renewal",
-  "migrate_caddy_access_log",
+  "migrate_managed_caddyfile",
   "write_loopback_bind_if_proxied",
   "write_update_outcome",
 ];
@@ -194,7 +194,7 @@ restore_recorded_firewall_rules() { echo "restore_recorded_firewall_rules"; }
 install_hardening_verifier() { echo "install_hardening_verifier"; }
 verify-hardening() { echo "verify-hardening $*"; return ${opts.markerVerifyRc ?? 0}; }
 refresh_hosted_tls_renewal() { echo "refresh_hosted_tls_renewal"; }
-migrate_caddy_access_log() { echo "migrate_caddy_access_log"; ${opts.migrationFails ? "return 1" : ":"}; }
+migrate_managed_caddyfile() { echo "migrate_managed_caddyfile"; ${opts.migrationFails ? "return 1" : ":"}; }
 verify_caddy_front_door() { ${opts.frontDoorHealthy === false ? "return 1" : "return 0"}; }
 write_loopback_bind_if_proxied() { echo "write_loopback_bind_if_proxied"; }
 write_update_outcome() { echo "write_update_outcome"; }
@@ -267,7 +267,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "configure_codex_sandbox",
       "configure_user_manager",
       "refresh_hosted_tls_renewal",
-      "migrate_caddy_access_log",
+      "migrate_managed_caddyfile",
       "write_loopback_bind_if_proxied",
       "write_update_outcome",
       "STEP:report",
@@ -294,7 +294,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "configure_codex_sandbox",
       "configure_user_manager",
       "refresh_hosted_tls_renewal",
-      "migrate_caddy_access_log",
+      "migrate_managed_caddyfile",
       "write_loopback_bind_if_proxied",
       "write_update_outcome",
       "STEP:report",
@@ -445,9 +445,8 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       frontDoorHealthy: false,
     });
     expect(r.active).toBe(true);
-    expect(r.out).toContain(
-      "Caddy access logging was not added and Caddy is down",
-    );
+    // The update stops and names the file the operator must restore.
+    expect(r.out).toMatch(/^DIE: .*\/Caddyfile\b/m);
     expect(r.out).not.toContain("system dependencies are up to date");
     expect(r.code).not.toBe(0);
   });

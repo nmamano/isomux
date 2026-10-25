@@ -125,3 +125,72 @@ describe("classifyRequest: client", () => {
     expect(classifyRequest(req(), null, "none").client).toBe("unknown");
   });
 });
+
+// The certificate gate answers only a request that did not come through the
+// proxy that carries public traffic (task 1fa3c1de). Caddy's on-demand ask
+// sends no forwarding header at all (measured 2026-10-25, Caddy 2.11.4), so
+// any forwarding header refuses, including ones a load balancer still sends
+// when it strips X-Forwarded-For.
+describe("classifyRequest: unproxied", () => {
+  const PROXY_HEADERS = [
+    "X-Forwarded-For",
+    "Forwarded",
+    "X-Real-IP",
+    "X-Forwarded-Proto",
+    "X-Forwarded-Host",
+    "X-Forwarded-Port",
+    "X-Forwarded-Method",
+    "X-Forwarded-Uri",
+    // Not a fixed list: every X-Forwarded-* header counts.
+    "X-Forwarded-Prefix",
+    "Via",
+  ];
+
+  it("is unproxied for a loopback peer with no forwarding header, in every mode", () => {
+    for (const mode of MODES) {
+      for (const peer of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+        expect({
+          mode,
+          peer,
+          unproxied: classifyRequest(req(), peer, mode).unproxied,
+        }).toEqual({ mode, peer, unproxied: true });
+      }
+    }
+  });
+
+  it("is unproxied for a known non-loopback peer with no header only behind a load balancer", () => {
+    // In Compose the host Caddy's ask arrives from the Docker gateway.
+    const of = (mode: TrustedProxy) =>
+      classifyRequest(req(), "172.17.0.1", mode).unproxied;
+    expect({
+      none: of("none"),
+      sameHost: of("same-host"),
+      loadBalancer: of("load-balancer"),
+    }).toEqual({ none: false, sameHost: false, loadBalancer: true });
+  });
+
+  it("is never unproxied for an unknown peer", () => {
+    for (const mode of MODES) {
+      expect(classifyRequest(req(), null, mode).unproxied).toBe(false);
+    }
+  });
+
+  it("is proxied when any forwarding header is present, whatever its value, in every mode", () => {
+    for (const mode of MODES) {
+      for (const peer of ["127.0.0.1", "172.17.0.1"]) {
+        for (const name of PROXY_HEADERS) {
+          for (const value of ["203.0.113.9", ""]) {
+            expect({
+              mode,
+              peer,
+              name,
+              value,
+              unproxied: classifyRequest(req([[name, value]]), peer, mode)
+                .unproxied,
+            }).toEqual({ mode, peer, name, value, unproxied: false });
+          }
+        }
+      }
+    }
+  });
+});

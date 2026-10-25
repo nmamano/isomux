@@ -26,17 +26,23 @@
 // Fail-closed, like the rest of the app-host surface. What passes: the office's
 // own host, and a live app's label. The persisted admission stamp remains for
 // rollback compatibility with releases where this gate controlled on-demand
-// certificate loading. Hosted wildcard TLS makes it a request gate instead, so
-// it has no issuance budget or arbitrary per-hour cap. Everything else is
-// refused.
+// certificate loading. Hosted offices use a wildcard certificate and never call
+// this gate. Everything else is refused.
+//
+// Only the terminator may ask. The answer shows which app labels are live,
+// which the app-host arm keeps from an anonymous caller, so a request that came
+// through a proxy gets the refusal whatever it names (RequestSource.unproxied
+// in server/proxy-trust.ts). The office decides this itself rather than relying
+// on an edge rule: a deployment without one (a plain load balancer, an
+// operator's own proxy) is then safe too.
 
 import { matchAppHost, normalizeRequestHost } from "./app-hosts.ts";
 
 // Where the office answers. Under the same prefix the app-host arm reserves, so
 // the one namespace an app can never claim is also where the office keeps its
-// machine-facing routes. The terminator reaches this over loopback and never
-// through a site block, which is why the managed Caddyfile can refuse this
-// exact path at the edge - see deploy/install.sh.
+// machine-facing routes. The terminator asks directly, never through a site
+// block, which is why the managed Caddyfile can refuse this exact path at the
+// edge - see deploy/install.sh.
 export const TLS_ASK_PATH = "/__isomux/tls-ask";
 
 type TlsAskDecision = "allow" | "deny";
@@ -90,7 +96,14 @@ function tlsAskResponse(decision: TlsAskDecision): Response {
   });
 }
 
-export function handleTlsAsk(url: URL, deps: TlsAskDeps): Response {
+export function handleTlsAsk(
+  url: URL,
+  unproxied: boolean,
+  deps: TlsAskDeps,
+): Response {
+  // Before the query is read: a proxied caller learns nothing from what it
+  // names.
+  if (!unproxied) return tlsAskResponse("deny");
   // EXACTLY ONE non-empty `domain`. Zero, empty, or repeated is a request whose
   // subject is ambiguous, and answering the first of two names is how a gate
   // ends up vouching for the other one. Other parameters are ignored: the

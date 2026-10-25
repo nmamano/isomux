@@ -8305,17 +8305,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
 
         // GET /__isomux/tls-ask - the certificate admission gate for app
-        // hostnames. The terminator calls it over loopback before
+        // hostnames. The terminator calls it directly before
         // obtaining a certificate AND before loading one it already has in
         // storage, so this answers on every cold load, not once per name. It
         // approves the office's own host and live app labels, and denies
-        // everything else (server/tls-ask.ts). Unauthenticated, and here rather than behind the
+        // everything else, including every request that came through a proxy
+        // (server/tls-ask.ts). Unauthenticated, and here rather than behind the
         // auth wall for the same reason /readyz is: the caller is a service on
         // this box with no session to present. That placement is also what makes
         // a version mismatch safe - an office that predates this route answers
         // 401 from the wall, which is not a 2xx, so it issues nothing.
         if (url.pathname === TLS_ASK_PATH && req.method === "GET") {
-          return handleTlsAsk(url, {
+          return handleTlsAsk(url, source().unproxied, {
             domain: appHostDomain(),
             isLive: (label) => appRegistry.isLiveHostLabel(label),
           });

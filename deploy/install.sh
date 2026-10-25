@@ -4302,9 +4302,11 @@ EOF
   fi
 }
 
-render_caddyfile() {
-  local kind=$1 output=$2 domain=$3
-  if [[ $kind == hosted ]]; then
+# The hosted rendering as shipped from 2026-08-15 until task 1fa3c1de: with
+# access logs and a forward_auth gate on the app hosts. Kept byte-exact as an
+# ownership proof for migrate_managed_caddyfile.
+render_caddyfile_hosted_forward_auth() {
+  local output=$1 domain=$2
     cat >"$output" <<EOF
 $CADDY_MARKER
 {
@@ -4345,6 +4347,52 @@ $domain {
 	}
 	forward_auth 127.0.0.1:4000 {
 		uri /__isomux/tls-ask?domain={http.request.host}
+	}
+	reverse_proxy 127.0.0.1:4000
+}
+EOF
+}
+
+render_caddyfile() {
+  local kind=$1 output=$2 domain=$3
+  if [[ $kind == hosted ]]; then
+    cat >"$output" <<EOF
+$CADDY_MARKER
+{
+	admin off
+}
+
+$domain {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	log {
+		output file /var/log/caddy/isomux-office-access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 14
+			roll_keep_for 312h
+		}
+		format filter {
+			request>uri regexp "(/i/)[^/?#]+|([?&]code=)[^&#]*" "\${1}\${2}<redacted>"
+		}
+	}
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$domain {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	log {
+		output file /var/log/caddy/isomux-app-access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 14
+			roll_keep_for 312h
+		}
+		format filter {
+			request>uri regexp "(/i/)[^/?#]+|([?&]code=)[^&#]*" "\${1}\${2}<redacted>"
+		}
 	}
 	reverse_proxy 127.0.0.1:4000
 }
@@ -4433,9 +4481,12 @@ configure_caddy() {
   # office which apps exist. Only on the office's own site - an app host serves
   # its sign-in handshake under the same prefix.
   #
-  # Updates replace only an exact byte match for one of the two older managed
-  # renderings, and only to add the access log. They never edit a Caddyfile or
-  # infer ownership from its marker alone.
+  # A hosted office has a wildcard certificate and no `ask`: an app host whose
+  # label is not live gets the same answers from the office as a live one.
+  #
+  # Updates replace only an exact byte match for an older managed rendering
+  # (migrate_managed_caddyfile), with the current rendering of the same kind.
+  # They never edit a Caddyfile or infer ownership from its marker alone.
   install_hosted_tls_renewal
   local rendered kind=self-hosted
   rendered=$(mktemp /etc/caddy/.Caddyfile.XXXXXX)
@@ -4448,11 +4499,11 @@ configure_caddy() {
   install_caddyfile_transaction "$rendered"
 }
 
-migrate_caddy_access_log() (
+migrate_managed_caddyfile() (
   systemctl is-active --quiet caddy || return 0
   [[ -f $CADDYFILE ]] || return 0
 
-  local domain old_hosted old_self current_hosted current_self rendered kind=""
+  local domain old_hosted old_self old_hosted_gate current_hosted current_self rendered kind=""
   domain=$(awk '
     /^[^[:space:]#].*[[:space:]]\{$/ {
       line=$0
@@ -4462,19 +4513,21 @@ migrate_caddy_access_log() (
   ' "$CADDYFILE")
   [[ $domain =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || {
     grep -qs "$CADDY_MARKER" "$CADDYFILE" || return 0
-    log "warning: the managed Caddyfile's office domain could not be recovered; access logging was not added"
-    log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; inspect $CADDYFILE"
+    log "warning: the managed Caddyfile's office domain could not be recovered; the Caddyfile was not updated"
+    log "ISOMUX_UPDATE_WARNING=the managed Caddyfile was not updated; inspect $CADDYFILE"
     return 0
   }
 
   old_hosted=$(mktemp "$CADDY_DIR/.Caddyfile.pre-log-hosted.XXXXXX")
   old_self=$(mktemp "$CADDY_DIR/.Caddyfile.pre-log-self.XXXXXX")
-  current_hosted=$(mktemp "$CADDY_DIR/.Caddyfile.post-log-hosted.XXXXXX")
-  current_self=$(mktemp "$CADDY_DIR/.Caddyfile.post-log-self.XXXXXX")
-  rendered=$(mktemp "$CADDY_DIR/.Caddyfile.access-log.XXXXXX")
-  trap 'rm -f "$old_hosted" "$old_self" "$current_hosted" "$current_self" "$rendered"' EXIT
+  old_hosted_gate=$(mktemp "$CADDY_DIR/.Caddyfile.forward-auth-hosted.XXXXXX")
+  current_hosted=$(mktemp "$CADDY_DIR/.Caddyfile.current-hosted.XXXXXX")
+  current_self=$(mktemp "$CADDY_DIR/.Caddyfile.current-self.XXXXXX")
+  rendered=$(mktemp "$CADDY_DIR/.Caddyfile.migrated.XXXXXX")
+  trap 'rm -f "$old_hosted" "$old_self" "$old_hosted_gate" "$current_hosted" "$current_self" "$rendered"' EXIT
   render_caddyfile_without_access_log hosted "$old_hosted" "$domain"
   render_caddyfile_without_access_log self-hosted "$old_self" "$domain"
+  render_caddyfile_hosted_forward_auth "$old_hosted_gate" "$domain"
   render_caddyfile hosted "$current_hosted" "$domain"
   render_caddyfile self-hosted "$current_self" "$domain"
   if cmp -s "$CADDYFILE" "$current_hosted"; then
@@ -4483,14 +4536,14 @@ migrate_caddy_access_log() (
   if cmp -s "$CADDYFILE" "$current_self"; then
     return 0
   fi
-  if cmp -s "$CADDYFILE" "$old_hosted"; then
+  if cmp -s "$CADDYFILE" "$old_hosted" || cmp -s "$CADDYFILE" "$old_hosted_gate"; then
     kind=hosted
   elif cmp -s "$CADDYFILE" "$old_self"; then
     kind=self-hosted
   else
     grep -qs "$CADDY_MARKER" "$CADDYFILE" || return 0
-    log "warning: the managed Caddyfile differs from the known installer renderings; access logging was not added"
-    log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added because $CADDYFILE has different bytes"
+    log "warning: the managed Caddyfile does not match any version the installer wrote; it was not updated"
+    log "ISOMUX_UPDATE_WARNING=the managed Caddyfile was not updated because $CADDYFILE does not match any version the installer wrote"
     return 0
   fi
 
@@ -4505,11 +4558,11 @@ migrate_caddy_access_log() (
   set -e
   if ((transaction_rc != 0)); then
     if verify_caddy_front_door "$CADDYFILE"; then
-      log "warning: Caddy rejected the access-log migration and its previous configuration was restored"
-      log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; the previous configuration was restored"
+      log "warning: Caddy rejected the updated Caddyfile and its previous configuration was restored"
+      log "ISOMUX_UPDATE_WARNING=the managed Caddyfile was not updated; the previous configuration was restored"
       return 0
     fi
-    die "Caddy access logging was not added and Caddy is down; restore $CADDYFILE before continuing"
+    die "the managed Caddyfile was not updated and Caddy is down; restore $CADDYFILE before continuing"
   fi
 )
 
@@ -6170,15 +6223,15 @@ deps_only() {
   fi
   local migration_rc=0
   set +e
-  (set -Ee; migrate_caddy_access_log)
+  (set -Ee; migrate_managed_caddyfile)
   migration_rc=$?
   set -e
   if ((migration_rc != 0)); then
     if verify_caddy_front_door "$CADDYFILE"; then
-      log "warning: Caddy access-log migration did not complete; the active front door was left unchanged"
-      log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; the active front door was left unchanged"
+      log "warning: the managed Caddyfile update did not complete; the active front door was left unchanged"
+      log "ISOMUX_UPDATE_WARNING=the managed Caddyfile was not updated; the active front door was left unchanged"
     else
-      die "Caddy access logging was not added and Caddy is down; restore $CADDYFILE before continuing"
+      die "the managed Caddyfile was not updated and Caddy is down; restore $CADDYFILE before continuing"
     fi
   fi
   # Caddy has been restored to its pre-update active state by this point. This

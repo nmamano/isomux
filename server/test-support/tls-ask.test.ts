@@ -44,6 +44,7 @@ function url(query: string): URL {
 function ask(name: string, deps: TlsAskDeps) {
   const { status } = handleTlsAsk(
     url(`?domain=${encodeURIComponent(name)}`),
+    true,
     deps,
   );
   return status === 200 ? "allow" : status === 403 ? "deny" : status;
@@ -136,15 +137,19 @@ describe("the tls-ask policy: what may be certified", () => {
 describe("the response the terminator reads", () => {
   it("proceeds only on a 2xx", () => {
     const { deps } = registry(["hello"]);
-    expect(handleTlsAsk(url(`?domain=hello.${DOMAIN}`), deps).status).toBe(200);
-    expect(handleTlsAsk(url(`?domain=nope.${DOMAIN}`), deps).status).toBe(403);
+    expect(
+      handleTlsAsk(url(`?domain=hello.${DOMAIN}`), true, deps).status,
+    ).toBe(200);
+    expect(handleTlsAsk(url(`?domain=nope.${DOMAIN}`), true, deps).status).toBe(
+      403,
+    );
   });
 
   it("is never cached", () => {
     // A cached "ok" would outlive the app it vouched for.
     const { deps } = registry(["hello"]);
     for (const name of ["hello", "nope"]) {
-      const res = handleTlsAsk(url(`?domain=${name}.${DOMAIN}`), deps);
+      const res = handleTlsAsk(url(`?domain=${name}.${DOMAIN}`), true, deps);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
     }
   });
@@ -153,13 +158,16 @@ describe("the response the terminator reads", () => {
 describe("handleTlsAsk: the query contract", () => {
   it("answers from a single domain parameter", () => {
     const { deps } = registry(["hello"]);
-    expect(handleTlsAsk(url(`?domain=hello.${DOMAIN}`), deps).status).toBe(200);
+    expect(
+      handleTlsAsk(url(`?domain=hello.${DOMAIN}`), true, deps).status,
+    ).toBe(200);
   });
 
   it("ignores parameters that are not the subject", () => {
     const { deps } = registry(["hello"]);
     expect(
-      handleTlsAsk(url(`?trace=1&domain=hello.${DOMAIN}&x=y`), deps).status,
+      handleTlsAsk(url(`?trace=1&domain=hello.${DOMAIN}&x=y`), true, deps)
+        .status,
     ).toBe(200);
   });
 
@@ -174,7 +182,7 @@ describe("handleTlsAsk: the query contract", () => {
       `?domain=evil.${DOMAIN}&domain=hello.${DOMAIN}`,
       `?domain=hello.${DOMAIN}&domain=`,
     ]) {
-      expect(handleTlsAsk(url(query), deps).status).toBe(403);
+      expect(handleTlsAsk(url(query), true, deps).status).toBe(403);
     }
     expect(asked).toHaveLength(0);
   });
@@ -188,7 +196,54 @@ describe("handleTlsAsk: the query contract", () => {
         throw new Error("apps.json is unreadable");
       },
     };
-    const res = handleTlsAsk(url(`?domain=hello.${DOMAIN}`), deps);
+    const res = handleTlsAsk(url(`?domain=hello.${DOMAIN}`), true, deps);
     expect(res.status).toBe(403);
+  });
+});
+
+// A caller that came through the public proxy (task 1fa3c1de). The terminator
+// asks directly, so a proxied ask is a stranger asking which apps exist: it
+// gets one fixed answer, decided before the subject or the registry is read.
+describe("handleTlsAsk: a proxied caller", () => {
+  async function answer(res: Response) {
+    return {
+      status: res.status,
+      headers: [...res.headers.entries()],
+      body: await res.text(),
+    };
+  }
+
+  it("answers a live label, an unknown label and the office host identically, without reading the registry", async () => {
+    const reads: string[] = [];
+    const deps: TlsAskDeps = {
+      get domain() {
+        reads.push("domain");
+        return DOMAIN;
+      },
+      isLive: (label) => {
+        reads.push(`isLive:${label}`);
+        return label === "hello";
+      },
+    };
+    // The enabling condition: unproxied, the same registry tells them apart.
+    expect(
+      handleTlsAsk(url(`?domain=hello.${DOMAIN}`), true, deps).status,
+    ).toBe(200);
+    expect(handleTlsAsk(url(`?domain=nope.${DOMAIN}`), true, deps).status).toBe(
+      403,
+    );
+    reads.length = 0;
+
+    const live = await answer(
+      handleTlsAsk(url(`?domain=hello.${DOMAIN}`), false, deps),
+    );
+    expect(live.status).toBe(403);
+    for (const query of [`?domain=nope.${DOMAIN}`, `?domain=${DOMAIN}`, ""]) {
+      expect({
+        query,
+        ...(await answer(handleTlsAsk(url(query), false, deps))),
+      }).toEqual({ query, ...live });
+    }
+    expect(reads).toEqual([]);
   });
 });

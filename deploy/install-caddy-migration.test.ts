@@ -22,7 +22,7 @@ const RENDER_NEW = SRC.slice(
   SRC.indexOf("\nconfigure_caddy() {"),
 );
 const MIGRATE = SRC.slice(
-  SRC.indexOf("migrate_caddy_access_log() ("),
+  SRC.indexOf("migrate_managed_caddyfile() ("),
   SRC.indexOf("\nreport() {"),
 );
 const TRANSACTION = SRC.slice(
@@ -38,7 +38,10 @@ const roots: string[] = [];
 
 function run(options: {
   kind?: "hosted" | "self-hosted";
-  rendering?: "pre-log" | "post-log";
+  // pre-log: render_caddyfile_without_access_log (generation 1, both kinds).
+  // forward-auth: render_caddyfile_hosted_forward_auth (generation 2, hosted
+  // only). post-log: the current render_caddyfile.
+  rendering?: "pre-log" | "forward-auth" | "post-log";
   mutate?: (text: string) => string;
   transactionFails?: boolean;
   caddyAfterFailure?: "active" | "inactive";
@@ -62,9 +65,16 @@ function run(options: {
   const caddyfile = join(caddyDir, "Caddyfile");
   const calls = join(root, "calls");
   const kind = options.kind ?? "hosted";
-  const setup = `${options.rendering === "post-log" ? RENDER_NEW : RENDER_OLD}
+  const render =
+    options.rendering === "post-log"
+      ? `render_caddyfile ${kind}`
+      : options.rendering === "forward-auth"
+        ? "render_caddyfile_hosted_forward_auth"
+        : `render_caddyfile_without_access_log ${kind}`;
+  const setup = `${RENDER_OLD}
+${RENDER_NEW}
 CADDY_MARKER='# Managed by the isomux installer'
-${options.rendering === "post-log" ? "render_caddyfile" : "render_caddyfile_without_access_log"} ${kind} "$CADDYFILE" office.example
+${render} "$CADDYFILE" office.example
 `;
   let proc = Bun.spawnSync(["bash", "-c", setup], {
     env: { ...process.env, CADDYFILE: caddyfile },
@@ -94,7 +104,7 @@ verify_caddy_front_door() {
   [[ $(cat ${JSON.stringify(state)}) == active ]] &&
     [[ ${options.frontDoorAfterFailure ?? "healthy"} == healthy ]]
 }
-migrate_caddy_access_log
+migrate_managed_caddyfile
 `;
   proc = Bun.spawnSync(["bash", "-c", script], {
     env: {
@@ -113,21 +123,69 @@ migrate_caddy_access_log
   };
 }
 
+// What a fresh install writes for this kind today: the migration's target.
+function currentRendering(kind: "hosted" | "self-hosted"): string {
+  const proc = Bun.spawnSync([
+    "bash",
+    "-c",
+    `${RENDER_NEW}
+CADDY_MARKER='# Managed by the isomux installer'
+out=$(mktemp)
+render_caddyfile ${kind} "$out" office.example
+cat "$out"
+rm -f "$out"
+`,
+  ]);
+  expect(proc.exitCode).toBe(0);
+  return proc.stdout.toString();
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-describe("deps-only Caddy access-log migration", () => {
-  it("migrates either exact known pre-log rendering", () => {
+describe("deps-only managed Caddyfile migration", () => {
+  it("migrates either exact known pre-log rendering to the current rendering of its kind", () => {
     for (const kind of ["hosted", "self-hosted"] as const) {
       const result = run({ kind });
       expect(result.code).toBe(0);
       expect(result.calls.split("\n").filter(Boolean)).toHaveLength(1);
       expect(result.caddyfile).toContain("roll_keep_for 312h");
       expect(result.caddyfile).toContain("request>uri regexp");
+      expect(result.caddyfile).toBe(currentRendering(kind));
     }
+  });
+
+  it("migrates the exact shipped hosted forward_auth rendering to the current hosted rendering", () => {
+    // Every Hosted box runs these bytes until this update. Their forward_auth
+    // answers each app request with the office's 404 (task 1fa3c1de).
+    const result = run({ kind: "hosted", rendering: "forward-auth" });
+    expect(result.input).toContain("forward_auth 127.0.0.1:4000");
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain("ISOMUX_UPDATE_WARNING=");
+    expect(result.calls.split("\n").filter(Boolean)).toHaveLength(1);
+    expect(result.caddyfile).not.toContain("forward_auth");
+    expect(result.caddyfile).toBe(currentRendering("hosted"));
+  });
+
+  it("leaves a one-byte-different hosted forward_auth rendering untouched and warns", () => {
+    const result = run({
+      kind: "hosted",
+      rendering: "forward-auth",
+      mutate: (text) =>
+        text.replace(
+          "forward_auth 127.0.0.1:4000",
+          "forward_auth 127.0.0.1:4001",
+        ),
+    });
+    expect(result.input).toContain("forward_auth 127.0.0.1:4001");
+    expect(result.code).toBe(0);
+    expect(result.calls).toBe("");
+    expect(result.caddyfile).toBe(result.input);
+    const warning = result.out.match(/^ISOMUX_UPDATE_WARNING=.*$/m)?.[0];
+    expect(warning).toContain(result.caddyfilePath);
   });
 
   it("silently leaves either exact known post-log rendering byte-identical", () => {
@@ -169,7 +227,8 @@ describe("deps-only Caddy access-log migration", () => {
       caddyAfterFailure: "inactive",
     });
     expect(result.code).not.toBe(0);
-    expect(result.out).toContain("Caddy is down");
+    // It stops and names the file the operator must restore.
+    expect(result.out.match(/^DIE: .*$/m)?.[0]).toContain(result.caddyfilePath);
   });
 
   it("fails when Caddy still reports active but the restored front door is dead", () => {
@@ -179,7 +238,8 @@ describe("deps-only Caddy access-log migration", () => {
       frontDoorAfterFailure: "dead",
     });
     expect(result.code).not.toBe(0);
-    expect(result.out).toContain("Caddy is down");
+    // It stops and names the file the operator must restore.
+    expect(result.out.match(/^DIE: .*$/m)?.[0]).toContain(result.caddyfilePath);
   });
 });
 
