@@ -976,7 +976,7 @@ App 的一些原则：
   "integrations.backToYours": "返回你的集成",
   "integrations.picker": "查看谁的集成",
   "integrations.applies":
-    "Claude、Codex 和 OpenCode 智能体在开始新对话时获得更改。OpenCode 智能体在下一条消息时获得 MCP 服务器的更改，在它们都不工作时获得 API 密钥的更改。",
+    "Claude 和 Codex 智能体在开始新对话时获得更改。OpenCode 智能体在下一条消息时获得 MCP 服务器的更改，在它们都不工作时获得 API 密钥的更改，其他更改则在开始新对话时获得。",
   "integrations.helpTip": "这是什么意思？",
   "integrations.show": "显示",
   "integrations.hide": "隐藏",

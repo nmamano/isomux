@@ -1076,7 +1076,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.backToYours": "Back to yours",
   "integrations.picker": "Whose integrations",
   "integrations.applies":
-    "Claude, Codex and OpenCode agents get a change when they start a new conversation. OpenCode agents get MCP server changes at their next message, and API key changes once none of them is working.",
+    "Claude and Codex agents get a change when they start a new conversation. OpenCode agents get MCP server changes at their next message, API key changes once none of them is working, and other changes when they start a new conversation.",
   "integrations.helpTip": "What does this mean?",
   "integrations.show": "Show",
   "integrations.hide": "Hide",

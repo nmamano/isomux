@@ -1088,7 +1088,7 @@ Coses que pots fer per ell:
   "integrations.backToYours": "Torna a les teves",
   "integrations.picker": "De qui són les integracions",
   "integrations.applies":
-    "Els agents de Claude, Codex i OpenCode reben un canvi quan inicien una conversa nova. Els agents d'OpenCode reben els canvis de servidors MCP al missatge següent, i els de claus d'API quan cap d'ells no estigui treballant.",
+    "Els agents de Claude i Codex reben un canvi quan inicien una conversa nova. Els agents d'OpenCode reben els canvis de servidors MCP al missatge següent, els de claus d'API quan cap d'ells no estigui treballant, i la resta quan inicien una conversa nova.",
   "integrations.helpTip": "Què vol dir això?",
   "integrations.show": "Mostra",
   "integrations.hide": "Amaga",

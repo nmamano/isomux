@@ -282,17 +282,17 @@ async function waitForV1Import(record: ServerRecord): Promise<string | null> {
       // A server busy with the import can answer late.
       if ((error as { name?: unknown } | null)?.name === "TimeoutError")
         continue;
-      return "OpenCode did not start: it did not report its import of OpenCode 1 conversations.";
+      return "OpenCode did not start: it did not report its import of OpenCode 1 conversations. Send your message again to retry.";
     }
     const body = (await response.json().catch(() => null)) as {
       status?: unknown;
       error?: unknown;
     } | null;
     if (!response.ok || !body)
-      return `OpenCode did not start: it did not report its import of OpenCode 1 conversations (HTTP ${response.status}).`;
+      return `OpenCode did not start: it did not report its import of OpenCode 1 conversations (HTTP ${response.status}). Send your message again to retry.`;
     if (body.status === "completed") return null;
     if (body.status === "error")
-      return `OpenCode did not start: it could not import its OpenCode 1 conversations (${typeof body.error === "string" ? body.error : "no details"}).`;
+      return `OpenCode did not start: it could not import its OpenCode 1 conversations (${typeof body.error === "string" ? body.error : "no details"}). Send your message again to retry.`;
     // "required" after health: the import ended without completing, and no
     // later answer of this server changes that.
     if (body.status !== "running")
