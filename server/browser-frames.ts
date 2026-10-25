@@ -2,6 +2,8 @@ import type { Frame, Locator } from "playwright-core";
 
 export const MAX_FRAME_DEPTH = 8;
 const MAX_READ_FRAMES = 64;
+/** Replaces the value of a password field in a snapshot. */
+export const PASSWORD_MASK = "[password masked]";
 
 // Paths describe the current frame tree, not a persistent frame identity.
 export function resolveBrowserFrame(root: Frame, path: number[]): Frame {
@@ -95,10 +97,13 @@ async function snapshotWithEditableText(
   limit: number,
 ): Promise<string> {
   const deadline = Date.now() + timeout;
+  const before = await readPasswordValues(frame, deadline);
   const snapshot = await scope.ariaSnapshot({
     timeout: Math.max(1, deadline - Date.now()),
   });
-  if (snapshot.length >= limit || Date.now() >= deadline) return snapshot;
+  const passwords = [...before, ...(await readPasswordValues(frame, deadline))];
+  if (snapshot.length >= limit || Date.now() >= deadline)
+    return maskPasswordValues(snapshot, passwords);
   // Public locator reads use Playwright's utility world. Page evaluation needs
   // a main-world context that may not be announced again when an All grant
   // changes clients without detaching Chrome's debugger.
@@ -126,9 +131,120 @@ async function snapshotWithEditableText(
       !normalized.includes(value.replace(/\s+/g, " ")) &&
       !snapshot.includes(JSON.stringify(value)),
   );
-  return missing.length
-    ? snapshot +
-        "\n\n--- Editable textbox text ---\n" +
-        missing.map((value) => "- " + JSON.stringify(value)).join("\n")
-    : snapshot;
+  return maskPasswordValues(
+    missing.length
+      ? snapshot +
+          "\n\n--- Editable textbox text ---\n" +
+          missing.map((value) => "- " + JSON.stringify(value)).join("\n")
+      : snapshot,
+    passwords,
+  );
+}
+
+// Password values are read before and after the snapshot, so a value that
+// autofill sets or a script clears while it runs is still masked. A value that
+// exists only between the two reads (a person who types during the snapshot)
+// is not. A read that fails or times out throws, so the caller withholds the
+// frame instead of returning it unmasked.
+const PASSWORD_READ_FLOOR_MS = 1000;
+
+async function readPasswordValues(
+  frame: Frame,
+  deadline: number,
+): Promise<string[]> {
+  const passDeadline =
+    Date.now() + Math.max(deadline - Date.now(), PASSWORD_READ_FLOOR_MS);
+  const fields = frame.locator("input[type=password]");
+  const count = await fields.count();
+  const values: string[] = [];
+  for (let index = 0; index < count; index++)
+    values.push(
+      await fields
+        .nth(index)
+        .inputValue({ timeout: Math.max(1, passDeadline - Date.now()) }),
+    );
+  return values;
+}
+
+// The ARIA snapshot prints a password field's value as a textbox line value,
+// and accessible-name rules can copy it into another node's name (a button
+// labelled by the field). Mask a line that ends in the value, at any length,
+// and every other occurrence of a value of 4 or more characters. A shorter
+// value in another node's name stays: masking each "3" in the page text would
+// destroy the read.
+function maskPasswordValues(text: string, values: string[]): string {
+  const normalized = [
+    ...new Set(values.map(normalizeWhiteSpace).filter(Boolean)),
+  ];
+  if (!normalized.length) return text;
+  const tails = normalized.flatMap((value) => [
+    ": " + value,
+    ": " + yamlQuote(value),
+  ]);
+  const masked = text
+    .split("\n")
+    .map((line) => {
+      const tail = tails.find((candidate) => line.endsWith(candidate));
+      return tail
+        ? line.slice(0, line.length - tail.length) + ": " + PASSWORD_MASK
+        : line;
+    })
+    .join("\n");
+  const forms = [
+    ...new Set(
+      normalized
+        .filter((value) => value.length >= 4)
+        .flatMap((value) => {
+          const name = JSON.stringify(value).slice(1, -1);
+          return [value, name, name.replaceAll("'", "''")];
+        }),
+    ),
+  ].sort((a, b) => b.length - a.length);
+  if (!forms.length) return masked;
+  const pattern = new RegExp(
+    forms.map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "g",
+  );
+  // Split on the mask so a value cannot match inside a mask already written.
+  return masked
+    .split(PASSWORD_MASK)
+    .map((part) => part.replace(pattern, PASSWORD_MASK))
+    .join(PASSWORD_MASK);
+}
+
+// Copies of Playwright's normalizeWhiteSpace and yamlEscapeValueIfNeeded
+// quoting (1.62): the snapshot prints a textbox value in this form.
+function normalizeWhiteSpace(text: string): string {
+  return text
+    .replace(/[\u200b\u00ad]/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function yamlQuote(text: string): string {
+  return (
+    '"' +
+    // eslint-disable-next-line no-control-regex -- Playwright escapes them
+    text.replace(/[\\"\x00-\x1f\x7f-\x9f]/g, (c) => {
+      switch (c) {
+        case "\\":
+          return "\\\\";
+        case '"':
+          return '\\"';
+        case "\b":
+          return "\\b";
+        case "\f":
+          return "\\f";
+        case "\n":
+          return "\\n";
+        case "\r":
+          return "\\r";
+        case "\t":
+          return "\\t";
+        default:
+          return "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0");
+      }
+    }) +
+    '"'
+  );
 }
