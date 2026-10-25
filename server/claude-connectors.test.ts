@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
   claudeConnectorGeneration,
   claudeConnectorStatusesFor,
@@ -216,7 +217,7 @@ describe("ProviderAccountManager clears a sign-in's connectors", () => {
   });
 
   it("on a Claude sign-out", async () => {
-    const root = mkdtempSync("/tmp/connectors-disconnect-");
+    const root = mkdtempSync(join(tmpdir(), "connectors-disconnect-"));
     const home = resolve(root, "user-a", "claude");
     mkdirSync(home, { recursive: true });
     writeFileSync(resolve(home, ".credentials.json"), "fixture");

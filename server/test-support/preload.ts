@@ -13,10 +13,15 @@
 // pulls in only os/fs/path, so it is safe to import.
 import { afterAll } from "bun:test";
 import { AsyncLocalStorage } from "async_hooks";
-import { mkdtempSync, realpathSync } from "fs";
+import { mkdirSync, realpathSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, sep } from "path";
 import { canonicalize, removeStateDir } from "./temp-state.ts";
+import {
+  createTestTempRoot,
+  removeTestTempRoot,
+  sweepStaleTestTempRoots,
+} from "./temp-root.ts";
 import { inheritedGitRepoEnv } from "./git-env.ts";
 
 // Next builds its request store once, at load, from globalThis.AsyncLocalStorage,
@@ -102,6 +107,19 @@ process.env.ISOMUX_TEST_APP_PORT_MIN = String(testAppPortBlock.min);
 process.env.ISOMUX_TEST_APP_PORT_MAX = String(testAppPortBlock.max);
 afterAll(() => testAppPortBlock.sentinel.stop(true));
 
+// One temp folder per test process, so a run that is killed or times out
+// leaves its temp files in one place: TMPDIR points into it, and every
+// tmpdir() caller writes there. Each start first removes the folders of runs
+// that are gone and stops the processes they left (see temp-root.ts). Bun.spawn
+// without an env still gives a child the startup TMPDIR.
+const tempBase = realpathSync(tmpdir());
+try {
+  sweepStaleTestTempRoots(tempBase);
+} catch (err) {
+  console.error(`[test preload] could not sweep ${tempBase}: ${String(err)}`);
+}
+const tempRoot = createTestTempRoot(tempBase);
+
 // Symlink-aware safety check for an explicitly-set ISOMUX_HOME. Reuses
 // temp-state's canonicalize (realpath of the nearest existing ancestor) so a
 // symlink like /tmp/x -> ~/.isomux cannot slip a real-state path past a lexical
@@ -115,7 +133,7 @@ function assertSafeTestHome(home: string): void {
         `(${realHome}); refusing to run the test suite against real user state.`,
     );
   }
-  const realTmp = canonicalize(tmpdir());
+  const realTmp = canonicalize(tempBase);
   if (!canonical.startsWith(realTmp + sep)) {
     throw new Error(
       `[test preload] ISOMUX_HOME (${home}) resolves to ${canonical}, which is ` +
@@ -132,7 +150,8 @@ if (preset) {
   assertSafeTestHome(preset);
   // Not ours to delete (we did not create it); leave cleanup to its owner.
 } else {
-  const home = mkdtempSync(join(realpathSync(tmpdir()), "isomux-test-home-"));
+  const home = join(tempRoot, "home");
+  mkdirSync(home);
   process.env.ISOMUX_HOME = home;
   // Best-effort guarded cleanup after the whole suite. Bun's test runner does
   // NOT fire preload-registered process "exit"/"beforeExit" handlers (verified:
@@ -152,3 +171,15 @@ if (preset) {
     }
   });
 }
+
+process.env.TMPDIR = tempRoot;
+// removeStateDir would refuse the folder itself: by then tmpdir() is the
+// folder.
+afterAll(() => {
+  try {
+    removeTestTempRoot(tempBase, tempRoot);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? String(err);
+    console.error(`[test preload] could not remove ${tempRoot}: ${code}`);
+  }
+});

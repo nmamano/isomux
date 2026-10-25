@@ -389,7 +389,7 @@ describe("ProviderAccountManager", () => {
   });
 
   it("verifies Claude removal before deactivation and accepts an absent credential", async () => {
-    const root = mkdtempSync("/tmp/provider-disconnect-");
+    const root = mkdtempSync(join(tmpdir(), "provider-disconnect-"));
     const home = resolve(root, "user-a", "claude");
     mkdirSync(home, { recursive: true });
     writeFileSync(resolve(home, ".credentials.json"), "fixture");
