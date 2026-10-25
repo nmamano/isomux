@@ -80,8 +80,16 @@ export interface AgentAffordanceDeps {
     dir: string | undefined,
     commit: string | undefined,
   ): Promise<AffordanceResult>;
-  emitAgentEditRequest(agentId: string, path: string): AffordanceResult;
-  emitAgentTerminalCommand(agentId: string, command: string): AffordanceResult;
+  emitAgentEditRequest(
+    agentId: string,
+    path: string,
+    opts?: { open?: boolean },
+  ): AffordanceResult;
+  emitAgentTerminalCommand(
+    agentId: string,
+    command: string,
+    opts?: { open?: boolean },
+  ): AffordanceResult;
   // `identity` is the calling agent's own: it decides which apps the capture
   // may open (see preview-capture.ts appGrant).
   emitAgentPreviewUrl(
@@ -113,6 +121,12 @@ function mapResult(
     : fail(r.status as HandlerErrorStatus, r.code ?? code, r.error);
 }
 
+// `open` is optional; a present non-boolean (a string "true", null) is a
+// mistake to report, not a value to guess at.
+function badOpen(body: { open?: unknown }): boolean {
+  return "open" in body && typeof body.open !== "boolean";
+}
+
 export function agentAffordanceHandlers(
   deps: AgentAffordanceDeps,
 ): Record<string, RouteHandler> {
@@ -133,8 +147,13 @@ export function agentAffordanceHandlers(
       if (typeof body.path !== "string" || body.path.length === 0) {
         return fail(400, "invalid_request", "path is required");
       }
+      if (badOpen(body)) {
+        return fail(400, "invalid_request", "open must be a boolean");
+      }
       return mapResult(
-        deps.emitAgentEditRequest(ctx.params.id, body.path),
+        deps.emitAgentEditRequest(ctx.params.id, body.path, {
+          open: body.open === true,
+        }),
         "edit_file_failed",
       );
     },
@@ -154,10 +173,15 @@ export function agentAffordanceHandlers(
       if (typeof body.command !== "string" || body.command.length === 0) {
         return fail(400, "invalid_request", "command is required");
       }
+      if (badOpen(body)) {
+        return fail(400, "invalid_request", "open must be a boolean");
+      }
       // The single-line check lives in the manager op (returns 400); the handler
       // maps it 1:1, so manager-owned semantics stay the source of truth.
       return mapResult(
-        deps.emitAgentTerminalCommand(ctx.params.id, body.command),
+        deps.emitAgentTerminalCommand(ctx.params.id, body.command, {
+          open: body.open === true,
+        }),
         "terminal_command_failed",
       );
     },

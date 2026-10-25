@@ -4157,10 +4157,10 @@ function buildExecutorDeps(
         agentManager.emitAgentReadFile(agentId, path),
       emitAgentDiff: (agentId, dir, commit) =>
         agentManager.emitAgentDiff(agentId, dir, commit),
-      emitAgentEditRequest: (agentId, path) =>
-        agentManager.emitAgentEditRequest(agentId, path),
-      emitAgentTerminalCommand: (agentId, command) =>
-        agentManager.emitAgentTerminalCommand(agentId, command),
+      emitAgentEditRequest: (agentId, path, opts) =>
+        agentManager.emitAgentEditRequest(agentId, path, opts),
+      emitAgentTerminalCommand: (agentId, command, opts) =>
+        agentManager.emitAgentTerminalCommand(agentId, command, opts),
       emitAgentPreviewUrl: (agentId, body, identity) =>
         agentManager.emitAgentPreviewUrl(agentId, body, (url, expiresAt) =>
           previewAppGrant(url, expiresAt, {
@@ -7482,7 +7482,12 @@ function emitAgentEvent(event: AgentEvent): void {
     extensionService?.revalidate();
   switch (event.type) {
     case "log_entry":
-      liveEmit("log_entry", { entry: event.entry });
+      liveEmit(
+        "log_entry",
+        event.open
+          ? { entry: event.entry, open: true }
+          : { entry: event.entry },
+      );
       break;
     case "clear_logs":
       liveEmit(

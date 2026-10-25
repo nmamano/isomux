@@ -255,6 +255,8 @@ export interface AffordanceReadFileReq {
 
 export interface AffordanceEditFileReq {
   path: string;
+  /** Open the file in the editor panel of every client that has the chat on screen. */
+  open?: boolean;
 }
 
 export interface AffordanceDiffReq {
@@ -264,6 +266,8 @@ export interface AffordanceDiffReq {
 
 export interface AffordanceTerminalCmdReq {
   command: string;
+  /** Put the command in the terminal panel of every client that has the chat on screen. */
+  open?: boolean;
 }
 
 export interface AffordancePreviewUrlReq {

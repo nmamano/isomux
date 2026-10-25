@@ -439,7 +439,10 @@ export type AgentEvent =
   | OfficeEvent
   | { type: "interaction_added"; interaction: AgentChoiceInteraction }
   | { type: "interaction_removed"; interactionId: string; agentId: string }
-  | { type: "log_entry"; entry: LogEntry }
+  // `open: true` asks a client with this chat on screen to open the card's
+  // panel (edit-file / terminal-command `open`). It rides the live event only:
+  // the entry, the log cache, the JSONL and the connect replay never carry it.
+  | { type: "log_entry"; entry: LogEntry; open?: true }
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation
   // boundary - clients keep transient per-conversation cues (the unread dot)

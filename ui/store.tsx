@@ -125,6 +125,17 @@ export interface AppState {
     logEntryIds: Map<string, Set<string>>;
     seq: number; // identifies the window (bumped when one opens)
   } | null;
+  // The newest live log_entry frame with `open: true`: the chat on screen
+  // (LogView) opens its card's panel once. `seq` bumps on each one, so the
+  // view can ignore a request that arrived before it mounted.
+  autoOpen: {
+    seq: number;
+    agentId: string;
+    entryId: string;
+    target:
+      | { kind: "editor"; path: string }
+      | { kind: "terminal"; command: string };
+  } | null;
   focusedAgentId: string | null;
   connected: boolean;
   // Bumped on every full_state, i.e. every time the store is rehydrated from
@@ -160,6 +171,9 @@ export interface AppState {
   // it has used it (editor_path_opened, terminal_command_handled).
   pendingEditorPaths: Map<string, string>;
   pendingTerminalCommands: Map<string, string>;
+  // agentIds whose pending command came from an agent's auto-open: the
+  // terminal panel types it without taking keyboard focus.
+  quietTerminalCommands: Set<string>;
   // agentId → where the chat input's caret goes when LogView next focuses it.
   // Set by an ask card's "about this ask" button (prefix_draft); LogView
   // clears it once it has run (composer_focus_handled).
@@ -357,7 +371,7 @@ type Action =
   | { type: "interaction_removed"; interactionId: string; agentId: string }
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
-  | { type: "log_entry"; entry: LogEntry }
+  | { type: "log_entry"; entry: LogEntry; open?: true }
   // CLIENT-LOCAL (not a ServerMessage): CronjobRunView dispatches this after the
   // REST cron.getRun fetch to merge the historical run transcript into the same
   // logs stream that live `log_entry` events feed during an active run. Reuses
@@ -393,7 +407,14 @@ type Action =
       panel: "terminal" | "editor" | null;
     }
   | { type: "open_in_editor"; agentId: string; path: string }
-  | { type: "copy_to_terminal"; agentId: string; command: string }
+  // `quiet`: an agent's auto-open (log_entry `open`) - keyboard focus stays
+  // where it is. A member's click leaves it unset and takes the focus.
+  | {
+      type: "copy_to_terminal";
+      agentId: string;
+      command: string;
+      quiet?: boolean;
+    }
   | { type: "editor_path_opened"; agentId: string }
   | { type: "terminal_command_handled"; agentId: string }
   | { type: "prefix_draft"; agentId: string; prefix: string }
@@ -674,6 +695,27 @@ export function isWorkingState(state: AgentState): boolean {
   return state === "thinking" || state === "tool_executing";
 }
 
+// The auto-open request for a live card frame with `open: true`, or the
+// previous one when the entry is not an editor or terminal card.
+function autoOpenFor(
+  entry: LogEntry,
+  prev: AppState["autoOpen"],
+): AppState["autoOpen"] {
+  const target =
+    entry.kind === "edit-request" && entry.file
+      ? { kind: "editor" as const, path: entry.file.path }
+      : entry.kind === "terminal-command" && entry.terminal
+        ? { kind: "terminal" as const, command: entry.terminal.command }
+        : null;
+  if (!target) return prev;
+  return {
+    seq: (prev?.seq ?? 0) + 1,
+    agentId: entry.agentId,
+    entryId: entry.id,
+    target,
+  };
+}
+
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
@@ -841,6 +883,8 @@ export function reducer(state: AppState, action: Action): AppState {
       pendingEditorPaths.delete(action.agentId);
       const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
       pendingTerminalCommands.delete(action.agentId);
+      const quietTerminalCommands = new Set(state.quietTerminalCommands);
+      quietTerminalCommands.delete(action.agentId);
       const pendingComposerFocus = new Map(state.pendingComposerFocus);
       pendingComposerFocus.delete(action.agentId);
       return {
@@ -853,6 +897,7 @@ export function reducer(state: AppState, action: Action): AppState {
         sidePanels,
         pendingEditorPaths,
         pendingTerminalCommands,
+        quietTerminalCommands,
         pendingComposerFocus,
         interactions: state.interactions.filter(
           (interaction) => interaction.agentId !== action.agentId,
@@ -935,13 +980,17 @@ export function reducer(state: AppState, action: Action): AppState {
       logEntryIds.set(streamId, new Set(seen).add(action.entry.id));
       const entries = logs.get(streamId) ?? [];
       logs.set(streamId, [...entries, action.entry]);
+      const autoOpen = action.open
+        ? autoOpenFor(action.entry, state.autoOpen)
+        : state.autoOpen;
       if (replay) {
         return {
           ...state,
           logsReplay: { ...replay, logs, logEntryIds },
+          autoOpen,
         };
       }
-      return { ...state, logs, logEntryIds };
+      return { ...state, logs, logEntryIds, autoOpen };
     }
     case "log_entries_batch": {
       // Merge a fetched historical batch into the per-stream logs, reusing the
@@ -1040,12 +1089,22 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     // A repeated click replaces the pending command, so a cold panel opens
     // with one command instead of racing a mount timer.
+    // A click (not quiet) also clears the quiet mark of a command that still
+    // waits, so the click takes the focus as it always did.
     case "copy_to_terminal": {
       const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
       pendingTerminalCommands.set(action.agentId, action.command);
+      const quietTerminalCommands = new Set(state.quietTerminalCommands);
+      if (action.quiet) quietTerminalCommands.add(action.agentId);
+      else quietTerminalCommands.delete(action.agentId);
       const sidePanels = new Map(state.sidePanels);
       sidePanels.set(action.agentId, "terminal");
-      return { ...state, pendingTerminalCommands, sidePanels };
+      return {
+        ...state,
+        pendingTerminalCommands,
+        quietTerminalCommands,
+        sidePanels,
+      };
     }
     case "editor_path_opened": {
       if (!state.pendingEditorPaths.has(action.agentId)) return state;
@@ -1057,7 +1116,9 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.pendingTerminalCommands.has(action.agentId)) return state;
       const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
       pendingTerminalCommands.delete(action.agentId);
-      return { ...state, pendingTerminalCommands };
+      const quietTerminalCommands = new Set(state.quietTerminalCommands);
+      quietTerminalCommands.delete(action.agentId);
+      return { ...state, pendingTerminalCommands, quietTerminalCommands };
     }
     // A second tap on the same ask keeps one prefix; focus is asked again.
     case "prefix_draft": {
@@ -1732,6 +1793,7 @@ export const initialState: AppState = {
   logs: new Map(),
   logEntryIds: new Map(),
   logsReplay: null,
+  autoOpen: null,
   focusedAgentId: null,
   connected: false,
   hydrationEpoch: 0,
@@ -1744,6 +1806,7 @@ export const initialState: AppState = {
   sidePanels: new Map(),
   pendingEditorPaths: new Map(),
   pendingTerminalCommands: new Map(),
+  quietTerminalCommands: new Set(),
   pendingComposerFocus: new Map(),
   recentCwds: [],
   slashCommands: new Map(),

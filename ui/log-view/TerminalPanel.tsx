@@ -242,6 +242,7 @@ export function TerminalPanel({
   mobile = false,
   onSendToChat,
   pendingCommand,
+  quiet,
   onCommandHandled,
 }: {
   agentId: string;
@@ -262,9 +263,17 @@ export function TerminalPanel({
   // inserts it into the chat draft as a fenced code block).
   onSendToChat?: (text: string) => void;
   pendingCommand?: string | null;
+  // The pending command is an agent's auto-open: type it without taking
+  // keyboard focus from wherever the member is.
+  quiet?: boolean;
   onCommandHandled?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Read at write time: a click that lands while the command waits clears it.
+  const quietRef = useRef(quiet);
+  useEffect(() => {
+    quietRef.current = quiet;
+  }, [quiet]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputProxyRef = useRef<HTMLTextAreaElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -321,10 +330,12 @@ export function TerminalPanel({
       }
       if (result.write) {
         send({ type: "terminal_input", agentId, data: result.write });
-        const helper = containerRef.current?.querySelector(
-          ".xterm-helper-textarea",
-        ) as HTMLTextAreaElement | null;
-        helper?.focus();
+        if (!quietRef.current) {
+          const helper = containerRef.current?.querySelector(
+            ".xterm-helper-textarea",
+          ) as HTMLTextAreaElement | null;
+          helper?.focus();
+        }
       }
       if (result.issue) setCommandIssue(result.issue);
       if (result.handled) onCommandHandled?.();

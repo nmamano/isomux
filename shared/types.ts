@@ -2387,7 +2387,8 @@ export type ServerMessage =
   // though that session never saw the corresponding added event.
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
-  | { type: "log_entry"; entry: LogEntry }
+  // `open` is on a live frame only, never on a replayed one (AgentEvent log_entry).
+  | { type: "log_entry"; entry: LogEntry; open?: true }
   // End of the transcript replay that follows full_state on every (re)connect.
   // Without it the replay is an unterminated burst of log_entry frames, and a
   // client that wants to swap the whole transcript in at once has to guess when

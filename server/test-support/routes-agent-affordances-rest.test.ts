@@ -555,3 +555,149 @@ describe("routes/agent-affordances REST: authz", () => {
     }
   });
 });
+
+// Task 043bf145: `open: true` asks the clients that have the chat on screen to
+// open the card's panel. It is an event, not state: only the live frame carries
+// it, so a reload or a reconnect's replay never opens anything again.
+describe("routes/agent-affordances REST: open (task 043bf145)", () => {
+  type Frame = { type?: string; entry?: LogEntry; open?: unknown };
+  function frames(
+    sock: TestSocket,
+    agentId: string,
+    kind: LogEntry["kind"],
+  ): Frame[] {
+    return (sock.messages as Frame[]).filter(
+      (m) =>
+        m.type === "log_entry" &&
+        m.entry?.agentId === agentId &&
+        m.entry?.kind === kind,
+    );
+  }
+
+  for (const route of [
+    {
+      action: "edit-file",
+      kind: "edit-request",
+      body: (n: number) => ({ path: `open-${n}.txt` }),
+    },
+    {
+      action: "terminal-command",
+      kind: "terminal-command",
+      body: (n: number) => ({ command: `echo ${n}` }),
+    },
+  ] as const) {
+    it(`${route.action}: only the live frame of an open:true request carries open; the entry and a reconnect's replay never do`, async () => {
+      const srv = await startTestServer();
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      const room = srv.agentManager.getRooms()[0];
+      const agent = await spawnAgent(srv, "Worker", room.id);
+      const token = getAgentTokenRaw(agent.id)!;
+      for (const n of [1, 2, 3])
+        writeFileSync(join(srv.stateRoot, `open-${n}.txt`), "x");
+      const live = await srv.connectWs(owner.rawSessionId);
+
+      // No open, open:false, open:true - in that order.
+      for (const [n, extra] of [
+        [1, {}],
+        [2, { open: false }],
+        [3, { open: true }],
+      ] as const) {
+        const r = await affordance(
+          srv,
+          agent.id,
+          route.action,
+          { ...route.body(n), ...extra },
+          { bearer: token },
+        );
+        expect(r.status).toBe(200);
+      }
+      await waitUntil(
+        () => frames(live, agent.id, route.kind).length >= 3,
+        2000,
+        "three live cards",
+      );
+      const seen = frames(live, agent.id, route.kind);
+      expect(seen.map((f) => f.open)).toStrictEqual([
+        undefined,
+        undefined,
+        true,
+      ]);
+      for (const f of seen) expect(f.entry && "open" in f.entry).toBe(false);
+
+      // A second client connects after the cards: its replay has all three
+      // cards, none of them asking to open.
+      const later = await srv.connectWs(owner.rawSessionId);
+      await later.waitFor("log_replay_complete");
+      const replayed = frames(later, agent.id, route.kind);
+      expect(replayed.map((f) => f.entry?.id)).toEqual(
+        seen.map((f) => f.entry?.id),
+      );
+      expect(replayed.map((f) => f.open)).toStrictEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
+      for (const f of replayed)
+        expect(f.entry && "open" in f.entry).toBe(false);
+    });
+
+    it(`${route.action}: a present non-boolean open -> 400 invalid_request and no card`, async () => {
+      const srv = await startTestServer();
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      const room = srv.agentManager.getRooms()[0];
+      const agent = await spawnAgent(srv, "Worker", room.id);
+      const token = getAgentTokenRaw(agent.id)!;
+      writeFileSync(join(srv.stateRoot, "open-1.txt"), "x");
+      const sock = await srv.connectWs(owner.rawSessionId);
+      for (const open of ["true", 1, null]) {
+        const r = await affordance(
+          srv,
+          agent.id,
+          route.action,
+          { ...route.body(1), open },
+          { bearer: token },
+        );
+        expect({ open, status: r.status, code: r.body.error?.code }).toEqual({
+          open,
+          status: 400,
+          code: "invalid_request",
+        });
+      }
+      sock.send({ type: "ping" });
+      await sock.waitFor("pong");
+      expect(frames(sock, agent.id, route.kind)).toEqual([]);
+    });
+  }
+
+  it("edit-file open:true on a path it refuses writes the system line without open", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const sock = await srv.connectWs(owner.rawSessionId);
+    const r = await affordance(
+      srv,
+      agent.id,
+      "edit-file",
+      { path: "no-such-file.txt", open: true },
+      { bearer: token },
+    );
+    expect(r.status).toBe(200);
+    await waitUntil(
+      () =>
+        frames(sock, agent.id, "system").some((f) =>
+          f.entry?.content.includes("no-such-file.txt"),
+        ),
+      2000,
+      "refusal system line",
+    );
+    const refusal = frames(sock, agent.id, "system").filter((f) =>
+      f.entry?.content.includes("no-such-file.txt"),
+    );
+    expect(refusal.map((f) => f.open)).toStrictEqual([undefined]);
+  });
+});

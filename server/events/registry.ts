@@ -110,7 +110,7 @@ export interface RegistryEvent {
 // deltas note in the file header.
 export interface EventPayloads {
   api_token_log_entry: { tokenId: string; entry: ApiTokenLogEntry };
-  log_entry: { entry: LogEntry };
+  log_entry: { entry: LogEntry; open?: true };
   // Fence at the end of the connect-time transcript replay. Recipient-scoped
   // rather than room-ACL despite following room-ACL'd log_entry frames: it
   // terminates ONE socket's replay and carries nothing to project.

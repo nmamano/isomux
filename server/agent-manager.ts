@@ -3034,13 +3034,14 @@ export function createAgentManager(deps: ManagerDeps) {
 
   // Run the same path-resolution as /isomux-edit and emit an `edit-request` log
   // entry so the member can open the file in the editor side panel. Mirrors
-  // emitAgentDiff. The card shows an [Open in editor] button - the panel never
-  // auto-opens (matches the rejected "server auto-opens panel" decision).
-  // Don't open here - the user will trigger that. The probe makes a typo'd
-  // path a system message instead of a dead card.
+  // emitAgentDiff. The card shows an [Open in editor] button. With `open`, the
+  // live event also asks each client that has this chat on screen to open the
+  // file once (task 043bf145); the server never opens a panel itself. The
+  // probe makes a typo'd path a system message instead of a dead card.
   function emitAgentEditRequest(
     agentId: string,
     rawPath: string,
+    opts?: { open?: boolean },
   ): { ok: true } | { ok: false; status: number; error: string } {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
@@ -3058,15 +3059,18 @@ export function createAgentManager(deps: ManagerDeps) {
       undefined,
       undefined,
       { file: probe.file },
+      { open: opts?.open },
     );
     return { ok: true };
   }
 
   // Validate a command string and emit a `terminal-command` log entry so the
-  // member sees a [Copy to terminal] card. Mirrors emitAgentEditRequest.
+  // member sees a [Copy to terminal] card. Mirrors emitAgentEditRequest,
+  // including `open`; the command is never run.
   function emitAgentTerminalCommand(
     agentId: string,
     rawCommand: string,
+    opts?: { open?: boolean },
   ): { ok: true } | { ok: false; status: number; error: string } {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
@@ -3086,6 +3090,7 @@ export function createAgentManager(deps: ManagerDeps) {
       undefined,
       undefined,
       { terminal: { command: checked.command } },
+      { open: opts?.open },
     );
     return { ok: true };
   }
@@ -3961,7 +3966,9 @@ export function createAgentManager(deps: ManagerDeps) {
     extra?: Partial<
       Pick<LogEntry, "diff" | "file" | "terminal" | "secretRequest">
     >,
-    opts?: { durable?: boolean },
+    // `open` goes on the live event only, never on the entry
+    // (AgentEvent log_entry).
+    opts?: { durable?: boolean; open?: boolean },
   ): boolean {
     const editTurnText = agents.get(agentId)?.editTurnText;
     if (kind === "error" && editTurnText !== undefined)
@@ -3990,7 +3997,11 @@ export function createAgentManager(deps: ManagerDeps) {
     cached.push(entry);
     logCache.set(agentId, cached);
 
-    emit({ type: "log_entry", entry });
+    emit(
+      opts?.open
+        ? { type: "log_entry", entry, open: true }
+        : { type: "log_entry", entry },
+    );
 
     if (managed && sessionId) {
       if (!opts?.durable) appendLog(agentId, sessionId, entry);

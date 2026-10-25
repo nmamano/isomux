@@ -730,6 +730,8 @@ export function LogView({
     sidePanels,
     pendingEditorPaths,
     pendingTerminalCommands,
+    quietTerminalCommands,
+    autoOpen,
     pendingComposerFocus,
     presences,
     sessionContext,
@@ -896,6 +898,46 @@ export function LogView({
       dispatch({ type: "copy_to_terminal", agentId: agent.id, command }),
     [dispatch, agent.id],
   );
+  const terminalQuiet = quietTerminalCommands.has(agent.id);
+  // An agent's card sent with `open: true` (task 043bf145) does what its
+  // button does, once, while this chat is on screen. A request from before
+  // this view mounted is never acted on. It leaves the card alone when the
+  // member is typing where the open would land: in a side panel (one per
+  // agent, so either open replaces it), or, on a phone, in any text field,
+  // which the full-screen panel would cover.
+  const autoOpenSeenRef = useRef(autoOpen?.seq ?? 0);
+  useEffect(() => {
+    if (!autoOpen || autoOpen.seq === autoOpenSeenRef.current) return;
+    autoOpenSeenRef.current = autoOpen.seq;
+    if (autoOpen.agentId !== agent.id) return;
+    const focused = document.activeElement as HTMLElement | null;
+    const typing = isMobile
+      ? !!focused &&
+        (focused.tagName === "INPUT" ||
+          focused.tagName === "TEXTAREA" ||
+          focused.isContentEditable)
+      : !!focused?.closest("[data-side-panel]");
+    if (typing) return;
+    const { target } = autoOpen;
+    if (target.kind === "editor") {
+      if (features.editor) openInEditor(target.path);
+    } else if (features.terminal) {
+      dispatch({
+        type: "copy_to_terminal",
+        agentId: agent.id,
+        command: target.command,
+        quiet: true,
+      });
+    }
+  }, [
+    autoOpen,
+    agent.id,
+    isMobile,
+    features.editor,
+    features.terminal,
+    openInEditor,
+    dispatch,
+  ]);
   const handleTerminalCommandHandled = useCallback(
     () => dispatch({ type: "terminal_command_handled", agentId: agent.id }),
     [dispatch, agent.id],
@@ -3425,6 +3467,7 @@ export function LogView({
         {features.terminal && !isMobile && terminalOpen && (
           <div
             ref={terminalContainerRef}
+            data-side-panel=""
             style={{
               width: terminalWidth,
               flexShrink: 0,
@@ -3440,7 +3483,8 @@ export function LogView({
             <TerminalPanel
               agentId={agent.id}
               onClose={() => setTerminalOpen(false)}
-              autoFocus={terminalAutoFocus}
+              autoFocus={terminalAutoFocus && !terminalQuiet}
+              quiet={terminalQuiet}
               onSendToChat={handleTerminalSendToChat}
               pendingCommand={pendingTerminalCommand}
               onCommandHandled={handleTerminalCommandHandled}
@@ -3450,6 +3494,7 @@ export function LogView({
         {features.editor && !isMobile && editorOpen && (
           <div
             ref={editorContainerRef}
+            data-side-panel=""
             style={{ width: editorWidth, flexShrink: 0, position: "relative" }}
           >
             <PanelResizer
@@ -3476,6 +3521,7 @@ export function LogView({
         clears the camera notch / Dynamic Island on iOS. */}
       {isMobile && features.terminal && terminalOpen && (
         <div
+          data-side-panel=""
           style={{
             position: "absolute",
             top: 0,
@@ -3493,7 +3539,8 @@ export function LogView({
           <TerminalPanel
             agentId={agent.id}
             onClose={() => setTerminalOpen(false)}
-            autoFocus={terminalAutoFocus}
+            autoFocus={terminalAutoFocus && !terminalQuiet}
+            quiet={terminalQuiet}
             mobile
             pendingCommand={pendingTerminalCommand}
             onCommandHandled={handleTerminalCommandHandled}
@@ -3509,6 +3556,7 @@ export function LogView({
       )}
       {isMobile && features.editor && editorOpen && (
         <div
+          data-side-panel=""
           style={{
             position: "absolute",
             top: 0,
