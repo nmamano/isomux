@@ -56,6 +56,9 @@ interface BrowserSuccess {
     scope: BrowserGrantScope;
     title: string;
     url: string;
+    /** Only when true: the tab is on an office page the member did not
+     * offer, so title and url are empty. */
+    officePageRefused?: true;
   }[];
   /** The page's URL after the action. */
   url: string;

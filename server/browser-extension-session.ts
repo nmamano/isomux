@@ -61,7 +61,7 @@ const failure = (
   error: string,
 ): BrowserResult => ({ ok: false, status: 500, code, error });
 const OFFICE_REFUSED =
-  "Browser control refuses an Isomux office page that your manager did not offer. Go to another page, or ask your manager to offer a tab on the office.";
+  'Browser control refuses an Isomux office page that your manager did not offer. Go to another page, or ask your manager to offer a tab that shows this page. If that tab already shows as offered, they must turn Agent control off and on again for it. The new offer has a new target: use action "tabs" to find it.';
 // The page data of a refused office page never reaches the agent: no url,
 // title, text, snapshot, screenshot or dialog.
 const officeRefused = (): BrowserResult => ({
@@ -257,7 +257,9 @@ export class ExtensionBrowserSessions {
     if (!bound)
       return failure(
         "browser_control_ended",
-        "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control",
+        params.target
+          ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
+          : "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control",
       );
     const { connection, grant, target } = bound;
     if (
@@ -274,6 +276,9 @@ export class ExtensionBrowserSessions {
       connection.revoke(agent, target);
       return { ok: true, url: "", title: "", closed: true };
     }
+    // Playwright would wait on the refused page until the action timeout.
+    if (params.action !== "goto" && connection.officeGated(grant))
+      return officeRefused();
     if (!(await connection.waitForRecovery(grant, actionMs))) {
       return connection.offered(agent, target) === grant
         ? notSentResult()
@@ -808,6 +813,18 @@ export class ExtensionBrowserSessions {
     // Read before task() starts: it runs to its first await at once, and a
     // command refused in that tick must count.
     const refusals = connection.officeRefusals(grant);
+    // A gate that closes during the action ends it: Playwright would wait on
+    // the refused page until the action timeout, with no command in flight.
+    // Ending the client stops the action's retries from landing on the page
+    // the agent goes to next; its transport closes at once, also while the
+    // client still connects. Interrupt first: the abort runs onEnd.
+    const stopGateWatch = connection.onGateClose(grant, () => {
+      if (!connection.officeGated(grant)) return;
+      interrupt(officeRefused());
+      const live = this.sessions.get(key)?.transport ?? transport;
+      this.end(key);
+      live?.close();
+    });
     const operation = task().finally(() => {
       operationSettled = true;
     });
@@ -904,6 +921,7 @@ export class ExtensionBrowserSessions {
         return officeRefused();
       return withDialogs(result);
     } finally {
+      stopGateWatch();
       watched?.removeEventListener("abort", onEnd);
       clearTimeout(timer);
       // A dialog that opens after the response gets no accept and no record.

@@ -2257,6 +2257,59 @@ describe("office gate", () => {
     }
   });
 
+  // tabs (task 34659f31): an entry whose leaf page is gated says so and
+  // carries nothing read from that page; once the leaf leaves the office, no
+  // field carries the office page it was on. Both leaf kinds: the offered tab
+  // itself, and a popup opened on the office (an owner-invite link, whose URL
+  // carries a token).
+  for (const leaf of ["offered tab", "popup"] as const)
+    test(`tabs flags a ${leaf} on a refused office page and keeps its url and title out`, async () => {
+      const h = await gateHarness();
+      try {
+        const invite = `${OFFICE}/i/invite-token-secret`;
+        const session = leaf === "popup" ? "popup-session" : undefined;
+        const frameId = leaf === "popup" ? "popup" : "owned";
+        if (leaf === "popup")
+          // Chrome reports the popup's pending URL when it attaches.
+          event(h, [
+            "popup",
+            {
+              sessionId: "popup-session",
+              targetInfo: {
+                type: "page",
+                targetId: "popup",
+                openerId: "owned",
+                title: "Office invite",
+                url: invite,
+              },
+            },
+          ]);
+        else event(h, commit(invite));
+        // The condition: the leaf's gate is closed.
+        expect(h.connection.officeGated(h.assignment)).toBe(true);
+        const [gated] = h.bridge.targets("member", "agent");
+        expect(gated).toEqual({
+          target: expect.any(String) as string,
+          scope: { kind: "agent", agentId: "agent" },
+          browser: "",
+          title: "",
+          url: "",
+          officePageRefused: true,
+        });
+        event(h, commit(`${SITE}/after`, frameId), session);
+        expect(h.connection.officeGated(h.assignment)).toBe(false);
+        const tabs = h.bridge.targets("member", "agent");
+        expect(tabs).toHaveLength(1);
+        // Same target: the offer did not change.
+        expect(tabs[0].target).toBe(gated.target);
+        expect("officePageRefused" in tabs[0]).toBe(false);
+        expect(tabs[0].url).toBe(`${SITE}/after`);
+        expect(JSON.stringify(tabs[0])).not.toMatch(/invite|office\.test/i);
+      } finally {
+        h.connection.close();
+      }
+    });
+
   test("iframe sessions follow the gate of their page and never close it", async () => {
     const h = await gateHarness();
     try {

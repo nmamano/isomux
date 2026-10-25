@@ -269,7 +269,7 @@ for (const phase of [
 // one sends for each step, through the real transport and bridge.
 const OFFICE = "https://office.test";
 const SITE = "https://site.test";
-async function gateSession() {
+async function gateSession(actionMs = 5000) {
   const dir = mkdtempSync(join(tmpdir(), "browser-office-gate-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const service = new BrowserExtensionService(store, {
@@ -281,7 +281,7 @@ async function gateSession() {
     service,
     () => "member",
     () => true,
-    () => 5000,
+    () => actionMs,
   );
   // Page commands that reached the extension, by CDP method.
   const reached: string[] = [];
@@ -291,11 +291,16 @@ async function gateSession() {
   const answers = new Map<number, (message: { error?: unknown }) => void>();
   // One CDP command as Playwright sends it; resolves with Chrome's answer or
   // the bridge's refusal.
-  const cdp = (method: string, params: Record<string, unknown> = {}) =>
+  const cdp = (
+    method: string,
+    params: Record<string, unknown> = {},
+    // The client and page session to send on; by default the current ones.
+    via = { wire: transport, session: sessionId },
+  ) =>
     new Promise<{ error?: unknown }>((resolve) => {
       const id = ++nextId;
       answers.set(id, resolve);
-      transport.send({ id, method, sessionId, params });
+      via.wire.send({ id, method, sessionId: via.session, params });
     });
   const playwrightCall = async (
     method: string,
@@ -320,6 +325,8 @@ async function gateSession() {
   class Page extends EventEmitter {
     current = `${SITE}/start`;
     gotos: string[] = [];
+    // Playwright page methods the session called, in order.
+    calls: string[] = [];
     onClick: () => Promise<void> = async () => {};
     onGoto: (url: string) => Promise<void> = async () => {};
     isClosed() {
@@ -335,21 +342,25 @@ async function gateSession() {
       return this.current;
     }
     async title() {
+      this.calls.push("title");
       await playwrightCall("Runtime.evaluate", {
         expression: "document.title",
       });
       return `Title of ${this.current}`;
     }
     async click() {
+      this.calls.push("click");
       await this.onClick();
     }
     async goto(url: string) {
+      this.calls.push("goto");
       this.gotos.push(url);
       await this.onGoto(url);
       await playwrightCall("Page.navigate", { url });
       navigate(url);
     }
     async screenshot() {
+      this.calls.push("screenshot");
       await playwrightCall("Page.captureScreenshot", {});
       return Buffer.from("png");
     }
@@ -449,6 +460,7 @@ async function gateSession() {
     reached,
     navigate,
     cdp,
+    via: () => ({ wire: transport, session: sessionId }),
     // Attach the client with a harmless first action, as an agent's first
     // call would.
     warm: async () =>
@@ -545,22 +557,93 @@ test("an input that lands the page on an office returns no url or title", async 
   }
 });
 
-test("a read on a gated page returns no screenshot", async () => {
-  const h = await gateSession();
+// Task 34659f31: on a page that is already gated, Playwright would wait on
+// the refused page until the action timeout (30 s in the incident), so the
+// action is refused before Playwright runs.
+for (const action of ["screenshot", "click"] as const)
+  test(`a ${action} on a gated page is refused before Playwright runs`, async () => {
+    const h = await gateSession();
+    try {
+      await h.warm();
+      // A page script took the tab to the office between two actions.
+      h.navigate(`${OFFICE}/`);
+      const before = h.page.calls.length;
+      const captures = h.reached.filter((m) => m === "Page.captureScreenshot");
+      const result = await h.sessions.run("agent", {
+        action,
+        ...(action === "click" ? { selector: "a" } : {}),
+      });
+      expect(result).toEqual(officeRefused);
+      expect(h.page.calls.slice(before)).toEqual([]);
+      expect(h.reached.filter((m) => m === "Page.captureScreenshot")).toEqual(
+        captures,
+      );
+    } finally {
+      h.stop();
+    }
+  });
+
+// Task 34659f31: the gate closes after the action started, and Playwright
+// then waits on the refused page with no command in flight (the incident's
+// journal line: phase start, pending 0). The action ends at the gate close,
+// not at the action timeout, and does not lock the target out of a goto away.
+// The ended action's own Playwright work sends nothing after that: a real
+// click retries its selector across navigations, so it would otherwise land
+// on the page the agent went to next.
+test("a gate that closes during an action refuses it at once, and a goto away works after", async () => {
+  const actionMs = 3000;
+  const h = await gateSession(actionMs);
+  const hold = Promise.withResolvers<void>();
   try {
     await h.warm();
-    // A page script took the tab to the office between two actions.
-    h.navigate(`${OFFICE}/`);
-    const captures = h.reached.filter((m) => m === "Page.captureScreenshot");
-    const result = await h.sessions.run("agent", { action: "screenshot" });
+    let late: "sent" | "failed" | undefined;
+    const lateDone = Promise.withResolvers<void>();
+    h.page.onClick = async () => {
+      const via = h.via();
+      h.navigate(`${OFFICE}/`);
+      await hold.promise;
+      try {
+        late = "sent";
+        await h.cdp(
+          "Input.dispatchMouseEvent",
+          { type: "mousePressed", x: 1, y: 1, button: "left" },
+          via,
+        );
+      } catch {
+        late = "failed";
+      } finally {
+        lateDone.resolve();
+      }
+    };
+    const started = performance.now();
+    const result = await h.sessions.run("agent", {
+      action: "click",
+      selector: "a",
+    });
+    const elapsed = performance.now() - started;
+    // The condition: the click started on the site and its page reached
+    // the office during it.
+    expect(h.page.calls.at(-1)).toBe("click");
+    expect(h.page.current).toBe(`${OFFICE}/`);
     expect(result).toEqual(officeRefused);
-    expect(h.reached.filter((m) => m === "Page.captureScreenshot")).toEqual(
-      captures,
-    );
+    // Well under the settle grace (1 s) too: an action ended through the
+    // timeout path waits that grace for its hung operation.
+    expect(elapsed).toBeLessThan(500);
+    const away = await h.sessions.run("agent", {
+      action: "goto",
+      url: `${SITE}/after`,
+    });
+    expect(away).toMatchObject({ ok: true, url: `${SITE}/after` });
+    // The ended click resumes on its own client and tries its input.
+    hold.resolve();
+    await Promise.race([lateDone.promise, Bun.sleep(500)]);
+    expect(late).toBeDefined();
+    expect(h.reached).not.toContain("Input.dispatchMouseEvent");
   } finally {
+    hold.resolve();
     h.stop();
   }
-});
+}, 15_000);
 
 test("a goto away from a gated page succeeds although Playwright's own commands there were refused", async () => {
   const h = await gateSession();
@@ -594,23 +677,59 @@ test("an action that fails on a refused command is refused, even when its first 
   const h = await gateSession();
   try {
     await h.warm();
-    h.navigate(`${OFFICE}/`);
     let first: { error?: unknown } | undefined;
-    // The first command leaves in the same tick the action starts; the page
-    // then leaves the office, so the gate is open when the action ends.
+    // The gate stays open: the first command, a navigation to the office,
+    // leaves in the same tick the action starts and is refused without
+    // closing the gate.
     h.page.onClick = async () => {
-      const sent = h.cdp("DOM.getDocument");
+      const sent = h.cdp("Page.navigate", { url: `${OFFICE}/` });
       first = await sent;
-      h.navigate(`${SITE}/after`);
-      throw new Error("Protocol error (DOM.getDocument): refused");
+      throw new Error("Protocol error (Page.navigate): refused");
     };
     const result = await h.sessions.run("agent", {
       action: "click",
       selector: "button",
     });
     expect(first?.error).toBeDefined();
-    expect(h.page.current).toBe(`${SITE}/after`);
+    expect(h.page.current).toBe(`${SITE}/start`);
     expect(result).toEqual(officeRefused);
+  } finally {
+    h.stop();
+  }
+});
+
+// Task 34659f31: the member turned the offer off (here, the agent's close),
+// so the target the agent holds is gone. The answer points the agent at the
+// tabs action: a tab the member offers again has a new target.
+test("an action on a target that is no longer offered points to tabs", async () => {
+  const h = await gateSession();
+  try {
+    await h.warm();
+    const listed = await h.sessions.run("agent", { action: "tabs" });
+    const target = (listed as { tabs: { target: string }[] }).tabs[0].target;
+    expect(await h.sessions.run("agent", { action: "close" })).toMatchObject({
+      ok: true,
+      closed: true,
+    });
+    // The condition: the target is no longer offered.
+    expect(await h.sessions.run("agent", { action: "tabs" })).toMatchObject({
+      ok: true,
+      tabs: [],
+    });
+    const stale = await h.sessions.run("agent", {
+      action: "screenshot",
+      target,
+    });
+    expect(stale).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect((stale as { error: string }).error).toMatch(/\btabs\b/);
+    const untargeted = await h.sessions.run("agent", { action: "screenshot" });
+    expect(untargeted).toMatchObject({
+      ok: false,
+      code: "browser_control_ended",
+    });
+    expect((untargeted as { error: string }).error).not.toBe(
+      (stale as { error: string }).error,
+    );
   } finally {
     h.stop();
   }

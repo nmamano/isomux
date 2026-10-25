@@ -103,6 +103,7 @@ type BrowserTab = {
   browser: string;
   title: string;
   url: string;
+  officePageRefused?: true;
 };
 
 // No HTTP listener or production route is registered here. The caller supplies
@@ -197,6 +198,7 @@ export class BrowserExtensionBridge {
           browser: this.access.browserName?.(connection.credentialHash) ?? "",
           title: t.title,
           url: t.url,
+          ...(t.officePageRefused ? { officePageRefused: true as const } : {}),
         },
       })),
     );
@@ -247,6 +249,7 @@ export class ExtensionConnection {
   private sequence = 0;
   private pending = new Map<number, Pending>();
   private assignments = new Map<string, Assignment>();
+  private gateListeners = new Map<string, Set<() => void>>();
   constructor(
     readonly memberId: string,
     private peer: BridgePeer,
@@ -285,11 +288,28 @@ export class ExtensionConnection {
   /** True while the gate of the grant's leaf page is closed. */
   officeGated(grant: string): boolean {
     const a = this.assignments.get(grant);
-    if (!a) return false;
-    const leaf =
+    return a ? (a.pages.get(this.leaf(a))?.gated ?? false) : false;
+  }
+
+  /** Calls listener after each gate close on the grant; returns the
+   * unsubscribe. */
+  onGateClose(grant: string, listener: () => void): () => void {
+    let listeners = this.gateListeners.get(grant);
+    if (!listeners) this.gateListeners.set(grant, (listeners = new Set()));
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size && this.gateListeners.get(grant) === listeners)
+        this.gateListeners.delete(grant);
+    };
+  }
+
+  // The page key of the grant's leaf: a popup's session, or the tab's own.
+  private leaf(a: Assignment): string {
+    return (
       [...a.popups].find(([, t]) => t.targetId === a.leafTargetId)?.[0] ??
-      a.session;
-    return a.pages.get(leaf)?.gated ?? false;
+      a.session
+    );
   }
 
   private officeRefused(a: Assignment, url: string): boolean {
@@ -303,6 +323,8 @@ export class ExtensionConnection {
     if (!page || page.gated) return;
     page.gated = true;
     this.unfenced(a, "Page.stopLoading", key);
+    for (const listener of [...(this.gateListeners.get(a.id) ?? [])])
+      listener();
   }
 
   // A frame that waits for a client no client will resume stays blank, on the
@@ -511,6 +533,7 @@ export class ExtensionConnection {
     scope: BrowserGrantScope;
     title: string;
     url: string;
+    officePageRefused?: true;
   }[] {
     const result = [];
     for (const a of this.assignments.values()) {
@@ -519,14 +542,30 @@ export class ExtensionConnection {
         continue;
       }
       if (!a.target || !this.accessible(a, agent)) continue;
-      const page =
-        [...a.popups.values()].find((t) => t.targetId === a.leafTargetId) ??
-        a.target;
+      const key = this.leaf(a);
+      const info = (key === a.session ? a.target : a.popups.get(key)) ?? {};
+      const page = a.pages.get(key);
+      // Nothing read from a refused office page. Chrome's title belongs to
+      // the URL it reported at the offer or the attach, so it goes once the
+      // page commits elsewhere.
+      if (page?.gated) {
+        result.push({
+          target: a.handle,
+          scope: a.scope,
+          title: "",
+          url: "",
+          officePageRefused: true as const,
+        });
+        continue;
+      }
+      const url =
+        page?.url ?? (typeof info.url === "string" ? info.url : undefined);
       result.push({
         target: a.handle,
         scope: a.scope,
-        title: typeof page.title === "string" ? page.title : "",
-        url: typeof page.url === "string" ? page.url : "",
+        title:
+          typeof info.title === "string" && url === info.url ? info.title : "",
+        url: url ?? "",
       });
     }
     return result;
