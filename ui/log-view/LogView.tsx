@@ -730,6 +730,7 @@ export function LogView({
     sidePanels,
     pendingEditorPaths,
     pendingTerminalCommands,
+    pendingComposerFocus,
     presences,
     sessionContext,
     interactions,
@@ -1116,6 +1117,24 @@ export function LogView({
     // every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // An ask card's "Discuss in chat" put a prefix in the draft and asks for
+  // focus with the caret after it. React runs this effect inside the click,
+  // and a phone opens the keyboard only for a focus in the tap itself, so no
+  // frame is waited for. It runs after the effect above, which on a fresh
+  // mount puts the caret at the end. The request is spent in every case, so
+  // it never focuses the composer later.
+  const composerFocusCaret = pendingComposerFocus.get(agent.id);
+  useEffect(() => {
+    if (composerFocusCaret === undefined) return;
+    dispatch({ type: "composer_focus_handled", agentId: agent.id });
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.focus({ preventScroll: true });
+    const caret = Math.min(composerFocusCaret, ta.value.length);
+    ta.setSelectionRange(caret, caret);
+    fitComposer(ta, isMobile);
+  }, [composerFocusCaret, agent.id, dispatch, isMobile]);
 
   // Ctrl+` to toggle terminal panel
   useEffect(() => {

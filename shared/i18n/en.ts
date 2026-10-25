@@ -1592,6 +1592,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.recommended": "Recommended",
   "asks.link": "Ask",
   "asks.openLink": "Open {page}",
+  "asks.discuss": "Discuss in chat",
+  "asks.aboutPrefix": 'About your ask "{question}": ',
   "asks.dismissed": "Dismissed",
   "asks.dismissedReason": "Dismissed: {reason}",
   "asks.badge.one": "{count} ask",

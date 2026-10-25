@@ -1613,6 +1613,8 @@ Cosas que puedes hacer por él:
   "asks.recommended": "Recomendada",
   "asks.link": "Petición",
   "asks.openLink": "Abrir {page}",
+  "asks.discuss": "Comentar en el chat",
+  "asks.aboutPrefix": 'Sobre tu petición "{question}": ',
   "asks.dismissed": "Descartada",
   "asks.dismissedReason": "Descartada: {reason}",
   "asks.badge.one": "{count} petición",

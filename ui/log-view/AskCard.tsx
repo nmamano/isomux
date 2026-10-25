@@ -3,14 +3,16 @@
 // asks stack above the chat input and the Asks page both draw it, so a new
 // kind of ask shows on both. The card goes on a 204, without waiting for
 // ask_removed. An ask with a link to an office page or an agent's chat has a
-// button that opens it (ui/office-link.tsx); the ask stays open. An ask with
-// options has a button for each; a tap puts it in the reply field, focused,
-// for the member to edit and send. The field starts with the option the agent
-// recommends (marked on its button), empty for options without one, and with
-// the catalog's "done" for an ask without options. An ask's files, editor
-// files and commands are the chat's own cards, in that order; their buttons
-// open this agent's panel through the store, as in chat (on the Inbox they
-// also open the agent's chat), and answer nothing.
+// button that opens it (ui/office-link.tsx); the ask stays open. Every ask
+// has a "Discuss in chat" button (AskAboutButton) that starts a chat message
+// about it, and the ask stays open too. An ask with options has a button for
+// each; a tap puts it in the reply field, focused, for the member to edit and
+// send. The field starts with the option the agent recommends (marked on its
+// button), empty for options without one, and with the catalog's "done" for
+// an ask without options. An ask's files, editor files and commands are the
+// chat's own cards, in that order; their buttons open this agent's panel
+// through the store, as in chat (on the Inbox they also open the agent's
+// chat), and answer nothing.
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card, and an untouched field follows an edit of the ask. While the field
@@ -44,6 +46,7 @@ import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
+import { AskAboutButton } from "./AskAboutButton.tsx";
 
 const PROMPT_LINES = 3;
 
@@ -86,7 +89,12 @@ export function AskCard({
   onFocusAgent?: (agentId: string) => void;
 }) {
   return entry.secret ? (
-    <SecretAskCard entry={entry} secret={entry.secret} isMobile={isMobile} />
+    <SecretAskCard
+      entry={entry}
+      secret={entry.secret}
+      isMobile={isMobile}
+      onFocusAgent={onFocusAgent}
+    />
   ) : (
     <ReplyAskCard
       entry={entry}
@@ -330,8 +338,15 @@ function ReplyAskCard({
                 : t("cards.toolResult.showMore")}
             </button>
           )}
-          {link && linkLabel !== null && openLink && (
-            <div style={{ marginTop: 2 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              columnGap: 14,
+              marginTop: 2,
+            }}
+          >
+            {link && linkLabel !== null && openLink && (
               <button
                 type="button"
                 data-ask-office-link={entry.link}
@@ -348,8 +363,14 @@ function ReplyAskCard({
               >
                 {t("asks.openLink", { page: linkLabel })}
               </button>
-            </div>
-          )}
+            )}
+            <AskAboutButton
+              entry={entry}
+              isMobile={isMobile}
+              disabled={busy}
+              onFocusAgent={onFocusAgent}
+            />
+          </div>
         </div>
         <span
           style={{

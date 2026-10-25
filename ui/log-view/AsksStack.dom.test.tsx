@@ -243,7 +243,7 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
     '[data-ask="bbbb0002"]',
   )!;
   const dismiss = card.querySelector<HTMLButtonElement>(
-    "button[type=button]:last-of-type",
+    "form button[type=button]",
   )!;
   await act(async () => {
     fireEvent.click(dismiss);

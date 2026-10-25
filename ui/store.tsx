@@ -160,6 +160,10 @@ export interface AppState {
   // it has used it (editor_path_opened, terminal_command_handled).
   pendingEditorPaths: Map<string, string>;
   pendingTerminalCommands: Map<string, string>;
+  // agentId → where the chat input's caret goes when LogView next focuses it.
+  // Set by an ask card's "about this ask" button (prefix_draft); LogView
+  // clears it once it has run (composer_focus_handled).
+  pendingComposerFocus: Map<string, number>;
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<
     string,
@@ -392,6 +396,8 @@ type Action =
   | { type: "copy_to_terminal"; agentId: string; command: string }
   | { type: "editor_path_opened"; agentId: string }
   | { type: "terminal_command_handled"; agentId: string }
+  | { type: "prefix_draft"; agentId: string; prefix: string }
+  | { type: "composer_focus_handled"; agentId: string }
   | {
       type: "slash_commands";
       agentId: string;
@@ -835,6 +841,8 @@ export function reducer(state: AppState, action: Action): AppState {
       pendingEditorPaths.delete(action.agentId);
       const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
       pendingTerminalCommands.delete(action.agentId);
+      const pendingComposerFocus = new Map(state.pendingComposerFocus);
+      pendingComposerFocus.delete(action.agentId);
       return {
         ...state,
         agents: state.agents.filter((a) => a.id !== action.agentId),
@@ -845,6 +853,7 @@ export function reducer(state: AppState, action: Action): AppState {
         sidePanels,
         pendingEditorPaths,
         pendingTerminalCommands,
+        pendingComposerFocus,
         interactions: state.interactions.filter(
           (interaction) => interaction.agentId !== action.agentId,
         ),
@@ -1049,6 +1058,22 @@ export function reducer(state: AppState, action: Action): AppState {
       const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
       pendingTerminalCommands.delete(action.agentId);
       return { ...state, pendingTerminalCommands };
+    }
+    // A second tap on the same ask keeps one prefix; focus is asked again.
+    case "prefix_draft": {
+      const current = state.drafts.get(action.agentId) ?? "";
+      const drafts = new Map(state.drafts);
+      if (!current.startsWith(action.prefix))
+        drafts.set(action.agentId, action.prefix + current);
+      const pendingComposerFocus = new Map(state.pendingComposerFocus);
+      pendingComposerFocus.set(action.agentId, action.prefix.length);
+      return { ...state, drafts, pendingComposerFocus };
+    }
+    case "composer_focus_handled": {
+      if (!state.pendingComposerFocus.has(action.agentId)) return state;
+      const pendingComposerFocus = new Map(state.pendingComposerFocus);
+      pendingComposerFocus.delete(action.agentId);
+      return { ...state, pendingComposerFocus };
     }
     case "slash_commands": {
       const slashCommands = new Map(state.slashCommands);
@@ -1719,6 +1744,7 @@ export const initialState: AppState = {
   sidePanels: new Map(),
   pendingEditorPaths: new Map(),
   pendingTerminalCommands: new Map(),
+  pendingComposerFocus: new Map(),
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),

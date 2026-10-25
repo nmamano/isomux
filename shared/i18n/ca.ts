@@ -1619,6 +1619,8 @@ Coses que pots fer per ell:
   "asks.recommended": "Recomanada",
   "asks.link": "Petició",
   "asks.openLink": "Obre {page}",
+  "asks.discuss": "Comenta-ho al xat",
+  "asks.aboutPrefix": 'Sobre la teva petició "{question}": ',
   "asks.dismissed": "Descartada",
   "asks.dismissedReason": "Descartada: {reason}",
   "asks.badge.one": "{count} petició",

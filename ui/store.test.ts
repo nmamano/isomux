@@ -1663,3 +1663,59 @@ describe("reducer: Unread badge and turn-end sound", () => {
     });
   });
 });
+
+// "About your ask" (task 715ab3dd): a card's button puts a prefix in front of
+// the agent's chat draft and asks the composer to take focus, with the caret
+// after the prefix.
+describe("reducer: a prefix for the chat draft", () => {
+  const P = 'About your ask "Ship it?": ';
+
+  it("puts the prefix in an empty draft and in front of a typed one, and asks for focus after it", () => {
+    let s: AppState = reducer(initialState, {
+      type: "prefix_draft",
+      agentId: "a1",
+      prefix: P,
+    });
+    expect(s.drafts.get("a1")).toBe(P);
+    expect(s.pendingComposerFocus.get("a1")).toBe(P.length);
+
+    s = reducer(
+      { ...initialState, drafts: new Map([["a2", "and the tag?"]]) },
+      { type: "prefix_draft", agentId: "a2", prefix: P },
+    );
+    expect(s.drafts.get("a2")).toBe(P + "and the tag?");
+    // The caret goes after the prefix, before the text the draft held.
+    expect(s.pendingComposerFocus.get("a2")).toBe(P.length);
+  });
+
+  it("does not add the same prefix twice, but still asks for focus", () => {
+    let s: AppState = {
+      ...initialState,
+      drafts: new Map([["a1", P + "why?"]]),
+    };
+    s = reducer(s, { type: "prefix_draft", agentId: "a1", prefix: P });
+    expect(s.drafts.get("a1")).toBe(P + "why?");
+    expect(s.pendingComposerFocus.get("a1")).toBe(P.length);
+  });
+
+  it("forgets the focus request once the composer took it, or when the agent goes", () => {
+    const s = reducer(initialState, {
+      type: "prefix_draft",
+      agentId: "a1",
+      prefix: P,
+    });
+    const handled = reducer(s, {
+      type: "composer_focus_handled",
+      agentId: "a1",
+    });
+    expect(handled.pendingComposerFocus.has("a1")).toBe(false);
+    // The draft stays: only the request is gone.
+    expect(handled.drafts.get("a1")).toBe(P);
+    const removed = reducer(s, {
+      type: "agent_removed",
+      agentId: "a1",
+      roomId: "r1",
+    });
+    expect(removed.pendingComposerFocus.has("a1")).toBe(false);
+  });
+});

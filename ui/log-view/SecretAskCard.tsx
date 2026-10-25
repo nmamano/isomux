@@ -19,6 +19,7 @@ import {
   dialogSaveBtn,
 } from "../components/dialog-styles.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
+import { AskAboutButton } from "./AskAboutButton.tsx";
 
 const hintStyle = {
   fontSize: 12,
@@ -30,10 +31,12 @@ export function SecretAskCard({
   entry,
   secret,
   isMobile,
+  onFocusAgent,
 }: {
   entry: AskMemberWire;
   secret: SecretAskRequest;
   isMobile: boolean;
+  onFocusAgent?: (agentId: string) => void;
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
@@ -140,6 +143,14 @@ export function SecretAskCard({
         </span>
       </div>
       <p style={{ ...hintStyle, whiteSpace: "pre-wrap" }}>{secret.reason}</p>
+      <div style={{ margin: "-4px 0 8px" }}>
+        <AskAboutButton
+          entry={entry}
+          isMobile={isMobile}
+          disabled={busy}
+          onFocusAgent={onFocusAgent}
+        />
+      </div>
       <p style={hintStyle}>
         {secret.scope === "office"
           ? t("cards.secretRequest.office")

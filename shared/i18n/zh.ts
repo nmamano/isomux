@@ -1432,6 +1432,8 @@ App 的一些原则：
   "asks.recommended": "推荐",
   "asks.link": "请示",
   "asks.openLink": "打开「{page}」",
+  "asks.discuss": "在聊天中讨论",
+  "asks.aboutPrefix": "关于你的请示「{question}」：",
   "asks.dismissed": "已忽略",
   "asks.dismissedReason": "已忽略：{reason}",
   "asks.badge.one": "{count} 条请示",
