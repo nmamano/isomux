@@ -297,6 +297,11 @@ Invariants, all of them load-bearing:
   itself is bound to share id, generation and user session, and is rejected
   after revoke or recreate - so the relay's validation model does not depend on
   hostnames being unique.
+- `SameSite=Lax` works per registrable domain, so it does not keep the cookie
+  off a POST from another host under the same parent (another Hosted office, or
+  a sibling site of a self-hosted office). The relay refuses an unsafe method
+  whose Origin is not the app's own or whose `Sec-Fetch-Site` is `same-site` or
+  `cross-site` (`appHttpRequestAllowed` in `server/app-auth.ts`).
 - Handshake responses carry `Referrer-Policy: no-referrer` and
   `Cache-Control: no-store`. Codes never reach logs. Mint and redeem are
   rate-limited.

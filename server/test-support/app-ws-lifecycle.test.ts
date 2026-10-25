@@ -24,7 +24,7 @@ import {
 import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
 import { createHash } from "crypto";
-import { APP_COOKIE_NAME } from "../app-auth.ts";
+import { APP_COOKIE_NAME, originAllowed } from "../app-auth.ts";
 import {
   APP_BUSY_BODY,
   APP_WS_UPGRADE_FAILED_BODY,
@@ -32,7 +32,6 @@ import {
 import {
   AppWsRelay,
   APP_WS_MAX_PROTOCOL_HEADER_BYTES,
-  originAllowed,
   parseOfferedProtocols,
   relayWsToApp,
   recheckOpenAppSockets,

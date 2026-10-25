@@ -678,6 +678,54 @@ export function handleAppMintRequest(
   );
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// A browser always sends `Origin` on an upgrade, so ABSENT means a client that
+// is not a browser - and a client that is not a browser has no ambient cookies
+// to be abused. That is the whole argument for allowing it, and it is worth
+// stating plainly what it does NOT say: absence is not authentication. The
+// caller still has to hold the app session cookie, which is checked before this,
+// and a hand-built client can only have one if its owner signed in.
+//
+// Present, on the other hand, has to be exactly this app's own origin. The app
+// host is https by construction (the arm does not exist otherwise), so this is a
+// string comparison against a value the office derived, never a header echo.
+export function originAllowed(
+  originHeader: string | null,
+  appHost: string,
+): boolean {
+  if (originHeader === null) return true;
+  return originHeader === `https://${appHost}`;
+}
+
+// The HTTP relay's rule for a request that can change state. SameSite=Lax does
+// not keep the app cookie off a POST from another host under the same
+// registrable domain (another office on a shared parent domain, or a sibling
+// site of a self-hosted office), so the relay asks the browser where the
+// request came from. GET, HEAD and OPTIONS pass: the cookie attributes are the
+// only guard there, and apps are told to change state on POST.
+//
+// For any other method:
+//   - Sec-Fetch-Site present and not same-origin or none -> refused;
+//   - Origin `null` -> passes only with Sec-Fetch-Site same-origin. The Fetch
+//     spec sends `null` for a no-cors or navigate request that is not a GET
+//     when the page's referrer policy is no-referrer, so a plain form POST
+//     from the app's own page arrives this way when the app sets no-referrer
+//     (helmet's default). The office host makes the same exception
+//     (auth-middleware.ts originValidForAuthPost);
+//   - any other Origin -> originAllowed, so it must be this app's exact origin;
+//   - Origin and Sec-Fetch-Site both absent -> passes: a client that is not a
+//     browser, the same argument as originAllowed.
+// originAllowed itself keeps no `null` exception: an upgrade never sends it.
+export function appHttpRequestAllowed(req: Request, appHost: string): boolean {
+  if (SAFE_METHODS.has(req.method)) return true;
+  const site = req.headers.get("sec-fetch-site");
+  if (site !== null && site !== "same-origin" && site !== "none") return false;
+  const origin = req.headers.get("origin");
+  if (origin === "null") return site === "same-origin";
+  return originAllowed(origin, appHost);
+}
+
 export interface AppHostContext {
   // The request's normalized Host, and the live app it resolved to. Both come
   // from the arm in app-hosts.ts, which has already classified the host and

@@ -45,14 +45,17 @@ import {
   APP_PREVIEW_AUTH_PATH,
   appHostAuthGate,
   appHostWsAuthGate,
+  appHttpRequestAllowed,
   handleAppAuthRedeem,
   handleAppPreviewRedeem,
   unknownLabelAnswer,
 } from "./app-auth.ts";
 import { relayWsToApp, type AppRelayWsData } from "./app-ws-relay.ts";
 import {
+  APP_BAD_ORIGIN_BODY,
   SIGN_IN_FAILED_BODY,
   handshake,
+  neutral,
   neutralNotFound,
 } from "./app-host-responses.ts";
 // The hostname grammar and the office's own domain live in app-domain.ts, a
@@ -229,7 +232,11 @@ export interface AppHostDeps {
 //      refused (mayInitiateHandshake). Runs AFTER the label
 //      and reserved checks so an anonymous caller cannot learn anything about
 //      a label from the shape of the auth response.
-//   7. authenticated                  -> the relay: the app's own
+//   7. an unsafe method from another page -> 403 (appHttpRequestAllowed).
+//      Runs AFTER the gate, as the WebSocket relay checks Origin after its
+//      auth: before it, a live label would answer 403 where a dead one answers
+//      401, and that would show which labels are live.
+//   8. authenticated                  -> the relay: the app's own
 //      bytes, or one of its three refusals.
 //
 // DELIBERATELY NOT `async`. Only the diverted path returns a promise; the
@@ -364,6 +371,9 @@ function dispatchAppHostRequest(
     memberName: deps.memberName,
   });
   if (!gate.ok) return gate.response;
+  if (!appHttpRequestAllowed(req, host)) {
+    return neutral(403, APP_BAD_ORIGIN_BODY);
+  }
 
   // The icon is app-host content too. Keep it behind the same per-request
   // authorization as the relay so a live label is not an existence oracle.

@@ -39,12 +39,16 @@ import {
 } from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
 import { buildUpstreamHeaders, proveAppRunning } from "./app-proxy.ts";
-import { readAppCookie, validateAppSession } from "./app-auth.ts";
+import {
+  originAllowed,
+  readAppCookie,
+  validateAppSession,
+} from "./app-auth.ts";
 import {
   APP_BUSY_BODY,
   AUTH_REQUIRED_BODY,
   APP_UNREACHABLE_BODY,
-  APP_WS_BAD_ORIGIN_BODY,
+  APP_BAD_ORIGIN_BODY,
   APP_WS_PROTOCOL_MISMATCH_BODY,
   APP_WS_UPGRADE_FAILED_BODY,
   BAD_REQUEST_BODY,
@@ -157,24 +161,6 @@ export function parseOfferedProtocols(header: string | null): string[] | null {
     out.push(token);
   }
   return out;
-}
-
-// A browser always sends `Origin` on an upgrade, so ABSENT means a client that
-// is not a browser - and a client that is not a browser has no ambient cookies
-// to be abused. That is the whole argument for allowing it, and it is worth
-// stating plainly what it does NOT say: absence is not authentication. The
-// caller still has to hold the app session cookie, which is checked before this,
-// and a hand-built client can only have one if its owner signed in.
-//
-// Present, on the other hand, has to be exactly this app's own origin. The app
-// host is https by construction (the arm does not exist otherwise), so this is a
-// string comparison against a value the office derived, never a header echo.
-export function originAllowed(
-  originHeader: string | null,
-  appHost: string,
-): boolean {
-  if (originHeader === null) return true;
-  return originHeader === `https://${appHost}`;
 }
 
 // Keyed by ISSUANCE - label plus generation - for the reason app-proxy.ts spells
@@ -788,7 +774,7 @@ export async function relayWsToApp(
   // 2. Origin. Cheap, and it fails a cross-origin attempt before the app hears
   // about it at all.
   if (!originAllowed(req.headers.get("origin"), ctx.host)) {
-    return neutral(403, APP_WS_BAD_ORIGIN_BODY);
+    return neutral(403, APP_BAD_ORIGIN_BODY);
   }
 
   // 3. The browser's subprotocol offer, parsed strictly - see

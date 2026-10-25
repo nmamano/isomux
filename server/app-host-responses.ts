@@ -76,9 +76,10 @@ export const APP_BUSY_BODY = "this app is busy; try again\n";
 // could not be dialed or would not upgrade -> APP_UNREACHABLE_BODY, a reserved
 // path -> NOT_FOUND_BODY, a malformed subprotocol offer -> BAD_REQUEST_BODY.
 
-// The upgrade carried an Origin that is not this app's own. Reachable only by a
+// An upgrade, or a request with an unsafe method, came from a page that is not
+// the app's own (originAllowed, appHttpRequestAllowed). Reachable only by a
 // caller who already holds a live app session, like the relay refusals above.
-export const APP_WS_BAD_ORIGIN_BODY = "bad origin\n";
+export const APP_BAD_ORIGIN_BODY = "bad origin\n";
 
 // The browser asked for one or more application subprotocols and the app did
 // not agree to any of them - it selected none, or selected one the browser never

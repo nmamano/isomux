@@ -37,7 +37,7 @@ import { APP_COOKIE_NAME } from "../app-auth.ts";
 import {
   APP_STOPPED_BODY,
   BAD_REQUEST_BODY,
-  APP_WS_BAD_ORIGIN_BODY,
+  APP_BAD_ORIGIN_BODY,
   APP_WS_PROTOCOL_MISMATCH_BODY,
 } from "../app-host-responses.ts";
 import { createHash } from "crypto";
@@ -530,7 +530,7 @@ describe("app-host websockets: what never reaches the app", () => {
         }).toEqual({
           origin,
           status: 403,
-          body: APP_WS_BAD_ORIGIN_BODY,
+          body: APP_BAD_ORIGIN_BODY,
         });
       }
     }
