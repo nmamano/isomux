@@ -43,7 +43,7 @@ import {
   type PropVariant,
 } from "./props.tsx";
 import { toggleJukebox, useJukebox } from "./jukebox.ts";
-import { RECEPTIONIST_HIT } from "../receptionist-geometry.ts";
+import { RECEPTIONIST_FOCUS } from "../receptionist-geometry.ts";
 import {
   LOBBY_LAYOUTS,
   type LobbyLayoutId,
@@ -257,9 +257,9 @@ function LobbyControls({
           label={t("lobby.receptionist.open", { name: receptionist.name })}
           onPress={receptionist.onOpen}
           box={{
-            ...RECEPTIONIST_HIT,
-            x: at.x + RECEPTIONIST_HIT.x,
-            y: at.y + RECEPTIONIST_HIT.y,
+            ...RECEPTIONIST_FOCUS,
+            x: at.x + RECEPTIONIST_FOCUS.x,
+            y: at.y + RECEPTIONIST_FOCUS.y,
           }}
         />
       )}
