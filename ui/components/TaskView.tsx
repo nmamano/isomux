@@ -1,4 +1,5 @@
 import { TaskHistoryList } from "./AuditList.tsx";
+import { TaskGithubBlock, TaskGithubChip } from "./TaskGithubBlock.tsx";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
@@ -758,6 +759,8 @@ function TaskDetailPanel({
             />
           </div>
         </div>
+
+        {mode === "edit" && task?.external && <TaskGithubBlock task={task} />}
 
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
@@ -1906,6 +1909,9 @@ export function TaskView({
                           >
                             {roomLabel(task.roomId)}
                           </span>
+                        )}
+                        {task.external && (
+                          <TaskGithubChip external={task.external} />
                         )}
                         {task.title}
                         {task.description && (

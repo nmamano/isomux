@@ -1133,10 +1133,76 @@ export interface TaskItem {
   // (persisted before room-scoping) have no roomId and so are global - no
   // migration.
   roomId?: string;
+  // The GitHub issue this task was imported from (task 7fc83592). Written only
+  // by the GitHub sync; every route ignores it in a body.
+  external?: TaskExternal;
   // Optimistic-concurrency token: taskVersion() of the other fields, restamped
   // by OfficeState on every write. A PATCH must echo the value it read; a
   // mismatch is a 409 version_conflict. Derived, so a load recomputes it.
   version: string;
+}
+
+export type GithubIssueState = "open" | "closed";
+export type GithubStateReason =
+  | "completed"
+  | "not_planned"
+  | "duplicate"
+  | "reopened";
+
+// The part of an imported issue that travels with the task everywhere (list,
+// WS, history). It holds no text the issue author wrote: the title, body and
+// labels stay in the sync's own table (task 7fc83592).
+export interface TaskExternal {
+  provider: "github";
+  repo: string; // owner/name, as the owner typed it on the link
+  number: number;
+  url: string; // built by the server from repo and number
+  state: GithubIssueState;
+  stateReason: GithubStateReason | null;
+}
+
+// GET /api/tasks/:id only: external plus whether the repo is linked now, and
+// the issue text inside the outside-data wrapper (shared/github-issue.ts).
+export interface TaskDetailExternal extends TaskExternal {
+  syncing: boolean;
+  issue?: string;
+}
+
+export type GithubLinkStatusKind =
+  | "pending"
+  | "ok"
+  | "paused"
+  | "waiting"
+  | "error";
+export type GithubLinkStatusReason =
+  | "missing" // no office secret with that name
+  | "host" // the secret's hosts do not include api.github.com
+  | "refused" // GitHub answered 401
+  | "no_access" // 403 without a rate-limit sign, or 404
+  | "rate_limit"
+  | "network"
+  | "server";
+
+export interface GithubLinkStatus {
+  kind: GithubLinkStatusKind;
+  reason?: GithubLinkStatusReason;
+  until?: number; // waiting: the next try, epoch ms
+  secretUpdatedAt?: number; // paused: the secret's updatedAt that failed
+  checkedAt?: number;
+}
+
+// One room's link to one repo (task 7fc83592), as GET/PUT
+// /api/rooms/:roomId/github-link return it.
+export interface GithubLinkWire {
+  id: string;
+  roomId: string;
+  repo: string;
+  labels: string[];
+  collaboratorsOnly: boolean;
+  secretName: string;
+  createdByUserId: string;
+  createdAt: number;
+  status: GithubLinkStatus;
 }
 
 // isomux-memory - one durable, attributed fact line. Persisted as a single raw

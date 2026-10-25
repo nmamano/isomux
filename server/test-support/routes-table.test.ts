@@ -1285,6 +1285,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["room:manage"],
     emits: ["room_settings_updated"],
   },
+  // A room's GitHub issue link (task 7fc83592): an office owner's reach.
+  "githubSync.get": { caps: ["task:read"], emits: [] },
+  "githubSync.set": { caps: ["task:write"], emits: [] },
+  "githubSync.delete": { caps: ["task:write"], emits: [] },
   "rooms.readInstructions": { caps: ["room:manage"], emits: [] },
   "rooms.setInstructions": {
     caps: ["room:manage"],
@@ -2128,6 +2132,9 @@ const API_REACHABLE_OPIDS = [
   "rooms.rename",
   "rooms.getSettings",
   "rooms.setSettings",
+  "githubSync.get",
+  "githubSync.set",
+  "githubSync.delete",
   "rooms.readInstructions",
   "rooms.setInstructions",
   "voice.status",

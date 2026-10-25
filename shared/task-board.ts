@@ -37,6 +37,18 @@ export function taskVersion(task: Omit<TaskItem, "version">): string {
       ...(task.assigneeAgentId || task.createdByAgentId
         ? [task.assigneeAgentId ?? null, task.createdByAgentId ?? null]
         : []),
+      // The GitHub block (task 7fc83592) joins the same way, so a sync write
+      // moves the version and older rows keep theirs.
+      ...(task.external
+        ? [
+            task.external.provider,
+            task.external.repo,
+            task.external.number,
+            task.external.url,
+            task.external.state,
+            task.external.stateReason,
+          ]
+        : []),
     ]),
   );
 }

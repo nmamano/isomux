@@ -35,6 +35,7 @@ const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   app: "audit.kind.app",
   secret_proxy: "audit.kind.secretProxy",
   auto_handoff: "audit.kind.autoHandoff",
+  github_sync: "audit.kind.githubSync",
 };
 // Keyed by the scope in a memory:<scope>:<id> target. Rows written before
 // task f41c93e9 name the member scope "boss".

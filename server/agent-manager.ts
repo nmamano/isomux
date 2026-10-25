@@ -1359,6 +1359,7 @@ export function createAgentManager(deps: ManagerDeps) {
       username?: string;
       roomId?: string;
       createdByAgentId?: string;
+      external?: TaskItem["external"];
     },
   ): TaskItem {
     const events = officeState.addTask(title, createdBy, opts);
@@ -1371,7 +1372,13 @@ export function createAgentManager(deps: ManagerDeps) {
     changes: Partial<
       Pick<
         TaskItem,
-        "title" | "description" | "priority" | "status" | "assignee" | "roomId"
+        | "title"
+        | "description"
+        | "priority"
+        | "status"
+        | "assignee"
+        | "roomId"
+        | "external"
       >
     >,
   ): TaskItem | null {

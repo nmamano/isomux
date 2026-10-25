@@ -60,6 +60,7 @@ export const en = {
   "audit.kind.app": "App",
   "audit.kind.secretProxy": "Secret proxy",
   "audit.kind.autoHandoff": "Automatic handoff",
+  "audit.kind.githubSync": "GitHub sync",
   "audit.memory.office": "Office memory",
   "audit.memory.room": "Room memory",
   "audit.memory.agent": "Agent memory",
@@ -544,6 +545,35 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.backRoom": "Back room",
   "settings.room.backRoomHint": "More than {count} agents, behind a trap door.",
   "settings.room.cwdHint": "New agents in this room start here.",
+  "settings.room.github.title": "GitHub issues",
+  "settings.room.github.hint":
+    "Open issues with all the labels below become tasks in this room. Closing or reopening an issue on GitHub updates its task. Isomux writes nothing to GitHub.",
+  "settings.room.github.repo": "Repository",
+  "settings.room.github.labels": "Labels",
+  "settings.room.github.labelsHint":
+    "Separate with commas. Use labels that no issue template or workflow adds, so that only maintainers can bring an issue in.",
+  "settings.room.github.collaboratorsOnly":
+    "Only issues from repo owners, members and collaborators",
+  "settings.room.github.secret": "Office secret",
+  "settings.room.github.secretHint":
+    "Holds a GitHub token that can read this repo's issues. Allow it for api.github.com.",
+  "settings.room.github.status.pending": "Not checked yet.",
+  "settings.room.github.status.ok": "Up to date.",
+  "settings.room.github.status.missing":
+    "Paused: no office secret has this name. Add it on the Integrations page.",
+  "settings.room.github.status.host":
+    "Paused: the secret is not allowed for api.github.com.",
+  "settings.room.github.status.refused":
+    "Paused: GitHub refused the token. Update the secret to try again.",
+  "settings.room.github.status.noAccess":
+    "Paused: the token cannot read this repo's issues. Update the secret or save the link to try again.",
+  "settings.room.github.status.waiting":
+    "Waiting for GitHub's rate limit to reset.",
+  "settings.room.github.status.error":
+    "Could not reach GitHub. Trying again in a few minutes.",
+  "settings.room.github.link": "Link repo",
+  "settings.room.github.update": "Update link",
+  "settings.room.github.unlink": "Unlink",
   "settings.room.backRoomInUse.one":
     "{count} agent sits in the back room. Move it out first.",
   "settings.room.backRoomInUse.other":
@@ -1655,6 +1685,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.readInstructions": "Read office instructions",
   "apiCall.office.saveInstructions": "Change office instructions",
   "apiCall.rooms.readInstructions": "Read room instructions",
+  "apiCall.githubSync.get": "Read a room's GitHub link",
+  "apiCall.githubSync.set": "Link a room to a GitHub repo",
+  "apiCall.githubSync.delete": "Unlink a room from GitHub",
   "apiCall.rooms.saveInstructions": "Change room instructions",
   "apiCall.agents.saveInstructions": "Change agent instructions",
   "apiCall.users.readInstructions": "Read member instructions",
@@ -2435,6 +2468,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.col.age": "AGE",
   "tasks.empty": "No tasks",
   "tasks.roomChipTitle": "Room: {room}",
+  "tasks.github.chipTitle": "Open the issue on GitHub",
+  "tasks.github.heading": "GitHub issue",
+  "tasks.github.state.open": "Open",
+  "tasks.github.state.completed": "Closed as completed",
+  "tasks.github.state.notPlanned": "Closed as not planned",
+  "tasks.github.state.duplicate": "Closed as duplicate",
+  "tasks.github.syncing": "Kept up to date from GitHub.",
+  "tasks.github.notSyncing":
+    "No longer updates: the room is not linked to this repo.",
   "tasks.globalChipTitle": "Office-global task",
   "tasks.createdFor": "{who} · for {target}",
   "tasks.killedName": "{name} (killed)",

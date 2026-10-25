@@ -8,6 +8,7 @@ import {
 import type {
   AgentInfo,
   AgentOutfit,
+  TaskExternal,
   TaskItem,
   TaskPriority,
   RoomWire,
@@ -842,6 +843,7 @@ export class OfficeState {
       username?: string;
       roomId?: string;
       createdByAgentId?: string;
+      external?: TaskExternal;
     },
   ): OfficeEvent[] {
     const assigneeAgentId = agentIdForName(opts?.assignee, this.getAllAgents());
@@ -867,6 +869,7 @@ export class OfficeState {
       username: opts?.username,
       createdAt: Date.now(),
       ...(roomId ? { roomId } : {}),
+      ...(opts?.external ? { external: { ...opts.external } } : {}),
       version: "",
     };
     task.version = taskVersion(task);
@@ -890,7 +893,13 @@ export class OfficeState {
     changes: Partial<
       Pick<
         TaskItem,
-        "title" | "description" | "priority" | "status" | "assignee" | "roomId"
+        | "title"
+        | "description"
+        | "priority"
+        | "status"
+        | "assignee"
+        | "roomId"
+        | "external"
       >
     >,
   ): OfficeEvent[] {

@@ -107,7 +107,9 @@ import type {
   UpdateStatusWire,
   MembersChatMessage,
   AskMemberWire,
+  GithubLinkWire,
 } from "../../shared/types.ts";
+import type { GithubLinkInput } from "../github-sync.ts";
 import type {
   SpawnReq,
   AgentSystemPromptPreviewReq,
@@ -1233,6 +1235,31 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/rooms/:roomId/settings",
     auth: cap("room:manage", roomParam("roomId")),
     emits: ["room_settings_updated"],
+  }),
+  // A room's GitHub issue link (task 7fc83592): an office owner's reach, so
+  // the owner's agents too. The handler 404s an unknown room.
+  defineRoute<void, { link: GithubLinkWire | null }>({
+    opId: "githubSync.get",
+    method: "GET",
+    path: "/api/rooms/:roomId/github-link",
+    auth: cap("task:read", integrationOfficeOwner),
+    emits: [],
+  }),
+  defineRoute<GithubLinkInput, { link: GithubLinkWire }>({
+    opId: "githubSync.set",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/rooms/:roomId/github-link",
+    auth: cap("task:write", integrationOfficeOwner),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "githubSync.delete",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/rooms/:roomId/github-link",
+    auth: cap("task:write", integrationOfficeOwner),
+    emits: [],
   }),
   // The room's instructions. rooms.setSettings and the prompt fields of
   // rooms.getSettings are their old names, kept for one release.

@@ -15,6 +15,9 @@ export const AUDIT_ACTOR_KINDS = [
   // The server's automatic handoff, which resets an agent's conversation
   // (operation agents.handoff, the agent as target).
   "auto_handoff",
+  // The GitHub issue sync (task 7fc83592): id is the link, name the repo,
+  // ownerId the owner who made the link.
+  "github_sync",
 ] as const;
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export interface AuditActor {

@@ -48,6 +48,12 @@ export function openOfficeDatabase(path: string): Database {
       CREATE INDEX IF NOT EXISTS audit_operation ON audit(operation, sequence);
       CREATE INDEX IF NOT EXISTS audit_time ON audit(time, sequence);
       CREATE INDEX IF NOT EXISTS audit_target ON audit_targets(target, sequence);
+      CREATE TABLE IF NOT EXISTS github_links (
+        id TEXT PRIMARY KEY, room_id TEXT NOT NULL UNIQUE,
+        repo_key TEXT NOT NULL UNIQUE, record TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS github_issues (
+        repo_key TEXT NOT NULL, number INTEGER NOT NULL, record TEXT NOT NULL,
+        PRIMARY KEY(repo_key, number));
       PRAGMA user_version=1;`);
     })();
     return db;

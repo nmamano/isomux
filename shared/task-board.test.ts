@@ -11,6 +11,18 @@ const base: Omit<TaskItem, "version"> = {
   createdAt: 1,
 };
 
+const issue = (
+  state: "open" | "closed",
+  stateReason: "completed" | "not_planned" | null,
+): NonNullable<TaskItem["external"]> => ({
+  provider: "github",
+  repo: "acme/widgets",
+  number: 7,
+  url: "https://github.com/acme/widgets/issues/7",
+  state,
+  stateReason,
+});
+
 describe("taskVersion", () => {
   it("is the same for the same task and differs when any field differs", () => {
     expect(taskVersion({ ...base })).toBe(taskVersion(base));
@@ -24,6 +36,11 @@ describe("taskVersion", () => {
       { ...base, roomId: "r1" },
       { ...base, assigneeAgentId: "agent-1" },
       { ...base, createdByAgentId: "agent-1" },
+      // The GitHub sync's block (task 7fc83592): a sync write must move the
+      // version, so a client holding the task sees the change.
+      { ...base, external: issue("open", null) },
+      { ...base, external: issue("closed", "completed") },
+      { ...base, external: issue("closed", "not_planned") },
     ];
     const versions = new Set(variants.map(taskVersion));
     expect(versions.size).toBe(variants.length);

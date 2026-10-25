@@ -28,7 +28,7 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { TaskItem } from "../../../shared/types.ts";
+import type { TaskDetailExternal, TaskItem } from "../../../shared/types.ts";
 import { taskVisibleTo, type TaskViewer } from "../../task-visibility.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
 import {
@@ -53,6 +53,10 @@ export interface TasksDeps {
   history?(id: string, before?: number): AuditPage;
   deletedTask?(id: string): Omit<TaskItem, "version"> | null;
   restoreTask?(task: Omit<TaskItem, "version">): TaskItem;
+  // A restored task's GitHub block, brought to the issue's current state.
+  refreshExternal?(task: Omit<TaskItem, "version">): Omit<TaskItem, "version">;
+  // An imported task's block for the detail (task 7fc83592).
+  externalDetail?(task: TaskItem): TaskDetailExternal;
   listTasks(): TaskItem[];
   // The live agents, to resolve an assignee name to an agent id (claim and
   // the assignee filter, task 83f71be9).
@@ -142,7 +146,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (!task) return fail(409, "no_stored_deletion");
       if (task.roomId && !deps.accessibleRoomIds(ctx.identity).has(task.roomId))
         return fail(409, "room_unavailable");
-      return created(deps.restoreTask!(task));
+      return created(deps.restoreTask!(deps.refreshExternal?.(task) ?? task));
     },
     "tasks.list": (ctx) => {
       const status = ctx.query.get("status");
@@ -215,9 +219,10 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       const task = deps.listTasks().find((t) => t.id === ctx.params.id);
       // Not-found and not-visible collapse to the SAME 404: a room-task id must
       // not be an existence oracle for a caller outside its room.
-      return task && taskVisible(task, viewer)
-        ? ok(task)
-        : fail(404, "not_found");
+      if (!task || !taskVisible(task, viewer)) return fail(404, "not_found");
+      return task.external && deps.externalDetail
+        ? ok({ ...task, external: deps.externalDetail(task) })
+        : ok(task);
     },
 
     "tasks.create": (ctx) => {

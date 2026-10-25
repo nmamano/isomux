@@ -11,6 +11,14 @@ import {
   TERMINAL_RECORDINGS_DIR,
 } from "./terminal-recorder.ts";
 import type { AuditActor } from "../shared/audit.ts";
+import {
+  createGithubLinkStore,
+  createGithubSync,
+  type GithubLinkStore,
+  type GithubSync,
+} from "./github-sync.ts";
+import { githubSyncHandlers } from "./routes/handlers/github-sync.ts";
+import { formatIssueData } from "../shared/github-issue.ts";
 import { officeAuditStore, recordAudit } from "./audit-store.ts";
 import { noteAuditTarget, notePromptContent } from "./audit-context.ts";
 import { BrowserExtensionStore } from "./browser-extension-store";
@@ -760,6 +768,9 @@ let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
 let webPushStore: WebPushStore;
 let webPushDelivery: WebPushDeliveryService;
+// GitHub issues into the board (task 7fc83592), in office.sqlite.
+let githubLinks: GithubLinkStore;
+let githubSync: GithubSync;
 let uiBuildTracker: UiBuildTracker | undefined;
 // Turn ends that sound the browser's turn-end sound also feed the turn-end
 // push (task 1eda8af8). Made per server start, so its last-state memory
@@ -979,6 +990,34 @@ function createManagers(startOpts: StartServerOpts): void {
     scheduler: { setTimeout, clearTimeout },
     officeOrigin: () => buildPublicOrigin().origin,
     roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
+  });
+  githubLinks = createGithubLinkStore(officeAuditStore().db);
+  githubSync = createGithubSync({
+    db: officeAuditStore().db,
+    links: githubLinks,
+    tasks: {
+      list: () => agentManager.getTasks(),
+      add: (title, createdBy, opts) =>
+        agentManager.addTask(title, createdBy, opts),
+      update: (id, changes) => agentManager.updateTask(id, changes),
+    },
+    fetch: (startOpts.githubSyncFetch ??
+      ((url, init) => fetch(url, init))) as typeof fetch,
+    scheduler: { setTimeout, clearTimeout },
+    now: () => Date.now(),
+    readSecret: (name) => {
+      const secret = secretStore
+        .readForProxy({ kind: "office" })
+        .find((s) => s.name === name);
+      return secret
+        ? {
+            value: secret.value,
+            hosts: [...secret.hosts],
+            updatedAt: secret.updatedAt,
+          }
+        : null;
+    },
+    roomExists: (roomId) => !!agentManager.roomById(roomId),
   });
   // Web Push: the second pager channel, to the devices where members turned
   // on notifications. Keys and devices live in web-push.json.
@@ -3425,6 +3464,14 @@ function buildExecutorDeps(
     }),
   );
   register(auditHandlers(officeAuditStore));
+  register(
+    githubSyncHandlers({
+      // Read at request time: createManagers makes a new store on each boot.
+      links: () => githubLinks,
+      roomExists: (roomId) => !!agentManager.roomById(roomId),
+      userIdOf: (identity) => identity.userId,
+    }),
+  );
   register(terminalRecordingHandlers());
 
   register(
@@ -3438,6 +3485,37 @@ function buildExecutorDeps(
           limit: 1,
         }).items[0]?.deletedTask ?? null,
       restoreTask: (task) => agentManager.restoreTask(task),
+      // The GitHub block is the sync's: a restored task takes the issue's
+      // state now, and the detail carries the issue text in its wrapper.
+      refreshExternal: (task) => {
+        if (!task.external) return task;
+        const row = githubLinks.getIssue(
+          task.external.repo,
+          task.external.number,
+        );
+        return row
+          ? {
+              ...task,
+              external: {
+                ...task.external,
+                state: row.state,
+                stateReason: row.stateReason,
+              },
+            }
+          : task;
+      },
+      externalDetail: (task) => {
+        const external = task.external!;
+        const key = external.repo.toLowerCase();
+        const row = githubLinks.getIssue(external.repo, external.number);
+        return {
+          ...external,
+          syncing: githubLinks
+            .list()
+            .some((link) => link.repo.toLowerCase() === key),
+          ...(row ? { issue: formatIssueData(row) } : {}),
+        };
+      },
       listTasks: () => agentManager.getTasks(),
       liveAgents: () => agentManager.getAllAgents(),
       createTask: ({
@@ -5115,6 +5193,8 @@ function buildExecutorDeps(
         );
         const closed = agentManager.closeRoom(roomId);
         if (!closed) return false;
+        // The room's tasks stay; its GitHub link goes (task 7fc83592).
+        githubLinks.remove(roomId);
         let touched = false;
         for (const u of listUsers()) {
           const inAllowed = u.allowedRooms.includes(roomId);
@@ -8897,6 +8977,7 @@ function runBackgroundBoot(
   if (!startOpts.skipSchedulers) {
     pagerDelivery.start();
     webPushDelivery.start();
+    githubSync.start();
   }
 
   // OAuth MCP servers: a refresh pass now (the access tokens are in memory
@@ -8981,6 +9062,9 @@ export interface StartServerOpts {
   appSupervisor?: AppSupervisor;
   // Inject the pager's HTTP send. Tests pass a stub: no test sends to Discord.
   pagerFetch?: (url: string, init: RequestInit) => Promise<Response>;
+  // Inject the GitHub issue sync's HTTP calls (task 7fc83592). Tests pass a
+  // fake GitHub: no test calls api.github.com.
+  githubSyncFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // The same for Web Push: no test sends to a push service.
   webPushFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // Inject the Test button's HTTP calls (integrations A3). Tests pass a stub.
@@ -9015,6 +9099,9 @@ export interface ServerHandle {
   port: number;
   agentManager: AgentManager;
   cronjobManager: CronjobManager;
+  // The GitHub issue sync (task 7fc83592). skipSchedulers leaves its timer
+  // off; a test runs a pass with tick().
+  githubSync: GithubSync;
   // Production GuardDeps adapter exposed for the contract to assert agreement
   // with the live ACL.
   guardDeps: GuardDeps;
@@ -9041,6 +9128,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   extensionSessions?.stop();
   pagerDelivery?.stop();
   webPushDelivery?.stop();
+  githubSync?.stop();
   uiBuildTracker?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
   mcpOAuthTimer = null;
@@ -9182,6 +9270,7 @@ export async function startServer(
     port,
     agentManager,
     cronjobManager,
+    githubSync,
     guardDeps: buildLiveGuardDeps(),
     stop: () => stopServer(server),
   };

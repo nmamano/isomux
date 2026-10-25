@@ -232,6 +232,20 @@ name. `POST /api/tasks/<id>/done`
 needs no version. A task dropped without doing it is closed with a PATCH of
 status `obsolete`, with the reason in `description`.
 
+### Link a room to GitHub issues
+
+An office owner's token links one GitHub repo to a room with
+`PUT /api/rooms/<roomId>/github-link` and
+`{ repo, labels, collaboratorsOnly?, secretName? }`. Open issues that carry
+every label become P4 tasks in the room, and a close or reopen on GitHub
+updates the task's status. `secretName` names an office secret with a GitHub
+token that can read the repo's issues (default `GITHUB_SYNC_TOKEN`), allowed
+for `api.github.com`. `GET` on the same path returns `{ link }` with its
+`status`, and `DELETE` unlinks the room; the tasks stay. A repo that another
+room links returns 409 `repo_linked`. An imported task carries `external`
+with the repo, issue number, URL and state; `GET /api/tasks/<id>` adds the
+issue text.
+
 ### Update a room
 
 `PATCH /api/rooms/<roomId>` is a partial update over a room's fields. Send

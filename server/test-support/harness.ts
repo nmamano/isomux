@@ -283,6 +283,13 @@ async function bootTestServer(
       pagerFetch: async () => {
         throw new Error("test harness: pager send without a pagerFetch stub");
       },
+      // Nor does the GitHub issue sync call api.github.com: a test that runs
+      // a pass passes its own fake through opts.startServer.githubSyncFetch.
+      githubSyncFetch: async () => {
+        throw new Error(
+          "test harness: GitHub sync without a githubSyncFetch stub",
+        );
+      },
       // Nor does a Test button call a real service: a test that presses one
       // passes its own stub through opts.startServer.connectionTestFetch.
       connectionTestFetch: async () => {

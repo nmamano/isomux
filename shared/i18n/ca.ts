@@ -46,6 +46,7 @@ export const ca: Catalog = {
   "audit.kind.app": "App",
   "audit.kind.secretProxy": "Proxy de secrets",
   "audit.kind.autoHandoff": "Traspàs automàtic",
+  "audit.kind.githubSync": "Sincronització amb GitHub",
   "audit.memory.office": "Memòria de l’oficina",
   "audit.memory.room": "Memòria de la sala",
   "audit.memory.agent": "Memòria de l’agent",
@@ -532,6 +533,35 @@ Coses que pots fer per ell:
   "settings.room.backRoom": "Rebotiga",
   "settings.room.backRoomHint": "Més de {count} agents, darrere d'una trapa.",
   "settings.room.cwdHint": "Els agents nous d'aquesta sala comencen aquí.",
+  "settings.room.github.title": "Incidències de GitHub",
+  "settings.room.github.hint":
+    "Les incidències obertes amb totes les etiquetes de sota es converteixen en tasques d'aquesta sala. Tancar o reobrir una incidència a GitHub actualitza la seva tasca. Isomux no escriu res a GitHub.",
+  "settings.room.github.repo": "Repositori",
+  "settings.room.github.labels": "Etiquetes",
+  "settings.room.github.labelsHint":
+    "Separa-les amb comes. Fes servir etiquetes que no afegeixi cap plantilla d'incidències ni cap flux de treball, perquè només els mantenidors puguin portar una incidència.",
+  "settings.room.github.collaboratorsOnly":
+    "Només incidències de propietaris, membres i col·laboradors del repositori",
+  "settings.room.github.secret": "Secret de l'oficina",
+  "settings.room.github.secretHint":
+    "Conté un token de GitHub que pot llegir les incidències d'aquest repositori. Permet-lo per a api.github.com.",
+  "settings.room.github.status.pending": "Encara no s'ha comprovat.",
+  "settings.room.github.status.ok": "Al dia.",
+  "settings.room.github.status.missing":
+    "En pausa: cap secret de l'oficina té aquest nom. Afegeix-lo a la pàgina Integracions.",
+  "settings.room.github.status.host":
+    "En pausa: el secret no està permès per a api.github.com.",
+  "settings.room.github.status.refused":
+    "En pausa: GitHub ha rebutjat el token. Actualitza el secret per tornar-ho a provar.",
+  "settings.room.github.status.noAccess":
+    "En pausa: el token no pot llegir les incidències d'aquest repositori. Actualitza el secret o desa l'enllaç per tornar-ho a provar.",
+  "settings.room.github.status.waiting":
+    "Esperant que es restableixi el límit d'ús de GitHub.",
+  "settings.room.github.status.error":
+    "No s'ha pogut contactar amb GitHub. Es tornarà a provar d'aquí a uns minuts.",
+  "settings.room.github.link": "Enllaçar el repositori",
+  "settings.room.github.update": "Actualitzar l'enllaç",
+  "settings.room.github.unlink": "Desenllaçar",
   "settings.room.backRoomInUse.one":
     "{count} agent és a la rebotiga. Treu-lo primer.",
   "settings.room.backRoomInUse.other":
@@ -1697,6 +1727,9 @@ Coses que pots fer per ell:
   "apiCall.office.readInstructions": "Llegir les instruccions de l'oficina",
   "apiCall.office.saveInstructions": "Canviar les instruccions de l'oficina",
   "apiCall.rooms.readInstructions": "Llegir les instruccions de la sala",
+  "apiCall.githubSync.get": "Llegir l'enllaç de GitHub d'una sala",
+  "apiCall.githubSync.set": "Enllaçar una sala amb un repositori de GitHub",
+  "apiCall.githubSync.delete": "Desenllaçar una sala de GitHub",
   "apiCall.rooms.saveInstructions": "Canviar les instruccions de la sala",
   "apiCall.agents.saveInstructions": "Canviar les instruccions de l'agent",
   "apiCall.users.readInstructions": "Llegir les instruccions del membre",
@@ -2495,6 +2528,15 @@ Coses que pots fer per ell:
   "tasks.col.age": "EDAT",
   "tasks.empty": "No hi ha tasques",
   "tasks.roomChipTitle": "Sala: {room}",
+  "tasks.github.chipTitle": "Obrir la incidència a GitHub",
+  "tasks.github.heading": "Incidència de GitHub",
+  "tasks.github.state.open": "Oberta",
+  "tasks.github.state.completed": "Tancada com a completada",
+  "tasks.github.state.notPlanned": "Tancada com a no planificada",
+  "tasks.github.state.duplicate": "Tancada com a duplicada",
+  "tasks.github.syncing": "Es manté al dia des de GitHub.",
+  "tasks.github.notSyncing":
+    "Ja no s'actualitza: la sala no està enllaçada amb aquest repositori.",
   "tasks.globalChipTitle": "Tasca global de l'oficina",
   "tasks.createdFor": "{who} · per a {target}",
   "tasks.killedName": "{name} (aturat)",
