@@ -358,9 +358,272 @@ function stripHeredocBodies(cmd: string): string {
   return kept.join("\n");
 }
 
-// Copy-like commands where only the last argument (destination) is a write target.
-// Reading from ~/.isomux/ via these is fine; only writing to it should be blocked.
+// Copy-like commands: only the destination (copyOperands) is a write target.
+// Reading from ~/.isomux/ via these is fine; only writing to it should be
+// blocked. A source that is a sensitive file is a read of it, as `cat` is.
 const COPY_COMMANDS = ["cp", "rsync", "scp", "install"];
+
+// Per command, the flags that take the next word as their value, so the value
+// is not taken for a source. A flag in no set takes nothing, which can only
+// over-block. Optional-argument long options (`--backup`, `--preserve`) take
+// a value only with `=`, so they stay out. mv and ln give a file a new name
+// the way a copy does: their sources are reads too.
+const SAME_NAME_FLAGS = ["-S", "--suffix", "-t", "--target-directory"];
+const COPY_VALUE_FLAGS: Record<string, Set<string>> = {
+  cp: new Set([...SAME_NAME_FLAGS, "--sparse", "--no-preserve"]),
+  mv: new Set(SAME_NAME_FLAGS),
+  ln: new Set(SAME_NAME_FLAGS),
+  install: new Set([
+    ...SAME_NAME_FLAGS,
+    "-m",
+    "--mode",
+    "-o",
+    "--owner",
+    "-g",
+    "--group",
+    "--strip-program",
+  ]),
+  scp: new Set(["-c", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-D", "-X"]),
+  rsync: new Set([
+    "-e",
+    "--rsh",
+    "-f",
+    "--filter",
+    "-T",
+    "--temp-dir",
+    "-B",
+    "--block-size",
+    "-M",
+    "--remote-option",
+    "-@",
+    "--modify-window",
+    "--exclude",
+    "--include",
+    "--exclude-from",
+    "--include-from",
+    "--files-from",
+    "--rsync-path",
+    "--partial-dir",
+    "--backup-dir",
+    "--suffix",
+    "--compare-dest",
+    "--copy-dest",
+    "--link-dest",
+    "--chmod",
+    "--chown",
+    "--usermap",
+    "--groupmap",
+    "--port",
+    "--password-file",
+    "--log-file",
+    "--log-file-format",
+    "--out-format",
+    "--bwlimit",
+    "--timeout",
+    "--contimeout",
+    "--max-size",
+    "--min-size",
+    "--max-delete",
+    "--info",
+    "--debug",
+    "--iconv",
+    "--address",
+    "--sockopts",
+    "--outbuf",
+    "--skip-compress",
+    "--compress-level",
+    "--compress-choice",
+    "--checksum-choice",
+    "--stop-after",
+    "--stop-at",
+    "--write-batch",
+    "--only-write-batch",
+    "--read-batch",
+    "--max-alloc",
+    "--copy-as",
+    "--early-input",
+    "--protocol",
+    "--checksum-seed",
+    "--stderr",
+    "--cc",
+    "--zc",
+    "--zl",
+  ]),
+};
+const TARGET_DIRECTORY_FLAGS = new Set(["-t", "--target-directory"]);
+
+// GNU cp, mv, ln and install take any unambiguous prefix of a long option
+// (`cp --targ=dir`), so a name is resolved against the full list of each
+// (coreutils 9.4 `--help`). rsync and scp take no prefixes.
+const GNU_LONG_OPTIONS: Record<string, string[]> = {
+  cp: [
+    "archive",
+    "attributes-only",
+    "backup",
+    "context",
+    "copy-contents",
+    "debug",
+    "dereference",
+    "force",
+    "help",
+    "interactive",
+    "link",
+    "no-clobber",
+    "no-dereference",
+    "no-preserve",
+    "no-target-directory",
+    "one-file-system",
+    "parents",
+    "preserve",
+    "recursive",
+    "reflink",
+    "remove-destination",
+    "sparse",
+    "strip-trailing-slashes",
+    "suffix",
+    "symbolic-link",
+    "target-directory",
+    "update",
+    "verbose",
+    "version",
+  ],
+  mv: [
+    "backup",
+    "context",
+    "debug",
+    "force",
+    "help",
+    "interactive",
+    "no-clobber",
+    "no-copy",
+    "no-target-directory",
+    "strip-trailing-slashes",
+    "suffix",
+    "target-directory",
+    "update",
+    "verbose",
+    "version",
+  ],
+  ln: [
+    "backup",
+    "directory",
+    "force",
+    "help",
+    "interactive",
+    "logical",
+    "no-dereference",
+    "no-target-directory",
+    "physical",
+    "relative",
+    "suffix",
+    "symbolic",
+    "target-directory",
+    "verbose",
+    "version",
+  ],
+  install: [
+    "backup",
+    "compare",
+    "context",
+    "debug",
+    "directory",
+    "group",
+    "help",
+    "mode",
+    "no-target-directory",
+    "owner",
+    "preserve-context",
+    "preserve-timestamps",
+    "strip",
+    "strip-program",
+    "suffix",
+    "target-directory",
+    "verbose",
+    "version",
+  ],
+};
+
+/** The long option a word names: an exact name, else the one option it is a
+ *  prefix of. An ambiguous or unknown prefix makes the program exit with an
+ *  error, so it names nothing. */
+function longOptionName(command: string, name: string): string | null {
+  const options = GNU_LONG_OPTIONS[command];
+  if (!options) return name;
+  const bare = name.slice(2);
+  if (options.includes(bare)) return name;
+  const matches = options.filter((option) => option.startsWith(bare));
+  return matches.length === 1 ? `--${matches[0]}` : null;
+}
+
+/** What one copy-like command reads and writes. Only `--` ends the options:
+ *  these programs parse options after the shell removed the quotes, so
+ *  `cp '-t' dir file` is a -t. An input redirection is read; an output
+ *  redirection is neither (writeTargets adds it on its own). */
+function copyOperands(command: EffectiveCommand): {
+  sources: ShellWord[];
+  destinations: ShellWord[];
+} {
+  const valueFlags = COPY_VALUE_FLAGS[command.name] ?? new Set<string>();
+  const args = command.args;
+  const inputs: ShellWord[] = [];
+  const operands: ShellWord[] = [];
+  let target: ShellWord | undefined;
+  let directories = false;
+  let endOfOptions = false;
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i];
+    if (word.redirect) {
+      if (word.redirect === "input") inputs.push(word);
+      continue;
+    }
+    const tok = word.text;
+    if (endOfOptions || tok.length < 2 || !tok.startsWith("-")) {
+      operands.push(word);
+      continue;
+    }
+    if (tok === "--") {
+      endOfOptions = true;
+      continue;
+    }
+    if (tok.startsWith("--")) {
+      const eq = tok.indexOf("=");
+      const name = longOptionName(
+        command.name,
+        eq === -1 ? tok : tok.slice(0, eq),
+      );
+      if (name === null) continue;
+      if (command.name === "install" && name === "--directory")
+        directories = true;
+      let value: ShellWord | undefined;
+      if (eq !== -1) value = { ...word, text: tok.slice(eq + 1) };
+      else if (valueFlags.has(name)) value = args[++i];
+      if (value && TARGET_DIRECTORY_FLAGS.has(name)) target = value;
+      continue;
+    }
+    // A cluster's first value letter takes the rest of it, or the next word.
+    for (let j = 1; j < tok.length; j++) {
+      const flag = `-${tok[j]}`;
+      if (command.name === "install" && flag === "-d") directories = true;
+      if (!valueFlags.has(flag)) continue;
+      const attached = tok.slice(j + 1);
+      const value = attached ? { ...word, text: attached } : args[++i];
+      if (value && TARGET_DIRECTORY_FLAGS.has(flag)) target = value;
+      break;
+    }
+  }
+  // install -d creates every operand as a directory and reads nothing.
+  if (directories) return { sources: inputs, destinations: operands };
+  if (target)
+    return { sources: [...inputs, ...operands], destinations: [target] };
+  // With one operand ln links it into the cwd, so it is read; for the others
+  // it stays the write target it always was.
+  if (operands.length === 1 && command.name === "ln")
+    return { sources: [...inputs, ...operands], destinations: [] };
+  return {
+    sources: [...inputs, ...operands.slice(0, -1)],
+    destinations: operands.slice(-1),
+  };
+}
 
 // Commands whose positional operands are write targets. Interpreters, text
 // processors, dd and truncate need command-specific handling in writeTargets:
@@ -719,6 +982,12 @@ function bashSensitiveReadTarget(
   codexHome: string | null | undefined,
 ): string | null {
   for (const cmd of collectCommands(command, true)) {
+    if (Object.hasOwn(COPY_VALUE_FLAGS, cmd.name)) {
+      for (const source of copyOperands(cmd).sources) {
+        if (isSensitiveFile(source.text, cwd, codexHome)) return source.text;
+      }
+      continue;
+    }
     const grammar = READER_GRAMMAR[cmd.name];
     if (!grammar) continue;
     for (const path of readerPathOperands(cmd.args, grammar)) {
@@ -2512,10 +2781,8 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
   }
   if (command.name === "truncate")
     return [...redirects, ...truncateFileOperands(args)];
-  if (COPY_COMMANDS.includes(command.name)) {
-    const operands = args.filter((word) => !word.text.startsWith("-"));
-    return [...redirects, ...(operands.length ? [operands.at(-1)!] : [])];
-  }
+  if (COPY_COMMANDS.includes(command.name))
+    return [...redirects, ...copyOperands({ ...command, args }).destinations];
   // A program parses its options after the shell removed the quotes, so a
   // quoted flag (`sed '-i'`) is still a flag.
   if (command.name === "sed") {
