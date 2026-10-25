@@ -214,6 +214,9 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 // application/json, or the form type with the JSON in `payload` (GitHub
 // offers both). Anything else, or a body that is not a JSON object, is null.
+// The signature does not cover Content-Type, so a form body must hold only
+// `payload`: a JSON text never decodes to that one field, so the same signed
+// bytes cannot carry a second payload under the other type.
 function parsePayload(
   contentType: string | null,
   body: Uint8Array,
@@ -228,7 +231,9 @@ function parsePayload(
   let json: string | null;
   if (type === "application/json") json = text;
   else if (type === "application/x-www-form-urlencoded") {
-    json = new URLSearchParams(text).get("payload");
+    const fields = [...new URLSearchParams(text)];
+    json =
+      fields.length === 1 && fields[0][0] === "payload" ? fields[0][1] : null;
   } else return null;
   if (json === null) return null;
   try {

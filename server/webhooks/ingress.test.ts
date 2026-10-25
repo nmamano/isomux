@@ -1,8 +1,9 @@
 // The ingress handler on its own, with injected deps: the async boundaries
 // (a body read and a prepareEnqueue that outlast a change to the hook), the
-// daily dispatch cap and a failed log write after a dispatch. See
-// internal-docs/webhooks-design.md sections 1, 5 and 6. The route through
-// buildServer is in server/test-support/webhooks-ingress.test.ts.
+// daily dispatch cap, a failed log write after a dispatch, and the one
+// reading of a signed body. See internal-docs/webhooks-design.md sections 1, 5
+// and 6. The route through buildServer is in
+// server/test-support/webhooks-ingress.test.ts.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createHmac } from "crypto";
@@ -21,7 +22,12 @@ import {
   APP_MESSAGE_BURST_LIMIT,
   APP_MESSAGE_DAILY_CAP,
 } from "../app-message-limits.ts";
-import type { WebhookDelivery, WebhookRecord } from "../../shared/types.ts";
+import { WEBHOOK_DEDUP_WINDOW_MS } from "./deliveries.ts";
+import type {
+  WebhookDelivery,
+  WebhookRecord,
+  WebhookRule,
+} from "../../shared/types.ts";
 
 const AGENT = "agent-1";
 const CRONJOB = "1a2b3c4d";
@@ -62,7 +68,14 @@ interface Rig {
   onStart: { fn: (() => { runId: string } | null) | null };
 }
 
-function rig(target: "agent" | "cronjob" = "agent"): Rig {
+const PR_RULES: WebhookRule[] = [
+  { event: "pull_request", args: { pr: "{{payload.pull_request.number}}" } },
+];
+
+function rig(
+  target: "agent" | "cronjob" = "agent",
+  rules: WebhookRule[] = PR_RULES,
+): Rig {
   const registry = createWebhookRegistry({ dir, now: () => t });
   const hook = registry.create({
     fields: {
@@ -71,12 +84,7 @@ function rig(target: "agent" | "cronjob" = "agent"): Rig {
       signatureHeader: null,
       eventHeader: null,
       deliveryHeader: null,
-      rules: [
-        {
-          event: "pull_request",
-          args: { pr: "{{payload.pull_request.number}}" },
-        },
-      ],
+      rules,
       target:
         target === "agent"
           ? { kind: "agent", agentId: AGENT }
@@ -134,6 +142,8 @@ function rig(target: "agent" | "cronjob" = "agent"): Rig {
 const encode = (s: string) => new TextEncoder().encode(s);
 const prBody = (n: number) =>
   JSON.stringify({ action: "opened", pull_request: { number: n } });
+const JSON_TYPE = "application/json";
+const FORM_TYPE = "application/x-www-form-urlencoded";
 const sign = (secret: string, body: Uint8Array) =>
   `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
 
@@ -141,12 +151,13 @@ function request(
   r: Rig,
   body: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>,
   signature: string,
+  contentType = JSON_TYPE,
 ): Request {
   return new Request(`http://localhost/hooks/${r.hook.id}`, {
     method: "POST",
     body,
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": contentType,
       "X-GitHub-Event": "pull_request",
       "X-Hub-Signature-256": signature,
     },
@@ -479,5 +490,116 @@ describe("webhook ingress: the cronjob target", () => {
     t += SPACING_MS;
     expect((await deliver(r, 2)).status).toBe(503);
     expect(rows(r)[0].outcome).toBe("target_unavailable");
+  });
+});
+
+describe("webhook ingress: one reading of the signed bytes", () => {
+  // The signature covers the body, not the Content-Type. A signed JSON body
+  // whose string holds '&payload=<object>&' must not read as that object when
+  // the same bytes come back with the form type. The genuine form body is in
+  // server/test-support/webhooks-ingress.test.ts ("parses the form content
+  // type").
+  const GATED: WebhookRule[] = [
+    {
+      event: "pull_request",
+      match: { "sender.login": "maintainer" },
+      args: { by: "{{payload.sender.login}}" },
+    },
+    { event: "pull_request", args: { pr: "{{payload.pull_request.number}}" } },
+  ];
+  const embedded = JSON.stringify({
+    pull_request: { number: 666 },
+    sender: { login: "maintainer" },
+  });
+  const smuggling = encode(
+    JSON.stringify({
+      action: "opened",
+      pull_request: {
+        number: 1,
+        title: `zz&payload=${encodeURIComponent(embedded)}&`,
+      },
+      sender: { login: "mallory" },
+    }),
+  );
+  // No '&': as form, the body is one field whose value is the encoded text
+  // after the first '=', and the body's own closing '"}' completes the object.
+  const oneField = encode(
+    JSON.stringify({
+      action: "opened",
+      pull_request: { number: 1 },
+      sender: { login: "mallory" },
+      note: `=${encodeURIComponent(`${embedded.slice(0, -1)},"x":"`)}`,
+    }),
+  );
+  const send = (r: Rig, body: Uint8Array<ArrayBuffer>, contentType: string) =>
+    r.ingress.handle(
+      request(r, body, sign(r.secret, body), contentType),
+      r.hook.id,
+    );
+
+  for (const [name, body] of [
+    ["an embedded payload field", smuggling],
+    ["one field that is not payload", oneField],
+  ] as const) {
+    it(`the JSON body sent again as form after the dedup window is bad_payload: ${name}`, async () => {
+      const r = rig("agent", GATED);
+      expect((await send(r, body, JSON_TYPE)).status).toBe(202);
+      expect(rows(r)[0]).toMatchObject({
+        outcome: "dispatched",
+        ruleIndex: 1,
+        args: { pr: "1" },
+      });
+      t += WEBHOOK_DEDUP_WINDOW_MS + 1;
+      const replay = await send(r, body, FORM_TYPE);
+      expect(replay.status).toBe(400);
+      expect(await replay.json()).toEqual({ error: "bad_payload" });
+      expect(rows(r).map((row) => row.outcome)).toEqual([
+        "bad_payload",
+        "dispatched",
+      ]);
+      expect(r.enqueued).toHaveLength(1);
+    });
+  }
+
+  it("a form retry of a target_unavailable JSON row is refused and keeps the row retryable", async () => {
+    const r = rig("agent", GATED);
+    r.reach.value = "unavailable";
+    expect((await send(r, smuggling, JSON_TYPE)).status).toBe(503);
+    r.reach.value = "ok";
+    t += 60_000;
+    const retry = await send(r, smuggling, FORM_TYPE);
+    expect(retry.status).toBe(400);
+    expect(rows(r)).toHaveLength(1);
+    expect(rows(r)[0]).toMatchObject({
+      outcome: "target_unavailable",
+      attempts: 2,
+    });
+    expect(r.enqueued).toEqual([]);
+    // The row is still a retry, and its JSON reading is the signer's.
+    expect((await send(r, smuggling, JSON_TYPE)).status).toBe(202);
+    expect(rows(r)[0]).toMatchObject({
+      outcome: "dispatched",
+      ruleIndex: 1,
+      args: { pr: "1" },
+    });
+  });
+
+  it("a form body with a field besides payload is bad_payload", async () => {
+    const r = rig();
+    const json = encodeURIComponent(prBody(1));
+    for (const form of [`payload=${json}&x=1`, `x=1&payload=${json}`]) {
+      const res = await send(r, encode(form), FORM_TYPE);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "bad_payload" });
+    }
+    expect(rows(r).map((row) => row.outcome)).toEqual([
+      "bad_payload",
+      "bad_payload",
+    ]);
+    // The control: the payload field alone dispatches.
+    expect((await send(r, encode(`payload=${json}`), FORM_TYPE)).status).toBe(
+      202,
+    );
+    expect(r.enqueued).toHaveLength(1);
   });
 });

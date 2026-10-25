@@ -57,7 +57,7 @@ Body cap: 5 MiB, the Gas City value. GitHub caps payloads at 25 MB and does not 
 
 Raw body: the handler reads the stream into one `Uint8Array` and computes the HMAC over those bytes. It parses only after the verify succeeds.
 
-Content types: `application/json` parses the body. `application/x-www-form-urlencoded` parses the `payload` field as JSON. GitHub offers both, and the form type is the default in its settings page (unchecked; the docs list both types). Anything else is `bad_payload`.
+Content types: `application/json` parses the body. `application/x-www-form-urlencoded` parses the `payload` field as JSON, and the body must hold no other field. The signature does not cover `Content-Type`, so this keeps one reading of the signed bytes: a JSON body sent again as a form is not a valid form body. GitHub offers both, and the form type is the default in its settings page (unchecked; the docs list both types). Anything else, or a `Content-Type` that does not name the body's format, is `bad_payload`.
 
 GitHub `ping`: GitHub sends it when somebody creates the webhook. The handler answers 200 and logs a `ping` row, so the owner sees in the delivery log that the setup works. A `ping` never reaches a rule, also not a `*` rule.
 
