@@ -3703,6 +3703,9 @@ StartLimitIntervalSec=0
 User=$SERVICE_USER
 Environment=HOME=$SERVICE_HOME
 WorkingDirectory=$INSTALL_DIR
+# Files the office and its agents create are private to the service account,
+# as in the container (deploy/container/entrypoint.sh).
+UMask=0077
 ExecStart=/usr/local/bin/bun run server/isomux-office.ts
 Restart=always
 # Matches what isomux-oom-protect writes for the daemons it protects. Only

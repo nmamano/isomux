@@ -773,6 +773,19 @@ describe("install.sh: the systemd unit renders cleanly", () => {
     expect({ entry, shipped }).toEqual({ entry, shipped: true });
   });
 
+  // Task fe7619bc: what the server and its agents create is private to the
+  // service account, as in the container (deploy/container/entrypoint.sh).
+  it("creates files closed to other users", () => {
+    expect(directive("UMask")).toBe("0077");
+    const lines = unit.split("\n").map((l) => l.trim());
+    const at = lines.findIndex((l) => l.startsWith("UMask="));
+    const section = lines
+      .slice(0, at)
+      .filter((l) => /^\[[A-Za-z]+\]$/.test(l))
+      .at(-1);
+    expect(section).toBe("[Service]");
+  });
+
   it("keeps every line a comment, a section header or a directive", () => {
     for (const line of unit.split("\n")) {
       const t = line.trim();

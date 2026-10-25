@@ -6,6 +6,7 @@ import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import { auditHandlers } from "./routes/handlers/audit.ts";
 import { terminalRecordingHandlers } from "./routes/handlers/terminal-recordings.ts";
 import { auditActor } from "./audit-actor.ts";
+import { secureStateRoot } from "./state-root-mode.ts";
 import {
   liveTerminalRecordingIds,
   TERMINAL_RECORDINGS_DIR,
@@ -9384,6 +9385,9 @@ export async function runOfficeMain(): Promise<void> {
     process.exit(1);
   }
   if (split.mode === "split") setAgentHost(split.host);
+  // Close the state root to other OS users (task fe7619bc). After the split
+  // check, which must still see and refuse a root that is not private.
+  secureStateRoot();
   // Before any agent starts: an office with a secret gets its proxy and its
   // placeholders. An office without one changes nothing.
   try {
