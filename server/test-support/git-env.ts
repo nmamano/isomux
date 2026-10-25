@@ -37,16 +37,17 @@ export function inheritedGitRepoEnv(
 // An office agent whose member saved a secret for a git host gets that host's
 // credential helper through GIT_CONFIG_COUNT/KEY/VALUE (server/env-loader.ts).
 // Those entries point no git command at another repository, and they act only
-// on an https remote of that host, so they do not block the tests.
+// on an https remote of that host, so they do not block the tests. The first
+// entry only empties the helper list for the secret proxy's own address
+// (http://127.0.0.1:<port>), so it is harmless too.
+const CREDENTIAL_HELPER_KEY =
+  /^credential\.(https:\/\/[^\s/]+|http:\/\/127\.0\.0\.1:\d+)\.helper$/;
+
 function onlyCredentialHelpers(env: Record<string, string | undefined>) {
   const count = Number(env.GIT_CONFIG_COUNT);
   if (!Number.isSafeInteger(count) || count < 0) return false;
   for (let i = 0; i < count; i++) {
-    if (
-      !/^credential\.https:\/\/[^\s/]+\.helper$/.test(
-        env[`GIT_CONFIG_KEY_${i}`] ?? "",
-      )
-    )
+    if (!CREDENTIAL_HELPER_KEY.test(env[`GIT_CONFIG_KEY_${i}`] ?? ""))
       return false;
   }
   return true;

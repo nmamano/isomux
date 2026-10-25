@@ -19,6 +19,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { gitCredentialHelpers } from "../env-loader.ts";
 import { GIT_REPO_ENV_VARS, inheritedGitRepoEnv } from "./git-env.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -91,15 +92,17 @@ function childEnv(extra: Record<string, string>): Record<string, string> {
 
 describe("inheritedGitRepoEnv", () => {
   it("lets through the git credential helpers an office agent gets for its secrets", () => {
-    expect(
-      inheritedGitRepoEnv({
-        GIT_CONFIG_COUNT: "2",
-        GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
-        GIT_CONFIG_VALUE_0: "",
-        GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
-        GIT_CONFIG_VALUE_1: "!f() { :; }; f",
-      }),
-    ).toEqual([]);
+    const env = gitCredentialHelpers({}, "http://isomux:t@127.0.0.1:4321", [
+      { host: "github.com", placeholder: "p" },
+    ]);
+    // Both key forms the office writes are present: the proxy's own address
+    // and the git host.
+    const keys = Object.keys(env)
+      .filter((k) => k.startsWith("GIT_CONFIG_KEY_"))
+      .map((k) => env[k]);
+    expect(keys).toContain("credential.http://127.0.0.1:4321.helper");
+    expect(keys).toContain("credential.https://github.com.helper");
+    expect(inheritedGitRepoEnv(env)).toEqual([]);
   });
 
   it("still refuses any other GIT_CONFIG_COUNT entry", () => {
@@ -109,6 +112,13 @@ describe("inheritedGitRepoEnv", () => {
         GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
         GIT_CONFIG_KEY_1: "core.worktree",
         GIT_CONFIG_VALUE_1: "/elsewhere",
+      }),
+    ).toEqual(["GIT_CONFIG_COUNT"]);
+    expect(
+      inheritedGitRepoEnv({
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "credential.http://github.com.helper",
+        GIT_CONFIG_VALUE_0: "",
       }),
     ).toEqual(["GIT_CONFIG_COUNT"]);
     expect(

@@ -218,7 +218,7 @@ function mergeEnvForUserId(
 // The proxy's address gets an empty helper list too: git hands the password
 // in HTTPS_PROXY to the helpers after each request, and a store helper would
 // keep it.
-function gitCredentialHelpers(
+export function gitCredentialHelpers(
   env: { [key: string]: string | undefined },
   proxy: string | undefined,
   hosts: { host: string; placeholder: string }[],
