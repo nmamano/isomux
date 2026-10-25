@@ -213,20 +213,40 @@ function detectCodexAuthError(text: string): boolean {
 }
 
 // Per-thread config overrides, sent with every thread/start and
-// thread/resume (the `config` map takes dotted keys, same as `-c`).
-// Backend-native memory is off in every isomux launch: isomux memory is the
-// only memory an office agent has, so it carries over when the agent's backend
-// changes. Codex 0.144 ships a memories feature whose keys upstream now
-// documents as defaulting to true; pinning
-// both here keeps a default flip from turning it on, and a per-thread
-// override beats editing the shared config.toml under CODEX_HOME (no file
-// mutation, and it holds for a per-user CODEX_HOME too). Codex type-checks
-// these keys (a non-boolean is rejected at thread/start) but ignores an
-// unknown key silently, so the adapter test pins the exact spelling.
+// thread/resume (the `config` map takes dotted keys, same as `-c`). A
+// per-thread override beats editing the shared config.toml under CODEX_HOME
+// (no file mutation, and it holds for a per-user CODEX_HOME too), and it wins
+// over the same key in config.toml. Codex type-checks these keys (a
+// non-boolean is rejected at thread/start) but ignores an unknown key
+// silently, so the adapter test pins the exact spelling.
+// - Memories: backend-native memory is off in every isomux launch: isomux
+//   memory is the only memory an office agent has, so it carries over when
+//   the agent's backend changes. Codex 0.144 ships a memories feature whose
+//   keys upstream documents as defaulting to true; pinning both keeps a
+//   default flip from turning it on.
+// - Network: Codex's sandbox blocks all network, loopback included, so a
+//   sandboxed agent could not reach the office API. Codex applies this key
+//   only in workspace-write, and it overrides a member's config.toml
+//   `network_access = false` (Nil's ruling, 2026-10-25: the sandbox limits
+//   files, not network). Read-only has no config key; its network goes on
+//   every turn/start (codexTurnSandboxPolicy).
 const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> = {
   "memories.use_memories": false,
   "memories.generate_memories": false,
+  "sandbox_workspace_write.network_access": true,
 };
+
+// The turn-level sandbox policy for a thread's sandbox mode, else null. Codex
+// 0.164 has no config key for read-only network access, only this turn/start
+// field. Codex keeps it for later turns, but thread/resume resets the thread
+// to the plain mode, so every turn/start sends it.
+export function codexTurnSandboxPolicy(
+  sandbox: string,
+): { type: "readOnly"; networkAccess: true } | null {
+  return sandbox === "read-only"
+    ? { type: "readOnly", networkAccess: true }
+    : null;
+}
 
 // The thread config of an agent session: the pins above and the remote MCP
 // servers Isomux registers (server/mcp-servers.ts) as `mcp_servers.<name>`
@@ -1068,6 +1088,9 @@ export class CodexSession implements BackendSession {
   private readonly shownToolCalls = new Set<string>();
   private capacityRetryCount = 0;
   private cancelCapacityRetry: (() => void) | null = null;
+  // The sandbox mode the thread runs with (effectiveCodexSandbox), set at
+  // bootstrap. Picks the turn-level policy in turnStartParams.
+  private effectiveSandbox = "";
   // jsonRpcId-keyed map of in-flight server-initiated approval requests. The
   // orchestrator references these by approvalId == jsonRpcId.
   private pendingApprovals = new Map<string, PendingApproval>();
@@ -1207,6 +1230,7 @@ export class CodexSession implements BackendSession {
       const sandboxChoice = await effectiveCodexSandbox(
         this.opts.sandbox ?? CODEX_DEFAULT_SANDBOX,
       );
+      this.effectiveSandbox = sandboxChoice.sandbox;
       // The thread stores its collaboration mode, so a resumed thread can
       // already be in plan mode.
       let threadInPlanMode = false;
@@ -1404,10 +1428,7 @@ export class CodexSession implements BackendSession {
     // - the orchestrator would surface a bogus mid-turn failure.
     this.turnStarting = true;
     try {
-      await this.client.request("turn/start", {
-        threadId: this.threadId,
-        input,
-      });
+      await this.client.request("turn/start", this.turnStartParams(input));
     } catch (err) {
       // If turn/start itself rejects with an auth-shaped error (a future
       // codex revision could pre-check auth before accepting the turn),
@@ -1511,6 +1532,16 @@ export class CodexSession implements BackendSession {
     return true;
   }
 
+  // The params of every turn/start: a user turn and a capacity retry.
+  private turnStartParams(input: unknown[]): Record<string, unknown> {
+    const sandboxPolicy = codexTurnSandboxPolicy(this.effectiveSandbox);
+    return {
+      threadId: this.threadId,
+      input,
+      ...(sandboxPolicy ? { sandboxPolicy } : {}),
+    };
+  }
+
   private retryCapacityTurn(delayMs: number): void {
     const retryNumber = this.capacityRetryCount;
     this.enqueue({
@@ -1530,7 +1561,7 @@ export class CodexSession implements BackendSession {
       // The failed turn already persisted the original user item. An empty
       // turn asks Codex to run from that history without appending it again.
       void this.client
-        .request("turn/start", { threadId: this.threadId, input: [] })
+        .request("turn/start", this.turnStartParams([]))
         .then(() => {
           this.turnStarting = false;
           this.turnInFlight = true;

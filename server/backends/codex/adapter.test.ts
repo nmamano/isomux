@@ -412,17 +412,20 @@ describe("CodexSession bootstrap", () => {
     // No sandbox setting means full access. Backend-native memory is off
     // (task 3f6ff5e0): both keys are EXPLICIT false values, because an absent
     // key passes only while the upstream default is off, and Codex ignores
-    // an unknown key silently, so the dotted spelling is pinned too.
+    // an unknown key silently, so the dotted spelling is pinned too. The
+    // same holds for the workspace-write network key (task ed37245c): Codex
+    // applies it only in workspace-write, so every thread carries it.
     expect(fake.requests[0].params).toMatchObject({
       sandbox: "danger-full-access",
       config: {
         "memories.use_memories": false,
         "memories.generate_memories": false,
+        "sandbox_workspace_write.network_access": true,
       },
     });
     expect(
       Object.keys((fake.requests[0].params as { config: object }).config),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   it("resume: uses thread/resume and surfaces the resumed thread id", async () => {
@@ -498,6 +501,7 @@ describe("CodexSession bootstrap", () => {
       expect((request.params as { config: unknown }).config).toEqual({
         "memories.use_memories": false,
         "memories.generate_memories": false,
+        "sandbox_workspace_write.network_access": true,
         "mcp_servers.isomux-docs": mcpEntry,
       });
     }
@@ -520,6 +524,99 @@ describe("CodexSession bootstrap", () => {
     expect(err).toBeInstanceOf(BackendNotConfiguredError);
     expect((err as Error).message).toMatch(/401 Unauthorized/);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Network in a Codex sandbox (task ed37245c)
+// ---------------------------------------------------------------------------
+// Codex's sandbox blocks the network, loopback included, so a sandboxed agent
+// could not reach the office API. Workspace-write gets network from the
+// thread config key (pinned in the bootstrap tests). Read-only has no config
+// key in Codex 0.164: only a turn-level sandboxPolicy turns it on, and a
+// thread/resume resets the thread to the plain mode, so every turn/start of a
+// read-only session carries it.
+describe("CodexSession sandbox network", () => {
+  const READ_ONLY_WITH_NETWORK = { type: "readOnly", networkAccess: true };
+
+  function turnStarts(fake: FakeCodexTransport): Record<string, unknown>[] {
+    return fake.requests
+      .filter((r) => r.method === "turn/start")
+      .map((r) => r.params as Record<string, unknown>);
+  }
+
+  for (const resume of [false, true]) {
+    const method = resume ? "thread/resume" : "thread/start";
+    it(`read-only after ${method}: every turn/start asks for network`, async () => {
+      const { session, fake, it } = await bootstrapped(undefined, {
+        sandbox: "read-only",
+        ...(resume ? { resumeThreadId: FIXTURE_THREAD_ID } : {}),
+      });
+      expect(fake.requests[0]).toMatchObject({
+        method,
+        params: { sandbox: "read-only" },
+      });
+      await session.send("first");
+      fake.fireNotification("turn/completed", {
+        threadId: FIXTURE_THREAD_ID,
+        turn: { id: "turn-1", status: "completed" },
+      });
+      expectKind(await nextEvent(it, "first turn end"), "turn_completed");
+      await session.send("second");
+      const starts = turnStarts(fake);
+      expect(starts).toHaveLength(2);
+      for (const params of starts)
+        expect(params.sandboxPolicy).toEqual(READ_ONLY_WITH_NETWORK);
+    });
+  }
+
+  it("read-only: the capacity retry's empty turn asks for network too", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      sandbox: "read-only",
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("do this once");
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "failed" },
+    });
+    expectKind(
+      await nextEvent(it, "capacity retry"),
+      "provider_capacity_retry",
+    );
+    await clock.runNext();
+    const starts = turnStarts(fake);
+    expect(starts).toHaveLength(2);
+    expect(starts[1].input).toEqual([]);
+    expect(starts[1].sandboxPolicy).toEqual(READ_ONLY_WITH_NETWORK);
+  });
+
+  // A turn-level workspaceWrite policy would replace the writable_roots of
+  // the member's config.toml with [], so these modes send none; workspace-
+  // write gets network from the thread config instead.
+  for (const sandbox of ["workspace-write", "danger-full-access"]) {
+    it(`${sandbox}: no turn-level sandbox policy`, async () => {
+      const { session, fake } = await bootstrapped(undefined, { sandbox });
+      const thread = fake.requests[0].params as {
+        sandbox: string;
+        config: Record<string, unknown>;
+      };
+      expect(thread.sandbox).toBe(sandbox);
+      expect(thread.config["sandbox_workspace_write.network_access"]).toBe(
+        true,
+      );
+      await session.send("hi");
+      const starts = turnStarts(fake);
+      expect(starts).toHaveLength(1);
+      expect(starts[0].sandboxPolicy ?? null).toBeNull();
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -586,6 +683,25 @@ describe("CodexSession sandbox in a container", () => {
       });
     });
   }
+
+  // The turn-level network policy follows the mode the thread really runs
+  // in (task ed37245c): a read-only agent that fell back to full access must
+  // not send a readOnly policy, which would sandbox it again.
+  it("a read-only agent that fell back to full access sends no turn-level sandbox policy", async () => {
+    await probeSays("denied");
+    const { session, fake } = await bootstrapped(undefined, {
+      sandbox: "read-only",
+    });
+    expect(fake.requests[0].params).toMatchObject({
+      sandbox: "danger-full-access",
+    });
+    await session.send("hi");
+    const turnStart = fake.requests.find((r) => r.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(
+      (turnStart!.params as { sandboxPolicy?: unknown }).sandboxPolicy ?? null,
+    ).toBeNull();
+  });
 
   // The topic labeller opens its own JsonRpcLiteClient (no transport seam),
   // so this is source-level, like the memories pin above. It runs no
