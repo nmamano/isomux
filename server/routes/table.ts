@@ -2269,12 +2269,19 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
     preconditions: ["validateEnvBodySelfSubject"],
   }),
+  // A POST, not a GET: listing models can start the member's backend and, for
+  // OpenCode, load the project config of cwd, so a page on another site must
+  // not trigger it (authenticate() checks Origin only on unsafe methods).
   defineRoute<
-    void,
+    { cwd: string; includeHidden?: boolean },
     { models: BackendModelWire[]; error?: string; authError?: boolean }
   >({
     opId: "backends.listModels",
-    method: "GET",
+    audit: {
+      owner: "none",
+      reason: "Listing a backend's models writes no office record.",
+    },
+    method: "POST",
     path: "/api/backends/:agentType/models",
     auth: cap("agent:manage", operationalAuthenticated),
     emits: [],

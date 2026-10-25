@@ -299,7 +299,7 @@ export function CronjobDialog({
 
   // Fetch the auth-appropriate Codex model list. Fires when the dialog opens
   // on a Codex cronjob, or when the user flips the Engine select to Codex.
-  // GET backends.listModels: a DOMAIN failure (auth/transport in the executor's
+  // POST backends.listModels: a DOMAIN failure (auth/transport in the executor's
   // model probe) comes back as a 200 carrying { models: [], authError, error },
   // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
   // failure reaches .catch().
@@ -317,7 +317,8 @@ export function CronjobDialog({
     /* eslint-enable react-hooks/set-state-in-effect */
     if (engineUnavailable) return;
     fetchBackendModels(
-      `/api/backends/${encodeURIComponent(agentType)}/models?cwd=${encodeURIComponent(cwd)}`,
+      `/api/backends/${encodeURIComponent(agentType)}/models`,
+      { cwd },
       { onStarting: () => !cancelled && setModelsStarting(true) },
     )
       .then((r) => {

@@ -130,10 +130,12 @@ describe("OpenCode launch env", () => {
         "edit forked the session",
       );
 
-      const res = await srv.http(
-        `/api/backends/opencode/models?cwd=${encodeURIComponent(STATE_ROOT)}&includeHidden=true`,
-        { rawSessionId: owner.rawSessionId },
-      );
+      const res = await srv.http("/api/backends/opencode/models", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: STATE_ROOT, includeHidden: true }),
+      });
       expect(res.status).toBe(200);
       expect(listed[0]).toMatchObject({ cwd: STATE_ROOT, includeHidden: true });
 

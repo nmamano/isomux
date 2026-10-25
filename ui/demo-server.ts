@@ -2503,7 +2503,7 @@ export async function demoApi(
 ): Promise<unknown> {
   ensureSeeded();
   // Split the query string off before matching: query/param routes (e.g.
-  // backends.listModels carries ?cwd=) can't be matched by exact full-path.
+  // the audit log reads carry filters) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
   if (route === "GET /api/audit-log") {
@@ -3318,7 +3318,7 @@ export async function demoApi(
   // Param routes (matched by shape, since the id/agentType segment varies).
   // backends.listModels - the demo has no backend process to probe; an empty
   // list makes the model dialog fall back to its hardcoded CODEX_MODELS list.
-  if (method === "GET" && /^\/api\/backends\/[^/]+\/models$/.test(pathname)) {
+  if (method === "POST" && /^\/api\/backends\/[^/]+\/models$/.test(pathname)) {
     return { models: [] };
   }
   // cron.getRun - return the fixture transcript for the matching run.

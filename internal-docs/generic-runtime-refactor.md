@@ -323,7 +323,7 @@ The login HTML flow (`GET /`, `POST /auth/claim`, `GET /i/:token`, `POST /auth/a
 | `office.setSettings` | PUT `/api/office/settings` | `office:admin` | `officeOwner` | `OfficeSettingsReq` | `204` | `office_settings_updated` | WS:update_office_settings `[strangle]`, `[delete]` settings_save_response; the `office_settings_updated` event carries public `name`/`prompt` only (`envFile` stays owner-only via `office.getSettings`) |
 | `validate.cwd` | POST `/api/validate/cwd` | `agent:manage` | `authenticated` | `ValidateCwdReq` | `{ ok, error? }` | - | WS:request_cwd_validation `[strangle]`, `[delete]` cwd_validation |
 | `validate.env` | POST `/api/validate/env` | `office:read` | office/other-user ⇒ `officeOwner`; own ⇒ `selfUser` | `ValidateEnvReq` | `{ ok, keyCount?, error? }` | - | WS:request_settings_validation `[strangle]`, `[delete]` settings_validation; the resolved env-file path is omitted from the response by design |
-| `backends.listModels` | GET `/api/backends/:agentType/models?cwd=&includeHidden=` | `agent:manage` | `authenticated` | - | `{ models: BackendModelWire[], authError? }` | - | WS:list_backend_models `[strangle]`, `[delete]` list_backend_models_response |
+| `backends.listModels` | POST `/api/backends/:agentType/models` | `agent:manage` | `authenticated` | `{ cwd, includeHidden? }` | `{ models: BackendModelWire[], authError? }` | - | WS:list_backend_models `[strangle]`, `[delete]` list_backend_models_response |
 
 **Tasks** (global shared board; `createdBy` + `username` derived from token, `assignee` from body)
 

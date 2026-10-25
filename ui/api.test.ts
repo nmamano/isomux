@@ -51,13 +51,10 @@ describe("apiFetch", () => {
 
   it("omits body + Content-Type on a bodyless call", async () => {
     let seenInit: RequestInit | undefined;
-    mockFetch(
-      new Response(JSON.stringify({ models: [] }), { status: 200 }),
-      (_p, i) => {
-        seenInit = i;
-      },
-    );
-    await apiFetch("GET", "/api/backends/codex/models");
+    mockFetch(new Response(JSON.stringify([]), { status: 200 }), (_p, i) => {
+      seenInit = i;
+    });
+    await apiFetch("GET", "/api/tasks");
     expect(seenInit?.method).toBe("GET");
     expect(seenInit?.body).toBeUndefined();
     expect(seenInit?.headers).toBeUndefined();

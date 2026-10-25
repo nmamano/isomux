@@ -18,8 +18,17 @@ export interface BackendModelsResponse {
   error?: string;
 }
 
+// The backends.listModels body: the folder the agent or schedule runs in.
+export interface BackendModelsRequest {
+  cwd: string;
+}
+
 interface FetchBackendModelsOptions {
-  fetchFn?: (method: "GET", path: string) => Promise<BackendModelsResponse>;
+  fetchFn?: (
+    method: "POST",
+    path: string,
+    body: BackendModelsRequest,
+  ) => Promise<BackendModelsResponse>;
   retries?: number;
   retryDelayMs?: number;
   sleepFn?: (ms: number) => Promise<void>;
@@ -39,6 +48,7 @@ export const BACKEND_MODEL_STARTING_DELAY_MS = 4_000;
 
 export async function fetchBackendModels(
   path: string,
+  body: BackendModelsRequest,
   opts: FetchBackendModelsOptions = {},
 ): Promise<BackendModelsResponse> {
   const fetchFn = opts.fetchFn ?? apiFetch<BackendModelsResponse>;
@@ -56,7 +66,7 @@ export async function fetchBackendModels(
   try {
     for (let attempt = 0; ; attempt++) {
       try {
-        const result = await fetchFn("GET", path);
+        const result = await fetchFn("POST", path, body);
         if (!result.error || result.authError || attempt >= retries)
           return result;
       } catch (error) {

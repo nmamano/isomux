@@ -13,22 +13,59 @@ import { effortLevelsFor, type BackendModelWire } from "../shared/types.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 
 const noSleep = async () => {};
+const PROJECT = { cwd: "/work/project" };
 
 describe("fetchBackendModels", () => {
+  // Listing models can start a backend for cwd, so the request is a POST with
+  // the cwd in the body: the server's Origin check covers it (task 77ec7e9d).
+  it("sends a POST with the cwd in the JSON body on every attempt, through apiFetch", async () => {
+    const realFetch = globalThis.fetch;
+    const sent: { url: string; method?: string; body: unknown }[] = [];
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      sent.push({
+        url: String(input),
+        method: init?.method,
+        body:
+          typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+      });
+      return sent.length === 1
+        ? new Response("", { status: 503 })
+        : Response.json({ models: [] });
+    }) as typeof fetch;
+    try {
+      const result = await fetchBackendModels(
+        "/api/backends/opencode/models",
+        PROJECT,
+        { sleepFn: noSleep },
+      );
+      expect(result).toEqual({ models: [] });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(sent).toEqual([
+      { url: "/api/backends/opencode/models", method: "POST", body: PROJECT },
+      { url: "/api/backends/opencode/models", method: "POST", body: PROJECT },
+    ]);
+  });
+
   it("reports a slow first attempt before that request settles", async () => {
     let finishFetch!: (result: { models: never[] }) => void;
     let settled = false;
     let starting = false;
-    const request = fetchBackendModels("/api/backends/opencode/models", {
-      fetchFn: () =>
-        new Promise((resolve) => {
-          finishFetch = resolve;
-        }),
-      startingDelayMs: 5,
-      onStarting: () => {
-        starting = true;
+    const request = fetchBackendModels(
+      "/api/backends/opencode/models",
+      PROJECT,
+      {
+        fetchFn: () =>
+          new Promise((resolve) => {
+            finishFetch = resolve;
+          }),
+        startingDelayMs: 5,
+        onStarting: () => {
+          starting = true;
+        },
       },
-    }).finally(() => {
+    ).finally(() => {
       settled = true;
     });
 
@@ -42,15 +79,19 @@ describe("fetchBackendModels", () => {
   it("retries transport failures and then succeeds", async () => {
     let attempts = 0;
     let retries = 0;
-    const result = await fetchBackendModels("/api/backends/opencode/models", {
-      fetchFn: async () => {
-        attempts++;
-        if (attempts < 3) throw new TypeError("network failed");
-        return { models: [] };
+    const result = await fetchBackendModels(
+      "/api/backends/opencode/models",
+      PROJECT,
+      {
+        fetchFn: async () => {
+          attempts++;
+          if (attempts < 3) throw new TypeError("network failed");
+          return { models: [] };
+        },
+        sleepFn: noSleep,
+        onStarting: () => retries++,
       },
-      sleepFn: noSleep,
-      onStarting: () => retries++,
-    });
+    );
 
     expect(result).toEqual({ models: [] });
     expect(attempts).toBe(3);
@@ -60,7 +101,7 @@ describe("fetchBackendModels", () => {
   it("retries 5xx responses and gives up after the bounded attempts", async () => {
     let attempts = 0;
     expect(
-      fetchBackendModels("/api/backends/opencode/models", {
+      fetchBackendModels("/api/backends/opencode/models", PROJECT, {
         fetchFn: async () => {
           attempts++;
           throw new ApiError(502, "http_502", "Bad gateway");
@@ -73,13 +114,17 @@ describe("fetchBackendModels", () => {
 
   it("does not retry an authentication failure", async () => {
     let attempts = 0;
-    const result = await fetchBackendModels("/api/backends/opencode/models", {
-      fetchFn: async () => {
-        attempts++;
-        return { models: [], error: "Sign in", authError: true };
+    const result = await fetchBackendModels(
+      "/api/backends/opencode/models",
+      PROJECT,
+      {
+        fetchFn: async () => {
+          attempts++;
+          return { models: [], error: "Sign in", authError: true };
+        },
+        sleepFn: noSleep,
       },
-      sleepFn: noSleep,
-    });
+    );
 
     expect(result.authError).toBe(true);
     expect(attempts).toBe(1);
@@ -88,7 +133,7 @@ describe("fetchBackendModels", () => {
   it("does not retry a non-server HTTP failure", async () => {
     let attempts = 0;
     expect(
-      fetchBackendModels("/api/backends/opencode/models", {
+      fetchBackendModels("/api/backends/opencode/models", PROJECT, {
         fetchFn: async () => {
           attempts++;
           throw new ApiError(403, "forbidden", "Forbidden");

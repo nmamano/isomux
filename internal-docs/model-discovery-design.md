@@ -48,7 +48,7 @@ So for Claude the rule is: show a model only when the bundled SDK's `supportedMo
 
 ## When discovery runs and how it is cached
 
-- Claude: the server runs one `supportedModels()` probe per environment key (the same key `listModels` gets) at the first `GET /api/backends/claude/models`, and caches the result in memory for an hour. Each live Claude session also reports `initializationResult().models` at start; that refreshes the cache for free. A failed probe falls back to the static rows and is not cached.
+- Claude: the server runs one `supportedModels()` probe per environment key (the same key `listModels` gets) at the first `POST /api/backends/claude/models`, and caches the result in memory for an hour. Each live Claude session also reports `initializationResult().models` at start; that refreshes the cache for free. A failed probe falls back to the static rows and is not cached.
 - Codex: keep the per-request `model/list` (1-2 s, the call already exists). Add the same one-hour in-memory cache per environment key so every dialog open does not spawn a subprocess.
 - OpenCode: unchanged.
 - Nothing persists to disk. Each engine's own cache (`models_cache.json`, the CLI catalog cache) already survives restarts.

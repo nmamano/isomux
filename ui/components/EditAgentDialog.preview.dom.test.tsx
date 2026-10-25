@@ -66,7 +66,7 @@ describe("agent form prompt preview", () => {
         if (method === "GET" && path.startsWith("/api/memory"))
           return { text: "Saved memory", version: "v1", size: 12, cap: 5000 };
         // The Codex form lists its engine's models.
-        if (method === "GET" && path.startsWith("/api/backends/"))
+        if (method === "POST" && path.startsWith("/api/backends/"))
           return { models: [] };
         writes.push({ method, path, body });
         if (path === "/api/agents/system-prompt-preview")

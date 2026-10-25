@@ -164,7 +164,7 @@ import {
   trustedProxy,
   type RequestSource,
 } from "./proxy-trust.ts";
-import { resolveCwd } from "./cwd-utils.ts";
+import { validateCwd } from "./cwd-utils.ts";
 import {
   modelFamilyMismatchError,
   resolveInteractiveModelSelection,
@@ -2256,7 +2256,7 @@ async function checkOpenCodeAgentModels(): Promise<void> {
 }
 
 // backends.listModels. Resolves the per-user env stack and
-// cwd EXACTLY like a real spawn (so office and managed personal variable overrides are reflected),
+// checks the cwd EXACTLY like a real spawn (so office and managed personal variable overrides are reflected),
 // lists, and maps to the wire shape. On failure, flags backend-specific auth
 // errors via detectAuthError so the UI can render login instructions.
 async function listBackendModels(input: {
@@ -2271,15 +2271,14 @@ async function listBackendModels(input: {
 > {
   try {
     const backend = getBackend(input.agentType as AgentBackendType);
+    // The spawn check: an existing directory. Throws before any backend starts.
+    const cwd = validateCwd(input.cwd);
     const env =
       input.agentType === "opencode"
         ? agentManager.buildOpenCodeLaunchEnvironmentForUserId(input.userId)
         : agentManager.buildEnvForUserId(input.userId);
     const models = await backend.listModels({
-      // The codex subprocess's cwd must be a real directory or posix_spawn fails
-      // with ENOENT before our error path can clean up - resolve `~` here the
-      // same way agentManager.spawn does before persisting.
-      cwd: resolveCwd(input.cwd),
+      cwd,
       env,
       environmentKey: agentManager.environmentSourceKeyForUserId(input.userId),
       environmentRevision: agentManager.environmentSourceRevisionForUserId(

@@ -729,7 +729,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // Fetch the auth-appropriate model list for dynamic-model backends. Fires once when
   // the dialog opens (spawn or edit). Re-fetches if `agentType` flips to
   // codex - though in practice the agentType picker is locked at spawn.
-  // GET backends.listModels: a DOMAIN failure (auth/transport in the executor's
+  // POST backends.listModels: a DOMAIN failure (auth/transport in the executor's
   // model probe) comes back as a 200 carrying { models: [], authError, error },
   // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
   // failure reaches .catch().
@@ -748,7 +748,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     /* eslint-enable react-hooks/set-state-in-effect */
     if (engineUnavailable) return;
     fetchBackendModels(
-      `/api/backends/${encodeURIComponent(targetEngine)}/models?cwd=${encodeURIComponent(cwd)}`,
+      `/api/backends/${encodeURIComponent(targetEngine)}/models`,
+      { cwd },
       { onStarting: () => !cancelled && setModelsStarting(true) },
     )
       .then((r) => {
