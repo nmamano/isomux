@@ -62,6 +62,12 @@ const heightDescriptor = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   "scrollHeight",
 );
+const clientDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "clientHeight",
+);
+// The height a two-line clamp shows.
+const CLAMP_HEIGHT = 40;
 const OriginalObserver = globalThis.ResizeObserver;
 const observed = new Map<Element, () => void>();
 let measuredHeight = 300;
@@ -69,8 +75,12 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get() {
-      return this.textContent?.startsWith("Long ") ? measuredHeight : 20;
+      return this.textContent?.includes("Long ") ? measuredHeight : 20;
     },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => CLAMP_HEIGHT,
   });
   globalThis.ResizeObserver = class {
     constructor(private callback: () => void) {}
@@ -95,6 +105,13 @@ afterEach(() => {
       heightDescriptor,
     );
   else Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+  if (clientDescriptor)
+    Object.defineProperty(
+      HTMLElement.prototype,
+      "clientHeight",
+      clientDescriptor,
+    );
+  else Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
 });
 beforeEach(() => {
   measuredHeight = 300;
@@ -150,9 +167,13 @@ describe("inbound message height", () => {
     const view = render(mount(logs));
     const buttons = view.getAllByRole("button", { name: EXPAND });
     expect(buttons).toHaveLength(2);
-    expect(parseFloat(body(buttons[0]).style.maxHeight)).toBeCloseTo(124.8);
+    // The agent's message is clamped by lines (happy-dom drops the line
+    // clamp itself), the app's to six lines' height.
     expect(body(buttons[0]).style.overflow).toBe("hidden");
-    fireEvent.click(buttons[0]);
+    expect(body(buttons[0]).style.maxHeight).toBe("");
+    expect(parseFloat(body(buttons[1]).style.maxHeight)).toBeCloseTo(124.8);
+    expect(body(buttons[1]).style.overflow).toBe("hidden");
+    fireEvent.click(buttons[1]);
     const collapse = view.getByRole("button", { name: COLLAPSE });
     expect(collapse.getAttribute("aria-expanded")).toBe("true");
     expect(body(collapse).style.maxHeight).toBe("");
@@ -171,7 +192,7 @@ describe("inbound message height", () => {
 
   it("expands when keyboard focus reaches a clipped attachment and keeps it open on later focus", () => {
     const withFile = {
-      ...peer,
+      ...app,
       attachments: [
         {
           filename: "report.txt",
@@ -217,12 +238,12 @@ describe("inbound message height", () => {
   });
 
   it("uses a six-line phone preview and translates both controls", () => {
-    const view = render(mount([peer], null, true));
+    const view = render(mount([app], null, true));
     const expand = view.getByRole("button", { name: EXPAND });
     expect(body(expand).style.maxHeight).toBe("144px");
     for (const language of [null, "es"] as const) {
       const { expand: open, collapse: close } = controls(language);
-      view.rerender(mount([peer], language, true));
+      view.rerender(mount([app], language, true));
       fireEvent.click(view.getByRole("button", { name: open }));
       fireEvent.click(view.getByRole("button", { name: close }));
       expect(

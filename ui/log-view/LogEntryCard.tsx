@@ -35,6 +35,7 @@ import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { SecretRequestCard } from "./SecretRequestCard.tsx";
 import { BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
 import { IsomuxCurlHeader, IsomuxCurlFields } from "./IsomuxCurlSummary.tsx";
+import { AgentAvatar, AgentLink, MemberAvatar } from "./chat-avatars.tsx";
 import {
   commandForPermissionDenial,
   isFoldedToolResult,
@@ -552,8 +553,40 @@ export const LogEntryCard = memo(function LogEntryCard({
           />
         );
       }
+      // A message from another agent: one compact row. From a member: their
+      // avatar before the name.
+      const senderAgentName = entry.metadata?.sender_agent_name as
+        | string
+        | undefined;
+      if (senderAgentName) {
+        return (
+          <PeerMessage
+            content={content}
+            agentId={entry.metadata?.sender_agent_id as string | undefined}
+            agentName={senderAgentName}
+            room={entry.metadata?.sender_agent_room as string | undefined}
+            isMobile={isMobile}
+            expanded={!!messageExpanded}
+            onToggle={
+              onToggleMessage ? () => onToggleMessage(entry.id) : undefined
+            }
+            attachments={entry.attachments}
+            logAgentId={entry.agentId}
+            tasks={tasks}
+            onOpenTask={onOpenTask}
+            timestamp={entry.timestamp}
+          />
+        );
+      }
       return (
         <UserMessage
+          avatar={
+            fromHuman ? (
+              <MemberAvatar
+                username={entry.metadata?.username as string | undefined}
+              />
+            ) : undefined
+          }
           content={content}
           beforeContent={
             ask ? <AskLink ask={ask} isMobile={isMobile} /> : undefined
@@ -570,13 +603,8 @@ export const LogEntryCard = memo(function LogEntryCard({
           isMobile={isMobile}
           username={senderLabel}
           fromNonHuman={!fromHuman}
-          // Collapse peer and app reports; scheduled-job messages stay fully visible.
-          collapsible={
-            !!(
-              entry.metadata?.sender_agent_name ||
-              entry.metadata?.sender_app_name
-            )
-          }
+          // Collapse app reports; scheduled-job messages stay fully visible.
+          collapsible={!!entry.metadata?.sender_app_name}
           expanded={messageExpanded}
           onToggle={
             onToggleMessage ? () => onToggleMessage(entry.id) : undefined
@@ -974,7 +1002,15 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
   if (!turnEntries) return null;
   return (
-    <div style={{ position: "absolute", top: 8, right: 8 }}>
+    // Centred, so a one-row card holds it.
+    <div
+      style={{
+        position: "absolute",
+        top: "50%",
+        right: 8,
+        transform: "translateY(-50%)",
+      }}
+    >
       <CopyButton getText={getText} />
     </div>
   );
@@ -1227,6 +1263,176 @@ export function UserMessage({
         >
           {actions}
         </div>
+      )}
+    </div>
+  );
+}
+
+// A message from another agent, compact: the sender's avatar, linked name and
+// room lead the first line, the text follows on the same line with its line
+// breaks folded, and the chevron opens the full text.
+function PeerMessage({
+  content,
+  agentId,
+  agentName,
+  room,
+  isMobile,
+  expanded,
+  onToggle,
+  attachments,
+  logAgentId,
+  tasks,
+  onOpenTask,
+  timestamp,
+}: {
+  content: string;
+  agentId?: string;
+  agentName: string;
+  room?: string;
+  isMobile?: boolean;
+  expanded: boolean;
+  onToggle?: () => void;
+  attachments?: Attachment[];
+  logAgentId: string;
+  tasks?: TaskMap;
+  onOpenTask?: (id: string) => void;
+  timestamp: number;
+}) {
+  const { t } = useI18n();
+  const bodyId = useId();
+  const [overflows, setOverflows] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const getText = useCallback(() => content, [content]);
+  const fontSize = isMobile ? 14 : 13;
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || expanded) return;
+    const measure = () =>
+      setOverflows(
+        body.scrollHeight > body.clientHeight + 1 || content.includes("\n"),
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [content, expanded]);
+  const canToggle = !!onToggle && (overflows || expanded);
+  return (
+    <div
+      data-peer-message=""
+      style={{
+        margin: "4px 0",
+        padding: "5px 12px",
+        borderRadius: 8,
+        background: "var(--user-msg-bg)",
+        borderLeft: "3px dashed var(--text-muted)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div
+          ref={bodyRef}
+          id={bodyId}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontFamily: "var(--font-ui)",
+            fontSize,
+            lineHeight: 1.45,
+            color: "var(--text-secondary)",
+            overflowWrap: "break-word",
+            ...(expanded
+              ? { whiteSpace: "pre-wrap" }
+              : {
+                  display: "-webkit-box",
+                  WebkitLineClamp: isMobile ? 3 : 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }),
+          }}
+        >
+          <span
+            {...noTranslate()}
+            style={{
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              marginRight: 8,
+            }}
+          >
+            <span style={{ whiteSpace: "nowrap" }}>
+              <AgentAvatar agentId={agentId} />
+              <AgentLink agentId={agentId}>{agentName}</AgentLink>
+            </span>
+            {room && (expanded || !isMobile) && (
+              <span style={{ fontWeight: 400, color: "var(--text-faint)" }}>
+                {" "}
+                · {room}
+              </span>
+            )}
+          </span>
+          {expanded && "\n"}
+          <span {...noTranslate()}>
+            {!expanded ? (
+              content.replace(/\s*\n+\s*(?:[-*]\s+)?/g, " · ")
+            ) : tasks && onOpenTask ? (
+              <PlainTaskText
+                content={content}
+                tasks={tasks}
+                onOpen={onOpenTask}
+              />
+            ) : (
+              content
+            )}
+          </span>
+        </div>
+        <BubbleCorner timestamp={timestamp}>
+          {canToggle && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              title={t(
+                expanded
+                  ? "cards.userMessage.collapse"
+                  : "cards.userMessage.expand",
+              )}
+              onClick={onToggle}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 2,
+                cursor: "pointer",
+                color: "var(--text-muted)",
+                display: "flex",
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  transform: expanded ? "rotate(180deg)" : undefined,
+                  transition: "transform 0.15s",
+                }}
+              >
+                <path d="M4 6l4 4 4-4" />
+              </svg>
+            </button>
+          )}
+          <CopyButton getText={getText} />
+        </BubbleCorner>
+      </div>
+      {attachments && attachments.length > 0 && (
+        <AttachmentDisplay
+          attachments={attachments}
+          agentId={logAgentId}
+          isMobile={isMobile}
+          hasContent={!!content}
+        />
       )}
     </div>
   );

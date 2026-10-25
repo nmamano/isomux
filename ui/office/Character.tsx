@@ -514,11 +514,15 @@ export function Character({
   portrait = false,
   height = CHARACTER_GEOMETRY.height,
   sweating = false,
+  headCrop,
 }: {
   state: AgentState;
   outfit: AgentOutfit;
   portrait?: boolean;
   height?: number;
+  /** A square crop around the head, this many pixels wide, for a chat
+   *  avatar. */
+  headCrop?: number;
   /** Only read while the agent is mid-turn: the caller decides when a
    *  working stretch has run long enough. */
   sweating?: boolean;
@@ -538,19 +542,29 @@ export function Character({
   const faceLightId = `face-light-${uid}`;
   const faceClipId = `face-clip-${uid}`;
 
-  const wrap = (children: React.ReactNode, anim?: React.CSSProperties) => (
-    <svg
-      width={Math.round(
-        (CHARACTER_GEOMETRY.width / CHARACTER_GEOMETRY.height) * height,
-      )}
-      height={height}
-      viewBox={`0 0 ${CHARACTER_GEOMETRY.width} ${CHARACTER_GEOMETRY.height}`}
-      overflow="visible"
-      style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))", ...anim }}
-    >
-      {children}
-    </svg>
-  );
+  const wrap = (children: React.ReactNode, anim?: React.CSSProperties) =>
+    headCrop ? (
+      <svg
+        width={headCrop}
+        height={headCrop}
+        viewBox="10 21 32 32"
+        style={{ display: "block" }}
+      >
+        {children}
+      </svg>
+    ) : (
+      <svg
+        width={Math.round(
+          (CHARACTER_GEOMETRY.width / CHARACTER_GEOMETRY.height) * height,
+        )}
+        height={height}
+        viewBox={`0 0 ${CHARACTER_GEOMETRY.width} ${CHARACTER_GEOMETRY.height}`}
+        overflow="visible"
+        style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))", ...anim }}
+      >
+        {children}
+      </svg>
+    );
 
   if (vs === "idle" || portrait) {
     const hCx = 26,

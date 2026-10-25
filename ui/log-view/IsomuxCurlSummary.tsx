@@ -2,6 +2,13 @@ import type { IsomuxCurlRequest } from "./isomux-curl.ts";
 import { humanizeIsomuxRequest, pipeTailForDisplay } from "./isomux-curl.ts";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { noTranslate } from "../no-translate.ts";
+import {
+  AgentAvatar,
+  AgentLink,
+  messageTargetId,
+  messageText,
+} from "./chat-avatars.tsx";
 
 // Ports the isomux server may be reachable on from the agent's shell. 4000 is
 // the documented default; window.location.port covers offices that serve the
@@ -42,6 +49,14 @@ export function IsomuxCurlHeader({
       req,
       (id) => agents.find((a) => a.id === id)?.name ?? null,
     ) ?? (req.actionKey ? i18n.t(req.actionKey) : null);
+  // A message to another agent: its avatar and linked name, and the text on
+  // the same row.
+  const targetId = messageTargetId(req);
+  const targetName = targetId
+    ? (agents.find((a) => a.id === targetId)?.name ?? null)
+    : null;
+  const at = label && targetName ? label.lastIndexOf(targetName) : -1;
+  const text = messageText(req);
   return (
     <>
       {/* Rendered exactly like the plain "Bash" tool name (same inherited
@@ -65,12 +80,23 @@ export function IsomuxCurlHeader({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            flex: 1,
+            flex: text ? "0 1 auto" : 1,
             minWidth: 40,
           }}
           title={`${req.method} ${req.path}`}
         >
-          {label}
+          {at >= 0 && targetName ? (
+            <>
+              {label.slice(0, at)}
+              <AgentAvatar agentId={targetId ?? undefined} />
+              <AgentLink agentId={targetId ?? undefined}>
+                {targetName}
+              </AgentLink>
+              {label.slice(at + targetName.length)}
+            </>
+          ) : (
+            label
+          )}
         </span>
       ) : (
         <span
@@ -80,12 +106,31 @@ export function IsomuxCurlHeader({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            flex: 1,
+            flex: text ? "0 1 auto" : 1,
             minWidth: 40,
           }}
           title={`${req.method} ${req.path}`}
         >
           {req.method} {req.path}
+        </span>
+      )}
+      {text && (
+        <span
+          {...noTranslate()}
+          data-message-text=""
+          style={{
+            color: "var(--text-dim)",
+            fontFamily: "var(--font-ui)",
+            fontSize: isMobile ? 14 : 12,
+            fontWeight: 400,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 40,
+          }}
+        >
+          {text}
         </span>
       )}
       {req.pipeTail && (
@@ -139,8 +184,12 @@ export function IsomuxCurlFields({
   const { t } = useI18n();
   const chips: Array<{ key: string | null; value: string; note?: boolean }> =
     [];
-  if (req.bodyFields && req.bodyFields.length > 0) {
-    for (const f of req.bodyFields.slice(0, MAX_FIELDS)) {
+  // The header row already shows a message's text.
+  const fields = messageText(req)
+    ? req.bodyFields?.filter((f) => f.key !== "text")
+    : req.bodyFields;
+  if (fields && fields.length > 0) {
+    for (const f of fields.slice(0, MAX_FIELDS)) {
       chips.push({ key: f.key, value: truncate(f.value, MAX_VALUE_CHARS) });
     }
   } else if (req.bodyRaw) {
@@ -174,7 +223,7 @@ export function IsomuxCurlFields({
     });
   }
   if (chips.length === 0) return null;
-  const hidden = (req.bodyFields?.length ?? 0) - MAX_FIELDS;
+  const hidden = (fields?.length ?? 0) - MAX_FIELDS;
   return (
     <span
       style={{
