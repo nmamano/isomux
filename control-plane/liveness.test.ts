@@ -76,11 +76,12 @@ describe("probeLiveness", () => {
 
 // The control probe decides whether a failed office reading is the office's
 // fault or the prober's own network. ok must mean "the prober reached the
-// outside world": one control host answering is enough, and a host that hangs
-// must count as failed within the deadline, because the control runs exactly
-// when the resolver is broken.
+// outside world" as deeply as an office probe does: one control host answering
+// is enough, and a host that hangs must count as failed within the deadline,
+// because the control runs exactly when the resolver is broken.
 describe("probeControl", () => {
   const never = () => new Promise<never>(() => {});
+  const answers = () => Promise.resolve(new Response("", { status: 200 }));
 
   test("one host resolving and accepting on 443 is enough", async () => {
     const r = await probeControl(
@@ -93,6 +94,7 @@ describe("probeControl", () => {
           port === 443
             ? Promise.resolve()
             : Promise.reject(new Error("refused")),
+        fetchImpl: answers,
       },
       ["down.example", "up.example"],
     );
@@ -109,6 +111,7 @@ describe("probeControl", () => {
             ? Promise.reject(new Error("SERVFAIL"))
             : Promise.resolve("192.0.2.2"),
         connect: () => Promise.reject(new Error("ECONNREFUSED")),
+        fetchImpl: answers,
       },
       ["a.example", "b.example"],
     );
@@ -126,6 +129,7 @@ describe("probeControl", () => {
         lookup: (h) =>
           h === "a.example" ? never() : Promise.resolve("192.0.2.3"),
         connect: never,
+        fetchImpl: answers,
       },
       ["a.example", "b.example"],
       50,
@@ -134,5 +138,86 @@ describe("probeControl", () => {
     expect(r.detail).toContain("a.example");
     expect(r.detail).toContain("b.example");
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  // 2026-10-25: under packet loss on the VPS a lookup and one TCP connect
+  // passed while the offices failed their TLS handshake, so their failures
+  // counted as strikes and three offices were raised. The control must
+  // complete an HTTPS exchange, as the office probe does.
+  test("a host that accepts on 443 but cannot complete an HTTPS exchange is not reachable; any HTTP answer is", async () => {
+    const hosts = ["a.example", "b.example"];
+    const asked: string[] = [];
+    const shallowOnly = await probeControl(
+      {
+        lookup: () => Promise.resolve("192.0.2.4"),
+        connect: () => Promise.resolve(),
+        fetchImpl: (url) => {
+          asked.push(url);
+          return Promise.reject(new Error("handshake reset"));
+        },
+      },
+      hosts,
+    );
+    expect(shallowOnly.ok).toBe(false);
+    expect(shallowOnly.detail).toContain("a.example");
+    expect(shallowOnly.detail).toContain("b.example");
+    expect(
+      asked.map((u) => `${new URL(u).protocol}//${new URL(u).hostname}`).sort(),
+    ).toEqual(["https://a.example", "https://b.example"]);
+
+    // The status is not checked: any answer means the exchange completed. Each
+    // body is cancelled, so the socket is not held open.
+    for (const status of [301, 404, 503]) {
+      let cancelled = false;
+      const r = await probeControl(
+        {
+          lookup: () => Promise.resolve("192.0.2.4"),
+          connect: () => Promise.resolve(),
+          fetchImpl: (url) =>
+            new URL(url).hostname === "a.example"
+              ? Promise.reject(new Error("handshake reset"))
+              : Promise.resolve(
+                  new Response(
+                    new ReadableStream({
+                      cancel() {
+                        cancelled = true;
+                      },
+                    }),
+                    { status },
+                  ),
+                ),
+        },
+        hosts,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect({ status, ok: r.ok, cancelled }).toEqual({
+        status,
+        ok: true,
+        cancelled: true,
+      });
+    }
+  });
+
+  test("a hanging HTTPS exchange fails within the deadline and is aborted when the probe returns", async () => {
+    // The lookup takes part of the deadline, so a fetch timer started after it
+    // would still be running when the probe has already given up.
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const started = Date.now();
+    const r = await probeControl(
+      {
+        lookup: () =>
+          new Promise((resolve) => setTimeout(() => resolve("192.0.2.5"), 20)),
+        connect: () => Promise.resolve(),
+        fetchImpl: (_url, init) => {
+          signals.push(init?.signal);
+          return never();
+        },
+      },
+      ["a.example", "b.example"],
+      50,
+    );
+    expect(r.ok).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(signals.map((s) => s?.aborted)).toEqual([true, true]);
   });
 });

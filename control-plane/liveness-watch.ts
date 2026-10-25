@@ -13,13 +13,15 @@
 // worse outcome than an alert nobody needed.
 //
 // A failed reading counts against the office only if the prober can reach the
-// outside world: when the control probe fails too, the outage is the prober's.
+// outside world: when the control probe fails too, the outage is the prober's,
+// and so is any failed reading for a while after it (PROBER_OUTAGE_HOLD_MS).
 
 import { raiseAttentionIn, clearAttentionIn } from "./attention.ts";
 import {
   LIVENESS_CLAIM_MS,
   LIVENESS_INTERVAL_MS,
   LIVENESS_STRIKES,
+  PROBER_OUTAGE_HOLD_MS,
   probeControl,
   probeLiveness,
   type ControlResult,
@@ -41,8 +43,18 @@ export const LIVENESS_REASON = "the office failed its liveness checks";
  */
 const NO_OPERATION = "";
 
+/** One prober's memory of its own network, kept across its passes. Per
+ * prober, because the network under test is the prober's own. */
+export interface ProberNetwork {
+  /** store.now() when this prober's control probe last failed or threw. */
+  lastOutageAt: number | null;
+}
+
 export interface WatchDeps extends LivenessDeps {
   holder: string;
+  /** Required: without it a failed reading right after an outage would count,
+   * and nothing would show the memory is missing. */
+  network: ProberNetwork;
   report?: (line: string) => void;
   /** The control probe run after each failing reading. Separate from
    * lookup/connect so a scripted office failure does not also fail it. */
@@ -78,25 +90,20 @@ export async function watchLiveness(
     if (!claimed) continue;
 
     const asset = await store.assetForInstance(instance.id);
-    // probeLiveness refuses a missing address on its own; this line only says
-    // why, because the stored reading carries no detail.
-    if (!asset?.ipv4) {
-      deps.report?.(
-        `liveness for ${instance.name}: no recorded IPv4, counted as a failed reading`,
-      );
-    }
     let rung: Rung;
+    // The stored reading carries no detail, so each failed reading's line
+    // says why it failed (a missing address included).
+    let detail: string;
     try {
       const result = await probeLiveness(instance.name, deps, asset?.ipv4);
       rung = result.rung;
+      detail = result.detail;
     } catch (err) {
       // A probe that throws is a probe that did not answer. It counts as a
       // failure rather than being dropped, because "we could not check" and
       // "it did not respond" are the same thing to the person waiting.
-      deps.report?.(
-        `liveness probe for ${instance.name} threw: ${messageOf(err)}`,
-      );
       rung = "tcp";
+      detail = `the probe threw: ${messageOf(err)}`;
     }
     probed++;
 
@@ -111,21 +118,32 @@ export async function watchLiveness(
         // We cannot tell the network is fine, so the office is not blamed.
         outage = `control probe threw: ${messageOf(err)}`;
       }
-      if (outage !== null) {
-        // The prober cannot reach the outside world either, so this reading
-        // says nothing about the office: no strike, no attention, and the
-        // customer keeps seeing the last real reading.
+      const at = store.now();
+      if (outage !== null) deps.network.lastOutageAt = at;
+      const since = deps.network.lastOutageAt;
+      // The control runs even inside the hold, so the memory stays current.
+      const held =
+        outage === null && since !== null && at - since < PROBER_OUTAGE_HOLD_MS;
+      if (outage !== null || held) {
+        // The prober cannot reach the outside world either, or could not a
+        // moment ago, so this reading says nothing about the office: no
+        // strike, no attention, and the customer keeps seeing the last real
+        // reading.
         const deferred = await store.deferLiveness(
           instance.id,
           claimed.version,
           deps.holder,
           store.now() + LIVENESS_INTERVAL_MS,
         );
+        const why =
+          outage !== null
+            ? `while the control probe also failed (${outage})`
+            : `${Math.round((at - since!) / 1000)}s after the control probe ` +
+              `last failed`;
         deps.report?.(
           deferred
-            ? `liveness for ${instance.name} failed at rung ${rung} while the ` +
-                `control probe also failed (${outage}); counted as a prober ` +
-                `outage, no strike`
+            ? `liveness for ${instance.name} failed at rung ${rung} ` +
+                `(${detail}) ${why}; counted as a prober outage, no strike`
             : `liveness for ${instance.name} was written by another prober; ` +
                 `discarding this reading rather than replaying it`,
         );
@@ -154,6 +172,13 @@ export async function watchLiveness(
           `discarding this reading rather than replaying it`,
       );
       continue;
+    }
+
+    if (rung !== "ok") {
+      deps.report?.(
+        `liveness for ${instance.name} failed at rung ${rung} (${detail}); ` +
+          `strike ${strikes}`,
+      );
     }
 
     // The reading is durable before attention moves, so a crash here leaves a

@@ -7,7 +7,11 @@ import {
   type ControlResult,
   type Rung,
 } from "./liveness.ts";
-import { LIVENESS_REASON, watchLiveness } from "./liveness-watch.ts";
+import {
+  LIVENESS_REASON,
+  type ProberNetwork,
+  watchLiveness,
+} from "./liveness-watch.ts";
 import { Store } from "./store.ts";
 import {
   openTestStore,
@@ -23,6 +27,9 @@ interface Bed {
   store: Store;
   instanceId: string;
   now: { value: number };
+  /** The prober's memory of its own outages, shared by every pass of this bed
+   * as cli.ts shares one across the passes of a process. */
+  network: ProberNetwork;
   /** One pass with a scripted probe outcome. The control probe passes unless
    * the pass is given one. */
   pass(rung: Rung, holder?: string, opts?: PassOptions): Promise<number>;
@@ -32,7 +39,14 @@ interface Bed {
 interface PassOptions {
   control?: () => Promise<ControlResult>;
   report?: (line: string) => void;
+  /** Another prober's memory instead of the bed's. */
+  network?: ProberNetwork;
 }
+
+const TLS_FAILURE = "handshake reset by peer";
+
+/** PROBER_OUTAGE_HOLD_MS, pinned: three liveness intervals. */
+const HOLD_MS = 3 * 60_000;
 
 const CONTROL_UP = async (): Promise<ControlResult> => ({
   ok: true,
@@ -70,13 +84,16 @@ async function bed(
       next_reconcile_at: now.value,
     });
   }
+  const network: ProberNetwork = { lastOutageAt: null };
   return {
     store,
     instanceId: "inst-1",
     now,
+    network,
     pass: async (rung, holder = "prober-a", opts = {}) =>
       await watchLiveness(store, {
         holder,
+        network: opts.network ?? network,
         // Never the default: it would reach the real network from a test.
         control: opts.control ?? CONTROL_UP,
         report: opts.report,
@@ -88,7 +105,7 @@ async function bed(
           if (rung === "tcp") throw new Error("refused");
         },
         fetchImpl: async () => {
-          if (rung === "tls") throw new Error("tls");
+          if (rung === "tls") throw new Error(TLS_FAILURE);
           return new Response("", { status: rung === "ok" ? 200 : 503 });
         },
       }),
@@ -286,8 +303,9 @@ describe("a prober outage is not the office's failure", () => {
     expect(row.strikes).toBe(0);
     expect(row.checked_at).toBeNull();
 
-    // One real failure, then a long outage.
-    b.now.value += LIVENESS_INTERVAL_MS;
+    // One real failure, once the outage is old enough to stop holding strikes,
+    // then a long outage.
+    b.now.value += HOLD_MS;
     await b.pass("tcp");
     const real = (await b.store.getLiveness("inst-1"))!;
     expect(real.strikes).toBe(1);
@@ -369,5 +387,125 @@ describe("a prober outage is not the office's failure", () => {
     const row = (await b.store.getLiveness("inst-1"))!;
     expect(row.claim_holder).toBe("prober-b");
     expect(row.claim_until).toBe(b.now.value + LIVENESS_CLAIM_MS);
+  });
+});
+
+// The control probe is a sample, not a verdict for the whole minute: on
+// 2026-10-25 it passed in the gaps of a packet-loss fault while an office
+// failed, and those readings counted until the office was raised. So a failed
+// reading soon after the prober's own outage is held too. The hold is three
+// intervals, not one: a held reading moves the office's next check one
+// interval on, so with a single office a one-interval hold never applies.
+// Pinned as a literal so the test does not move with the constant it guards.
+describe("a recent prober outage holds the office's strikes", () => {
+  const down = async (): Promise<ControlResult> => ({
+    ok: false,
+    detail: "one.one.one.one: timed out; dns.google: timed out",
+  });
+  const throws = async (): Promise<ControlResult> => {
+    throw new Error("control crashed");
+  };
+
+  test("a failed reading with a healthy control is held until three minutes after the control last failed, whether it failed or threw", async () => {
+    for (const [name, first] of [
+      ["failed", down],
+      ["threw", throws],
+    ] as const) {
+      for (const [offset, strikes] of [
+        [HOLD_MS - 1, 0],
+        [HOLD_MS, 1],
+      ] as const) {
+        const b = await bed();
+        const start = b.now.value;
+        await b.pass("tls", "prober-a", { control: first });
+        // The enabling condition: the first reading was the prober's outage.
+        expect(b.network.lastOutageAt).toBe(start);
+        expect((await b.store.getLiveness("inst-1"))!.checked_at).toBeNull();
+
+        b.now.value = start + offset;
+        const lines: string[] = [];
+        expect(
+          await b.pass("tls", "prober-a", {
+            report: (line) => lines.push(line),
+          }),
+        ).toBe(1);
+        const row = (await b.store.getLiveness("inst-1"))!;
+        expect({ name, offset, strikes: row.strikes }).toEqual({
+          name,
+          offset,
+          strikes,
+        });
+        // A held reading is not a reading: the row keeps nothing from it.
+        expect({ name, offset, checked: row.checked_at !== null }).toEqual({
+          name,
+          offset,
+          checked: strikes > 0,
+        });
+        expect(
+          lines.filter((l) => l.includes("cp1.test.isomux.app")),
+        ).toHaveLength(1);
+      }
+    }
+  });
+
+  test("a control that flaps never lets one failing office be raised, and the raise comes on time once it stops", async () => {
+    const b = await bed();
+    // Every rung that consults the control is held the same way.
+    const rungs: Rung[] = ["tls", "readyz", "tcp", "dns"];
+    for (let i = 0; i < 12; i++) {
+      // The control fails one reading in three, and passes in between.
+      const control = i % 3 === 0 ? down : CONTROL_UP;
+      expect(
+        await b.pass(rungs[i % rungs.length], "prober-a", { control }),
+      ).toBe(1);
+      expect({
+        i,
+        strikes: (await b.store.getLiveness("inst-1"))!.strikes,
+      }).toEqual({ i, strikes: 0 });
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    expect(await b.reasons()).toEqual([]);
+
+    // The last control failure was at reading 9, three intervals ago: from
+    // here every failed reading counts, and the third raises.
+    const lastOutage = b.network.lastOutageAt!;
+    expect(b.now.value - lastOutage).toBe(HOLD_MS);
+    for (const strikes of [1, 2, 3]) {
+      await b.pass("tls");
+      expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(strikes);
+      expect(await b.reasons()).toEqual(strikes < 3 ? [] : ["critical"]);
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+  });
+
+  test("the memory belongs to the prober whose control failed", async () => {
+    // Another prober's network was fine, so its failed reading counts.
+    const b = await bed();
+    await b.pass("tls", "prober-a", { control: down });
+    b.now.value += LIVENESS_INTERVAL_MS;
+    const other: ProberNetwork = { lastOutageAt: null };
+    await b.pass("tls", "prober-b", { network: other });
+    expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(1);
+    expect(other.lastOutageAt).toBeNull();
+  });
+
+  test("a failed reading that counts says so, per office, with its rung and the probe's detail", async () => {
+    // Before, only held readings wrote a line, so on 2026-10-25 the strikes
+    // that raised three offices left no trace and the cause was inferred.
+    const b = await bed();
+    const lines: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await b.pass("tls", "prober-a", { report: (line) => lines.push(line) });
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    const counted = lines.filter(
+      (l) =>
+        l.includes("cp1.test.isomux.app") &&
+        l.includes("tls") &&
+        l.includes(TLS_FAILURE),
+    );
+    expect(counted).toHaveLength(2);
+    // The two lines differ only by what changed between them: the strike.
+    expect(counted[0]).not.toBe(counted[1]);
   });
 });

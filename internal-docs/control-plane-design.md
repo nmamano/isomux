@@ -894,10 +894,13 @@ call it unreachable, and **reboot is never automatic**: a box that fails
 liveness gets a human, because the failure may be ours.
 
 A failed check is also tested against the prober's own network: right after it,
-the watcher probes the outside hosts in `CONTROL_HOSTS`
+the watcher sends an HTTPS request to the outside hosts in `CONTROL_HOSTS`
 (`control-plane/liveness.ts`). If none answers, the check counts as a prober
 outage: no strike, no attention, and the office keeps its last real reading
-(the 2026-10-18 VPS network loss raised every live office). There is no "every
+(the 2026-10-18 VPS network loss raised every live office). A failed check
+within three minutes of the prober's last outage counts as a prober outage too,
+because under packet loss the control passes between losses while offices fail
+(2026-10-25: three offices raised). There is no "every
 office failed at once" gate: a break in our own zone fails every office while
 the outside hosts still answer, and that outage must reach a human.
 

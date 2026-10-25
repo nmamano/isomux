@@ -78,7 +78,7 @@ import {
   ensureInstance as ensureInstanceRow,
 } from "./instance.ts";
 import { InviteHold } from "./invite-hold.ts";
-import { watchLiveness } from "./liveness-watch.ts";
+import { type ProberNetwork, watchLiveness } from "./liveness-watch.ts";
 import { watchCertificateContact } from "./certificate-contact-watch.ts";
 import { WELCOME_MAIL_KEY_ENV, welcomeMailConfigured } from "./welcome-mail.ts";
 import { watchWelcomeMail } from "./welcome-mail-watch.ts";
@@ -913,6 +913,9 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   reporter.line(`provider-configured ${providerConfigured}`);
   // Off while WELCOME_MAIL_SENDING is false, and without the key.
   const welcomeMail = welcomeMailConfigured();
+  // One per process: the liveness passes share what this prober saw of its
+  // own network.
+  const proberNetwork: ProberNetwork = { lastOutageAt: null };
   try {
     await driveTicks(store, running, {
       forever: args.get("once") !== "true",
@@ -945,6 +948,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           run: async () => {
             await watchLiveness(store, {
               holder: running.holder,
+              network: proberNetwork,
               report: (line) => reporter.line(line),
             });
           },

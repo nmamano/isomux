@@ -26,6 +26,13 @@ export const LIVENESS_STRIKES = 3;
  * enough that a reboot's dip and recovery are both visible on the dashboard. */
 export const LIVENESS_INTERVAL_MS = 60_000;
 
+/** How long after the prober's own control probe failed a failed reading is
+ * still blamed on the prober. Under packet loss the control passes in the gaps
+ * while offices fail (2026-10-25). Three intervals, not one: a held reading
+ * moves the office's next check one interval on, so with a single office a
+ * one-interval hold would never apply. */
+export const PROBER_OUTAGE_HOLD_MS = LIVENESS_STRIKES * LIVENESS_INTERVAL_MS;
+
 /** How long one prober may hold the right to check an office. Longer than any
  * single probe can take (DNS + connect + fetch are each bounded well under
  * this), so a crashed prober's claim expires rather than stalling the ladder. */
@@ -67,11 +74,14 @@ export interface ControlResult {
 }
 
 /**
- * Can the prober reach the outside world? ok when ANY control host resolves
- * and accepts on 443 within `timeoutMs` (lookup and connect together).
+ * Can the prober reach the outside world? ok when ANY control host resolves,
+ * accepts on 443 and answers an HTTPS request, all within `timeoutMs`. Any
+ * HTTP status counts. The HTTPS exchange is what makes the control as deep as
+ * an office probe: under packet loss one TCP connect still passes while a TLS
+ * handshake fails (2026-10-25).
  */
 export async function probeControl(
-  deps: Pick<LivenessDeps, "lookup" | "connect"> = {},
+  deps: Pick<LivenessDeps, "lookup" | "connect" | "fetchImpl"> = {},
   hosts: readonly string[] = CONTROL_HOSTS,
   timeoutMs = 5_000,
 ): Promise<ControlResult> {
@@ -79,10 +89,13 @@ export async function probeControl(
     deps.lookup ??
     (async (h: string) => (await dns.lookup(h, { family: 4 })).address);
   const connect = deps.connect ?? tcpConnect;
+  const fetchImpl = deps.fetchImpl ?? fetch;
   // dns.lookup has no timeout of its own, and a broken resolver is exactly
-  // when this runs, so one deadline covers the lookup and the connect.
+  // when this runs, so one deadline covers the lookup, the connect and the
+  // request. The abort stops a request still running when the deadline wins.
   const reach = async (host: string): Promise<string | null> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const abort = new AbortController();
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(
         () => reject(new Error(`timed out after ${timeoutMs}ms`)),
@@ -94,6 +107,13 @@ export async function probeControl(
         (async () => {
           await lookup(host);
           await connect(host, 443, timeoutMs);
+          const res = await fetchImpl(`https://${host}/`, {
+            redirect: "manual",
+            signal: abort.signal,
+          });
+          // Only the answer matters; release the connection without
+          // waiting on it.
+          res.body?.cancel().catch(() => {});
         })(),
         deadline,
       ]);
@@ -102,6 +122,7 @@ export async function probeControl(
       return `${host}: ${messageOf(err)}`;
     } finally {
       clearTimeout(timer);
+      abort.abort();
     }
   };
   const failures = await Promise.all(hosts.map(reach));
