@@ -26,6 +26,7 @@ import {
   SubjectBindingConflict,
   UNPAID_OPENING_HOLD_MS,
   type ReservationRow,
+  type SignupSource,
 } from "./signup.ts";
 import { sweepCustomerKeyRetention } from "./access-retention.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
@@ -1316,5 +1317,106 @@ describe("the trusted origin", () => {
     expect(originIsTrusted("", "https://cp.isomux.app")).toBe(false);
     expect(originIsTrusted("null", "https://cp.isomux.app")).toBe(false);
     expect(originIsTrusted("https://cp.isomux.app", undefined)).toBe(false);
+  });
+});
+
+// The signup source rides on the reservation until the first paid checkout
+// copies it (task 8a12ba81). It belongs to the signup that wrote it: a takeover
+// of a dead name is a new signup and must not inherit the old one's source,
+// and the owner's own retry is the same signup, so first touch stays.
+describe("the signup source on the reservation", () => {
+  const NOW = 1_700_000_000_000;
+  const FIRST: SignupSource = {
+    utmSource: "newsletter",
+    utmCampaign: "launch-week",
+    referrerHost: "t.co",
+    landingPath: "/blog/hosted",
+  };
+  const SECOND: SignupSource = {
+    utmSource: "producthunt",
+    utmCampaign: null,
+    referrerHost: "www.producthunt.com",
+    landingPath: "/",
+  };
+
+  async function sourceOf(store: Store, name: string) {
+    return store.sqlGet<{
+      id: string;
+      utm_source: string | null;
+      utm_campaign: string | null;
+      referrer_host: string | null;
+      landing_path: string | null;
+    }>(
+      "select id, utm_source, utm_campaign, referrer_host, landing_path " +
+        "from name_reservations where name = $1",
+      [name],
+    );
+  }
+
+  test("a new reservation keeps the source it was given, and none when it was given none", async () => {
+    const store = await tempStore(() => NOW);
+    expect((await signup(store, { source: FIRST })).ok).toBe(true);
+    expect(
+      (await signup(store, { officeName: "plain", email: "b@example.com" })).ok,
+    ).toBe(true);
+    expect(await sourceOf(store, "acme")).toMatchObject({
+      utm_source: "newsletter",
+      utm_campaign: "launch-week",
+      referrer_host: "t.co",
+      landing_path: "/blog/hosted",
+    });
+    expect(await sourceOf(store, "plain")).toMatchObject({
+      utm_source: null,
+      utm_campaign: null,
+      referrer_host: null,
+      landing_path: null,
+    });
+  });
+
+  test("the owner's retry keeps the first source", async () => {
+    const store = await tempStore(() => NOW);
+    const first = await signup(store, { source: FIRST });
+    if (!first.ok) throw new Error("signup failed");
+    const again = await signup(store, { source: SECOND });
+    expect(again).toMatchObject({ ok: true, reused: true });
+    expect(await sourceOf(store, "acme")).toMatchObject({
+      id: first.reservation.id,
+      utm_source: "newsletter",
+      referrer_host: "t.co",
+    });
+  });
+
+  test("a takeover of a dead name replaces the old signup's source, with nothing when it brings none", async () => {
+    const store = await tempStore(() => NOW);
+    const first = await signup(store, { source: FIRST });
+    if (!first.ok) throw new Error("signup failed");
+    await expireCheckout(store, first.reservation);
+
+    const second = await signup(store, {
+      email: "b@example.com",
+      source: SECOND,
+    });
+    if (!second.ok) throw new Error("takeover failed");
+    // The enabling condition: this was a takeover, not a fresh name.
+    expect(second.reservation.id).not.toBe(first.reservation.id);
+    expect(await sourceOf(store, "acme")).toEqual({
+      id: second.reservation.id,
+      utm_source: "producthunt",
+      utm_campaign: null,
+      referrer_host: "www.producthunt.com",
+      landing_path: "/",
+    });
+
+    await expireCheckout(store, second.reservation);
+    const third = await signup(store, { email: "c@example.com" });
+    if (!third.ok) throw new Error("takeover failed");
+    expect(third.reservation.id).not.toBe(second.reservation.id);
+    expect(await sourceOf(store, "acme")).toEqual({
+      id: third.reservation.id,
+      utm_source: null,
+      utm_campaign: null,
+      referrer_host: null,
+      landing_path: null,
+    });
   });
 });

@@ -37,7 +37,7 @@
 import type { PoolLimits } from "../../store";
 import type { ProgressView } from "../../progress";
 import type { OpsFloor, OpsInstanceView } from "../../ops";
-import type { ReservationRow } from "../../signup";
+import type { ReservationRow, SignupSource } from "../../signup";
 import type { AccountRow } from "../../stripe/billing-store";
 import type { CustomerPrice, StripePriceConfiguration } from "../../plans";
 import {
@@ -826,6 +826,7 @@ export async function signUpOffice(args: {
   plan: string;
   couponId?: string | null;
   customerSshKey?: string | null;
+  source?: SignupSource | null;
 }): Promise<SignupResult> {
   if (!args.customerSshKey) return { ok: false, reason: "" };
   const language = args.language;
@@ -896,6 +897,7 @@ export async function signUpOffice(args: {
       plan: args.plan,
       couponId: args.couponId ?? null,
       customerSshKey: args.customerSshKey ?? null,
+      source: args.source ?? null,
     }),
   );
   if (!reserved.ok)

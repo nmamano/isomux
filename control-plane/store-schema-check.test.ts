@@ -21,6 +21,7 @@ import { PROVISIONER_GRANTS, type TableGrant } from "./roles.ts";
 import {
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
+  migrateSignupAttribution,
   migrateWelcomeMailsTable,
 } from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
@@ -206,6 +207,10 @@ suite("the schema check reads the catalog, not the privilege view", () => {
       ["instances", "customer_ssh_key"],
       ["instances", "certificate_contact_next_check_at"],
       ["name_reservations", "checkout_session_id"],
+      ["name_reservations", "utm_source"],
+      ["name_reservations", "utm_campaign"],
+      ["name_reservations", "referrer_host"],
+      ["name_reservations", "landing_path"],
       ["subscriptions", "ended_at"],
       ["subscriptions", "canceled_at"],
       ["subscriptions", "cancellation_reason"],
@@ -238,6 +243,31 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     await migrateWelcomeMailsTable(ownerDsn);
     const store = await Store.openRuntime(roleDsn);
     await store.close();
+  });
+
+  // Both halves of the signup source schema, each missing on its own: the
+  // columns on a database that has the table, and the table on one that has
+  // the columns. The migration repairs either and is a no-op the second time.
+  test("runtime refuses a missing signup source schema until the owner migration", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    const q = quoteIdentifier(schema);
+    await admin.query(
+      `alter table ${q}.name_reservations drop column utm_source, ` +
+        "drop column utm_campaign, drop column referrer_host, drop column landing_path",
+    );
+    expect(await openOrRefusal(roleDsn)).toContain(
+      "name_reservations has no utm_source column",
+    );
+    await migrateSignupAttribution(ownerDsn);
+    expect(await openOrRefusal(roleDsn)).toBe("opened");
+
+    await admin.query(`drop table ${q}.first_paid_checkouts cascade`);
+    expect(await openOrRefusal(roleDsn)).toContain(
+      "has no first_paid_checkouts table",
+    );
+    await migrateSignupAttribution(ownerDsn);
+    await migrateSignupAttribution(ownerDsn);
+    expect(await openOrRefusal(roleDsn)).toBe("opened");
   });
 
   test("runtime separately refuses a missing provider-ID unique index", async () => {

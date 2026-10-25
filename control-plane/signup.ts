@@ -560,6 +560,17 @@ export interface SignupRequest {
   plan: string;
   couponId?: string | null;
   customerSshKey?: string | null;
+  /** Where the visitor came from, already validated (parseSignupSource). */
+  source?: SignupSource | null;
+}
+
+/** The signup source a reservation keeps until its first paid checkout. Each
+ * value is null when absent or refused. Never an email or a full URL. */
+export interface SignupSource {
+  utmSource: string | null;
+  utmCampaign: string | null;
+  referrerHost: string | null;
+  landingPath: string | null;
 }
 
 export interface SignupDeps {
@@ -628,13 +639,16 @@ async function takeOverReservation(
     instanceId: string;
     plan: string;
     coupon: string | null;
+    source: SignupSource | null;
     ts: number;
   },
 ): Promise<void> {
+  // The source is the new signup's, or none: never the previous account's.
   const taken = await store.sqlGet<{ id: string }>(
     "update name_reservations set id=$1, account_id=$2, instance_id=$3, plan=$4, " +
       "coupon_id=$5, checkout_generation=1, checkout_session_id=null, " +
       "checkout_expires_at=null, checkout_state='opening', checkout_next_check_at=null, " +
+      "utm_source=$9, utm_campaign=$10, referrer_host=$11, landing_path=$12, " +
       "version=version+1, created_at=$6, updated_at=$6 where name=$7 and id=$8 returning id",
     [
       next.id,
@@ -645,9 +659,22 @@ async function takeOverReservation(
       next.ts,
       old.name,
       old.id,
+      ...sourceColumns(next.source),
     ],
   );
   if (!taken) throw new Error("the locked reservation moved during takeover");
+}
+
+/** The four name_reservations source columns, in their SQL order. */
+function sourceColumns(
+  source: SignupSource | null,
+): [string | null, string | null, string | null, string | null] {
+  return [
+    source?.utmSource ?? null,
+    source?.utmCampaign ?? null,
+    source?.referrerHost ?? null,
+    source?.landingPath ?? null,
+  ];
 }
 
 /** Retire the office a taken-over reservation named. Its asset never reached a
@@ -732,8 +759,9 @@ export async function reserveOffice(
       await store.recoverable(() =>
         store.sqlRun(
           "insert into name_reservations (name, id, account_id, instance_id, plan, " +
-            "coupon_id, checkout_generation, checkout_state, version, created_at, updated_at) " +
-            "values ($1, $2, $3, $4, $5, $6, 1, 'opening', 1, $7, $8)",
+            "coupon_id, checkout_generation, checkout_state, utm_source, utm_campaign, " +
+            "referrer_host, landing_path, version, created_at, updated_at) " +
+            "values ($1, $2, $3, $4, $5, $6, 1, 'opening', $9, $10, $11, $12, 1, $7, $8)",
           [
             req.officeName,
             `res-${uuid}`,
@@ -743,6 +771,7 @@ export async function reserveOffice(
             coupon,
             ts,
             ts,
+            ...sourceColumns(req.source ?? null),
           ],
         ),
       );
@@ -768,6 +797,7 @@ export async function reserveOffice(
           instanceId,
           plan: plan.id,
           coupon,
+          source: req.source ?? null,
           ts,
         });
         released = old;

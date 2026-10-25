@@ -1,6 +1,7 @@
 import "./globals.css";
 import Script from "next/script";
 import { LanguageSwitch } from "../lib/i18n/language-switch";
+import { SignupSourceCapture } from "./signup-source-capture";
 
 const analyticsBootstrap = `
   (function () {
@@ -65,6 +66,7 @@ export default function RootLayout({
         <Script id="google-analytics" strategy="afterInteractive">
           {analyticsBootstrap}
         </Script>
+        <SignupSourceCapture />
         {/* The chrome lives here rather than in a wrapper component, so that no
             page has to give up its own <main> to get it. The bar carries the
             mark and the language switch, and no words of its own: a brand

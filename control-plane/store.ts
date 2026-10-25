@@ -319,6 +319,7 @@ export const PRODUCT_TABLES = [
   "stripe_events",
   "subscriptions",
   "welcome_mails",
+  "first_paid_checkouts",
 ] as const;
 
 /**
@@ -340,6 +341,27 @@ create table if not exists welcome_mails (
   updated_at bigint not null
 );
 create index if not exists welcome_mails_account_id on welcome_mails (account_id);
+`;
+
+/**
+ * One row per subscription whose payment opened its office's create: the first
+ * paid checkout, with the signup source its reservation carried. SCHEMA creates
+ * it on a new database and migrateSignupAttribution on an existing one, from
+ * this one text. No account id, email or office name.
+ */
+export const FIRST_PAID_CHECKOUTS_DDL = `
+create table if not exists first_paid_checkouts (
+  subscription_id text primary key,
+  instance_id text not null,
+  reservation_id text not null,
+  plan text not null,
+  coupon_id text,
+  utm_source text,
+  utm_campaign text,
+  referrer_host text,
+  landing_path text,
+  paid_at bigint not null
+);
 `;
 
 // `source_op_id` is NOT NULL with an empty-string sentinel on purpose: NULLs
@@ -642,11 +664,16 @@ create table if not exists name_reservations (
     checkout_state in ('opening', 'pending', 'reconciled', 'expired')
   ),
   checkout_next_check_at bigint,
+  utm_source text,
+  utm_campaign text,
+  referrer_host text,
+  landing_path text,
   version integer not null,
   created_at bigint not null,
   updated_at bigint not null
 );
-${WELCOME_MAILS_DDL}`;
+${WELCOME_MAILS_DDL}
+${FIRST_PAID_CHECKOUTS_DDL}`;
 
 /**
  * Indexes over columns THIS build added, created after the column check rather
@@ -1492,6 +1519,10 @@ export class Store {
       ["name_reservations", "checkout_expires_at"],
       ["name_reservations", "checkout_state"],
       ["name_reservations", "checkout_next_check_at"],
+      ["name_reservations", "utm_source"],
+      ["name_reservations", "utm_campaign"],
+      ["name_reservations", "referrer_host"],
+      ["name_reservations", "landing_path"],
     ];
     // THE WHOLE ROSTER, not the tables the column list happens to name.
     const tables: readonly string[] = PRODUCT_TABLES;

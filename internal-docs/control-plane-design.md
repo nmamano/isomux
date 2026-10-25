@@ -828,7 +828,9 @@ ends at, host key fingerprint) - `operations` (as above) - `instance_secrets`
 (encrypted provisioning key material, destroyed at revocation) - `audit_events`
 (append-only: actor, instance, action, outcome, including every remote command
 we run) - `welcome_mails` (one row per office from its first live moment: the
-welcome series step, its due time, the unsubscribe token and the opt-out).
+welcome series step, its due time, the unsubscribe token and the opt-out) -
+`first_paid_checkouts` (one row per office whose payment opened its create, with
+the signup source its reservation kept; no account id, email or office name).
 
 Attention is persisted, not derived: `attention_state`, `attention_reason`,
 `attention_severity`, `attention_raised_at`, `acknowledged_at`,

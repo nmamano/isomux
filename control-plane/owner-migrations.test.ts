@@ -131,6 +131,9 @@ const PRE_MIGRATION = [
   "alter table name_reservations drop column checkout_session_id",
   "alter table instances drop column certificate_contact_next_check_at",
   "alter table accounts drop column session_epoch",
+  "alter table name_reservations drop column utm_source, drop column utm_campaign, " +
+    "drop column referrer_host, drop column landing_path",
+  "drop table first_paid_checkouts",
 ];
 
 suite("migrate-all", () => {

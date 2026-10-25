@@ -1770,6 +1770,37 @@ schedule clause is off and the provisioner sends nothing.
   covers every office of the account, and a later office of that account
   starts opted out.
 
+## The signup source and the first paid checkout
+
+Growth counts customers by where they came from, from `first_paid_checkouts`:
+one row per office whose payment opened its create, with the signup source its
+reservation kept. No account id, email or office name.
+
+- **The site passes it on.** `site/analytics.js` keeps the first page of a
+  tab's visit in sessionStorage: the referring site's host (not its URL, and
+  nothing when it is isomux.com), the page path and `utm_source` and
+  `utm_campaign`. It adds them as `ref_host`, `landing_path`, `utm_source` and
+  `utm_campaign` to every link to `cloud.isomux.com`. GA4 on isomux.com may log
+  those links on an outbound click; that is the referrer and path it already
+  records for the page, so nothing new goes to Google.
+- **The storefront keeps it until signup.** Any page of the web app keeps the
+  first source its URL names in localStorage for 30 days
+  (`web/lib/signup-source.ts`). Without `ref_host`, the page's own referrer
+  host counts when it is outside isomux.com. localStorage, because the emailed
+  sign-in link opens a new tab. The signup form posts it, the route validates
+  it again (`parseSignupSource`: a tag with `@` is refused, since a mail merge
+  can put an address in it), and `reserveOffice` writes it on the reservation.
+  A takeover of a dead name writes the new signup's source or none.
+- **The paid-create latch records it.** `startProvisioningIn` calls
+  `recordFirstPaidCheckout` after it opens the create, so the webhook, the poll
+  and the sweep after a late settlement all count, each office once.
+  `subscription_id` is the key with `on conflict do nothing`. A reinstatement
+  never opens a create, so it adds no row. `plan` and `coupon_id` let a reader
+  leave out 100%-off coupons, which Stripe reports as paid. The insert fails
+  open: a failure logs the subscription id and never rolls back the create.
+- **Daily count by source:**
+  `select to_char(to_timestamp(paid_at / 1000) at time zone 'UTC', 'YYYY-MM-DD') as day, utm_source, referrer_host, count(*) from first_paid_checkouts group by 1, 2, 3 order by 1;`
+
 ## Billing (Stripe test-mode account)
 
 Signup, the comped path, webhooks and the dunning ladder. Every module lives in

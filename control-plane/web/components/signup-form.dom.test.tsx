@@ -25,6 +25,8 @@ Object.defineProperty(window, "isSecureContext", {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { SignupForm } = await import("./signup-form");
+const { captureSignupSource, SIGNUP_SOURCE_TTL_MS } =
+  await import("../lib/signup-source");
 
 const realFetch = globalThis.fetch;
 afterAll(async () => {
@@ -196,4 +198,48 @@ test("download hands the private key to a file and leaves nothing behind", async
     created.mockRestore();
     revoked.mockRestore();
   }
+});
+
+// The signup source (task 8a12ba81): a page of this app stored it when the
+// visitor arrived, and the submit posts it with the reservation. An expired one
+// is not posted: the 30-day window is the promise on the privacy page.
+async function submitWithStoredSource(capturedAt: number): Promise<Post> {
+  captureSignupSource(
+    "https://storefront.example.com/?utm_source=newsletter&utm_campaign=launch-week" +
+      "&ref_host=t.co&landing_path=%2Fblog%2Fhosted",
+    "",
+    localStorage,
+    capturedAt,
+  );
+  try {
+    await renderWithKey();
+    await click(container.querySelector(".key-confirm input") as HTMLElement);
+    await click(button('[data-testid="signup-submit"]'));
+  } finally {
+    localStorage.clear();
+  }
+  expect(posts.length).toBe(1);
+  return posts[0];
+}
+
+test("submit posts the stored signup source", async () => {
+  const post = await submitWithStoredSource(Date.now());
+  expect(
+    ["utm_source", "utm_campaign", "ref_host", "landing_path"].map((key) =>
+      post.body.get(key),
+    ),
+  ).toEqual(["newsletter", "launch-week", "t.co", "/blog/hosted"]);
+});
+
+test("submit posts no expired signup source", async () => {
+  const post = await submitWithStoredSource(
+    Date.now() - SIGNUP_SOURCE_TTL_MS - 60_000,
+  );
+  // The enabling condition: the form did post.
+  expect(post.body.get("officeName")).toBe("acme");
+  expect(
+    ["utm_source", "utm_campaign", "ref_host", "landing_path"].filter((key) =>
+      post.body.has(key),
+    ),
+  ).toEqual([]);
 });

@@ -86,7 +86,41 @@ export async function startProvisioningIn(
     outcome: "started",
     detail: `subscription=${subscription.id}; run=${runId}`,
   });
+  await recordFirstPaidCheckout(store, subscription);
   return id;
+}
+
+/**
+ * Record the first paid checkout for a subscription whose payment just opened
+ * its office's create, copying the reservation's signup source. Fails open: a
+ * failure here never rolls back the create.
+ */
+export async function recordFirstPaidCheckout(
+  store: Store,
+  subscription: SubscriptionRow,
+): Promise<void> {
+  try {
+    // RECOVERABLE: on this engine a failed statement aborts the transaction,
+    // and this one carries the paying customer's create.
+    await store.recoverable(() =>
+      store.sqlRun(
+        "insert into first_paid_checkouts (subscription_id, instance_id, " +
+          "reservation_id, plan, coupon_id, utm_source, utm_campaign, " +
+          "referrer_host, landing_path, paid_at) " +
+          "select $1, r.instance_id, r.id, r.plan, r.coupon_id, r.utm_source, " +
+          "r.utm_campaign, r.referrer_host, r.landing_path, $3 " +
+          "from name_reservations r where r.instance_id = $2 " +
+          "on conflict (subscription_id) do nothing",
+        [subscription.id, subscription.instance_id, store.now()],
+      ),
+    );
+  } catch (err) {
+    // The subscription id and the error only: no name, email or office.
+    console.error(
+      `first paid checkout not recorded for subscription ${subscription.id}: ` +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
 }
 
 export async function sweepProvisioningStarts(

@@ -406,6 +406,13 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
     because:
       "the tick starts an office's welcome series when it first goes live, and the send pass advances it",
   },
+  {
+    table: "first_paid_checkouts",
+    verbs: ["select", "insert"],
+    because:
+      "the paid-create latch records each office's first paid checkout with its signup source; " +
+      "its on conflict (subscription_id) arbiter needs SELECT on the key",
+  },
 ];
 
 /** One verb the deployed command reaches, and the committed path that reaches
@@ -652,6 +659,20 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     table: "welcome_mails",
     verb: "update",
     via: "welcome-mail-watch.ts watchWelcomeMail -> store.advanceWelcomeMail",
+  },
+  {
+    table: "first_paid_checkouts",
+    verb: "select",
+    via:
+      "provisioning-start.ts startProvisioningIn -> recordFirstPaidCheckout: the " +
+      "on conflict (subscription_id) arbiter reads the key",
+  },
+  {
+    table: "first_paid_checkouts",
+    verb: "insert",
+    via:
+      "provisioning-start.ts startProvisioningIn -> recordFirstPaidCheckout " +
+      "(insert ... on conflict do nothing), from the webhook, the poll and the sweep",
   },
 ];
 

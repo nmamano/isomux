@@ -7,6 +7,7 @@ import {
 } from "../../../lib/services.server";
 
 import { languageForRequest } from "../../../lib/i18n/request.server";
+import { parseSignupSource } from "../../../lib/signup-source";
 import { limitRequest, signupLimiter } from "../../../lib/rate-limit.server";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +82,7 @@ export async function POST(request: Request): Promise<Response> {
     plan,
     couponId: couponRaw || null,
     customerSshKey,
+    source: parseSignupSource((name) => field(name) || null),
   });
 
   if (!result.ok) {

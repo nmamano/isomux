@@ -10,6 +10,7 @@ import {
   type ServerAdministratorKey,
 } from "./server-administrator-key";
 import type { SupportedLanguageCode } from "../lib/i18n/languages";
+import { signupSourceFields } from "../lib/signup-source";
 import { webTranslatorFor } from "../lib/i18n/rich";
 
 type SignupResponse = {
@@ -133,6 +134,7 @@ export function SignupForm({
     setError(null);
     const form = new FormData(event.currentTarget);
     form.set("customerSshKey", key.publicKey);
+    for (const [name, value] of signupSourceFields()) form.set(name, value);
     try {
       const response = await fetch("/api/signup", {
         method: "POST",

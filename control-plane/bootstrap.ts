@@ -24,6 +24,7 @@ import { DATABASE_IDENTITY_KEY, DATABASE_IDENTITY_SHAPE } from "./boot.ts";
 import {
   GOVERNED_SETTINGS,
   PRODUCT_TABLES,
+  FIRST_PAID_CHECKOUTS_DDL,
   Store,
   WELCOME_MAILS_DDL,
   redactConnectionDetails,
@@ -187,6 +188,26 @@ export async function migrateWelcomeMailsTable(
   const pool = await openPool(dsn, options);
   try {
     await inTransaction(pool, dsn, [WELCOME_MAILS_DDL]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+/** Owner-role migration for the signup source: its columns on
+ * name_reservations and the first_paid_checkouts table. */
+export async function migrateSignupAttribution(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table if exists name_reservations add column if not exists utm_source text",
+      "alter table if exists name_reservations add column if not exists utm_campaign text",
+      "alter table if exists name_reservations add column if not exists referrer_host text",
+      "alter table if exists name_reservations add column if not exists landing_path text",
+      FIRST_PAID_CHECKOUTS_DDL,
+    ]);
   } finally {
     await pool.end().catch(() => {});
   }
@@ -402,6 +423,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-session-epoch",
     run: migrateSessionEpochColumn,
     ready: "session epoch column",
+  },
+  {
+    command: "migrate-signup-attribution",
+    run: migrateSignupAttribution,
+    ready: "signup source schema",
   },
 ];
 
