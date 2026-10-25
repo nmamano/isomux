@@ -52,8 +52,44 @@ export function eslintNodeOptions(existing?: string): string {
     .join(" ");
 }
 
-export async function runLint(fix: boolean): Promise<number> {
-  const available = availableMemory();
+/** How one ESLint process ended. `signal` is set when a signal killed it. */
+export type EslintRun = (
+  concurrency: string,
+) => Promise<{ code: number; signal: string | null }>;
+
+// ESLint exits 0, 1 (findings) or 2 (config error). 128 or more means the
+// process died before it reported, as when V8 aborted an ESLint thread on
+// Node 24.22.1 in CI (2026-10-23, task 2e705692); Bun reports a signal death
+// as 128 plus the signal number.
+const CRASH_EXIT = 128;
+
+function exitText(result: { code: number; signal: string | null }): string {
+  return result.signal
+    ? `exit ${result.code}, ${result.signal}`
+    : `exit ${result.code}`;
+}
+
+function spawnEslint(fix: boolean): EslintRun {
+  return async (concurrency) => {
+    const child = Bun.spawn(eslintCommand(fix, concurrency), {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+      env: {
+        ...process.env,
+        NODE_OPTIONS: eslintNodeOptions(process.env.NODE_OPTIONS),
+      },
+    });
+    const code = await child.exited;
+    return { code, signal: child.signalCode };
+  };
+}
+
+export async function runLint(
+  fix: boolean,
+  run: EslintRun = spawnEslint(fix),
+  available: number | undefined = availableMemory(),
+): Promise<number> {
   const concurrency = lintConcurrency(available);
   console.log(
     `eslint threads: ${concurrency}` +
@@ -61,16 +97,15 @@ export async function runLint(fix: boolean): Promise<number> {
         ? " (available memory unknown)"
         : ` (${(available / GIB).toFixed(1)} GiB available)`),
   );
-  const child = Bun.spawn(eslintCommand(fix, concurrency), {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-    env: {
-      ...process.env,
-      NODE_OPTIONS: eslintNodeOptions(process.env.NODE_OPTIONS),
-    },
-  });
-  return child.exited;
+  const first = await run(concurrency);
+  if (first.code < CRASH_EXIT) return first.code;
+  console.error(
+    `eslint crashed (${exitText(first)}), not a lint finding; running it again with threads off`,
+  );
+  const second = await run("off");
+  if (second.code >= CRASH_EXIT)
+    console.error(`eslint crashed again (${exitText(second)})`);
+  return second.code;
 }
 
 if (import.meta.main)
