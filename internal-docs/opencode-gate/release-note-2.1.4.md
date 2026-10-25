@@ -8,6 +8,7 @@ For members:
 - npm plugins in your OpenCode config install again at the first start. A plugin without a version gets the latest one. OpenCode checks for newer versions once a day but does not install them.
 - MCP servers that you set up with OAuth in your own OpenCode config need a new sign-in. MCP servers registered in Isomux are not affected.
 - OpenCode provider sign-ins carry over, unless OpenCode's database was deleted. Then sign in again.
+- Browsers that last opened the office on a release before v2026.10.23 must sign in again. After an update from a release before v2026.10.23, that is every browser.
 
 For self-hosters and Hosted:
 
