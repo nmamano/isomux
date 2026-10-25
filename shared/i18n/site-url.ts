@@ -12,7 +12,7 @@
 
 import type { SupportedLanguageCode } from "../languages.ts";
 
-export const SITE_ORIGIN = "https://isomux.com";
+const SITE_ORIGIN = "https://isomux.com";
 
 /**
  * The path prefix each language's copy of a page lives under. English is the

@@ -201,115 +201,108 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
   window.dispatchEvent(new Event("pagehide"));
 });
 
-for (const language of ["en", "es", "ca", "zh"]) {
-  test(`pairing code stays masked unless explicitly shown, including replacement and failed submit (${language})`, async () => {
-    document.body.innerHTML = popupHTML;
-    const code = document.getElementById("code") as HTMLInputElement;
-    const reveal = document.getElementById(
-      "code-visibility",
-    ) as HTMLButtonElement;
-    const form = document.getElementById("pair-form") as HTMLFormElement;
-    const replace = document.getElementById("replace") as HTMLButtonElement;
-    expect(code.type).toBe("password");
-    expect(reveal.type).toBe("button");
-    expect(reveal.getAttribute("aria-controls")).toBe(code.id);
-    expect(reveal.getAttribute("aria-describedby")).toBe("code-label");
-    let state = {
-      state: "unpaired",
-      office: "",
-      agents: [],
-      assignments: [],
-    };
-    let finish!: (value: typeof state & { error?: string }) => void;
-    const sent: Record<string, unknown>[] = [];
-    const session = new Map<string, unknown>();
-    await popupScript.runInNewContext({
-      document,
-      window,
-      navigator: { language },
-      Date,
-      chrome: {
-        storage: { session: sessionOn(session) },
-        tabs: { query: async () => [{ id: 7, windowId: 1 }] },
-        runtime: {
-          sendMessage: (message: Record<string, unknown>) => {
-            sent.push(message);
-            return message.action === "pair"
-              ? new Promise((resolve) => {
-                  finish = resolve;
-                })
-              : Promise.resolve(structuredClone(state));
-          },
+// Masking does not depend on the language; one locale is enough.
+test("pairing code stays masked unless explicitly shown, including replacement and failed submit", async () => {
+  document.body.innerHTML = popupHTML;
+  const code = document.getElementById("code") as HTMLInputElement;
+  const reveal = document.getElementById(
+    "code-visibility",
+  ) as HTMLButtonElement;
+  const form = document.getElementById("pair-form") as HTMLFormElement;
+  const replace = document.getElementById("replace") as HTMLButtonElement;
+  expect(code.type).toBe("password");
+  expect(reveal.type).toBe("button");
+  expect(reveal.getAttribute("aria-controls")).toBe(code.id);
+  expect(reveal.getAttribute("aria-describedby")).toBe("code-label");
+  let state = {
+    state: "unpaired",
+    office: "",
+    agents: [],
+    assignments: [],
+  };
+  let finish!: (value: typeof state & { error?: string }) => void;
+  const sent: Record<string, unknown>[] = [];
+  const session = new Map<string, unknown>();
+  await popupScript.runInNewContext({
+    document,
+    window,
+    navigator: { language: "en" },
+    Date,
+    chrome: {
+      storage: { session: sessionOn(session) },
+      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      runtime: {
+        sendMessage: (message: Record<string, unknown>) => {
+          sent.push(message);
+          return message.action === "pair"
+            ? new Promise((resolve) => {
+                finish = resolve;
+              })
+            : Promise.resolve(structuredClone(state));
         },
       },
-      setInterval: () => 1,
-      clearInterval() {},
-    });
-    const settle = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    };
-    await settle();
-    const maskedLabel = reveal.textContent;
-    expect(maskedLabel).toBeTruthy();
-    expect(form.hidden).toBe(false);
-    code.value = "fixture-only-pairing-code";
-    reveal.click();
-    expect(code.type).toBe("text");
-    expect(reveal.getAttribute("aria-pressed")).toBe("true");
-    expect(reveal.textContent).not.toBe(maskedLabel);
-    expect(sent.filter((message) => message.action === "pair")).toHaveLength(0);
-    reveal.click();
-    expect(code.type).toBe("password");
-    expect(reveal.getAttribute("aria-pressed")).toBe("false");
-    reveal.click();
-    form.dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
-    expect(code.type).toBe("password");
-    expect(reveal.getAttribute("aria-pressed")).toBe("false");
-    expect(sent.at(-1)).toMatchObject({
-      action: "pair",
-      code: "fixture-only-pairing-code",
-    });
-    finish({ ...state, error: "fixture failure" });
-    await settle();
-    expect(code.type).toBe("password");
-    expect(code.value).toBe("fixture-only-pairing-code");
-    reveal.click();
-    form.dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
-    expect(code.type).toBe("password");
-    state = { ...state, state: "connected", office: "https://example.com" };
-    // The worker records the office's confirmation before the popup hears.
-    session.set("pairedCode", "fixture-only-pairing-code");
-    finish(state);
-    await settle();
-    expect(code.value).toBe("");
-    expect(form.hidden).toBe(true);
-    // Reopening replacement pairing resets even an explicitly revealed field.
-    reveal.click();
-    expect(code.type).toBe("text");
-    replace.click();
-    expect(form.hidden).toBe(false);
-    expect(code.type).toBe("password");
-    code.value = "replacement-fixture";
-    reveal.click();
-    form.dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
-    expect(code.type).toBe("password");
-    session.set("pairedCode", "replacement-fixture");
-    finish(state);
-    await settle();
-    replace.click();
-    expect(code.type).toBe("password");
-    expect(code.value).toBe("");
-    reveal.click();
-    window.dispatchEvent(new Event("pagehide"));
-    expect(code.type).toBe("password");
+    },
+    setInterval: () => 1,
+    clearInterval() {},
   });
-}
+  const settle = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  await settle();
+  const maskedLabel = reveal.textContent;
+  expect(maskedLabel).toBeTruthy();
+  expect(form.hidden).toBe(false);
+  code.value = "fixture-only-pairing-code";
+  reveal.click();
+  expect(code.type).toBe("text");
+  expect(reveal.getAttribute("aria-pressed")).toBe("true");
+  expect(reveal.textContent).not.toBe(maskedLabel);
+  expect(sent.filter((message) => message.action === "pair")).toHaveLength(0);
+  reveal.click();
+  expect(code.type).toBe("password");
+  expect(reveal.getAttribute("aria-pressed")).toBe("false");
+  reveal.click();
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(code.type).toBe("password");
+  expect(reveal.getAttribute("aria-pressed")).toBe("false");
+  expect(sent.at(-1)).toMatchObject({
+    action: "pair",
+    code: "fixture-only-pairing-code",
+  });
+  finish({ ...state, error: "fixture failure" });
+  await settle();
+  expect(code.type).toBe("password");
+  expect(code.value).toBe("fixture-only-pairing-code");
+  reveal.click();
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(code.type).toBe("password");
+  state = { ...state, state: "connected", office: "https://example.com" };
+  // The worker records the office's confirmation before the popup hears.
+  session.set("pairedCode", "fixture-only-pairing-code");
+  finish(state);
+  await settle();
+  expect(code.value).toBe("");
+  expect(form.hidden).toBe(true);
+  // Reopening replacement pairing resets even an explicitly revealed field.
+  reveal.click();
+  expect(code.type).toBe("text");
+  replace.click();
+  expect(form.hidden).toBe(false);
+  expect(code.type).toBe("password");
+  code.value = "replacement-fixture";
+  reveal.click();
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(code.type).toBe("password");
+  session.set("pairedCode", "replacement-fixture");
+  finish(state);
+  await settle();
+  replace.click();
+  expect(code.type).toBe("password");
+  expect(code.value).toBe("");
+  reveal.click();
+  window.dispatchEvent(new Event("pagehide"));
+  expect(code.type).toBe("password");
+});
 
 test("pairing fields survive closing and reopening the popup", async () => {
   const session = new Map<string, unknown>();

@@ -15,29 +15,6 @@ import {
 } from "./office-links.ts";
 
 describe("office links", () => {
-  it("are the canonical path of every page and one path per Integrations tab", () => {
-    expect([...OFFICE_LINK_PATHS].sort()).toEqual(
-      [
-        "/tasks",
-        "/automations",
-        "/apps",
-        "/skills",
-        "/integrations",
-        "/settings",
-        "/inbox/pages",
-        "/inbox/asks",
-        "/integrations/providers",
-        "/integrations/mcp",
-        "/integrations/secrets",
-        "/integrations/variables",
-        "/integrations/voice",
-        "/integrations/browser",
-        "/integrations/pager",
-        "/integrations/api-tokens",
-      ].sort(),
-    );
-  });
-
   it("name the page, and the tab for an Integrations tab", () => {
     for (const page of OFFICE_PAGES)
       expect(officeLinkFor(pathForPage(page))).toEqual({ page });

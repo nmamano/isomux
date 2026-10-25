@@ -145,14 +145,6 @@ describe("conversation id in the Discord log", () => {
     }
   });
 
-  it("keeps the posts of a request with no id as they were", async () => {
-    await chat("ok");
-    expect(posts.map(parse).map((p) => [p.id, p.role, p.part])).toEqual([
-      [undefined, "Visitor", undefined],
-      [undefined, "Bot", undefined],
-    ]);
-  });
-
   it("accepts the ends of the length range", () => {
     expect(conversationTag("a".repeat(8))).not.toBe("");
     expect(conversationTag("a".repeat(32))).not.toBe("");

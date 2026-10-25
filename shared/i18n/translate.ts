@@ -9,9 +9,9 @@
 //
 // Two layers. `translatorFor(language)` is the API: typed keys, typed
 // placeholder parameters, English fallback. Below it, `lookupIn` and
-// `pluralIn` are the engine over plain string records; they are exported so
-// the plural mechanism can be tested on a fixture catalog before the real one
-// carries any plural pair. Application code uses translatorFor.
+// `pluralIn` are the engine over plain string records; lookupIn is exported
+// for ui/i18n.tsx, whose rich() looks up a template before it fills it.
+// Application code uses translatorFor.
 
 import { DEFAULT_LANGUAGE, type SupportedLanguageCode } from "../languages.ts";
 import { en, type Catalog, type MessageKey } from "./en.ts";
@@ -116,7 +116,7 @@ const PLACEHOLDER = /\{(\w+)\}/g;
  * unreachable for catalog text by holding every language to the English
  * placeholder set.
  */
-export function interpolate(template: string, params?: Params): string {
+function interpolate(template: string, params?: Params): string {
   if (!params) return template;
   return template.replace(PLACEHOLDER, (match, name: string) =>
     name in params ? String(params[name]) : match,
@@ -141,10 +141,10 @@ export function lookupIn(
 /**
  * Engine: the form of the pair at `key` for `count`. The category comes from
  * `rules` (one Intl.PluralRules per language); a category with no entry in
- * either catalog falls back to "other", which is why Spanish and Catalan,
- * whose rules also yield "many" at a million, need only the two entries.
+ * the catalog falls back to "other", which is why Spanish and Catalan, whose
+ * rules also yield "many" at a million, need only the two entries.
  */
-export function pluralIn(
+function pluralIn(
   catalog: Messages,
   fallback: Messages,
   rules: Intl.PluralRules,
@@ -152,29 +152,30 @@ export function pluralIn(
   count: number,
   params?: Params,
 ): string {
-  const chosen = pluralFormKey(catalog, fallback, rules, key, count);
+  const chosen = pluralFormKey(catalog, rules, key, count);
   return lookupIn(catalog, fallback, chosen, { ...params, count });
 }
 
 /**
  * Engine: the key of the form pluralIn picks for `count` - the exact category
- * when either catalog has it, else ".other". Exported so a reader that checks
- * a plural message before it renders it (log-message.ts) checks the same form.
+ * when the catalog has it, else ".other". Every catalog has the English key
+ * set, so English cannot have a form the catalog lacks.
  */
-export function pluralFormKey(
+function pluralFormKey(
   catalog: Messages,
-  fallback: Messages,
   rules: Intl.PluralRules,
   key: string,
   count: number,
 ): string {
   const exact = `${key}.${rules.select(count)}`;
-  return catalog[exact] !== undefined || fallback[exact] !== undefined
-    ? exact
-    : `${key}.other`;
+  return catalog[exact] !== undefined ? exact : `${key}.other`;
 }
 
-/** pluralFormKey over the real catalogs, for `language`. */
+/**
+ * pluralFormKey over the real catalogs, for `language`. Exported so a reader
+ * that checks a plural message before it renders it (log-message.ts) checks
+ * the same form.
+ */
 export function pluralFormKeyFor(
   language: SupportedLanguageCode,
   key: string,
@@ -182,7 +183,6 @@ export function pluralFormKeyFor(
 ): string {
   return pluralFormKey(
     CATALOGS[language],
-    CATALOGS[DEFAULT_LANGUAGE],
     pluralRulesFor(language),
     key,
     count,

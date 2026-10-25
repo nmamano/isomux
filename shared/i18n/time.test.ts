@@ -1,5 +1,6 @@
-// The Intl time helper of ruling 12, on the three offered languages and at
-// every threshold the helper actually branches on.
+// The Intl time helper of ruling 12, at every threshold the helper actually
+// branches on. How each language words a span or a date is Intl's data: a
+// non-English row per helper proves the language reaches the formatter.
 //
 // The buckets are decided AFTER Math.round, so a whole-unit sample either side
 // of a nominal boundary proves nothing: 47h and 48h are both far from the
@@ -10,8 +11,8 @@
 // them (ruling 14): an expectation computed from Intl.RelativeTimeFormat would
 // pass whatever the helper did with it, including picking the wrong unit. What
 // this file pins is the bucket each age lands in - the thresholds carried over
-// from the hand-built formatters access-shared.tsx used - and the fact that
-// Catalan and Spanish get their own words rather than English ones.
+// from the hand-built formatters access-shared.tsx used - and the options each
+// shape passes.
 //
 // `now` is passed in everywhere, so nothing here depends on the clock. The
 // absolute case builds its Date from local components and expects the local
@@ -79,19 +80,8 @@ describe("timeSince", () => {
     return result.kind === "formatted" ? result.text : result.kind;
   };
 
-  it("reads Spanish on es", () => {
+  it("reads the reader's language", () => {
     expect(text("es", 30_000)).toBe("hace 1 min");
-    expect(text("es", 59 * MINUTE)).toBe("hace 59 min");
-    expect(text("es", 60 * MINUTE)).toBe("hace 1 h");
-    expect(text("es", 47 * HOUR)).toBe("hace 47 h");
-    expect(text("es", 96 * HOUR)).toBe("hace 4 d");
-  });
-
-  it("reads Catalan on ca", () => {
-    expect(text("ca", 30_000)).toBe("fa 1 min");
-    expect(text("ca", 59 * MINUTE)).toBe("fa 59 min");
-    expect(text("ca", 60 * MINUTE)).toBe("fa 1 h");
-    expect(text("ca", 47 * HOUR)).toBe("fa 47 h");
     expect(text("ca", 96 * HOUR)).toBe("fa 4 dies");
   });
 
@@ -141,18 +131,10 @@ describe("timeUntil", () => {
     });
   });
 
-  it("reads Spanish and Catalan", () => {
+  it("reads the reader's language", () => {
     expect(until("es", 12 * HOUR)).toEqual({
       kind: "formatted",
       text: "dentro de 12 h",
-    });
-    expect(until("es", 72 * HOUR)).toEqual({
-      kind: "formatted",
-      text: "dentro de 3 d",
-    });
-    expect(until("ca", 12 * HOUR)).toEqual({
-      kind: "formatted",
-      text: "d‘aquí a 12 h",
     });
     expect(until("ca", 72 * HOUR)).toEqual({
       kind: "formatted",
@@ -169,14 +151,13 @@ describe("absoluteTime", () => {
   it("orders the date the way each language does", () => {
     expect(absoluteTime("en", stamp)).toBe("1/2/26, 3:04 PM");
     expect(absoluteTime("es", stamp)).toBe("2/1/26, 15:04");
-    expect(absoluteTime("ca", stamp)).toBe("2/1/26 15:04");
   });
 });
 
 // The shapes S6 moved the hand-built toLocale* call sites onto. English is
 // pinned against what those call sites printed before, so the move is provably
-// a language change and not a shape change (ruling 6); Spanish and Catalan
-// prove the language reaches the formatter at all.
+// a language change and not a shape change (ruling 6); Spanish proves the
+// language reaches the formatter at all.
 describe("formatDateTime", () => {
   const stamp = new Date(2026, 0, 2, 15, 4, 5).getTime();
 
@@ -191,24 +172,8 @@ describe("formatDateTime", () => {
     expect(formatDateTime("en", stamp, "fullDate")).toBe("Jan 2, 2026");
   });
 
-  it("reads Spanish and Catalan, which order and word the date their own way", () => {
-    expect(formatDateTime("es", stamp, "clock")).toBe("15:04");
-    expect(formatDateTime("es", stamp, "monthDay")).toBe("2 ene");
+  it("reads Spanish, which orders and words the date its own way", () => {
     expect(formatDateTime("es", stamp, "fullDate")).toBe("2 ene 2026");
-    expect(formatDateTime("es", stamp, "dateTimeSeconds")).toBe(
-      "2/1/2026, 15:04:05",
-    );
-    expect(formatDateTime("ca", stamp, "monthDay")).toBe("2 de gen.");
-    expect(formatDateTime("ca", stamp, "fullDate")).toBe("2 de gen. del 2026");
-    expect(formatDateTime("ca", stamp, "dateTimeSeconds")).toBe(
-      "2/1/2026 15:04:05",
-    );
-  });
-
-  it("is the same formatter absoluteTime names", () => {
-    expect(formatDateTime("en", stamp, "dateTime")).toBe(
-      absoluteTime("en", stamp),
-    );
   });
 });
 
@@ -226,8 +191,7 @@ describe("the weekdayDateTime shape", () => {
     expect(formatDateTime("es", stamp, "weekdayDateTime")).toBe(
       "sáb, 1 ago, 09:00",
     );
-    // Catalan's elision apostrophe here is Intl's own U+2019, as the
-    // timeUntilFine block below already pins for the relative forms.
+    // Catalan's elision apostrophe here is Intl's own U+2019.
     expect(formatDateTime("ca", stamp, "weekdayDateTime")).toBe(
       "ds., 1 d’ag., 09:00",
     );
@@ -285,21 +249,5 @@ describe("timeUntilFine", () => {
       kind: "formatted",
       text: "in 2d",
     });
-    // The hour form takes U+2018 and the day form U+2019, as the timeUntil
-    // block above already pins; the difference is Intl's, not a typo here.
-    expect(untilFine("ca", 3 * HOUR)).toEqual({
-      kind: "formatted",
-      text: "d‘aquí a 3 h",
-    });
   });
-});
-
-it("formats Chinese relative and local absolute times", () => {
-  expect(timeSince("zh", NOW - 5 * MINUTE, NOW)).toEqual({
-    kind: "formatted",
-    text: "5分钟前",
-  });
-  const local = new Date(2024, 7, 1, 11, 0).getTime();
-  expect(absoluteTime("zh", local)).toBe("2024/8/1 11:00");
-  expect(formatDateTime("zh", local, "monthDay")).toBe("8月1日");
 });

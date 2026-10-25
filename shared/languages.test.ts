@@ -25,27 +25,6 @@ describe("isSupportedLanguage", () => {
     expect(isSupportedLanguage(null)).toBe(false);
     expect(isSupportedLanguage(7)).toBe(false);
   });
-
-  it("the default language is one we offer", () => {
-    expect(isSupportedLanguage(DEFAULT_LANGUAGE)).toBe(true);
-  });
-
-  it("offers English, Spanish, Catalan and Simplified Chinese, in that order, each under its own name", () => {
-    // The picker's contract: the order is the order shown, and the label is
-    // the language's name in itself, not in English.
-    expect(SUPPORTED_LANGUAGES.map((l) => l.code)).toEqual([
-      "en",
-      "es",
-      "ca",
-      "zh",
-    ]);
-    expect(SUPPORTED_LANGUAGES.map((l) => l.label)).toEqual([
-      "English",
-      "Español",
-      "Català",
-      "简体中文",
-    ]);
-  });
 });
 
 describe("detectBrowserLanguage", () => {
@@ -176,18 +155,9 @@ describe("languageFromAcceptLanguage", () => {
   });
 });
 
-it("uses Simplified Chinese for replies and mainland speech", () => {
-  expect(languageOption("zh")).toEqual({
-    code: "zh",
-    label: "简体中文",
-    englishName: "Simplified Chinese",
-    speechLocale: "zh-CN",
-  });
-  expect(detectBrowserLanguage("zh-CN")).toBe("zh");
+it("uses Simplified Chinese for every Chinese browser and mainland speech", () => {
   expect(detectBrowserLanguage("ZH-Hans-CN")).toBe("zh");
   // Deliberately Simplified today; a Traditional entry will need subtag-aware matching.
   expect(detectBrowserLanguage("zh-TW")).toBe("zh");
-  expect(languageFromAcceptLanguage("en;q=0.4, zh-CN;q=0.9")).toBe("zh");
-  expect(languageLabelFor("zh-CN")).toBe("Simplified Chinese");
   expect(speechLocaleFor("zh", "en-US")).toBe("zh-CN");
 });

@@ -45,10 +45,7 @@ function weekdayFormatter(
 }
 
 /** The short name of weekday `index` (0 = Sunday) in the reader's language. */
-export function weekdayName(
-  language: SupportedLanguageCode,
-  index: number,
-): string {
+function weekdayName(language: SupportedLanguageCode, index: number): string {
   const day = new Date(Date.UTC(2024, 0, WEEKDAY_ANCHOR_DAY + index));
   return weekdayFormatter(language).format(day);
 }

@@ -1,15 +1,12 @@
-// Catalog completeness (internal-docs/i18n-loop.md, ruling 7), at runtime and
-// over every offered language: the same key set as English, no empty value, the
-// same placeholders, the same rich-text tags (ruling 16), and plural pairs
-// that are whole. The types already make a
-// missing or extra key a compile error; this is what bun test sees, since
-// `bun test` does not typecheck.
+// Catalog completeness (internal-docs/i18n-loop.md, ruling 7) over every
+// offered language: no empty value, the same placeholders, the same rich-text
+// tags (ruling 16), and plural pairs that are whole. The key set is the type's:
+// Catalog makes a missing or extra key a tsc error, and tsc is a CI gate.
 
 import { describe, expect, it } from "bun:test";
 import { CATALOGS } from "./translate.ts";
 import { en } from "./en.ts";
 import { SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE } from "../languages.ts";
-import { EFFORT_LEVELS, EFFORT_KEYS } from "../types.ts";
 import {
   COMMAND_DESCRIPTION_KEYS,
   COMMAND_MESSAGE_KEYS,
@@ -104,20 +101,15 @@ describe("tags", () => {
 });
 
 describe("the catalogs", () => {
-  it("cover every offered language and the tracer is not empty", () => {
+  // The enabling condition of every loop below.
+  it("have keys and languages to check", () => {
     expect(ENGLISH_KEYS.length).toBeGreaterThan(0);
     expect(OTHER_LANGUAGES.length).toBeGreaterThan(0);
-    for (const code of SUPPORTED_LANGUAGES.map((l) => l.code))
-      expect(CATALOGS[code]).toBeDefined();
   });
 
   for (const code of OTHER_LANGUAGES) {
     describe(code, () => {
       const catalog = CATALOGS[code];
-
-      it("has exactly the English keys", () => {
-        expect(Object.keys(catalog).sort()).toEqual(ENGLISH_KEYS);
-      });
 
       it("has no empty value", () => {
         for (const key of ENGLISH_KEYS)
@@ -212,33 +204,16 @@ describe("the catalogs", () => {
   });
 });
 
-// EFFORT_LEVELS carries ids only since S7 - the words are the catalog's - so
-// there is no second copy to pin. What still needs holding is COVERAGE: a level
-// the table offers with no key would render as its own id.
-describe("the effort table and the catalog", () => {
-  it("covers every level the table offers", () => {
-    expect(Object.keys(EFFORT_KEYS).sort()).toEqual(
-      EFFORT_LEVELS.map((entry) => entry.level).sort(),
-    );
-  });
-});
-
-// The same coverage property for slash commands, in BOTH directions: a command
-// added to the registry without a description key would print its own key in
-// /help and in the menu, and a key left behind by a deleted command would rot
-// unnoticed (internal-docs/i18n-loop.md, S7).
+// Coverage of the slash commands, in BOTH directions: a command added to the
+// registry without a description key would print its own key in /help and in
+// the menu, and a key left behind by a deleted command would rot unnoticed
+// (internal-docs/i18n-loop.md, S7). That each key is a catalog key is the
+// type's: command-keys.ts holds both tables to `satisfies`.
 describe("the command registry and the catalog", () => {
   it("has a description key for exactly the registry's commands", () => {
     expect(Object.keys(COMMAND_DESCRIPTION_KEYS).sort()).toEqual(
       Object.keys(commands).sort(),
     );
-  });
-
-  it("points every description and message key at a real catalog entry", () => {
-    for (const key of Object.values(COMMAND_DESCRIPTION_KEYS))
-      expect(ENGLISH_KEYS, key).toContain(key);
-    for (const key of Object.values(COMMAND_MESSAGE_KEYS))
-      expect(ENGLISH_KEYS, key).toContain(key);
   });
 
   // An alias and its command say the same thing in the same role, so they

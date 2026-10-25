@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import chatHandler from "../api/chat.ts";
 import { SITE_LANGUAGE_PATH } from "../shared/i18n/site-url.ts";
 import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 import { setUpDomTestFile } from "../ui/test-support/dom.ts";
@@ -135,6 +136,52 @@ describe("the page kind the widget reports to /api/chat", () => {
     }
     for (const [path, lang] of paths)
       expect((await outbound(path, lang)).page, path).toBe("main");
+  });
+});
+
+// A failed answer reaches the widget as api/chat.ts's structured error, and
+// the widget words an out-of-credit upstream apart from any other failure.
+// The 502 here is the real handler's, built from what Anthropic answered.
+describe("the failure the widget shows", () => {
+  let nextIp = 0;
+  const statuses: number[] = [];
+
+  /** The bot message the widget shows when Anthropic answers `upstream`. */
+  async function failureFor(upstream: string): Promise<string> {
+    const webhook = process.env.DISCORD_WEBHOOK_URL;
+    delete process.env.DISCORD_WEBHOOK_URL;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      if (String(url) !== "/api/chat")
+        return new Response(upstream, { status: 400 });
+      const headers = new Headers(init.headers);
+      headers.set("x-forwarded-for", `192.0.2.${++nextIp}`);
+      const res = await chatHandler(
+        new Request("https://isomux.com/api/chat", { ...init, headers }),
+      );
+      statuses.push(res.status);
+      return res;
+    }) as unknown as typeof fetch;
+    try {
+      runOn("en", CHATBOT);
+      const w = window as ChatWindow;
+      w.__chatOpen();
+      w.__chatSend("hi");
+      for (let i = 0; i < 50 && !document.querySelector(".chat-msg-bot"); i++)
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      return document.querySelector(".chat-msg-bot")?.textContent ?? "";
+    } finally {
+      if (webhook !== undefined) process.env.DISCORD_WEBHOOK_URL = webhook;
+    }
+  }
+
+  it("tells an out-of-credit upstream apart from another failure", async () => {
+    const credit = await failureFor("Your credit balance is too low.");
+    const other = await failureFor("Overloaded.");
+    expect(credit).toBeTruthy();
+    expect(other).toBeTruthy();
+    // The enabling condition: both answers were the handler's 502.
+    expect(statuses).toEqual([502, 502]);
+    expect(credit).not.toBe(other);
   });
 });
 

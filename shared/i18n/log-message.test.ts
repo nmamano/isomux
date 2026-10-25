@@ -13,7 +13,6 @@
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import {
   logEntryText,
-  logParts,
   localizeLogParts,
   msg,
   msgN,
@@ -50,12 +49,6 @@ describe("msg and msgN store a key and its values, as plain data", () => {
     });
     const parts = [notFound(), "\n\nraw"];
     expect(JSON.parse(JSON.stringify(parts))).toEqual(parts);
-  });
-
-  it("normalizes every LogText to a list of parts", () => {
-    expect(logParts("plain")).toEqual(["plain"]);
-    expect(logParts(notFound())).toEqual([notFound()]);
-    expect(logParts([notFound(), "tail"])).toEqual([notFound(), "tail"]);
   });
 });
 

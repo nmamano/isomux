@@ -8,7 +8,7 @@
 // copy of its output, so the two cannot drift apart unnoticed.
 
 import { describe, expect, it } from "bun:test";
-import { scheduleText, weekdayName } from "./schedule.ts";
+import { scheduleText } from "./schedule.ts";
 import { translatorFor } from "./translate.ts";
 import { humanizeSchedule, type Schedule } from "../types.ts";
 import {
@@ -26,37 +26,27 @@ const EVERY_HOURS: Schedule = { type: "interval", minutes: 180 };
 const EVERY_MIXED: Schedule = { type: "interval", minutes: 150 };
 const NONE: Schedule = { type: "none" };
 
-describe("weekdayName", () => {
-  it("uses the known Sunday anchor and gives every day a label", () => {
-    const sunday = new Date(Date.UTC(2024, 0, 7));
-    for (const { code } of SUPPORTED_LANGUAGES) {
-      const week = Array.from({ length: 7 }, (_, day) =>
-        weekdayName(code, day),
-      );
-      const expectedSunday = new Intl.DateTimeFormat(code, {
-        weekday: "short",
-        timeZone: "UTC",
-      }).format(sunday);
-      expect(week[0], code).toBe(expectedSunday);
-      expect(week.every(Boolean), code).toBe(true);
-      expect(new Set(week).size, code).toBe(week.length);
-    }
-  });
-});
+// The short weekday name in `code`, read in UTC as schedule.ts reads it.
+const weekdayIn = (code: SupportedLanguageCode, utcDate: number) =>
+  new Intl.DateTimeFormat(code, { weekday: "short", timeZone: "UTC" }).format(
+    new Date(Date.UTC(2024, 0, utcDate)),
+  );
 
 describe("scheduleText", () => {
-  it("keeps schedule data in a resolved sentence for every language", () => {
+  // 2024-01-07 was a Sunday: weekday 0 must name it, and the seven days must
+  // be seven different names, in every language.
+  it("names the schedule's weekday from the Sunday anchor in every language", () => {
     for (const { code } of SUPPORTED_LANGUAGES) {
-      expect(say(code, DAILY)).toContain("09:00");
-      expect(say(code, WEEKLY)).toContain("17:30");
-      expect(say(code, EVERY_MINUTES)).toContain("45");
-      expect(say(code, EVERY_HOURS)).toContain("3");
-      const mixed = say(code, EVERY_MIXED);
-      expect(mixed).toContain("2");
-      expect(mixed).toContain("30");
-      // No clock: a sentence with no time in it.
-      expect(say(code, NONE), code).toBeTruthy();
-      expect(say(code, NONE), code).not.toMatch(/\d/);
+      const week = Array.from({ length: 7 }, (_, weekday) =>
+        say(code, {
+          type: "weekly",
+          weekday,
+          hour: 17,
+          minute: 30,
+        } as Schedule),
+      );
+      expect(week[0], code).toContain(weekdayIn(code, 7));
+      expect(new Set(week).size, code).toBe(7);
     }
   });
 
@@ -70,7 +60,7 @@ describe("scheduleText", () => {
 
   it("joins a Chinese weekday directly and separates numeric values", () => {
     const weekly = say("zh", WEEKLY);
-    const weekday = weekdayName("zh", WEEKLY.weekday);
+    const weekday = weekdayIn("zh", 7 + WEEKLY.weekday);
     expect(weekly).toContain(weekday);
     expect(weekly).not.toContain(` ${weekday}`);
     expect(weekly).not.toContain(`${weekday}  `);

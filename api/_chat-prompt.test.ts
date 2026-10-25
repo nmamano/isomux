@@ -33,28 +33,13 @@ describe("site chatbot page context", () => {
   it("adds no direction on a docs page, whose content is the authoritative context", () => {
     expect(buildSystemPrompt("main", true)).toBe(SYSTEM_PROMPT);
   });
-
-  it("sends a closed page identity from the shared widget", () => {
-    const widget = readFileSync(
-      join(import.meta.dir, "..", "site", "chatbot.js"),
-      "utf8",
-    );
-    // The language prefix (/es, /ca) comes off before the classification, so
-    // /es/hosted is the hosted page, not the landing (i18n S10).
-    expect(widget).toContain(
-      'window.location.pathname.replace(LANGUAGE_PREFIX, "")',
-    );
-    expect(widget).toContain('pagePath.startsWith("/hosted")');
-    expect(widget).toMatch(/messages: messages\.map[\s\S]*\n\s*page,/u);
-  });
 });
 
 describe("site chatbot disclosures", () => {
   const root = join(import.meta.dir, "..");
 
+  // The relay itself is pinned in _chat-discord-log.test.ts.
   it("points site visitors at the privacy policy while the handler relays chats", () => {
-    const handler = readFileSync(join(import.meta.dir, "chat.ts"), "utf8");
-    expect(handler).toContain("DISCORD_WEBHOOK_URL");
     expect(SYSTEM_PROMPT).toContain("isomux.com/hosted-privacy");
     // Office receptionist chats are not relayed, so the shared knowledge
     // carries no such disclosure.

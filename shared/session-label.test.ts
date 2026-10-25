@@ -1,21 +1,26 @@
 import { describe, expect, it } from "bun:test";
-import {
-  UNTITLED_CONVERSATION_LABEL,
-  sessionMessagePreview,
-  sessionResumeLabel,
-} from "./session-label.ts";
+import { sessionMessagePreview, sessionResumeLabel } from "./session-label.ts";
+
+const UNTITLED = "Sense títol";
 
 describe("session resume labels", () => {
   it("uses topic, then the first user message, then a neutral label", () => {
     expect(
-      sessionResumeLabel({ topic: "Topic", firstUserMessage: "Hello" }),
+      sessionResumeLabel(
+        { topic: "Topic", firstUserMessage: "Hello" },
+        UNTITLED,
+      ),
     ).toBe("Topic");
-    expect(sessionResumeLabel({ topic: null, firstUserMessage: "Hello" })).toBe(
-      "Hello",
-    );
-    expect(sessionResumeLabel({ topic: null, firstUserMessage: null })).toBe(
-      "Untitled conversation",
-    );
+    expect(
+      sessionResumeLabel({ topic: null, firstUserMessage: "Hello" }, UNTITLED),
+    ).toBe("Hello");
+    expect(
+      sessionResumeLabel({ topic: null, firstUserMessage: null }, UNTITLED),
+    ).toBe(UNTITLED);
+    // A blank topic is no topic.
+    expect(
+      sessionResumeLabel({ topic: "   ", firstUserMessage: "Hello" }, UNTITLED),
+    ).toBe("Hello");
   });
 
   it("normalizes a first message into a bounded single-line preview", () => {
@@ -27,50 +32,22 @@ describe("session resume labels", () => {
 
   it("bounds and normalizes a stored first-message fallback at read time", () => {
     expect(
-      sessionResumeLabel({
-        topic: `  ${"topic ".repeat(20)}\nlabel  `,
-        firstUserMessage: "Fallback",
-      }),
+      sessionResumeLabel(
+        {
+          topic: `  ${"topic ".repeat(20)}\nlabel  `,
+          firstUserMessage: "Fallback",
+        },
+        UNTITLED,
+      ),
     ).toBe("topic ".repeat(14).slice(0, 80));
     expect(
-      sessionResumeLabel({
-        topic: null,
-        firstUserMessage: `  ${"long ".repeat(30)}\nrequest  `,
-      }),
+      sessionResumeLabel(
+        {
+          topic: null,
+          firstUserMessage: `  ${"long ".repeat(30)}\nrequest  `,
+        },
+        UNTITLED,
+      ),
     ).toBe("long ".repeat(16).slice(0, 80));
-  });
-});
-
-// The fallback the UI supplies from its catalog (internal-docs/i18n-loop.md, S6).
-// The default is what every server caller still gets, so this pins BOTH: that a
-// supplied label reaches the empty case, and that no caller which passes
-// nothing sees a byte change.
-describe("the untitled fallback", () => {
-  it("uses the supplied label only when there is nothing to preview", () => {
-    expect(
-      sessionResumeLabel(
-        { topic: null, firstUserMessage: null },
-        "Sense títol",
-      ),
-    ).toBe("Sense títol");
-    expect(
-      sessionResumeLabel(
-        { topic: "Topic", firstUserMessage: null },
-        "Sense títol",
-      ),
-    ).toBe("Topic");
-    expect(
-      sessionResumeLabel(
-        { topic: "   ", firstUserMessage: "Hello" },
-        "Sense títol",
-      ),
-    ).toBe("Hello");
-  });
-
-  it("still answers English to a caller that supplies nothing", () => {
-    expect(sessionResumeLabel({ topic: null, firstUserMessage: null })).toBe(
-      UNTITLED_CONVERSATION_LABEL,
-    );
-    expect(UNTITLED_CONVERSATION_LABEL).toBe("Untitled conversation");
   });
 });

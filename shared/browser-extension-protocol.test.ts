@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { officeSocketURL } from "./browser-extension-protocol";
+import {
+  officeSocketURL,
+  validGrantExpiry,
+} from "./browser-extension-protocol";
 
 test("office URL input accepts origins only and derives the encrypted socket", () => {
   expect(officeSocketURL("https://office.example.com")).toBe(
@@ -19,4 +22,25 @@ test("office URL input accepts origins only and derives the encrypted socket", (
     "wss://office.example.com",
   ])
     expect(() => officeSocketURL(value)).toThrow();
+});
+
+test("a grant expiry is null exactly for Never and otherwise a valid Date time", () => {
+  const latest = 8_640_000_000_000_000;
+  for (const [duration, expiresAt] of [
+    [0, null],
+    [15, 1_800_000_000_000],
+    [240, latest],
+  ])
+    expect(validGrantExpiry(duration, expiresAt)).toBe(true);
+  for (const [duration, expiresAt] of [
+    [undefined, undefined],
+    [0, 1_800_000_000_000],
+    [15, null],
+    [1, 1_800_000_000_000],
+    [15, 0],
+    [15, 1.5],
+    [15, latest + 1],
+    [15, "1800000000000"],
+  ])
+    expect(validGrantExpiry(duration, expiresAt)).toBe(false);
 });

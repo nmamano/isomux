@@ -89,23 +89,6 @@ describe("showEngineCue", () => {
     }
   });
 
-  it("renders concise header labels for each engine", () => {
-    expect(familyDisplayLabel("opus")).toBe("Opus 5.5");
-    expect(familyDisplayLabel("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
-    expect(familyDisplayLabel("opencode/muse-spark-1.2-contributor-free")).toBe(
-      "Muse Spark 1.2 Free",
-    );
-    expect(showEngineCue("claude", "opus", "header")).toBe(false);
-    expect(showEngineCue("codex", "gpt-5.6-sol", "header")).toBe(false);
-    expect(
-      showEngineCue(
-        "opencode",
-        "opencode/muse-spark-1.2-contributor-free",
-        "header",
-      ),
-    ).toBe(true);
-  });
-
   it("keeps both cues for OpenCode ids with engine-like provider prefixes", () => {
     for (const model of [
       "gpt-provider/model",

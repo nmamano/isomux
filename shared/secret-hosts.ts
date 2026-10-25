@@ -109,10 +109,10 @@ export function isNeverListed(host: string): boolean {
   return NEVER_PATTERNS.some((pattern) => pattern.test(h));
 }
 
-export const SECRET_MAX_HOSTS = 20;
+const SECRET_MAX_HOSTS = 20;
 // The apps that may read a secret's value (task c7007f8b).
 export const SECRET_MAX_APPS = 20;
-export const SECRET_MAX_VALUE_LENGTH = 16 * 1024;
+const SECRET_MAX_VALUE_LENGTH = 16 * 1024;
 // The proxy's scrub and the log masking skip shorter values
 // (server/secret-proxy/scrub.ts), so a host that reflected one would return
 // it to the agent. A value stored before this rule keeps working.
@@ -157,7 +157,7 @@ const RESERVED_PREFIXES: readonly string[] = ["ISOMUX_", "GIT_CONFIG_"];
 
 // The names an app's own environment needs. A secret with apps cannot use
 // them: the app's secrets file would override the value the office sets.
-export const APP_RESERVED_SECRET_NAMES: readonly string[] = [
+const APP_RESERVED_SECRET_NAMES: readonly string[] = [
   "PORT",
   "PATH",
   "HOME",
@@ -171,7 +171,7 @@ export function isAppReservedSecretName(name: string): boolean {
 
 const SAFE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function isReservedSecretName(name: string): boolean {
+function isReservedSecretName(name: string): boolean {
   return (
     RESERVED_NAMES.includes(name) ||
     RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix))

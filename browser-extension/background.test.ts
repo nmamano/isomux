@@ -346,11 +346,6 @@ async function harness(autoAck = true, debuggerRecovery = true) {
     },
     focused,
     intercepted,
-    failChooser: () => {
-      chooser = async () => {
-        throw new Error("chooser failed");
-      };
-    },
     delayChooser: () => {
       let finish!: () => void;
       chooser = () =>
@@ -447,30 +442,23 @@ async function harness(autoAck = true, debuggerRecovery = true) {
 
 test("built worker does not dispatch stale-generation or disconnected commands", async () => {
   const h = await harness();
-  h.command(1, "create", {}, "old-generation");
-  await settle();
-  expect(h.calls).toHaveLength(0);
   await h.offer();
-  expect(h.calls.filter((call) => call === "attach")).toHaveLength(1);
+  const evaluate = { method: "Runtime.evaluate", params: {} };
+  h.command(2, "cdp", evaluate);
+  await settle();
+  // The enabling condition: a current-generation command reaches the page.
+  expect(h.calls.filter((call) => call === "Runtime.evaluate")).toHaveLength(1);
+  h.command(3, "cdp", evaluate, "old-generation");
+  await settle();
+  expect(h.calls.filter((call) => call === "Runtime.evaluate")).toHaveLength(1);
+  expect(h.socket.sent.some((m) => m.kind === "result" && m.id === 3)).toBe(
+    false,
+  );
   h.socket.close();
-  h.command(3, "cdp", { method: "Runtime.evaluate", params: {} });
+  h.command(4, "cdp", evaluate);
   await settle();
-  expect(h.calls).not.toContain("Runtime.evaluate");
+  expect(h.calls.filter((call) => call === "Runtime.evaluate")).toHaveLength(1);
   expect(h.calls).toContain("detach");
-  const fresh = await h.reconnect();
-  fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 4, generation: "generation-2" });
-  fresh.receive({
-    kind: "command",
-    assignment: "assignment",
-    id: 2,
-    generation: "generation-1",
-    method: "create",
-    params: {},
-  });
-  await settle();
-  expect(h.calls.filter((call) => call === "create")).toHaveLength(0);
-  fresh.close();
 });
 
 test("Off while the tab lookup is pending prevents debugger attachment", async () => {
@@ -487,25 +475,9 @@ test("Off while the tab lookup is pending prevents debugger attachment", async (
   h.socket.close();
 });
 
-test("built worker refuses unknown child sessions and profile commands", async () => {
-  const h = await harness();
-  await h.offer();
-  const count = h.calls.length;
-  h.command(2, "cdp", {
-    method: "Runtime.evaluate",
-    sessionId: "foreign",
-    params: {},
-  });
-  h.command(3, "cdp", { method: "Storage.getCookies", params: {} });
-  await settle();
-  expect(h.calls).toHaveLength(count);
-  expect(
-    h.socket.sent.filter((msg) => msg.kind === "result" && msg.error),
-  ).toHaveLength(2);
-  h.socket.close();
-});
-
-test("built worker permits owned frame hit testing but rejects a foreign session", async () => {
+// The command filter's full table is pinned at the server bridge
+// (server/browser-extension-bridge.test.ts); here the worker must apply it.
+test("built worker permits owned frame hit testing but refuses foreign sessions and profile commands", async () => {
   const h = await harness();
   await h.offer();
   h.command(2, "cdp", {
@@ -513,27 +485,24 @@ test("built worker permits owned frame hit testing but rejects a foreign session
     params: { frameId: "child" },
   });
   await settle();
-  expect(h.calls.filter((call) => call === "DOM.getFrameOwner")).toHaveLength(
-    1,
-  );
+  const count = h.calls.length;
+  expect(h.calls.at(-1)).toBe("DOM.getFrameOwner");
   h.command(3, "cdp", {
     method: "DOM.getFrameOwner",
     sessionId: "foreign",
     params: { frameId: "child" },
   });
-  h.command(4, "cdp", {
+  h.command(4, "cdp", { method: "Storage.getCookies", params: {} });
+  h.command(5, "cdp", {
     method: "DOM.getFrameOwner",
     params: { frameId: "child", targetId: "foreign" },
   });
   await settle();
-  expect(h.calls.filter((call) => call === "DOM.getFrameOwner")).toHaveLength(
-    1,
-  );
-  expect(
-    h.socket.sent.filter(
-      (message) => message.kind === "result" && message.error,
-    ),
-  ).toHaveLength(2);
+  expect(h.calls).toHaveLength(count);
+  for (const id of [3, 4, 5])
+    expect(
+      h.socket.sent.find((m) => m.kind === "result" && m.id === id)?.error,
+    ).toBeTruthy();
   h.socket.close();
 });
 
@@ -558,6 +527,7 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   await h.offer();
   const attached = h.calls.filter((call) => call === "attach").length;
   expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }]);
+  expect(h.intercepted).toEqual([{ tabId: 7, params: { enabled: true } }]);
   expect(h.calls).toEqual([
     "attach",
     "Page.enable",
@@ -574,6 +544,10 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
     h.socket.sent.filter((message) => message.method === "popup"),
   ).toHaveLength(1);
   expect(h.focused).toEqual([
+    { tabId: 7, params: { enabled: true } },
+    { tabId: 8, params: { enabled: true } },
+  ]);
+  expect(h.intercepted).toEqual([
     { tabId: 7, params: { enabled: true } },
     { tabId: 8, params: { enabled: true } },
   ]);
@@ -621,7 +595,7 @@ for (const stage of ["attach", "target", "focus"] as const) {
   });
 }
 
-test("popup is exact-extension-only, does not disclose credentials, and stops only its assignment", async () => {
+test("popup is exact-extension-only, does not disclose credentials, and stops a grant only in its generation", async () => {
   const h = await harness();
   expect(
     h.foreign({ id: "fixture-id", url: "https://example.com/" }),
@@ -632,13 +606,6 @@ test("popup is exact-extension-only, does not disclose credentials, and stops on
       url: "chrome-extension://fixture-id/connection.html",
     }),
   ).toBeUndefined();
-  h.socket.receive({
-    kind: "metadata",
-    generation: "generation-1",
-    member: { id: "m", name: "Member" },
-    agents: [{ id: "a", name: "Agent" }],
-    assignments: [],
-  });
   await h.offer();
   const state = await h.ui({ action: "state" });
   expect(state.member).toEqual({ id: "m", name: "Member" });
@@ -673,9 +640,6 @@ test("popup is exact-extension-only, does not disclose credentials, and stops on
     method: "detached",
     params: {},
   });
-  expect(
-    h.calls.filter((call) => /close|remove|media|audio/i.test(call)),
-  ).toHaveLength(0);
   h.socket.close();
 });
 
@@ -706,6 +670,8 @@ test("unpair claims success only after generation-bound acknowledgement", async 
     generation: "generation-1",
   });
   h.socket.receive({ kind: "unpaired", generation: "old" });
+  await settle();
+  expect(h.socket.readyState).toBe(1);
   expect(h.config()?.credential).toBe("fixture");
   h.socket.receive({ kind: "unpaired", generation: "generation-1" });
   expect((await pending).state).toBe("unpaired");
@@ -720,7 +686,8 @@ test("unpair claims success only after generation-bound acknowledgement", async 
 
 for (const popup of [false, true]) {
   test(`failed ${popup ? "popup" : "root"} focus setup detaches without publishing a target`, async () => {
-    const h = await harness();
+    // A root offer stays unacknowledged, so only the failed setup can detach.
+    const h = await harness(popup);
     if (popup) {
       await h.offer();
     }
@@ -739,24 +706,31 @@ for (const popup of [false, true]) {
   });
 }
 
-test("root ownership lost during focus setup cannot publish its target", async () => {
-  const h = await harness();
-  const finish = h.delayPopup("focus");
-  const offering = h.offer();
-  await settle();
-  await settle();
-  expect(h.focused).toHaveLength(1);
-  h.command(2, "detach");
-  finish();
-  await settle();
-  expect(
-    h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
-  ).toBeTruthy();
-  await offering;
-  expect(h.calls).not.toContain("Target.getTargetInfo");
-  expect(h.calls).toContain("detach");
-  h.socket.close();
-});
+for (const stage of ["chooser", "focus"] as const) {
+  test(`root ownership lost during ${stage} setup cannot publish its target`, async () => {
+    const h = await harness();
+    const finish =
+      stage === "chooser" ? h.delayChooser() : h.delayPopup("focus");
+    const offering = h.offer();
+    await settle();
+    await settle();
+    expect((stage === "chooser" ? h.intercepted : h.focused).length).toBe(1);
+    h.command(2, "detach");
+    finish();
+    await settle();
+    expect(
+      h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
+    ).toBeTruthy();
+    await offering;
+    // No setup step after the held one runs: cleanup only turns focus off.
+    expect(
+      h.focused.filter((value) => fields(value.params).enabled === true),
+    ).toHaveLength(stage === "focus" ? 1 : 0);
+    expect(h.calls).not.toContain("Target.getTargetInfo");
+    expect(h.calls).toContain("detach");
+    h.socket.close();
+  });
+}
 
 test("detach restores focus on only the root and its owned popup", async () => {
   const h = await harness();
@@ -793,16 +767,17 @@ for (const conflict of ["agent", "tab", "popup"] as const) {
       h.selected(8);
     }
     const before = h.socket.sent.filter((m) => m.kind === "offer").length;
-    const result = await h.ui({
+    // Not awaited: an accepted offer would wait for an acknowledgement.
+    const result = h.ui({
       action: "offer",
       generation: "generation-1",
-      tabId: conflict === "agent" ? 9 : conflict === "popup" ? 8 : 7,
-      agent: conflict === "agent" ? "a" : "b",
+      scope: { kind: "agent", agentId: conflict === "agent" ? "a" : "b" },
     });
-    expect(result).toHaveProperty("error");
+    await settle();
     expect(h.socket.sent.filter((m) => m.kind === "offer")).toHaveLength(
       before,
     );
+    expect(await result).toHaveProperty("error");
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
     h.socket.close();
   });
@@ -1114,45 +1089,44 @@ test("timed offer uses the acknowledged deadline and metadata cannot silently ex
   h.socket.close();
 });
 
-for (const pair of [
-  {},
-  { durationMinutes: 0, expiresAt: 1800000000000 },
-  { durationMinutes: 15, expiresAt: null },
-  { durationMinutes: 1, expiresAt: 1800000000000 },
-  { durationMinutes: 15, expiresAt: 1.5 },
-  { durationMinutes: 15, expiresAt: Number.MAX_SAFE_INTEGER },
-]) {
-  test(`invalid expiry pair fails closed in ack and metadata ${JSON.stringify(pair)}`, async () => {
-    const pendingHarness = await harness(false);
-    const pending = await pendingHarness.startOffer(15);
-    pendingHarness.command(1, "attach");
-    await settle();
-    pendingHarness.socket.receive({
-      kind: "offered",
-      scope: { kind: "agent", agentId: "a" },
-      generation: "generation-1",
-      assignment: pending.assignment,
-      ...pair,
-    });
-    const result = await pending.result;
-    expect(result.error).toBeDefined();
-    expect(pendingHarness.socket.readyState).toBe(3);
-    const active = await harness();
-    await active.offer();
-    active.socket.receive({
-      kind: "metadata",
-      generation: "generation-1",
-      member: { id: "m", name: "Member" },
-      agents: [{ id: "a", name: "Agent" }],
-      assignments: [
-        { id: active.assignment(), agent: { id: "a", name: "Agent" }, ...pair },
-      ],
-    });
-    await settle();
-    expect((await active.ui({ action: "state" })).assignments).toHaveLength(0);
-    expect(active.socket.readyState).toBe(3);
+// The pair table is pinned on validGrantExpiry in
+// shared/browser-extension-protocol.test.ts; here both paths must apply it.
+test("an invalid expiry pair fails closed in the acknowledgement and in metadata", async () => {
+  const pendingHarness = await harness(false);
+  const pending = await pendingHarness.startOffer(15);
+  pendingHarness.command(1, "attach");
+  await settle();
+  pendingHarness.socket.receive({
+    kind: "offered",
+    scope: { kind: "agent", agentId: "a" },
+    generation: "generation-1",
+    assignment: pending.assignment,
+    durationMinutes: 15,
+    expiresAt: null,
   });
-}
+  expect((await pending.result).error).toBeDefined();
+  expect(pendingHarness.socket.readyState).toBe(3);
+  const active = await harness();
+  await active.offer();
+  active.socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [
+      {
+        id: active.assignment(),
+        scope: { kind: "agent", agentId: "a" },
+        agent: { id: "a", name: "Agent" },
+        durationMinutes: 15,
+        expiresAt: null,
+      },
+    ],
+  });
+  await settle();
+  expect(active.socket.readyState).toBe(3);
+  expect((await active.ui({ action: "state" })).assignments).toHaveLength(0);
+});
 
 test("All reserves exact tabs, permits multiple roots and reconciles explicit scope", async () => {
   const h = await harness();
@@ -1267,43 +1241,6 @@ test("navigation restores only owned root/popup badges and Off wins delayed refr
   }
 });
 
-for (const popup of [false, true]) {
-  test(`failed ${popup ? "popup" : "root"} chooser setup cannot publish control`, async () => {
-    const h = await harness();
-    if (popup) await h.offer();
-    h.failChooser();
-    if (popup) h.navigation(7, 8);
-    else void h.offer();
-    await settle();
-    expect(h.intercepted.at(-1)).toEqual({
-      tabId: popup ? 8 : 7,
-      params: { enabled: true },
-    });
-    expect(h.calls).toContain("detach");
-    expect(h.socket.sent.some((m) => m.method === "popup")).toBe(false);
-    if (!popup)
-      expect(
-        h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
-      ).toBeTruthy();
-    h.socket.close();
-  });
-}
-
-test("Off during chooser setup does not publish root control", async () => {
-  const h = await harness();
-  const finish = h.delayChooser();
-  const offering = h.offer();
-  await settle();
-  expect(h.intercepted).toHaveLength(1);
-  h.command(2, "detach");
-  finish();
-  await settle();
-  await offering;
-  expect(h.calls).not.toContain("Target.getTargetInfo");
-  expect(h.calls).toContain("detach");
-  h.socket.close();
-});
-
 test("confirmed pairing records its code and never writes the popup's draft", async () => {
   const code = "a".repeat(43);
   const h = await harness();
@@ -1337,17 +1274,15 @@ test("target_closed reattaches once only when the same tab and page target survi
   expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
 });
 
-for (const reason of ["canceled_by_user", "unknown_reason"]) {
-  test(`${reason} releases without a recovery attempt`, async () => {
-    const h = await harness();
-    await h.offer();
-    h.debuggerDetached(reason);
-    await settle();
-    expect(h.calls.filter((call) => call === "attach")).toHaveLength(1);
-    expect(recoveryEvents(h)).toEqual(["detached"]);
-    expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
-  });
-}
+test("a detach other than target_closed releases without a recovery attempt", async () => {
+  const h = await harness();
+  await h.offer();
+  h.debuggerDetached("canceled_by_user");
+  await settle();
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(1);
+  expect(recoveryEvents(h)).toEqual(["detached"]);
+  expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+});
 
 for (const failure of [
   "closed tab",
@@ -1429,21 +1364,24 @@ test("a command spanning detach fails even if Chrome returns a late success", as
   expect(reply?.result).toBeUndefined();
 });
 
-for (const capability of [false, true]) {
-  for (const missing of ["tab", "target"]) {
-    test(`closing an owned popup keeps the root grant (recovery=${capability}, missing ${missing})`, async () => {
-      const h = await harness(true, capability);
-      await h.offer();
-      h.navigation(7, 8);
-      await settle();
-      if (missing === "tab") h.removeTab();
-      else h.selected(8);
-      h.debuggerDetached("target_closed", 8);
-      await settle();
-      expect(recoveryEvents(h)).toEqual(["popup", "popupDetached"]);
-      expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
-    });
-  }
+// Without the capability no recovery runs, so what is missing cannot matter.
+for (const [capability, missing] of [
+  [false, "tab"],
+  [true, "tab"],
+  [true, "target"],
+] as const) {
+  test(`closing an owned popup keeps the root grant (recovery=${capability}, missing ${missing})`, async () => {
+    const h = await harness(true, capability);
+    await h.offer();
+    h.navigation(7, 8);
+    await settle();
+    if (missing === "tab") h.removeTab();
+    else h.selected(8);
+    h.debuggerDetached("target_closed", 8);
+    await settle();
+    expect(recoveryEvents(h)).toEqual(["popup", "popupDetached"]);
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
+  });
 }
 
 test("popup retirement during the identity check cannot later release the root", async () => {

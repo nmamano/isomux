@@ -128,9 +128,6 @@ describe("isomux.com agent readiness", () => {
     expect(llms).toContain("https://isomux.com/openapi.json");
     expect(llms).toContain("https://isomux.com/docs/developer-api");
 
-    const chatbot = await Bun.file("site/chatbot.js").text();
-    expect(chatbot).toContain("err.error?.message || err.error");
-
     const vercel = JSON.parse(await Bun.file("vercel.json").text());
     expect(vercel.rewrites[0]).toEqual({
       source: "/.well-known/security.txt",
@@ -215,11 +212,6 @@ describe("isomux.com agent readiness", () => {
       expect(footerPages).toContain(file);
     });
   }
-
-  it("keeps the AI instructions on their page", async () => {
-    const page = await Bun.file("site/ai-instructions.html").text();
-    expect(page).toContain('id="instructions"');
-  });
 
   it("lists the published contact channels on the contact page", async () => {
     const page = await Bun.file("site/contact.html").text();

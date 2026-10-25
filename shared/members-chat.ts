@@ -38,7 +38,7 @@ export function membersChatPreview(content: string): string {
 
 // This caps the returned list, never the number of pins stored on disk.
 // The extra entry lets the strip distinguish exactly twenty from more.
-export const MEMBERS_CHAT_PIN_LIMIT = 21;
+const MEMBERS_CHAT_PIN_LIMIT = 21;
 
 export function recentMembersChatPins(
   messages: Iterable<MembersChatMessage>,
