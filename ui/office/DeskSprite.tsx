@@ -6,6 +6,7 @@ import type {
 import { deskModelLabel, hashIndex, type DeskProp } from "../model-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { Pot } from "./plants.tsx";
+import { DeskTopPiece, type SeasonalItem } from "./Seasonal.tsx";
 import { noTranslate } from "../no-translate.ts";
 
 function visualState(
@@ -235,6 +236,7 @@ export function DeskSprite({
   agentType,
   modelFamily,
   claudeFamilyModels,
+  seasonal = [],
 }: {
   state: AgentState;
   deskIndex?: number;
@@ -244,6 +246,8 @@ export function DeskSprite({
   agentType?: AgentBackendType;
   modelFamily?: string;
   claudeFamilyModels?: ClaudeFamilyModels;
+  // Seasonal desk-top pieces. They take the place of the drink.
+  seasonal?: SeasonalItem[];
 }) {
   const vs = visualState(state);
   const glow = {
@@ -262,7 +266,8 @@ export function DeskSprite({
   // working pose).
   const working = vs === "working";
   const hasPlant = !DESKS_WITHOUT_PLANT.has(deskIndex);
-  const vessel = agentType ? VESSEL[agentType] : "mug";
+  const vessel =
+    seasonal.length > 0 ? null : agentType ? VESSEL[agentType] : "mug";
   // Seed for the drink. A desk drawn with no agent behind it still gets one
   // stable pour per slot instead of flickering.
   const identity = agentId || `desk-${deskIndex}`;
@@ -726,6 +731,8 @@ export function DeskSprite({
           <circle cx="5.4" cy="-9.35" r="0.22" fill="#FFFFFF" />
         </g>
       )}
+
+      {seasonal.length > 0 && <DeskTopPiece items={seasonal} />}
 
       {/* Small plant - terracotta pot, varies by desk */}
       {hasPlant && (

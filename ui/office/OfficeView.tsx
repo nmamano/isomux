@@ -39,7 +39,12 @@ import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
 import { useRoomSkinVars } from "./skins/index.tsx";
 import { GroundShadows } from "./GroundShadows.tsx";
-import { Seasonal } from "./Seasonal.tsx";
+import {
+  Seasonal,
+  deskTopItems,
+  seasonalDesk,
+  useSeasonalItems,
+} from "./Seasonal.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
@@ -82,6 +87,7 @@ import {
   DESK_COUNT,
   BACK_ROOM_SEATS,
   isBackSeat,
+  isValidDesk,
   hasBackRoom,
   roomIsFull as deskRoomIsFull,
 } from "../../shared/desks.ts";
@@ -322,6 +328,7 @@ export function OfficeView({
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
   const decorateScene = useContext(SceneDecorationContext);
+  const seasonalItems = useSeasonalItems();
   const [savedChatHidden, setChatHidden] = useState(getMembersChatHidden);
   // With no saved choice, an empty chat starts minimized so a new office
   // shows its doors. Decided once, from the first full_state summary.
@@ -434,6 +441,12 @@ export function OfficeView({
   // desks, and its counts are the front's (task 5b503e32).
   const frontAgents = roomAgents.filter((a) => !isBackSeat(a.desk));
   const backAgents = roomAgents.filter((a) => isBackSeat(a.desk));
+  const seasonDesk = decorateScene
+    ? seasonalDesk(
+        seasonalItems,
+        roomAgents.filter((a) => isValidDesk(a.desk)).map((a) => a.desk),
+      )
+    : null;
   // Where a back agent dropped on the ladder goes: the first free front desk.
   const firstFreeFrontDesk =
     Array.from({ length: DESK_COUNT }, (_, d) => d).find(
@@ -930,7 +943,7 @@ export function OfficeView({
                       }
                     />
                     <RoomProps />
-                    {decorateScene && <Seasonal />}
+                    {decorateScene && <Seasonal items={seasonalItems} />}
                     {currentRoomIndex > 0 && (
                       <DoorDropZone
                         side="left"
@@ -1043,6 +1056,11 @@ export function OfficeView({
                             }}
                             stateChangedAt={stateChangedAt.get(agent.id)}
                             workingSince={workingSince.get(agent.id)}
+                            seasonal={
+                              agent.desk === seasonDesk
+                                ? deskTopItems(seasonalItems)
+                                : undefined
+                            }
                           />
                         );
                       }

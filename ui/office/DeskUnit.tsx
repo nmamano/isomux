@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { AgentInfo } from "../../shared/types.ts";
 import { DeskSprite } from "./DeskSprite.tsx";
+import type { SeasonalItem } from "./Seasonal.tsx";
 import { Character } from "./Character.tsx";
 import { StatusLight } from "./StatusLight.tsx";
 import { DESK_SLOTS } from "../../shared/desks.ts";
@@ -24,6 +25,7 @@ export function DeskUnit({
   stateChangedAt,
   workingSince,
   askCount = 0,
+  seasonal,
 }: {
   agent: AgentInfo;
   onClick: () => void;
@@ -34,6 +36,7 @@ export function DeskUnit({
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
   stateChangedAt?: number;
   workingSince?: number;
+  seasonal?: SeasonalItem[];
 }) {
   const { t, tn } = useI18n();
   const [hov, setHov] = useState(false);
@@ -261,6 +264,7 @@ export function DeskUnit({
             agentType={agent.agentType}
             modelFamily={agent.modelFamily}
             claudeFamilyModels={agent.claudeFamilyModels}
+            seasonal={seasonal}
           />
         </div>
       </div>

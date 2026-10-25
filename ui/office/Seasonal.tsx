@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { DESK_SLOTS, isValidDesk } from "../../shared/desks.ts";
-import { SCENE_W, SCENE_H, VB_X, VB_Y, isoXY } from "./grid.ts";
-import { useAppState } from "../store.tsx";
+import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 
 // Seasonal dressing for the office scene. Everything here is decided once, at
 // mount, from the calendar date - there is no setting, no server data and no
@@ -53,10 +51,6 @@ const SVG_LAYER: React.CSSProperties = {
   pointerEvents: "none",
 };
 const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
-
-// Desk sprites sort themselves from 10 (back) to 80 (front); ghosts start at
-// 200. Anything sitting ON a desk has to clear the desks and stay under them.
-const ON_DESK_Z = 90;
 
 function point(p0: number[], c: number[], p1: number[], t: number) {
   const m = 1 - t;
@@ -307,65 +301,52 @@ function ChocolateBox() {
 
 // ------------------------------------------------------------- the scene ---
 
-export function Seasonal() {
-  const { agents, currentRoomId } = useAppState();
-  // Read the calendar once, when the scene mounts.
+// Read the calendar once, when the scene mounts.
+export function useSeasonalItems(): SeasonalItem[] {
   const [items] = useState(() =>
     seasonalItemsFor(
       typeof location === "undefined" ? "" : location.search,
       new Date(),
     ),
   );
-  if (items.length === 0) return null;
+  return items;
+}
 
-  // Desk-top pieces go on the front-most occupied desk: it has the highest
-  // desk z-index, so a single layer above every desk can never cover a desk
-  // that should be in front of the piece.
-  const occupied = agents
-    .filter((a) => a.roomId === currentRoomId && isValidDesk(a.desk))
-    .map((a) => a.desk);
-  const deskAnchor = occupied.length === 0 ? null : Math.max(...occupied);
-  let anchor: [number, number] | null = null;
-  if (deskAnchor !== null) {
-    const slot = DESK_SLOTS[deskAnchor];
-    const { x, y } = isoXY(slot.row, slot.col);
-    // The east corner of the desktop, in sprite-local coords (138, 64); the
-    // sprite's floor contact is (90, 116).
-    anchor = [x + 138 - 90, y + 64 - 116];
-  }
+// The pieces that stand on a desk, in place of its drink.
+export function deskTopItems(items: SeasonalItem[]): SeasonalItem[] {
+  return items.filter((i) => i === "pumpkin" || i === "valentine");
+}
 
-  const back = items.includes("lights");
-  const front =
-    anchor !== null &&
-    (items.includes("pumpkin") || items.includes("valentine"));
+// The desk that gets the desk-top pieces: the front-most occupied one.
+export function seasonalDesk(
+  items: SeasonalItem[],
+  desks: number[],
+): number | null {
+  if (deskTopItems(items).length === 0 || desks.length === 0) return null;
+  return Math.max(...desks);
+}
 
+// Drawn inside the desk sprite, so it rides with the desk when it lifts.
+export function DeskTopPiece({ items }: { items: SeasonalItem[] }) {
   return (
-    <>
-      {back && (
-        <svg
-          style={SVG_LAYER}
-          width={SCENE_W}
-          height={SCENE_H}
-          viewBox={VB}
-          overflow="visible"
-        >
-          <StringLights />
-        </svg>
-      )}
-      {front && anchor && (
-        <svg
-          style={{ ...SVG_LAYER, zIndex: ON_DESK_Z }}
-          width={SCENE_W}
-          height={SCENE_H}
-          viewBox={VB}
-          overflow="visible"
-        >
-          <g transform={`translate(${anchor[0]},${anchor[1]})`}>
-            {items.includes("pumpkin") && <Pumpkin />}
-            {items.includes("valentine") && <ChocolateBox />}
-          </g>
-        </svg>
-      )}
-    </>
+    <g transform="translate(138,64)">
+      {items.includes("pumpkin") && <Pumpkin />}
+      {items.includes("valentine") && <ChocolateBox />}
+    </g>
+  );
+}
+
+export function Seasonal({ items }: { items: SeasonalItem[] }) {
+  if (!items.includes("lights")) return null;
+  return (
+    <svg
+      style={SVG_LAYER}
+      width={SCENE_W}
+      height={SCENE_H}
+      viewBox={VB}
+      overflow="visible"
+    >
+      <StringLights />
+    </svg>
   );
 }
