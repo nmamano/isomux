@@ -218,7 +218,7 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - destructive git commands, such as `git reset --hard`, `git push --force` and `git clean -f`,
 - `rm -rf` outside one entry in `/tmp` or `/var/tmp`,
 - writes into the state directory,
-- reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, and the secrets and managed environment files in the state directory,
+- reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, OpenCode's databases, and the secrets and managed environment files in the state directory,
 - recursive searches (`grep -r`, `rg`, the Grep tool) rooted at the secret store or above it, unless they exclude `secrets/`,
 - recognized process-kill commands, such as `pkill`, `killall` and kills of processes found by name,
 - reads of another process's environment (`/proc/<pid>/environ`, `ps e`), and recursive searches of `/proc` or `/`,
@@ -278,11 +278,11 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`, each OpenCode profile `opencode/profiles/<key>/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. `secrets/` also holds the placeholder key and the office CA key. A registered MCP server's header holds its secret's placeholder, never the value, so the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) holds no value. [Data retention and deletion](data-retention.md) lists the other stores and what each delete keeps.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`, each OpenCode profile `opencode/profiles/<key>/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. `secrets/` also holds the placeholder key and the office CA key. A registered MCP server's header holds its secret's placeholder, never the value, so the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) holds no value. The database of each OpenCode profile (`opencode/profiles/<key>/data/opencode/opencode-v2.db`) holds its provider sign-ins. [Data retention and deletion](data-retention.md) lists the other stores and what each delete keeps.
 
 ### 8.2 Backups
 
-Backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the pager's Web Push key and devices, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the pager's Web Push key and devices, the TLS key, the OpenCode server records or the backend sign-in files. They include the OpenCode databases, with their conversations and provider sign-ins, `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 

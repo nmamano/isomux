@@ -42,12 +42,12 @@ async function healthOnlyBinary(path: string) {
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(launches)}, process.pid + "\\n");
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
-const server = Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
-  if (new URL(request.url).pathname !== "/global/health")
+Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+  if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
+  if (new URL(request.url).pathname !== "/api/info")
     return new Response("not found", { status: 404 });
-  return Response.json({ healthy: true, version: "1.18.35" });
+  return Response.json({ version: "2.1.4", pid: process.pid });
 }});
-console.log("opencode server listening on http://127.0.0.1:" + server.port);
 await new Promise(() => {});
 `,
   );

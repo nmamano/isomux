@@ -174,6 +174,9 @@ class OpenCodeServerSession implements BackendSession {
       agent: permissionAgent(opts),
       supervisor,
       sessionId,
+      // 1010dd4b: this conversation's shell commands get the member's env
+      // as it was when the conversation started, as for Claude and Codex.
+      toolEnvironment: supervisor.toolEnvironment(opts.env),
       contractShapeSink,
       safeErrorSink,
       streamSilenceSink: logOpenCodeStreamSilence,

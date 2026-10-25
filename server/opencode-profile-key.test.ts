@@ -115,7 +115,7 @@ describe("OpenCode profile key", () => {
         return {
           dir: openCodeProfilePaths(key).profileDir,
           supervisorDir: supervisor.profileDir,
-          servers: Object.keys(supervisor.configuration.mcp ?? {}).sort(),
+          servers: supervisor.mcpServers.map((server) => server.name).sort(),
         };
       });
       expect(profiles[0].dir).not.toBe(profiles[1].dir);

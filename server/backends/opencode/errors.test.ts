@@ -25,25 +25,29 @@ const refusalText = (...args: Parameters<typeof openCodeProviderRefusal>) => {
 const retryText = (...args: Parameters<typeof openCodeRetryMessage>) =>
   english(openCodeRetryMessage(...args));
 
+// OpenCode 2.1.4 names an error by its type, which the transport passes as
+// the name (task e47be82a).
 it("gives errors a cause without copying provider text", () => {
   for (const [error, cause] of [
-    [{ name: "ContextOverflowError" }, /conversation.*long/i],
-    [{ name: "APIError", statusCode: 429 }, /rate limit.*429/i],
-    [{ name: "APIError", statusCode: 503 }, /HTTP 503/],
-    [{ name: "APIError", message: "Header timeout SECRET_CANARY" }, /time/i],
+    [{ name: "provider.rate-limit", statusCode: 429 }, /rate limit.*429/i],
+    [{ name: "provider.error", statusCode: 503 }, /HTTP 503/],
+    [{ name: "provider.internal", statusCode: 500 }, /HTTP 500/],
+    [{ name: "provider.timeout", message: "Header SECRET_CANARY" }, /time/i],
     [
-      { name: "APIError", message: "Connection reset by server SECRET_CANARY" },
+      { name: "provider.transport", message: "reset SECRET_CANARY" },
       /connection/i,
     ],
+    [{ name: "provider.invalid-output", message: "SECRET_CANARY" }, /output/i],
+    [{ name: "aborted", message: "SECRET_CANARY" }, /stopped/i],
     [
-      { name: "UnknownError", message: 'Agent not found: "SECRET_CANARY"' },
+      {
+        name: "provider.no-route",
+        message: "Model unavailable: SECRET_CANARY",
+      },
       /configuration/i,
     ],
-    [{ name: "UnknownError", message: "SECRET_CANARY" }, /OpenCode.*turn/i],
-    [
-      { name: "NewUnknownEvent", message: "SECRET_CANARY" },
-      /provider or transport/i,
-    ],
+    [{ name: "unknown", message: "SECRET_CANARY" }, /OpenCode.*turn/i],
+    [{ name: "something.new", message: "SECRET_CANARY" }, /OpenCode.*turn/i],
   ] as const) {
     const copy = openCodeErrorMessage(error);
     expect(copy).toMatch(cause);
@@ -55,7 +59,7 @@ it("logs reviewed cause fields with secrets redacted", () => {
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
     logOpenCodeError({
-      name: "APIError",
+      name: "provider.error",
       statusCode: 503,
       isRetryable: true,
       message:
@@ -69,7 +73,7 @@ it("logs reviewed cause fields with secrets redacted", () => {
       "abcdefghijklmnopqrstuvwxyz123456",
     ])
       expect(output).not.toContain(secret);
-    expect(output).toContain("APIError");
+    expect(output).toContain("provider.error");
     expect(output).toContain("503");
     expect(output).toContain("isRetryable");
   } finally {
@@ -141,14 +145,27 @@ const FREE_TIER_REFUSAL =
 // Task 1a963907: a refusal names the provider and quotes its message.
 it("quotes a provider refusal and names the provider", () => {
   for (const error of [
-    { name: "APIError", statusCode: 403, message: FREE_TIER_REFUSAL },
-    { name: "APIError", statusCode: 400, message: FREE_TIER_REFUSAL },
-    { name: "APIError", statusCode: 429, message: FREE_TIER_REFUSAL },
-    { name: "APIError", message: `rate limit: ${FREE_TIER_REFUSAL}` },
-    { name: "APIError", message: `Quota exceeded. ${FREE_TIER_REFUSAL}` },
+    { name: "provider.error", statusCode: 403, message: FREE_TIER_REFUSAL },
+    // 2.1.4 sends a 403 as provider.auth (2026-10-25).
+    { name: "provider.auth", statusCode: 403, message: FREE_TIER_REFUSAL },
+    { name: "provider.error", statusCode: 422, message: FREE_TIER_REFUSAL },
+    {
+      name: "provider.invalid-request",
+      statusCode: 400,
+      message: FREE_TIER_REFUSAL,
+    },
+    {
+      name: "provider.rate-limit",
+      statusCode: 429,
+      message: FREE_TIER_REFUSAL,
+    },
+    { name: "provider.rate-limit", message: FREE_TIER_REFUSAL },
+    { name: "provider.quota", message: FREE_TIER_REFUSAL },
+    { name: "provider.free-limit", message: FREE_TIER_REFUSAL },
+    { name: "provider.content-filter", message: FREE_TIER_REFUSAL },
   ]) {
     const copy = refusalText(error, "opencode");
-    expect(copy).toContain("`opencode`");
+    expect(copy, error.name).toContain("`opencode`");
     expect(copy).toContain(`${FREE_TIER_REFUSAL}"`);
   }
 });
@@ -158,7 +175,7 @@ it("quotes a provider refusal and names the provider", () => {
 it("adds the free-tier hint only to the free-tier refusal", () => {
   const hint = translatorFor("en").t("systemEntries.openCodeFreeTierHint");
   const freeTier = refusalText(
-    { name: "APIError", statusCode: 403, message: FREE_TIER_REFUSAL },
+    { name: "provider.error", statusCode: 403, message: FREE_TIER_REFUSAL },
     "opencode",
   );
   expect(freeTier?.split("\n")).toEqual([
@@ -167,7 +184,7 @@ it("adds the free-tier hint only to the free-tier refusal", () => {
   ]);
   const other = refusalText(
     {
-      name: "APIError",
+      name: "provider.error",
       statusCode: 403,
       message: "Model not allowed for this key.",
     },
@@ -179,14 +196,17 @@ it("adds the free-tier hint only to the free-tier refusal", () => {
 
 it("leaves failures that are not a provider refusal to the generic copy", () => {
   for (const error of [
-    { name: "APIError", statusCode: 403 },
-    { name: "APIError", statusCode: 403, message: " \n\t " },
-    { name: "APIError", statusCode: 401, message: FREE_TIER_REFUSAL },
-    { name: "APIError", statusCode: 503, message: FREE_TIER_REFUSAL },
-    { name: "APIError", message: FREE_TIER_REFUSAL },
-    { name: "UnknownError", statusCode: 403, message: FREE_TIER_REFUSAL },
+    { name: "provider.error", statusCode: 403 },
+    { name: "provider.error", statusCode: 403, message: " \n\t " },
+    { name: "provider.auth", statusCode: 401, message: FREE_TIER_REFUSAL },
+    { name: "provider.error", statusCode: 401, message: FREE_TIER_REFUSAL },
+    { name: "provider.error", statusCode: 503, message: FREE_TIER_REFUSAL },
+    { name: "provider.internal", statusCode: 500, message: FREE_TIER_REFUSAL },
+    { name: "provider.error", message: FREE_TIER_REFUSAL },
+    { name: "provider.timeout", message: FREE_TIER_REFUSAL },
+    { name: "unknown", statusCode: 403, message: FREE_TIER_REFUSAL },
   ]) {
-    expect(refusalText(error, "opencode")).toBeNull();
+    expect(refusalText(error, "opencode"), JSON.stringify(error)).toBeNull();
   }
 });
 
@@ -211,7 +231,7 @@ it("bounds provider text to one redacted line", () => {
   // eslint-disable-next-line no-control-regex
   expect(text).not.toMatch(/[\u0000-\u001f\u007f]|\s\s/);
   const copy = refusalText(
-    { name: "APIError", statusCode: 403, message },
+    { name: "provider.error", statusCode: 403, message },
     "opencode",
   );
   expect(copy).toContain(text);
@@ -291,7 +311,8 @@ it("quotes the provider's retry message with the provider and attempt", () => {
     const copy = retryText(message, 2, "opencode");
     expect(copy).toContain("`opencode`");
     expect(copy).toContain(`"${message}"`);
-    expect(copy).toMatch(/\b2\b.*\b5\b/);
+    // 2.1.4 retries ten times (2026-10-25: attempts 2 to 11 of a 429).
+    expect(copy).toMatch(/\b2\b.*\b10\b/);
   }
   const redacted = retryText(
     "rate limit sk-abcdefghijklmnopqrstuvwxyz123456",
@@ -306,6 +327,6 @@ it("keeps the generic retry line when OpenCode sends no message", () => {
     const copy = retryText(message, 3, "opencode");
     expect(copy).toMatch(/provider/i);
     expect(copy).not.toContain("`opencode`");
-    expect(copy).toMatch(/retrying 3 of 5/);
+    expect(copy).toMatch(/\b3\b.*\b10\b/);
   }
 });

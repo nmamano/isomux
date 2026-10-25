@@ -411,11 +411,9 @@ function rootedDirectory(root: string, path: string): string[] {
   return [`${root}/${path}`, `${root}/${path}/*`];
 }
 
-function backendExclusion(entry: BackendCredentialPath): BackupExclusion {
-  return {
-    id: entry.id,
-    archivePatterns: entry.archivePatterns,
-  };
+function backendExclusions(entry: BackendCredentialPath): BackupExclusion[] {
+  if (entry.backup === "keep") return [];
+  return [{ id: entry.id, archivePatterns: entry.archivePatterns }];
 }
 
 // One list drives the tar exclusions. Locations are rooted because GNU
@@ -505,7 +503,7 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
     id: "legacy-tls-key",
     archivePatterns: (root) => [`${root}/tls/cert.key`],
   },
-  ...BACKEND_CREDENTIAL_PATHS.map(backendExclusion),
+  ...BACKEND_CREDENTIAL_PATHS.flatMap(backendExclusions),
 ];
 
 export function getBackupStatus(): BackupStatus {

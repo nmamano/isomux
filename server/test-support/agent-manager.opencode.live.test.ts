@@ -18,6 +18,11 @@ import { createAgentManager } from "../agent-manager.ts";
 import { STATE_ROOT } from "../config.ts";
 import { environmentSourceKeyForUserId } from "../env-loader.ts";
 
+import {
+  openCodeLiveConfig,
+  openCodeLiveLaunchEnv,
+  openCodeMockProvider,
+} from "./opencode-live-config.ts";
 import { createOpenCodeTestReaper } from "./opencode-test-reaper.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
@@ -156,30 +161,13 @@ it.skipIf(!LIVE)(
     const supervisor = new OpenCodeSupervisor({
       profileDir: `${STATE_ROOT}/opencode-success-profile`,
       serverCwd: STATE_ROOT,
+      launchEnv: openCodeLiveLaunchEnv(
+        `${STATE_ROOT}/opencode-success-profile`,
+      ),
       idleShutdownMs: 100,
-      config: {
-        autoupdate: false,
-        model: "gate/gate-model",
-        small_model: "gate/gate-model",
-        provider: {
-          gate: {
-            name: "Gate mock",
-            npm: "@ai-sdk/openai-compatible",
-            env: [],
-            models: {
-              "gate-model": {
-                name: "Gate model",
-                limit: { context: 100000, output: 10000 },
-                cost: { input: 0, output: 0 },
-              },
-            },
-            options: {
-              apiKey: "test-only",
-              baseURL: `http://127.0.0.1:${mock.port}/v1`,
-            },
-          },
-        },
-      },
+      config: openCodeLiveConfig("gate/gate-model", {
+        gate: openCodeMockProvider(`http://127.0.0.1:${mock.port}/v1`),
+      }),
     });
     reaper.track(supervisor);
     const teardown = reaper.add(async () => {
@@ -228,7 +216,7 @@ it.skipIf(!LIVE)(
       reply.arm(info!.id);
       mgr.enqueueMessage(info!.id, {
         sender: { kind: "user", username: "tester" },
-        text: "hello through OC1",
+        text: "hello through OpenCode",
       });
       await measure("first reply delivery", () => reply.wait());
       expect(
@@ -265,7 +253,7 @@ it.skipIf(!LIVE)(
     // Task 1a963907: the member reads the provider's own words, redacted.
     // The mock echoes the key it received, as some providers do.
     const canary = "OPENCODE_PROVIDER_ERROR_SECRET_CANARY";
-    // No digits: OpenCode 1.18.35 retries any error, even a 400, whose text
+    // No digits: OpenCode 1.18.35 retried any error, even a 400, whose text
     // holds 429, 500, 502, 503, 504 or 524, and the mock echoes the key. A
     // UUID with "500" in it stalled this test past 25 s (task 55fb66d8).
     const apiKey = `opencode-live-key-${crypto
@@ -304,30 +292,13 @@ it.skipIf(!LIVE)(
     const supervisor = new OpenCodeSupervisor({
       profileDir: `${STATE_ROOT}/opencode-error-profile`,
       serverCwd: STATE_ROOT,
+      launchEnv: openCodeLiveLaunchEnv(`${STATE_ROOT}/opencode-error-profile`),
       idleShutdownMs: 100,
-      config: {
-        autoupdate: false,
-        model: "gate/gate-model",
-        small_model: "gate/gate-model",
-        provider: {
-          gate: {
-            name: "Gate mock",
-            npm: "@ai-sdk/openai-compatible",
-            env: [],
-            models: {
-              "gate-model": {
-                name: "Gate model",
-                limit: { context: 100000, output: 10000 },
-                cost: { input: 0, output: 0 },
-              },
-            },
-            options: {
-              apiKey,
-              baseURL: `http://127.0.0.1:${mock.port}/v1`,
-            },
-          },
-        },
-      },
+      config: openCodeLiveConfig("gate/gate-model", {
+        gate: openCodeMockProvider(`http://127.0.0.1:${mock.port}/v1`, {
+          apiKey,
+        }),
+      }),
     });
     reaper.track(supervisor);
     const teardown = reaper.add(async () => {

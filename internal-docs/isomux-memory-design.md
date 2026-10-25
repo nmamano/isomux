@@ -356,8 +356,8 @@ file the operator has to remember:
   mutation, and it holds for a per-user `CODEX_HOME` too. Codex rejects a
   non-boolean but ignores an unknown key silently, so the adapter test pins
   the spelling.
-- **OpenCode**: no native memory feature in the vendored binary (1.18.23);
-  nothing to switch.
+- **OpenCode**: no native memory feature in the vendored binary (1.18.23,
+  and none in the 2.1.4 source, 2026-10-25); nothing to switch.
 
 ## 8. Future / deferred machinery
 

@@ -217,6 +217,8 @@ describe("verified backup publication", () => {
       "mcp-servers/users/u-alice.json",
       "mcp-servers/users/.mcp-servers.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
       "opencode/profiles/shared/opencode.json",
+      // The server record holds the OpenCode server password.
+      "opencode/profiles/shared/server.lock",
       // The secret proxy's files (internal-docs/secrets-design.md, 2.3).
       "secrets/placeholder.key",
       "secrets/ca.pem",
@@ -258,8 +260,12 @@ describe("verified backup publication", () => {
       "codex-home/memories/memory.md",
       "provider-homes/u-alice/claude/.claude.json",
       "provider-homes/u-alice/codex/state.db",
+      // The OpenCode databases hold credentials, and agents may not read
+      // them, but they also hold every OpenCode session (task 75904a56).
       "opencode/profiles/shared/data/opencode/opencode.db",
-      "opencode/profiles/shared/server.lock",
+      "opencode/profiles/shared/data/opencode/opencode.db-wal",
+      "opencode/profiles/shared/data/opencode/opencode-v2.db",
+      "opencode/profiles/shared/data/opencode/opencode-v2.db-wal",
       "tls/cert.crt",
       "nil-codex-noauth.env",
       "webhooks/webhooks.json",

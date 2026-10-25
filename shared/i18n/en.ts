@@ -1073,7 +1073,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.backToYours": "Back to yours",
   "integrations.picker": "Whose integrations",
   "integrations.applies":
-    "Claude and Codex agents get a change when they start a new conversation. OpenCode agents get it once none of them is working.",
+    "Claude, Codex and OpenCode agents get a change when they start a new conversation. OpenCode agents get MCP server changes at their next message, and API key changes once none of them is working.",
   "integrations.helpTip": "What does this mean?",
   "integrations.show": "Show",
   "integrations.hide": "Hide",
@@ -2885,7 +2885,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.openCodeProviderRetry":
     'The provider `{provider}` reported: "{message}"; retrying {attempt} of {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":
-    "This turn uses your previous Integrations settings.",
+    "This turn uses your previous API keys.",
   "systemEntries.codexInterruptFallback":
     "Codex didn't honor the interrupt in time; falling back to a fresh session.",
   "systemEntries.deliveryStalled": "Message delivery stalled; recovering.",

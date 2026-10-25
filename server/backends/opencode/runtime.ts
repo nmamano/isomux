@@ -2,11 +2,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const OPENCODE_CLI_VERSION = "1.18.35";
+export const OPENCODE_CLI_VERSION = "2.1.4";
 
 // The supervisor's record lock, process identity and the office proxy's peer
 // credential check exist for Linux and macOS only, so OpenCode does too, even
-// where opencode-ai ships a binary (it ships Windows builds).
+// where @opencode/cli ships a binary (it ships Windows builds).
 export function openCodeUnsupportedReason(
   platform: NodeJS.Platform = process.platform,
 ): string | null {
@@ -27,7 +27,7 @@ export function resolveOpenCodeBinary(
   if (unsupported) throw new OpenCodeUnsupportedHostError(unsupported);
   const arch = process.arch === "arm64" ? "arm64" : "x64";
   if (platform === "darwin") return resolveDarwinBinary(arch);
-  const base = `opencode-linux-${arch}`;
+  const base = `@opencode/cli-linux-${arch}`;
   const baseline = arch === "x64" && !hasAvx2();
   const musl = existsSync("/etc/alpine-release");
   const variants = musl
@@ -41,7 +41,7 @@ export function resolveOpenCodeBinary(
 }
 
 function resolveDarwinBinary(arch: "arm64" | "x64"): string {
-  const base = `opencode-darwin-${arch}`;
+  const base = `@opencode/cli-darwin-${arch}`;
   if (arch === "arm64") return firstInstalledBinary([base]);
   return firstInstalledBinary(
     hasDarwinAvx2() ? [base, `${base}-baseline`] : [`${base}-baseline`, base],
@@ -64,7 +64,7 @@ function firstInstalledBinary(variants: string[]): string {
   );
 }
 
-// The same probe opencode-ai's own postinstall uses on Intel Macs.
+// The same probe OpenCode's own postinstall uses on Intel Macs.
 function hasDarwinAvx2(): boolean {
   const result = spawnSync("sysctl", ["-n", "hw.optional.avx2_0"], {
     encoding: "utf8",

@@ -973,7 +973,7 @@ App 的一些原则：
   "integrations.backToYours": "返回你的集成",
   "integrations.picker": "查看谁的集成",
   "integrations.applies":
-    "Claude 和 Codex 智能体在开始新对话时获得更改。OpenCode 智能体在它们都不工作时获得更改。",
+    "Claude、Codex 和 OpenCode 智能体在开始新对话时获得更改。OpenCode 智能体在下一条消息时获得 MCP 服务器的更改，在它们都不工作时获得 API 密钥的更改。",
   "integrations.helpTip": "这是什么意思？",
   "integrations.show": "显示",
   "integrations.hide": "隐藏",
@@ -2625,7 +2625,7 @@ App 的一些原则：
     "当某台服务器过多使用 OpenCode 的免费额度时，OpenCode 也可能发送此消息。使用付费模型或 OpenCode Go 可以避免。",
   "systemEntries.openCodeProviderRetry":
     "提供方 `{provider}` 报告：“{message}”；正在进行第 {attempt} 次重试，共 {maxAttempts} 次。",
-  "systemEntries.openCodePreviousSettings": "本轮使用你之前的集成设置。",
+  "systemEntries.openCodePreviousSettings": "本轮使用你之前的 API 密钥。",
   "systemEntries.codexInterruptFallback":
     "Codex 未及时响应中断，改为使用新会话。",
   "systemEntries.deliveryStalled": "消息传送停滞，正在恢复。",

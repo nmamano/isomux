@@ -3,13 +3,18 @@ import {
   type PolicyDecision,
   type ProposedAction,
 } from "../../safety-policy.ts";
+import { resolve } from "node:path";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 
+// A permission.asked frame of @opencode/cli 2.1.4: an action and the
+// resources it asks for. A shell request names its command; an edit request
+// names its files relative to the session's folder, and its metadata holds
+// each file's diff.
 export interface OpenCodePermissionEnvelope {
   id: string;
   sessionId: string;
-  permission: unknown;
-  patterns: unknown;
+  action: unknown;
+  resources: unknown;
   metadata: unknown;
 }
 
@@ -23,30 +28,48 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-export function openCodePermissionToAction(
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && !!item)
+    : [];
+}
+
+// The policy actions of one request, one per file of an edit; null when the
+// request names nothing the policy can check.
+export function openCodePermissionToActions(
   envelope: OpenCodePermissionEnvelope,
-): ProposedAction | null {
-  if (typeof envelope.permission !== "string" || !envelope.permission)
-    return null;
-  const metadata = record(envelope.metadata);
-  if (envelope.permission === "bash") {
-    if (!metadata || typeof metadata.command !== "string") return null;
-    return { kind: "shell", command: metadata.command };
+  cwd: string,
+): ProposedAction[] | null {
+  if (typeof envelope.action !== "string" || !envelope.action) return null;
+  const resources = strings(envelope.resources);
+  if (envelope.action === "shell") {
+    if (resources.length === 0) return null;
+    return resources.map((command) => ({ kind: "shell", command }));
   }
-  if (envelope.permission === "edit") {
-    const filepath = metadata?.filepath;
-    if (typeof filepath !== "string") return null;
-    return {
+  if (envelope.action === "edit") {
+    const files =
+      resources.length > 0
+        ? resources
+        : strings(
+            (Array.isArray(record(envelope.metadata)?.files)
+              ? (record(envelope.metadata)!.files as unknown[])
+              : []
+            ).map((file) => record(file)?.file),
+          );
+    if (files.length === 0) return null;
+    return files.map((file) => ({
       kind: "write-files",
       toolName: "write",
-      input: { filepath },
-    };
+      input: { filepath: resolve(cwd, file) },
+    }));
   }
-  return {
-    kind: "uncovered-tool",
-    toolName: envelope.permission,
-    input: metadata ?? {},
-  };
+  return [
+    {
+      kind: "uncovered-tool",
+      toolName: envelope.action,
+      input: { resources, metadata: record(envelope.metadata) ?? {} },
+    },
+  ];
 }
 
 export function evaluateOpenCodePermission(
@@ -55,9 +78,15 @@ export function evaluateOpenCodePermission(
   evaluate: typeof evaluateProposedAction = evaluateProposedAction,
 ): OpenCodePermissionDecision {
   try {
-    const action = openCodePermissionToAction(envelope);
-    if (!action) return { kind: "fail_open", warning: SAFETY_WARNING };
-    return { kind: "policy", decision: evaluate(action, { cwd }) };
+    const actions = openCodePermissionToActions(envelope, cwd);
+    if (!actions) return { kind: "fail_open", warning: SAFETY_WARNING };
+    // The first deny wins: an edit of several files is denied when one is.
+    let decision: PolicyDecision | undefined;
+    for (const action of actions) {
+      decision = evaluate(action, { cwd });
+      if (decision.decision === "deny") break;
+    }
+    return { kind: "policy", decision: decision! };
   } catch {
     // One malformed call is local, but an adapter or pin-shape fault can affect
     // every call and stop every OpenCode agent. Keep that larger blast radius

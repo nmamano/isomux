@@ -3,7 +3,7 @@
 
 // Every server Isomux gives an engine carries this prefix, so it never takes
 // the name of a server the member configured in the engine itself.
-const MCP_SERVER_PREFIX = "isomux-";
+export const MCP_SERVER_PREFIX = "isomux-";
 
 // Engines name a tool mcp__<server>__<tool>, and OpenAI-side tool names stop
 // at 64 characters. With the prefix, 24 leaves the tool name 26 of them.

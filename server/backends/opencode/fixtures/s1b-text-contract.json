@@ -1,8 +1,17 @@
 [
-  "http:prompt_async:success",
-  "http:session:{id:string}",
-  "sse:assistant",
-  "sse:idle",
-  "sse:step_finish",
-  "sse:text"
+  "http:prompt:{data:{id:string}}",
+  "http:session:{data:{id:string}}",
+  "sse:session.execution.started",
+  "sse:session.execution.succeeded",
+  "sse:session.inbox.delivered",
+  "sse:session.inbox.enqueued",
+  "sse:session.instructions.updated",
+  "sse:session.model.selected",
+  "sse:session.step.ended",
+  "sse:session.step.started",
+  "sse:session.step.streamed",
+  "sse:session.text.delta",
+  "sse:session.text.ended",
+  "sse:session.text.started",
+  "sse:session.usage.updated"
 ]

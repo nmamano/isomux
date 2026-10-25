@@ -1082,7 +1082,7 @@ Cosas que puedes hacer por él:
   "integrations.backToYours": "Volver a las tuyas",
   "integrations.picker": "De quién son las integraciones",
   "integrations.applies":
-    "Los agentes de Claude y Codex reciben un cambio cuando inician una conversación nueva. Los agentes de OpenCode lo reciben cuando ninguno de ellos esté trabajando.",
+    "Los agentes de Claude, Codex y OpenCode reciben un cambio cuando inician una conversación nueva. Los agentes de OpenCode reciben los cambios de servidores MCP en su siguiente mensaje, y los de claves de API cuando ninguno de ellos esté trabajando.",
   "integrations.helpTip": "¿Qué significa esto?",
   "integrations.show": "Mostrar",
   "integrations.hide": "Ocultar",
@@ -2917,7 +2917,7 @@ Cosas que puedes hacer por él:
   "systemEntries.openCodeProviderRetry":
     'El proveedor `{provider}` informó: "{message}"; reintento {attempt} de {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":
-    "Este turno usa tu configuración anterior de Integraciones.",
+    "Este turno usa tus claves de API anteriores.",
   "systemEntries.codexInterruptFallback":
     "Codex no atendió la interrupción a tiempo; se pasa a una sesión nueva.",
   "systemEntries.deliveryStalled":

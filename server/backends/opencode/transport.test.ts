@@ -1,2465 +1,2167 @@
-import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
-import { describe, expect, it } from "bun:test";
+// The OpenCode 2.1.4 wire contract of the transport (task e47be82a): the
+// requests a turn sends, how the recorded /api/event frames of fixtures/v2
+// become normalized events, permissions, failures, history and the catalog.
+// Lifecycle and recovery: transport-failure.test.ts.
+import { afterEach, describe, expect, it } from "bun:test";
+import { join } from "node:path";
 import {
-  interruptedToolResults,
-  toolUpdateEvents,
-  allowDiscoveredModels,
   discoverOpenCodeModels,
-  allowMessages,
   OpenCodeTransport,
   OPENCODE_AUTH_FAILURE,
   OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
   OPENCODE_PERMISSION_ID_WARNING,
+  OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
+  OPENCODE_SETTINGS_MISSING_FAILURE,
+  openCodeEffortUnavailableNotice,
   openCodeModelGoneFailure,
   openCodeModelUnavailableFailure,
-  handleOpenCodePermission,
-  parseAllowedEvent,
+  type OpenCodeContextBreakdown,
+  type OpenCodeTransportOptions,
 } from "./transport.ts";
-import { SAFETY_WARNING } from "../codex/safety-hook.ts";
-import { join } from "node:path";
-import { expectRejection } from "../../test-support/expect-rejection.ts";
-import type { OpenCodeSupervisor } from "./supervisor.ts";
+import {
+  builtinPluginRow,
+  configEntries,
+  drivenClock,
+  FAKE_CWD,
+  FAKE_PROFILE,
+  FAKE_SESSION,
+  fakeOpenCode,
+  fakeSupervisor,
+  fixtureSession,
+  fixtureTurn,
+  fixtureTurns,
+  loadFixture,
+  modelRow,
+  ourPluginRow,
+  settleUntil,
+  type FakeLeaseOptions,
+  type FakeOptions,
+  type FakeTurn,
+  type Frame,
+} from "./fake-opencode-v2.ts";
+import { openCodeSafetyPluginDir } from "./profile-paths.ts";
+import { openCodeAgentRules } from "./supervisor.ts";
+import { openCodeMcpServerConfig } from "./config-layers.ts";
+import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
 import type { OpenCodeAuthorityBroker } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import type { NormalizedEvent } from "../types.ts";
+import { providerRefusal } from "../provider-text.ts";
 import { translatorFor } from "../../../shared/i18n/translate.ts";
 import {
   renderLogText,
   type LogText,
 } from "../../../shared/i18n/log-message.ts";
+import { EFFORT_LEVELS } from "../../../shared/types.ts";
+import { expectRejection } from "../../test-support/expect-rejection.ts";
 
 // Isomux's own lines are messages each reader words (task c37a7365); these
 // checks read the English render.
 const english = (text: LogText) => renderLogText(translatorFor("en"), text);
-import {
-  openCodeErrorMessage,
-  openCodeProviderRefusal,
-  openCodeRetryMessage,
-} from "./errors.ts";
-import { providerRefusal } from "../provider-text.ts";
-import toolInputSequences from "./fixtures/tool-input-sequences.json";
 
-type ToolUpdate = Parameters<typeof toolUpdateEvents>[1];
-const capturedArgument = toolInputSequences.argument as ToolUpdate[];
-const capturedInterrupted = toolInputSequences.interrupted as ToolUpdate[];
+type Completion = Extract<NormalizedEvent, { kind: "turn_completed" }>;
 
-describe("OpenCode OC1 raw-ingress allowlist", () => {
-  it("uses one stable per-transport authority handle and byte-identical prompt across turns", async () => {
-    const systemPayloads: string[] = [];
-    let eventController: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/event") {
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                eventController = controller;
-                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        }
-        if (url.pathname === "/provider")
-          return Response.json({ connected: [], all: [] });
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) {
-          const body = (await request.json()) as { system: string };
-          systemPayloads.push(body.system);
-          const controller = eventController;
-          eventController = null;
-          setTimeout(() => {
-            controller?.enqueue(
-              new TextEncoder().encode(
-                'data: {"type":"session.idle","properties":{"sessionID":"session-1"}}\n\n',
-              ),
-            );
-          }, 0);
-          return new Response(null, { status: 204 });
-        }
-        return new Response("not found", { status: 404 });
-      },
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+// Real time, bounded: the fake plays its frames on event-loop turns.
+async function until(condition: () => boolean, ms = 3_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!condition() && Date.now() < deadline) await Bun.sleep(2);
+}
+
+function setup(
+  options: {
+    fake?: FakeOptions;
+    lease?: FakeLeaseOptions;
+    transport?: Partial<OpenCodeTransportOptions>;
+  } = {},
+) {
+  const fake = fakeOpenCode(options.fake);
+  cleanups.push(fake.restore);
+  const lease = fakeSupervisor(options.lease);
+  const contexts: OpenCodeContextBreakdown[] = [];
+  const transport = new OpenCodeTransport({
+    cwd: FAKE_CWD,
+    model: "provider/model",
+    effort: "high",
+    systemPrompt: "system",
+    supervisor: lease.supervisor,
+    completedStepSink: (breakdown) => contexts.push(breakdown),
+    ...options.transport,
+  });
+  cleanups.push(() => transport.close());
+  const events: NormalizedEvent[] = [];
+  const completions = () =>
+    events.filter(
+      (event): event is Completion => event.kind === "turn_completed",
+    );
+  // One turn: its events, from send() to its turn_completed.
+  const turn = async (
+    parts: { type: "text"; text: string }[] = [{ type: "text", text: "go" }],
+    onEvent?: (event: NormalizedEvent) => void,
+  ) => {
+    const from = events.length;
+    const ended = completions().length;
+    await transport.send(parts, (event) => {
+      events.push(event);
+      onEvent?.(event);
     });
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const sessionHandle = "session-handle";
-    let activations = 0;
+    await until(() => completions().length > ended);
+    const own = events.slice(from);
+    return { events: own, end: own.find((e) => e.kind === "turn_completed") };
+  };
+  return { fake, lease, transport, events, contexts, completions, turn };
+}
+
+const kinds = (
+  events: NormalizedEvent[],
+  ...wanted: NormalizedEvent["kind"][]
+) => events.filter((event) => wanted.includes(event.kind));
+const textOf = (events: NormalizedEvent[]) =>
+  events.flatMap((e) => (e.kind === "assistant_text" ? [e.text] : [])).join("");
+const toolCalls = (events: NormalizedEvent[]) =>
+  events.filter(
+    (e): e is Extract<NormalizedEvent, { kind: "tool_call" }> =>
+      e.kind === "tool_call",
+  );
+const toolResults = (events: NormalizedEvent[]) =>
+  events.filter(
+    (e): e is Extract<NormalizedEvent, { kind: "tool_result" }> =>
+      e.kind === "tool_result",
+  );
+const approvals = (events: NormalizedEvent[]) =>
+  events.filter(
+    (e): e is Extract<NormalizedEvent, { kind: "approval_request" }> =>
+      e.kind === "approval_request",
+  );
+
+// A recorded turn whose frames a test edits.
+function editedTurn(
+  name: string,
+  edit: (frames: Frame[]) => Frame[],
+  index = 0,
+  options: Omit<FakeTurn, "frames" | "session"> = {},
+): FakeTurn {
+  const recorded = fixtureTurn(name, index, options);
+  return { ...recorded, frames: edit(recorded.frames) };
+}
+
+const terminalIndex = (frames: Frame[]) =>
+  frames.findIndex(
+    (frame) =>
+      frame.type.startsWith("session.execution.") &&
+      frame.type !== "session.execution.started",
+  );
+
+// A turn that ends with this failure instead of its recorded end.
+function failingTurn(error: Record<string, unknown>): FakeTurn {
+  return editedTurn("text-reasoning", (frames) => {
+    const session = frames.find((f) => f.type === "session.inbox.enqueued")!
+      .data.sessionID;
+    const delivered = frames.findIndex(
+      (frame) => frame.type === "session.inbox.delivered",
+    );
+    return [
+      ...frames.slice(0, delivered + 1),
+      {
+        type: "session.execution.failed",
+        created: frames[delivered].created! + 10,
+        data: { sessionID: session, error },
+      },
+    ];
+  });
+}
+
+describe("OpenCode 2 turn requests", () => {
+  it("checks the plugin, sets the instructions, selects the model and sends the prompt, in that order, on every turn", async () => {
+    const handle = "session-handle";
     const authorityBroker = {
       bind: () => ({
-        handle: sessionHandle,
-        activate: () => `turn-handle-${++activations}`,
+        handle,
+        activate: () => "turn-handle",
         deactivate: () => {},
         unbind: () => {},
       }),
     } as unknown as OpenCodeAuthorityBroker;
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: "provider/model",
-      systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
-      agentId: "agent-1",
-      agentToken: "token-1",
-      authorityBroker,
-      supervisor,
-      sessionId: "session-1",
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+      },
+      transport: {
+        systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
+        agentId: "agent-1",
+        agentToken: "token-1",
+        authorityBroker,
+      },
     });
-    const send = async () => {
-      let resolveCompletion!: () => void;
-      const completion = new Promise<void>((resolve) => {
-        resolveCompletion = resolve;
-      });
-      await transport.send([{ type: "text", text: "go" }], (event) => {
-        if (event.kind === "turn_completed") resolveCompletion();
-      });
-      await completion;
-    };
+    const first = await h.turn([
+      { type: "text", text: "first part" },
+      { type: "text", text: "second part" },
+    ]);
+    const second = await h.turn();
+    expect(first.end?.status).toBe("completed");
+    expect(second.end?.status).toBe("completed");
 
-    try {
-      await send();
-      await send();
-      expect(systemPayloads).toEqual([
-        `office ${sessionHandle}`,
-        `office ${sessionHandle}`,
-      ]);
-      expect(Buffer.from(systemPayloads[0])).toEqual(
-        Buffer.from(systemPayloads[1]),
-      );
-    } finally {
-      transport.close();
-      await server.stop(true);
-    }
+    const session = h.fake.sessionId;
+    const turnRequests = h.fake.requests
+      .filter((request) =>
+        [
+          "/api/plugin",
+          `/api/experimental/session/${session}/instructions/entries/isomux`,
+          `/api/session/${session}/model`,
+          `/api/session/${session}/prompt`,
+        ].includes(request.path),
+      )
+      .map((request) => `${request.method} ${request.path.split("/").at(-1)}`);
+    // MUTANT: a plugin check on the first turn only, or a model selected
+    // after the prompt.
+    expect(turnRequests).toEqual([
+      "GET plugin",
+      "PUT isomux",
+      "POST model",
+      "POST prompt",
+      "GET plugin",
+      "PUT isomux",
+      "POST model",
+      "POST prompt",
+    ]);
+    // The 2.1.4 prompt route takes text only: parts join with a blank line.
+    const prompts = h.fake.calls("POST", /\/prompt$/).map((r) => r.body);
+    expect(prompts).toEqual([
+      { text: "first part\n\nsecond part" },
+      { text: "go" },
+    ]);
+    // One authority handle per transport, byte-identical across turns, so
+    // OpenCode sees no instruction change.
+    const instructions = h.fake
+      .calls("PUT", /instructions\/entries\/isomux$/)
+      .map((r) => r.body);
+    expect(instructions).toEqual([
+      { value: `office ${handle}` },
+      { value: `office ${handle}` },
+    ]);
+    // E4: an explicit model, with the effort's variant, on every prompt.
+    expect(h.fake.calls("POST", /\/model$/).map((r) => r.body)).toEqual([
+      { model: { providerID: "provider", id: "model", variant: "high" } },
+      { model: { providerID: "provider", id: "model", variant: "high" } },
+    ]);
+    // Folder routes name the folder.
+    for (const request of h.fake.requests.filter((r) =>
+      ["/api/plugin", "/api/model", "/api/provider"].includes(r.path),
+    ))
+      expect(request.query.get("location[directory]")).toBe(FAKE_CWD);
   });
 
-  it("fails before prompt_async when office instructions have no binding", async () => {
-    let leasesAcquired = 0;
-    const supervisor = {
-      acquire: async () => {
-        leasesAcquired++;
-        throw new Error("must not acquire");
-      },
-    } as unknown as OpenCodeSupervisor;
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: "provider/model",
-      systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
-      supervisor,
+  it("creates its session in the folder with the agent and that agent's full rule list (C1)", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("text-reasoning")] },
+      transport: { sessionId: undefined, agent: "isomux-interactive-bypass" },
     });
+    await h.turn();
+    // The whole body: a location with a workspace would make 2.1.4 ignore
+    // the session's environment (core/src/shell.ts:268-272).
+    expect(h.fake.calls("POST", /^\/api\/session$/).map((r) => r.body)).toEqual(
+      [
+        {
+          title: expect.any(String),
+          location: { directory: FAKE_CWD },
+          agent: "isomux-interactive-bypass",
+          permissions: openCodeAgentRules("isomux-interactive-bypass"),
+        },
+      ],
+    );
+    // Created with its agent: no switch and no rule change.
+    expect(h.fake.calls("PATCH", /^\/api\/session\/[^/]+$/)).toEqual([]);
+    expect(h.fake.calls("POST", /\/agent$/)).toEqual([]);
+    expect(h.events[0]).toEqual({
+      kind: "system_init",
+      sessionId: h.fake.sessionId,
+      model: "provider/model",
+    });
+  });
+
+  it("refuses a turn whose model is not in provider/model form before it sends a model or a prompt", async () => {
+    const h = setup({ transport: { model: "no-provider" } });
+    const { end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    // MUTANT: a prompt sent with no model selected runs on OpenCode's default.
+    expect(h.fake.calls("POST", /\/(model|prompt)$/)).toEqual([]);
+  });
+
+  it("selects no variant for a model without one, and names the effort it cannot honor", async () => {
+    const h = setup({
+      fake: {
+        models: () => [
+          modelRow("provider", "plain", { variants: [] }),
+          modelRow("provider", "model", {
+            variants: [{ id: "low", settings: {} }],
+          }),
+        ],
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+      },
+      transport: { model: "provider/plain", effort: "high" },
+    });
+    const plain = await h.turn();
+    expect(h.fake.calls("POST", /\/model$/).at(-1)?.body).toEqual({
+      model: { providerID: "provider", id: "plain" },
+    });
+    expect(kinds(plain.events, "system_text")).toEqual([]);
+
+    const other = new OpenCodeTransport({
+      cwd: FAKE_CWD,
+      model: "provider/model",
+      effort: "high",
+      systemPrompt: "system",
+      supervisor: h.lease.supervisor,
+      sessionId: "ses_other",
+    });
+    cleanups.push(() => other.close());
     const events: NormalizedEvent[] = [];
-
-    await transport.send([{ type: "text", text: "go" }], (event) =>
-      events.push(event),
-    );
-
-    expect(leasesAcquired).toBe(0);
-    expect(events).toContainEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error:
-        "OpenCode cannot send office instructions without an authority binding (Error; HTTP status: unavailable).",
+    h.fake.queue(fixtureTurn("text-reasoning"));
+    await other.send([{ type: "text", text: "go" }], (e) => events.push(e));
+    await until(() => events.some((e) => e.kind === "turn_completed"));
+    expect(h.fake.calls("POST", /\/model$/).at(-1)?.body).toEqual({
+      model: { providerID: "provider", id: "model" },
     });
-    transport.close();
-  });
-
-  it("fails closed if an administrative transport is asked to send", async () => {
-    let leasesAcquired = 0;
-    let turnsStarted = 0;
-    let turnsEnded = 0;
-    const supervisor = {
-      acquire: async () => {
-        leasesAcquired++;
-        return {
-          pid: process.pid,
-          baseUrl: "http://127.0.0.1:1",
-          authHeader: "Basic test",
-          settle: () => {},
-          beginTurn: async () => {
-            turnsStarted++;
-          },
-          endTurn: () => turnsEnded++,
-          serverStopped: () => false,
-          markUnresponsive: () => {},
-          release: () => {},
-        };
-      },
-    } as unknown as OpenCodeSupervisor;
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: "provider/model",
-      supervisor,
-      sessionId: "session-1",
-    });
-    const events: NormalizedEvent[] = [];
-
-    await transport.send([{ type: "text", text: "must not send" }], (event) =>
-      events.push(event),
-    );
-
-    expect(events).toContainEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error:
-        "OpenCode cannot send a turn without an Isomux system prompt (Error; HTTP status: unavailable).",
-    });
-    expect(leasesAcquired).toBe(0);
-    expect(turnsStarted).toBe(0);
-    expect(turnsEnded).toBe(0);
-    transport.close();
-  });
-
-  it("keeps only connected provider model labels and composite ids", () => {
-    const canary = "PROVIDER_OPTION_SECRET_CANARY";
-    const models = allowDiscoveredModels({
-      connected: ["gate", "safe"],
-      all: [
-        {
-          id: "gate",
-          name: "Gate provider",
-          options: { apiKey: canary },
-          models: {
-            "gate-model": {
-              name: "Gate model",
-              cost: canary,
-              variants: {
-                high: {},
-                low: {},
-                none: {},
-                thinking: {},
-              },
-            },
-            "gate/gate-model": { name: "duplicate", metadata: canary },
-          },
-        },
-        {
-          id: "offline",
-          name: "Offline",
-          models: { hidden: { name: canary } },
-        },
-        {
-          id: "safe",
-          name: `API key ${canary}`,
-          models: {
-            model: { name: `secret ${canary}` },
-            // Free only when every measured cost field is zero.
-            free: {
-              cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-            },
-            paid: { cost: { input: 0, output: 1 } },
-          },
-        },
-        { id: 7, models: [] },
-      ],
-    });
-    expect(models).toEqual([
+    expect(kinds(events, "system_text")).toEqual([
       {
-        id: "gate/gate-model",
-        label: "Gate provider - Gate model",
-        supportedEfforts: [{ level: "low" }, { level: "high" }],
-      },
-      {
-        id: "safe/free",
-        label: "safe - free",
-        isFree: true,
-        supportedEfforts: [],
-      },
-      { id: "safe/model", label: "safe - model", supportedEfforts: [] },
-      { id: "safe/paid", label: "safe - paid", supportedEfforts: [] },
-    ]);
-    expect(JSON.stringify(models)).not.toContain(canary);
-    expect(allowDiscoveredModels(null)).toEqual([]);
-  });
-
-  it("drops the house-provider prefix and keeps it for other providers", () => {
-    const models = allowDiscoveredModels({
-      connected: ["opencode", "gate"],
-      all: [
-        {
-          id: "opencode",
-          name: "OpenCode Zen",
-          models: { "big-pickle": { name: "Big Pickle" } },
-        },
-        {
-          id: "gate",
-          name: "Gate provider",
-          models: { "big-pickle": { name: "Big Pickle" } },
-        },
-      ],
-    });
-    expect(models).toEqual([
-      {
-        id: "opencode/big-pickle",
-        label: "Big Pickle",
-        supportedEfforts: [],
-      },
-      {
-        id: "gate/big-pickle",
-        label: "Gate provider - Big Pickle",
-        supportedEfforts: [],
+        kind: "system_text",
+        text: openCodeEffortUnavailableNotice("provider/model", "high"),
       },
     ]);
   });
 
-  it("keeps only positive finite context limits from the shared provider parser", () => {
-    const models = allowDiscoveredModels({
-      connected: ["gate"],
-      all: [
-        {
-          id: "gate",
-          models: {
-            valid: { limit: { context: 262_144 } },
-            zero: { limit: { context: 0 } },
-            negative: { limit: { context: -1 } },
-            missing: {},
-          },
-        },
-      ],
+  it("switches a resumed session to the agent of this mode once, before its instructions (R7)", async () => {
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+      },
+      transport: { sessionId: FAKE_SESSION, agent: "isomux-cron" },
     });
-    expect(models).toEqual([
-      { id: "gate/missing", label: "gate - missing", supportedEfforts: [] },
-      {
-        id: "gate/negative",
-        label: "gate - negative",
-        supportedEfforts: [],
-      },
-      {
-        id: "gate/valid",
-        label: "gate - valid",
-        contextLimit: 262_144,
-        supportedEfforts: [],
-      },
-      { id: "gate/zero", label: "gate - zero", supportedEfforts: [] },
+    await h.turn();
+    await h.turn();
+    // MUTANT: no switch, so a cron run keeps the agent the session was
+    // created with (2.1.4's prompt has no agent field).
+    expect(h.fake.promptLog.map((p) => p.agent)).toEqual([
+      "isomux-cron",
+      "isomux-cron",
     ]);
-  });
-
-  it("releases the discovery lease when the provider request fails", async () => {
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => new Response("failed", { status: 500 }),
-    });
-    let releases = 0;
-    const supervisor = {
-      acquire: async () => ({
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        release: () => releases++,
-      }),
-    } as unknown as OpenCodeSupervisor;
-    try {
-      await expectRejection(
-        discoverOpenCodeModels(supervisor, "/tmp"),
-        /OpenCode HTTP 500/,
-      );
-      expect(releases).toBe(1);
-    } finally {
-      await server.stop(true);
-    }
-  });
-  it("keeps only message ids, roles, and text for edit matching", () => {
-    const canary = "HISTORY_PRIVATE_CANARY";
+    const label = (r: { method: string; path: string }) =>
+      r.method === "GET" && r.path === "/api/plugin"
+        ? "plugin"
+        : r.method === "POST" && r.path.endsWith("/agent")
+          ? "agent"
+          : r.method === "PUT" && r.path.endsWith("/isomux")
+            ? "instructions"
+            : r.method === "POST" &&
+                /\/session\/[^/]+\/(model|prompt)$/.test(r.path)
+              ? r.path.split("/").at(-1)
+              : null;
     expect(
-      allowMessages([
-        {
-          info: { id: "m1", role: "user", providerMetadata: canary },
-          parts: [
-            { type: "text", text: "safe", metadata: canary },
-            { type: "tool", state: { output: canary } },
-          ],
-          metadata: canary,
-        },
-      ]),
-    ).toEqual([{ uuid: "m1", role: "user", text: "safe" }]);
-  });
-
-  it("synthetically flushes a deferred call before its interrupted result", () => {
-    const pending = {
-      callId: "running",
-      name: "bash",
-      input: {},
-      callEmitted: false,
-      terminal: false,
-    };
-    expect(
-      interruptedToolResults([
-        pending,
-        {
-          callId: "done",
-          name: "read",
-          input: { path: "README.md" },
-          callEmitted: true,
-          terminal: true,
-        },
-      ]),
-    ).toEqual([
-      {
-        kind: "tool_call",
-        toolUseId: "running",
-        name: "bash",
-        input: {},
-      },
-      {
-        kind: "tool_result",
-        toolUseId: "running",
-        content: "Tool interrupted.",
-        isError: true,
-      },
-    ]);
-    expect(pending.callEmitted).toBe(true);
-    expect(toolUpdateEvents(pending, { status: "running", input: {} })).toEqual(
-      [],
-    );
-  });
-
-  it("replays captured argument input, then a synthetic completion", () => {
-    const tool = {
-      callId: "call",
-      name: "bash",
-      input: {},
-      callEmitted: false,
-      terminal: false,
-    };
-    expect(toolUpdateEvents(tool, capturedArgument[0])).toEqual([]);
-    expect(toolUpdateEvents(tool, capturedArgument[1])).toEqual([
-      {
-        kind: "tool_call",
-        toolUseId: "call",
-        name: "bash",
-        input: { command: "printf opencode-capture-argument" },
-      },
-    ]);
-    expect(
-      // The live capture ended after running; completion is a synthetic step
-      // that verifies the later terminal event adds only the paired result.
-      toolUpdateEvents(tool, {
-        status: "completed",
-        input: { command: "printf opencode-capture-argument" },
-        output: "captured",
-      }),
-    ).toEqual([
-      {
-        kind: "tool_result",
-        toolUseId: "call",
-        content: "captured",
-      },
+      h.fake.requests
+        .map(label)
+        .filter((step) => step !== null)
+        .slice(0, 5),
+    ).toEqual(["plugin", "agent", "instructions", "model", "prompt"]);
+    // The transport knows the agent it set: the next turn does not switch.
+    expect(h.fake.calls("POST", /\/agent$/).map((r) => r.body)).toEqual([
+      { agent: "isomux-cron" },
     ]);
   });
 
-  it("replays the captured ordinary interrupt after the call emitted", () => {
-    const tool = {
-      callId: "interrupted",
-      name: "bash",
-      input: {},
-      callEmitted: false,
-      terminal: false,
-    };
-    expect(toolUpdateEvents(tool, capturedInterrupted[0])).toEqual([]);
-    expect(toolUpdateEvents(tool, capturedInterrupted[1])).toEqual([
-      {
-        kind: "tool_call",
-        toolUseId: "interrupted",
-        name: "bash",
-        input: { command: "sleep 30" },
-      },
-    ]);
-    expect(interruptedToolResults([tool])).toEqual([
-      {
-        kind: "tool_result",
-        toolUseId: "interrupted",
-        content: "Tool interrupted.",
-        isError: true,
-      },
-    ]);
-  });
-
-  it("synthetically pairs a terminal part whose input never populated", () => {
-    // The pinned tool catalog has no legitimate zero-argument tool. This
-    // synthetic boundary covers a terminal provider event that still has {}.
-    const tool = {
-      callId: "empty",
-      name: "empty-tool",
-      input: {},
-      callEmitted: false,
-      terminal: false,
-    };
-    expect(
-      toolUpdateEvents(tool, { status: "completed", input: {}, output: "ok" }),
-    ).toEqual([
-      {
-        kind: "tool_call",
-        toolUseId: "empty",
-        name: "empty-tool",
-        input: {},
-      },
-      {
-        kind: "tool_result",
-        toolUseId: "empty",
-        content: "ok",
-      },
-    ]);
-  });
-
-  it("keeps only text shape and drops provider fields before normalization", () => {
-    const canary = "PROVIDER_SECRET_CANARY";
-    const parsed = parseAllowedEvent(
-      JSON.stringify({
-        type: "message.part.updated",
-        properties: {
-          sessionID: "session-1",
-          part: {
-            type: "text",
-            id: "part-1",
-            messageID: "message-1",
-            text: "safe",
-          },
-          responseHeaders: { "x-provider-secret": canary },
-        },
-      }),
-    );
-    expect(parsed).toEqual({
-      kind: "text",
-      sessionId: "session-1",
-      messageId: "message-1",
-      partId: "part-1",
-      text: "safe",
-    });
-    expect(JSON.stringify(parsed)).not.toContain(canary);
-  });
-
-  it("keeps only the reviewed provider error fields", () => {
-    const canary = "PROVIDER_SECRET_CANARY";
-    const parsed = parseAllowedEvent(
-      JSON.stringify({
-        type: "session.error",
-        properties: {
-          sessionID: "session-1",
-          error: {
-            name: "APIError",
-            data: {
-              message: "invalid credential",
-              statusCode: 401,
-              isRetryable: false,
-              responseHeaders: { "x-provider-secret": canary },
-              responseBody: canary,
-              metadata: { url: canary },
-              futureField: canary,
-            },
-          },
-        },
-      }),
-    );
-    expect(parsed).toEqual({
-      kind: "error",
-      sessionId: "session-1",
-      error: {
-        name: "APIError",
-        message: "invalid credential",
-        statusCode: 401,
-        isRetryable: false,
+  it("refuses a turn whose agent switch OpenCode refuses, before the prompt", async () => {
+    const steps: (string | undefined)[] = [];
+    const h = setup({
+      fake: { status: { "session.agent": 503 } },
+      transport: {
+        sessionId: FAKE_SESSION,
+        safeErrorSink: (_error, context) => steps.push(context?.step),
       },
     });
-    expect(JSON.stringify(parsed)).not.toContain(canary);
+    const { end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    expect(h.fake.prompts()).toBe(0);
+    expect(steps).toEqual(["agent"]);
   });
 
-  it("retains permission metadata only on the in-process policy event", () => {
-    const canary = "CONTROL_EVENT_SECRET_CANARY";
-    const events = [
-      {
-        type: "message.part.updated",
-        properties: {
-          sessionID: "s",
-          part: {
-            type: "reasoning",
-            id: "r",
-            messageID: "m",
-            text: "why",
-            time: { start: 10, end: 14 },
-            metadata: canary,
-          },
-        },
-      },
-      {
-        type: "message.part.updated",
-        properties: {
-          sessionID: "s",
-          part: {
-            type: "tool",
-            id: "p",
-            messageID: "m",
-            tool: "bash",
-            callID: "call",
-            state: {
-              status: "error",
-              input: { command: "false" },
-              error: "exit 1",
-              time: { start: 20, end: 25 },
-              metadata: { exit: 1, private: canary },
-            },
-          },
-        },
-      },
-      {
-        type: "permission.asked",
-        properties: {
-          sessionID: "s",
-          id: "perm",
-          permission: "bash",
-          patterns: ["false"],
-          metadata: canary,
-          always: [canary],
-        },
-      },
-      {
-        type: "message.part.updated",
-        properties: {
-          sessionID: "s",
-          part: {
-            type: "step-finish",
-            id: "f",
-            messageID: "m",
-            tokens: {
-              total: 19,
-              input: 9,
-              output: 4,
-              reasoning: 3,
-              cache: { read: 2, write: 1 },
-              provider: canary,
-            },
-            cost: 0,
-            snapshot: canary,
-          },
-        },
-      },
-    ].map((event) => parseAllowedEvent(JSON.stringify(event)));
-    expect(events).toEqual([
-      {
-        kind: "reasoning",
-        sessionId: "s",
-        messageId: "m",
-        partId: "r",
-        text: "why",
-        durationMs: 4,
-      },
-      {
-        kind: "tool",
-        sessionId: "s",
-        partId: "p",
-        callId: "call",
-        name: "bash",
-        status: "error",
-        input: { command: "false" },
-        error: "exit 1",
-        exitCode: 1,
-        durationMs: 5,
-      },
-      {
-        kind: "permission",
-        sessionId: "s",
-        id: "perm",
-        permission: "bash",
-        patterns: ["false"],
-        metadata: canary,
-      },
-      {
-        kind: "step_finish",
-        sessionId: "s",
-        partId: "f",
-        messageId: "m",
-        usage: {
-          inputTokens: 9,
-          outputTokens: 4,
-          cacheReadInputTokens: 2,
-          cacheCreationInputTokens: 1,
-        },
-        contextBreakdown: {
-          totalTokens: 19,
-          inputTokens: 9,
-          outputTokens: 4,
-          reasoningTokens: 3,
-          cacheReadInputTokens: 2,
-          cacheCreationInputTokens: 1,
-        },
-        cost: 0,
-      },
-    ]);
-    expect(JSON.stringify(events)).toContain(canary);
-  });
-
-  it("keeps only the question request identity", () => {
-    const canary = "QUESTION_PRIVATE_CANARY";
-    const parsed = parseAllowedEvent(
-      JSON.stringify({
-        type: "question.asked",
-        properties: {
-          sessionID: "session-1",
-          id: "question-1",
-          questions: [{ question: canary, options: [canary] }],
-          tool: { messageID: canary, callID: canary },
-          metadata: canary,
-        },
-      }),
-    );
-    expect(parsed).toEqual({
-      kind: "question",
-      sessionId: "session-1",
-      id: "question-1",
-    });
-    expect(JSON.stringify(parsed)).not.toContain(canary);
-  });
-
-  it("keeps committed OC1 fixtures free of credential-shaped values", async () => {
-    let scanned = 0;
-    for await (const name of new Bun.Glob("fixtures/**/*").scan(
-      import.meta.dir,
-    )) {
-      scanned++;
-      const text = await Bun.file(join(import.meta.dir, name)).text();
-      expect(text).not.toMatch(
-        /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|bearer\s+[a-z0-9._~-]+)/i,
-      );
-    }
-    expect(scanned, "the scan found the committed fixtures").toBeGreaterThan(0);
+  it("refuses a turn whose instructions OpenCode will not take, before the prompt, in words of its own (R6)", async () => {
+    // 2.1.4 answers 413 above 256 KiB of instructions (2026-10-25).
+    const h = setup({ fake: { status: { instructions: 413 } } });
+    const { end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    expect(h.fake.prompts()).toBe(0);
+    // MUTANT: the generic "OpenCode turn failed (Error; HTTP status: 413)."
+    expect(english(end!.error!)).not.toMatch(/^OpenCode turn failed \(/);
   });
 });
 
-describe("OpenCode permission handling", () => {
-  const envelope = {
-    id: "permission-1",
-    sessionId: "session-1",
-    permission: "bash",
-    patterns: ["printf safe"],
-    metadata: { command: "printf safe" },
+// Task 4b354a81: the session's rules (C1), Isomux's top layer (C3) and the
+// environment of the session's shell commands (1010dd4b).
+describe("OpenCode 2 session settings", () => {
+  // Never a real secret: the transport sends what the adapter gives it.
+  const environment = {
+    PATH: "/usr/bin:/bin",
+    MEMBER_VARIABLE: "member-value",
   };
 
-  async function run(options: {
-    autoApprove: boolean;
-    event?: typeof envelope;
-    evaluate?: Parameters<typeof handleOpenCodePermission>[1]["evaluate"];
-    warningState?: { shown: boolean };
-  }) {
-    const replies: Array<{ reply: string; message?: string }> = [];
-    const events: NormalizedEvent[] = [];
-    const outcome = await handleOpenCodePermission(options.event ?? envelope, {
-      cwd: "/tmp",
-      autoApprove: options.autoApprove,
-      warningState: options.warningState ?? { shown: false },
-      reply: async (reply, message) => {
-        replies.push({ reply, ...(message ? { message } : {}) });
-      },
-      sink: (event) => events.push(event),
-      evaluate: options.evaluate,
+  it("creates a normal session with the build agent and its rules", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("text-reasoning")] },
+      transport: { sessionId: undefined },
     });
-    return { outcome, replies, events };
-  }
-
-  it("rejects a policy denial before either mode can prompt", async () => {
-    for (const autoApprove of [false, true]) {
-      const result = await run({
-        autoApprove,
-        event: {
-          ...envelope,
-          metadata: { command: "git reset --hard" },
+    await h.turn();
+    expect(h.fake.calls("POST", /^\/api\/session$/).map((r) => r.body)).toEqual(
+      [
+        {
+          title: expect.any(String),
+          location: { directory: FAKE_CWD },
+          agent: "build",
+          permissions: openCodeAgentRules("build"),
         },
-      });
-      expect(result.outcome).toBe("answered");
-      expect(result.replies).toHaveLength(1);
-      expect(result.replies[0]).toMatchObject({ reply: "reject" });
-      expect(result.replies[0]?.message).toContain("git reset --hard");
-      expect(result.events).toHaveLength(1);
-      expect(result.events[0]).toMatchObject({ kind: "system_text" });
-      expect(JSON.stringify(result.events)).toContain("git reset --hard");
-    }
+      ],
+    );
   });
 
-  it("warns but keeps default-mode fail-open requests for the member", async () => {
-    for (const event of [{ ...envelope, permission: undefined }, envelope]) {
-      const result = await run({
-        autoApprove: false,
-        event: event as unknown as typeof envelope,
-        ...(event === envelope
-          ? {
-              evaluate: () => {
-                throw new Error("adapter fault");
-              },
-            }
-          : {}),
-      });
-      expect(result).toEqual({
-        outcome: "prompt",
-        replies: [],
-        events: [
-          {
-            kind: "system_text",
-            text: SAFETY_WARNING,
-          },
-        ],
-      });
-    }
-  });
-
-  it("fails open on an unknown payload and warns once per turn", async () => {
-    const warningState = { shown: false };
-    const malformed = { ...envelope, permission: undefined };
-    const first = await run({
-      autoApprove: true,
-      event: malformed as unknown as typeof envelope,
-      warningState,
-    });
-    const second = await run({
-      autoApprove: true,
-      event: malformed as unknown as typeof envelope,
-      warningState,
-    });
-    expect(first.replies).toEqual([{ reply: "once" }]);
-    expect(first.events).toEqual([
-      { kind: "system_text", text: SAFETY_WARNING },
-    ]);
-    expect(second.replies).toEqual([{ reply: "once" }]);
-    expect(second.events).toEqual([]);
-  });
-
-  it("isolates a malformed event from a later valid policy denial", async () => {
-    const warningState = { shown: false };
-    const malformed = await run({
-      autoApprove: true,
-      event: {
-        ...envelope,
-        permission: undefined,
-      } as unknown as typeof envelope,
-      warningState,
-    });
-    const valid = await run({
-      autoApprove: true,
-      event: {
-        ...envelope,
-        metadata: { command: "git reset --hard" },
+  it("sends the environment, checks the settings and the plugin, replaces the rules and switches the agent before the instructions, in that order (R3)", async () => {
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
       },
-      warningState,
+      transport: {
+        sessionId: FAKE_SESSION,
+        agent: "isomux-cron",
+        toolEnvironment: environment,
+      },
     });
-    expect(malformed.replies).toEqual([{ reply: "once" }]);
-    expect(valid.replies[0]).toMatchObject({ reply: "reject" });
-    expect(JSON.stringify(valid.events)).toContain("git reset --hard");
+    expect((await h.turn()).end?.status).toBe("completed");
+    expect((await h.turn()).end?.status).toBe("completed");
+    const session = `/api/session/${FAKE_SESSION}`;
+    const label = (r: { method: string; path: string }) =>
+      r.method === "PUT" && r.path === `${session}/environment`
+        ? "environment"
+        : r.method === "GET" && r.path === "/api/mcp"
+          ? "mcp"
+          : r.method === "GET" && r.path === "/api/config"
+            ? "config"
+            : r.method === "GET" && r.path === "/api/plugin"
+              ? "plugin"
+              : r.method === "PATCH" && r.path === session
+                ? "permissions"
+                : r.method === "POST" && r.path === `${session}/agent`
+                  ? "agent"
+                  : r.method === "PUT" && r.path.endsWith("/entries/isomux")
+                    ? "instructions"
+                    : r.method === "POST" &&
+                        (r.path === `${session}/model` ||
+                          r.path === `${session}/prompt`)
+                      ? r.path.split("/").at(-1)
+                      : null;
+    // MUTANT: the environment sent once per transport, so a replaced server
+    // runs the next turn's shell commands with its own environment.
+    expect(h.fake.requests.map(label).filter((step) => step !== null)).toEqual([
+      "environment",
+      "mcp",
+      "config",
+      "plugin",
+      "permissions",
+      "agent",
+      "instructions",
+      "model",
+      "prompt",
+      "environment",
+      "mcp",
+      "plugin",
+      "instructions",
+      "model",
+      "prompt",
+    ]);
+    expect(h.fake.calls("PUT", /\/environment$/).map((r) => r.body)).toEqual([
+      { variables: environment },
+      { variables: environment },
+    ]);
+    // Rules set at create beat the agent's own: a switch replaces them.
+    // MUTANT: no PATCH, so a session created for another mode keeps its rules.
+    expect(
+      h.fake.calls("PATCH", /^\/api\/session\/[^/]+$/).map((r) => r.body),
+    ).toEqual([{ permissions: openCodeAgentRules("isomux-cron") }]);
+    // C3: early answers of GET /api/agent are empty, so Isomux never reads it.
+    expect(
+      h.fake.requests.filter((r) => r.path.startsWith("/api/agent")),
+    ).toEqual([]);
+    // R6: plugin updates stay off; only this route installs one.
+    expect(
+      h.fake.requests.filter((r) => r.path === "/api/plugin/update"),
+    ).toEqual([]);
+  });
+
+  it("gives a subagent's session the turn's environment when it adopts the session", async () => {
+    const recorded = loadFixture("probe-subagent-permission");
+    const child = recorded.find(
+      (f) => f.type === "session.created" && f.data.parentID,
+    )!.data.sessionID as string;
+    const h = setup({
+      fake: { turns: [fixtureTurn("probe-subagent-permission")] },
+      transport: { toolEnvironment: environment },
+    });
+    const { end } = await h.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "approval_request")
+        void h.transport.approve(event.approvalId, { kind: "allow_once" });
+    });
+    expect(end?.status).toBe("completed");
+    // A child does not inherit its parent's environment (probe p10).
+    // MUTANT: the agent's session only.
+    expect(
+      h.fake
+        .calls("PUT", new RegExp(`^/api/session/${child}/environment$`))
+        .map((r) => r.body),
+    ).toEqual([{ variables: environment }]);
+  });
+
+  const docs = {
+    name: "isomux-docs",
+    url: "https://docs.example.com/mcp",
+    headers: { authorization: "Bearer fake-header-value" },
+  };
+  const mcpCalls = (h: ReturnType<typeof setup>, method: string) =>
+    h.fake.calls(method, /^\/api\/experimental\/mcp\/[^/]+$/).map((r) => ({
+      name: decodeURIComponent(r.path.split("/").at(-1)!),
+      directory: r.query.get("location[directory]"),
+      ...(r.body === undefined ? {} : { body: r.body }),
+    }));
+
+  it("makes the folder's Isomux MCP servers the current list before every prompt, and leaves the member's alone", async () => {
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+        // A server Isomux added before this process, and one of the member's.
+        mcpServers: () => ["isomux-removed", "member-tool"],
+      },
+      lease: { mcpServers: () => [docs] },
+    });
+    expect((await h.turn()).end?.status).toBe("completed");
+    expect((await h.turn()).end?.status).toBe("completed");
+    // MUTANT: removals kept in memory, so a server removed while another
+    // Isomux process ran keeps its headers in the folder.
+    expect(mcpCalls(h, "DELETE")).toEqual([
+      { name: "isomux-removed", directory: FAKE_CWD },
+    ]);
+    // The second turn sends no PUT: the same config again costs OpenCode a
+    // state reload, up to 0.94 s per server (probe, 2026-10-25).
+    expect(mcpCalls(h, "PUT")).toEqual([
+      {
+        name: "isomux-docs",
+        directory: FAKE_CWD,
+        body: { config: openCodeMcpServerConfig(docs) },
+      },
+    ]);
+    expect(
+      h.fake
+        .calls("GET", /^\/api\/mcp$/)
+        .map((r) => r.query.get("location[directory]")),
+    ).toEqual([FAKE_CWD, FAKE_CWD]);
+  });
+
+  it("sends a server's config again when its headers change, when the folder lost it, and on a new server", async () => {
+    let servers = [docs];
+    let serverKey = "server-1";
+    const h = setup({
+      fake: {
+        turns: Array.from({ length: 5 }, () => fixtureTurn("text-reasoning")),
+      },
+      lease: { mcpServers: () => servers, serverKey: () => serverKey },
+    });
+    const puts = () => mcpCalls(h, "PUT").map((call) => call.body);
+    await h.turn();
+    await h.turn();
+    expect(puts(), "one PUT for an unchanged config").toHaveLength(1);
+    // A refreshed OAuth access token, for example.
+    const rotated = {
+      ...docs,
+      headers: { authorization: "Bearer rotated-value" },
+    };
+    servers = [rotated];
+    await h.turn();
+    // MUTANT: the cache keyed by name only.
+    expect(puts().at(-1)).toEqual({ config: openCodeMcpServerConfig(rotated) });
+    expect(puts()).toHaveLength(2);
+    // The folder's location was rebuilt: GET no longer lists the server.
+    h.fake.forgetMcp(FAKE_CWD);
+    await h.turn();
+    // MUTANT: a cache hit trusted over the folder's own list.
+    expect(puts(), "a PUT for a server the folder lost").toHaveLength(3);
+    // A replacement server has none of the folder's run-time adds.
+    serverKey = "server-2";
+    await h.turn();
+    expect(puts(), "a PUT on a new server").toHaveLength(4);
+  });
+
+  it("takes a change of the list at the next prompt", async () => {
+    let servers = [docs];
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+      },
+      lease: { mcpServers: () => servers },
+    });
+    await h.turn();
+    const mail = {
+      ...docs,
+      name: "isomux-mail",
+      url: "https://mail.example.com/mcp",
+    };
+    servers = [mail];
+    await h.turn();
+    // MUTANT: the list read once per transport.
+    expect(mcpCalls(h, "PUT").map((call) => call.name)).toEqual([
+      "isomux-docs",
+      "isomux-mail",
+    ]);
+    expect(mcpCalls(h, "DELETE").map((call) => call.name)).toEqual([
+      "isomux-docs",
+    ]);
+  });
+
+  for (const route of ["mcp.add", "mcp.remove"] as const)
+    it(`fails a turn whose MCP servers OpenCode does not take (${route}), before the prompt`, async () => {
+      const h = setup({
+        fake: {
+          status: { [route]: 500 },
+          mcpServers: () => ["isomux-removed"],
+        },
+        lease: { mcpServers: () => [docs] },
+      });
+      const { end } = await h.turn();
+      expect(end?.status).toBe("failed");
+      // MUTANT: the failure ignored, so a removed server stays in the folder.
+      expect(h.fake.prompts()).toBe(0);
+    });
+
+  it("fails a turn whose rules OpenCode does not take before the switch, and names the step", async () => {
+    const steps: (string | undefined)[] = [];
+    const h = setup({
+      fake: { status: { "session.patch": 500 } },
+      transport: {
+        sessionId: FAKE_SESSION,
+        agent: "isomux-cron",
+        safeErrorSink: (_error, context) => steps.push(context?.step),
+      },
+    });
+    const { end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    expect(steps).toEqual(["permissions"]);
+    // MUTANT: the agent switched anyway, on the rules of another mode.
+    expect(h.fake.calls("POST", /\/agent$/)).toEqual([]);
+    expect(h.fake.prompts()).toBe(0);
+  });
+
+  it("fails a turn whose environment OpenCode does not take, before the prompt", async () => {
+    const h = setup({
+      fake: { status: { "session.environment": 500 } },
+      transport: { toolEnvironment: environment },
+    });
+    const { end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    // MUTANT: the failure ignored, so the shell runs with the server's
+    // environment, its password included.
+    expect(h.fake.prompts()).toBe(0);
+  });
+
+  for (const [why, entries] of [
+    ["no document without a path", () => configEntries(null)],
+    [
+      "a document without a path that is not Isomux's",
+      () => configEntries({ instructions: ["remote.md"] }),
+    ],
+  ] as const)
+    it(`refuses a turn when OpenCode lists ${why} (C3)`, async () => {
+      const h = setup({ fake: { config: entries } });
+      const { end } = await h.turn();
+      // MUTANT: any document without a path passes, or no check at all.
+      expect(end).toMatchObject({
+        status: "failed",
+        error: OPENCODE_SETTINGS_MISSING_FAILURE,
+      });
+      expect(h.fake.prompts()).toBe(0);
+      expect(
+        h.fake
+          .calls("GET", /^\/api\/config$/)[0]
+          .query.get("location[directory]"),
+      ).toBe(FAKE_CWD);
+    });
+
+  it("checks Isomux's top layer once per server and folder (C3)", async () => {
+    let serverKey = "server-1";
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+      },
+      lease: { serverKey: () => serverKey },
+    });
+    await h.turn();
+    await h.turn();
+    const checks = () => h.fake.calls("GET", /^\/api\/config$/).length;
+    expect(checks(), "two turns, one check").toBe(1);
+    const another = (cwd: string) => {
+      const transport = new OpenCodeTransport({
+        cwd,
+        model: "provider/model",
+        systemPrompt: "system",
+        supervisor: h.lease.supervisor,
+        sessionId: FAKE_SESSION,
+      });
+      cleanups.push(() => transport.close());
+      return transport;
+    };
+    const run = async (transport: OpenCodeTransport) => {
+      h.fake.queue(fixtureTurn("text-reasoning"));
+      const events: NormalizedEvent[] = [];
+      await transport.send([{ type: "text", text: "go" }], (e) =>
+        events.push(e),
+      );
+      await until(() => events.some((e) => e.kind === "turn_completed"));
+      return events.find((e) => e.kind === "turn_completed");
+    };
+    expect(await run(another(FAKE_CWD))).toMatchObject({ status: "completed" });
+    expect(checks(), "another agent in the same folder").toBe(1);
+    expect(await run(another("/work/other"))).toMatchObject({
+      status: "completed",
+    });
+    expect(checks(), "another folder").toBe(2);
+    serverKey = "server-2";
+    await h.turn();
+    // MUTANT: one check per process of Isomux, so a server started later
+    // with a dropped top layer runs turns.
+    expect(checks(), "a new server").toBe(3);
   });
 });
 
-describe("OpenCode permission event integration", () => {
-  async function runFrames(
-    frames: unknown[],
-    agent?: string,
-    connectedProviders: string[] = [],
-    laterTurns: unknown[][] = [],
-    stopOnText = false,
-    // The agent's model, the full /provider body (null: /provider fails)
-    // and the variables the lease's server was started with.
-    server: {
-      model?: string;
-      provider?: object | null;
-      launchVariables?: string[];
-    } = {},
-  ) {
-    const replies: unknown[] = [];
-    const replyIds: string[] = [];
-    const contexts: number[] = [];
-    const turns = [frames, ...laterTurns];
-    const http = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/event") {
-          return new Response(
-            turns
-              .shift()!
-              .map((frame) => `data: ${JSON.stringify(frame)}\n\n`)
-              .join(""),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        }
-        if (url.pathname === "/provider")
-          return server.provider === null
-            ? new Response("unavailable", { status: 500 })
-            : Response.json(
-                server.provider ?? { connected: connectedProviders },
-              );
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) return new Response(null);
-        if (url.pathname.startsWith("/permission/") && request.body) {
-          replies.push(await request.json());
-          replyIds.push(decodeURIComponent(url.pathname.split("/")[2] ?? ""));
-          return new Response(null);
-        }
-        return new Response("not found", { status: 404 });
+describe("OpenCode 2 turn end (T1)", () => {
+  it("ends the turn at its own terminal frame, not at a late one of the previous busy period", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("text-reasoning", (frames) => [
+            // The interrupt of the previous busy period, late.
+            {
+              type: "session.execution.interrupted",
+              created: frames[0].created! - 1,
+              data: {
+                sessionID: frames[0].data.sessionID,
+                reason: "user",
+              },
+            },
+            ...frames,
+          ]),
+        ],
       },
     });
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${http.port}`,
-        authHeader: "Basic test",
-        hasLaunchVariable: (name: string) =>
-          (server.launchVariables ?? []).includes(name),
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: server.model ?? "provider/model",
-      systemPrompt: "system",
-      supervisor,
-      sessionId: "session-1",
-      agent,
-      completedStepSink: (value) => contexts.push(value.totalTokens),
+    const { events, end } = await h.turn();
+    // MUTANT: the first terminal frame of the session ends the turn.
+    expect(end?.status).toBe("completed");
+    expect(textOf(events)).toBe("ANSWER:EV text streaming check");
+    expect(h.completions()).toHaveLength(1);
+  });
+
+  it("ends the turn when every frame, its end included, comes before the prompt answer", async () => {
+    const recorded = fixtureTurn("text-reasoning");
+    const h = setup({
+      fake: {
+        turns: [{ ...recorded, beforeAnswer: recorded.frames.length - 1 }],
+      },
     });
     const events: NormalizedEvent[] = [];
-    for (let turn = 0; turn <= laterTurns.length; turn++) {
-      await transport.send([{ type: "text", text: "go" }], (event) => {
-        events.push(event);
-        if (stopOnText && event.kind === "assistant_text")
-          void transport.abort();
-      });
-      const deadline = Date.now() + 1_000;
-      while (
-        events.filter((event) => event.kind === "turn_completed").length <=
-          turn &&
-        Date.now() < deadline
-      )
-        await Bun.sleep(5);
-    }
-    transport.close();
-    await http.stop(true);
-    return { events, replies, replyIds, contexts };
-  }
-
-  const frame = (type: string, properties: object) => ({
-    type,
-    properties: { sessionID: "session-1", ...properties },
-  });
-  const overflow = frame("session.error", {
-    error: { name: "ContextOverflowError", data: { message: "too long" } },
-  });
-  const assistant = (id: string, summary = false) =>
-    frame("message.updated", { info: { id, role: "assistant", summary } });
-  const text = (id: string, value: string) =>
-    frame("message.part.updated", {
-      part: { id: id + "-text", messageID: id, type: "text", text: value },
+    let answered = false;
+    let textBeforeAnswer = false;
+    await h.transport.send([{ type: "text", text: "go" }], (event) => {
+      events.push(event);
+      if (event.kind === "assistant_text" && !answered) textBeforeAnswer = true;
     });
-  const finish = (id: string) =>
-    frame("message.part.updated", {
-      part: { id: id + "-finish", messageID: id, type: "step-finish" },
-    });
-  const idle = frame("session.idle", {});
-  const asked = (sessionID: string, id: string) => ({
-    type: "permission.asked",
-    properties: {
-      sessionID,
-      id,
-      permission: "bash",
-      patterns: [`printf ${id}`],
-      metadata: { command: `printf ${id}` },
-    },
-  });
-  // OpenCode's task tool runs a subagent in a child session.
-  const created = (id: string, parentID: string) => ({
-    type: "session.created",
-    properties: { sessionID: id, info: { id, parentID } },
-  });
-
-  const billed = (partId: string, messageId: string, n: number) =>
-    frame("message.part.updated", {
-      part: {
-        id: partId,
-        messageID: messageId,
-        type: "step-finish",
-        cost: n / 8,
-        tokens: {
-          total: n * 10,
-          input: n,
-          output: n * 2,
-          reasoning: 0,
-          cache: { read: n * 3, write: n * 4 },
-        },
-      },
-    });
-  const totals = (n: number) => ({
-    usage: {
-      inputTokens: n,
-      outputTokens: n * 2,
-      cacheReadInputTokens: n * 3,
-      cacheCreationInputTokens: n * 4,
-    },
-    cost: n / 8,
-    costMode: "turn" as const,
-    usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
-  });
-
-  it("sums billed tool and compaction steps once per part and keeps context separate", async () => {
-    const result = await runFrames(
-      [
-        assistant("tool"),
-        billed("tool-a", "tool", 1),
-        billed("tool-b", "tool", 2),
-        billed("tool-a", "tool", 1),
-        overflow,
-        assistant("summary", true),
-        billed("summary-step", "summary", 4),
-        billed("summary-step", "summary", 4),
-        assistant("answer"),
-        billed("answer-step", "answer", 8),
-        billed("answer-step", "answer", 16),
-        idle,
-      ],
-      undefined,
-      [],
-      [[assistant("next"), billed("next-step", "next", 32), idle]],
-    );
-    expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
-      { kind: "turn_completed", status: "completed", ...totals(23) },
-      { kind: "turn_completed", status: "completed", ...totals(32) },
-    ]);
-    expect(result.contexts).not.toContain(40);
-    expect(result.contexts.at(-2)).toBe(160);
-    expect(result.contexts.at(-1)).toBe(320);
-    const replay = await runFrames([
-      assistant("summary", true),
-      billed("summary-step", "summary", 4),
-      billed("tool-b", "tool", 2),
-      billed("answer-step", "answer", 16),
-      billed("tool-a", "tool", 1),
-      idle,
-    ]);
-    const first = result.events.find((e) => e.kind === "turn_completed");
-    const repeated = replay.events.find((e) => e.kind === "turn_completed");
-    expect(repeated?.usageId).toBe(first?.usageId);
-    expect(
-      result.events.filter((e) => e.kind === "turn_completed")[1]?.usageId,
-    ).not.toBe(first?.usageId);
-  });
-
-  it("keeps billed steps when overflow or a provider error ends the turn", async () => {
-    for (const ending of [
-      [overflow, idle],
-      [
-        frame("session.error", {
-          error: { name: "APIError", data: { statusCode: 503 } },
-        }),
-      ],
-      [], // A dropped event stream uses send()'s failure path.
-    ]) {
-      const result = await runFrames([
-        assistant("tool"),
-        billed("tool-a", "tool", 2),
-        ...ending,
-      ]);
-      expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
-        {
-          kind: "turn_completed",
-          status: "failed",
-          error: expect.any(String),
-          ...totals(2),
-        },
-      ]);
-    }
-  });
-
-  it("keeps billed steps when a member stops the turn", async () => {
-    const result = await runFrames(
-      [
-        assistant("tool"),
-        billed("tool-step", "tool", 4),
-        text("tool", "partial"),
-        idle,
-      ],
-      undefined,
-      [],
-      [],
+    answered = true;
+    const ended = () => events.filter((e) => e.kind === "turn_completed");
+    await until(() => ended().length > 0);
+    // The condition this case is about: the stream handled the turn's frames
+    // while the prompt answer was still out.
+    expect(textBeforeAnswer, "frames handled before the prompt answer").toBe(
       true,
     );
-    expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
-      { kind: "turn_completed", status: "interrupted", ...totals(4) },
-    ]);
+    // MUTANT: frames that come before the input id is known are dropped, and
+    // the turn never ends.
+    expect(ended()).toMatchObject([{ status: "completed" }]);
+    expect(textOf(events)).toBe("ANSWER:EV text streaming check");
   });
 
-  it("keeps overflow open through compaction and delivers only the replay answer", async () => {
-    const result = await runFrames([
-      overflow,
-      assistant("summary", true),
-      text("summary", "private summary"),
-      finish("summary"),
-      assistant("answer"),
-      text("answer", "original answer"),
-      finish("answer"),
-      idle,
-    ]);
-    expect(result.events.filter((e) => e.kind === "assistant_text")).toEqual([
-      { kind: "assistant_text", text: "original answer" },
-    ]);
-    expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
-      { kind: "turn_completed", status: "completed" },
-    ]);
-  });
-
-  it("fails terminal overflow even after an earlier tool step or a summary", async () => {
-    for (const frames of [
-      [finish("tool"), overflow, idle],
-      [overflow, assistant("summary", true), finish("summary"), idle],
-    ]) {
-      const result = await runFrames(frames);
-      expect(result.events.at(-1)).toMatchObject({
-        kind: "turn_completed",
-        status: "failed",
-        error: expect.stringMatching(/conversation.*long/i),
-      });
-    }
-  });
-
-  it("shows native retry attempts with the provider's message without settling the turn", async () => {
-    const messages = [
-      "SSE read timed out",
-      "Free usage exceeded, subscribe to Go",
-      "HTTP 503",
-      "",
-      "rate limit sk-abcdefghijklmnopqrstuvwxyz123456",
-    ];
-    for (const terminal of [false, true]) {
-      const result = await runFrames([
-        ...messages.map((message, i) =>
-          frame("session.status", {
-            status: { type: "retry", attempt: i + 1, message },
+  it("does not take session.idle or session.status as the end", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("text-reasoning", (frames) => {
+            const delivered = frames.findIndex(
+              (f) => f.type === "session.inbox.delivered",
+            );
+            const sessionID = frames[0].data.sessionID;
+            return [
+              ...frames.slice(0, delivered + 1),
+              { type: "session.idle", data: { sessionID } },
+              {
+                type: "session.status",
+                data: { sessionID, status: { type: "idle" } },
+              },
+              ...frames.slice(delivered + 1),
+            ];
           }),
-        ),
-        ...(terminal
-          ? [
-              frame("session.error", {
-                error: { name: "APIError", data: { statusCode: 503 } },
-              }),
-            ]
-          : [
-              assistant("answer"),
-              text("answer", "answer"),
-              finish("answer"),
-              idle,
-            ]),
-      ]);
-      const retries = result.events.flatMap((e) =>
-        e.kind === "system_text" ? [{ text: english(e.text) }] : [],
-      );
-      expect(retries).toHaveLength(5);
-      for (const [i, entry] of retries.entries()) {
-        expect(entry.text).toMatch(new RegExp(`\\b${i + 1}\\b.*\\b5\\b`));
-      }
-      for (const i of [0, 1, 2]) {
-        expect(retries[i].text).toContain("`provider`");
-        expect(retries[i].text).toContain(`"${messages[i]}"`);
-      }
-      expect(retries[3].text).not.toContain("`provider`");
-      expect(retries[4].text).toContain("rate limit");
-      expect(JSON.stringify(result.events)).not.toContain(
-        "abcdefghijklmnopqrstuvwxyz123456",
-      );
-      expect(
-        result.events.filter((e) => e.kind === "turn_completed"),
-      ).toHaveLength(1);
-      expect(result.events.at(-1)).toMatchObject({
-        kind: "turn_completed",
-        status: terminal ? "failed" : "completed",
-      });
-    }
-  });
-
-  it("replaces pending overflow with a later compaction timeout", async () => {
-    const result = await runFrames([
-      overflow,
-      frame("session.error", {
-        error: {
-          name: "APIError",
-          data: { message: "SSE read timed out", isRetryable: true },
-        },
-      }),
-      idle,
-    ]);
-    expect(result.events.at(-1)).toMatchObject({
-      kind: "turn_completed",
-      status: "failed",
-      error: expect.stringMatching(/time/i),
+        ],
+      },
     });
+    const { events, end } = await h.turn();
+    // MUTANT: an idle frame ends the turn before its answer.
+    expect(textOf(events)).toBe("ANSWER:EV text streaming check");
+    expect(end?.status).toBe("completed");
+  });
+});
+
+describe("OpenCode 2 event translation", () => {
+  it("streams the answer and the reasoning once, with the reasoning's duration", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("text-reasoning")] } });
+    const { events } = await h.turn();
+    const thinking = events.filter(
+      (e): e is Extract<NormalizedEvent, { kind: "thinking" }> =>
+        e.kind === "thinking",
+    );
+    expect(thinking.map((e) => e.text).join("")).toBe("gate-reasoning");
+    // reasoning.started at ...539, reasoning.ended at ...564.
     expect(
-      result.events.filter((e) => e.kind === "turn_completed"),
-    ).toHaveLength(1);
-  });
-
-  // Task 1a963907: the provider's own words, so members see the refusal is
-  // the provider's.
-  it("quotes the provider's refusal instead of blaming the model", async () => {
-    const message =
-      "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building.";
-    const result = await runFrames([
-      frame("session.error", {
-        error: {
-          name: "APIError",
-          data: { message, statusCode: 403, isRetryable: false },
-        },
-      }),
+      thinking.flatMap((e) =>
+        e.durationMs === undefined ? [] : [e.durationMs],
+      ),
+    ).toEqual([25]);
+    // text.ended repeats what the deltas sent: it adds nothing.
+    expect(kinds(events, "assistant_text")).toEqual([
+      { kind: "assistant_text", text: "ANSWER:EV text streaming check" },
     ]);
-    const last = result.events.at(-1);
-    expect(last).toMatchObject({ kind: "turn_completed", status: "failed" });
-    const error = english((last as { error: LogText }).error);
-    expect(error).toContain("`provider`");
-    expect(error).toContain(`"${message}"`);
-    expect(error).not.toBe(openCodeModelUnavailableFailure("provider/model"));
   });
 
-  it("writes the provider's refusal and retry as messages each reader words", async () => {
-    const message = "Free usage exceeded, subscribe to Go";
-    const error = { name: "APIError", statusCode: 403, message };
-    const frames = [
-      frame("session.status", {
-        status: { type: "retry", attempt: 1, message },
-      }),
-      frame("session.error", {
-        error: { name: "APIError", data: { message, statusCode: 403 } },
-      }),
-    ];
-    const result = await runFrames(frames);
-    const retry = result.events.find((e) => e.kind === "system_text");
-    expect(retry).toMatchObject({
-      text: openCodeRetryMessage(message, 1, "provider"),
-    });
-    expect(result.events.at(-1)).toEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error: openCodeProviderRefusal(error, "provider")!,
-    });
-    // Both carry a message, not finished text.
-    expect(typeof openCodeRetryMessage(message, 1, "provider")).toBe("object");
-  });
-
-  // Task 73951c9f: a model the provider refuses is no gone model, and the
-  // member can still fix the turn by picking another one.
-  it("keeps the model line for a 403 with no provider message, and offers the picker", async () => {
-    const result = await runFrames([
-      frame("session.error", {
-        error: {
-          name: "APIError",
-          data: { statusCode: 403, isRetryable: false },
-        },
-      }),
-    ]);
-    expect(result.events.at(-1)).toEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error: openCodeModelUnavailableFailure("provider/model"),
-      pickModel: true,
-    });
-    // No words follow, so the line keeps its cause (task 81b290d6).
-    expect(openCodeModelUnavailableFailure("provider/model")).not.toBe(
-      openCodeModelUnavailableFailure("provider/model", true),
-    );
-  });
-
-  // Task 10a09ec8: the sign-in line and its OPENCODE_API_KEY guidance only
-  // when that key would fix the failure: a model of OpenCode's own providers
-  // that is not free, on a server started without the key. Every other
-  // classified auth failure shows OpenCode's words, with no sign-in signal.
-  describe("sign-in failures", () => {
-    const catalog = (connected: string[]) => ({
-      connected,
-      all: [
-        {
-          id: "opencode",
-          name: "OpenCode Zen",
-          models: {
-            "free-model": { name: "Free", cost: { input: 0, output: 0 } },
-            "paid-model": { name: "Paid", cost: { input: 1, output: 5 } },
-          },
-        },
-        {
-          id: "opencode-go",
-          name: "OpenCode Go",
-          models: {
-            "go-model": { name: "Go", cost: { input: 1, output: 2 } },
-          },
-        },
-        {
-          id: "anthropic",
-          name: "Anthropic",
-          models: {
-            claude: { name: "Claude", cost: { input: 3, output: 15 } },
-          },
-        },
-      ],
-    });
-    const allConnected = catalog(["opencode", "opencode-go", "anthropic"]);
-    const key = ["OPENCODE_API_KEY"];
-    const keyMissing =
-      "OpenCode API key is missing. Pass it using the 'apiKey' parameter.";
-    const invalidKey = "Invalid API key for this request.";
-    // OpenCode 1.18.35 sends the AI SDK's LoadAPIKeyError as
-    // ProviderAuthError, and a provider's 401 as APIError.
-    const providerAuth = (message?: string) =>
-      frame("session.error", {
-        error: {
-          name: "ProviderAuthError",
-          data: { providerID: "opencode", ...(message ? { message } : {}) },
-        },
-      });
-    const unauthorized = (message?: string) =>
-      frame("session.error", {
-        error: {
-          name: "APIError",
-          data: {
-            statusCode: 401,
-            isRetryable: false,
-            ...(message ? { message } : {}),
-          },
-        },
-      });
-    const modelNotFound = (model: string) =>
-      `Model not found: ${model}. Did you mean: other`;
-    const notFound = (model: string) =>
-      frame("session.error", {
-        error: {
-          name: "UnknownError",
-          data: { message: modelNotFound(model) },
-        },
-      });
-
-    async function fail(
-      errorFrame: object,
-      server: {
-        model: string;
-        provider?: object | null;
-        launchVariables?: string[];
+  it("takes from the ended frame only the text the deltas missed", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("text-reasoning", (frames) =>
+            frames.flatMap((frame) =>
+              frame.type === "session.text.delta"
+                ? [{ ...frame, data: { ...frame.data, delta: "ANSWER:" } }]
+                : frame.type === "session.reasoning.delta"
+                  ? []
+                  : [frame],
+            ),
+          ),
+        ],
       },
-    ) {
-      const { events } = await runFrames(
-        [errorFrame],
-        undefined,
-        [],
-        [],
-        false,
-        { provider: allConnected, ...server },
-      );
-      const ends = events.filter((event) => event.kind === "turn_completed");
-      expect(ends, "one failed turn ends the run").toHaveLength(1);
-      const end = events.at(-1) as Extract<
-        NormalizedEvent,
-        { kind: "turn_completed" }
-      >;
-      expect(end.kind).toBe("turn_completed");
-      expect(end.status).toBe("failed");
-      return {
-        events,
-        error: english(end.error!),
-        signIns: events.filter((event) => event.kind === "auth_needed").length,
-        signalFirst: events.at(-2)?.kind === "auth_needed",
-      };
-    }
-
-    const signIn = async (
-      errorFrame: object,
-      server: Parameters<typeof fail>[1],
-      message?: string,
-    ) => {
-      const result = await fail(errorFrame, server);
-      const end = result.events.at(-1) as Extract<
-        NormalizedEvent,
-        { kind: "turn_completed" }
-      >;
-      // The key fixes this turn, not another model (task 73951c9f).
-      expect(end.pickModel, "no model picker").toBeUndefined();
-      expect(end.goneModel, "no gone model").toBeUndefined();
-      expect(result.signIns, "one sign-in signal").toBe(1);
-      expect(result.signalFirst, "the signal comes before the end").toBe(true);
-      expect(result.error).toContain(OPENCODE_AUTH_FAILURE);
-      if (message !== undefined) expect(result.error).toContain(message);
-      return result;
-    };
-
-    const noSignIn = async (
-      errorFrame: object,
-      server: Parameters<typeof fail>[1],
-      message?: string,
-    ) => {
-      const result = await fail(errorFrame, server);
-      expect(result.signIns, "no sign-in signal").toBe(0);
-      expect(result.error).not.toContain(OPENCODE_AUTH_FAILURE);
-      if (message !== undefined) expect(result.error).toContain(message);
-      return result;
-    };
-
-    it("asks for the key for a paid or unlisted model of OpenCode's providers on a server without it, with OpenCode's words", async () => {
-      for (const model of [
-        "opencode/paid-model",
-        // With no key, OpenCode lists only the free Zen models.
-        "opencode/unlisted-model",
-        "opencode-go/go-model",
-      ]) {
-        const auth = await signIn(
-          providerAuth(keyMissing),
-          { model },
-          keyMissing,
-        );
-        expect(auth.error).toContain(
-          english(providerRefusal(model.split("/")[0], keyMissing)),
-        );
-        await signIn(unauthorized(invalidKey), { model }, invalidKey);
-      }
     });
-
-    it("treats a model as not free when the catalog does not load", async () => {
-      await signIn(
-        unauthorized(invalidKey),
-        { model: "opencode/free-model", provider: null },
-        invalidKey,
-      );
-    });
-
-    it("shows the sign-in line alone when OpenCode sends no words", async () => {
-      const result = await signIn(providerAuth(), {
-        model: "opencode/paid-model",
-      });
-      expect(result.error).toBe(OPENCODE_AUTH_FAILURE);
-    });
-
-    it("shows a free model's refusal as the provider's, not as missing sign-in", async () => {
-      const model = "opencode/free-model";
-      const auth = await noSignIn(
-        providerAuth(keyMissing),
-        { model },
-        keyMissing,
-      );
-      expect(auth.error).toContain(
-        english(providerRefusal("opencode", keyMissing)),
-      );
-      const http = await noSignIn(
-        unauthorized(invalidKey),
-        { model },
-        invalidKey,
-      );
-      expect(http.error).toContain(
-        english(providerRefusal("opencode", invalidKey)),
-      );
-    });
-
-    it("shows the provider's words when the server has the key", async () => {
-      for (const model of ["opencode/paid-model", "opencode-go/go-model"]) {
-        const provider = model.split("/")[0];
-        const auth = await noSignIn(
-          providerAuth(keyMissing),
-          { model, launchVariables: key },
-          keyMissing,
-        );
-        expect(auth.error).toContain(
-          english(providerRefusal(provider, keyMissing)),
-        );
-        const http = await noSignIn(
-          unauthorized(invalidKey),
-          { model, launchVariables: key },
-          invalidKey,
-        );
-        expect(http.error).toContain(
-          english(providerRefusal(provider, invalidKey)),
-        );
-      }
-    });
-
-    it("never names OPENCODE_API_KEY for another provider's auth failure", async () => {
-      const model = "anthropic/claude";
-      const auth = await noSignIn(
-        providerAuth(keyMissing),
-        { model },
-        keyMissing,
-      );
-      expect(auth.error).toContain(
-        english(providerRefusal("anthropic", keyMissing)),
-      );
-      const http = await noSignIn(
-        unauthorized(invalidKey),
-        { model },
-        invalidKey,
-      );
-      expect(http.error).toContain(
-        english(providerRefusal("anthropic", invalidKey)),
-      );
-    });
-
-    // Task 81b290d6: with no words from OpenCode, the line gives the next
-    // step. A retry fails again; another model fixes the turn.
-    it("offers the picker for a refusal that needs no key and has no words", async () => {
-      for (const server of [
-        { model: "opencode/free-model" },
-        { model: "anthropic/claude" },
-        // A key the provider rejects.
-        { model: "opencode/paid-model", launchVariables: key },
-      ]) {
-        const lines = new Set<string>();
-        for (const errorFrame of [providerAuth(), unauthorized()]) {
-          const result = await noSignIn(errorFrame, server);
-          const end = result.events.at(-1) as Extract<
-            NormalizedEvent,
-            { kind: "turn_completed" }
-          >;
-          expect(end.pickModel, `picker for ${server.model}`).toBe(true);
-          expect(end.goneModel).toBeUndefined();
-          expect(result.error).toContain(`\`${server.model}\``);
-          lines.add(result.error);
-        }
-        expect(lines.size, "one line for both error shapes").toBe(1);
-      }
-      // OpenCode's words say why: no picker.
-      const words = await noSignIn(
-        providerAuth(keyMissing),
-        { model: "opencode/free-model" },
-        keyMissing,
-      );
-      expect(
-        (words.events.at(-1) as { pickModel?: true }).pickModel,
-      ).toBeUndefined();
-    });
-
-    it("classifies model-not-found by the model's provider and the server's key", async () => {
-      // OpenCode's provider is not connected, the server has no key.
-      const zen = "opencode/paid-model";
-      await signIn(
-        notFound(zen),
-        { model: zen, provider: catalog(["anthropic"]) },
-        modelNotFound(zen),
-      );
-      // With the key, a missing OpenCode provider is no sign-in failure.
-      await noSignIn(
-        notFound(zen),
-        { model: zen, provider: catalog(["anthropic"]), launchVariables: key },
-        modelNotFound(zen),
-      );
-      // Another provider that is not connected: pick another model.
-      const other = "anthropic/claude";
-      const result = await noSignIn(
-        notFound(other),
-        { model: other, provider: catalog(["opencode"]) },
-        modelNotFound(other),
-      );
-      // OpenCode's words follow, so the first line does not state the cause
-      // again (task 81b290d6).
-      const [first, ...rest] = result.error.split("\n");
-      expect(first).toBe(openCodeModelUnavailableFailure(other, true));
-      expect(first).not.toBe(openCodeModelUnavailableFailure(other));
-      expect(first).toContain(`\`${other}\``);
-      expect(rest.join("\n")).toBe(
-        english(providerRefusal("anthropic", modelNotFound(other))),
-      );
-      // A provider that is not connected is no proof the model is gone, but
-      // a connected provider's model fixes the turn (task 73951c9f).
-      const end = result.events.at(-1) as Extract<
-        NormalizedEvent,
-        { kind: "turn_completed" }
-      >;
-      expect(end.pickModel).toBe(true);
-      expect(end.goneModel).toBeUndefined();
-    });
+    const { events } = await h.turn();
+    // MUTANT: the ended frame's text is dropped, or sent whole a second time.
+    expect(textOf(events)).toBe("ANSWER:EV text streaming check");
+    expect(
+      events.flatMap((e) => (e.kind === "thinking" ? [e.text] : [])).join(""),
+    ).toBe("gate-reasoning");
   });
 
-  // Task 73951c9f: OpenCode's "Model not found" for a model of a connected
-  // provider means OpenCode no longer has the model: the line says so, names
-  // it, offers the picker, and the event names the gone model for the flag.
-  it("classifies model-not-found through connected-provider discovery", async () => {
-    const frame = {
-      type: "session.error",
-      properties: {
-        sessionID: "session-1",
-        error: {
-          name: "UnknownError",
-          data: {
-            message: "Model not found: provider/model. Did you mean: other",
-          },
-        },
-      },
-    };
-    const connected = await runFrames([frame], undefined, ["provider"]);
-    const end = connected.events.at(-1) as Extract<
-      NormalizedEvent,
-      { kind: "turn_completed" }
-    >;
-    expect(end).toMatchObject({
-      kind: "turn_completed",
-      status: "failed",
-      pickModel: true,
-      goneModel: "provider/model",
+  it("pairs a tool call and its result, with the run's duration, and leaves exit 0 a success", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("shell-allow")] },
+      transport: { agent: "isomux-interactive-bypass" },
     });
-    const gone = english(openCodeModelGoneFailure("provider/model"));
-    expect(gone).toContain("`provider/model`");
-    // A gone model, not a refusal: another line than the 403's.
-    expect(gone).not.toBe(
-      english(openCodeModelUnavailableFailure("provider/model")),
-    );
-    expect(english(end.error!)).toContain(gone);
-    // A model-not-found for another model is no verdict on this one.
-    const otherError = {
-      name: "UnknownError",
-      message: "Model not found: provider/typo. Did you mean: model",
-    };
-    const other = await runFrames(
-      [
-        {
-          ...frame,
-          properties: {
-            ...frame.properties,
-            error: {
-              name: otherError.name,
-              data: { message: otherError.message },
-            },
-          },
-        },
-      ],
-      undefined,
-      ["provider"],
-    );
-    expect(other.events.at(-1)).toEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error: openCodeErrorMessage(otherError),
+    const { events, end } = await h.turn();
+    const [call] = toolCalls(events);
+    expect(toolCalls(events)).toHaveLength(1);
+    expect(call).toMatchObject({
+      name: "shell",
+      input: { command: "printf allowed > ev-allow.txt" },
     });
-  });
-
-  it("fails a no-id request visibly without claiming an allow", async () => {
-    const result = await runFrames([
+    // tool.called at ...111, tool.success at ...264.
+    expect(toolResults(events)).toEqual([
       {
-        type: "permission.asked",
-        properties: {
-          sessionID: "session-1",
-          permission: "bash",
-          metadata: { command: "printf must-not-run" },
-        },
+        kind: "tool_result",
+        toolUseId: call.toolUseId,
+        content: "(no output)",
+        durationMs: 153,
       },
     ]);
-    expect(result.replies).toEqual([]);
-    expect(result.events).toContainEqual({
+    expect(textOf(events)).toBe("RECOVERED_AFTER_TOOL");
+    expect(end?.status).toBe("completed");
+  });
+
+  it("marks a shell command that exits non-zero as an error result (T3)", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("tool-fail")] },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const { events, end } = await h.turn();
+    const [result] = toolResults(events);
+    expect(toolResults(events)).toHaveLength(1);
+    // MUTANT: session.tool.success read as a success whatever its exit.
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toContain("failed-before-exit");
+    expect(result?.content).toContain("Exited with code 7");
+    expect(end?.status).toBe("completed");
+  });
+
+  it("gives a provider call id that repeats across turns a new tool id, and ignores another session's tools (T6)", async () => {
+    // fixed-ids: two sessions in one stream, and three turns that all call
+    // call_gate_001.
+    const recorded = loadFixture("fixed-ids");
+    const turns = fixtureTurns(recorded);
+    const session = fixtureSession(recorded);
+    const h = setup({
+      fake: {
+        turns: [
+          { frames: turns[0], session },
+          { frames: turns[1], session },
+        ],
+      },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const first = await h.turn();
+    const second = await h.turn();
+    // MUTANT: frames of the other session in the stream reach this turn.
+    expect(toolCalls(first.events)).toHaveLength(1);
+    expect(toolResults(first.events)).toHaveLength(1);
+    expect(toolCalls(second.events)).toHaveLength(1);
+    expect(toolResults(second.events)).toHaveLength(1);
+    expect(toolResults(first.events)[0].toolUseId).toBe(
+      toolCalls(first.events)[0].toolUseId,
+    );
+    expect(toolResults(second.events)[0].toolUseId).toBe(
+      toolCalls(second.events)[0].toolUseId,
+    );
+    // MUTANT: the provider's call id as the tool id.
+    expect(toolCalls(second.events)[0].toolUseId).not.toBe(
+      toolCalls(first.events)[0].toolUseId,
+    );
+  });
+
+  it("bills each step and compaction once, and reports each answer step's context", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("shell-allow", (frames) => {
+            const end = terminalIndex(frames);
+            const failed = loadFixture("compaction").find(
+              (f) => f.type === "session.compaction.failed",
+            )!;
+            return [
+              ...frames.slice(0, end),
+              {
+                ...failed,
+                data: {
+                  ...failed.data,
+                  sessionID: frames[end].data.sessionID,
+                  cost: 0.5,
+                },
+              },
+              frames[end],
+            ];
+          }),
+        ],
+      },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const { end } = await h.turn();
+    // Two steps of 9/4/3/2/0 and a failed compaction of 18/8/6/4/0.
+    expect(end).toMatchObject({
+      status: "completed",
+      usage: {
+        inputTokens: 36,
+        outputTokens: 16,
+        cacheReadInputTokens: 8,
+        cacheCreationInputTokens: 0,
+      },
+      cost: 0.5,
+      costMode: "turn",
+      usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    // The context of each answer step: 9 + 4 + 3 + 2 + 0. A compaction is
+    // no answer step.
+    expect(h.contexts.map((c) => c.totalTokens)).toEqual([18, 18]);
+  });
+
+  it("shows a failed compaction and lets the turn finish (T4)", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("text-reasoning", (frames) => {
+            const end = terminalIndex(frames);
+            const compaction = loadFixture("compaction").filter((f) =>
+              f.type.startsWith("session.compaction."),
+            );
+            return [
+              ...frames.slice(0, end),
+              ...compaction.map((f) => ({
+                ...f,
+                data: { ...f.data, sessionID: frames[end].data.sessionID },
+              })),
+              frames[end],
+            ];
+          }),
+        ],
+      },
+    });
+    const { events, end } = await h.turn();
+    // MUTANT: compaction.failed fails the turn, or is not shown.
+    expect(end?.status).toBe("completed");
+    expect(kinds(events, "system_text")).toHaveLength(1);
+    // The summary the compaction wrote is OpenCode's, not an answer.
+    expect(textOf(events)).toBe("ANSWER:EV text streaming check");
+  });
+
+  it("shows OpenCode's question as an input request and ends as stopped when the member stops it", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("probe-question-form")] } });
+    const done = h.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "input_request") void h.transport.abort();
+    });
+    const { events, end } = await done;
+    expect(kinds(events, "input_request")).toEqual([
+      {
+        kind: "input_request",
+        inputType: "question",
+        requestId: "frm_1729753080012gS3us7JPQ5J8Q",
+      },
+    ]);
+    expect(h.fake.interrupts()).toBe(1);
+    expect(end?.status).toBe("interrupted");
+  });
+
+  it("stops a running tool with an error result and ends as stopped (T5)", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          fixtureTurn("probe-interrupt-tool", 0, {
+            interruptBefore: (frame) => frame.type === "session.tool.failed",
+          }),
+        ],
+      },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "tool_call") void h.transport.abort();
+      },
+    );
+    expect(h.fake.calls("POST", /\/interrupt$/)).toHaveLength(1);
+    // Abort is /interrupt with no resume.
+    expect(
+      h.fake.calls("POST", /\/interrupt$/)[0].body ?? {},
+    ).not.toMatchObject({
+      resume: true,
+    });
+    const results = toolResults(events);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      toolUseId: toolCalls(events)[0].toolUseId,
+      isError: true,
+    });
+    expect(end?.status).toBe("interrupted");
+  });
+
+  it("shows the provider's retries with their number of ten, then its refusal", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("probe-retry-429")] } });
+    const { events, end } = await h.turn();
+    const retries = kinds(events, "system_text").map((e) =>
+      english((e as { text: LogText }).text),
+    );
+    // attempt 2..11 in the frames: retries 1..10 of 10.
+    expect(retries).toHaveLength(10);
+    for (const [i, line] of retries.entries())
+      expect(line).toMatch(new RegExp(`\\b${i + 1}\\b.*\\b10\\b`));
+    expect(retries[0]).toContain("probe rate limited");
+    expect(end?.status).toBe("failed");
+    expect(english(end!.error!)).toContain(
+      english(providerRefusal("provider", "probe rate limited")),
+    );
+  });
+});
+
+describe("OpenCode 2 permissions", () => {
+  it("asks the member, answers once on the session's route, and never sends always (C2)", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("shell-allow")] } });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "approval_request")
+          void h.transport.approve(event.approvalId, { kind: "allow_once" });
+      },
+    );
+    expect(approvals(events)).toEqual([
+      expect.objectContaining({
+        approvalId: "per_1709729a3001fxEYGmonee55g9",
+        toolName: "shell",
+        input: { patterns: ["printf allowed > ev-allow.txt"] },
+      }),
+    ]);
+    expect(h.fake.replies).toEqual([
+      {
+        session: h.fake.sessionId,
+        id: "per_1709729a3001fxEYGmonee55g9",
+        body: { decision: "once" },
+      },
+    ]);
+    expect(JSON.stringify(h.fake.requests.map((r) => r.body))).not.toContain(
+      "always",
+    );
+    expect(end?.status).toBe("completed");
+  });
+
+  it("ends a turn the member denied as completed, with the declined tool as an error (T3, R1)", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("shell-deny")] } });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "approval_request")
+          void h.transport.approve(event.approvalId, { kind: "deny" });
+      },
+    );
+    expect(h.fake.replies.map((r) => r.body)).toEqual([{ decision: "reject" }]);
+    // OpenCode ends the busy period as interrupted/shutdown. MUTANT: that
+    // read as a stop or a failure; 1.18.35 ended this turn completed.
+    expect(end?.status).toBe("completed");
+    expect(toolResults(events)).toEqual([
+      expect.objectContaining({
+        toolUseId: toolCalls(events)[0].toolUseId,
+        isError: true,
+      }),
+    ]);
+  });
+
+  it("sends the deny's reason, and the turn goes on to its answer", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("probe-reject-with-message")] },
+    });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "approval_request")
+          void h.transport.approve(event.approvalId, {
+            kind: "deny",
+            reason: "PROBE_POLICY_REASON blocked",
+          });
+      },
+    );
+    // MUTANT: the reason dropped, as 1.18.35's transport did.
+    expect(h.fake.replies.map((r) => r.body)).toEqual([
+      { decision: "reject", message: "PROBE_POLICY_REASON blocked" },
+    ]);
+    expect(textOf(events)).toBe("RECOVERED_AFTER_TOOL");
+    expect(end?.status).toBe("completed");
+  });
+
+  it("fails a turn that OpenCode shut down when Isomux rejected nothing", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("text-reasoning", (frames) => {
+            const end = terminalIndex(frames);
+            return [
+              ...frames.slice(0, end),
+              {
+                ...frames[end],
+                type: "session.execution.interrupted",
+                data: {
+                  sessionID: frames[end].data.sessionID,
+                  reason: "shutdown",
+                },
+              },
+            ];
+          }),
+        ],
+      },
+    });
+    const { end } = await h.turn();
+    // MUTANT: every shutdown read as the end of a denied turn.
+    expect(end?.status).toBe("failed");
+  });
+
+  it("rejects a policy denial with its reason before the member sees it, and the turn goes on", async () => {
+    for (const agent of [undefined, "isomux-interactive-bypass"]) {
+      const h = setup({
+        fake: {
+          turns: [
+            editedTurn("probe-reject-with-message", (frames) =>
+              frames.map((frame) =>
+                frame.type === "permission.asked"
+                  ? {
+                      ...frame,
+                      data: { ...frame.data, resources: ["git reset --hard"] },
+                    }
+                  : frame,
+              ),
+            ),
+          ],
+        },
+        transport: { agent },
+      });
+      const { events, end } = await h.turn();
+      expect(approvals(events)).toEqual([]);
+      expect(h.fake.replies).toHaveLength(1);
+      const reply = h.fake.replies[0].body as {
+        decision: string;
+        message?: string;
+      };
+      expect(reply.decision).toBe("reject");
+      expect(reply.message).toContain("git reset --hard");
+      expect(JSON.stringify(kinds(events, "system_text"))).toContain(
+        "git reset --hard",
+      );
+      expect(end?.status).toBe("completed");
+      h.transport.close();
+      h.fake.restore();
+    }
+  });
+
+  it("answers an edit request under bypass and asks the member for it otherwise", async () => {
+    const bypass = setup({
+      fake: { turns: [fixtureTurn("probe-edit-permission")] },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const auto = await bypass.turn();
+    expect(bypass.fake.replies.map((r) => r.body)).toEqual([
+      { decision: "once" },
+    ]);
+    expect(approvals(auto.events)).toEqual([]);
+    expect(auto.end?.status).toBe("completed");
+    bypass.fake.restore();
+
+    const member = setup({
+      fake: { turns: [fixtureTurn("probe-edit-permission")] },
+    });
+    const asked = await member.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "approval_request")
+        void member.transport.approve(event.approvalId, { kind: "allow_once" });
+    });
+    expect(approvals(asked.events)).toEqual([
+      expect.objectContaining({
+        toolName: "edit",
+        input: { patterns: ["b.txt"] },
+      }),
+    ]);
+    expect(asked.end?.status).toBe("completed");
+  });
+
+  it("asks for a subagent's request and answers it on the subagent's route", async () => {
+    const recorded = loadFixture("probe-subagent-permission");
+    const child = recorded.find(
+      (f) => f.type === "session.created" && f.data.parentID,
+    )!.data.sessionID as string;
+    const h = setup({
+      fake: { turns: [fixtureTurn("probe-subagent-permission")] },
+    });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "approval_request")
+          void h.transport.approve(event.approvalId, { kind: "allow_once" });
+      },
+    );
+    expect(approvals(events)).toHaveLength(1);
+    // MUTANT: the reply under the agent's session, which 2.1.4 answers 404.
+    expect(h.fake.replies.map((r) => r.session)).toEqual([child]);
+    expect(end?.status).toBe("completed");
+  });
+
+  it("goes on after the member denies a subagent's request: only the subagent ends", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("probe-subagent-reject")] },
+    });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "approval_request")
+          void h.transport.approve(event.approvalId, { kind: "deny" });
+      },
+    );
+    // The subagent's execution.interrupted/shutdown comes first. MUTANT: a
+    // shutdown after an Isomux reject ends the turn whatever its session.
+    expect(textOf(events)).toBe("RECOVERED_AFTER_TOOL");
+    expect(end?.status).toBe("completed");
+  });
+
+  it("leaves another session's request alone", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn(
+            "text-reasoning",
+            (frames) => {
+              const end = terminalIndex(frames);
+              return [
+                ...frames.slice(0, end),
+                {
+                  type: "permission.asked",
+                  created: frames[end].created,
+                  data: {
+                    id: "per_other",
+                    sessionID: "ses_other",
+                    action: "shell",
+                    resources: ["printf other"],
+                    source: {
+                      type: "tool",
+                      messageID: "msg_other",
+                      id: "call_1",
+                    },
+                  },
+                },
+                frames[end],
+              ];
+            },
+            0,
+            { waitForReplies: false },
+          ),
+        ],
+      },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const { events, end } = await h.turn();
+    expect(approvals(events)).toEqual([]);
+    expect(h.fake.replies).toEqual([]);
+    expect(end?.status).toBe("completed");
+  });
+
+  it("fails a request with no id visibly without claiming an allow", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn(
+            "shell-allow",
+            (frames) =>
+              frames.map((frame) =>
+                frame.type === "permission.asked"
+                  ? { ...frame, data: { ...frame.data, id: undefined } }
+                  : frame,
+              ),
+            0,
+            { waitForReplies: false },
+          ),
+        ],
+      },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const { events, end } = await h.turn();
+    expect(h.fake.replies).toEqual([]);
+    expect(events).toContainEqual({
       kind: "system_text",
       text: OPENCODE_PERMISSION_ID_WARNING,
     });
-    expect(result.events).toContainEqual({
-      kind: "turn_completed",
+    expect(end).toMatchObject({
       status: "failed",
       error: OPENCODE_PERMISSION_ID_WARNING,
     });
-    expect(JSON.stringify(result.events)).not.toContain(SAFETY_WARNING);
   });
 
-  it("answers a malformed owned request once and shows the warning", async () => {
-    const result = await runFrames(
-      [
-        {
-          type: "permission.asked",
-          properties: {
-            sessionID: "session-1",
-            id: "permission-1",
-            metadata: {},
-          },
-        },
-      ],
-      "isomux-interactive-bypass",
-    );
-    expect(result.replies).toEqual([{ reply: "once" }]);
-    expect(result.events).toContainEqual({
+  it("answers a request the policy cannot read once under bypass, with the warning", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn("shell-allow", (frames) =>
+            frames.map((frame) =>
+              frame.type === "permission.asked"
+                ? { ...frame, data: { ...frame.data, resources: [] } }
+                : frame,
+            ),
+          ),
+        ],
+      },
+      transport: { agent: "isomux-interactive-bypass" },
+    });
+    const { events } = await h.turn();
+    expect(h.fake.replies.map((r) => r.body)).toEqual([{ decision: "once" }]);
+    expect(events).toContainEqual({
       kind: "system_text",
       text: SAFETY_WARNING,
     });
   });
 
-  // OpenCode runs the tool calls of one step in parallel, and each call can
-  // ask for permission before any answer (probe of the pinned 1.18.23 server,
-  // 2026-09-26, task 7a185be0). The event stream stays open here, as in a
-  // live turn, so both requests are open when the answers arrive.
-  async function withTwoOpenRequests(
-    answer: (
-      transport: OpenCodeTransport,
-      events: NormalizedEvent[],
-    ) => Promise<void>,
-    options: { refuseRejects?: boolean; frames?: unknown[] } = {},
-  ): Promise<{
-    replies: { id: string; reply: unknown }[];
-    events: NormalizedEvent[];
-  }> {
-    const replies: { id: string; reply: unknown }[] = [];
-    const frames = options.frames ?? [
-      asked("session-1", "permission-1"),
-      asked("session-1", "permission-2"),
-    ];
-    const askedIds = frames.flatMap((frame) => {
-      const { type, properties } = frame as {
-        type: string;
-        properties: { id?: string };
-      };
-      return type === "permission.asked" && properties.id
-        ? [properties.id]
-        : [];
-    });
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/event") {
-          const body = frames
-            .map((frame) => `data: ${JSON.stringify(frame)}\n\n`)
-            .join("");
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                controller.enqueue(new TextEncoder().encode(body));
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        }
-        if (url.pathname === "/provider")
-          return Response.json({ connected: [] });
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) return new Response(null);
-        if (url.pathname.startsWith("/permission/") && request.body) {
-          const reply = ((await request.json()) as { reply: unknown }).reply;
-          replies.push({
-            id: decodeURIComponent(url.pathname.split("/")[2] ?? ""),
-            reply,
-          });
-          // The server did not apply this reject: every request stays open.
-          if (options.refuseRejects && reply === "reject")
-            return new Response("unavailable", { status: 503 });
-          return new Response(null);
-        }
-        return new Response("not found", { status: 404 });
+  // Probe of 2026-10-25: a reject closes every open request of its session,
+  // with a permission.replied frame for each, and a later reply gets 404.
+  function twoOpenRequests() {
+    const turn = editedTurn(
+      "shell-deny",
+      (frames) => {
+        const asked = frames.findIndex((f) => f.type === "permission.asked");
+        const second = {
+          ...frames[asked],
+          data: {
+            ...frames[asked].data,
+            id: "per_second",
+            resources: ["printf second"],
+            source: { type: "tool", messageID: "msg_x", id: "call_second" },
+          },
+        };
+        return [...frames.slice(0, asked + 1), second];
       },
-    });
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: "provider/model",
-      systemPrompt: "system",
-      supervisor,
-      sessionId: "session-1",
-    });
-    const events: NormalizedEvent[] = [];
-    try {
-      await transport.send([{ type: "text", text: "go" }], (event) =>
-        events.push(event),
-      );
-      const deadline = Date.now() + 1_000;
-      while (
-        events.filter((event) => event.kind === "approval_request").length <
-          askedIds.length &&
-        Date.now() < deadline
-      )
-        await Bun.sleep(5);
-      expect(
-        events.flatMap((event) =>
-          event.kind === "approval_request" ? [event.approvalId] : [],
-        ),
-      ).toEqual(askedIds);
-      await answer(transport, events);
-    } finally {
-      transport.close();
-      await server.stop(true);
-    }
-    return { replies, events };
+      0,
+      { waitForReplies: false },
+    );
+    const session = turn.session!;
+    return { turn, session };
   }
 
-  it("answers each of two open requests, not only the newest", async () => {
-    const { replies } = await withTwoOpenRequests(async (transport) => {
-      await transport.approve("permission-1", { kind: "allow_once" });
-      await transport.approve("permission-2", { kind: "deny" });
+  it("withdraws the session's other request when the member denies one, and ends the turn as completed", async () => {
+    const { turn } = twoOpenRequests();
+    const h = setup({ fake: { turns: [turn] } });
+    const events: NormalizedEvent[] = [];
+    void h.transport.send([{ type: "text", text: "go" }], (e) =>
+      events.push(e),
+    );
+    await until(() => approvals(events).length === 2);
+    const [first, second] = approvals(events);
+    await h.transport.approve(first.approvalId, { kind: "deny" });
+    const sid = h.fake.sessionId;
+    h.fake.emit(
+      {
+        type: "permission.replied",
+        created: 2,
+        data: { sessionID: sid, requestID: first.approvalId, reply: "reject" },
+      },
+      {
+        type: "permission.replied",
+        created: 3,
+        data: { sessionID: sid, requestID: second.approvalId, reply: "reject" },
+      },
+      {
+        type: "session.execution.interrupted",
+        created: 4,
+        data: { sessionID: sid, reason: "shutdown" },
+      },
+    );
+    const ended = () => events.filter((e) => e.kind === "turn_completed");
+    await until(() => ended().length > 0);
+    expect(events).toContainEqual({
+      kind: "approval_withdrawn",
+      approvalId: second.approvalId,
     });
-    // MUTANT: one pending slot, so the second request overwrites the first
-    // and the answer to permission-1 is dropped.
-    expect(replies).toEqual([
-      { id: "permission-1", reply: "once" },
-      { id: "permission-2", reply: "reject" },
+    await h.transport.approve(second.approvalId, { kind: "allow_once" });
+    expect(h.fake.replies.map((r) => [r.id, r.body])).toEqual([
+      [first.approvalId, { decision: "reject" }],
     ]);
+    expect(ended()).toMatchObject([{ status: "completed" }]);
   });
 
-  it("sends no reply for a request that a reject already closed", async () => {
-    const { replies, events } = await withTwoOpenRequests(async (transport) => {
-      await transport.approve("permission-1", { kind: "deny" });
-      await transport.approve("permission-2", { kind: "allow_once" });
+  it("takes a 404 for a request another reject already closed as closed", async () => {
+    const { turn } = twoOpenRequests();
+    const h = setup({
+      fake: {
+        turns: [turn],
+        override: (route, { url }) =>
+          route === "reply" && url.pathname.includes("per_second")
+            ? Response.json(
+                { _tag: "PermissionNotFoundError" },
+                { status: 404 },
+              )
+            : undefined,
+      },
     });
-    // OpenCode rejects every open request of the session with the first
-    // reject, so an allow for the second has nothing left to answer.
-    expect(replies).toEqual([{ id: "permission-1", reply: "reject" }]);
-    // MUTANT: the transport forgets permission-2 silently, and the
-    // orchestrator later shows a card for it.
+    const events: NormalizedEvent[] = [];
+    void h.transport.send([{ type: "text", text: "go" }], (e) =>
+      events.push(e),
+    );
+    await until(() => approvals(events).length === 2);
+    // The member's Allow lost the race to the other request's reject.
+    // MUTANT: the 404 thrown to the member as a failed answer.
+    await h.transport.approve("per_second", { kind: "allow_once" });
     expect(
-      events.filter((event) => event.kind === "approval_withdrawn"),
-    ).toEqual([{ kind: "approval_withdrawn", approvalId: "permission-2" }]);
+      h.fake.calls("POST", /per_second\/reply$/).map((r) => r.body),
+    ).toEqual([{ decision: "once" }]);
   });
 
-  it("keeps every request open when OpenCode refuses a reject", async () => {
-    let withdrawnBeforeClose: NormalizedEvent[] = [];
-    const { replies } = await withTwoOpenRequests(
-      async (transport, events) => {
-        await expectRejection(
-          transport.approve("permission-1", { kind: "deny" }),
-          /503/,
-        );
-        await transport.approve("permission-2", { kind: "allow_once" });
-        // The refused request itself also stays answerable.
-        await transport.approve("permission-1", { kind: "allow_once" });
-        // Closing the transport ends the turn, which withdraws whatever is
-        // still open; only the answers are under test here.
-        withdrawnBeforeClose = events.filter(
-          (event) => event.kind === "approval_withdrawn",
-        );
-      },
-      { refuseRejects: true },
-    );
-    // MUTANT: forgetting the session's requests before the reply succeeds
-    // withdraws permission-2 while OpenCode still waits on it.
-    expect(replies).toEqual([
-      { id: "permission-1", reply: "reject" },
-      { id: "permission-2", reply: "once" },
-      { id: "permission-1", reply: "once" },
-    ]);
-    expect(withdrawnBeforeClose).toEqual([]);
-  });
-
-  it("withdraws the requests still open when the turn ends", async () => {
-    const asked = (id: string) => ({
-      type: "permission.asked",
-      properties: {
-        sessionID: "session-1",
-        id,
-        permission: "bash",
-        patterns: [`printf ${id}`],
-        metadata: { command: `printf ${id}` },
+  it("withdraws a request that OpenCode closed without a member answer", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          editedTurn(
+            "shell-allow",
+            (frames) => {
+              const asked = frames.findIndex(
+                (f) => f.type === "permission.asked",
+              );
+              return [
+                ...frames.slice(0, asked + 1),
+                {
+                  type: "permission.replied",
+                  created: frames[asked].created! + 1,
+                  data: {
+                    sessionID: frames[asked].data.sessionID,
+                    requestID: frames[asked].data.id,
+                    reply: "reject",
+                  },
+                },
+                ...frames.slice(asked + 2),
+              ];
+            },
+            0,
+            { waitForReplies: false },
+          ),
+        ],
       },
     });
-    const result = await runFrames([
-      asked("permission-1"),
-      asked("permission-2"),
-      { type: "session.idle", properties: { sessionID: "session-1" } },
-    ]);
-    const kinds = result.events.map((event) =>
-      event.kind === "approval_withdrawn"
-        ? `withdrawn:${event.approvalId}`
-        : event.kind,
-    );
-    // MUTANT: the turn ends with both requests still open in the
-    // orchestrator, which leaves a parked card behind.
-    expect(kinds.slice(-3)).toEqual([
-      "withdrawn:permission-1",
-      "withdrawn:permission-2",
-      "turn_completed",
-    ]);
+    const { events } = await h.turn();
+    const asked = approvals(events)[0];
+    expect(events).toContainEqual({
+      kind: "approval_withdrawn",
+      approvalId: asked.approvalId,
+    });
+    // No answer goes out for a closed request.
+    await h.transport.approve(asked.approvalId, { kind: "allow_once" });
+    expect(h.fake.replies).toEqual([]);
   });
-  // Task 42500a30: a subagent's request was dropped as a foreign session's,
-  // so the subagent and the agent's turn waited on it until the stream
-  // deadline.
-  describe("subagent requests", () => {
-    it("answers a subagent's and a nested subagent's request under bypass", async () => {
-      const result = await runFrames(
-        [
-          created("child-1", "session-1"),
-          asked("child-1", "permission-child"),
-          created("grandchild-1", "child-1"),
-          asked("grandchild-1", "permission-grandchild"),
-          assistant("answer"),
-          finish("answer"),
-          idle,
+
+  it("rejects an open request when the member stops the turn, before the interrupt", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          fixtureTurn("shell-deny", 0, {
+            waitForReplies: false,
+            interruptBefore: (frame) => frame.type === "permission.replied",
+          }),
         ],
-        "isomux-interactive-bypass",
-      );
-      // MUTANT: the own-session-only filter answers neither request.
-      // MUTANT: no recursion answers only the child's request.
-      expect(result.replyIds).toEqual([
-        "permission-child",
-        "permission-grandchild",
-      ]);
-      expect(result.replies).toEqual([{ reply: "once" }, { reply: "once" }]);
-      expect(result.events.at(-1)).toMatchObject({
-        kind: "turn_completed",
-        status: "completed",
-      });
+      },
     });
+    const { events, end } = await h.turn(
+      [{ type: "text", text: "go" }],
+      (event) => {
+        if (event.kind === "approval_request") void h.transport.abort();
+      },
+    );
+    expect(h.fake.replies.map((r) => r.body)).toEqual([{ decision: "reject" }]);
+    const reply = h.fake.requests.findIndex((r) => r.path.endsWith("/reply"));
+    const interrupt = h.fake.requests.findIndex((r) =>
+      r.path.endsWith("/interrupt"),
+    );
+    expect(reply).toBeGreaterThan(-1);
+    expect(interrupt).toBeGreaterThan(reply);
+    expect(kinds(events, "approval_withdrawn")).toHaveLength(1);
+    expect(end?.status).toBe("interrupted");
+  });
+});
 
-    it("runs the safety checks on a subagent's request under bypass", async () => {
-      const result = await runFrames(
-        [
-          created("child-1", "session-1"),
-          {
-            type: "permission.asked",
-            properties: {
-              sessionID: "child-1",
-              id: "permission-child",
-              permission: "bash",
-              patterns: ["git reset --hard"],
-              metadata: { command: "git reset --hard" },
-            },
-          },
+describe("OpenCode 2 failures (T10)", () => {
+  it("quotes the provider's refusal for a 4xx other than 401", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("probe-invalid-request-400")] },
+    });
+    const { end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    expect(english(end!.error!)).toContain(
+      english(providerRefusal("provider", "probe bad request 500 tokens")),
+    );
+  });
+
+  it("never reads the provider's response body", async () => {
+    const sunk: string[] = [];
+    const h = setup({
+      fake: {
+        turns: [
+          failingTurn({
+            type: "provider.error",
+            message: "provider says no",
+            status: 422,
+            response: { body: "BODY_SECRET_CANARY" },
+          }),
         ],
-        "isomux-interactive-bypass",
-      );
-      expect(result.replyIds).toEqual(["permission-child"]);
-      expect(result.replies[0]).toMatchObject({ reply: "reject" });
+      },
+      transport: { safeErrorSink: (error) => sunk.push(JSON.stringify(error)) },
     });
+    const { events } = await h.turn();
+    expect(JSON.stringify(events)).not.toContain("BODY_SECRET_CANARY");
+    expect(sunk.join("")).not.toContain("BODY_SECRET_CANARY");
+  });
 
-    it("leaves the request of another session and of its subagent alone", async () => {
-      const result = await runFrames(
-        [
-          asked("session-foreign", "permission-foreign"),
-          created("child-foreign", "session-foreign"),
-          asked("child-foreign", "permission-foreign-child"),
-          assistant("answer"),
-          finish("answer"),
-          idle,
+  // 2.1.4 sends a 403 as provider.auth (its classifier puts 401 and 403
+  // together), with the provider's words as the message (2026-10-25).
+  it("quotes the provider's words for a 403 that 2.1.4 sends as provider.auth", async () => {
+    const refusal = "Model not allowed for this key.";
+    const h = setup({
+      fake: {
+        turns: [
+          failingTurn({ type: "provider.auth", status: 403, message: refusal }),
         ],
-        "isomux-interactive-bypass",
-      );
-      expect(result.replyIds).toEqual([]);
-      expect(
-        result.events.some((event) => event.kind === "approval_request"),
-      ).toBe(false);
-      expect(
-        result.events.at(-1),
-        "the frames after them were read",
-      ).toMatchObject({
-        kind: "turn_completed",
-        status: "completed",
-      });
+      },
     });
+    const { events, end } = await h.turn();
+    expect(end?.status).toBe("failed");
+    expect(english(end!.error!)).toContain(
+      english(providerRefusal("provider", refusal)),
+    );
+    expect(events.filter((e) => e.kind === "auth_needed")).toHaveLength(0);
+  });
 
-    it("does not end the turn on a subagent's idle", async () => {
-      const result = await runFrames([
-        created("child-1", "session-1"),
-        { type: "session.idle", properties: { sessionID: "child-1" } },
-        assistant("answer"),
-        finish("answer"),
-        idle,
-      ]);
-      // MUTANT: routing every subagent event fails the turn at the child's
-      // idle, before the agent's step completes.
-      expect(
-        result.events.filter((event) => event.kind === "turn_completed"),
-      ).toMatchObject([{ status: "completed" }]);
+  it("keeps the model line for a 403 with no provider words, and offers the picker", async () => {
+    const h = setup({
+      // 2.1.4 sends a 403 as provider.auth.
+      fake: { turns: [failingTurn({ type: "provider.auth", status: 403 })] },
     });
-
-    it("asks the member and replies on the subagent's request", async () => {
-      const { replies } = await withTwoOpenRequests(
-        async (transport) => {
-          await transport.approve("permission-child", { kind: "allow_once" });
-        },
-        {
-          frames: [
-            created("child-1", "session-1"),
-            asked("child-1", "permission-child"),
-          ],
-        },
-      );
-      // MUTANT: approve() keeps only the agent's own session.
-      expect(replies).toEqual([{ id: "permission-child", reply: "once" }]);
+    const { end } = await h.turn();
+    expect(end).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: openCodeModelUnavailableFailure("provider/model"),
+      pickModel: true,
     });
+  });
 
-    it("closes only the subagent's requests when the member denies one", async () => {
-      let withdrawnBeforeClose: NormalizedEvent[] = [];
-      const { replies } = await withTwoOpenRequests(
-        async (transport, events) => {
-          await transport.approve("permission-child-a", { kind: "deny" });
-          await transport.approve("permission-1", { kind: "allow_once" });
-          withdrawnBeforeClose = events.filter(
-            (event) => event.kind === "approval_withdrawn",
-          );
-        },
-        {
-          frames: [
-            asked("session-1", "permission-1"),
-            created("child-1", "session-1"),
-            asked("child-1", "permission-child-a"),
-            asked("child-1", "permission-child-b"),
-          ],
-        },
-      );
-      // MUTANT: a deny that forgets the agent's session withdraws
-      // permission-1 while OpenCode still waits on it, so its allow is
-      // never sent.
-      expect(replies).toEqual([
-        { id: "permission-child-a", reply: "reject" },
-        { id: "permission-1", reply: "once" },
-      ]);
-      expect(withdrawnBeforeClose).toEqual([
-        { kind: "approval_withdrawn", approvalId: "permission-child-b" },
-      ]);
+  it("names a model OpenCode cannot route as gone when its provider is enabled", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          failingTurn({
+            type: "provider.no-route",
+            message: "Model unavailable: provider/model",
+          }),
+        ],
+      },
     });
-
-    it("rejects the open requests of each session when the turn stops", async () => {
-      const { replies, events } = await withTwoOpenRequests(
-        async (transport) => {
-          await transport.abort();
-        },
-        {
-          frames: [
-            asked("session-1", "permission-1"),
-            created("child-1", "session-1"),
-            asked("child-1", "permission-child"),
-            created("child-2", "session-1"),
-            asked("child-2", "permission-child-2"),
-          ],
-        },
-      );
-      // MUTANT: a stop that rejects only the agent's session leaves the
-      // subagents waiting. The rejects go out together.
-      expect(replies.toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
-        { id: "permission-1", reply: "reject" },
-        { id: "permission-child", reply: "reject" },
-        { id: "permission-child-2", reply: "reject" },
-      ]);
-      expect(
-        events.filter((event) => event.kind === "approval_withdrawn"),
-      ).toEqual([
-        { kind: "approval_withdrawn", approvalId: "permission-1" },
-        { kind: "approval_withdrawn", approvalId: "permission-child" },
-        { kind: "approval_withdrawn", approvalId: "permission-child-2" },
-      ]);
+    const { end } = await h.turn();
+    expect(end).toMatchObject({
+      status: "failed",
+      pickModel: true,
+      goneModel: "provider/model",
     });
+    expect(english(end!.error!)).toContain(
+      english(openCodeModelGoneFailure("provider/model")),
+    );
+  });
 
-    it("reports a subagent's question", async () => {
-      const result = await runFrames([
-        created("child-1", "session-1"),
-        {
-          type: "question.asked",
-          properties: { sessionID: "child-1", id: "question-child" },
-        },
-      ]);
-      expect(result.events).toContainEqual({
-        kind: "input_request",
-        inputType: "question",
-        requestId: "question-child",
-      });
+  it("offers the picker, not a gone model, when the provider is not connected", async () => {
+    const h = setup({
+      fake: {
+        providers: () => [{ id: "other", activation: "enabled" }],
+        turns: [
+          failingTurn({
+            type: "provider.no-route",
+            message: "Model unavailable: provider/model",
+          }),
+        ],
+      },
     });
+    const { end } = await h.turn();
+    expect(end).toMatchObject({ status: "failed", pickModel: true });
+    expect(end?.goneModel).toBeUndefined();
+  });
 
-    // Task 386f6ad1: a subagent reopened with task_id sends no
-    // session.created, so its request in a later turn hung the turn.
-    describe("subagents named by a task part", () => {
-      const taskPart = (sessionID: string, child: string) => ({
-        type: "message.part.updated",
-        properties: {
-          sessionID,
-          part: {
-            id: `${child}-task`,
-            messageID: `${sessionID}-message`,
-            sessionID,
-            type: "tool",
-            tool: "task",
-            callID: `call-${child}`,
-            state: {
-              status: "running",
-              input: { prompt: "go on", task_id: child },
-              metadata: { parentSessionId: sessionID, sessionId: child },
-            },
-          },
-        },
+  it("waits for a provider list that is still empty instead of reading it as a provider that is not connected (R4)", async () => {
+    let reads = 0;
+    const h = setup({
+      fake: {
+        // 2.1.4 lists no provider for its first seconds.
+        providers: () =>
+          ++reads === 1 ? [] : [{ id: "provider", activation: "enabled" }],
+        turns: [
+          failingTurn({
+            type: "provider.no-route",
+            message: "Model unavailable: provider/model",
+          }),
+        ],
+      },
+    });
+    const { end } = await h.turn();
+    // MUTANT: the empty list read as "not connected" offers the picker
+    // without the gone model.
+    expect(end).toMatchObject({
+      status: "failed",
+      pickModel: true,
+      goneModel: "provider/model",
+    });
+    expect(reads).toBe(2);
+  });
+
+  // Task 10a09ec8: the sign-in line and its OPENCODE_API_KEY guidance only
+  // when that key would fix the failure: a model of OpenCode's own providers
+  // that is not free, on a server started without the key.
+  describe("sign-in failures", () => {
+    const models = () => [
+      modelRow("opencode", "free-model", {
+        cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+      }),
+      modelRow("opencode", "paid-model"),
+      modelRow("opencode-go", "go-model"),
+      modelRow("anthropic", "claude"),
+    ];
+    const invalidKey = "Invalid API key for this request.";
+    const auth = (message?: string) =>
+      failingTurn({
+        type: "provider.auth",
+        status: 401,
+        ...(message ? { message } : {}),
       });
 
-      it("answers a reopened subagent's request under bypass", async () => {
-        const result = await runFrames(
-          [
-            taskPart("session-1", "child-1"),
-            asked("child-1", "permission-child"),
-            assistant("answer"),
-            finish("answer"),
-            idle,
-          ],
-          "isomux-interactive-bypass",
+    async function fail(
+      turn: FakeTurn,
+      model: string,
+      launchVariables: string[] = [],
+    ) {
+      const h = setup({
+        fake: { models, turns: [turn] },
+        lease: { launchVariables },
+        transport: { model },
+      });
+      const { events, end } = await h.turn();
+      expect(end?.status).toBe("failed");
+      return {
+        end: end!,
+        error: english(end!.error!),
+        signIns: events.filter((e) => e.kind === "auth_needed").length,
+        signalFirst: events.at(-2)?.kind === "auth_needed",
+      };
+    }
+
+    it("asks for the key for a paid or unlisted model of OpenCode's providers on a server without it", async () => {
+      for (const model of [
+        "opencode/paid-model",
+        "opencode/unlisted-model",
+        "opencode-go/go-model",
+      ]) {
+        const result = await fail(auth(invalidKey), model);
+        expect(result.signIns).toBe(1);
+        expect(result.signalFirst).toBe(true);
+        expect(result.error).toContain(OPENCODE_AUTH_FAILURE);
+        expect(result.error).toContain(invalidKey);
+        expect(result.end.pickModel).toBeUndefined();
+      }
+    });
+
+    it("shows a free model's or another provider's refusal as the provider's, not as missing sign-in", async () => {
+      for (const model of ["opencode/free-model", "anthropic/claude"]) {
+        const result = await fail(auth(invalidKey), model);
+        expect(result.signIns).toBe(0);
+        expect(result.error).not.toContain(OPENCODE_AUTH_FAILURE);
+        expect(result.error).toContain(
+          english(providerRefusal(model.split("/")[0], invalidKey)),
         );
-        // MUTANT: parseAllowedEvent does not read metadata.sessionId, so
-        // the request is dropped as another session's.
-        expect(result.replyIds).toEqual(["permission-child"]);
-        expect(result.replies).toEqual([{ reply: "once" }]);
-        expect(result.events.at(-1)).toMatchObject({
-          kind: "turn_completed",
-          status: "completed",
-        });
-      });
+      }
+    });
 
-      it("answers a subagent whose parent is the session before an edit fork", async () => {
-        const result = await runFrames(
-          [
-            created("child-1", "session-before-fork"),
-            taskPart("session-1", "child-1"),
-            asked("child-1", "permission-child"),
-            assistant("answer"),
-            finish("answer"),
-            idle,
-          ],
-          "isomux-interactive-bypass",
-        );
-        // MUTANT: adopting only a session.created whose parent the turn
-        // owns drops this request.
-        expect(result.replyIds).toEqual(["permission-child"]);
-      });
+    it("shows the provider's words when the server has the key", async () => {
+      const result = await fail(auth(invalidKey), "opencode/paid-model", [
+        "OPENCODE_API_KEY",
+      ]);
+      expect(result.signIns).toBe(0);
+      expect(result.error).toContain(invalidKey);
+    });
 
-      it("leaves a session alone that only another session's task part names", async () => {
-        const result = await runFrames(
-          [
-            taskPart("session-foreign", "child-foreign"),
-            asked("child-foreign", "permission-foreign"),
-            assistant("answer"),
-            finish("answer"),
-            idle,
-          ],
-          "isomux-interactive-bypass",
-        );
-        // MUTANT: adopting from the task part of any session answers it.
-        expect(result.replyIds).toEqual([]);
-        expect(
-          result.events.some((event) => event.kind === "approval_request"),
-        ).toBe(false);
-        expect(result.events.at(-1)).toMatchObject({
-          kind: "turn_completed",
-          status: "completed",
-        });
-      });
+    it("offers the picker for a refusal that needs no key and has no words", async () => {
+      const result = await fail(auth(), "anthropic/claude");
+      expect(result.signIns).toBe(0);
+      expect(result.end.pickModel).toBe(true);
+      expect(result.error).toContain("`anthropic/claude`");
+    });
 
-      it("answers a nested subagent that a subagent's task part names", async () => {
-        const result = await runFrames(
-          [
-            created("child-1", "session-1"),
-            taskPart("child-1", "grandchild-1"),
-            asked("grandchild-1", "permission-grandchild"),
-            assistant("answer"),
-            finish("answer"),
-            idle,
-          ],
-          "isomux-interactive-bypass",
-        );
-        // MUTANT: adopting only from the agent's own task parts, or after
-        // the filter that drops a subagent's tool events, drops it.
-        expect(result.replyIds).toEqual(["permission-grandchild"]);
-      });
-
-      it("keeps a subagent for its turn only", async () => {
-        const result = await runFrames(
-          [
-            taskPart("session-1", "child-1"),
-            assistant("answer-1"),
-            finish("answer-1"),
-            idle,
-          ],
-          "isomux-interactive-bypass",
-          [],
-          [
-            [
-              asked("child-1", "permission-later"),
-              assistant("answer-2"),
-              finish("answer-2"),
-              idle,
-            ],
-          ],
-        );
-        expect(
-          result.events.filter((event) => event.kind === "turn_completed"),
-        ).toHaveLength(2);
-        // MUTANT: no per-turn reset of the subagent sessions answers it.
-        expect(result.replyIds).toEqual([]);
-      });
+    it("classifies the recorded 2.1.4 sign-in failure as authentication", async () => {
+      const recorded = fixtureTurn("auth-error");
+      const result = await fail(recorded, "opencode/paid-model");
+      expect(result.signIns).toBe(1);
+      expect(result.error).toContain("invalid gate credential");
     });
   });
 });
 
-describe("OpenCode edit fork", () => {
-  it("sends messageID only when there is a message to fork before", async () => {
-    const bodies: unknown[] = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/session/session-1/fork") {
-          bodies.push(await request.json());
-          return Response.json({ id: `child-${bodies.length}` });
-        }
-        return new Response("not found", { status: 404 });
+describe("OpenCode 2 safety plugin check (S2)", () => {
+  const ourDir = openCodeSafetyPluginDir(FAKE_PROFILE);
+
+  async function checked(plugins: () => unknown[], advanceBy?: number) {
+    const clock = drivenClock();
+    const h = setup({
+      fake: { plugins, turns: [fixtureTurn("text-reasoning")] },
+      transport: {
+        eventStreamDeadlineMs: 1_000,
+        deadlineScheduler: clock.scheduler,
       },
     });
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: "provider/model",
-      systemPrompt: "office",
-      agentId: "agent-1",
-      supervisor,
-      sessionId: "session-1",
+    const events: NormalizedEvent[] = [];
+    void h.transport.send([{ type: "text", text: "go" }], (e) =>
+      events.push(e),
+    );
+    const done = () => events.some((e) => e.kind === "turn_completed");
+    await settleUntil(done);
+    if (advanceBy !== undefined) {
+      for (let at = 0; at < advanceBy && !done(); at += 250) {
+        // Heartbeats keep the stream deadline away from the plugin wait.
+        h.fake.heartbeat();
+        await settleUntil(() => false, 5);
+        clock.advance(250);
+        await settleUntil(done, 20);
+      }
+    }
+    await until(done, 1_000);
+    return {
+      h,
+      events,
+      end: events.find((e) => e.kind === "turn_completed"),
+    };
+  }
+
+  it("runs the turn when the Isomux plugin is active in the folder", async () => {
+    const { h, end } = await checked(() => [
+      builtinPluginRow("opencode.agent"),
+      ourPluginRow(),
+    ]);
+    expect(end?.status).toBe("completed");
+    expect(
+      h.fake
+        .calls("GET", /^\/api\/plugin$/)[0]
+        .query.get("location[directory]"),
+    ).toBe(FAKE_CWD);
+  });
+
+  it("refuses at once when another row claims the plugin's id", async () => {
+    const { h, end } = await checked(() => [
+      ourPluginRow(),
+      {
+        id: OPENCODE_SAFETY_PLUGIN_ID,
+        source: { type: "local", path: "/work/repo/.opencode/plugin/index.js" },
+        state: { status: "active" },
+      },
+    ]);
+    // No clock advance: the refusal does not wait for the deadline.
+    expect(end).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
     });
-    try {
-      expect(await transport.forkAtMessage("msg-2")).toBe("child-1");
-      // null: the edited message never reached the session, keep it all.
-      expect(await transport.forkAtMessage(null)).toBe("child-2");
-      expect(bodies).toEqual([{ messageID: "msg-2" }, {}]);
-    } finally {
-      transport.close();
-      await server.stop(true);
+    expect(h.fake.prompts()).toBe(0);
+  });
+
+  it("refuses at once when the plugin failed to load", async () => {
+    for (const row of [
+      ourPluginRow("failed"),
+      // Setup threw: the row names the entry file.
+      {
+        id: null,
+        source: { type: "local", path: join(ourDir, "index.js") },
+        state: { status: "failed", error: "Error: setup" },
+      },
+    ]) {
+      const { h, end } = await checked(() => [row]);
+      expect(end?.error).toBe(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
+      expect(h.fake.prompts()).toBe(0);
+      h.transport.close();
+      h.fake.restore();
     }
   });
+
+  it("waits while the folder's plugins load, then runs the turn", async () => {
+    let polls = 0;
+    const { h, end } = await checked(() => {
+      polls++;
+      return polls < 3 ? [] : [ourPluginRow()];
+    }, 1_000);
+    expect(polls).toBeGreaterThanOrEqual(3);
+    expect(end?.status).toBe("completed");
+    expect(h.fake.prompts()).toBe(1);
+  });
+
+  it("refuses at the deadline when the plugin never appears", async () => {
+    for (const rows of [[], [builtinPluginRow("opencode.agent")]]) {
+      const { h, end } = await checked(() => rows, 2_000);
+      expect(end?.error).toBe(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
+      expect(h.fake.prompts()).toBe(0);
+      expect(h.fake.count("plugin")).toBeGreaterThan(1);
+      h.transport.close();
+      h.fake.restore();
+    }
+  });
+
+  it("checks again before every prompt", async () => {
+    let impostor = false;
+    const h = setup({
+      fake: {
+        plugins: () => [
+          ourPluginRow(),
+          ...(impostor
+            ? [
+                {
+                  id: OPENCODE_SAFETY_PLUGIN_ID,
+                  source: { type: "local", path: "/elsewhere/index.js" },
+                  state: { status: "active" },
+                },
+              ]
+            : []),
+        ],
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+      },
+    });
+    expect((await h.turn()).end?.status).toBe("completed");
+    // A folder reload put a project plugin with the same id in place.
+    impostor = true;
+    expect((await h.turn()).end?.error).toBe(
+      OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
+    );
+    expect(h.fake.prompts()).toBe(1);
+  });
 });
 
-describe("OpenCode kept model catalog", () => {
-  const catalog = {
-    connected: ["provider"],
-    all: [
+describe("OpenCode 2 history, fork and delete", () => {
+  const user = (id: string, text: string) => ({
+    id,
+    time: { created: 1 },
+    type: "user",
+    text,
+  });
+  const assistant = (id: string, text: string) => ({
+    id,
+    time: { created: 2, completed: 3 },
+    type: "assistant",
+    content: [
+      { type: "reasoning", text: "PRIVATE_REASONING" },
+      { type: "text", text },
       {
-        id: "provider",
-        models: {
-          model: { variants: { low: {}, high: {} }, limit: { context: 1000 } },
-          plain: {},
+        type: "tool",
+        id: "call_1",
+        name: "shell",
+        state: {
+          status: "completed",
+          content: [{ type: "text", text: "PRIVATE_OUTPUT" }],
         },
       },
     ],
-  };
+    cost: 0,
+  });
 
-  function catalogHarness(
-    options: { failProvider?: () => boolean; holdProvider?: boolean } = {},
-  ) {
-    const providerDirectories: string[] = [];
-    const promptBodies: Record<string, unknown>[] = [];
-    const heldProviders: (() => void)[] = [];
-    let eventController: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/provider") {
-          providerDirectories.push(url.searchParams.get("directory") ?? "");
-          if (options.failProvider?.())
-            return new Response("failed", { status: 500 });
-          if (options.holdProvider)
-            await new Promise<void>((resolve) => heldProviders.push(resolve));
-          return Response.json(catalog);
-        }
-        if (url.pathname === "/event") {
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                eventController = controller;
-                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        }
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) {
-          promptBodies.push((await request.json()) as Record<string, unknown>);
-          const sessionID = decodeURIComponent(url.pathname.split("/")[2]);
-          const controller = eventController;
-          eventController = null;
-          const events = [
-            {
-              type: "message.part.updated",
-              properties: {
-                sessionID,
-                part: {
-                  type: "step-finish",
-                  id: `finish-${sessionID}`,
-                  messageID: `message-${sessionID}`,
-                  tokens: { input: 1, output: 0 },
-                },
-              },
-            },
-            { type: "session.idle", properties: { sessionID } },
-          ];
-          setTimeout(() => {
-            try {
-              for (const event of events)
-                controller?.enqueue(
-                  new TextEncoder().encode(
-                    `data: ${JSON.stringify(event)}\n\n`,
-                  ),
-                );
-            } catch {
-              // The stream can close first.
-            }
-          }, 0);
-          return new Response(null, { status: 204 });
-        }
-        return new Response("not found", { status: 404 });
+  it("reads every page, takes the member's and the model's messages, and drops OpenCode's own items", async () => {
+    const items: unknown[] = [
+      { id: "m0", time: { created: 0 }, type: "model-switched", model: {} },
+      user("u1", "hello one"),
+      assistant("a1", "answer one"),
+      { id: "i1", time: { created: 4 }, type: "idle", outcome: "succeeded" },
+      {
+        id: "s1",
+        time: { created: 5 },
+        type: "system",
+        text: "instruction update",
+      },
+    ];
+    // More than one page of 200.
+    for (let n = 0; n < 200; n++) items.push(user(`u-${n}`, `text ${n}`));
+    items.push(assistant("a-last", "last answer"));
+    const h = setup({
+      fake: { messages: () => items },
+      transport: { sessionId: "ses_history" },
+    });
+    const messages = await h.transport.getSessionMessages();
+    expect(messages.slice(0, 2)).toEqual([
+      { uuid: "u1", role: "user", text: "hello one" },
+      { uuid: "a1", role: "assistant", text: "answer one" },
+    ]);
+    expect(messages).toHaveLength(203);
+    expect(messages.at(-1)).toEqual({
+      uuid: "a-last",
+      role: "assistant",
+      text: "last answer",
+    });
+    expect(JSON.stringify(messages)).not.toContain("PRIVATE_");
+    const pages = h.fake.calls("GET", /\/message$/);
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0].query.get("order")).toBe("asc");
+    // T7: 2.1.4 refuses a cursor together with an order.
+    for (const page of pages.slice(1)) {
+      expect(page.query.get("cursor")).not.toBeNull();
+      expect(page.query.has("order")).toBe(false);
+    }
+  });
+
+  it("forks before a message, or the whole session, and returns the new session", async () => {
+    const h = setup({ transport: { sessionId: "ses_parent" } });
+    expect(await h.transport.forkAtMessage("u2")).toBe("ses_parent_fork");
+    expect(await h.transport.forkAtMessage(null)).toBe("ses_parent_fork");
+    expect(
+      h.fake
+        .calls("POST", /^\/api\/session\/ses_parent\/fork$/)
+        .map((r) => r.body ?? {}),
+    ).toEqual([{ before: "u2" }, {}]);
+  });
+
+  it("deletes its session", async () => {
+    const h = setup({ transport: { sessionId: "ses_gone" } });
+    await h.transport.deleteSession();
+    expect(h.fake.calls("DELETE", /^\/api\/session\/ses_gone$/)).toHaveLength(
+      1,
+    );
+  });
+});
+
+describe("OpenCode 2 model catalog (E4a)", () => {
+  const CANARY = "CATALOG_SECRET_CANARY";
+
+  it("lists the enabled models with their limits, free flag and supported efforts", async () => {
+    const fake = fakeOpenCode({
+      models: () => [
+        modelRow("gate", "gate-model", {
+          name: "Gate model",
+          settings: { apiKey: CANARY },
+          variants: [
+            { id: "low", settings: {} },
+            { id: "high", settings: {} },
+            { id: "none", settings: {} },
+            { id: "thinking", settings: {} },
+          ],
+          limit: { context: 262_144, input: 200_000, output: 65_536 },
+        }),
+        modelRow("gate", "free", {
+          cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+        }),
+        modelRow("gate", "no-cost", { cost: [] }),
+        modelRow("gate", "tiered", {
+          cost: [
+            { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            { input: 1, output: 2, cache: { read: 0, write: 0 } },
+          ],
+        }),
+        modelRow("gate", "disabled", { enabled: false }),
+        modelRow("gate", "deprecated", { status: "deprecated" }),
+      ],
+    });
+    cleanups.push(fake.restore);
+    const { supervisor } = fakeSupervisor();
+    const models = await discoverOpenCodeModels(supervisor, FAKE_CWD);
+    expect(
+      fake.calls("GET", /^\/api\/model$/)[0].query.get("location[directory]"),
+    ).toBe(FAKE_CWD);
+    const byId = new Map(models.map((m) => [m.id, m]));
+    expect([...byId.keys()].sort()).toEqual([
+      "gate/free",
+      "gate/gate-model",
+      "gate/no-cost",
+      "gate/tiered",
+    ]);
+    expect(byId.get("gate/gate-model")).toMatchObject({
+      contextLimit: 262_144,
+      inputLimit: 200_000,
+      outputLimit: 65_536,
+      supportedEfforts: EFFORT_LEVELS.filter(({ level }) =>
+        ["low", "high", "none"].includes(level),
+      ).map(({ level }) => ({ level })),
+    });
+    expect(byId.get("gate/gate-model")!.label).toContain("Gate model");
+    expect(byId.get("gate/free")?.isFree).toBe(true);
+    expect(byId.get("gate/no-cost")?.isFree).toBeUndefined();
+    expect(byId.get("gate/tiered")?.isFree).toBeUndefined();
+    expect(JSON.stringify(models)).not.toContain(CANARY);
+  });
+
+  it("drops the house-provider prefix from the label and keeps providers apart", async () => {
+    const fake = fakeOpenCode({
+      models: () => [
+        modelRow("opencode", "big-pickle", { name: "Big Pickle" }),
+        modelRow("gate", "big-pickle", { name: "Big Pickle" }),
+      ],
+    });
+    cleanups.push(fake.restore);
+    const models = await discoverOpenCodeModels(
+      fakeSupervisor().supervisor,
+      FAKE_CWD,
+    );
+    const label = (id: string) => models.find((m) => m.id === id)?.label;
+    expect(label("opencode/big-pickle")).toBe("Big Pickle");
+    expect(label("gate/big-pickle")).toContain("Big Pickle");
+    expect(label("gate/big-pickle")).not.toBe("Big Pickle");
+  });
+
+  it("keeps no empty or failed load: the next caller loads again", async () => {
+    let loads = 0;
+    const fake = fakeOpenCode({
+      models: () => {
+        loads++;
+        return loads === 1 ? [] : [modelRow("provider", "model")];
       },
     });
+    cleanups.push(fake.restore);
+    const lease = fakeSupervisor();
+    // An empty list is a server whose catalog has not loaded yet.
+    await expectRejection(
+      discoverOpenCodeModels(lease.supervisor, FAKE_CWD),
+      /./,
+    );
+    expect(
+      (await discoverOpenCodeModels(lease.supervisor, FAKE_CWD)).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["provider/model"]);
+    // A kept load serves the next caller.
+    await discoverOpenCodeModels(lease.supervisor, FAKE_CWD);
+    expect(loads).toBe(2);
+    expect(lease.releases()).toBe(3);
+  });
+
+  it("releases the discovery lease when the request fails", async () => {
+    const fake = fakeOpenCode({ status: { catalog: 500 } });
+    cleanups.push(fake.restore);
+    const lease = fakeSupervisor();
+    await expectRejection(
+      discoverOpenCodeModels(lease.supervisor, FAKE_CWD),
+      /./,
+    );
+    expect(lease.releases()).toBe(1);
+  });
+
+  it("loads one catalog per server and folder, and loads again after a replacement", async () => {
     let serverKey = "server-1";
-    let serverKeyReads = 0;
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        get serverKey() {
-          serverKeyReads++;
-          return serverKey;
-        },
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const transport = (cwd: string, effort: string, model = "provider/model") =>
-      new OpenCodeTransport({
+    const fake = fakeOpenCode({
+      turns: [
+        fixtureTurn("text-reasoning"),
+        fixtureTurn("text-reasoning"),
+        fixtureTurn("text-reasoning"),
+      ],
+    });
+    cleanups.push(fake.restore);
+    const lease = fakeSupervisor({ serverKey: () => serverKey });
+    const send = async (cwd: string) => {
+      const transport = new OpenCodeTransport({
         cwd,
-        model,
-        effort,
+        model: "provider/model",
+        effort: "high",
         systemPrompt: "system",
-        supervisor,
-        sessionId: `session-${cwd}-${effort}`,
+        supervisor: lease.supervisor,
+        sessionId: `ses_${cwd.replaceAll("/", "")}`,
       });
-    const send = async (
-      cwd: string,
-      effort: string,
-      model = "provider/model",
-    ) => {
+      cleanups.push(() => transport.close());
       const events: NormalizedEvent[] = [];
-      const turn = transport(cwd, effort, model);
-      const completed = new Promise<void>((resolve) => {
-        void turn.send([{ type: "text", text: "go" }], (event) => {
-          events.push(event);
-          if (event.kind === "turn_completed") resolve();
-        });
-      });
-      try {
-        await Promise.race([
-          completed,
-          Bun.sleep(2_000).then(() => {
-            throw new Error("the turn did not complete");
-          }),
-        ]);
-      } finally {
-        turn.close();
-      }
-      return {
-        body: promptBodies.at(-1)!,
-        notices: events.filter((event) => event.kind === "system_text"),
-        completion: events.find((event) => event.kind === "turn_completed"),
-      };
+      await transport.send([{ type: "text", text: "go" }], (e) =>
+        events.push(e),
+      );
+      await until(() => events.some((e) => e.kind === "turn_completed"));
     };
-    return {
-      supervisor,
-      providerDirectories,
-      heldProviders,
-      transport,
-      send,
-      serverKeyReads: () => serverKeyReads,
-      replaceServer: () => {
-        serverKey = "server-2";
-      },
-      stop: () => server.stop(true),
-    };
-  }
-
-  it("loads one catalog per server and directory, and reloads after a replacement", async () => {
-    const harness = catalogHarness();
-    try {
-      expect((await harness.send("/a", "low")).body).toMatchObject({
-        variant: "low",
-      });
-      expect(
-        (await harness.send("/a", "high")).body,
-        "a new session on the same server",
-      ).toMatchObject({ variant: "high" });
-      await discoverOpenCodeModels(harness.supervisor, "/a");
-      expect(harness.providerDirectories).toEqual(["/a"]);
-
-      await harness.send("/b", "low");
-      expect(harness.providerDirectories, "another directory").toEqual([
-        "/a",
-        "/b",
-      ]);
-
-      harness.replaceServer();
-      expect((await harness.send("/a", "low")).body).toMatchObject({
-        variant: "low",
-      });
-      expect(harness.providerDirectories, "the replaced server").toEqual([
-        "/a",
-        "/b",
-        "/a",
-      ]);
-    } finally {
-      await harness.stop();
-    }
+    await send("/a");
+    await discoverOpenCodeModels(lease.supervisor, "/a");
+    await send("/b");
+    serverKey = "server-2";
+    await send("/a");
+    expect(
+      fake
+        .calls("GET", /^\/api\/model$/)
+        .map((r) => r.query.get("location[directory]")),
+    ).toEqual(["/a", "/b", "/a"]);
   });
 
-  it("keeps no failed load: the next turn loads again", async () => {
+  it("runs a turn at the model's default effort with a notice when the catalog is empty, and loads again next turn", async () => {
     let failures = 1;
-    const harness = catalogHarness({ failProvider: () => failures-- > 0 });
-    try {
-      const failed = await harness.send("/a", "high");
-      expect(failed.body).not.toHaveProperty("variant");
-      expect(failed.completion).toMatchObject({ status: "completed" });
-      expect(failed.notices).toEqual([
-        {
-          kind: "system_text",
-          text: OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
-        },
-      ]);
-      const loaded = await harness.send("/a", "high");
-      expect(loaded.body).toMatchObject({ variant: "high" });
-      expect(loaded.notices).toEqual([]);
-      expect(harness.providerDirectories).toEqual(["/a", "/a"]);
-    } finally {
-      await harness.stop();
-    }
-  });
-
-  it("sends a model without variants silently at its default effort", async () => {
-    const harness = catalogHarness();
-    try {
-      const plain = await harness.send("/a", "high", "provider/plain");
-      expect(plain.body).not.toHaveProperty("variant");
-      expect(plain.notices).toEqual([]);
-    } finally {
-      await harness.stop();
-    }
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning"), fixtureTurn("text-reasoning")],
+        models: () => (failures-- > 0 ? [] : [modelRow("provider", "model")]),
+      },
+    });
+    const first = await h.turn();
+    expect(first.end?.status).toBe("completed");
+    expect(kinds(first.events, "system_text")).toEqual([
+      { kind: "system_text", text: OPENCODE_EFFORT_CATALOG_UNAVAILABLE },
+    ]);
+    expect(h.fake.calls("POST", /\/model$/)[0].body).toEqual({
+      model: { providerID: "provider", id: "model" },
+    });
+    const second = await h.turn();
+    expect(kinds(second.events, "system_text")).toEqual([]);
+    expect(h.fake.calls("POST", /\/model$/)[1].body).toEqual({
+      model: { providerID: "provider", id: "model", variant: "high" },
+    });
   });
 });

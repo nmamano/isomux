@@ -6,10 +6,20 @@ import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
 import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import { openCodeLogPath } from "../backends/opencode/profile-paths.ts";
 import { STATE_ROOT } from "../config.ts";
+import { providerRefusal } from "../backends/provider-text.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
 
+import {
+  openCodeLiveConfig,
+  openCodeLiveLaunchEnv,
+  openCodeMockProvider,
+} from "./opencode-live-config.ts";
 import { createOpenCodeTestReaper } from "./opencode-test-reaper.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
+const english = (text: LogText) => renderLogText(translatorFor("en"), text);
 
 const reaper = createOpenCodeTestReaper();
 afterEach(reaper.afterEach);
@@ -95,7 +105,8 @@ for (const scenario of [
             n === 1
               ? "BASELINE_REPLY"
               : n === 3 && !single
-                ? "INTERNAL_SUMMARY"
+                ? // 2.1.4 takes a summary only in its template's headings.
+                  "## Objective\n- INTERNAL_SUMMARY"
                 : n === 4 && !single
                   ? "ORIGINAL_REPLY"
                   : "FOLLOWUP_REPLY";
@@ -113,30 +124,21 @@ for (const scenario of [
       const supervisor = new OpenCodeSupervisor({
         profileDir,
         serverCwd: STATE_ROOT,
-        config: {
-          autoupdate: false,
-          share: "disabled",
-          compaction: { auto: scenario !== "terminal" },
-          model: "control/control",
-          small_model: "control/control",
-          provider: {
-            control: {
-              npm: "@ai-sdk/openai-compatible",
-              env: [],
-              models: {
-                control: {
-                  name: "control",
-                  limit: { context: 100000, output: 1000 },
-                  cost: { input: 0, output: 0 },
-                },
+        launchEnv: openCodeLiveLaunchEnv(profileDir),
+        config: openCodeLiveConfig(
+          "control/control",
+          {
+            control: openCodeMockProvider(`http://127.0.0.1:${mock.port}/v1`, {
+              name: "control",
+              model: "control",
+              modelConfig: {
+                name: "control",
+                limit: { context: 100000, output: 1000 },
               },
-              options: {
-                apiKey: "test-only",
-                baseURL: `http://127.0.0.1:${mock.port}/v1`,
-              },
-            },
+            }),
           },
-        },
+          { compaction: { auto: scenario !== "terminal" } },
+        ),
       });
       const backend = createOpenCodeBackend({
         supervisor,
@@ -200,13 +202,16 @@ for (const scenario of [
             "the reply after the retry",
             () => has("FOLLOWUP_REPLY") && settled(),
           );
-          expect(
-            logs().some(
-              (e) =>
-                e.kind === "system" &&
-                /rate limit.*retrying 1 of 5/i.test(e.content),
+          // The retry line carries the provider's words, before the answer.
+          const retryIndex = logs().findIndex(
+            (e) => e.kind === "system" && e.content.includes('"rate limit"'),
+          );
+          expect(retryIndex).toBeGreaterThan(-1);
+          expect(retryIndex).toBeLessThan(
+            logs().findIndex(
+              (e) => e.kind === "text" && e.content === "FOLLOWUP_REPLY",
             ),
-          ).toBe(true);
+          );
           expect(logs().filter((e) => e.kind === "error")).toHaveLength(0);
           expect(rawErrors).toEqual([]);
           expect(requests).toBe(3);
@@ -217,24 +222,28 @@ for (const scenario of [
             () => logs().some((e) => e.kind === "error") && settled(),
           );
           const error = logs().find((e) => e.kind === "error")!.content;
-          expect(error).toContain("`control`");
-          expect(error).toContain(`"${REFUSAL}"`);
+          expect(error).toContain(english(providerRefusal("control", REFUSAL)));
+          expect(error).toContain(
+            translatorFor("en").t("systemEntries.openCodeFreeTierHint"),
+          );
           expect(requests).toBe(2);
         } else if (scenario === "terminal") {
           await wait(
             "the terminal error",
             () => logs().some((e) => e.kind === "error") && settled(),
           );
-          expect(logs().find((e) => e.kind === "error")?.content).toMatch(
-            /conversation.*long/i,
+          // 2.1.4 sends an overflow as provider.invalid-request, with no
+          // overflow mark, so the member reads the provider's words.
+          expect(logs().find((e) => e.kind === "error")?.content).toContain(
+            english(providerRefusal("control", "context_length_exceeded")),
           );
+          expect(rawErrors).toEqual(["provider.invalid-request"]);
           expect(requests).toBe(2);
         } else {
-          await wait(
-            "the overflow and the held summary request",
-            () => summaryHeld && rawErrors.includes("ContextOverflowError"),
-          );
-          expect(rawErrors).toContain("ContextOverflowError");
+          // 2.1.4 compacts on the overflow and does not report it to the
+          // turn: the summary request is the only sign.
+          await wait("the held summary request", () => summaryHeld);
+          expect(rawErrors).toEqual([]);
           expect(settled()).toBe(false);
           expect(logs().filter((e) => e.kind === "error")).toHaveLength(0);
           if (scenario === "busy-peer") {
@@ -258,7 +267,9 @@ for (const scenario of [
               settled() &&
               (scenario !== "busy-peer" || has("FOLLOWUP_REPLY")),
           );
-          expect(has("INTERNAL_SUMMARY")).toBe(false);
+          expect(
+            logs().some((e) => e.content.includes("INTERNAL_SUMMARY")),
+          ).toBe(false);
           expect(logs().filter((e) => e.kind === "error")).toHaveLength(0);
           if (scenario === "busy-peer") {
             const originalIndex = logs().findIndex(

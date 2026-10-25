@@ -158,7 +158,7 @@ Two things are silently absent:
   | Claude, default `~/.claude` (transcripts in `projects/`) | No - outside the state root |
   | Codex, default `<state-root>/codex-home` (rollouts in `sessions/`) | **Yes**, except login and shell snapshots |
   | Personal Claude/Codex homes below `<state-root>/provider-homes` | **Yes**, except login and shell snapshots |
-  | OpenCode, managed profiles below `<state-root>/opencode/profiles` | **Yes**, except provider and MCP login files and the profile's `opencode.json` (it holds the headers of the MCP servers Isomux registers) |
+  | OpenCode, managed profiles below `<state-root>/opencode/profiles` | **Yes**, except provider and MCP login files, the server record and the profile's `opencode.json` (it holds the headers of the MCP servers Isomux registers). The databases stay: they hold the sessions and, under OpenCode 2, the provider sign-ins |
   | Agent browser profiles below `<state-root>/browser-profiles` | No - login state is omitted |
   | Any home redirected out of the state root by a per-user env file (`CLAUDE_CONFIG_DIR=...`, `CODEX_HOME=~/.isomux-users/<name>/.codex`) | No |
   | A `CLAUDE_CONFIG_DIR` pointed *inside* the state root | Yes |

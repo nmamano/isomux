@@ -1399,9 +1399,14 @@ describe("AgentManager DI (temp-state isolated)", () => {
           });
         },
       });
+      // The member's OpenCode folder, never the OS user's real one. It
+      // routes the reply and the title work to the local provider: 2.1.4
+      // reads the base URL from config, not from OPENAI_BASE_URL. This
+      // config is separate from the supervisor's managed config.
+      const configDir = join(STATE_ROOT, `${userId}-opencode`);
       const env = {
         OPENAI_API_KEY: apiKey,
-        OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
+        OPENCODE_CONFIG_DIR: configDir,
       };
       // A server started with OPENCODE_API_KEY never asks for it, so the
       // server here starts without it, whatever the host env holds.
@@ -1414,16 +1419,16 @@ describe("AgentManager DI (temp-state isolated)", () => {
       writeManagedUserEnv(userId, env);
       const environmentKey = environmentSourceKeyForUserId(userId);
       const profile = openCodeProfilePaths(environmentKey);
-      // Route both reply and small-model/title work to the local provider.
-      // This profile config is separate from the supervisor's managed config.
-      const configDir = join(profile.configHome, "opencode");
       mkdirSync(configDir, { recursive: true });
       writeFileSync(
         join(configDir, "opencode.json"),
         JSON.stringify({
           model: "openai/gpt-4o",
-          small_model: "openai/gpt-4o",
-          enabled_providers: ["openai"],
+          providers: {
+            openai: {
+              settings: { baseURL: `http://127.0.0.1:${mock.port}/v1` },
+            },
+          },
         }),
       );
       const supervisor = openCodeSupervisorForEnvironment(

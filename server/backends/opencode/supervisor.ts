@@ -7,8 +7,9 @@ import { AGENT_ROOT } from "../../split/roots.ts";
 import { runAtServerStop } from "../../server-stop.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
-import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
+import { openCodeToolEnvironment } from "./config-layers.ts";
+import { openCodeAuthHeader } from "./server-startup.ts";
 import {
   processIdentityMatches,
   processIsRunning,
@@ -35,46 +36,67 @@ interface ServerRecord {
 export const OPENCODE_CRON_AGENT = "isomux-cron";
 export const OPENCODE_INTERACTIVE_BYPASS_AGENT = "isomux-interactive-bypass";
 
-// OpenCode asks before bash and edit, so Isomux can apply the office policy
-// and the member's approval mode. Every agent Isomux starts sessions with
-// carries the rules: an agent's own block applies after the top-level one, and
-// a user or project default_agent would otherwise pick the agent.
-const DEFAULT_OPENCODE_CONFIG: Record<string, unknown> = {
-  autoupdate: false,
-  share: "disabled",
-  default_agent: "build",
-  permission: {
-    bash: "ask",
-    edit: "ask",
-    question: "deny",
-    [OPENCODE_SAFETY_TOOL]: "deny",
-  },
-  agent: {
-    build: {
-      permission: { bash: "ask", edit: "ask", question: "deny" },
-    },
-    [OPENCODE_INTERACTIVE_BYPASS_AGENT]: {
-      description: "Isomux interactive non-asking agent",
-      mode: "primary",
-      permission: {
-        bash: "ask",
-        edit: "ask",
-        task: "allow",
-        question: "deny",
-      },
-    },
-    [OPENCODE_CRON_AGENT]: {
-      description: "Isomux unattended cron run",
-      mode: "primary",
-      permission: {
-        bash: "ask",
-        edit: "ask",
-        task: "deny",
-        question: "deny",
-      },
-    },
-  },
+type OpenCodeRule = {
+  action: string;
+  resource: string;
+  effect: "allow" | "ask" | "deny";
 };
+const rule = (
+  action: string,
+  effect: OpenCodeRule["effect"],
+): OpenCodeRule => ({
+  action,
+  resource: "*",
+  effect,
+});
+// OpenCode asks before shell and edit, so Isomux can apply the office policy
+// and the member's approval mode, and before a path outside the folder,
+// which 1.18.35 asked by default and a key-for-key rename loses (gate C1).
+const BASE_RULES: OpenCodeRule[] = [
+  rule("shell", "ask"),
+  rule("edit", "ask"),
+  rule("question", "deny"),
+  rule("external_directory", "ask"),
+];
+
+// The full rule list of an agent Isomux runs sessions with. The transport
+// sends it at session create and when it switches the agent: rules set on a
+// session come after the agent's own (core/src/permission.ts), so a session
+// created in another mode would keep that mode's rules.
+export function openCodeAgentRules(agent: string): OpenCodeRule[] {
+  if (agent === OPENCODE_INTERACTIVE_BYPASS_AGENT)
+    return [...BASE_RULES, rule("subagent", "allow")];
+  if (agent === OPENCODE_CRON_AGENT)
+    return [...BASE_RULES, rule("subagent", "deny")];
+  return [...BASE_RULES];
+}
+
+// Isomux's config in the 2.1.4 keys. Every agent Isomux starts sessions with
+// carries its rules in its own block too: a user or project default_agent
+// would otherwise pick the agent, and its block applies after the top-level
+// rules. MCP servers are not here: the transport adds them at run time
+// (config-layers.ts).
+export function openCodeDefaultConfig(): Record<string, unknown> {
+  return {
+    update: "disable",
+    share: "disabled",
+    default_agent: "build",
+    permissions: openCodeAgentRules("build"),
+    agents: {
+      build: { permissions: openCodeAgentRules("build") },
+      [OPENCODE_INTERACTIVE_BYPASS_AGENT]: {
+        description: "Isomux interactive non-asking agent",
+        mode: "primary",
+        permissions: openCodeAgentRules(OPENCODE_INTERACTIVE_BYPASS_AGENT),
+      },
+      [OPENCODE_CRON_AGENT]: {
+        description: "Isomux unattended cron run",
+        mode: "primary",
+        permissions: openCodeAgentRules(OPENCODE_CRON_AGENT),
+      },
+    },
+  };
+}
 
 function stableConfigValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableConfigValue);
@@ -111,6 +133,9 @@ export interface OpenCodeLease {
   // A non-empty value for this variable in the env this server process was
   // started with. A saved variable reaches the server only when it is replaced.
   hasLaunchVariable(name: string): boolean;
+  // The supervisor's current Isomux MCP servers, read at each turn: a change
+  // needs no new server (the transport adds them at run time).
+  readonly mcpServers: AgentMcpServer[];
   // Ends the hold acquire() takes. Until then, or until beginTurn counts the
   // turn, or release(), a pending replacement does not stop this server.
   settle(): void;
@@ -135,6 +160,8 @@ export interface OpenCodeSupervisorOptions {
   idleShutdownMs?: number;
   launchEnv?: Record<string, string | undefined>;
   environmentRevision?: string;
+  // The Isomux MCP servers the transport adds to each folder at run time.
+  mcpServers?: AgentMcpServer[];
   idleScheduler?: {
     setTimeout(
       callback: () => void | Promise<void>,
@@ -177,6 +204,7 @@ export class OpenCodeSupervisor {
   private readonly idleShutdownMs: number;
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
+  private currentMcpServers: AgentMcpServer[];
   private replacementPromise: Promise<void> | null = null;
   private starting: Promise<void> | null = null;
   private readonly idleScheduler: NonNullable<
@@ -198,14 +226,15 @@ export class OpenCodeSupervisor {
     this.resolvedBinary = options.binary;
     this.platform = options.platform ?? process.platform;
     this.config = {
-      ...(options.config ?? DEFAULT_OPENCODE_CONFIG),
-      autoupdate: false,
+      ...(options.config ?? openCodeDefaultConfig()),
+      update: "disable",
     };
     this.configRevision = this.computeConfigRevision(this.config);
     this.serverCwd = options.serverCwd ?? AGENT_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
     this.environmentRevision = options.environmentRevision ?? "default";
+    this.currentMcpServers = options.mcpServers ?? [];
     this.idleScheduler = options.idleScheduler ?? {
       setTimeout: (callback, delayMs) =>
         setTimeout(() => void callback(), delayMs),
@@ -245,12 +274,13 @@ export class OpenCodeSupervisor {
     const initialRecord = this.record!;
     const currentRecord = () => this.record ?? initialRecord;
     const replacementPending = () => this.recordStale();
+    const currentMcpServers = () => this.currentMcpServers;
     return {
       get baseUrl() {
         return `http://127.0.0.1:${currentRecord().port}`;
       },
       get authHeader() {
-        return `Basic ${btoa(`isomux:${currentRecord().password}`)}`;
+        return openCodeAuthHeader(currentRecord().password);
       },
       profileDir: this.profileDir,
       get pid() {
@@ -265,6 +295,9 @@ export class OpenCodeSupervisor {
       },
       hasLaunchVariable: (name: string): boolean =>
         this.recordLaunchVariables.get(currentRecord())?.has(name) === true,
+      get mcpServers() {
+        return currentMcpServers();
+      },
       settle: () => {
         entry?.();
         entry = null;
@@ -343,13 +376,43 @@ export class OpenCodeSupervisor {
     return true;
   }
 
-  // The config the next server start writes to opencode.json.
-  get configuration(): Readonly<Record<string, unknown>> {
-    return this.config;
+  // The Isomux MCP servers the transport adds at its next turn.
+  get mcpServers(): AgentMcpServer[] {
+    return this.currentMcpServers;
+  }
+
+  updateMcpServers(mcpServers: AgentMcpServer[]): void {
+    this.currentMcpServers = mcpServers;
+  }
+
+  // A session's shell commands get the environment the server would start
+  // with from this env, without the server's secrets (1010dd4b): the
+  // member's variables reach an agent at its next conversation, while the
+  // server keeps the env it started with.
+  toolEnvironment(
+    env: Record<string, string | undefined> | undefined,
+  ): Record<string, string> {
+    return openCodeToolEnvironment(
+      this.serverLaunchEnv(launchEnvFor(env)),
+      this.profileDir,
+    );
+  }
+
+  // The env the helper starts a server from: the agent user's own and the
+  // member's variables. An agent token is a per-agent capability and never
+  // part of the shared server's env.
+  private serverLaunchEnv(
+    launchEnv: Record<string, string | undefined>,
+  ): Record<string, string | undefined> {
+    return {
+      ...getAgentHost().baseEnv(),
+      ...launchEnv,
+      ISOMUX_AGENT_TOKEN: undefined,
+    };
   }
 
   updateConfiguration(config: Record<string, unknown>): boolean {
-    const next = { ...config, autoupdate: false };
+    const next = { ...config, update: "disable" };
     const revision = this.computeConfigRevision(next);
     if (revision === this.configRevision) return false;
     this.config = next;
@@ -357,26 +420,27 @@ export class OpenCodeSupervisor {
     return true;
   }
 
-  // Saved settings, with the env and config the next session start passes.
-  // The replacement they request runs now on a server where nothing runs,
-  // else when the last turn or hold ends.
+  // Saved settings, with the env and MCP servers the next session start
+  // passes. An MCP change reaches the next turn without a new server. A
+  // changed env requests a replacement, for what OpenCode itself reads from
+  // its environment (provider keys, {env:} in configs, local MCP commands);
+  // it runs now on a server where nothing runs, else when the last turn or
+  // hold ends.
   updateSettings(
     launchEnv: Record<string, string | undefined>,
     environmentRevision: string,
-    config: Record<string, unknown>,
+    mcpServers: AgentMcpServer[],
   ): void {
-    const configChanged = this.updateConfiguration(config);
-    const envChanged = this.updateLaunchEnvironment(
-      launchEnv,
-      environmentRevision,
-    );
-    if (configChanged || envChanged) this.replaceOnceIdle();
+    this.updateMcpServers(mcpServers);
+    if (this.updateLaunchEnvironment(launchEnv, environmentRevision))
+      this.replaceOnceIdle();
   }
 
-  // A member's reload: a new server process, the only way OpenCode 1.18.35
-  // loads an edited plugin again (disposing a folder instance reloads config
-  // only, measured 2026-10-19). "reloaded": the server stopped, and retained
-  // leases have a new one. "pending": the last turn or hold to end replaces it.
+  // A member's reload: a new server process. 2.1.4 also reloads a folder's
+  // plugins and config when their files change (core/src/config/watch.ts),
+  // but only a new process starts again what OpenCode reads at start.
+  // "reloaded": the server stopped, and retained leases have a new one.
+  // "pending": the last turn or hold to end replaces it.
   async requestReload(): Promise<"reloaded" | "pending"> {
     this.reloadRequested = true;
     if (this.activeTurns > 0 || this.holds > 0) return "pending";
@@ -481,13 +545,12 @@ export class OpenCodeSupervisor {
     });
     await host.fs.chmod(configPath, 0o600);
     const password = randomBytes(32).toString("base64url");
-    const launchEnv = { ...host.baseEnv(), ...this.launchEnv };
+    const launchEnv = this.serverLaunchEnv(this.launchEnv);
     const { stdout, stderr, exitCode } = await host.run(this.helperCommand(), {
       cwd: this.serverCwd,
       env: {
         ...launchEnv,
         ...this.helperLockEnvironment(),
-        ISOMUX_AGENT_TOKEN: undefined,
         // Debug capture is an operator-only process setting. An agent's
         // configured environment cannot enable secret-bearing output.
         ISOMUX_OPENCODE_DEBUG: process.env.ISOMUX_OPENCODE_DEBUG,
@@ -567,13 +630,9 @@ export class OpenCodeSupervisor {
     return (
       createHash("sha256")
         .update(openCodeConfigRevision(config))
-        // Do not adopt a server launched before existing-share sync was disabled.
-        // This literal is the NAME=value start-server.ts puts in the child
-        // environment (the helper runs as a script, so no import); change both.
-        .update("OPENCODE_DISABLE_SHARE=1")
-        // Do not adopt a server launched with --pure, before user and project
-        // config loaded. Names the variable start-server.ts added with them.
-        .update("OPENCODE_CONFIG_CONTENT")
+        // Do not adopt a server started with the layers of OpenCode 1. Its
+        // binary path differs too; this keeps the rule if that ever changes.
+        .update("opencode 2 layers")
         .digest("hex")
     );
   }
@@ -682,37 +741,6 @@ export const openCodeSupervisor = new OpenCodeSupervisor();
 
 const environmentSupervisors = new Map<string, OpenCodeSupervisor>();
 
-// The config file of a profile's server: the defaults and the remote MCP
-// servers Isomux registers (server/mcp-servers.ts). The file is the only
-// channel for their headers: never the server's argv or environment. OpenCode
-// merges config layers deeply, and user and project config load above this
-// file, so start-server.ts repeats it without the headers in
-// OPENCODE_CONFIG_CONTENT, the top layer (config-layers.ts);
-// supervisor.test.ts pins both.
-export function openCodeConfigFor(
-  mcpServers: AgentMcpServer[],
-): Record<string, unknown> {
-  if (mcpServers.length === 0) return DEFAULT_OPENCODE_CONFIG;
-  return {
-    ...DEFAULT_OPENCODE_CONFIG,
-    mcp: Object.fromEntries(
-      mcpServers.map((server) => [
-        server.name,
-        {
-          type: "remote",
-          url: server.url,
-          headers: { ...server.headers },
-          oauth: false,
-          enabled: true,
-        },
-      ]),
-    ),
-  };
-}
-
-// `mcpServers` undefined keeps the config the profile's server has: callers
-// that do not start an agent session (a model list, a transcript read) must
-// not drop the servers and restart it.
 function launchEnvFor(
   env: Record<string, string | undefined> | undefined,
 ): Record<string, string> {
@@ -744,11 +772,7 @@ export function updateOpenCodeSupervisorSettings(
 ): void {
   environmentSupervisors
     .get(supervisorKey(environmentKey))
-    ?.updateSettings(
-      launchEnvFor(env),
-      environmentRevision,
-      openCodeConfigFor(mcpServers),
-    );
+    ?.updateSettings(launchEnvFor(env), environmentRevision, mcpServers);
 }
 
 // A member's /reload-plugins for the server of this environment key. With no
@@ -770,6 +794,9 @@ export async function reloadOpenCodeServer(
   return "reloaded";
 }
 
+// `mcpServers` undefined keeps the list the profile's supervisor has: callers
+// that do not start an agent session (a model list, a transcript read) must
+// not drop the servers.
 export function openCodeSupervisorForEnvironment(
   environmentKey: string | undefined,
   env: Record<string, string | undefined> | undefined,
@@ -788,12 +815,11 @@ export function openCodeSupervisorForEnvironment(
       profileDir,
       launchEnv,
       environmentRevision,
-      config: openCodeConfigFor(mcpServers ?? []),
+      mcpServers: mcpServers ?? [],
     });
     environmentSupervisors.set(key, supervisor);
   } else {
-    if (mcpServers)
-      supervisor.updateConfiguration(openCodeConfigFor(mcpServers));
+    if (mcpServers) supervisor.updateMcpServers(mcpServers);
     supervisor.updateLaunchEnvironment(launchEnv, environmentRevision);
   }
   return supervisor;

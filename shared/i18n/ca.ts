@@ -1085,7 +1085,7 @@ Coses que pots fer per ell:
   "integrations.backToYours": "Torna a les teves",
   "integrations.picker": "De qui són les integracions",
   "integrations.applies":
-    "Els agents de Claude i Codex reben un canvi quan inicien una conversa nova. Els agents d'OpenCode el reben quan cap d'ells no estigui treballant.",
+    "Els agents de Claude, Codex i OpenCode reben un canvi quan inicien una conversa nova. Els agents d'OpenCode reben els canvis de servidors MCP al missatge següent, i els de claus d'API quan cap d'ells no estigui treballant.",
   "integrations.helpTip": "Què vol dir això?",
   "integrations.show": "Mostra",
   "integrations.hide": "Amaga",
@@ -2922,7 +2922,7 @@ Coses que pots fer per ell:
   "systemEntries.openCodeProviderRetry":
     'El proveïdor `{provider}` ha informat: "{message}"; reintent {attempt} de {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":
-    "Aquest torn fa servir la teva configuració anterior d'Integracions.",
+    "Aquest torn fa servir les teves claus d'API anteriors.",
   "systemEntries.codexInterruptFallback":
     "Codex no va atendre la interrupció a temps; es passa a una sessió nova.",
   "systemEntries.deliveryStalled":

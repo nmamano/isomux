@@ -28,7 +28,7 @@ describe("OpenCode on an unsupported host", () => {
     "resolves the pinned darwin binary on macOS",
     () => {
       const binary = resolveOpenCodeBinary("darwin");
-      expect(binary).toContain(`/opencode-darwin-${process.arch}`);
+      expect(binary).toContain(`/@opencode/cli-darwin-${process.arch}`);
       expect(existsSync(binary)).toBe(true);
     },
   );

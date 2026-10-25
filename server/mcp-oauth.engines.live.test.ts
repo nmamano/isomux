@@ -22,7 +22,7 @@ import { sdkMcpRegistration } from "./backends/claude.ts";
 import { codexThreadConfig } from "./backends/codex/adapter.ts";
 import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
 import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
-import { openCodeConfigFor } from "./backends/opencode/supervisor.ts";
+import { openCodeMcpServerConfig } from "./backends/opencode/config-layers.ts";
 import { createMcpOAuth } from "./mcp-oauth.ts";
 import { resetOAuthTokens } from "./mcp-oauth-tokens.ts";
 import { createMcpServerSources, mcpServersForUserId } from "./mcp-servers.ts";
@@ -184,7 +184,18 @@ async function opencode(): Promise<string> {
   const config = join(mkdtempSync(join(root, "opencode-")), "opencode.json");
   writeFileSync(
     config,
-    JSON.stringify(openCodeConfigFor(mcpServersForUserId(sources, MEMBER))),
+    // The shape the transport adds at run time; `opencode run` reads it from
+    // a config file.
+    JSON.stringify({
+      mcp: {
+        servers: Object.fromEntries(
+          mcpServersForUserId(sources, MEMBER).map((server) => [
+            server.name,
+            openCodeMcpServerConfig(server),
+          ]),
+        ),
+      },
+    }),
   );
   return run(
     [

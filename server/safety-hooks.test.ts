@@ -657,6 +657,58 @@ describe("NotebookEdit coverage", () => {
     }
   });
 
+  // The server record holds the server password, which opens every stored
+  // provider secret (GET /api/credential, OpenCode 2 gate E2).
+  it("denies reading an OpenCode profile's server record, not a project's server.lock", async () => {
+    for (const [file_path, expected] of [
+      [
+        "/home/someone/.isomux/opencode/profiles/0123456789abcdef/server.lock",
+        true,
+      ],
+      ["/tmp/some-project/server.lock", false],
+    ] as const) {
+      const { denied } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: expected });
+    }
+  });
+
+  // Task 75904a56 (gate M6): 2.1.4 keeps every provider credential in its
+  // database. Backups keep the file (it holds every OpenCode session).
+  it("denies reading an OpenCode database, its -wal and -shm, not a project's database", async () => {
+    const data =
+      "/home/someone/.isomux/opencode/profiles/0123456789abcdef/data/opencode";
+    for (const [file_path, expected] of [
+      [`${data}/opencode.db`, true],
+      [`${data}/opencode.db-wal`, true],
+      [`${data}/opencode-v2.db`, true],
+      [`${data}/opencode-v2.db-shm`, true],
+      ["/home/someone/.local/share/opencode/opencode.db", true],
+      ["/tmp/some-project/opencode.db", false],
+      ["/tmp/some-project/app.db", false],
+    ] as const) {
+      const { denied } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: expected });
+    }
+  });
+
+  // sqlite3 is how a database is read from a shell.
+  it("denies sqlite3 and cat on an OpenCode database, not sqlite3 on a project's", async () => {
+    const profile = "/home/someone/.isomux/opencode/profiles/0123456789abcdef";
+    for (const [command, expected] of [
+      [`sqlite3 ${profile}/data/opencode/opencode-v2.db .dump`, true],
+      [
+        `sqlite3 ${profile}/data/opencode/opencode.db "select * from credential"`,
+        true,
+      ],
+      [`cat ${profile}/data/opencode/opencode.db-wal`, true],
+      [`sqlite3 ${profile}/server.lock .dump`, true],
+      ["sqlite3 /tmp/some-project/app.db .tables", false],
+    ] as const) {
+      const { denied } = await decide("Bash", { command });
+      expect({ command, denied }).toEqual({ command, denied: expected });
+    }
+  });
+
   it("denies reading the native OpenCode provider and MCP logins", async () => {
     for (const file_path of [
       "/home/someone/.local/share/opencode/auth.json",

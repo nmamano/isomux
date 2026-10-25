@@ -1,5 +1,5 @@
 // A real turn on the pinned OpenCode server makes an office call through the
-// authority broker: a mock provider asks for a bash tool call, and OpenCode
+// authority broker: a mock provider asks for a shell tool call, and OpenCode
 // runs curl as a descendant of its own server. It spends no model credits, but
 // starting the server makes it too costly for the default suite:
 //
@@ -17,6 +17,11 @@ import {
   OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { OpenCodeTransport } from "./transport.ts";
+import {
+  openCodeLiveConfig,
+  openCodeLiveLaunchEnv,
+  openCodeMockProvider,
+} from "../../test-support/opencode-live-config.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
@@ -37,7 +42,7 @@ function officeCall(socketPath: string, handle: string): string {
 const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
 
 it.skipIf(!LIVE || INTEL_MAC)(
-  "runs an office call from a real OpenCode bash tool and refuses a process outside its server",
+  "runs an office call from a real OpenCode shell tool and refuses a process outside its server",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-abo-"));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -127,7 +132,7 @@ it.skipIf(!LIVE || INTEL_MAC)(
                         id: "call_office",
                         type: "function",
                         function: {
-                          name: "bash",
+                          name: "shell",
                           arguments: JSON.stringify({
                             command: officeCall(socketPath, handle),
                             description: "Call the office",
@@ -182,39 +187,10 @@ it.skipIf(!LIVE || INTEL_MAC)(
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(root, "profile"),
       serverCwd: root,
-      config: {
-        autoupdate: false,
-        share: "disabled",
-        model: "gate/gate-model",
-        small_model: "gate/gate-model",
-        permission: { bash: "ask", edit: "ask", question: "deny" },
-        agent: {
-          [OPENCODE_INTERACTIVE_BYPASS_AGENT]: {
-            description: "Isomux interactive non-asking agent",
-            mode: "primary",
-            permission: { bash: "ask", edit: "ask", question: "deny" },
-          },
-        },
-        provider: {
-          gate: {
-            name: "Gate mock",
-            npm: "@ai-sdk/openai-compatible",
-            env: [],
-            models: {
-              "gate-model": {
-                name: "Gate model",
-                tool_call: true,
-                limit: { context: 100000, output: 10000 },
-                cost: { input: 0, output: 0 },
-              },
-            },
-            options: {
-              apiKey: "test-only",
-              baseURL: `http://127.0.0.1:${provider.port}/v1`,
-            },
-          },
-        },
-      },
+      launchEnv: openCodeLiveLaunchEnv(join(root, "profile")),
+      config: openCodeLiveConfig("gate/gate-model", {
+        gate: openCodeMockProvider(`http://127.0.0.1:${provider.port}/v1`),
+      }),
     });
     cleanup.push(() => supervisor.shutdown());
 

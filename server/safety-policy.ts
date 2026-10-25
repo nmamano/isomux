@@ -423,6 +423,8 @@ const FILE_READ_COMMANDS = [
   "nl",
   "tac",
   "cut",
+  // Every operand counts, SQL included: a statement is never a sensitive name.
+  "sqlite3",
 ];
 
 // Per-command grammar for the Bash-side readers.

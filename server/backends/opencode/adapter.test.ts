@@ -1,4 +1,3 @@
-import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -18,6 +17,21 @@ import {
 } from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
+import {
+  fakeOpenCode,
+  fakeSupervisor,
+  fakeToolEnvironment,
+  framesOf,
+  modelRow,
+  type FakeOptions,
+  type FakeTurn,
+  type Frame,
+} from "./fake-opencode-v2.ts";
+import {
+  openCodeLiveConfig,
+  openCodeLiveLaunchEnv,
+  openCodeMockProvider,
+} from "../../test-support/opencode-live-config.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
@@ -69,57 +83,22 @@ function liveSupervisor(): Promise<OpenCodeSupervisor> {
       },
     });
     liveCleanup.push(() => proxy.stop(true));
-    const provider = (path: string) => ({
-      name: "Gate mock",
-      npm: "@ai-sdk/openai-compatible",
-      env: [],
-      models: {
-        "gate-model": {
-          name: "Gate model",
-          reasoning: true,
-          tool_call: true,
+    const provider = (path: string) =>
+      openCodeMockProvider(`http://127.0.0.1:${proxy.port}/${path}/v1`, {
+        modelConfig: {
           limit: { context: 100000, output: 10000 },
-          cost: { input: 0, output: 0 },
-          variants: { high: {}, low: {}, none: {}, thinking: {} },
+          variants: ["high", "low", "none", "thinking"].map((id) => ({ id })),
         },
-      },
-      options: {
-        apiKey: "test-only",
-        baseURL: `http://127.0.0.1:${proxy.port}/${path}/v1`,
-      },
-    });
+      });
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(root, "profile"),
       serverCwd: root,
       idleShutdownMs: 100,
-      config: {
-        autoupdate: false,
-        model: "gate/gate-model",
-        small_model: "gate/gate-model",
-        share: "disabled",
-        permission: { bash: "ask", edit: "ask", question: "deny" },
-        agent: {
-          "isomux-interactive-bypass": {
-            mode: "primary",
-            permission: {
-              bash: "ask",
-              edit: "ask",
-              task: "allow",
-              question: "deny",
-            },
-          },
-          "isomux-cron": {
-            mode: "primary",
-            permission: {
-              bash: "ask",
-              edit: "ask",
-              task: "deny",
-              question: "deny",
-            },
-          },
-        },
-        provider: { gate: provider("reply"), tools: provider("tools") },
-      },
+      launchEnv: openCodeLiveLaunchEnv(join(root, "profile")),
+      config: openCodeLiveConfig("gate/gate-model", {
+        gate: provider("reply"),
+        tools: provider("tools"),
+      }),
     });
     liveCleanup.push(() =>
       livePhase("shared server teardown", () => supervisor.shutdown()),
@@ -228,203 +207,90 @@ describe("OpenCode pinned transport", () => {
     };
   }
 
+  // A 2.1.4 stand-in for one-shot and session tests. Its models: one paid,
+  // two free, each with a 200k context and a 10k output limit.
+  const ONE_SHOT_SESSION = "one-shot-session";
+  const oneShot = framesOf(ONE_SHOT_SESSION);
+  const gateModels = () => [
+    modelRow("gate", "paid", { name: "Paid" }),
+    modelRow("gate", "alternate", {
+      name: "Another free model",
+      cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+    }),
+    modelRow("gate", "free", {
+      name: "Free",
+      cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+    }),
+  ];
+  // A turn of the one-shot session: the fake swaps INBOX for its input id.
+  const oneShotTurn = (frames: object[]): FakeTurn => ({
+    frames: [oneShot.delivered("INBOX"), ...frames] as Frame[],
+    session: ONE_SHOT_SESSION,
+    inbox: "INBOX",
+  });
+
   function oneShotHarness(
-    frames: unknown[],
+    turns: FakeTurn[],
     timeoutMs = 100,
-    providerLookupFails = false,
-    holdFrames = false,
+    options: FakeOptions = {},
   ) {
-    const requests: Array<{
-      path: string;
-      body: string;
-      directory: string | null;
-    }> = [];
-    const permissionReplies: unknown[] = [];
-    let receivedPermissionReply!: () => void;
-    const permissionReplyReceived = new Promise<void>((resolve) => {
-      receivedPermissionReply = resolve;
+    const fake = fakeOpenCode({
+      sessionId: ONE_SHOT_SESSION,
+      models: gateModels,
+      turns,
+      ...options,
     });
-    let deliverFrames!: () => void;
-    const frameDelivery = new Promise<void>((resolve) => {
-      deliverFrames = resolve;
-    });
-    let requestedEvents!: () => void;
-    const eventsRequested = new Promise<void>((resolve) => {
-      requestedEvents = resolve;
-    });
-    let deletes = 0;
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        requests.push({
-          path: url.pathname,
-          body: await request.clone().text(),
-          directory: url.searchParams.get("directory"),
-        });
-        if (url.pathname === "/provider") {
-          if (providerLookupFails)
-            return new Response("failed", { status: 503 });
-          return Response.json({
-            connected: ["gate"],
-            all: [
-              {
-                id: "gate",
-                name: "Gate",
-                models: {
-                  paid: {
-                    name: "Paid",
-                    limit: { context: 200_000, output: 10_000 },
-                    cost: { input: 1, output: 2 },
-                  },
-                  alternate: {
-                    name: "Another free model",
-                    limit: { context: 200_000, output: 10_000 },
-                    cost: { input: 0, output: 0 },
-                  },
-                  free: {
-                    name: "Free",
-                    limit: { context: 200_000, output: 10_000 },
-                    cost: { input: 0, output: 0 },
-                  },
-                },
-              },
-            ],
-          });
-        }
-        if (url.pathname === "/session" && request.method === "POST")
-          return Response.json({ id: "one-shot-session" });
-        if (url.pathname === "/event") {
-          if (frames.length === 0) {
-            return await new Promise<Response>((resolve) => {
-              request.signal.addEventListener(
-                "abort",
-                () =>
-                  resolve(
-                    new Response(null, {
-                      headers: { "content-type": "text/event-stream" },
-                    }),
-                  ),
-                { once: true },
-              );
-            });
-          }
-          return new Response(
-            new ReadableStream({
-              async start(controller) {
-                requestedEvents();
-                if (holdFrames) await frameDelivery;
-                if (request.signal.aborted) return;
-                for (const frame of frames) {
-                  controller.enqueue(`data: ${JSON.stringify(frame)}\n\n`);
-                  await Bun.sleep(20);
-                }
-                controller.close();
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        }
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) return Response.json(true);
-        if (url.pathname.includes("/permission/") && request.body) {
-          permissionReplies.push(await request.json());
-          receivedPermissionReply();
-          return Response.json(true);
-        }
-        if (url.pathname.endsWith("/abort")) return Response.json(true);
-        if (
-          url.pathname === "/session/one-shot-session" &&
-          request.method === "DELETE"
-        ) {
-          deletes++;
-          return Response.json(true);
-        }
-        return new Response("not found", { status: 404 });
-      },
-    });
-    cleanup.push(() => server.stop(true));
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
+    cleanup.push(fake.restore);
+    const { supervisor } = fakeSupervisor();
     return {
+      fake,
       backend: createOpenCodeBackend({
         supervisor,
         oneShotTimeoutMs: timeoutMs,
       }),
-      requests,
-      permissionReplies,
-      permissionReplyReceived,
-      eventsRequested,
-      deliverFrames,
-      deletes: () => deletes,
+      deletes: () => fake.count("delete"),
     };
+  }
+
+  async function untilCompleted(
+    session: ReturnType<
+      ReturnType<typeof createOpenCodeBackend>["createSession"]
+    >,
+  ) {
+    for await (const event of session.stream())
+      if (event.kind === "turn_completed") return event;
+    return undefined;
   }
 
   it("logs redacted provider errors through the default production sink", async () => {
     const logged = spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const harness = oneShotHarness(
-        [
-          {
-            type: "session.error",
-            properties: {
-              sessionID: "one-shot-session",
-              error: {
-                name: "APIError",
-                data: {
-                  statusCode: 503,
-                  isRetryable: true,
-                  message:
-                    "Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz123456",
-                },
-              },
-            },
-          },
-        ],
-        2_000,
-      );
-      const session = harness.backend.createSession({
-        ...opts,
-        modelFamily: "gate/free",
-      });
-      try {
-        await session.send("fail");
-        for await (const event of session.stream()) {
-          if (event.kind === "turn_completed") {
-            expect(event.status).toBe("failed");
-            break;
-          }
-        }
-      } finally {
-        session.close();
-      }
-      const entry = logged.mock.calls.find((args) => args[0] === "[opencode]");
-      expect(entry).toBeDefined();
-      const cause = JSON.parse(String(entry![1]));
-      expect(cause).toMatchObject({
-        name: "APIError",
-        statusCode: 503,
-        isRetryable: true,
-      });
-      expect(cause.message).toContain("REDACTED");
-      expect(cause.message).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
-      console.info("Default sink redacted example", entry![1]);
-    } finally {
-      logged.mockRestore();
-    }
+    cleanup.push(() => logged.mockRestore());
+    const harness = oneShotHarness(
+      [
+        oneShotTurn([
+          oneShot.failed({
+            type: "provider.error",
+            status: 503,
+            message:
+              "Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz123456",
+          }),
+        ]),
+      ],
+      2_000,
+    );
+    const session = harness.backend.createSession({
+      ...opts,
+      modelFamily: "gate/free",
+    });
+    cleanup.push(() => session.close());
+    await session.send("fail");
+    expect((await untilCompleted(session))?.status).toBe("failed");
+    const entry = logged.mock.calls.find((args) => args[0] === "[opencode]");
+    expect(entry).toBeDefined();
+    const cause = JSON.parse(String(entry![1]));
+    expect(cause).toMatchObject({ name: "provider.error", statusCode: 503 });
+    expect(cause.message).toContain("REDACTED");
+    expect(cause.message).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
   });
 
   it("journals a silent event stream through the default production sink", async () => {
@@ -456,83 +322,24 @@ describe("OpenCode pinned transport", () => {
       clear.mockRestore();
       logged.mockRestore();
     });
-    // The stream answers and then sends nothing. A health probe gets a 404,
-    // so the silence ends with the server marked.
-    const requests: string[] = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch(request) {
-        const { pathname } = new URL(request.url);
-        requests.push(pathname);
-        if (pathname === "/provider")
-          return Response.json({
-            connected: ["gate"],
-            all: [
-              { id: "gate", name: "Gate", models: { free: { name: "Free" } } },
-            ],
-          });
-        if (pathname === "/session" && request.method === "POST")
-          return Response.json({ id: "silent-session" });
-        if (pathname === "/event")
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                controller.enqueue(": connected\n\n");
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        if (pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (pathname.endsWith("/prompt_async")) return Response.json(true);
-        return new Response("not found", { status: 404 });
-      },
-    });
-    cleanup.push(() => server.stop(true));
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const backend = createOpenCodeBackend({ supervisor });
-    const session = backend.createSession({
+    // The stream answers and then sends nothing. The health probe gets a
+    // 404, so the silence ends with the server marked.
+    const harness = oneShotHarness([], 100, { status: { info: 404 } });
+    const session = harness.backend.createSession({
       ...opts,
       modelFamily: "gate/free",
     });
-    try {
-      await session.send("wait");
-      const until = Date.now() + 2_000;
-      while (
-        !requests.some((path) => path.endsWith("/prompt_async")) ||
-        deadlines.size !== 1
-      ) {
-        if (Date.now() > until) break;
-        await Bun.sleep(5);
-      }
-      expect(
-        requests.some((path) => path.endsWith("/prompt_async")),
-        "the prompt went out",
-      ).toBe(true);
-      expect(deadlines.size, "one armed stream deadline").toBe(1);
-      for (const fire of [...deadlines.values()]) fire();
-      for await (const event of session.stream()) {
-        if (event.kind === "turn_completed") {
-          expect(event.status).toBe("failed");
-          break;
-        }
-      }
-    } finally {
-      session.close();
+    cleanup.push(() => session.close());
+    await session.send("wait");
+    const until = Date.now() + 2_000;
+    while (harness.fake.prompts() === 0 || deadlines.size !== 1) {
+      if (Date.now() > until) break;
+      await Bun.sleep(5);
     }
+    expect(harness.fake.prompts(), "the prompt went out").toBe(1);
+    expect(deadlines.size, "one armed stream deadline").toBe(1);
+    for (const fire of [...deadlines.values()]) fire();
+    expect((await untilCompleted(session))?.status).toBe("failed");
     const silences = logged.mock.calls.filter(
       (args) =>
         args[0] === "[opencode]" &&
@@ -541,64 +348,46 @@ describe("OpenCode pinned transport", () => {
     expect(silences).toHaveLength(1);
   });
 
-  const topicFrames = [
-    {
-      type: "message.updated",
-      properties: {
-        sessionID: "one-shot-session",
-        info: { id: "assistant", role: "assistant" },
-      },
-    },
-    {
-      type: "message.part.updated",
-      properties: {
-        sessionID: "one-shot-session",
-        part: {
-          type: "text",
-          id: "text",
-          messageID: "assistant",
-          text: "Topic label",
-        },
-      },
-    },
-    {
-      type: "message.part.updated",
-      properties: {
-        sessionID: "one-shot-session",
-        part: { type: "step-finish", id: "finish", messageID: "assistant" },
-      },
-    },
-    { type: "session.idle", properties: { sessionID: "one-shot-session" } },
-  ];
+  const topicTurn = () =>
+    oneShotTurn([
+      oneShot.stepStarted("msg_topic"),
+      oneShot.textDelta("msg_topic", "Topic label"),
+      oneShot.textEnded("msg_topic", "Topic label"),
+      oneShot.stepEnded("msg_topic"),
+      oneShot.succeeded(),
+    ]);
 
   for (const modelFamily of ["gate/paid", "gate/free"]) {
     it(`routes one-shot marker only to selected model ${modelFamily}`, async () => {
-      const harness = oneShotHarness(topicFrames, 2_000);
+      const harness = oneShotHarness([topicTurn()], 2_000);
       const marker = "SYNTHETIC_TOPIC_ROUTING_MARKER";
       const result = await harness.backend
         .oneShotPrompt(marker, { modelFamily })
         .catch((error: unknown) => error);
-      const carryingText = harness.requests.filter((request) =>
-        request.body.includes(marker),
-      );
       // Check every HTTP body before checking the reply or the error text.
       expect(
-        carryingText.map((request) => ({
-          path: request.path,
-          model: JSON.parse(request.body).model,
-        })),
-      ).toEqual([
-        {
-          path: "/session/one-shot-session/prompt_async",
-          model: { providerID: "gate", modelID: modelFamily.split("/")[1] },
-        },
-      ]);
+        harness.fake.requests
+          .filter((request) =>
+            JSON.stringify(request.body ?? "").includes(marker),
+          )
+          .map((request) => request.path),
+      ).toEqual([`/api/session/${ONE_SHOT_SESSION}/prompt`]);
+      expect(harness.fake.calls("POST", /\/model$/).map((r) => r.body)).toEqual(
+        [
+          {
+            model: expect.objectContaining({
+              providerID: "gate",
+              id: modelFamily.split("/")[1],
+            }),
+          },
+        ],
+      );
       expect(result).toBe("Topic label");
     });
   }
 
   it("runs a topic label in the neutral one-shot folder, never the agent's folder", async () => {
-    const harness = oneShotHarness(topicFrames, 2_000);
+    const harness = oneShotHarness([topicTurn()], 2_000);
     const agentFolder = "/srv/member-project";
     expect(
       await harness.backend.oneShotPrompt("label", {
@@ -606,11 +395,23 @@ describe("OpenCode pinned transport", () => {
         modelFamily: "gate/free",
       }),
     ).toBe("Topic label");
+    expect(
+      JSON.stringify(
+        harness.fake.requests.map((r) => [r.path, r.query.toString(), r.body]),
+      ),
+    ).not.toContain(agentFolder);
     const folders = new Set(
-      harness.requests.map((request) => request.directory),
+      harness.fake.requests.flatMap((request) => {
+        const folder = request.query.get("location[directory]");
+        return folder === null ? [] : [folder];
+      }),
     );
-    expect(folders.has(agentFolder)).toBe(false);
     expect([...folders]).toEqual([OPENCODE_ONE_SHOT_DIR]);
+    expect(
+      harness.fake.calls("POST", /^\/api\/session$/)[0].body,
+    ).toMatchObject({
+      location: { directory: OPENCODE_ONE_SHOT_DIR },
+    });
     expect(
       OPENCODE_ONE_SHOT_DIR.startsWith(`${AGENT_ROOT}/`),
       "in agent space",
@@ -619,73 +420,61 @@ describe("OpenCode pinned transport", () => {
 
   for (const modelFamily of ["retired/preference", ""]) {
     it(`skips one-shot marker for unavailable selection ${JSON.stringify(modelFamily)}`, async () => {
-      const harness = oneShotHarness(topicFrames, 2_000);
+      const harness = oneShotHarness([topicTurn()], 2_000);
       const marker = "SYNTHETIC_TOPIC_SKIP_MARKER";
       const result = await harness.backend
         .oneShotPrompt(marker, { modelFamily })
         .catch((error: unknown) => error);
       expect(
-        harness.requests.filter((request) => request.body.includes(marker)),
+        harness.fake.requests.filter((request) =>
+          JSON.stringify(request.body ?? "").includes(marker),
+        ),
       ).toEqual([]);
-      expect(
-        harness.requests.some((request) => request.path === "/session"),
-      ).toBe(false);
+      expect(harness.fake.count("session.create")).toBe(0);
       expect(result).toBeInstanceOf(Error);
     });
   }
 
+  // 2.1.4's input leaves out the cache and its output leaves out reasoning,
+  // so a step's context is the sum of the five counts.
+  const measuredTurn = (...steps: [string, object][]) =>
+    oneShotTurn([
+      ...steps.map(([message, tokens]) =>
+        oneShot.stepEnded(message, tokens as never),
+      ),
+      oneShot.succeeded(),
+    ]);
+
   it("reports context fullness from the latest complete OpenCode step", async () => {
     const harness = oneShotHarness([
-      {
-        type: "message.part.updated",
-        properties: {
-          sessionID: "one-shot-session",
-          part: {
-            type: "step-finish",
-            id: "earlier-finish",
-            messageID: "earlier-assistant",
-            tokens: {
-              total: 577_682,
-              input: 577_000,
-              output: 682,
-              reasoning: 0,
-              cache: { read: 0, write: 0 },
-            },
+      measuredTurn(
+        [
+          "msg_earlier",
+          {
+            input: 577_000,
+            output: 682,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
           },
-        },
-      },
-      {
-        type: "message.part.updated",
-        properties: {
-          sessionID: "one-shot-session",
-          part: {
-            type: "step-finish",
-            id: "finish",
-            messageID: "assistant",
-            tokens: {
-              total: 29_920,
-              input: 913,
-              output: 79,
-              reasoning: 0,
-              cache: { read: 28_928, write: 0 },
-            },
+        ],
+        [
+          "msg_latest",
+          {
+            input: 913,
+            output: 79,
+            reasoning: 0,
+            cache: { read: 28_928, write: 0 },
           },
-        },
-      },
-      {
-        type: "session.idle",
-        properties: { sessionID: "one-shot-session" },
-      },
+        ],
+      ),
     ]);
     const session = harness.backend.createSession({
       ...opts,
       modelFamily: "gate/free",
     });
+    cleanup.push(() => session.close());
     await session.send("measure");
-    const events = session.stream()[Symbol.asyncIterator]();
-    while ((await events.next()).value?.kind !== "turn_completed") {
-      /* drain to turn completion */
-    }
+    await untilCompleted(session);
     expect(await session.getContextUsage()).toEqual({
       model: "gate/free",
       totalTokens: 29_920,
@@ -699,118 +488,65 @@ describe("OpenCode pinned transport", () => {
         { name: "Reasoning", tokens: 0 },
       ],
       // The catalog's 10k output limit: OpenCode compacts at context - 10k.
-      // Internal to the automatic handoff; /context does not show it.
       compactAtTokens: 190_000,
     });
-    session.close();
   });
 
   it("degrades a failed lazy model-limit lookup to no context sample", async () => {
     const harness = oneShotHarness(
       [
-        {
-          type: "message.part.updated",
-          properties: {
-            sessionID: "one-shot-session",
-            part: {
-              type: "step-finish",
-              id: "finish",
-              messageID: "assistant",
-              tokens: {
-                total: 10,
-                input: 5,
-                output: 5,
-                reasoning: 0,
-                cache: { read: 0, write: 0 },
-              },
-            },
-          },
-        },
-        {
-          type: "session.idle",
-          properties: { sessionID: "one-shot-session" },
-        },
+        measuredTurn([
+          "msg_a",
+          { input: 5, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+        ]),
       ],
       100,
-      true,
+      { status: { catalog: 503 } },
     );
     const session = harness.backend.createSession({
       ...opts,
       modelFamily: "gate/free",
     });
+    cleanup.push(() => session.close());
     await session.send("measure");
-    const events = session.stream()[Symbol.asyncIterator]();
-    while ((await events.next()).value?.kind !== "turn_completed") {
-      /* drain to turn completion */
-    }
+    await untilCompleted(session);
     expect(await session.getContextUsage()).toBeNull();
-    session.close();
   });
 
   it("reports context fullness after resuming an OpenCode session", async () => {
     const harness = oneShotHarness([
-      {
-        type: "message.part.updated",
-        properties: {
-          sessionID: "one-shot-session",
-          part: {
-            type: "step-finish",
-            id: "finish",
-            messageID: "assistant",
-            tokens: {
-              total: 50_000,
-              input: 1_000,
-              output: 500,
-              reasoning: 100,
-              cache: { read: 48_400, write: 0 },
-            },
-          },
+      measuredTurn([
+        "msg_a",
+        {
+          input: 1_000,
+          output: 500,
+          reasoning: 100,
+          cache: { read: 48_400, write: 0 },
         },
-      },
-      {
-        type: "session.idle",
-        properties: { sessionID: "one-shot-session" },
-      },
+      ]),
     ]);
-    const session = harness.backend.resumeSession("one-shot-session", {
+    const session = harness.backend.resumeSession(ONE_SHOT_SESSION, {
       ...opts,
       modelFamily: "gate/free",
     });
+    cleanup.push(() => session.close());
     await session.send("resume and measure");
-    const events = session.stream()[Symbol.asyncIterator]();
-    while ((await events.next()).value?.kind !== "turn_completed") {
-      /* drain to turn completion */
-    }
+    await untilCompleted(session);
     expect(await session.getContextUsage()).toMatchObject({
       model: "gate/free",
       totalTokens: 50_000,
       maxTokens: 200_000,
       percentage: 25,
     });
-    session.close();
   });
 
-  it("denies unattended one-shot tool requests before the timeout backstop", async () => {
+  it("denies unattended one-shot tool requests with a reason before the timeout backstop", async () => {
     const timeoutMs = 100;
     const clock = controlledBackstop(timeoutMs);
+    const asked = oneShot.asked("per_one_shot", "printf one-shot");
     const harness = oneShotHarness(
-      [
-        {
-          type: "permission.asked",
-          properties: {
-            sessionID: "one-shot-session",
-            id: "permission-1",
-            metadata: {},
-          },
-        },
-        {
-          type: "session.idle",
-          properties: { sessionID: "one-shot-session" },
-        },
-      ],
+      [{ ...oneShotTurn([asked]), waitForReplies: true }],
       timeoutMs,
-      false,
-      true,
     );
     const result = rejected(
       harness.backend.oneShotPrompt("label", {
@@ -819,22 +555,19 @@ describe("OpenCode pinned transport", () => {
         systemPrompt: "label only",
       }),
     );
-    await harness.eventsRequested;
-    harness.deliverFrames();
-    // A failed prompt also releases this wait, so an early backstop fails the
-    // reply assertion instead of hanging on a reply that can no longer arrive.
-    await Promise.race([harness.permissionReplyReceived, result]);
+    // A failed prompt also ends this wait, so an early backstop fails the
+    // reply assertion instead of hanging on a reply that can never arrive.
+    const replied = (async () => {
+      while (harness.fake.replies.length === 0) await Bun.sleep(2);
+    })();
+    await Promise.race([replied, result]);
     clock.advance(timeoutMs);
     const error = await result;
-    expect(harness.permissionReplies).toEqual([
-      {
-        reply: "reject",
-      },
+    // R1: the reason goes to OpenCode, so the model reads why.
+    expect(harness.fake.replies.map((r) => r.body)).toEqual([
+      { decision: "reject", message: expect.stringMatching(/\S/) },
     ]);
-    expect(error).toHaveProperty(
-      "message",
-      expect.stringMatching(/timed out|without a recorded completion/),
-    );
+    expect(error).toHaveProperty("message", expect.stringMatching(/timed out/));
     clock.expectCleared();
     expect(harness.deletes()).toBe(1);
   });
@@ -844,13 +577,24 @@ describe("OpenCode pinned transport", () => {
     const clock = controlledBackstop(timeoutMs);
     const harness = oneShotHarness(
       [
-        {
-          type: "question.asked",
-          properties: {
-            sessionID: "one-shot-session",
-            id: "question-1",
+        oneShotTurn([
+          {
+            type: "form.created",
+            created: 1_500,
+            data: {
+              form: {
+                id: "frm_one_shot",
+                sessionID: ONE_SHOT_SESSION,
+                title: "Questions",
+                metadata: {
+                  kind: "question",
+                  tool: { messageID: "msg_q", id: "call_q" },
+                },
+                fields: [],
+              },
+            },
           },
-        },
+        ]),
       ],
       timeoutMs,
     );
@@ -871,26 +615,22 @@ describe("OpenCode pinned transport", () => {
   });
 
   it("bounds a one-shot that emits no terminal event", async () => {
-    const harness = oneShotHarness([], 10);
+    const harness = oneShotHarness([oneShotTurn([])], 10);
     const timer = spyOn(globalThis, "setTimeout");
-    try {
-      expect(
-        await rejected(
-          harness.backend.oneShotPrompt("label", {
-            cwd: "/tmp",
-            modelFamily: "gate/free",
-            systemPrompt: "label only",
-          }),
-        ),
-      ).toHaveProperty("message", expect.stringContaining("timed out"));
-      // Check the backstop budget without depending on CPU scheduling.
-      expect(timer).toHaveBeenCalledWith(expect.any(Function), 10);
-      expect(harness.deletes()).toBe(1);
-    } finally {
-      timer.mockRestore();
-    }
+    cleanup.push(() => timer.mockRestore());
+    expect(
+      await rejected(
+        harness.backend.oneShotPrompt("label", {
+          cwd: "/tmp",
+          modelFamily: "gate/free",
+          systemPrompt: "label only",
+        }),
+      ),
+    ).toHaveProperty("message", expect.stringContaining("timed out"));
+    // Check the backstop budget without depending on CPU scheduling.
+    expect(timer).toHaveBeenCalledWith(expect.any(Function), 10);
+    expect(harness.deletes()).toBe(1);
   });
-
   it("uses the shared attachment notice contract and fails empty input safe", async () => {
     const agentId = `opencode-attachment-${Date.now()}`;
     const files = join(STATE_ROOT, "logs", agentId, "files");
@@ -946,113 +686,51 @@ describe("OpenCode pinned transport", () => {
     expect(listed).toBe(refusal);
   });
 
-  it("keeps each session model and permission profile in the prompt wire body", async () => {
+  // R7: the 2.1.4 prompt carries no agent, model or system prompt. Each
+  // session runs its turn with its own model, instructions and the agent of
+  // its current permission mode, also when it was created in another mode.
+  it("runs each session's turn with its model, its instructions and the agent of its mode", async () => {
     let nextSession = 0;
-    const promptModels: unknown[] = [];
-    const promptAgents: unknown[] = [];
-    const promptSystems: unknown[] = [];
-    const promptParts: unknown[] = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/session" && request.method === "POST") {
-          return Response.json({ id: `session-${++nextSession}` });
-        }
-        if (url.pathname === "/event") {
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                // Keep the subscription alive while the test sends its prompt.
-                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
-              },
-            }),
-            {
-              headers: { "content-type": "text/event-stream" },
-            },
-          );
-        }
-        if (url.pathname === "/provider") {
-          return Response.json({
-            connected: ["alpha", "beta", "gamma"],
-            all: [
-              {
-                id: "alpha",
-                models: { "model-one": { variants: { high: {} } } },
-              },
-              {
-                id: "beta",
-                models: { "model-two": { variants: { high: {} } } },
-              },
-              {
-                id: "gamma",
-                models: { "model-three": { variants: { high: {} } } },
-              },
-            ],
-          });
-        }
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) {
-          const body = (await request.json()) as {
-            model?: unknown;
-            agent?: unknown;
-            system?: unknown;
-            parts?: unknown;
-          };
-          promptModels.push(body.model);
-          promptAgents.push(body.agent);
-          promptSystems.push(body.system);
-          promptParts.push(body.parts);
-          return Response.json(true);
-        }
-        return new Response("not found", { status: 404 });
-      },
+    const fake = fakeOpenCode({
+      nextSessionId: () => `session-${++nextSession}`,
+      models: () => [
+        modelRow("alpha", "model-one"),
+        modelRow("beta", "model-two"),
+        modelRow("gamma", "model-three"),
+      ],
     });
-    cleanup.push(() => server.stop(true));
-    const lease = {
-      get pid() {
-        return 1;
-      },
-      get baseUrl() {
-        return `http://127.0.0.1:${server.port}`;
-      },
-      get authHeader() {
-        return "Basic test";
-      },
-      settle: () => {},
-      beginTurn: async () => {},
-      endTurn: () => {},
-      serverStopped: () => false,
-      markUnresponsive: () => {},
-      release: () => {},
-    };
-    const supervisor = {
-      acquire: async () => lease,
-    } as unknown as OpenCodeSupervisor;
-    const backend = createOpenCodeBackend({ supervisor });
+    cleanup.push(fake.restore);
+    const backend = createOpenCodeBackend({
+      supervisor: fakeSupervisor().supervisor,
+    });
     const first = backend.createSession({
       ...opts,
       modelFamily: "alpha/model-one",
+      env: { MEMBER_VARIABLE: "first" },
     });
     const second = backend.createSession({
       ...opts,
       modelFamily: "beta/model-two",
       permissionMode: "bypassPermissions",
       interactive: true,
+      env: { MEMBER_VARIABLE: "second" },
     });
+    // Created in the default mode elsewhere (the fake's sessions start as
+    // build), resumed here.
     const resumed = backend.resumeSession("session-3", {
       ...opts,
       systemPrompt: "updated after resume",
       modelFamily: "gamma/model-three",
     });
-    // An unattended bypass caller (a cron run) gets the narrower profile.
+    // An unattended bypass caller (a cron run) gets the narrower profile,
+    // though its session was created as build.
     const unattended = backend.resumeSession("session-cron", {
       ...opts,
       modelFamily: "alpha/model-one",
       permissionMode: "bypassPermissions",
     });
+    for (const session of [first, second, resumed, unattended])
+      cleanup.push(() => session.close());
     const firstInit = first.stream()[Symbol.asyncIterator]().next();
     const secondInit = second.stream()[Symbol.asyncIterator]().next();
     const resumedInit = resumed.stream()[Symbol.asyncIterator]().next();
@@ -1060,58 +738,78 @@ describe("OpenCode pinned transport", () => {
     await second.send("second");
     await resumed.send("resumed");
     await unattended.send("unattended");
-    expect(await firstInit).toEqual({
-      done: false,
-      value: {
-        kind: "system_init",
-        sessionId: "session-1",
-        model: "alpha/model-one",
-      },
+    expect((await firstInit).value).toEqual({
+      kind: "system_init",
+      sessionId: "session-1",
+      model: "alpha/model-one",
     });
-    expect(await secondInit).toEqual({
-      done: false,
-      value: {
-        kind: "system_init",
-        sessionId: "session-2",
-        model: "beta/model-two",
-      },
+    expect((await secondInit).value).toEqual({
+      kind: "system_init",
+      sessionId: "session-2",
+      model: "beta/model-two",
     });
-    expect(await resumedInit).toEqual({
-      done: false,
-      value: {
-        kind: "system_init",
-        sessionId: "session-3",
-        model: "gamma/model-three",
-      },
+    expect((await resumedInit).value).toEqual({
+      kind: "system_init",
+      sessionId: "session-3",
+      model: "gamma/model-three",
     });
-    expect(promptModels).toEqual([
-      { providerID: "alpha", modelID: "model-one" },
-      { providerID: "beta", modelID: "model-two" },
-      { providerID: "gamma", modelID: "model-three" },
-      { providerID: "alpha", modelID: "model-one" },
+    // MUTANT: the agent set only at create leaves the cron run on build.
+    expect(fake.promptLog).toEqual([
+      { session: "session-1", text: "first", agent: "build" },
+      {
+        session: "session-2",
+        text: "second",
+        agent: "isomux-interactive-bypass",
+      },
+      { session: "session-3", text: "resumed", agent: "build" },
+      { session: "session-cron", text: "unattended", agent: "isomux-cron" },
     ]);
-    expect(promptAgents).toEqual([
-      undefined,
-      "isomux-interactive-bypass",
-      undefined,
-      "isomux-cron",
+    const bySession = (method: string, pattern: RegExp) =>
+      fake
+        .calls(method, pattern)
+        .map((r) => [
+          r.path.split("/")[r.path.split("/").indexOf("session") + 1],
+          r.body,
+        ]);
+    expect(bySession("POST", /\/model$/)).toEqual([
+      [
+        "session-1",
+        { model: { providerID: "alpha", id: "model-one", variant: "high" } },
+      ],
+      [
+        "session-2",
+        { model: { providerID: "beta", id: "model-two", variant: "high" } },
+      ],
+      [
+        "session-3",
+        { model: { providerID: "gamma", id: "model-three", variant: "high" } },
+      ],
+      [
+        "session-cron",
+        { model: { providerID: "alpha", id: "model-one", variant: "high" } },
+      ],
     ]);
-    expect(promptSystems).toEqual([
-      "test",
-      "test",
-      "updated after resume",
-      "test",
+    // 1010dd4b: each conversation's shell commands get the tool environment
+    // of the env it started with, from the supervisor.
+    // MUTANT: one environment per server, or the member's env as it is.
+    expect(bySession("PUT", /\/environment$/)).toEqual([
+      [
+        "session-1",
+        { variables: fakeToolEnvironment({ MEMBER_VARIABLE: "first" }) },
+      ],
+      [
+        "session-2",
+        { variables: fakeToolEnvironment({ MEMBER_VARIABLE: "second" }) },
+      ],
+      ["session-3", { variables: fakeToolEnvironment(undefined) }],
+      ["session-cron", { variables: fakeToolEnvironment(undefined) }],
     ]);
-    expect(promptParts).toEqual([
-      [{ type: "text", text: "first" }],
-      [{ type: "text", text: "second" }],
-      [{ type: "text", text: "resumed" }],
-      [{ type: "text", text: "unattended" }],
+    expect(bySession("PUT", /instructions\/entries\/isomux$/)).toEqual([
+      ["session-1", { value: "test" }],
+      ["session-2", { value: "test" }],
+      ["session-3", { value: "updated after resume" }],
+      ["session-cron", { value: "test" }],
     ]);
-    first.close();
-    second.close();
-    resumed.close();
-    unattended.close();
   }, 10_000);
 
   // Real subprocess contract: run with bun run test:opencode.
@@ -1194,7 +892,8 @@ describe("OpenCode pinned transport", () => {
     );
     expect(gateModel).toMatchObject({
       id: "gate/gate-model",
-      label: "Gate mock - Gate model",
+      // 2.1.4 model rows name the provider by its id.
+      label: "gate - Gate model",
       isFree: true,
     });
     expect(gateModel?.supportedEfforts).toContainEqual({ level: "low" });
@@ -1359,9 +1058,9 @@ describe("OpenCode pinned transport", () => {
   })();
   let completedReplySteps = 0;
   const replySteps = [
-    "discovers models and rejects a retired model through the real OC1 contract",
-    "returns one reply through the real OC1 HTTP and SSE contract",
-    "preserves history and forks a child through the real OC1 contract",
+    "discovers models and rejects a retired model through the real OpenCode contract",
+    "returns one reply through the real OpenCode HTTP and SSE contract",
+    "preserves history and forks a child through the real OpenCode contract",
   ];
   for (const [index, name] of replySteps.entries()) {
     it.skipIf(!LIVE)(
@@ -1369,12 +1068,12 @@ describe("OpenCode pinned transport", () => {
       async () => {
         expect(
           completedReplySteps,
-          `Requires successful real OC1 step ${index}: ${replySteps[index - 1] ?? "initial state"}`,
+          `Requires successful real OpenCode step ${index}: ${replySteps[index - 1] ?? "initial state"}`,
         ).toBe(index);
         const step = await livePhase(name, () => replyScenario.next());
         expect(
           step.done,
-          `Real OC1 step ${index + 1} did not reach its completion event`,
+          `Real OpenCode step ${index + 1} did not reach its completion event`,
         ).toBe(false);
         completedReplySteps++;
       },
@@ -1465,10 +1164,10 @@ describe("OpenCode pinned transport", () => {
                         ? "printf denied > gate-denied.txt"
                         : "printf allowed > gate-allowed.txt";
               const edit = prompt.includes("EDIT");
-              const toolName = edit ? "edit" : "bash";
+              const toolName = edit ? "edit" : "shell";
               const toolInput = edit
                 ? {
-                    filePath: join(root, "gate-edit.txt"),
+                    path: join(root, "gate-edit.txt"),
                     oldString: "before",
                     newString: "after",
                   }
@@ -1785,9 +1484,9 @@ describe("OpenCode pinned transport", () => {
   })();
   let completedToolsSteps = 0;
   const toolsSteps = [
-    "runs and denies controlled shell tools through the real OC1 permission route",
-    "edits and aborts running tools through the real OC1 permission route",
-    "routes tools to two working directories through the real OC1 contract",
+    "runs and denies controlled shell tools through the real OpenCode permission route",
+    "edits and aborts running tools through the real OpenCode permission route",
+    "routes tools to two working directories through the real OpenCode contract",
   ];
   for (const [index, name] of toolsSteps.entries()) {
     it.skipIf(!LIVE)(
@@ -1795,12 +1494,12 @@ describe("OpenCode pinned transport", () => {
       async () => {
         expect(
           completedToolsSteps,
-          `Requires successful real OC1 tools step ${index}: ${toolsSteps[index - 1] ?? "initial state"}`,
+          `Requires successful real OpenCode tools step ${index}: ${toolsSteps[index - 1] ?? "initial state"}`,
         ).toBe(index);
         const step = await livePhase(name, () => toolsScenario.next());
         expect(
           step.done,
-          `Real OC1 tools step ${index + 1} did not reach its completion event`,
+          `Real OpenCode tools step ${index + 1} did not reach its completion event`,
         ).toBe(false);
         completedToolsSteps++;
       },

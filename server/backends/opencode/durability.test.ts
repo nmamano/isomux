@@ -1,4 +1,5 @@
-import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
+import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
+import { openCodeSafetyPluginDir } from "./profile-paths.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,6 +15,11 @@ describe("OpenCode durable process loss", () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-process-loss-"));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
     const binary = join(root, "durable-opencode-fake");
+    // The plugin row the transport's S2 check looks for.
+    const pluginEntry = join(
+      openCodeSafetyPluginDir(join(root, "profile")),
+      "index.js",
+    );
     await writeFile(
       binary,
       `#!/usr/bin/env bun
@@ -24,34 +30,63 @@ const streams = new Map();
 // Ids differ per server process: a resume that made a new session on the
 // replacement would find no stored context.
 let nextSession = 0;
+let nextInput = 0;
 const send = (controller, value) => controller.enqueue(
   new TextEncoder().encode(\`data: \${JSON.stringify(value)}\\n\\n\`),
 );
-const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
+const frame = (type, data) => ({ id: "evt_" + type, created: Date.now(), type, data });
+Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
-  if (url.pathname === "/global/health")
-    return Response.json({ healthy: true, version: "1.18.35" });
-  if (url.pathname === "/session" && request.method === "POST")
-    return Response.json({ id: \`session-\${process.pid}-\${++nextSession}\` });
-  if (url.pathname === "/event") {
+  // Health for the supervisor and the transport (T8).
+  if (url.pathname === "/api/experimental/migration/v1")
+    return Response.json({ status: "completed" });
+  if (url.pathname === "/api/info")
+    return Response.json({ version: "2.1.4", pid: process.pid });
+  if (url.pathname === "/api/session" && request.method === "POST")
+    return Response.json({ data: { id: \`session-\${process.pid}-\${++nextSession}\` } });
+  if (url.pathname === "/api/event") {
     let subscriber;
     return new Response(new ReadableStream({
       start(controller) {
         subscriber = controller;
         streams.set("active", controller);
-        send(controller, { type: "server.connected", properties: {} });
+        send(controller, { id: "evt_connected", type: "server.connected", data: {} });
       },
       cancel() {
         if (streams.get("active") === subscriber) streams.delete("active");
       },
     }), { headers: { "content-type": "text/event-stream" } });
   }
-  if (url.pathname === "/experimental/tool/ids")
-    return Response.json(${JSON.stringify([OPENCODE_SAFETY_TOOL])});
-  if (url.pathname.endsWith("/prompt_async")) {
-    const sessionID = url.pathname.split("/")[2];
-    const body = await request.json();
-    const prompt = body.parts?.map((part) => part.text ?? "").join("") ?? "";
+  // Isomux's top layer is the one document without a path (C3).
+  if (url.pathname === "/api/config")
+    return Response.json([{ type: "document", info: { agents: { "isomux-cron": {} } } }]);
+  if (url.pathname === "/api/mcp")
+    return Response.json({ data: [] });
+  if (url.pathname.endsWith("/environment") && request.method === "PUT")
+    return new Response(null, { status: 204 });
+  if (url.pathname.split("/").length === 4 && request.method === "PATCH")
+    return new Response(null, { status: 204 });
+  if (url.pathname === "/api/plugin")
+    return Response.json({ data: [{
+      id: ${JSON.stringify(OPENCODE_SAFETY_PLUGIN_ID)},
+      source: { type: "local", path: ${JSON.stringify(pluginEntry)} },
+      state: { status: "active" },
+    }] });
+  if (url.pathname === "/api/model")
+    return Response.json({ data: [{
+      id: "gate-model", providerID: "gate", name: "Gate", variants: [],
+      cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+      status: "active", enabled: true, limit: { context: 100000, output: 10000 },
+    }] });
+  if (url.pathname.startsWith("/api/experimental/session/") && request.method === "PUT")
+    return new Response(null, { status: 204 });
+  if (url.pathname.endsWith("/agent") && request.method === "POST")
+    return new Response(null, { status: 204 });
+  if (url.pathname.endsWith("/model") && request.method === "POST")
+    return new Response(null, { status: 204 });
+  if (url.pathname.endsWith("/prompt") && request.method === "POST") {
+    const sessionID = url.pathname.split("/")[3];
+    const prompt = (await request.json()).text ?? "";
     const stored = join(process.cwd(), \`stored-\${sessionID}\`);
     if (prompt.includes("S4_CONTEXT_CANARY")) writeFileSync(stored, "stored");
     const text = prompt === "GATE_RECALL"
@@ -59,48 +94,39 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
       : "FIRST_TURN_STORED";
     const controller = streams.get("active");
     if (!controller) return new Response("no event subscriber", { status: 503 });
-    const messageID = "message-1";
-    send(controller, { type: "message.updated", properties: {
-      sessionID, info: { id: messageID, role: "assistant" },
-    }});
-    send(controller, { type: "message.part.updated", properties: {
-      sessionID, part: { id: "part-1", messageID, type: "text", text },
-    }});
-    send(controller, { type: "message.part.updated", properties: {
-      sessionID, part: { id: "finish-1", messageID, type: "step-finish" },
-    }});
-    send(controller, { type: "session.idle", properties: { sessionID } });
-    return Response.json(true);
+    const inboxID = \`msg_input_\${++nextInput}\`;
+    const assistantMessageID = \`msg_answer_\${nextInput}\`;
+    setTimeout(() => {
+      send(controller, frame("session.inbox.delivered", { sessionID, inboxID }));
+      send(controller, frame("session.step.started", { sessionID, assistantMessageID }));
+      send(controller, frame("session.text.delta", { sessionID, assistantMessageID, ordinal: 0, delta: text }));
+      send(controller, frame("session.text.ended", { sessionID, assistantMessageID, ordinal: 0, text }));
+      send(controller, frame("session.step.ended", { sessionID, assistantMessageID, finish: "stop", cost: 0,
+        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } } }));
+      send(controller, frame("session.execution.succeeded", { sessionID }));
+    }, 0);
+    return Response.json({ data: { id: inboxID, sessionID } });
   }
   return new Response("not found", { status: 404 });
 }});
-console.log("opencode server listening on http://127.0.0.1:" + server.port);
 await new Promise(() => {});
 `,
     );
     await chmod(binary, 0o700);
     const config = JSON.stringify({
-      autoupdate: false,
+      update: "disable",
       model: "gate/gate-model",
-      small_model: "gate/gate-model",
-      share: "disabled",
-      provider: {
+      providers: {
         gate: {
           name: "Gate",
-          npm: "@ai-sdk/openai-compatible",
           env: [],
-          models: {
-            "gate-model": {
-              name: "Gate",
-              limit: { context: 100000, output: 10000 },
-              cost: { input: 0, output: 0 },
-            },
-          },
-          options: {
+          package: "@opencode/ai/providers/openai-compatible",
+          settings: {
             apiKey: "test-only",
             // The protocol fake produces replies itself and never calls a provider.
             baseURL: "http://127.0.0.1:1/v1",
           },
+          models: { "gate-model": { name: "Gate" } },
         },
       },
     });
@@ -132,15 +158,15 @@ await new Promise(() => {});
       await readFile(join(root, "profile", "server.lock"), "utf8"),
     ) as { port: number; password: string; environmentRevision: string };
     expect(record.environmentRevision).toBe("s4-process-loss");
-    const health = await fetch(
-      `http://127.0.0.1:${record.port}/global/health`,
-      {
-        headers: {
-          authorization: `Basic ${btoa(`isomux:${record.password}`)}`,
-        },
+    const health = await fetch(`http://127.0.0.1:${record.port}/api/info`, {
+      headers: {
+        authorization: `Basic ${btoa(`opencode:${record.password}`)}`,
       },
-    );
-    expect(await health.json()).toEqual({ healthy: true, version: "1.18.35" });
+    });
+    expect(await health.json()).toEqual({
+      version: "2.1.4",
+      pid: prior.serverPid,
+    });
     const resume = run("resume");
     const [exitCode, stderr] = await Promise.all([
       resume.exited,

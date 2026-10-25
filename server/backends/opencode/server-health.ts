@@ -1,4 +1,5 @@
 import { OPENCODE_CLI_VERSION } from "./runtime.ts";
+import { openCodeAuthHeader } from "./server-startup.ts";
 
 export const OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS = 2_000;
 
@@ -12,26 +13,18 @@ export interface OpenCodeServerEndpoint {
 // stopping it fails every turn in flight on it.
 export type OpenCodeServerHealth = "healthy" | "busy" | "unreachable";
 
+// GET /api/info (T8). Its ServerInfo has no "healthy" field: an answer with
+// the pinned version is a healthy server.
 export async function openCodeServerHealth(
   record: OpenCodeServerEndpoint,
 ): Promise<OpenCodeServerHealth> {
   try {
-    const response = await fetch(
-      `http://127.0.0.1:${record.port}/global/health`,
-      {
-        headers: {
-          authorization: `Basic ${btoa(`isomux:${record.password}`)}`,
-        },
-        signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
-      },
-    );
-    const body = (await response.json()) as {
-      healthy?: boolean;
-      version?: string;
-    };
-    return response.ok &&
-      body.healthy === true &&
-      body.version === OPENCODE_CLI_VERSION
+    const response = await fetch(`http://127.0.0.1:${record.port}/api/info`, {
+      headers: { authorization: openCodeAuthHeader(record.password) },
+      signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
+    });
+    const body = (await response.json()) as { version?: string };
+    return response.ok && body.version === OPENCODE_CLI_VERSION
       ? "healthy"
       : "unreachable";
   } catch (error) {

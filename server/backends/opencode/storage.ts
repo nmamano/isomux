@@ -10,9 +10,62 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { inAgentSpace } from "../../agent-host.ts";
 import type { StoredSessionState } from "../types.ts";
-import { openCodeProfilePaths } from "./profile-paths.ts";
+import { openCodeDatabasePath, openCodeProfilePaths } from "./profile-paths.ts";
 
-const EXPECTED_SESSION_COLUMNS = [
+// The session_v2 and session_message tables of @opencode/cli 2.1.4 (a fresh
+// 2.1.4 profile, 2026-10-25). 2.1.4 keeps a version 1 database's session and
+// message tables after its import but never writes them.
+const V2_SESSION_COLUMNS = [
+  "id",
+  "project_id",
+  "workspace_id",
+  "parent_id",
+  "fork_session_id",
+  "fork_boundary",
+  "slug",
+  "directory",
+  "path",
+  "title",
+  "version",
+  "share_url",
+  "summary_additions",
+  "summary_deletions",
+  "summary_files",
+  "summary_diffs",
+  "metadata",
+  "cost",
+  "tokens_input",
+  "tokens_output",
+  "tokens_reasoning",
+  "tokens_cache_read",
+  "tokens_cache_write",
+  "revert",
+  "permission",
+  "agent",
+  "model",
+  "time_created",
+  "time_updated",
+  "time_idle",
+  "time_viewed",
+  "idle_outcome",
+  "time_compacting",
+  "time_archived",
+  "time_suspended",
+  "resume_attempts",
+] as const;
+
+const V2_MESSAGE_COLUMNS = [
+  "id",
+  "session_id",
+  "type",
+  "seq",
+  "time_created",
+  "time_updated",
+  "data",
+] as const;
+
+// The session and message tables of OpenCode 1.18.35.
+const V1_SESSION_COLUMNS = [
   "id",
   "project_id",
   "workspace_id",
@@ -44,7 +97,7 @@ const EXPECTED_SESSION_COLUMNS = [
   "time_archived",
 ] as const;
 
-const EXPECTED_MESSAGE_COLUMNS = [
+const V1_MESSAGE_COLUMNS = [
   "id",
   "session_id",
   "time_created",
@@ -52,18 +105,56 @@ const EXPECTED_MESSAGE_COLUMNS = [
   "data",
 ] as const;
 
+export type OpenCodeDatabaseSchema = "v1" | "v2";
+
+const SCHEMAS = {
+  v2: {
+    session: "session_v2",
+    sessionColumns: V2_SESSION_COLUMNS,
+    message: "session_message",
+    messageColumns: V2_MESSAGE_COLUMNS,
+    // Only a member's message or an answer is a conversation: a model or
+    // agent pick and an instruction update also store items.
+    conversation: " AND type IN ('user', 'assistant')",
+  },
+  v1: {
+    session: "session",
+    sessionColumns: V1_SESSION_COLUMNS,
+    message: "message",
+    messageColumns: V1_MESSAGE_COLUMNS,
+    conversation: "",
+  },
+} as const;
+
+// A profile reads its version 1 database until its first 2.1.4 start has
+// made opencode-v2.db and imported every session into it (start-server.ts
+// then writes opencode-v2.db.ready), and then only that file.
 export function inspectOpenCodeStoredSession(
   sessionId: string,
   environmentKey: string | undefined,
 ): StoredSessionState {
   if (!environmentKey)
     throw new Error("OpenCode session environment identity is required.");
-  const databasePath = join(
-    openCodeProfilePaths(environmentKey).dataHome,
-    "opencode",
-    "opencode.db",
+  const { profileDir } = openCodeProfilePaths(environmentKey);
+  const v2 = openCodeDatabasePath(profileDir, "v2");
+  if (!absent(`${v2}.ready`)) return inspectOpenCodeDatabase(v2, sessionId);
+  return inspectOpenCodeDatabase(
+    openCodeDatabasePath(profileDir, "v1"),
+    sessionId,
+    "v1",
   );
-  return inspectOpenCodeDatabase(databasePath, sessionId);
+}
+
+// Only a missing file is absent: a denied stat is for inspectOpenCodeDatabase
+// to report.
+function absent(path: string): boolean {
+  try {
+    statSync(path);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
 }
 
 const STORED_STATES = new Set<unknown>(["missing", "empty", "durable"]);
@@ -74,11 +165,12 @@ const STORED_STATES = new Set<unknown>(["missing", "empty", "durable"]);
 export async function inspectOpenCodeDatabaseInAgentSpace(
   databasePath: string,
   sessionId: string,
+  schema: OpenCodeDatabaseSchema = "v2",
 ): Promise<StoredSessionState> {
   const state = await inAgentSpace(
     "opencode-inspect",
-    { databasePath, sessionId },
-    () => inspectOpenCodeDatabase(databasePath, sessionId),
+    { databasePath, sessionId, schema },
+    () => inspectOpenCodeDatabase(databasePath, sessionId, schema),
   );
   if (!STORED_STATES.has(state))
     throw new Error("the OpenCode storage inspection returned no state");
@@ -88,7 +180,9 @@ export async function inspectOpenCodeDatabaseInAgentSpace(
 export function inspectOpenCodeDatabase(
   databasePath: string,
   sessionId: string,
+  schema: OpenCodeDatabaseSchema = "v2",
 ): StoredSessionState {
+  const tables = SCHEMAS[schema];
   // The profile is owner-only (start-server.ts). For another user, such as
   // the server user in split mode, a denied stat is no answer: existsSync
   // would read it as missing and drop a stored session.
@@ -123,14 +217,16 @@ export function inspectOpenCodeDatabase(
       strict: true,
     });
     database.exec("PRAGMA query_only = ON");
-    assertColumns(database, "session", EXPECTED_SESSION_COLUMNS);
-    assertColumns(database, "message", EXPECTED_MESSAGE_COLUMNS);
+    assertColumns(database, tables.session, tables.sessionColumns);
+    assertColumns(database, tables.message, tables.messageColumns);
     const session = database
-      .query("SELECT 1 AS found FROM session WHERE id = ? LIMIT 1")
+      .query(`SELECT 1 AS found FROM ${tables.session} WHERE id = ? LIMIT 1`)
       .get(sessionId) as { found: number } | null;
     if (!session) return "missing";
     const message = database
-      .query("SELECT 1 AS found FROM message WHERE session_id = ? LIMIT 1")
+      .query(
+        `SELECT 1 AS found FROM ${tables.message} WHERE session_id = ?${tables.conversation} LIMIT 1`,
+      )
       .get(sessionId) as { found: number } | null;
     return message ? "durable" : "empty";
   } catch (error) {

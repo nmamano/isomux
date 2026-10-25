@@ -233,7 +233,9 @@ heading.
   2.1.4 rewrites the database in place (it empties `event`, drops three tables,
   adds five, fills `credential`), and a version 1 session written after the
   import never reaches 2.1.4. A rollback restores the copy; version 2 history
-  is lost.
+  is lost. As built (task 75904a56): 2.1.4 runs on the copy,
+  `opencode-v2.db` (`OPENCODE_DB`), and never writes `opencode.db`, so a
+  rollback restores nothing.
 - **M6.** 2.1.4 copies `auth.json` into the database's `credential` table
   (`data/opencode/opencode.db`, `-wal`, `-shm`; `opencode-<channel>.db*` for
   other channels), and `auth.json` stays where it is. Agent reads of these

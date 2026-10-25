@@ -12,24 +12,40 @@ import type {
   SafeOpenCodeError,
 } from "./transport.ts";
 
-// Pinned OpenCode 1.18.35: session/retry.ts RETRY_MAX_RETRIES = 5.
-const OPENCODE_MAX_RETRIES = 5;
+// @opencode/cli 2.1.4 retries a request ten times: a 429 gave
+// session.retry.scheduled with attempts 2 to 11 over 83 s (2026-10-25).
+const OPENCODE_MAX_RETRIES = 10;
+
+// The 2.1.4 error types whose message is the provider's own refusal, at any
+// status.
+const REFUSAL_TYPES = new Set([
+  "provider.rate-limit",
+  "provider.quota",
+  "provider.free-limit",
+  "provider.content-filter",
+  "provider.invalid-request",
+]);
 
 // A provider that refuses a request explains why, and members must see that
-// the refusal is the provider's, not Isomux's (task 1a963907). A 401 stays on
-// the authentication path, and a 5xx is a provider fault, not a refusal.
+// the refusal is the provider's, not Isomux's (task 1a963907). The transport
+// passes the 2.1.4 error type as the name. A 401 stays on the authentication
+// path, and a 5xx is a provider fault, not a refusal.
 export function openCodeProviderRefusal(
   error: Readonly<SafeOpenCodeError>,
   provider: string,
 ): LogText | null {
-  if (error.name !== "APIError") return null;
   const message = providerText(error.message);
   if (message === null) return null;
   const status = error.statusCode;
-  const refused =
-    status === undefined
-      ? /rate.?limit|too many requests|quota|usage limit/i.test(message)
-      : status >= 400 && status <= 499 && status !== 401;
+  // 2.1.4 sends a 403 as provider.auth: its classifier puts 401 and 403
+  // together (2026-10-25).
+  const refused = REFUSAL_TYPES.has(error.name ?? "")
+    ? status !== 401
+    : (error.name === "provider.error" || error.name === "provider.auth") &&
+      status !== undefined &&
+      status >= 400 &&
+      status <= 499 &&
+      status !== 401;
   if (!refused) return null;
   return openCodeProviderLine(provider, message);
 }
@@ -52,56 +68,48 @@ export function openCodeProviderLine(
 // names the likely cause, without claiming it.
 const FREE_TIER_REFUSAL = /free tier can only be used from within OpenCode/i;
 
-// Copy for failures that carry no provider message to show.
+// Copy for failures that carry no provider message to show, by the 2.1.4
+// error type that the transport passes as the name.
 export function openCodeErrorMessage(
   error: Readonly<SafeOpenCodeError>,
 ): string {
-  const message = error.message ?? "";
-  if (error.name === "ContextOverflowError")
-    return "The conversation is too long for this model.";
-  if (error.statusCode === 429)
-    return "The provider rate limit was reached (HTTP 429).";
-  if (
-    error.statusCode === undefined &&
-    /rate.?limit|too many requests/i.test(message)
-  )
-    return "The provider rate limit was reached.";
-  if (error.statusCode === undefined && /overloaded|at capacity/i.test(message))
-    return "The provider is busy.";
-  if (
-    Number.isInteger(error.statusCode) &&
-    error.statusCode! >= 400 &&
-    error.statusCode! <= 599
-  )
-    return `The provider returned HTTP ${error.statusCode}.`;
-  if (/timeout|timed out/i.test(message) || error.name === "TimeoutError")
+  const name = error.name ?? "";
+  const status = error.statusCode;
+  if (status === 429 || name === "provider.rate-limit")
+    return status === 429
+      ? "The provider rate limit was reached (HTTP 429)."
+      : "The provider rate limit was reached.";
+  if (name === "provider.timeout" || name === "TimeoutError")
     return "The provider did not respond in time.";
+  if (name === "provider.transport")
+    return "The connection to the provider failed.";
+  if (name === "provider.invalid-output")
+    return "The model reached its output limit.";
+  if (name === "aborted") return "OpenCode stopped this request.";
   if (
-    /connection reset|connection refused|fetch failed|failed to fetch|network|socket|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|response stream|decompression failed/i.test(
-      message + " " + (error.code ?? ""),
+    name === "provider.no-route" ||
+    /^(Agent not found:|Model not found:|Provider not found:)/.test(
+      error.message ?? "",
     )
   )
-    return "The connection to the provider failed.";
-  if (
-    /^(Agent not found:|Model not found:|Provider not found:)/.test(message) ||
-    /^(Config|Configuration)/.test(error.name ?? "")
-  )
     return "OpenCode configuration is invalid.";
-  if (error.name === "APIError")
+  if (
+    name.startsWith("provider.") &&
+    Number.isInteger(status) &&
+    status! >= 400 &&
+    status! <= 599
+  )
+    return `The provider returned HTTP ${status}.`;
+  if (name.startsWith("provider."))
     return "The provider could not complete this request.";
-  if (error.name === "OutputLengthError")
-    return "The model reached its output limit.";
-  if (error.name === "AbortedError") return "OpenCode stopped this request.";
-  if (error.name === "UnknownError")
-    return "OpenCode could not complete this turn.";
-  return "OpenCode reported a provider or transport error.";
+  return "OpenCode could not complete this turn.";
 }
 
-// OpenCode's retry status carries the provider's message, or its own quota
-// line for OpenCode's free tier and Go plan.
+// OpenCode's retry carries the provider's message, or its own quota line for
+// OpenCode's free tier and Go plan. retry: 1 for the first retry.
 export function openCodeRetryMessage(
   message: string | undefined,
-  attempt: number,
+  retry: number,
   provider: string,
 ): LogText {
   const text = providerText(message);
@@ -109,11 +117,11 @@ export function openCodeRetryMessage(
     return msg("systemEntries.openCodeProviderRetry", {
       provider,
       message: inertMarkdown(text),
-      attempt,
+      attempt: retry,
       maxAttempts: OPENCODE_MAX_RETRIES,
     });
-  const cause = openCodeErrorMessage({ name: "APIError" });
-  return `${cause.replace(/\.$/, "")}; retrying ${attempt} of ${OPENCODE_MAX_RETRIES}.`;
+  const cause = openCodeErrorMessage({ name: "provider.error" });
+  return `${cause.replace(/\.$/, "")}; retrying ${retry} of ${OPENCODE_MAX_RETRIES}.`;
 }
 
 export function logOpenCodeError(

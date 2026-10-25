@@ -9,7 +9,7 @@ import { join } from "path";
 
 import { sdkMcpRegistration } from "./backends/claude.ts";
 import { codexThreadConfig } from "./backends/codex/adapter.ts";
-import { openCodeConfigFor } from "./backends/opencode/supervisor.ts";
+import { openCodeMcpServerConfig } from "./backends/opencode/config-layers.ts";
 import {
   createMcpServerSources,
   mcpServerRows,
@@ -101,7 +101,7 @@ function engineShapes(sources: ReturnType<typeof setup>["sources"]) {
   return JSON.stringify({
     claude: sdkMcpRegistration("agent-1", servers) ?? null,
     codex: codexThreadConfig(servers),
-    opencode: openCodeConfigFor(servers),
+    opencode: servers.map(openCodeMcpServerConfig),
   });
 }
 

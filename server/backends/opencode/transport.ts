@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import {
   openCodeErrorMessage,
   openCodeProviderLine,
@@ -13,20 +14,25 @@ import type {
   TokenUsage,
 } from "../types.ts";
 import {
+  OPENCODE_CRON_AGENT,
+  openCodeAgentRules,
   openCodeSupervisor,
   type OpenCodeLease,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
+import { openCodeMcpServerConfig } from "./config-layers.ts";
+import { MCP_SERVER_PREFIX } from "../../../shared/mcp-servers.ts";
+import type { AgentMcpServer } from "../../mcp-servers.ts";
 import {
   openCodeAuthorityBroker,
   type OpenCodeAuthorityBinding,
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
-import { openCodeLogPath } from "./profile-paths.ts";
+import { openCodeLogPath, openCodeSafetyPluginDir } from "./profile-paths.ts";
 import { OpenCodeUnsupportedHostError } from "./runtime.ts";
 import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS } from "./server-health.ts";
-import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
+import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import {
   evaluateOpenCodePermission,
@@ -44,6 +50,10 @@ import {
   type LogText,
 } from "../../../shared/i18n/log-message.ts";
 import { providerText } from "../provider-text.ts";
+
+// The OpenCode 2.1.4 transport (task e47be82a): the /api routes and the
+// /api/event frames of @opencode/cli 2.1.4, as recorded on 2026-10-25 in
+// fixtures/v2 and internal-docs/opencode-gate/report-2.1.4.md.
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
@@ -71,30 +81,61 @@ export const OPENCODE_EVENT_STREAM_LOST_FAILURE =
 export const OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE =
   "OpenCode did not load the Isomux safety checks for this folder, so this turn did not run. Tell the office owner and check the isomux service logs.";
 
+export const OPENCODE_SETTINGS_MISSING_FAILURE =
+  "OpenCode did not load the Isomux settings for this folder, so this turn did not run. Tell the office owner and check the isomux service logs.";
+
 export const OPENCODE_FOLDER_SETUP_NOTICE =
-  "OpenCode is installing plugins for this folder. The first turn can take a few minutes.";
+  "OpenCode is still setting up this folder. The first turn can take a few minutes.";
 
 export const OPENCODE_FOLDER_SETUP_FAILURE =
   "OpenCode did not finish setting up this folder in 3 minutes. Send your message again to keep waiting.";
 
-// Before OpenCode loads a plugin it installs its plugin SDK into each config
-// folder that lacks one: 50-83 s for a new project folder, measured
-// 2026-10-15. A server that still answers health during that wait is setting
-// up the folder, not frozen, so the turn waits up to this bound.
+export const OPENCODE_INSTRUCTIONS_TOO_LARGE_FAILURE =
+  "OpenCode refused this agent's system prompt because it is too large, so this turn did not run. Shorten the instructions or memory added to it.";
+
+export const OPENCODE_TURN_STALLED_FAILURE =
+  "OpenCode stopped this turn without finishing it. Send your message again.";
+
+export const OPENCODE_COMPACTION_FAILED_NOTICE = "Context compaction failed.";
+
+// A server that still answers health while a folder opens is setting up the
+// folder, not frozen, so the turn waits up to this bound. The bound is kept
+// from 1.18.35, which installed its plugin SDK into each new config folder
+// first: 50-83 s, measured 2026-10-15. 2.1.4 no longer does that (gate P5),
+// but at folder open it still imports the folder's .opencode/plugins and
+// starts its local MCP commands, with no time limit of its own. A slow 2.1.4
+// folder open was not measured.
 export const OPENCODE_FOLDER_SETUP_LIMIT_MS = 3 * 60_000;
 
-// OpenCode 1.18.35 sends server.heartbeat on /event every 10 s. Local silent
-// provider timeout and 35 s compaction controls measured gaps of 10.000-10.040 s
-// on 2026-10-10. 30 s is three missed heartbeats. The same
-// bound covers the requests a turn makes before its stream reads: with 8
-// sessions on one server, /event headers took at most 0.5 s, POST /session
-// 1.7 s and /provider 12.8 s (2026-10-07).
-export const OPENCODE_EVENT_STREAM_DEADLINE_MS = 30_000;
+// OpenCode 2.1.4 sends an SSE comment ": heartbeat" on /api/event every
+// 15.000 s (measured 2026-10-25), and no data frame. 45 s is three missed
+// heartbeats. The same bound covers the requests a turn makes before its
+// stream reads: with 8 sessions on one 1.18.35 server, /event headers took at
+// most 0.5 s, POST /session 1.7 s and /provider 12.8 s (2026-10-07).
+export const OPENCODE_EVENT_STREAM_DEADLINE_MS = 45_000;
+
+// Heartbeats keep a stream alive while the turn's session makes no progress,
+// for example after a sequence collision (upstream #53146) stops its writes.
+// After this long without a frame of the turn's sessions, and while no
+// request of the turn waits for the member, the turn asks the server whether
+// the session still runs.
+export const OPENCODE_TURN_PROGRESS_CHECK_MS = 60_000;
 
 // A turn stops waiting for the catalog at the deadline above, but the load
 // goes on so a late success is kept. This bound only frees the slot of a
 // load that never answers, so a later caller can try again.
 export const OPENCODE_CATALOG_LOAD_LIMIT_MS = 5 * 60_000;
+
+// How often a turn asks again for a list that 2.1.4 fills a moment after a
+// start or a folder open: the plugin rows of a folder, and the providers.
+const OPENCODE_LIST_POLL_MS = 250;
+
+// The instruction entry that carries the agent's system prompt. 2.1.4 puts
+// it in the system message as <context key="isomux">, and a changed value
+// reaches the model at the next step as an update (2026-10-25). 2.1.4 takes
+// at most 256 KiB per entry and answers 413 above it; the system prompts of
+// this office's OpenCode agents were 19-41 KB on 2026-10-25.
+const OPENCODE_INSTRUCTIONS_KEY = "isomux";
 
 export interface OpenCodeDeadlineScheduler {
   setTimeout(callback: () => void, delayMs: number): unknown;
@@ -148,10 +189,6 @@ export function openCodeEffortUnavailableNotice(
   return `\`${model}\` has no \`${effort}\` effort, so this turn runs at its default effort. Pick an effort in the agent settings.`;
 }
 
-export function openCodeModelNotFoundPrefix(model: string): string {
-  return `Model not found: ${model}. Did you mean:`;
-}
-
 export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
@@ -164,29 +201,59 @@ export interface DiscoveredOpenCodeModel {
   supportedEfforts: { level: EffortLevel }[];
 }
 
+// 2.1.4 lists a model's prices as tiers. A model is free when it has at
+// least one tier and every price of every tier is zero.
 function openCodeModelIsFree(rawCost: unknown): boolean {
-  const cost = asRecord(rawCost);
-  const cache = asRecord(cost.cache);
-  const values: unknown[] = [];
-  for (const [record, field] of [
-    [cost, "input"],
-    [cost, "output"],
-    [cache, "read"],
-    [cache, "write"],
-  ] as const) {
-    if (field in record) values.push(record[field]);
-  }
-  return (
-    values.length > 0 &&
-    values.every((value) => typeof value === "number" && value === 0)
-  );
+  if (!Array.isArray(rawCost) || rawCost.length === 0) return false;
+  return rawCost.every((tier) => {
+    const cost = asRecord(tier);
+    const cache = asRecord(cost.cache);
+    const values: unknown[] = [];
+    for (const [record, field] of [
+      [cost, "input"],
+      [cost, "output"],
+      [cache, "read"],
+      [cache, "write"],
+    ] as const) {
+      if (field in record) values.push(record[field]);
+    }
+    return (
+      values.length > 0 &&
+      values.every((value) => typeof value === "number" && value === 0)
+    );
+  });
 }
 
-// One catalog per OpenCode server process and directory (/provider takes the
-// directory, and a project opencode.json can add models). A running server
-// does not reload its model registry, and every change to the model list
-// replaces the server (internal-docs/opencode-oc1-scope.md), so the server
-// key is the invalidation. Callers share one load; only a success is kept.
+// The MCP server configs Isomux sent, per server process, folder and name:
+// a hash of url and headers, so a rotated header is sent again. Only a
+// cache: after an Isomux restart it is empty, and every server is sent again.
+const sentMcpServers = new WeakMap<
+  OpenCodeSupervisor,
+  { serverKey: string; sent: Map<string, string> }
+>();
+
+function mcpServerHash(server: AgentMcpServer): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        server.url,
+        Object.entries(server.headers).sort(([a], [b]) => a.localeCompare(b)),
+      ]),
+    )
+    .digest("hex");
+}
+
+// The folders whose Isomux top layer was found, per server process (C3).
+const checkedConfigs = new WeakMap<
+  OpenCodeSupervisor,
+  { serverKey: string; folders: Set<string> }
+>();
+
+// One catalog per OpenCode server process and directory (/api/model takes
+// the folder, and a project config can add models). A running server does
+// not reload its model registry, and every change to the model list replaces
+// the server (internal-docs/opencode-oc1-scope.md), so the server key is the
+// invalidation. Callers share one load; only a success is kept.
 const keptCatalogs = new WeakMap<
   OpenCodeSupervisor,
   {
@@ -229,20 +296,25 @@ async function loadCatalog(
     OPENCODE_CATALOG_LOAD_LIMIT_MS,
   );
   try {
-    // The /provider body echoes provider API keys in cleartext (measured
-    // 2026-09-02 with OPENCODE_API_KEY set: the key appears twice). Reduce it
-    // to scalars right here and never log, store or forward the raw body.
-    const url = new URL("/provider", lease.baseUrl);
-    url.searchParams.set("directory", cwd);
-    const response = await fetch(url, {
-      headers: { authorization: lease.authHeader },
-      signal: controller.signal,
-    });
+    // A row carries its provider's settings, which can hold an API key.
+    // Reduce it to scalars right here and never log, store or forward the
+    // raw body.
+    const response = await fetch(
+      new URL(folderPath("/api/model", cwd), lease.baseUrl),
+      {
+        headers: { authorization: lease.authHeader },
+        signal: controller.signal,
+      },
+    );
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
-      throw new Error(`OpenCode HTTP ${response.status} at /provider.`);
+      throw new Error(`OpenCode HTTP ${response.status} at /api/model.`);
     }
-    return allowDiscoveredModels(await response.json());
+    const models = allowDiscoveredModels(await response.json());
+    // 2.1.4 lists no model for a moment after a start (gate E4a): an empty
+    // list is a catalog that has not loaded yet, not one to keep.
+    if (models.length === 0) throw new Error("OpenCode listed no model yet.");
+    return models;
   } finally {
     scheduler.clearTimeout(timer);
   }
@@ -273,6 +345,9 @@ export interface OpenCodeTransportOptions {
   agent?: string;
   supervisor?: OpenCodeSupervisor;
   sessionId?: string;
+  // The environment of the session's shell commands, from the env the
+  // agent's conversation started with (supervisor.toolEnvironment).
+  toolEnvironment?: Record<string, string>;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: OpenCodeSafeErrorSink;
   streamSilenceSink?: OpenCodeStreamSilenceSink;
@@ -326,6 +401,8 @@ export async function handleOpenCodePermission(
     return "answered";
   }
   if (result.decision.decision === "deny") {
+    // With a message, 2.1.4 fails only this tool with the reason, and the
+    // turn goes on (2026-10-25).
     await options.reply("reject", result.decision.reason);
     options.sink({
       kind: "system_text",
@@ -346,6 +423,7 @@ interface TrackedTool {
   input: Record<string, unknown>;
   callEmitted: boolean;
   terminal: boolean;
+  calledAt?: number;
 }
 
 function toolCall(tool: TrackedTool): NormalizedEvent {
@@ -363,6 +441,7 @@ export function interruptedToolResults(
   const results: NormalizedEvent[] = [];
   for (const tool of tools) {
     if (!tool.terminal) {
+      tool.terminal = true;
       if (!tool.callEmitted) {
         tool.callEmitted = true;
         results.push(toolCall(tool));
@@ -378,40 +457,29 @@ export function interruptedToolResults(
   return results;
 }
 
-export function toolUpdateEvents(
-  tool: TrackedTool,
-  update: {
-    status: "pending" | "running" | "completed" | "error";
-    input: Record<string, unknown>;
-    output?: string;
-    error?: string;
-    exitCode?: number;
-    durationMs?: number;
-  },
-): NormalizedEvent[] {
-  tool.input = update.input;
-  const events: NormalizedEvent[] = [];
-  const terminal = update.status === "completed" || update.status === "error";
-  if (!tool.callEmitted && (Object.keys(update.input).length > 0 || terminal)) {
-    tool.callEmitted = true;
-    events.push(toolCall(tool));
-  }
-  if (!tool.terminal && terminal) {
-    tool.terminal = true;
-    events.push({
-      kind: "tool_result",
-      toolUseId: tool.callId,
-      content: update.output ?? update.error ?? "",
-      ...(update.durationMs !== undefined
-        ? { durationMs: update.durationMs }
-        : {}),
-      ...(update.status === "error" ||
-      (update.exitCode !== undefined && update.exitCode !== 0)
-        ? { isError: true }
-        : {}),
-    });
-  }
-  return events;
+// The state of one turn that the stream loop and send() share.
+interface TurnInput {
+  // The id of the prompt's input, from the prompt answer. null until then.
+  id: string | null;
+  // The turn's busy period began: OpenCode delivered this turn's input.
+  armed: boolean;
+  // The server time of that delivery, for "idle after the prompt".
+  deliveredAt?: number;
+  // Frames that come before the prompt answer, in order: the deliveries and
+  // the terminal frames of the session, decided once the id is known.
+  early: Array<
+    | { kind: "delivered"; id: string; at?: number }
+    | { kind: "terminal"; frame: Record<string, unknown> }
+  >;
+  // Isomux rejected a request of the turn's own session without a message.
+  // 2.1.4 then ends the busy period as interrupted/shutdown (T3), which a
+  // member's Deny on 1.18.35 ended as completed (2026-10-25).
+  rejected: boolean;
+  // Those rejects still in flight. Each sets rejected once OpenCode takes
+  // it, and the shutdown frame can come before the reply's answer.
+  rejecting: Array<Promise<void>>;
+  // Wakes the loop when the id arrives, to decide the early frames.
+  onId?: () => void;
 }
 
 export class OpenCodeTransport {
@@ -425,6 +493,7 @@ export class OpenCodeTransport {
   private readonly authorityBroker: OpenCodeAuthorityBroker;
   private readonly agent: string | undefined;
   private readonly resumedSessionId?: string;
+  private readonly toolEnvironment?: Record<string, string>;
   private readonly contractShapeSink?: (shape: string) => void;
   private readonly safeErrorSink?: OpenCodeSafeErrorSink;
   private readonly streamSilenceSink?: OpenCodeStreamSilenceSink;
@@ -439,6 +508,10 @@ export class OpenCodeTransport {
     load: Promise<DiscoveredOpenCodeModel[]>;
   } | null = null;
   private sessionId: string | null = null;
+  // The agent the session runs with, as far as this transport set it: the
+  // create value, or the last switch. null for a resumed session, whose
+  // stored agent can be another mode's (2.1.4's prompt has no agent field).
+  private sessionAgent: string | null = null;
   private initializing: Promise<{
     sessionId: string;
     settle: () => void;
@@ -452,17 +525,28 @@ export class OpenCodeTransport {
   // that stopped answering replaces it even while other turns run on it.
   private promptSent = false;
   private promptSentAt = 0;
+  private turnInput: TurnInput = {
+    id: null,
+    armed: false,
+    early: [],
+    rejected: false,
+    rejecting: [],
+  };
   // A failed turn's session stop that is still in flight. The next prompt
-  // waits on it, so that the late abort does not stop the next turn.
+  // waits on it, so that the late interrupt does not stop the next turn.
   private sessionStop: Promise<void> | null = null;
   // Open permission requests: request id -> OpenCode session id. OpenCode
   // runs the tool calls of one step in parallel, and each can ask at once.
   private pendingPermissions = new Map<string, string>();
+  // The open turn's question forms: form id -> session id.
+  private openForms = new Map<string, string>();
   // The open turn's subagent sessions, nested ones included.
   private subagentSessions = new Set<string>();
   // The open turn's sink, so a request that OpenCode closes outside a member
   // answer can be withdrawn from the orchestrator.
   private turnSink: EventSink | null = null;
+  // Restarts the open turn's progress check after a member answer.
+  private resumeProgressCheck: (() => void) | null = null;
   private closed = false;
   private authorityBinding: OpenCodeAuthorityBinding | null = null;
 
@@ -488,6 +572,7 @@ export class OpenCodeTransport {
       : options.systemPrompt;
     this.agent = options.agent;
     this.resumedSessionId = options.sessionId;
+    this.toolEnvironment = options.toolEnvironment;
     this.contractShapeSink = options.contractShapeSink;
     this.safeErrorSink = options.safeErrorSink;
     this.streamSilenceSink = options.streamSilenceSink;
@@ -520,6 +605,11 @@ export class OpenCodeTransport {
 
   modelId(): string {
     return this.model;
+  }
+
+  // The agent this transport's mode runs with: build for a normal session.
+  private modeAgent(): string {
+    return this.agent ?? "build";
   }
 
   private catalog(): Promise<DiscoveredOpenCodeModel[]> {
@@ -629,7 +719,7 @@ export class OpenCodeTransport {
     this.lease = lease;
     const settle = () => lease.settle();
     try {
-      // A turn-sending transport loads the catalog alongside POST /session.
+      // A turn-sending transport loads the catalog alongside the session.
       if (this.systemPrompt !== undefined) {
         const load = this.catalog();
         load.catch(() => {});
@@ -640,23 +730,33 @@ export class OpenCodeTransport {
         sessionId = this.resumedSessionId;
       } else {
         onStep?.("session");
+        const agent = this.modeAgent();
         const init = {
           method: "POST",
-          body: JSON.stringify({ title: "Isomux OpenCode session" }),
+          // C1: the agent and its full rule list. The location has no
+          // workspace: 2.1.4 then runs shell commands with the session's
+          // environment (core/src/shell.ts:268-272).
+          body: JSON.stringify({
+            title: "Isomux OpenCode session",
+            location: { directory: this.cwd },
+            agent,
+            permissions: openCodeAgentRules(agent),
+          }),
         };
         const body = allowSession(
           withinTurn
             ? await this.withinDeadline(
                 (signal) =>
-                  this.request("/session", { ...init, signal }).then((r) =>
+                  this.request("/api/session", { ...init, signal }).then((r) =>
                     r.json(),
                   ),
                 { notice: sink },
               )
-            : await this.request("/session", init).then((r) => r.json()),
+            : await this.request("/api/session", init).then((r) => r.json()),
         );
-        this.contractShapeSink?.("http:session:{id:string}");
+        this.contractShapeSink?.("http:session:{data:{id:string}}");
         sessionId = body.id;
+        this.sessionAgent = agent;
       }
       this.sessionId = sessionId;
       sink({ kind: "system_init", sessionId, model: this.model });
@@ -684,8 +784,8 @@ export class OpenCodeTransport {
       if (event.kind === "turn_completed") {
         if (settled) return;
         settled = true;
-        // OpenCode emits per-step charges, including compaction. A repeated
-        // part update replaces its snapshot; it must not charge the turn twice.
+        // OpenCode charges per step and per compaction. A repeated frame
+        // replaces its snapshot; it must not charge the turn twice.
         let usage: TokenUsage | undefined;
         let cost: number | undefined;
         for (const step of billedSteps.values()) {
@@ -728,11 +828,11 @@ export class OpenCodeTransport {
         // arrives late is refused in the same way (consumeEvents).
         const rejected = this.rejectPendingPermission();
         // A turn that fails after its prompt went out stops its session, so
-        // that it does not run on unseen. The abort comes after the reject,
-        // as in abort(). A stopped server has nothing to stop, and a marked
-        // one is replaced. After a failure OpenCode reported itself, the
-        // session is idle already and the abort changes nothing: one rule
-        // for every failure is deliberate.
+        // that it does not run on unseen. The interrupt comes after the
+        // reject, as in abort(). A stopped server has nothing to stop, and a
+        // marked one is replaced. After a failure OpenCode reported itself,
+        // the session is idle already and the interrupt changes nothing: one
+        // rule for every failure is deliberate.
         if (
           event.status === "failed" &&
           promptOut &&
@@ -740,7 +840,7 @@ export class OpenCodeTransport {
           event.error !== OPENCODE_SERVER_UNRESPONSIVE_FAILURE &&
           this.sessionId
         ) {
-          const path = `/session/${encodeURIComponent(this.sessionId)}/abort`;
+          const path = `/api/session/${encodeURIComponent(this.sessionId)}/interrupt`;
           const stop: Promise<void> = rejected
             .then(() => this.request(path, { method: "POST" }))
             .then(
@@ -755,7 +855,9 @@ export class OpenCodeTransport {
         for (const id of this.pendingPermissions.keys())
           sink({ kind: "approval_withdrawn", approvalId: id });
         this.pendingPermissions.clear();
+        this.openForms.clear();
         this.turnSink = null;
+        this.resumeProgressCheck = null;
         this.authorityBinding?.deactivate();
         if (turnStarted) this.lease?.endTurn();
         controller?.abort();
@@ -825,6 +927,13 @@ export class OpenCodeTransport {
       this.activeTurn = true;
       this.abortRequested = false;
       this.promptSent = false;
+      this.turnInput = {
+        id: null,
+        armed: false,
+        early: [],
+        rejected: false,
+        rejecting: [],
+      };
       controller = new AbortController();
       this.abortController = controller;
       step = "event_stream";
@@ -863,6 +972,25 @@ export class OpenCodeTransport {
         );
       }
       if (settled) return;
+      const session = encodeURIComponent(sessionId);
+      // 1010dd4b: the session's shell commands run with the environment of
+      // the agent's conversation, without the server's password. The store
+      // is in memory, so a replaced server needs it again: every turn.
+      if (this.toolEnvironment) {
+        step = "environment";
+        await this.request(`/api/session/${session}/environment`, {
+          method: "PUT",
+          signal: controller.signal,
+          body: JSON.stringify({ variables: this.toolEnvironment }),
+        });
+      }
+      if (settled) return;
+      step = "mcp";
+      await this.syncMcpServers(controller.signal, emit);
+      if (settled) return;
+      step = "config";
+      await this.requireIsomuxConfig(controller.signal, emit);
+      if (settled) return;
       step = "safety_plugin";
       await this.requireSafetyPlugin(controller.signal, emit);
       if (settled) return;
@@ -871,33 +999,92 @@ export class OpenCodeTransport {
       if (settled) return;
       await this.previousSessionStop();
       if (settled) return;
-      // A stop during the catalog wait or the wait above: no prompt is out,
-      // so none goes.
+      // A stop during the waits above: no prompt is out, so none goes.
       if (this.abortRequested) {
         emit({ kind: "turn_completed", status: "interrupted" });
         return;
       }
       if (notice) emit({ kind: "system_text", text: notice });
-      step = "prompt";
+      // R7: the session runs with this mode's agent and its rules. 2.1.4
+      // changes an agent only through this route; PATCH ignores the field
+      // (2026-10-25).
+      const agent = this.modeAgent();
+      if (this.sessionAgent !== agent) {
+        // Rules set on the session come after the agent's own, so the
+        // session takes the new agent's rules first (C1).
+        step = "permissions";
+        await this.request(`/api/session/${session}`, {
+          method: "PATCH",
+          signal: controller.signal,
+          body: JSON.stringify({ permissions: openCodeAgentRules(agent) }),
+        });
+        if (settled) return;
+        step = "agent";
+        await this.request(`/api/session/${session}/agent`, {
+          method: "POST",
+          signal: controller.signal,
+          body: JSON.stringify({ agent }),
+        });
+        this.sessionAgent = agent;
+      }
+      if (settled) return;
+      // A PUT of the same value changes nothing for the model.
+      step = "instructions";
+      try {
+        await this.request(
+          `/api/experimental/session/${session}/instructions/entries/${OPENCODE_INSTRUCTIONS_KEY}`,
+          {
+            method: "PUT",
+            signal: controller.signal,
+            body: JSON.stringify({ value: this.systemPrompt }),
+          },
+        );
+      } catch (error) {
+        if (asRecord(error).statusCode === 413)
+          throw new OpenCodeTurnFailure(
+            OPENCODE_INSTRUCTIONS_TOO_LARGE_FAILURE,
+            { cause: error },
+          );
+        throw error;
+      }
+      if (settled) return;
+      // E4: an explicit model on every prompt. Without one, 2.1.4 runs the
+      // prompt on its default free cloud model.
+      step = "model";
       const [providerID, modelID] = splitModel(this.model);
+      await this.request(`/api/session/${session}/model`, {
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: { providerID, id: modelID, ...(variant ? { variant } : {}) },
+        }),
+      });
+      if (settled) return;
+      if (this.abortRequested) {
+        emit({ kind: "turn_completed", status: "interrupted" });
+        return;
+      }
+      step = "prompt";
       promptOut = true;
       this.promptSent = true;
       this.promptSentAt = Date.now();
-      await this.request(
-        `/session/${encodeURIComponent(sessionId)}/prompt_async`,
-        {
-          method: "POST",
-          signal: controller.signal,
-          body: JSON.stringify({
-            model: { providerID, modelID },
-            ...(variant ? { variant } : {}),
-            ...(this.agent ? { agent: this.agent } : {}),
-            system: this.systemPrompt,
-            parts,
-          }),
-        },
+      const response = await this.request(`/api/session/${session}/prompt`, {
+        method: "POST",
+        signal: controller.signal,
+        // The 2.1.4 prompt takes text only.
+        body: JSON.stringify({
+          text: parts.map((part) => part.text).join("\n\n"),
+        }),
+      });
+      const input = stringField(
+        asRecord(asRecord(await response.json()).data),
+        "id",
       );
-      this.contractShapeSink?.("http:prompt_async:success");
+      this.contractShapeSink?.("http:prompt:{data:{id:string}}");
+      if (!input)
+        throw new Error("OpenCode returned an invalid prompt answer.");
+      this.turnInput.id = input;
+      this.turnInput.onId?.();
     } catch (error) {
       if (error instanceof OpenCodeTurnStopped) {
         emit({ kind: "turn_completed", status: "interrupted" });
@@ -932,7 +1119,7 @@ export class OpenCodeTransport {
 
   async abort(): Promise<void> {
     // No prompt is out during a pre-stream wait, so OpenCode has nothing to
-    // abort, and a request to this folder would wait on its setup too.
+    // interrupt, and a request to this folder would wait on its setup too.
     if (this.stopPreStreamWait) {
       this.stopPreStreamWait();
       return;
@@ -940,26 +1127,37 @@ export class OpenCodeTransport {
     if (!this.sessionId) return;
     this.abortRequested = true;
     await this.rejectPendingPermission();
-    await this.request(`/session/${encodeURIComponent(this.sessionId)}/abort`, {
-      method: "POST",
-    }).catch(() => undefined);
+    // No resume: queued input stays parked (T5).
+    await this.request(
+      `/api/session/${encodeURIComponent(this.sessionId)}/interrupt`,
+      { method: "POST" },
+    ).catch(() => undefined);
   }
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     const sessionId = this.pendingPermissions.get(approvalId);
     if (!sessionId || !this.ownsSession(sessionId)) return;
+    // C2: Isomux never sends "always", which 2.1.4 saves for the whole
+    // project (gate P2). OpenCode agents offer Allow once and Deny only, so
+    // no session rule list changes.
     if (decision.kind !== "allow_once" && decision.kind !== "deny") {
       throw new Error("OpenCode supports Allow once and Deny.");
     }
     // Out of the map while the reply is in flight, so an abort cannot answer
     // it a second time.
     this.pendingPermissions.delete(approvalId);
+    this.resumeProgressCheck?.();
     try {
       await this.replyPermission(
+        sessionId,
         approvalId,
         decision.kind === "allow_once" ? "once" : "reject",
+        decision.kind === "deny" ? decision.reason : undefined,
       );
     } catch (err) {
+      // Another reject of the session closed the request first: 2.1.4
+      // answers 404, and the request is gone (2026-10-25).
+      if (asRecord(err).statusCode === 404) return;
       // OpenCode did not take the answer, so the request is still open,
       // unless its turn ended meanwhile.
       if (this.activeTurn && this.ownsSession(sessionId))
@@ -973,36 +1171,56 @@ export class OpenCodeTransport {
 
   async getSessionMessages(): Promise<NormalizedMessage[]> {
     return this.outsideTurn(async (sessionId) => {
-      const response = await this.request(
-        `/session/${encodeURIComponent(sessionId)}/message`,
-      );
-      const messages = allowMessages(await response.json());
+      const messages = allowMessages(await this.readMessages(sessionId));
       this.contractShapeSink?.("http:message:list");
       return messages;
     });
+  }
+
+  // Every item of a session, oldest first. T7: 2.1.4 refuses a cursor
+  // together with an order, so later pages name the cursor only.
+  private async readMessages(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown[]> {
+    const items: unknown[] = [];
+    const path = `/api/session/${encodeURIComponent(sessionId)}/message`;
+    let query = "?limit=200&order=asc";
+    for (;;) {
+      const body = asRecord(
+        await this.request(`${path}${query}`, signal ? { signal } : {}).then(
+          (r) => r.json(),
+        ),
+      );
+      const page: unknown = body.data;
+      if (!Array.isArray(page))
+        throw new Error("OpenCode returned an invalid message list.");
+      items.push(...(page as unknown[]));
+      const next = stringField(asRecord(body.cursor), "next");
+      if (!next || page.length === 0) return items;
+      query = `?cursor=${encodeURIComponent(next)}&limit=200`;
+    }
   }
 
   // OpenCode copies the messages before messageId; null copies them all.
   async forkAtMessage(messageId: string | null): Promise<string> {
     return this.outsideTurn(async (sessionId) => {
       const response = await this.request(
-        `/session/${encodeURIComponent(sessionId)}/fork`,
+        `/api/session/${encodeURIComponent(sessionId)}/fork`,
         {
           method: "POST",
-          body: JSON.stringify(
-            messageId === null ? {} : { messageID: messageId },
-          ),
+          body: JSON.stringify(messageId === null ? {} : { before: messageId }),
         },
       );
       const child = allowSession(await response.json()).id;
-      this.contractShapeSink?.("http:fork:{id:string}");
+      this.contractShapeSink?.("http:fork:{data:{id:string}}");
       return child;
     });
   }
 
   async deleteSession(): Promise<void> {
     await this.outsideTurn(async (sessionId) => {
-      await this.request(`/session/${encodeURIComponent(sessionId)}`, {
+      await this.request(`/api/session/${encodeURIComponent(sessionId)}`, {
         method: "DELETE",
       });
     });
@@ -1030,8 +1248,8 @@ export class OpenCodeTransport {
     if (this.closed) return;
     this.closed = true;
     // release() only drops the supervisor reference count. It must keep this
-    // lease's endpoint fields usable until this close-time reject and abort
-    // chain finishes.
+    // lease's endpoint fields usable until this close-time reject and
+    // interrupt chain finishes.
     if (this.activeTurn)
       void this.rejectPendingPermission().then(() => this.abort());
     this.abortController?.abort();
@@ -1052,31 +1270,31 @@ export class OpenCodeTransport {
     const lease = this.lease!;
     const serverPid = lease.pid;
     const response = await this.withinDeadline(
-      (bounded) => this.request("/event", { signal: bounded }),
+      (bounded) => this.request("/api/event", { signal: bounded }),
       { signal, notice: sink },
     );
     if (!response.body) throw new Error("OpenCode event stream has no body.");
     let reader: ReadableStreamDefaultReader<Uint8Array> =
       response.body.getReader();
     let decoder = new TextDecoder();
-    const assistantMessages = new Set<string>();
-    const summaryMessages = new Set<string>();
+    const turn = this.turnInput;
+    // Text and reasoning by (message, ordinal), tools by (message, id) (T6).
     const textByPart = new Map<string, string>();
     const reasoningByPart = new Map<string, string>();
+    const reasoningStarted = new Map<string, number>();
     const tools = new Map<string, TrackedTool>();
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
     this.subagentSessions.clear();
-    // What a silence report names: the turn's open answers, its running
+    // What a silence report names: the turn's open steps, its running
     // tools, its permission names and its last frames.
-    const openAnswers = new Set<string>();
+    const openSteps = new Set<string>();
     const runningTools = new Set<string>();
     const permissionNames = new Map<string, string>();
     let retryAttempt: number | undefined;
     let lastEvent: OpenCodeStreamFrame | undefined;
     let lastTurnEvent: OpenCodeStreamFrame | undefined;
-    let hasCompletedStep = false;
-    let overflowPending = false;
+    let lastStepError: unknown;
     let settled = false;
     // A turn that ends on a sign-in failure sends auth_needed first.
     const settle = (
@@ -1085,6 +1303,7 @@ export class OpenCodeTransport {
     ): void => {
       if (settled) return;
       settled = true;
+      this.deadlineScheduler.clearTimeout(progressTimer);
       if (options.authNeeded) {
         sink({ kind: "auth_needed" });
         sink(event);
@@ -1095,6 +1314,7 @@ export class OpenCodeTransport {
     const fail = (error: unknown, context: string): void => {
       if (settled) return;
       settled = true;
+      this.deadlineScheduler.clearTimeout(progressTimer);
       onFailure(error, context);
     };
     let buffer = "";
@@ -1118,18 +1338,76 @@ export class OpenCodeTransport {
           });
       }, this.eventStreamDeadlineMs);
     };
+    // T9: the progress check. It runs after the prompt went out, restarts at
+    // every frame of the turn's sessions, and waits while a request of the
+    // turn waits for the member: a session parked on a permission stays in
+    // /api/session/active, with its parent (2026-10-25), but a member can
+    // take hours to answer.
+    let progressTimer: unknown;
+    let checking = false;
+    const armProgress = (): void => {
+      this.deadlineScheduler.clearTimeout(progressTimer);
+      if (signal.aborted || settled || !this.promptSent) return;
+      if (this.pendingPermissions.size > 0 || this.openForms.size > 0) return;
+      progressTimer = this.deadlineScheduler.setTimeout(() => {
+        if (signal.aborted || settled || checking) return;
+        checking = true;
+        void checkProgress()
+          .catch(() => armProgress())
+          .finally(() => {
+            checking = false;
+          });
+      }, OPENCODE_TURN_PROGRESS_CHECK_MS);
+    };
+    this.resumeProgressCheck = armProgress;
+    const checkProgress = async (): Promise<void> => {
+      const read = (path: string): Promise<unknown> =>
+        this.request(path, { signal }).then((r) => r.json());
+      const [rawSession, active] = await Promise.all([
+        read(`/api/session/${encodeURIComponent(sessionId)}`),
+        read("/api/session/active"),
+      ]);
+      if (signal.aborted || settled) return;
+      const session = asRecord(asRecord(rawSession).data);
+      const messages = await this.readMessages(sessionId, signal);
+      if (signal.aborted || settled) return;
+      const finished = finishedAfterInput(session, messages, turn);
+      if (finished) {
+        deliver({
+          value: sseFrames([
+            ...turnReplayFrames(sessionId, messages, turn.id),
+            outcomeFrame(sessionId, finished, turn.rejected),
+          ]),
+          fresh: true,
+          replay: true,
+        });
+        return;
+      }
+      if (asRecord(asRecord(active).data)[sessionId] !== undefined) {
+        armProgress();
+        return;
+      }
+      fail(
+        new OpenCodeTurnFailure(OPENCODE_TURN_STALLED_FAILURE, {
+          cause: new Error(),
+        }),
+        "",
+      );
+      deliver({ value: null });
+    };
     const streamFailure = async (error: unknown): Promise<unknown> =>
       (await this.serverGone(lease, serverPid))
         ? new OpenCodeTurnFailure(OPENCODE_SERVER_STOPPED_FAILURE, {
             cause: error,
           })
         : error;
-    // The pump reads the body on its own, so any frame resets the deadline,
-    // also while the loop below awaits a permission reply. A fresh read
-    // starts a new connection: the loop drops the old one's partial frame.
-    // at: when the pump read the chunk. A fresh read is a replay.
+    // The pump reads the body on its own, so any chunk resets the deadline,
+    // a heartbeat comment included, also while the loop below awaits a
+    // permission reply. A fresh read starts a new connection: the loop drops
+    // the old one's partial frame. at: when the pump read the chunk.
+    // replay: frames Isomux built from a read, not from the stream.
     type Read =
-      | { value: Uint8Array | null; fresh?: true; at?: number }
+      | { value: Uint8Array | null; fresh?: true; replay?: true; at?: number }
       | { error: unknown };
     const pending: Read[] = [];
     let waiter: PromiseWithResolvers<Read> | null = null;
@@ -1139,6 +1417,13 @@ export class OpenCodeTransport {
       if (!current) pending.push(read);
       else if ("error" in read) current.reject(read.error);
       else current.resolve(read);
+    };
+    // The prompt answer decides the frames that came before it.
+    // T9 starts here too: a prompt that OpenCode took but never delivers
+    // (its insert failed) sends no frame of the turn, only heartbeats.
+    turn.onId = () => {
+      armProgress();
+      deliver({ value: new Uint8Array(0) });
     };
     // A recovery moves the turn to a new connection. The silent one's pump
     // then stops delivering, so its late end or error does not fail the turn.
@@ -1192,8 +1477,8 @@ export class OpenCodeTransport {
       const permissions = [...this.pendingPermissions.keys()].map(
         (id) => permissionNames.get(id) ?? "unknown",
       );
-      const running = [...runningTools].map((partId) =>
-        safeJournalName(tools.get(partId)?.name),
+      const running = [...runningTools].map((key) =>
+        safeJournalName(tools.get(key)?.name),
       );
       const waitingOn: OpenCodeStreamSilence["waitingOn"] = !this.promptSent
         ? "prompt_not_sent"
@@ -1201,9 +1486,9 @@ export class OpenCodeTransport {
           ? "permission"
           : running.length > 0
             ? "tool"
-            : lastTurnEvent?.type === "session.status:retry"
+            : lastTurnEvent?.type === "session.retry.scheduled"
               ? "retry"
-              : openAnswers.size > 0
+              : openSteps.size > 0
                 ? "model"
                 : "none";
       const { openCodeLog } = this.errorContext();
@@ -1255,13 +1540,13 @@ export class OpenCodeTransport {
     // A missed deadline is evidence about this stream, not about the shared
     // server, which other agents' turns use. Only a server that does not
     // answer is marked. Otherwise the turn moves to a new stream and catches
-    // up on what the silent one missed, or fails alone.
+    // up on what the silent one missed, or fails alone. T2: /api/event
+    // replays nothing, so the catch-up comes from the session's state.
     let recoveries = 0;
-    const streamStartedAt = Date.now();
     const recover = async (): Promise<void> => {
       // The first stream may be recovered even when it got nothing after its
-      // connect frame. A later one must have delivered a heartbeat or an
-      // event, so a folder whose streams connect and go silent does not loop.
+      // connect frame. A later one must have delivered a heartbeat or a
+      // frame, so a folder whose streams connect and go silent does not loop.
       const recoverable = recoveries++ === 0 || connectionChunks > 1;
       connection++;
       void reader.cancel().catch(() => undefined);
@@ -1288,21 +1573,29 @@ export class OpenCodeTransport {
       const read = (path: string): Promise<unknown> =>
         this.request(path, { signal: bounded.signal }).then((r) => r.json());
       let next: Response;
-      let status: unknown;
-      let permissions: unknown;
-      let messages: unknown;
+      let rawSession: unknown;
+      let requests: unknown[] = [];
+      let messages: unknown[] = [];
       let promptSent = false;
       try {
-        next = await this.request("/event", { signal: bounded.signal });
+        next = await this.request("/api/event", { signal: bounded.signal });
         // OpenCode registers the listener before it answers, so a prompt
         // sent after this point is seen on the new stream.
         promptSent = this.promptSent;
-        [status, permissions, messages] = await Promise.all([
-          read("/session/status"),
-          read("/permission"),
-          read(`/session/${encodeURIComponent(sessionId)}/message`),
-          this.findSubagentSessions(streamStartedAt, read),
+        const [session, own, folder, items] = await Promise.all([
+          read(`/api/session/${encodeURIComponent(sessionId)}`),
+          read(`/api/session/${encodeURIComponent(sessionId)}/permission`),
+          // A subagent's requests are in its own session's list only; the
+          // folder's list holds every open request, each with its session.
+          read(folderPath("/api/permission/request", this.cwd)),
+          promptSent
+            ? this.readMessages(sessionId, bounded.signal)
+            : Promise.resolve([]),
         ]);
+        rawSession = session;
+        messages = items;
+        requests = [...listData(own), ...listData(folder)];
+        await this.adoptSubagents(requests, read);
       } catch {
         if (signal.aborted || settled) return;
         // A server that answered health is kept: its folder may be stuck
@@ -1319,50 +1612,42 @@ export class OpenCodeTransport {
         return;
       }
       const missed = promptSent
-        ? turnReplayFrames(sessionId, messages, this.promptSentAt)
-        : { frames: [], finishedStep: false };
-      const state = asRecord(asRecord(status)[sessionId]).type;
-      if (promptSent && state !== "busy" && state !== "retry") {
+        ? turnReplayFrames(sessionId, messages, turn.id)
+        : [];
+      const finished = promptSent
+        ? finishedAfterInput(
+            asRecord(asRecord(rawSession).data),
+            messages,
+            turn,
+          )
+        : null;
+      if (finished) {
         // The session went idle while its stream was silent. The loop below
-        // settles the turn from what it missed.
+        // settles the turn from what it missed and the outcome.
         void next.body.cancel().catch(() => undefined);
-        if (
-          !this.abortRequested &&
-          !hasCompletedStep &&
-          !missed.finishedStep &&
-          missed.error === undefined
-        ) {
-          failAlone();
-          return;
-        }
         reportSilence("completed");
         deliver({
           value: sseFrames([
-            ...missed.frames,
-            ...(missed.error === undefined
-              ? []
-              : [
-                  {
-                    type: "session.error",
-                    properties: { sessionID: sessionId, error: missed.error },
-                  },
-                ]),
-            { type: "session.idle", properties: { sessionID: sessionId } },
+            ...missed,
+            outcomeFrame(sessionId, finished, turn.rejected),
           ]),
           fresh: true,
+          replay: true,
         });
         return;
       }
-      // A permission asked while the stream was silent. The loop below drops
+      // A request asked while the stream was silent. The loop below drops
       // other sessions' requests and the ones it already handled.
-      const asked = Array.isArray(permissions)
-        ? (permissions as unknown[]).map((properties) => ({
-            type: "permission.asked",
-            properties,
-          }))
-        : [];
+      const asked = requests.map((data) => ({
+        type: "permission.asked",
+        data,
+      }));
       reportSilence("recovered");
-      deliver({ value: sseFrames([...missed.frames, ...asked]), fresh: true });
+      deliver({
+        value: sseFrames([...missed, ...asked]),
+        fresh: true,
+        replay: true,
+      });
       pump(next.body.getReader());
       armDeadline();
     };
@@ -1375,6 +1660,97 @@ export class OpenCodeTransport {
       if (read) deliver(read);
       return promise;
     };
+    // An end of this turn's busy period, mapped to the turn's end.
+    const terminal = async (frame: Record<string, unknown>): Promise<void> => {
+      const data = asRecord(frame.data);
+      if (frame.type === "session.execution.succeeded") {
+        settle({ kind: "turn_completed", status: "completed" });
+        return;
+      }
+      if (frame.type === "session.execution.interrupted") {
+        // A member's stop wins over the deny mapping below.
+        if (this.abortRequested || data.reason !== "shutdown") {
+          for (const result of interruptedToolResults(tools.values()))
+            sink(result);
+          settle({ kind: "turn_completed", status: "interrupted" });
+          return;
+        }
+        // T3: a Deny without a message ends the busy period like this. A
+        // shutdown that Isomux did not cause is a failure.
+        await Promise.all(turn.rejecting);
+        if (turn.rejected) {
+          for (const result of interruptedToolResults(tools.values()))
+            sink(result);
+          settle({ kind: "turn_completed", status: "completed" });
+          return;
+        }
+        fail(new Error(), "OpenCode shut down the turn");
+        return;
+      }
+      const error = allowError(data.error ?? lastStepError);
+      try {
+        this.safeErrorSink?.(error, this.errorContext());
+      } catch {
+        /* Logging cannot end a turn. */
+      }
+      const refusal = openCodeProviderRefusal(error, splitModel(this.model)[0]);
+      const failure =
+        refusal === null
+          ? await this.classifyProviderFailure(error, signal)
+          : null;
+      if (
+        failure === "authentication" ||
+        failure === "provider_not_connected"
+      ) {
+        const signIn = await this.signInFailure(error, failure);
+        settle(
+          {
+            kind: "turn_completed",
+            status: "failed",
+            error: signIn.error,
+            ...(signIn.pickModel ? { pickModel: true as const } : {}),
+          },
+          { authNeeded: signIn.authNeeded },
+        );
+        return;
+      }
+      // Another model fixes this turn: the line offers the picker.
+      if (failure === "model_gone" || failure === "model_refused") {
+        settle({
+          kind: "turn_completed",
+          status: "failed",
+          error:
+            failure === "model_gone"
+              ? openCodeModelGoneFailure(this.model)
+              : openCodeModelUnavailableFailure(this.model),
+          pickModel: true,
+          ...(failure === "model_gone" ? { goneModel: this.model } : {}),
+        });
+        return;
+      }
+      settle({
+        kind: "turn_completed",
+        status: "failed",
+        error: refusal ?? openCodeErrorMessage(error),
+      });
+    };
+    // The frames that came before the prompt answer, decided by its id.
+    const decideEarly = async (): Promise<boolean> => {
+      if (turn.id === null) return false;
+      const early = turn.early.splice(0);
+      for (const item of early) {
+        if (item.kind === "delivered") {
+          if (item.id === turn.id && !turn.armed) {
+            turn.armed = true;
+            turn.deliveredAt = item.at;
+          }
+        } else if (turn.armed) {
+          await terminal(item.frame);
+          return true;
+        }
+      }
+      return false;
+    };
     void (async () => {
       try {
         while (!signal.aborted) {
@@ -1384,6 +1760,7 @@ export class OpenCodeTransport {
             buffer = "";
             decoder = new TextDecoder();
           }
+          if (await decideEarly()) return;
           buffer =
             `${buffer}${decoder.decode(read.value, { stream: true })}`.replaceAll(
               "\r\n",
@@ -1391,157 +1768,302 @@ export class OpenCodeTransport {
             );
           let boundary: number;
           while ((boundary = buffer.indexOf("\n\n")) >= 0) {
-            const frame = buffer.slice(0, boundary);
+            const chunk = buffer.slice(0, boundary);
             buffer = buffer.slice(boundary + 2);
-            const data = frame
+            const text = chunk
               .split("\n")
               .filter((line) => line.startsWith("data:"))
               .map((line) => line.slice(5).trimStart())
               .join("\n");
-            if (!data) continue;
-            const raw = parseFrame(data);
-            if (!raw) continue;
-            if (!read.fresh) {
+            if (!text) continue;
+            const frame = parseFrame(text);
+            if (!frame) continue;
+            const type = typeof frame.type === "string" ? frame.type : "";
+            const data = asRecord(frame.data);
+            const frameSessionId = frameSession(frame);
+            if (!read.replay) {
               const seen = {
-                type: frameLabel(raw),
+                type: safeJournalName(frame.type),
                 at: new Date(read.at ?? Date.now()).toISOString(),
               };
               lastEvent = seen;
-              if (asRecord(raw.properties).sessionID === sessionId)
-                lastTurnEvent = seen;
+              if (frameSessionId === sessionId) lastTurnEvent = seen;
             }
-            const event = allowedEvent(raw);
-            if (!event) continue;
-            if (event.kind === "session_created") {
-              if (this.ownsSession(event.parentId))
-                this.subagentSessions.add(event.sessionId);
+            if (!frameSessionId) continue;
+            // A subagent's session: OpenCode's subagent tool runs it as a
+            // child session.
+            if (type === "session.created") {
+              const parentId = stringField(data, "parentID");
+              if (parentId && this.ownsSession(parentId))
+                this.adoptSubagent(frameSessionId);
               continue;
             }
-            // A subagent reopened with task_id sends no session.created, and
-            // after an edit and resend its parent is the session before the
-            // fork. The task part of a session this turn owns names it.
-            if (
-              event.kind === "tool" &&
-              event.subagentSessionId &&
-              this.ownsSession(event.sessionId)
-            )
-              this.subagentSessions.add(event.subagentSessionId);
+            const own = frameSessionId === sessionId;
             // A subagent waits on its requests like the agent does, and
-            // nothing else answers them. Its other events are its own.
+            // nothing else answers them. Its other frames are its own.
             if (
-              event.sessionId !== sessionId &&
+              !own &&
               !(
-                this.subagentSessions.has(event.sessionId) &&
-                (event.kind === "permission" ||
-                  event.kind === "permission_fault" ||
-                  event.kind === "question")
+                this.subagentSessions.has(frameSessionId) &&
+                (type.startsWith("permission.") || type.startsWith("form."))
               )
             )
               continue;
-            this.contractShapeSink?.(`sse:${event.kind}`);
-            if (event.kind === "assistant") {
-              if (event.completed) openAnswers.delete(event.messageId);
-              else openAnswers.add(event.messageId);
-              if (event.summary) {
-                summaryMessages.add(event.messageId);
-                assistantMessages.delete(event.messageId);
-              } else assistantMessages.add(event.messageId);
+            this.contractShapeSink?.(`sse:${safeJournalName(type)}`);
+            armProgress();
+            const created = numberField(frame, "created") ?? undefined;
+            const message = stringField(data, "assistantMessageID") ?? "";
+            if (type === "session.inbox.delivered") {
+              const inbox = stringField(data, "inboxID");
+              if (!inbox) continue;
+              if (turn.id === null)
+                turn.early.push({ kind: "delivered", id: inbox, at: created });
+              else if (inbox === turn.id && !turn.armed) {
+                turn.armed = true;
+                turn.deliveredAt = created;
+              }
+              continue;
             }
-            if (event.kind === "retry") {
-              retryAttempt = event.attempt;
+            if (TERMINAL_FRAMES.has(type)) {
+              if (turn.id === null) {
+                turn.early.push({ kind: "terminal", frame });
+                continue;
+              }
+              // A late end of an earlier busy period.
+              if (!turn.armed) continue;
+              await terminal(frame);
+              return;
+            }
+            if (type === "session.step.started") {
+              if (message) openSteps.add(message);
+              continue;
+            }
+            if (
+              type === "session.step.ended" ||
+              type === "session.step.failed"
+            ) {
+              if (message) openSteps.delete(message);
+              if (type === "session.step.failed") lastStepError = data.error;
+              const tokens = allowTokens(data.tokens);
+              const cost = numberField(data, "cost");
+              if (message && (tokens || cost !== null))
+                billedSteps.set(message, {
+                  ...(tokens ? { usage: tokens.usage } : {}),
+                  ...(cost !== null ? { cost } : {}),
+                });
+              if (type === "session.step.ended" && tokens)
+                this.completedStepSink?.(tokens.context);
+              continue;
+            }
+            if (
+              type === "session.compaction.ended" ||
+              type === "session.compaction.failed"
+            ) {
+              const tokens = allowTokens(data.tokens);
+              const cost = numberField(data, "cost");
+              if (tokens || cost !== null)
+                billedSteps.set(
+                  `compaction:${stringField(data, "inputID") ?? stringField(frame, "id") ?? type}`,
+                  {
+                    ...(tokens ? { usage: tokens.usage } : {}),
+                    ...(cost !== null ? { cost } : {}),
+                  },
+                );
+              // T4: a failed compaction does not fail the turn.
+              if (type === "session.compaction.failed")
+                sink({
+                  kind: "system_text",
+                  text: OPENCODE_COMPACTION_FAILED_NOTICE,
+                });
+              continue;
+            }
+            if (type === "session.retry.scheduled") {
+              const attempt = numberField(data, "attempt");
+              if (
+                attempt === null ||
+                !Number.isSafeInteger(attempt) ||
+                attempt < 2
+              )
+                continue;
+              // Attempt 2 is the first retry.
+              retryAttempt = attempt - 1;
               sink({
                 kind: "system_text",
                 text: openCodeRetryMessage(
-                  event.message,
-                  event.attempt,
+                  stringField(asRecord(data.error), "message") ?? undefined,
+                  retryAttempt,
                   splitModel(this.model)[0],
                 ),
               });
+              continue;
             }
             if (
-              event.kind === "text" &&
-              assistantMessages.has(event.messageId)
+              type === "session.text.delta" ||
+              type === "session.text.ended" ||
+              type === "session.reasoning.delta" ||
+              type === "session.reasoning.ended"
             ) {
-              const prior = textByPart.get(event.partId) ?? "";
-              // After a recovery, the new stream can deliver frames older
-              // than the replay. A shorter copy of text already shown is one.
-              if (
-                event.text.length < prior.length &&
-                prior.startsWith(event.text)
-              )
-                continue;
-              if (event.text.startsWith(prior)) {
-                const delta = event.text.slice(prior.length);
+              const ordinal = numberField(data, "ordinal") ?? 0;
+              const key = `${message}:${ordinal}`;
+              const reasoning = type.startsWith("session.reasoning.");
+              const parts = reasoning ? reasoningByPart : textByPart;
+              const prior = parts.get(key) ?? "";
+              let delta = "";
+              if (type.endsWith(".delta")) {
+                delta = stringField(data, "delta") ?? "";
+                parts.set(key, prior + delta);
+              } else {
+                // The ended frame holds the whole part: only what the deltas
+                // missed is new.
+                const whole = stringField(data, "text") ?? "";
+                if (whole.startsWith(prior)) delta = whole.slice(prior.length);
+                if (whole.length >= prior.length) parts.set(key, whole);
+              }
+              if (!reasoning) {
                 if (delta) sink({ kind: "assistant_text", text: delta });
-              }
-              textByPart.set(event.partId, event.text);
-            }
-            if (
-              event.kind === "reasoning" &&
-              assistantMessages.has(event.messageId)
-            ) {
-              const prior = reasoningByPart.get(event.partId) ?? "";
-              if (
-                event.text.length < prior.length &&
-                prior.startsWith(event.text)
-              )
                 continue;
-              if (event.text.startsWith(prior)) {
-                const delta = event.text.slice(prior.length);
-                if (delta)
-                  sink({
-                    kind: "thinking",
-                    text: delta,
-                    ...(event.durationMs !== undefined
-                      ? { durationMs: event.durationMs }
-                      : {}),
-                  });
-                else if (event.durationMs !== undefined)
-                  sink({
-                    kind: "thinking",
-                    text: "",
-                    durationMs: event.durationMs,
-                  });
               }
-              reasoningByPart.set(event.partId, event.text);
+              const started = reasoningStarted.get(key);
+              const durationMs =
+                type === "session.reasoning.ended" &&
+                started !== undefined &&
+                created !== undefined
+                  ? Math.max(0, created - started)
+                  : undefined;
+              if (delta || durationMs !== undefined)
+                sink({
+                  kind: "thinking",
+                  text: delta,
+                  ...(durationMs !== undefined ? { durationMs } : {}),
+                });
+              continue;
             }
-            if (event.kind === "tool") {
-              const prior = tools.get(event.partId);
-              if (!prior) {
-                tools.set(event.partId, {
-                  callId: event.callId,
-                  name: event.name,
-                  input: event.input,
+            if (type === "session.reasoning.started") {
+              const ordinal = numberField(data, "ordinal") ?? 0;
+              if (created !== undefined)
+                reasoningStarted.set(`${message}:${ordinal}`, created);
+              continue;
+            }
+            if (type.startsWith("session.tool.")) {
+              const id = stringField(data, "id");
+              if (!id) continue;
+              const key = `${message}:${id}`;
+              let tool = tools.get(key);
+              if (!tool) {
+                tool = {
+                  callId: key,
+                  name: stringField(data, "name") ?? "unknown",
+                  input: {},
                   callEmitted: false,
                   terminal: false,
-                });
+                };
+                tools.set(key, tool);
               }
-              if (event.status === "running") runningTools.add(event.partId);
-              else runningTools.delete(event.partId);
-              const tracked = tools.get(event.partId);
-              if (tracked)
-                for (const normalized of toolUpdateEvents(tracked, event))
-                  sink(normalized);
+              if (type === "session.tool.input.started") {
+                tool.name = stringField(data, "name") ?? tool.name;
+                continue;
+              }
+              if (type === "session.tool.called") {
+                tool.input = asRecord(data.input);
+                tool.calledAt ??= created;
+                const subagent = stringField(tool.input, "sessionID");
+                if (tool.name === "subagent" && subagent)
+                  this.adoptSubagent(subagent);
+                if (!tool.callEmitted && !tool.terminal) {
+                  tool.callEmitted = true;
+                  runningTools.add(key);
+                  sink(toolCall(tool));
+                }
+                continue;
+              }
+              if (type === "session.tool.progress") {
+                // The subagent tool names its child session before the
+                // child runs, new or reopened.
+                const child = stringField(asRecord(data.metadata), "sessionID");
+                if (tool.name === "subagent" && child)
+                  this.adoptSubagent(child);
+                continue;
+              }
+              if (
+                type !== "session.tool.success" &&
+                type !== "session.tool.failed"
+              )
+                continue;
+              runningTools.delete(key);
+              if (tool.terminal) continue;
+              tool.terminal = true;
+              if (!tool.callEmitted) {
+                tool.callEmitted = true;
+                sink(toolCall(tool));
+              }
+              const success = type === "session.tool.success";
+              // T3: a shell command that exits non-zero is a success frame
+              // with its exit code.
+              const exit = numberField(asRecord(data.metadata), "exit");
+              sink({
+                kind: "tool_result",
+                toolUseId: tool.callId,
+                content: success
+                  ? toolText(data.content)
+                  : (stringField(asRecord(data.error), "message") ?? ""),
+                ...(tool.calledAt !== undefined && created !== undefined
+                  ? { durationMs: Math.max(0, created - tool.calledAt) }
+                  : {}),
+                ...(!success || (exit !== null && exit !== 0)
+                  ? { isError: true }
+                  : {}),
+              });
+              continue;
             }
-            if (event.kind === "permission") {
-              if (seenPermissions.has(event.id)) continue;
-              seenPermissions.add(event.id);
+            if (type === "permission.replied") {
+              // OpenCode closed a request: by a member answer, which took it
+              // out of the map, or by another reject of its session.
+              const request = stringField(data, "requestID");
+              if (request && this.pendingPermissions.delete(request)) {
+                sink({ kind: "approval_withdrawn", approvalId: request });
+                armProgress();
+              }
+              continue;
+            }
+            if (type === "permission.asked") {
+              const id = stringField(data, "id");
+              if (!id) {
+                sink({
+                  kind: "system_text",
+                  text: OPENCODE_PERMISSION_ID_WARNING,
+                });
+                settle({
+                  kind: "turn_completed",
+                  status: "failed",
+                  error: OPENCODE_PERMISSION_ID_WARNING,
+                });
+                return;
+              }
+              if (seenPermissions.has(id)) continue;
+              seenPermissions.add(id);
+              const envelope: OpenCodePermissionEnvelope = {
+                id,
+                sessionId: frameSessionId,
+                action: data.action,
+                resources: data.resources,
+                metadata: data.metadata,
+              };
               // After the turn settles, no member can answer a request and
               // no one reads what its tool does, so it is refused unseen.
               const refuseLate = (): void =>
-                void this.replyPermission(event.id, "reject").catch(
+                void this.replyPermission(frameSessionId, id, "reject").catch(
                   () => undefined,
                 );
               if (signal.aborted) {
                 refuseLate();
                 continue;
               }
-              const handled = await handleOpenCodePermission(event, {
+              const handled = await handleOpenCodePermission(envelope, {
                 cwd: this.cwd,
                 autoApprove: !!this.agent,
                 warningState: safetyWarningState,
                 reply: (reply, message) =>
-                  this.replyPermission(event.id, reply, message),
+                  this.replyPermission(frameSessionId, id, reply, message),
                 sink,
               });
               if (handled === "answered") continue;
@@ -1550,157 +2072,61 @@ export class OpenCodeTransport {
                 continue;
               }
               const permissionName =
-                typeof event.permission === "string"
-                  ? event.permission
-                  : "unknown tool";
-              const displayPatterns = Array.isArray(event.patterns)
-                ? event.patterns.filter(
+                typeof data.action === "string" ? data.action : "unknown tool";
+              const displayPatterns = Array.isArray(data.resources)
+                ? data.resources.filter(
                     (value): value is string => typeof value === "string",
                   )
                 : [];
-              this.pendingPermissions.set(event.id, event.sessionId);
-              permissionNames.set(event.id, safeJournalName(permissionName));
+              this.pendingPermissions.set(id, frameSessionId);
+              this.deadlineScheduler.clearTimeout(progressTimer);
+              permissionNames.set(id, safeJournalName(permissionName));
               sink({
                 kind: "approval_request",
-                approvalId: event.id,
+                approvalId: id,
                 toolName: permissionName,
                 input: displayPatterns.length
                   ? { patterns: displayPatterns }
                   : {},
                 title: `OpenCode wants to use ${permissionName}`,
               });
+              continue;
             }
-            if (event.kind === "permission_fault") {
-              sink({
-                kind: "system_text",
-                text: OPENCODE_PERMISSION_ID_WARNING,
-              });
-              settle({
-                kind: "turn_completed",
-                status: "failed",
-                error: OPENCODE_PERMISSION_ID_WARNING,
-              });
-              return;
-            }
-            if (event.kind === "question") {
+            if (type === "form.created") {
+              const form = asRecord(data.form);
+              const id = stringField(form, "id");
+              if (!id || asRecord(form.metadata).kind !== "question") continue;
+              this.openForms.set(id, frameSessionId);
+              this.deadlineScheduler.clearTimeout(progressTimer);
               sink({
                 kind: "input_request",
                 inputType: "question",
-                requestId: event.id,
+                requestId: id,
               });
+              continue;
             }
-            if (event.kind === "step_finish") {
-              billedSteps.set(event.partId, {
-                usage: event.usage,
-                cost: event.cost,
-              });
-              if (!(event.messageId && summaryMessages.has(event.messageId))) {
-                overflowPending = false;
-                hasCompletedStep = true;
-                if (event.contextBreakdown)
-                  this.completedStepSink?.(event.contextBreakdown);
-              }
-            }
-            if (event.kind === "idle") {
-              if (this.abortRequested) {
-                for (const result of interruptedToolResults(tools.values()))
-                  sink(result);
-                settle({ kind: "turn_completed", status: "interrupted" });
-              } else if (overflowPending) {
-                settle({
-                  kind: "turn_completed",
-                  status: "failed",
-                  error: openCodeErrorMessage({ name: "ContextOverflowError" }),
-                });
-              } else if (hasCompletedStep) {
-                settle({
-                  kind: "turn_completed",
-                  status: "completed",
-                });
-              } else {
-                fail(
-                  new Error(),
-                  "OpenCode became idle without a recorded completion",
-                );
-              }
-              return;
-            }
-            if (event.kind === "error") {
-              if (this.abortRequested) continue;
-              try {
-                this.safeErrorSink?.(event.error, this.errorContext());
-              } catch {
-                /* Logging cannot end a turn. */
-              }
-              // OpenCode emits this before automatic compaction and replay.
-              // Idle without a later answer is the terminal overflow case.
-              if (event.error.name === "ContextOverflowError") {
-                overflowPending = true;
-                continue;
-              }
-              const refusal = openCodeProviderRefusal(
-                event.error,
-                splitModel(this.model)[0],
-              );
-              const failure =
-                refusal === null
-                  ? await this.classifyProviderFailure(event.error)
-                  : null;
-              if (
-                failure === "authentication" ||
-                failure === "provider_not_connected"
-              ) {
-                const signIn = await this.signInFailure(event.error, failure);
-                settle(
-                  {
-                    kind: "turn_completed",
-                    status: "failed",
-                    error: signIn.error,
-                    ...(signIn.pickModel ? { pickModel: true as const } : {}),
-                  },
-                  { authNeeded: signIn.authNeeded },
-                );
-                return;
-              }
-              // Another model fixes this turn: the line offers the picker.
-              if (failure === "model_gone" || failure === "model_refused") {
-                settle({
-                  kind: "turn_completed",
-                  status: "failed",
-                  error:
-                    failure === "model_gone"
-                      ? openCodeModelGoneFailure(this.model)
-                      : openCodeModelUnavailableFailure(this.model),
-                  pickModel: true,
-                  ...(failure === "model_gone"
-                    ? { goneModel: this.model }
-                    : {}),
-                });
-                return;
-              }
-              settle({
-                kind: "turn_completed",
-                status: "failed",
-                error: refusal ?? openCodeErrorMessage(event.error),
-              });
-              return;
+            if (type === "form.cancelled" || type === "form.replied") {
+              const id = stringField(data, "id") ?? stringField(data, "formID");
+              if (id) this.openForms.delete(id);
+              armProgress();
             }
           }
         }
-        if (!signal.aborted) {
+        if (!signal.aborted && !settled) {
           this.deadlineScheduler.clearTimeout(deadline);
           const failure = await streamFailure(new Error());
           if (!signal.aborted)
             fail(failure, "OpenCode event stream ended before turn completion");
         }
       } catch (error) {
-        if (!signal.aborted) {
+        if (!signal.aborted && !settled) {
           this.deadlineScheduler.clearTimeout(deadline);
           const failure = await streamFailure(error);
           if (!signal.aborted) fail(failure, "OpenCode event stream failed");
         }
       } finally {
         this.deadlineScheduler.clearTimeout(deadline);
+        this.deadlineScheduler.clearTimeout(progressTimer);
       }
     })();
     // The pump adds hops between a read and its handling. One event-loop turn
@@ -1709,26 +2135,33 @@ export class OpenCodeTransport {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
-  // The turn's subagent sessions that started while its stream was silent:
-  // their session.created events were lost, so their permission requests
-  // would be dropped as another session's.
-  private async findSubagentSessions(
-    since: number,
+  // The turn's subagent sessions among the sessions of open requests: their
+  // session.created frames were lost in a silence. A child names its parent;
+  // the walk stops at a session the turn owns, at a root, or after 8 levels.
+  private async adoptSubagents(
+    requests: unknown[],
     read: (path: string) => Promise<unknown>,
   ): Promise<void> {
-    const queue = [this.sessionId!, ...this.subagentSessions];
-    for (let owner = queue.shift(); owner; owner = queue.shift()) {
-      const children = await read(
-        `/session/${encodeURIComponent(owner)}/children`,
-      );
-      if (!Array.isArray(children)) continue;
-      for (const child of children.map(asRecord)) {
-        const id = stringField(child, "id");
-        const created = numberField(asRecord(child.time), "created");
-        if (!id || this.subagentSessions.has(id)) continue;
-        if (created !== null && created < since) continue;
-        this.subagentSessions.add(id);
-        queue.push(id);
+    const parents = new Map<string, string | null>();
+    for (const request of requests) {
+      const start = stringField(asRecord(request), "sessionID");
+      if (!start || this.ownsSession(start)) continue;
+      const chain: string[] = [];
+      let current: string | null = start;
+      for (let level = 0; current && level < 8; level++) {
+        if (this.ownsSession(current)) {
+          for (const session of chain) this.adoptSubagent(session);
+          break;
+        }
+        chain.push(current);
+        if (!parents.has(current)) {
+          const session = asRecord(
+            asRecord(await read(`/api/session/${encodeURIComponent(current)}`))
+              .data,
+          );
+          parents.set(current, stringField(session, "parentID"));
+        }
+        current = parents.get(current) ?? null;
       }
     }
   }
@@ -1746,14 +2179,36 @@ export class OpenCodeTransport {
   }
 
   private async replyPermission(
+    sessionId: string,
     id: string,
     reply: "once" | "reject",
     message?: string,
   ): Promise<void> {
-    await this.request(`/permission/${encodeURIComponent(id)}/reply`, {
-      method: "POST",
-      body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
-    });
+    const sent = this.request(
+      `/api/session/${encodeURIComponent(sessionId)}/permission/${encodeURIComponent(id)}/reply`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          decision: reply,
+          ...(message ? { message } : {}),
+        }),
+      },
+    );
+    // A reject without a message of the turn's own session ends its busy
+    // period (T3), once OpenCode took it. A 404 means another reject closed
+    // the request, and that reject counts.
+    if (reply === "reject" && !message && sessionId === this.sessionId) {
+      const turn = this.turnInput;
+      turn.rejecting.push(
+        sent.then(
+          () => {
+            turn.rejected = true;
+          },
+          () => undefined,
+        ),
+      );
+    }
+    await sent;
   }
 
   private errorContext(
@@ -1768,6 +2223,23 @@ export class OpenCodeTransport {
       ...(step ? { step } : {}),
       ...(profileDir ? { openCodeLog: openCodeLogPath(profileDir) } : {}),
     };
+  }
+
+  // A subagent's session of the open turn. A child does not inherit its
+  // parent's environment (probe, 2026-10-25), so it gets the turn's. A child
+  // shell command that runs before this PUT lands, or after it failed, runs
+  // with the server's environment.
+  private adoptSubagent(sessionId: string): void {
+    if (this.subagentSessions.has(sessionId)) return;
+    this.subagentSessions.add(sessionId);
+    if (!this.toolEnvironment) return;
+    void this.request(
+      `/api/session/${encodeURIComponent(sessionId)}/environment`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ variables: this.toolEnvironment }),
+      },
+    ).catch(() => undefined);
   }
 
   // The agent's session or one of the open turn's subagent sessions.
@@ -1785,7 +2257,7 @@ export class OpenCodeTransport {
     await Promise.all(
       [...firstByOwner].map(([owner, id]) => {
         this.forgetPermissions(owner);
-        return this.replyPermission(id, "reject").catch(() => undefined);
+        return this.replyPermission(owner, id, "reject").catch(() => undefined);
       }),
     );
   }
@@ -1813,6 +2285,21 @@ export class OpenCodeTransport {
     } finally {
       this.deadlineScheduler.clearTimeout(timer);
     }
+  }
+
+  // A pause on the deadline scheduler, ended early by the signal.
+  private pause(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = this.deadlineScheduler.setTimeout(resolve, ms);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          this.deadlineScheduler.clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+    });
   }
 
   // A request a turn makes before its stream reads. A frozen server accepts
@@ -1894,21 +2381,157 @@ export class OpenCodeTransport {
     }
   }
 
-  // OpenCode only logs a plugin that fails to load. A folder whose tools lack
-  // the safety plugin's tool runs no prompt.
+  // 1010dd4b: the folder's Isomux MCP servers become the supervisor's
+  // current list before every prompt, so a change reaches the next turn
+  // without a new server. 2.1.4 keeps a run-time add per folder until the
+  // server stops, above any config layer's server of that name
+  // (config/plugin/mcp.ts:51-53). Removal reads the folder's list and is
+  // stateless, so it holds across an Isomux restart that adopted the
+  // server: every name with Isomux's prefix (shared/mcp-servers.ts) that
+  // the list lacks is Isomux's to remove. A PUT answers before the server
+  // connects (probe, 2026-10-25), so a slow MCP server does not hold the
+  // turn.
+  private async syncMcpServers(
+    signal: AbortSignal,
+    notice: EventSink,
+  ): Promise<void> {
+    const servers = this.lease!.mcpServers;
+    const body: unknown = await this.withinDeadline(
+      (bounded) =>
+        this.request(folderPath("/api/mcp", this.cwd), {
+          signal: bounded,
+        }).then((r) => r.json()),
+      { signal, notice },
+    );
+    const serverKey = this.lease!.serverKey;
+    let kept = sentMcpServers.get(this.supervisor);
+    if (!kept || kept.serverKey !== serverKey) {
+      kept = { serverKey, sent: new Map() };
+      sentMcpServers.set(this.supervisor, kept);
+    }
+    const sent = kept.sent;
+    const key = (name: string) => `${this.cwd}\0${name}`;
+    const wanted = new Set(servers.map((server) => server.name));
+    const listed = new Set<string>();
+    const path = (name: string) =>
+      folderPath(`/api/experimental/mcp/${encodeURIComponent(name)}`, this.cwd);
+    for (const row of listData(body).map(asRecord)) {
+      const name = stringField(row, "name");
+      if (!name) continue;
+      listed.add(name);
+      if (!name.startsWith(MCP_SERVER_PREFIX) || wanted.has(name)) continue;
+      sent.delete(key(name));
+      try {
+        await this.request(path(name), { method: "DELETE", signal });
+      } catch (error) {
+        // Another turn in the folder removed it first.
+        if (asRecord(error).statusCode !== 404) throw error;
+      }
+    }
+    for (const server of servers) {
+      const hash = mcpServerHash(server);
+      // A server the folder still lists with the config Isomux sent: a
+      // repeated PUT costs up to 0.94 s (probe, 2026-10-25) and changes
+      // nothing. One OpenCode marks failed stays listed; OpenCode retries it.
+      if (listed.has(server.name) && sent.get(key(server.name)) === hash)
+        continue;
+      sent.delete(key(server.name));
+      await this.request(path(server.name), {
+        method: "PUT",
+        signal,
+        body: JSON.stringify({ config: openCodeMcpServerConfig(server) }),
+      });
+      sent.set(key(server.name), hash);
+    }
+  }
+
+  // C3: 2.1.4 drops a malformed OPENCODE_CONFIG_CONTENT with only a
+  // warning, and the folder then runs without Isomux's rules. Isomux's top
+  // layer is the document without a path that defines the cron agent: a
+  // well-known remote document has no path either. Once per server process
+  // and folder; only a pass is kept.
+  private async requireIsomuxConfig(
+    signal: AbortSignal,
+    notice: EventSink,
+  ): Promise<void> {
+    const serverKey = this.lease!.serverKey;
+    let kept = checkedConfigs.get(this.supervisor);
+    if (!kept || kept.serverKey !== serverKey) {
+      kept = { serverKey, folders: new Set() };
+      checkedConfigs.set(this.supervisor, kept);
+    }
+    if (kept.folders.has(this.cwd)) return;
+    const body: unknown = await this.withinDeadline(
+      (bounded) =>
+        this.request(folderPath("/api/config", this.cwd), {
+          signal: bounded,
+        }).then((r) => r.json()),
+      { signal, notice },
+    );
+    const entries = Array.isArray(body) ? body.map(asRecord) : [];
+    const loaded = entries.some((entry) => {
+      if (entry.type !== "document" || entry.path !== undefined) return false;
+      const agent = asRecord(asRecord(entry.info).agents)[OPENCODE_CRON_AGENT];
+      return typeof agent === "object" && agent !== null;
+    });
+    if (!loaded)
+      throw new OpenCodeTurnFailure(OPENCODE_SETTINGS_MISSING_FAILURE);
+    kept.folders.add(this.cwd);
+  }
+
+  // S2: OpenCode 2.1.4 loads plugins fail-open, lazily per folder, and a
+  // project plugin with the same id displaces Isomux's, so before every
+  // prompt the folder's plugin rows must show the Isomux plugin active and
+  // alone with its id. An active row names the plugin's entry file; a row
+  // whose load failed names the folder (gate sp-p3, 2026-10-25).
   private async requireSafetyPlugin(
     signal: AbortSignal,
     notice: EventSink,
   ): Promise<void> {
-    const ids: unknown = await this.withinDeadline(
-      (bounded) =>
-        this.request("/experimental/tool/ids", { signal: bounded }).then((r) =>
-          r.json(),
-        ),
-      { signal, notice },
-    );
-    if (!Array.isArray(ids) || !ids.includes(OPENCODE_SAFETY_TOOL))
-      throw new OpenCodeTurnFailure(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
+    const dir = openCodeSafetyPluginDir(this.lease!.profileDir);
+    const ours = (row: Record<string, unknown>): boolean => {
+      const source = asRecord(row.source);
+      return (
+        source.type === "local" &&
+        (source.path === dir || source.path === join(dir, "index.js"))
+      );
+    };
+    const refuse = () =>
+      new OpenCodeTurnFailure(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
+    for (let waited = 0; ; waited += OPENCODE_LIST_POLL_MS) {
+      const body: unknown = await this.withinDeadline(
+        (bounded) =>
+          this.request(folderPath("/api/plugin", this.cwd), {
+            signal: bounded,
+          }).then((r) => r.json()),
+        { signal, notice },
+      );
+      const rows = listData(body).map(asRecord);
+      const claimants = rows.filter(
+        (row) => row.id === OPENCODE_SAFETY_PLUGIN_ID,
+      );
+      const own = rows.filter(ours);
+      // Another row with the plugin's id, or two of them: an impostor.
+      if (claimants.some((row) => !ours(row)) || claimants.length > 1)
+        throw refuse();
+      const states = own.map((row) => asRecord(row.state).status);
+      if (states.some((state) => state !== "active" && state !== "loading"))
+        throw refuse();
+      if (
+        own.some(
+          (row) =>
+            asRecord(row.state).status === "active" &&
+            row.id === OPENCODE_SAFETY_PLUGIN_ID,
+        )
+      )
+        return;
+      // An empty list, our row loading, or no row of ours yet: the folder's
+      // plugins still load (active after 357-1842 ms in 20 new folders,
+      // 2026-10-25).
+      if (waited >= this.eventStreamDeadlineMs) throw refuse();
+      await this.pause(OPENCODE_LIST_POLL_MS, signal);
+      if (signal.aborted || this.abortRequested) return;
+    }
   }
 
   // One health request, bounded by the adoption health timeout on the
@@ -1923,7 +2546,7 @@ export class OpenCodeTransport {
       OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS,
     );
     try {
-      const response = await fetch(new URL("/global/health", lease.baseUrl), {
+      const response = await fetch(new URL("/api/info", lease.baseUrl), {
         headers: { authorization: lease.authHeader },
         signal: probe.signal,
       });
@@ -1942,7 +2565,6 @@ export class OpenCodeTransport {
   ): Promise<Response> {
     if (!this.lease) throw new Error("OpenCode transport is not initialized.");
     const url = new URL(path, this.lease.baseUrl);
-    url.searchParams.set("directory", this.cwd);
     const response = await fetch(url, {
       ...init,
       headers: {
@@ -1954,7 +2576,7 @@ export class OpenCodeTransport {
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
       throw Object.assign(
-        new Error(`OpenCode HTTP ${response.status} at ${path}.`),
+        new Error(`OpenCode HTTP ${response.status} at ${url.pathname}.`),
         {
           statusCode: response.status,
         },
@@ -1965,22 +2587,36 @@ export class OpenCodeTransport {
 
   private async classifyProviderFailure(
     error: SafeOpenCodeError,
+    signal: AbortSignal,
   ): Promise<OpenCodeProviderFailure> {
     if (error.statusCode === 403) return "model_refused";
-    if (error.statusCode === 401 || error.name === "ProviderAuthError")
+    if (error.statusCode === 401 || error.name === "provider.auth")
       return "authentication";
-    if (
-      error.name !== "UnknownError" ||
-      !error.message?.startsWith(openCodeModelNotFoundPrefix(this.model))
-    )
-      return null;
+    if (error.name !== "provider.no-route") return null;
+    // R4: 2.1.4 lists no provider for a moment after a start, and an
+    // unknown model fails at once. An empty list is waited for, as the
+    // catalog is; a list that stays empty decides nothing.
     try {
-      const response = await this.request("/provider");
-      const connected = allowConnectedProviders(await response.json());
-      // A connected provider without the model: OpenCode no longer has it.
-      return connected.includes(splitModel(this.model)[0])
-        ? "model_gone"
-        : "provider_not_connected";
+      for (let waited = 0; ; waited += OPENCODE_LIST_POLL_MS) {
+        // A Stop or a close ends the wait: nothing reads the answer.
+        if (signal.aborted || this.abortRequested) return null;
+        const providers = listData(
+          await this.request(folderPath("/api/provider", this.cwd), {
+            signal,
+          }).then((r) => r.json()),
+        ).map(asRecord);
+        if (providers.length > 0) {
+          const provider = splitModel(this.model)[0];
+          // A connected provider without the model: OpenCode no longer has it.
+          return providers.some(
+            (row) => row.id === provider && row.activation === "enabled",
+          )
+            ? "model_gone"
+            : "provider_not_connected";
+        }
+        if (waited >= this.eventStreamDeadlineMs) return null;
+        await this.pause(OPENCODE_LIST_POLL_MS, signal);
+      }
     } catch {
       return null;
     }
@@ -2033,47 +2669,198 @@ export class OpenCodeTransport {
   }
 }
 
+const TERMINAL_FRAMES = new Set([
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+]);
+
+// A route that serves one folder names it in the query.
+function folderPath(path: string, cwd: string): string {
+  return `${path}?${new URLSearchParams({ "location[directory]": cwd })}`;
+}
+
+function listData(raw: unknown): unknown[] {
+  const data = asRecord(raw).data;
+  return Array.isArray(data) ? data : [];
+}
+
+// The session a frame belongs to; a form names it inside the form.
+function frameSession(frame: Record<string, unknown>): string | null {
+  const data = asRecord(frame.data);
+  return (
+    stringField(data, "sessionID") ??
+    stringField(asRecord(data.form), "sessionID")
+  );
+}
+
 function sseFrames(events: object[]): Uint8Array {
   return new TextEncoder().encode(
     events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
   );
 }
 
-// The open turn's answers from GET /session/:id/message, as the frames the
-// event stream sends for them: the assistant messages OpenCode created after
-// the prompt went out. Earlier ones belong to earlier turns, and OpenCode may
-// not have stored this turn's user message yet. error: the error of the
-// turn's last answer, which the stream sends as session.error.
+// The outcome of a session that went idle after this turn's input, or null:
+// from GET /api/session/:id (its idle time is a server time, compared with
+// the server time of the input's delivery), or from an idle item after the
+// turn's own input in its messages.
+function finishedAfterInput(
+  session: Record<string, unknown>,
+  messages: unknown[],
+  turn: TurnInput,
+): string | null {
+  const idle = numberField(asRecord(session.time), "idle");
+  const outcome = stringField(session, "outcome");
+  if (
+    turn.armed &&
+    turn.deliveredAt !== undefined &&
+    idle !== null &&
+    idle >= turn.deliveredAt &&
+    outcome
+  )
+    return outcome;
+  if (turn.id === null) return null;
+  const items = messages.map(asRecord);
+  const input = items.findIndex(
+    (item) => item.type === "user" && item.id === turn.id,
+  );
+  if (input < 0) return null;
+  const after = items.slice(input + 1).find((item) => item.type === "idle");
+  return after ? (stringField(after, "outcome") ?? null) : null;
+}
+
+// The terminal frame that a session's outcome stands for.
+function outcomeFrame(
+  sessionId: string,
+  outcome: string,
+  rejected: boolean,
+): object {
+  if (outcome === "succeeded")
+    return {
+      type: "session.execution.succeeded",
+      data: { sessionID: sessionId },
+    };
+  if (outcome === "interrupted")
+    return {
+      type: "session.execution.interrupted",
+      data: { sessionID: sessionId, reason: rejected ? "shutdown" : "user" },
+    };
+  return { type: "session.execution.failed", data: { sessionID: sessionId } };
+}
+
+// The open turn's answers from its messages, as the frames the stream sends
+// for them: the assistant items after the turn's own input. Earlier ones
+// belong to earlier turns. The loop takes from them only what it has not
+// shown (R3): an ended part adds the text the stream missed, and a tool
+// already called or ended is not shown again.
 function turnReplayFrames(
   sessionId: string,
-  raw: unknown,
-  promptSentAt: number,
-): { frames: object[]; finishedStep: boolean; error?: unknown } {
+  raw: unknown[],
+  inputId: string | null,
+): object[] {
+  if (inputId === null) return [];
+  const items = raw.map(asRecord);
+  const input = items.findIndex(
+    (item) => item.type === "user" && item.id === inputId,
+  );
+  if (input < 0) return [];
   const frames: object[] = [];
-  let finishedStep = false;
-  let error: unknown;
-  for (const message of Array.isArray(raw) ? raw.map(asRecord) : []) {
-    const info = asRecord(message.info);
-    const created = numberField(asRecord(info.time), "created");
-    if (info.role !== "assistant" || created === null || created < promptSentAt)
-      continue;
-    frames.push({
-      type: "message.updated",
-      properties: { sessionID: sessionId, info },
-    });
-    for (const part of Array.isArray(message.parts)
-      ? (message.parts as unknown[])
+  const frame = (type: string, data: Record<string, unknown>) =>
+    frames.push({ type, data: { sessionID: sessionId, ...data } });
+  for (const item of items.slice(input + 1)) {
+    if (item.type !== "assistant") continue;
+    const message = stringField(item, "id");
+    if (!message) continue;
+    const at = { assistantMessageID: message };
+    const ordinals = { text: 0, reasoning: 0 };
+    for (const part of Array.isArray(item.content)
+      ? item.content.map(asRecord)
       : []) {
-      frames.push({
-        type: "message.part.updated",
-        properties: { sessionID: sessionId, part },
+      if (part.type === "text" || part.type === "reasoning") {
+        frame(`session.${part.type}.ended`, {
+          ...at,
+          ordinal: ordinals[part.type]++,
+          text: stringField(part, "text") ?? "",
+        });
+        continue;
+      }
+      if (part.type !== "tool") continue;
+      const id = stringField(part, "id");
+      if (!id) continue;
+      const state = asRecord(part.state);
+      frame("session.tool.input.started", {
+        ...at,
+        id,
+        name: stringField(part, "name") ?? "unknown",
       });
-      if (asRecord(part).type === "step-finish" && info.summary !== true)
-        finishedStep = true;
+      const child = stringField(asRecord(state.metadata), "sessionID");
+      if (child)
+        frame("session.tool.progress", {
+          ...at,
+          id,
+          metadata: { sessionID: child },
+        });
+      frame("session.tool.called", { ...at, id, input: asRecord(state.input) });
+      if (state.status === "completed")
+        frame("session.tool.success", {
+          ...at,
+          id,
+          content: state.content,
+          metadata: state.metadata,
+        });
+      else if (state.status === "error" || state.status === "failed")
+        frame("session.tool.failed", { ...at, id, error: state.error });
     }
-    error = info.error ?? undefined;
+    if (numberField(asRecord(item.time), "completed") !== null)
+      frame("session.step.ended", {
+        ...at,
+        tokens: item.tokens,
+        cost: item.cost,
+      });
   }
-  return { frames, finishedStep, ...(error === undefined ? {} : { error }) };
+  return frames;
+}
+
+// A tool result's text items, one per line.
+function toolText(content: unknown): string {
+  return (Array.isArray(content) ? content.map(asRecord) : [])
+    .filter((item) => item.type === "text")
+    .map((item) => stringField(item, "text") ?? "")
+    .join("\n");
+}
+
+// A step's tokens: the usage it bills and the context it fills. In 2.1.4
+// input leaves out the cache and output leaves out reasoning (the mock's
+// 11 prompt tokens with 2 cached arrive as input 9 and cache read 2,
+// 2026-10-25). The bill keeps 1.18.35's fields; the summed total stands in
+// for 1.18.35's tokens.total, the context of one answer step.
+function allowTokens(
+  raw: unknown,
+): { usage: TokenUsage; context: OpenCodeContextBreakdown } | null {
+  const tokens = asRecord(raw);
+  const cache = asRecord(tokens.cache);
+  const input = numberField(tokens, "input");
+  const output = numberField(tokens, "output");
+  if (input === null || output === null) return null;
+  const reasoning = numberField(tokens, "reasoning") ?? 0;
+  const cacheRead = numberField(cache, "read") ?? 0;
+  const cacheWrite = numberField(cache, "write") ?? 0;
+  return {
+    usage: {
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadInputTokens: cacheRead,
+      cacheCreationInputTokens: cacheWrite,
+    },
+    context: {
+      totalTokens: input + output + reasoning + cacheRead + cacheWrite,
+      inputTokens: input,
+      outputTokens: output,
+      reasoningTokens: reasoning,
+      cacheReadInputTokens: cacheRead,
+      cacheCreationInputTokens: cacheWrite,
+    },
+  };
 }
 
 export function splitModel(model: string): [string, string] {
@@ -2084,58 +2871,51 @@ export function splitModel(model: string): [string, string] {
   return [model.slice(0, slash), model.slice(slash + 1)];
 }
 
+// The rows of GET /api/model: 2.1.4 lists the enabled models of the
+// providers it can use (gate E4a).
 export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
-  const body = asRecord(raw);
-  const connected = new Set(
-    Array.isArray(body.connected)
-      ? body.connected.filter(
-          (value): value is string => typeof value === "string",
-        )
-      : [],
-  );
   const byId = new Map<string, DiscoveredOpenCodeModel>();
-  if (!Array.isArray(body.all)) return [];
-  for (const rawProvider of body.all) {
-    const provider = asRecord(rawProvider);
-    const providerId = stringField(provider, "id");
+  for (const model of listData(raw).map(asRecord)) {
+    if (model.enabled !== true || model.status !== "active") continue;
+    const providerId = stringField(model, "providerID");
     if (!providerId || !safeCatalogId(providerId)) continue;
-    if (!connected.has(providerId)) continue;
-    const providerLabel = safeCatalogLabel(provider.name, providerId);
-    const models = asRecord(provider.models);
-    for (const [rawModelId, rawModel] of Object.entries(models)) {
-      if (!rawModelId) continue;
-      const modelId = rawModelId.startsWith(`${providerId}/`)
-        ? rawModelId.slice(providerId.length + 1)
-        : rawModelId;
-      if (!modelId || !safeCatalogId(modelId)) continue;
-      const id = `${providerId}/${modelId}`;
-      const model = asRecord(rawModel);
-      const modelLabel = safeCatalogLabel(model.name, modelId);
-      const contextLimit = positiveNumber(asRecord(model.limit), "context");
-      const inputLimit = positiveNumber(asRecord(model.limit), "input");
-      const outputLimit = positiveNumber(asRecord(model.limit), "output");
-      const variants = asRecord(model.variants);
-      const supportedEfforts = EFFORT_LEVELS.filter(({ level }) =>
-        Object.hasOwn(variants, level),
-      ).map(({ level }) => ({ level }));
-      if (!byId.has(id)) {
-        byId.set(id, {
-          id,
-          // The two house providers prefix every model; "OpenCode Zen - " or
-          // "OpenCode Go - " on each row is noise - the picker groups
-          // them as pay-as-you-go and subscription instead. Other providers
-          // keep the prefix - it disambiguates same-named models across them.
-          label:
-            providerId === "opencode" || providerId === "opencode-go"
-              ? modelLabel
-              : `${providerLabel} - ${modelLabel}`,
-          ...(contextLimit !== null ? { contextLimit } : {}),
-          ...(inputLimit !== null ? { inputLimit } : {}),
-          ...(outputLimit !== null ? { outputLimit } : {}),
-          ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
-          supportedEfforts,
-        });
-      }
+    const rawModelId =
+      stringField(model, "modelID") ?? stringField(model, "id");
+    if (!rawModelId) continue;
+    const modelId = rawModelId.startsWith(`${providerId}/`)
+      ? rawModelId.slice(providerId.length + 1)
+      : rawModelId;
+    if (!modelId || !safeCatalogId(modelId)) continue;
+    const id = `${providerId}/${modelId}`;
+    const modelLabel = safeCatalogLabel(model.name, modelId);
+    const contextLimit = positiveNumber(asRecord(model.limit), "context");
+    const inputLimit = positiveNumber(asRecord(model.limit), "input");
+    const outputLimit = positiveNumber(asRecord(model.limit), "output");
+    const variants = new Set(
+      (Array.isArray(model.variants) ? model.variants.map(asRecord) : [])
+        .map((variant) => variant.id)
+        .filter((value): value is string => typeof value === "string"),
+    );
+    const supportedEfforts = EFFORT_LEVELS.filter(({ level }) =>
+      variants.has(level),
+    ).map(({ level }) => ({ level }));
+    if (!byId.has(id)) {
+      byId.set(id, {
+        id,
+        // The two house providers prefix every model; "OpenCode Zen - " or
+        // "OpenCode Go - " on each row is noise - the picker groups
+        // them as pay-as-you-go and subscription instead. Other providers
+        // keep the prefix - it disambiguates same-named models across them.
+        label:
+          providerId === "opencode" || providerId === "opencode-go"
+            ? modelLabel
+            : `${providerId} - ${modelLabel}`,
+        ...(contextLimit !== null ? { contextLimit } : {}),
+        ...(inputLimit !== null ? { inputLimit } : {}),
+        ...(outputLimit !== null ? { outputLimit } : {}),
+        ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
+        supportedEfforts,
+      });
     }
   }
   const compare = (
@@ -2171,107 +2951,35 @@ function safeCatalogLabel(value: unknown, fallback: string): string {
 }
 
 function allowSession(raw: unknown): { id: string } {
-  if (
-    !raw ||
-    typeof raw !== "object" ||
-    typeof (raw as { id?: unknown }).id !== "string"
-  ) {
-    throw new Error("OpenCode returned an invalid session shape.");
-  }
-  return { id: (raw as { id: string }).id };
+  const id = stringField(asRecord(asRecord(raw).data), "id");
+  if (!id) throw new Error("OpenCode returned an invalid session shape.");
+  return { id };
 }
 
+// The member's messages and the model's answers. The items OpenCode writes
+// itself (a model or agent switch, an idle marker, an instruction update)
+// are not part of the conversation, and no fork can target them.
 export function allowMessages(raw: unknown): NormalizedMessage[] {
   if (!Array.isArray(raw)) {
     throw new Error("OpenCode returned an invalid message list.");
   }
-  return raw.map((value) => {
-    const message = asRecord(value);
-    const info = asRecord(message.info);
-    const uuid = stringField(info, "id");
-    const role = info.role;
-    if (
-      !uuid ||
-      (role !== "user" &&
-        role !== "assistant" &&
-        role !== "system" &&
-        role !== "result")
-    ) {
-      throw new Error("OpenCode returned an invalid message shape.");
-    }
-    const parts = Array.isArray(message.parts) ? message.parts : [];
-    const text = parts
-      .map(asRecord)
-      .filter((part) => part.type === "text")
-      .map((part) => stringField(part, "text") ?? "")
-      .join("");
-    return { uuid, role, text };
-  });
+  const messages: NormalizedMessage[] = [];
+  for (const value of raw) {
+    const item = asRecord(value);
+    if (item.type !== "user" && item.type !== "assistant") continue;
+    const uuid = stringField(item, "id");
+    if (!uuid) throw new Error("OpenCode returned an invalid message shape.");
+    const text =
+      item.type === "user"
+        ? (stringField(item, "text") ?? "")
+        : (Array.isArray(item.content) ? item.content.map(asRecord) : [])
+            .filter((part) => part.type === "text")
+            .map((part) => stringField(part, "text") ?? "")
+            .join("");
+    messages.push({ uuid, role: item.type, text });
+  }
+  return messages;
 }
-
-type AllowedEvent =
-  | {
-      kind: "assistant";
-      sessionId: string;
-      messageId: string;
-      summary?: boolean;
-      // OpenCode set time.completed: the model request of this answer ended.
-      completed?: boolean;
-    }
-  | { kind: "retry"; sessionId: string; attempt: number; message?: string }
-  | {
-      kind: "text";
-      sessionId: string;
-      messageId: string;
-      partId: string;
-      text: string;
-    }
-  | {
-      kind: "reasoning";
-      sessionId: string;
-      messageId: string;
-      partId: string;
-      text: string;
-      durationMs?: number;
-    }
-  | {
-      kind: "tool";
-      sessionId: string;
-      partId: string;
-      callId: string;
-      name: string;
-      status: "pending" | "running" | "completed" | "error";
-      input: Record<string, unknown>;
-      output?: string;
-      error?: string;
-      exitCode?: number;
-      durationMs?: number;
-      // The session a task tool part runs its subagent in.
-      subagentSessionId?: string;
-    }
-  | {
-      kind: "permission";
-      sessionId: string;
-      id: string;
-      permission: unknown;
-      patterns: unknown;
-      metadata: unknown;
-    }
-  | { kind: "permission_fault"; sessionId: string }
-  | { kind: "question"; sessionId: string; id: string }
-  | {
-      kind: "step_finish";
-      sessionId: string;
-      partId: string;
-      messageId?: string;
-      usage?: TokenUsage;
-      contextBreakdown?: OpenCodeContextBreakdown;
-      cost?: number;
-    }
-  | { kind: "idle"; sessionId: string }
-  // A subagent's session: OpenCode's task tool runs it as a child session.
-  | { kind: "session_created"; sessionId: string; parentId: string }
-  | { kind: "error"; sessionId: string; error: SafeOpenCodeError };
 
 // What the Isomux side knows about a failure. Every field is Isomux-authored:
 // `failure` is the text the member reads.
@@ -2290,7 +2998,14 @@ export type OpenCodeTurnStep =
   | "begin_turn"
   | "event_stream"
   | "recovery"
+  | "environment"
+  | "mcp"
+  | "config"
   | "safety_plugin"
+  | "permissions"
+  | "agent"
+  | "instructions"
+  | "model"
   | "prompt";
 
 export interface OpenCodeStreamFrame {
@@ -2323,8 +3038,8 @@ export interface OpenCodeStreamSilence {
   lastTurnEvent?: OpenCodeStreamFrame;
   promptSentAt?: string;
   // At the deadline, in this order: no prompt sent yet, a permission request
-  // the member has not answered, a running tool, a provider retry, an
-  // answer whose model request has not ended, or none of these.
+  // the member has not answered, a running tool, a provider retry, a model
+  // step that has not ended, or none of these.
   waitingOn:
     | "prompt_not_sent"
     | "permission"
@@ -2334,6 +3049,7 @@ export interface OpenCodeStreamSilence {
     | "none";
   tools?: string[];
   permissions?: string[];
+  // The retry's number: 1 for the first retry.
   retryAttempt?: number;
   subagents?: number;
   probe?: OpenCodeServerProbe;
@@ -2350,6 +3066,8 @@ export type OpenCodeSafeErrorSink = (
   context?: Readonly<OpenCodeErrorContext>,
 ) => void;
 
+// name: the 2.1.4 error type of an OpenCode failure ("provider.auth"), or a
+// reviewed class name of a local one.
 export interface SafeOpenCodeError {
   name?: string;
   code?: string;
@@ -2403,34 +3121,12 @@ function allowTransportError(error: unknown): SafeOpenCodeError {
   };
 }
 
-export function parseAllowedEvent(data: string): AllowedEvent | null {
-  const raw = parseFrame(data);
-  return raw ? allowedEvent(raw) : null;
-}
-
 function parseFrame(data: string): Record<string, unknown> | null {
   try {
     return asRecord(JSON.parse(data));
   } catch {
     return null;
   }
-}
-
-// A frame's OpenCode type for the journal, with the part or status type
-// that tells what the session did: "message.part.updated:tool".
-function frameLabel(raw: Record<string, unknown>): string {
-  const properties = asRecord(raw.properties);
-  const detail =
-    raw.type === "message.part.updated"
-      ? asRecord(properties.part).type
-      : raw.type === "session.status"
-        ? asRecord(properties.status).type
-        : undefined;
-  return safeJournalName(
-    typeof raw.type === "string" && typeof detail === "string"
-      ? `${raw.type}:${detail}`
-      : raw.type,
-  );
 }
 
 // OpenCode names (event, tool and permission types) go to the journal only
@@ -2441,195 +3137,24 @@ function safeJournalName(value: unknown): string {
     : "unknown";
 }
 
-function allowedEvent(raw: Record<string, unknown>): AllowedEvent | null {
-  const type = raw.type;
-  const properties = asRecord(raw.properties);
-  const sessionId = stringField(properties, "sessionID");
-  if (!sessionId) return null;
-  if (type === "session.idle") return { kind: "idle", sessionId };
-  if (type === "session.created") {
-    const info = asRecord(properties.info);
-    const id = stringField(info, "id");
-    const parentId = stringField(info, "parentID");
-    if (!id || !parentId) return null;
-    return { kind: "session_created", sessionId: id, parentId };
-  }
-  if (type === "session.status") {
-    const status = asRecord(properties.status);
-    const attempt = numberField(status, "attempt");
-    if (
-      status.type === "retry" &&
-      attempt !== null &&
-      Number.isSafeInteger(attempt) &&
-      attempt > 0
-    )
-      return {
-        kind: "retry",
-        sessionId,
-        attempt,
-        ...(typeof status.message === "string"
-          ? { message: status.message }
-          : {}),
-      };
-  }
-  if (type === "session.error") {
-    return { kind: "error", sessionId, error: allowError(properties.error) };
-  }
-  if (type === "permission.asked") {
-    const id = stringField(properties, "id");
-    if (!id) return { kind: "permission_fault", sessionId };
-    return {
-      kind: "permission",
-      sessionId,
-      id,
-      permission: properties.permission,
-      patterns: properties.patterns,
-      metadata: properties.metadata,
-    } satisfies OpenCodePermissionEnvelope & { kind: "permission" };
-  }
-  if (type === "question.asked") {
-    const id = stringField(properties, "id");
-    if (!id) return null;
-    return { kind: "question", sessionId, id };
-  }
-  if (type === "message.updated") {
-    const info = asRecord(properties.info);
-    const messageId = stringField(info, "id");
-    if (info.role === "assistant" && messageId) {
-      return {
-        kind: "assistant",
-        sessionId,
-        messageId,
-        ...(info.summary === true ? { summary: true } : {}),
-        ...(numberField(asRecord(info.time), "completed") !== null
-          ? { completed: true }
-          : {}),
-      };
-    }
-  }
-  if (type === "message.part.updated") {
-    const part = asRecord(properties.part);
-    const messageId = stringField(part, "messageID");
-    const partId = stringField(part, "id");
-    const text = stringField(part, "text");
-    if (part.type === "text" && messageId && partId && text !== null) {
-      return { kind: "text", sessionId, messageId, partId, text };
-    }
-    if (part.type === "reasoning" && messageId && partId && text !== null) {
-      const time = asRecord(part.time);
-      const start = numberField(time, "start");
-      const end = numberField(time, "end");
-      return {
-        kind: "reasoning",
-        sessionId,
-        messageId,
-        partId,
-        text,
-        ...(start !== null && end !== null
-          ? { durationMs: Math.max(0, end - start) }
-          : {}),
-      };
-    }
-    if (part.type === "tool" && partId) {
-      const state = asRecord(part.state);
-      const status = state.status;
-      const callId = stringField(part, "callID");
-      const name = stringField(part, "tool");
-      if (!callId || !name || !isToolStatus(status)) return null;
-      const time = asRecord(state.time);
-      const metadata = asRecord(state.metadata);
-      const start = numberField(time, "start");
-      const end = numberField(time, "end");
-      // OpenCode 1.18.35's task tool names the session it runs, new or
-      // reopened with task_id, in metadata.sessionId before the subagent starts.
-      const subagentSessionId =
-        name === "task" ? stringField(metadata, "sessionId") : null;
-      return {
-        kind: "tool",
-        sessionId,
-        partId,
-        callId,
-        name,
-        status,
-        input: asRecord(state.input),
-        ...(typeof state.output === "string" ? { output: state.output } : {}),
-        ...(typeof state.error === "string" ? { error: state.error } : {}),
-        ...(numberField(metadata, "exit") !== null
-          ? { exitCode: numberField(metadata, "exit")! }
-          : {}),
-        ...(start !== null && end !== null
-          ? { durationMs: Math.max(0, end - start) }
-          : {}),
-        ...(subagentSessionId ? { subagentSessionId } : {}),
-      };
-    }
-    if (part.type === "step-finish") {
-      const tokens = asRecord(part.tokens);
-      const cache = asRecord(tokens.cache);
-      const input = numberField(tokens, "input");
-      const output = numberField(tokens, "output");
-      const reasoning = numberField(tokens, "reasoning");
-      // Per-message total is the fullness signal. OpenCode's session table also
-      // has cumulative tokens_input, tokens_output, and tokens_cache_read
-      // columns (storage.ts): if a future release makes this total cumulative,
-      // reading it through would pin every OpenCode battery at 100%.
-      const total = numberField(tokens, "total");
-      if (!partId) return null;
-      const usage =
-        input !== null && output !== null
-          ? {
-              inputTokens: input,
-              outputTokens: output,
-              cacheReadInputTokens: numberField(cache, "read") ?? 0,
-              cacheCreationInputTokens: numberField(cache, "write") ?? 0,
-            }
-          : undefined;
-      const cost = numberField(part, "cost");
-      const contextBreakdown =
-        total !== null &&
-        total >= 0 &&
-        input !== null &&
-        output !== null &&
-        reasoning !== null
-          ? {
-              totalTokens: total,
-              inputTokens: input,
-              outputTokens: output,
-              reasoningTokens: reasoning,
-              cacheReadInputTokens: numberField(cache, "read") ?? 0,
-              cacheCreationInputTokens: numberField(cache, "write") ?? 0,
-            }
-          : undefined;
-      return {
-        kind: "step_finish",
-        sessionId,
-        partId,
-        ...(messageId ? { messageId } : {}),
-        ...(usage ? { usage } : {}),
-        ...(contextBreakdown ? { contextBreakdown } : {}),
-        ...(cost !== null ? { cost } : {}),
-      };
-    }
-  }
-  return null;
-}
-
 function positiveNumber(record: Record<string, unknown>, field: string) {
   const value = numberField(record, field);
   return value !== null && value > 0 ? value : null;
 }
 
+// A 2.1.4 structured error {type, message, status, response}. The response
+// body is the provider's raw answer and is never read (T10).
 function allowError(value: unknown): SafeOpenCodeError {
   const error = asRecord(value);
-  const data = asRecord(error.data);
+  const status = error.status;
   return {
-    ...(typeof error.name === "string" ? { name: error.name } : {}),
-    ...(typeof data.message === "string" ? { message: data.message } : {}),
-    ...(typeof data.statusCode === "number"
-      ? { statusCode: data.statusCode }
-      : {}),
-    ...(typeof data.isRetryable === "boolean"
-      ? { isRetryable: data.isRetryable }
+    ...(typeof error.type === "string" ? { name: error.type } : {}),
+    ...(typeof error.message === "string" ? { message: error.message } : {}),
+    ...(typeof status === "number" &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
+      ? { statusCode: status }
       : {}),
   };
 }
@@ -2643,13 +3168,6 @@ export type OpenCodeProviderFailure =
 
 // The providers OPENCODE_API_KEY signs in to: OpenCode Zen and OpenCode Go.
 const OPENCODE_KEY_PROVIDERS = new Set(["opencode", "opencode-go"]);
-
-function allowConnectedProviders(raw: unknown): string[] {
-  const connected = asRecord(raw).connected;
-  return Array.isArray(connected)
-    ? connected.filter((value): value is string => typeof value === "string")
-    : [];
-}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
@@ -2671,15 +3189,4 @@ function numberField(
   return typeof value[key] === "number" && Number.isFinite(value[key])
     ? value[key]
     : null;
-}
-
-function isToolStatus(
-  value: unknown,
-): value is "pending" | "running" | "completed" | "error" {
-  return (
-    value === "pending" ||
-    value === "running" ||
-    value === "completed" ||
-    value === "error"
-  );
 }

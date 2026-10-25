@@ -2,7 +2,7 @@
 
 Status: OC1 implementation in progress\
 Decision dates: 2026-08-27 to 2026-08-28\
-Runtime target: OpenCode CLI 1.18.35 (upgraded 2026-10-10)
+Runtime target: `@opencode/cli` 2.1.4 (since 2026-10-25; 1.18.35 before)
 
 This is the master implementation document for OC1. Where it conflicts with
 `opencode-backend-scope.md`, this document controls. The feasibility report and
@@ -98,7 +98,7 @@ server emits `permission.asked` and accepts
 route. A small HTTP client with narrow runtime validators avoids a mixed
 contract. Validators accept unknown fields but never log them.
 
-Pin the CLI to 1.18.35. Any CLI version change requires the gate harness and
+Pin the CLI to 2.1.4 (1.18.35 until the cut-over). Any CLI version change requires the gate harness and
 event analysis to run again. Keep the historical 1.18.23 recordings as
 regression inputs; an upgrade does not require wholesale re-recording.
 
@@ -126,69 +126,73 @@ section adds the boundaries the gate forced.
 All OpenCode launches go through one supervisor-owned spawn builder. Since
 2026-10-15 it loads user and project plugins and config, as Claude agents do
 (Nil, 2026-10-11: OpenCode should match Claude). It no longer sets `--pure`,
-`OPENCODE_DISABLE_PROJECT_CONFIG=1` or `OPENCODE_DISABLE_CLAUDE_CODE=1`. The
-config layers in OpenCode 1.18.35, lowest first:
-
-1. The profile's own XDG config directory.
-2. `OPENCODE_CONFIG`: Isomux's per-profile file. It is the only layer that
-   holds the MCP header values.
-3. Project `opencode.json` and `opencode.jsonc`, from the agent's directory up
-   to the worktree root.
-4. `.opencode` directories in the project, and then the member's user config
-   directory as `OPENCODE_CONFIG_DIR`: the member's `OPENCODE_CONFIG_DIR`
-   variable when it is an absolute path, else `$XDG_CONFIG_HOME/opencode` or
-   `~/.config/opencode` of the agents' OS user. A directory that does not
-   exist is left out, because OpenCode would create it and install into it.
-5. `OPENCODE_CONFIG_CONTENT`: Isomux's file again, without the MCP headers,
-   plus the Isomux safety plugin as the last plugin.
+`OPENCODE_DISABLE_PROJECT_CONFIG=1` or `OPENCODE_DISABLE_CLAUDE_CODE=1`.
+Under 2.1.4, Isomux's own config is two layers. `OPENCODE_CONFIG` is Isomux's
+per-profile file. `OPENCODE_CONFIG_CONTENT` is the top layer, which OpenCode
+loads after user and project config: it holds Isomux's permission rules and
+agents, and lists the Isomux safety plugin last. `OPENCODE_CONFIG_DIR`
+replaces the global config folder (gate E1): it is the member's
+`OPENCODE_CONFIG_DIR` variable when it is an absolute path, else
+`$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` of the agents' OS user,
+and it is left out when that folder does not exist. No layer holds an MCP
+server: 2.1.4 takes each server whole from the last layer that names it, so
+the transport adds Isomux's servers to each folder at run time
+(`PUT /api/experimental/mcp/:name`).
 
 The profile keeps its own HOME and XDG directories, so credentials and data
-stay per member. The user config directory merges above project config, not
-below it as in a stock install. Isomux's top layer wins key by key: its
-permission blocks (top level, `build` and the `isomux-*` agents) and
-`default_agent: "build"` set when OpenCode asks the member. User and project
-config can still relax that (a `"*"` rule after `bash`, a `mode` block, which
-OpenCode merges into the agents after the top layer). They cannot turn off the
-safety policy.
+stay per member. Isomux sends its full rule list at session create, repeats it
+in each of its agent blocks in the top layer, and names the agent on every
+session (gate C1). User and project config cannot turn off the safety policy.
 
 The office safety policy does not depend on the asks. The Isomux safety plugin
-(`safety-plugin.ts`) runs the policy in `tool.execute.before` on every bash,
-read, grep, edit, write and apply_patch call and throws on a deny, as Claude's
-PreToolUse hook denies. OpenCode runs plugin hooks in load order, and the top
-layer puts this one last, so it checks the arguments after any user or project
-plugin changed them. Config cannot remove it: plugin lists from all layers are
-joined, and a duplicate entry keeps its last position. A project config that
-OpenCode rejects fails the whole folder with HTTP 400. `start-server.ts`
-bundles the plugin at each server start into the profile, with the Isomux
-server's home, state root and admin socket baked in: OpenCode runs with the
-profile's HOME, and its environment holds the member's variables. A server
-that loaded another build is not adopted. OpenCode only logs a plugin that
-fails to load, so the plugin registers a tool (`isomux_safety_active`, denied
-to the model), and the transport runs no prompt in a folder whose
-`/experimental/tool/ids` lacks it. 1.18.35 declares a `permission.ask` plugin hook but never
-calls it. Plugins are code with the member's trust, as Claude hooks are: a
-plugin that runs a command itself is outside any policy.
+(`safety-plugin.ts`) runs the policy in the `execute.before` tool hook on every
+shell, read, grep, edit, write and patch call and throws on a deny, as Claude's
+PreToolUse hook denies; OpenCode then fails that call alone. OpenCode runs
+plugin hooks in load order, and the top layer lists this plugin last, so it
+checks the arguments after any user or project plugin changed them. The hook
+also sees each call that Code Mode's `execute` makes, by the called tool's
+name, and the calls of a subagent's session. Config cannot remove it: plugin
+lists from all layers are joined, and a duplicate entry keeps its last
+position. `start-server.ts` bundles the plugin at each server start into a
+folder in the profile (2.1.4 skips a plugin entry that names a file), with the
+Isomux server's home, state root and admin socket baked in: OpenCode runs with
+the profile's HOME, and its environment holds the member's variables. A server
+that loaded another build is not adopted. OpenCode loads plugins fail-open,
+and a project plugin with the same id displaces this one, so before every
+prompt the transport requires that `GET /api/plugin` for the folder lists this
+plugin active and alone with its id. The plugin also removes the server
+password and Isomux's config variables from the environment of every shell it
+sees (the `create.before` shell hook). Plugins are code with the member's
+trust, as Claude hooks are: a plugin that runs a command itself is outside any
+policy. Two consequences of that trust are not a boundary Isomux defends. A
+project or member plugin can rename a tool for the model (a session request
+hook), and `execute.before` then sees the model's name. Formatters, language
+servers and local MCP commands start from the server's environment, password
+included: they are commands from project or member config, not agent tool
+calls.
 
-OpenCode reads plugins and config once per folder per server. A change takes
-effect when the member's server restarts: when Isomux stops normally (an
-unclean stop leaves it running, and the next boot adopts it), 10 minutes
-after its last session lease is released, or when the member's environment
-revision changes. A new conversation does not reload it,
-and Isomux never disposes a folder instance (`POST /instance/dispose`) under
-other agents (Lead, 2026-10-15). Topic labels run in a neutral folder in agent
+A member's server restarts when Isomux stops normally (an unclean stop leaves
+it running, and the next boot adopts it), 10 minutes after its last session
+lease is released, when the member's environment revision changes, or at the
+member's `/reload-plugins`. A new conversation does not restart it, and Isomux
+never disposes a folder instance under other agents (Lead, 2026-10-15).
+2.1.4 also watches the config files and plugin modules it loaded and reloads
+its plugins when one changes (`core/src/config/watch.ts`,
+`core/src/plugin/module.ts`; read in the source, not measured). Topic labels run in a neutral folder in agent
 space, so project config and plugins do not apply to them; user-level plugins
 still do, because the server loads them for every folder.
 
-Before it loads any plugin, OpenCode installs its plugin SDK from npm into
-every config folder without one: 50-83 s for a new project `.opencode` folder,
-measured 2026-10-15. The safety plugin makes that wait apply to every server,
-so `start-server.ts` marks the SDK installed in the profile's own folder, which
-holds no plugin that needs it. A turn whose pre-stream request passes the 30 s
-deadline while the server answers health keeps waiting up to 3 minutes, with
-one notice, and the server is not replaced.
+1.18.35 installed its plugin SDK from npm into every config folder before it
+loaded a plugin: 50-83 s for a new project `.opencode` folder, measured
+2026-10-15. 2.1.4 does not, and it installs npm plugin entries only below the
+profile's `$XDG_CACHE_HOME/opencode/npm` (gate P5). At folder open it still
+imports the folder's `.opencode/plugins` and starts its local MCP commands. A
+turn whose pre-stream request passes the 45 s deadline while the server
+answers health keeps waiting up to 3 minutes, with one notice, and the server
+is not replaced.
 
 Automatic updates are a separate control. The builder also sets
-`OPENCODE_DISABLE_AUTOUPDATE=1` and writes `autoupdate=false` in the approved
+`OPENCODE_DISABLE_AUTOUPDATE=1` and writes `update: "disable"` in the approved
 profile configuration. Create, restart, authentication, and model-discovery
 paths cannot spawn OpenCode directly. A repository text-scan test enforces that
 no other path launches the binary.
@@ -220,12 +224,13 @@ OpenCode uses shared servers, not one process per agent:
   other turn is active. It cannot stop a server that another session is using.
   A probe that times out means busy, not dead: a busy identity-matching server
   is adopted, never replaced (task dc2796a3);
-- a turn whose `/event` stream sends no frame for 30 s probes the server's
+- a turn whose `/api/event` stream sends no frame for 45 s (three missed 2.1.4
+  heartbeats) probes the server's
   health. A server that refuses the probe or answers with an error is marked
   for replacement at the next turn entry or acquisition (task 7e474e35).
   Otherwise the turn moves to a new stream, settles from what it missed, or
-  fails alone (task 439afbc8). The same bound covers the turn's `/event` headers and new-session POST. A
-  missed `/event` header deadline comes before any prompt, so the turn
+  fails alone (task 439afbc8). The same bound covers the turn's `/api/event` headers and new-session POST. A
+  missed `/api/event` header deadline comes before any prompt, so the turn
   recovers once onto a replacement, unless another turn is on that live
   server; then it fails. A server marked before a prompt is replaced only
   while no other turn is on it, at any later entry or acquisition; a mark
@@ -309,6 +314,9 @@ tool output. They are topology evidence, not production capacity limits. Live
 certification must measure real provider streams and tool results.
 
 ## Authentication
+
+Under 2.1.4, provider sign-ins live in the database's `credential` table
+(gate M6). This section records the OpenCode 1 design.
 
 Authentication follows the existing lazy backend flow. Isomux does not add a
 setup screen or require login before an agent can be placed at a desk. On the
@@ -410,6 +418,26 @@ The move is wider than the transport module. It also rewrites the safety plugin
 for the version 2 plugin API, the config layers and permission keys, the
 server environment in `start-server.ts`, the binary names in `runtime.ts`, the
 credential read-deny paths, and adds the database copy and rollback.
+
+2.1.4 rewrites the database it opens, so it never opens the version 1
+`opencode.db`. At the first start of a profile that is not an adoption,
+`start-server.ts` copies `opencode.db` once, with `VACUUM INTO` from a
+read-only connection, to `opencode-v2.db`, and copies the log to
+`log/opencode-v1.log`; `OPENCODE_DB` points 2.1.4 at the copy. A failed copy
+fails the start. 2.1.4 imports the version 1 sessions in the background after
+it answers health (2.3-3.3 s for 28 sessions on a 241 MB database,
+2026-10-25), so the helper records the server with `v1Import: "running"`,
+which is never adopted, polls `GET /api/experimental/migration/v1` until it
+answers "completed", then writes `opencode-v2.db.ready` and the final record.
+An "error" or "required" answer, a failed poll or 10 minutes stop the server
+and fail the start. A rollback to the previous Isomux release runs OpenCode 1 on
+`opencode.db` as it was at the copy: conversations from before the update
+continue, and OpenCode 2 history is not there. A later update continues the
+older `opencode-v2.db`, without the version 1 sessions of the rollback period.
+Agents may not read either database, and backups keep both
+(`backend-credential-paths.ts`, `backup: "keep"`). The stored-session check
+reads `opencode-v2.db` once `opencode-v2.db.ready` exists, else the version 1
+tables.
 
 Keep unchanged:
 
@@ -744,11 +772,11 @@ path only for a dead process, a process marked unresponsive by an event-stream
 deadline, or an unreachable process with no other active turn. Two sessions that find the same dead record converge on one replacement.
 This applies after an Isomux SIGKILL and across test processes, not only inside
 one supervisor object. An ordinary Isomux SIGINT or SIGTERM reaps the shared
-server before the signal is re-raised. Each launch requests `--port 0`. OpenCode 1.18.35 first tries loopback port
-4096, then asks the OS for a free port if that bind fails (checked 2026-10-11).
-The helper reads the bound port from the child's private stdout listening line
-and checks authenticated health before it writes the record. It retries only
-if a healthy child exits before its process identity can be read.
+server before the signal is re-raised. Each launch picks a free loopback port and passes it: 2.1.4 needs an explicit
+port and prints no address to parse (gate T8). The helper checks
+authenticated health before it writes the record. It retries when a healthy
+child exits before its process identity can be read, and up to 3 times when
+another process took the port first.
 Two concurrent starts are proved by a `/proc` count of the exact pinned binary,
 not by the supervisor registry. `supervisor.lock.test.ts` proves the lock on
 both Linux and macOS with a health-only stand-in binary.
@@ -861,8 +889,8 @@ provider's words offer the model picker; the `auth_needed` line does not.
 
 Isomux does not keep a copy of the server's output below `STATE_ROOT`.
 OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in
-the profile and keeps that file across servers; OpenCode 1.18.35 never rotates
-it. The server start makes its folder 0700 and the file 0600, and moves a file
+the profile and keeps that file across servers; 1.18.35 never rotated it, and
+2.1.4 trims it in place on a timer (`util/src/observability/logging.ts`). The server start makes its folder 0700 and the file 0600, and moves a file
 over 10 MB to `opencode.log.1`, replacing the older one. A failed turn's
 journal line names the log. Each silent event stream writes one
 `event_stream_silent` journal line before its recovery acts: the agent and
@@ -871,8 +899,9 @@ the turn waited on (no prompt yet, a permission request, a running tool, a
 provider retry, a model request), the health probe, how the recovery ended,
 and OpenCode's log. It carries OpenCode type and tool names only, never a
 frame body. Every start and adoption also makes the profile
-folder 0700 and `opencode.db` with its `-wal` and `-shm` files 0600: the
-database holds OpenCode's account and credential tables. A
+folder 0700 and both databases (`opencode.db` and `opencode-v2.db`) with their
+`-wal` and `-shm` files 0600: they hold OpenCode's account and credential
+tables. A
 startup stops after one non-bind error. For one diagnostic run, an operator can set
 `ISOMUX_OPENCODE_DEBUG=1`; this keeps private startup output in a mode-0600
 directory below `/tmp`. The operator must treat that output as secret-bearing

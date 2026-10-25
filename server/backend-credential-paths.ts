@@ -2,7 +2,9 @@ import { isAbsolute, resolve } from "path";
 
 // Backend login files are both protected from agent reads and omitted from
 // office backups. Keep the two consumers on this shared list: adding a backend
-// credential location must update both policies in the same change.
+// credential location must update both policies in the same change. An entry
+// with backup "keep" is only protected from agent reads: the backup keeps the
+// file, because it holds more than a login.
 //
 // The two consumers agree on the paths Isomux creates, not on every path. A
 // read regex accepts any prefix and matches one component with [^/]+. A tar
@@ -12,17 +14,21 @@ import { isAbsolute, resolve } from "path";
 // keeps x/opencode/profiles/p/opencode.json, which agents may not. Isomux
 // creates neither path.
 
-export interface BackendCredentialPath {
+export type BackendCredentialPath = {
   id:
     | "claude-login"
     | "codex-login"
     | "opencode-login"
     | "opencode-mcp-login"
+    | "opencode-database"
     | "opencode-isomux-config"
+    | "opencode-server-record"
     | "browser-profile";
   pattern: RegExp;
-  archivePatterns: (stateRootName: string) => string[];
-}
+} & (
+  | { backup?: undefined; archivePatterns: (stateRootName: string) => string[] }
+  | { backup: "keep" }
+);
 
 function anywhere(stateRootName: string, suffix: string): string[] {
   return [`${stateRootName}/${suffix}`, `${stateRootName}/*/${suffix}`];
@@ -75,12 +81,32 @@ export const BACKEND_CREDENTIAL_PATHS: readonly BackendCredentialPath[] = [
       `${root}/opencode/profiles/*/data/opencode/mcp-auth.json`,
     ],
   },
-  // The config Isomux writes for each OpenCode profile: it carries the
-  // headers of the remote MCP servers Isomux registers (integrations A2).
+  // OpenCode 2 keeps every provider credential in its database
+  // (opencode-v2.db; opencode.db is the version 1 file a profile keeps for a
+  // rollback). The database also holds every OpenCode session, so a backup
+  // keeps it.
+  {
+    id: "opencode-database",
+    pattern:
+      /(^|\/)(?:\.local\/share\/opencode|opencode\/profiles\/[^/]+\/data\/opencode)\/opencode[^/]*\.db(?:-wal|-shm)?$/,
+    backup: "keep",
+  },
+  // The config Isomux writes for each OpenCode profile. Under OpenCode 1 it
+  // carried the headers of the remote MCP servers Isomux registers
+  // (integrations A2); a profile keeps that file until its first OpenCode 2
+  // start rewrites it without them.
   {
     id: "opencode-isomux-config",
     pattern: /(^|\/)opencode\/profiles\/[^/]+\/opencode\.json$/,
     archivePatterns: (root) => [`${root}/opencode/profiles/*/opencode.json`],
+  },
+  // The server record of each OpenCode profile holds the server password,
+  // which opens every stored provider secret (gate E2). A restored record
+  // is of no use: its pid and start time never match a process again.
+  {
+    id: "opencode-server-record",
+    pattern: /(^|\/)opencode\/profiles\/[^/]+\/server\.lock$/,
+    archivePatterns: (root) => [`${root}/opencode/profiles/*/server.lock`],
   },
 ];
 
