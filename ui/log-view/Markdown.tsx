@@ -5,7 +5,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { Marked } from "marked";
+import { Marked, Renderer } from "marked";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { markedHighlight } from "marked-highlight";
@@ -62,6 +62,9 @@ hljs.registerLanguage("txt", plaintext);
 const marked = new Marked(
   markedHighlight({
     langPrefix: "hljs language-",
+    // Every Markdown code block opens <pre><code class="hljs, which raw HTML
+    // cannot (the sanitizer drops class), so renderMarkdown finds them.
+    emptyLangClass: "hljs",
     highlight(code, lang) {
       if (lang && hljs.getLanguage(lang)) {
         return hljs.highlight(code, { language: lang }).value;
@@ -82,6 +85,11 @@ marked.setOptions({
 marked.use({
   renderer: {
     html: ({ text }) => sanitizeHtml(text),
+    // Wrap tables so they scroll horizontally on narrow viewports instead of
+    // overflowing. A raw HTML table gets the raw block wrapper instead.
+    table(token) {
+      return `<div class="table-wrapper">${new Renderer().table.call(this, token)}</div>`;
+    },
     // After an inline <code>, <kbd>, <pre> or <script> tag, marked passes
     // the following text through unescaped (escaped: true), and it can hold
     // markup that marked's tag rule misses but the browser reads as a tag.
@@ -391,25 +399,57 @@ export function dollarMath(markdown: string): string[] {
 }
 
 // Exported for tests. Full markdown-to-html pipeline as used by the
-// component: marked parse plus the copy-button and table wrappers. The
+// component: marked parse plus the copy-button wrapper. The
 // translator is the first argument because this builds strings during render
 // and is not a component (internal-docs/i18n-loop.md, ruling 18).
 export function renderMarkdown(i18n: Translator, content: string): string {
   try {
     const raw = marked.parse(content) as string;
-    // Wrap <pre> blocks in a container so the copy button stays fixed outside the scroll area
-    const withCode = raw
-      .replace(
-        /<pre>/g,
-        `<div class="code-block-wrapper">${copyButtonHtml(i18n.t("common.copy"))}<pre>`,
-      )
-      .replace(/<\/pre>/g, `</pre></div>`);
-    // Wrap <table> blocks so they scroll horizontally on narrow viewports instead of overflowing
-    return withCode
-      .replace(/<table>/g, `<div class="table-wrapper"><table>`)
-      .replace(/<\/table>/g, `</table></div>`);
+    // Wrap Markdown code blocks in a container so the copy button stays fixed
+    // outside the scroll area. The code inside is escaped, so the first
+    // </code></pre> closes the block; a raw HTML <pre> never matches.
+    const button = copyButtonHtml(i18n.t("common.copy"));
+    return raw.replace(
+      /<pre><code class="hljs[^"]*">[\s\S]*?<\/code><\/pre>/g,
+      (block) => `<div class="code-block-wrapper">${button}${block}</div>`,
+    );
   } catch {
     return escapeText(content);
+  }
+}
+
+// Top-level blocks that Markdown itself emits. Markdown never emits a style
+// attribute, so a styled one is raw HTML.
+const MARKDOWN_TEXT_BLOCKS = new Set([
+  "P",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "UL",
+  "OL",
+  "BLOCKQUOTE",
+  "HR",
+]);
+const MARKDOWN_WRAPPERS =
+  "div.code-block-wrapper, div.table-wrapper, div.mermaid-wrapper, span.katex-math";
+
+// .md-content clips at its edge (ui/styles.ts), so each top-level raw HTML
+// block gets its own wrapper that scrolls sideways when the block is wider
+// than the message (task 4c2eb16a). It runs on the DOM, not in marked: marked
+// splits a raw element that holds Markdown into several html tokens, and only
+// the parsed tree has it in one piece.
+function wrapRawBlocks(root: HTMLElement) {
+  for (const el of [...root.children]) {
+    if (el.matches(MARKDOWN_WRAPPERS)) continue;
+    if (MARKDOWN_TEXT_BLOCKS.has(el.tagName) && !el.hasAttribute("style"))
+      continue;
+    const wrapper = document.createElement("div");
+    wrapper.className = "raw-html-wrapper";
+    el.replaceWith(wrapper);
+    wrapper.append(el);
   }
 }
 
@@ -490,6 +530,7 @@ export function Markdown({
     const root = containerRef.current;
     if (!root) return;
     root.innerHTML = html;
+    wrapRawBlocks(root);
     // The diagram placeholder is a CSS ::before, which cannot read the
     // catalog. The words live in the catalog anyway and ride in on the node,
     // where `content: attr(data-loading)` picks them up (ui/styles.ts). Set

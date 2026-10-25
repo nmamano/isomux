@@ -75,7 +75,9 @@ ${emitThemesCss()}
      transform makes the box the containing block for fixed and absolute
      descendants and a stacking context; overflow: clip then cuts everything
      at its edge. Unlike contain or overflow: hidden, neither makes a
-     formatting context, so the text still wraps around the bubble's corner. */
+     formatting context, so the text still wraps around the bubble's corner.
+     The raw block wrapper below is not positioned, so this still applies
+     inside it. */
   .md-content {
     font-size: 13px; line-height: 1.7; color: var(--text-secondary);
     transform: translate(0); overflow: clip; overflow-clip-margin: 2px;
@@ -111,7 +113,11 @@ ${emitThemesCss()}
      context, and a browser narrows one beside a float, so these blocks start
      below the float and keep the full width. */
   .code-block-wrapper, .md-content .table-wrapper, .md-content .mermaid-wrapper,
+  .md-content .raw-html-wrapper,
   .md-content .katex-math[data-katex-display="true"] { clear: both; }
+  /* Each top-level raw HTML block (wrapRawBlocks in ui/log-view/Markdown.tsx)
+     scrolls sideways when it is wider than the message. */
+  .md-content .raw-html-wrapper { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
   .md-content pre {
     background: var(--bg-code-block); border-radius: 8px; padding: 10px 14px;
     margin: 0; overflow-x: auto; border: 1px solid var(--border-subtle);

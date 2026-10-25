@@ -17,6 +17,9 @@ const CHROME = "/usr/bin/google-chrome";
 const FIXED = `<div style="position: fixed; inset: 0; z-index: 99999; background: red">Sign in</div>`;
 const ABSOLUTE = `<div style="position: absolute; top: -500px; left: -500px; width: 3000px; height: 3000px; z-index: 99999; background: red">Sign in</div>`;
 const TRANSFORM = `<div style="transform: translate(-300px, -300px) scale(20); background: red">Sign in</div>`;
+// Wider than the bubble, and a few pixels taller than its own box, so the
+// wrapper has overflow on both axes.
+const WIDE = `<div style="width: 700px; transform: translateY(4px); background: red">Wide row</div>`;
 const PROSE =
   "The first line of this reply wraps beside the date and the buttons in the corner of the bubble. ".repeat(
     4,
@@ -69,7 +72,13 @@ createRoot(document.getElementById("root")).render(
           : new Response(null, { status: 404 });
       },
     });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    // Headless Chrome hides scrollbars by default; the wide-block case
+    // measures one.
+    browser = await chromium.launch({
+      executablePath: CHROME,
+      headless: true,
+      ignoreDefaultArgs: ["--hide-scrollbars"],
+    });
   }, 60_000);
 
   afterAll(async () => {
@@ -91,8 +100,9 @@ createRoot(document.getElementById("root")).render(
   }
 
   // Points outside the bubble, in each direction. Each must hit the page, not
-  // the reply. The enabling condition (the payload kept its style) is part of
-  // the result so a sanitizer that strips the style cannot make it vacuous.
+  // the reply. The enabling conditions (the payload kept its style and sits
+  // in the scroll wrapper of task 4c2eb16a) are part of the result so a
+  // sanitizer that strips the style cannot make it vacuous.
   async function outside(page: Page) {
     return page.evaluate(() => {
       const md = document.querySelector<HTMLElement>(".md-content")!;
@@ -109,6 +119,8 @@ createRoot(document.getElementById("root")).render(
       ];
       return {
         payloadStyled: !!payload && payload.style.length > 0,
+        wrapped:
+          !!payload?.parentElement?.classList.contains("raw-html-wrapper"),
         inReply: points.map(([x, y]) => {
           const hit = document.elementFromPoint(x, y);
           return !!hit?.closest(".md-content");
@@ -128,10 +140,53 @@ createRoot(document.getElementById("root")).render(
       await page.close();
       expect(result).toEqual({
         payloadStyled: true,
+        wrapped: true,
         inReply: [false, false, false, false, false],
       });
     });
   }
+
+  // Task 4c2eb16a: a wide raw block scrolls sideways instead of being cut
+  // at the bubble edge. It leads the reply, so its wrapper must start below
+  // the corner and keep the full width rather than narrow beside it.
+  it("scrolls a wide raw block sideways inside the bubble", async () => {
+    const page = await open(`${WIDE}\n\n${PROSE}`);
+    const result = await page.evaluate(() => {
+      const md = document.querySelector<HTMLElement>(".md-content")!;
+      const row = md.querySelector<HTMLElement>("div[style]")!;
+      const wrapper = row.parentElement!;
+      const corner = document
+        .querySelector("time[data-message-timestamp]")!
+        .parentElement!.getBoundingClientRect();
+      const w = wrapper.getBoundingClientRect();
+      const m = md.getBoundingClientRect();
+      const before = wrapper.scrollLeft;
+      wrapper.scrollLeft = 10_000;
+      return {
+        wrapped: wrapper.classList.contains("raw-html-wrapper"),
+        // Enabling: the row is wider and taller than the wrapper's box.
+        widerThanBox: wrapper.scrollWidth > wrapper.clientWidth,
+        tallerThanBox: wrapper.scrollHeight > wrapper.clientHeight,
+        scrolled: before === 0 && wrapper.scrollLeft > 0,
+        fullWidth:
+          Math.round(w.left) === Math.round(m.left) &&
+          Math.round(w.right) === Math.round(m.right),
+        belowCorner: w.top >= corner.bottom,
+        // A vertical scrollbar takes width out of the box.
+        noVerticalScrollbar: wrapper.offsetWidth === wrapper.clientWidth,
+      };
+    });
+    await page.close();
+    expect(result).toEqual({
+      wrapped: true,
+      widerThanBox: true,
+      tallerThanBox: true,
+      scrolled: true,
+      fullWidth: true,
+      belowCorner: true,
+      noVerticalScrollbar: true,
+    });
+  });
 
   it("keeps the bubble's date and buttons above a payload", async () => {
     const page = await open(`${PROSE}\n\n${FIXED}`);

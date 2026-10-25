@@ -301,3 +301,129 @@ describe("raw HTML in Markdown", () => {
     ).toContain("const a = 1;");
   });
 });
+
+// A wide raw block scrolls sideways in its own wrapper instead of being cut
+// at the edge of the message (task 4c2eb16a). Markdown's own blocks keep
+// their layout: a scroller is a formatting context, so only blocks that
+// start below the bubble corner may be one.
+describe("raw HTML blocks scroll sideways", () => {
+  const WRAPPER = "raw-html-wrapper";
+
+  // Each top-level block as one label: "wrapped <tag>" for a scroll wrapper
+  // around one element, else the tag and its first class.
+  function topLevel(root: HTMLElement): string[] {
+    return Array.from(root.children, (el) => {
+      if (el.classList.contains(WRAPPER))
+        return `wrapped ${Array.from(el.children, (c) => c.tagName.toLowerCase()).join(" ")}`;
+      const cls = el.classList[0];
+      return cls
+        ? `${el.tagName.toLowerCase()}.${cls}`
+        : el.tagName.toLowerCase();
+    });
+  }
+
+  it("wraps each top-level raw block and no Markdown block", () => {
+    // The display math lazy-loads KaTeX, whose stylesheet has no server here.
+    const { settings } = (
+      window as unknown as {
+        happyDOM: {
+          settings: {
+            disableCSSFileLoading: boolean;
+            handleDisabledFileLoadingAsSuccess: boolean;
+          };
+        };
+      }
+    ).happyDOM;
+    settings.disableCSSFileLoading = true;
+    settings.handleDisabledFileLoadingAsSuccess = true;
+    const root = mount(
+      [
+        `<div style="width: 700px">wide div</div>`,
+        `<svg width="900" height="10" viewBox="0 0 900 10"><rect width="900" height="10"/></svg>`,
+        `<svg class="chart" width="900" height="10" viewBox="0 0 900 10"><rect width="900" height="10"/></svg>`,
+        `<p style="width: 700px">styled paragraph</p>`,
+        `<table style="width: 700px"><tr><td>styled table</td></tr></table>`,
+        `<table><tr><td>plain raw table</td></tr></table>`,
+        `<pre><code>raw code</code></pre>`,
+        `Markdown paragraph.`,
+        `# Heading`,
+        `- item`,
+        `1. one`,
+        `> quote`,
+        `---`,
+        "```ts\nconst a = 1;\n```",
+        "| a |\n|---|\n| b |",
+        "```mermaid\ngraph TD; A-->B\n```",
+        "$$x^2$$",
+      ].join("\n\n"),
+    );
+    expect(topLevel(root)).toEqual([
+      "wrapped div",
+      "wrapped svg",
+      "wrapped svg",
+      "wrapped p",
+      "wrapped table",
+      "wrapped table",
+      "wrapped pre",
+      "p",
+      "h1",
+      "ul",
+      "ol",
+      "blockquote",
+      "hr",
+      "div.code-block-wrapper",
+      "div.table-wrapper",
+      "div.mermaid-wrapper",
+      "span.katex-math",
+    ]);
+  });
+
+  // marked splits this pattern into separate html tokens around the
+  // Markdown inside, so only the browser's parse sees one div. A wrapper
+  // close emitted for a raw tag without its open ends the styled div early.
+  it("keeps a styled div that holds Markdown and raw blocks in one piece", () => {
+    const root = mount(
+      [
+        `<div style="border: 1px solid red">`,
+        `<table style="width: 700px"><tr><td>cell</td></tr></table>`,
+        `<pre style="width: 700px">pre text</pre>`,
+        `after`,
+        `</div>`,
+        `outside`,
+      ].join("\n\n"),
+    );
+    expect(topLevel(root)).toEqual(["wrapped div", "p"]);
+    const box = root.querySelector<HTMLElement>(`.${WRAPPER} > div[style]`);
+    expect(
+      Array.from(box?.children ?? [], (el) => el.tagName.toLowerCase()),
+    ).toEqual(["table", "pre", "p"]);
+    expect(box?.lastElementChild?.textContent).toBe("after");
+  });
+
+  it("gives every fenced code block a copy button and raw code none", () => {
+    const root = mount(
+      [
+        "```ts\nconst a = 1;\n```",
+        "```\nno language\n```",
+        "```\nliteral </code></pre> close\n```",
+        "- item\n\n  ```\n  in a list\n  ```",
+        "> ```\n> in a quote\n> ```",
+        `<pre><code>raw code</code></pre>`,
+      ].join("\n\n"),
+    );
+    expect(
+      Array.from(
+        root.querySelectorAll(".code-block-wrapper"),
+        (wrapper) =>
+          `${wrapper.querySelectorAll(".code-copy-btn").length} ${wrapper.querySelector(".code-copy-btn + pre code")?.textContent?.trim()}`,
+      ),
+    ).toEqual([
+      "1 const a = 1;",
+      "1 no language",
+      "1 literal </code></pre> close",
+      "1 in a list",
+      "1 in a quote",
+    ]);
+    expect(root.textContent).toContain("raw code");
+  });
+});

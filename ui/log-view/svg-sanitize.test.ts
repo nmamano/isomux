@@ -311,7 +311,10 @@ describe("renderMarkdown svg capture", () => {
     const html = renderMarkdown(EN, `    <svg><rect width="1"/></svg>`);
     // Rendered as escaped code (hljs may wrap the escaped tag in spans),
     // never passed through as a live element.
-    expect(html).toContain("<pre><code>");
+    expect(html).toContain("<pre><code");
+    expect(html.replace(/<[^>]*>/g, "")).toContain(
+      "&lt;svg&gt;&lt;rect width=&quot;1&quot;/&gt;&lt;/svg&gt;",
+    );
     expect(html).not.toContain(`<rect width="1"/>`);
   });
 
