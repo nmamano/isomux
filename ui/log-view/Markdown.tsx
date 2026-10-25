@@ -124,6 +124,7 @@ function mathPlaceholder(source: string, displayMode: boolean): string {
 // code spans and fenced code blocks their normal precedence. Dollar-delimited
 // inline math keeps currency-like text literal: neither edge may touch
 // whitespace, and a closing dollar followed by a digit is not a delimiter.
+// An escaped dollar (\$) never closes inline math either.
 marked.use({
   extensions: [
     {
@@ -179,7 +180,7 @@ marked.use({
       level: "inline",
       start: (src: string) => src.indexOf("$"),
       tokenizer(src: string) {
-        const match = /^\$(?![\s$])([\s\S]*?[^\s$])\$(?!\d)/.exec(src);
+        const match = /^\$(?![\s$])([\s\S]*?[^\s$\\])\$(?!\d)/.exec(src);
         if (!match) return undefined;
         return { type: "inlineMathDollar", raw: match[0], source: match[1] };
       },
@@ -203,7 +204,7 @@ marked.use({
       level: "inline",
       start: (src: string) => src.indexOf("$$"),
       tokenizer(src: string) {
-        const match = /^\$\$(?![\s$])([\s\S]*?[^\s$])\$\$/.exec(src);
+        const match = /^\$\$(?![\s$])([\s\S]*?[^\s$\\])\$\$/.exec(src);
         if (!match) return undefined;
         return {
           type: "inlineDisplayMathDollar",
@@ -354,6 +355,22 @@ const COPY_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" st
 const CHECK_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>`;
 const copyButtonHtml = (title: string) =>
   `<button class="copy-btn code-copy-btn" title="${title}">${COPY_SVG}</button>`;
+
+const DOLLAR_MATH_TOKENS = new Set([
+  "displayMathDollar",
+  "inlineMathDollar",
+  "inlineDisplayMathDollar",
+]);
+
+// The raw source of each dollar-delimited math span the renderer would make
+// of `markdown`, in order. Code spans and code blocks never count.
+export function dollarMath(markdown: string): string[] {
+  const spans: string[] = [];
+  void marked.walkTokens(marked.lexer(markdown), (token) => {
+    if (DOLLAR_MATH_TOKENS.has(token.type)) spans.push(token.raw);
+  });
+  return spans;
+}
 
 // Exported for tests. Full markdown-to-html pipeline as used by the
 // component: marked parse plus the copy-button and table wrappers. The

@@ -130,7 +130,7 @@ Your token acts as you, with your manager's access. Agents with the same manager
 
 Attachments arrive with a server path. Open an attachment before answering about its contents.
 
-In chat, text between two dollar signs can render as LaTeX math. To show a literal dollar sign, write \\$ or put it in a code span.`;
+In chat, text between two dollar signs can render as LaTeX math. To show a literal dollar sign, write \\$ outside code, and a plain $ inside code.`;
 
   if (agentType === "claude")
     systemPrompt += `

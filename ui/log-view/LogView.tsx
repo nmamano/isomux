@@ -58,7 +58,7 @@ import {
   pinnedViewport,
 } from "./pinned-message.ts";
 import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
-import { citationBlock } from "./cite.ts";
+import { citationBlock, insertCite } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
 import { sendAttempt, takeAttempt } from "./outbox.ts";
 import { OutboxRows } from "./OutboxRows.tsx";
@@ -1754,29 +1754,21 @@ export function LogView({
     const ta = textareaRef.current;
     const current = inputRef.current;
 
-    let newDraft: string;
-    let caretPos: number;
-
-    if (ta && document.activeElement === ta) {
-      // Insert at the textarea caret, replacing any active selection in the
-      // textarea. selectionStart/End are always defined for a focused
-      // textarea - fall back to end-of-draft just to be safe with edge
-      // browser quirks.
-      const start = ta.selectionStart ?? current.length;
-      const end = ta.selectionEnd ?? current.length;
-      const before = current.slice(0, start);
-      const after = current.slice(end);
-      const leadSep = before === "" || before.endsWith("\n") ? "" : "\n";
-      const trailSep = after === "" || after.startsWith("\n") ? "" : "\n";
-      const insertion = leadSep + block + trailSep;
-      newDraft = before + insertion + after;
-      caretPos = before.length + insertion.length;
-    } else {
-      // Append. Separate from any existing draft with a blank line so a
-      // half-written prompt and the citation don't smush together.
-      newDraft = appendBlockToDraft(current, block);
-      caretPos = newDraft.length;
-    }
+    // Insert at the textarea caret, replacing any active selection in the
+    // textarea. selectionStart/End are always defined for a focused textarea
+    // - fall back to end-of-draft just to be safe with edge browser quirks.
+    // Unfocused, append after a blank line so a half-written prompt and the
+    // citation don't smush together.
+    const { draft: newDraft, caret: caretPos } = insertCite(
+      current,
+      block,
+      ta && document.activeElement === ta
+        ? {
+            start: ta.selectionStart ?? current.length,
+            end: ta.selectionEnd ?? current.length,
+          }
+        : undefined,
+    );
 
     setInput(newDraft);
     // The textarea is controlled - wait one frame for React to flush the new

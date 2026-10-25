@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { translatorFor } from "../../shared/i18n/translate.ts";
-import { renderMarkdown } from "./Markdown.tsx";
+import { dollarMath, renderMarkdown } from "./Markdown.tsx";
 
 const EN = translatorFor("en");
 const render = (source: string) => renderMarkdown(EN, source);
@@ -31,6 +31,16 @@ describe("renderMarkdown math", () => {
       "Set $A,$B now.",
     ],
     ["a closing dollar followed by a digit", "Keep $x$2 literal.", "$x$2"],
+    [
+      "an escaped dollar after an open one",
+      String.raw`Use $B and \$H.`,
+      "Use $B and $H.",
+    ],
+    [
+      "an escaped dollar before $$ after an open $$",
+      String.raw`Pay $$x and \$$ y.`,
+      "Pay $$x and $$ y.",
+    ],
     [
       "an opening dollar followed by whitespace",
       "Pay $ 5$ now.",
@@ -100,5 +110,46 @@ describe("renderMarkdown math", () => {
     expect(prose).not.toContain("<br>");
     expect(prose).toContain('data-katex-source="x^2"');
     expect(prose).toContain(" holds.");
+  });
+});
+
+// dollarMath decides whether a cite must be escaped (cite.ts), so it must
+// agree with what the renderer actually turns into math.
+describe("dollarMath", () => {
+  const mathSpans = (source: string) =>
+    render(source).match(/class="katex-math"/g)?.length ?? 0;
+
+  it("lists inline and display dollar math in order", () => {
+    const spans = dollarMath("$$x^2$$\n\nthen $y$ and $$z$$ end");
+    expect(spans.map((s) => s.trim())).toEqual(["$$x^2$$", "$y$", "$$z$$"]);
+  });
+
+  it("finds math inside a table cell and a list item", () => {
+    expect(dollarMath("| a | b |\n|---|---|\n| x | $c$ |")).toEqual(["$c$"]);
+    expect(dollarMath("- one\n- has $d$")).toEqual(["$d$"]);
+  });
+
+  // Each row is text the renderer shows without math. Row 2 is Nil's cited
+  // price row (2026-10-24).
+  it.each([
+    ["currency", "It costs $20.00, or $13 a month."],
+    ["a price row", "antifeed.dev\t$9.99 / $13"],
+    ["escaped dollars", String.raw`Set \$A,\$B now.`],
+    ["an escaped dollar after an open one", String.raw`Use $B and \$H.`],
+    ["a code span", "run `x=$a$` now"],
+    ["a code block", "```\n$a$ and $$b$$\n```"],
+  ])("finds no math in %s", (_label, source) => {
+    expect(mathSpans(source)).toBe(0);
+    expect(dollarMath(source)).toEqual([]);
+  });
+
+  it.each([
+    "echo $HOME/$USER",
+    "a $x$ b",
+    "it costs $5 now\nand x=$Y?",
+    "| $a$ | $$b$$ |\n|---|---|\n| c | d |",
+  ])("counts as many spans as the renderer makes: %s", (source) => {
+    expect(mathSpans(source)).toBeGreaterThan(0);
+    expect(dollarMath(source)).toHaveLength(mathSpans(source));
   });
 });
