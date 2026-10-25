@@ -2122,8 +2122,7 @@ Coses que pots fer per ell:
   "subscription.duration.hoursMinutes": "{hours} i {minutes}",
   "logView.editAgent": "Edita l'agent",
   "logView.pickModel": "Tria un model",
-  "logView.goneModelTitle":
-    "OpenCode ja no ofereix {model}. Tria un altre model.",
+  "logView.goneModelTitle": "OpenCode ja no ofereix {model}.",
   "panels.editor.noFileOpen": "Cap fitxer obert",
   "panels.editor.emptyHint":
     "Cap fitxer obert. Fes servir <code>{command}</code> o demana a l'agent que te'n enviï un.",
