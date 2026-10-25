@@ -5,8 +5,10 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import {
+  THROWING_HANDLER_PRELOAD,
+  expectMalformedHostsRefused,
   expectNoErrorPage,
-  sendBadHost,
+  sendThrowing,
 } from "../../server/test-support/bad-host.ts";
 
 // Every container deployment sits behind a load balancer
@@ -40,23 +42,27 @@ function boxAddress(): string {
   throw new Error("this test needs a non-loopback IPv4 interface");
 }
 
-// Run the entry as the image runs it, and wait for its setup listener.
+// Run the entry as the image runs it, and wait for its setup listener. The
+// preload only adds a request that throws (sendThrowing).
 async function startEntry(): Promise<number> {
   home = mkdtempSync(join(tmpdir(), "isomux-office-entry-"));
   const port = await freePort();
-  entry = Bun.spawn([process.execPath, ENTRY], {
-    env: {
-      PATH: process.env.PATH,
-      HOME: home,
-      ISOMUX_HOME: join(home, ".isomux"),
-      ISOMUX_PUBLIC_URL: ORIGIN,
-      // Per run: the unclaimed office listens on every interface.
-      ISOMUX_SETUP_KEY: crypto.randomUUID() + crypto.randomUUID(),
-      PORT: String(port),
+  entry = Bun.spawn(
+    [process.execPath, "--preload", THROWING_HANDLER_PRELOAD, ENTRY],
+    {
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        ISOMUX_HOME: join(home, ".isomux"),
+        ISOMUX_PUBLIC_URL: ORIGIN,
+        // Per run: the unclaimed office listens on every interface.
+        ISOMUX_SETUP_KEY: crypto.randomUUID() + crypto.randomUUID(),
+        PORT: String(port),
+      },
+      stdout: "ignore",
+      stderr: "pipe",
     },
-    stdout: "ignore",
-    stderr: "pipe",
-  });
+  );
   let up = false;
   for (let i = 0; i < 200 && !up; i++) {
     up = await fetch(`http://127.0.0.1:${port}/health`).then(
@@ -100,8 +106,11 @@ test("the container entry trusts its load balancer for the office and the setup 
   expect(await post("203.0.113.10")).toBe(403);
 }, 15_000);
 
-// The setup listener listens on every interface, so a throwing request must not
-// get Bun's development error page (task 8f6b0ce4).
-test("the setup listener answers a throwing request without the error page", async () => {
-  expectNoErrorPage(await sendBadHost(await startEntry()));
+// The setup listener listens on every interface, so a malformed Host gets a
+// 400 (task 66c3a09f), and a throwing request does not get Bun's development
+// error page (task 8f6b0ce4). One test, because each start runs the entry.
+test("the setup listener refuses a malformed Host and answers a throw without the error page", async () => {
+  const port = await startEntry();
+  await expectMalformedHostsRefused(port, { path: "/health", status: 200 });
+  expectNoErrorPage(await sendThrowing(port));
 }, 15_000);

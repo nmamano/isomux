@@ -304,7 +304,9 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
     // (stack, paths, source) unless NODE_ENV=production.
     development: false,
     async fetch(req) {
-      const url = new URL(req.url);
+      // A malformed Host leaves a URL that does not parse.
+      const url = URL.parse(req.url);
+      if (!url) return new Response("bad request\n", { status: 400 });
       // No detail on a refusal, on either route. An unauthenticated caller
       // learns nothing beyond "no".
       const authorized = () =>

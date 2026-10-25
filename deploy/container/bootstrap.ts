@@ -51,7 +51,10 @@ export function createSetupHandler(options: {
     process.env.RENDER === "true" ? "render" : "container";
   let claimed = false;
   return async (request: Request, client: string): Promise<Response> => {
-    const path = new URL(request.url).pathname;
+    // A malformed Host leaves a URL that does not parse.
+    const url = URL.parse(request.url);
+    if (!url) return new Response("Bad request", { status: 400 });
+    const path = url.pathname;
     if (path === "/health" && request.method === "GET")
       return new Response("ok");
     if (options.hasOwner() || claimed)

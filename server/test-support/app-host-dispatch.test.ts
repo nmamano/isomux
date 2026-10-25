@@ -55,6 +55,7 @@ import {
 } from "./app-host-test-kit.ts";
 import { sessionCookieName } from "../auth.ts";
 import { webhookRegistry } from "../webhooks/registry.ts";
+import { MALFORMED_HOSTS } from "./bad-host.ts";
 
 let server: TestServer | null = null;
 
@@ -281,16 +282,8 @@ describe("app hosts: the office is untouched", () => {
   // and HSTS headers to stay identical. The two excluded headers are asserted
   // separately in both states, including the app-preview wildcard.
   //
-  // Syntactically malformed Hosts ("has space.test") are deliberately NOT in
-  // this list. They never reach an office response on any build, including the
-  // baseline: `new URL(req.url)` throws an uncaught TypeError on them, and
-  // that line is the first statement of the handler before this slice and the
-  // statement right after the new hook now - the hook returns null and the
-  // same line runs on the same bytes. bun:test attributes the server's
-  // uncaught throw to whichever test is running, so including one here would
-  // fail this test for a defect that predates it. The normalizer's treatment
-  // of those forms is pinned in app-hosts.test.ts instead; the crash itself is
-  // reported separately.
+  // The malformed Hosts are outside the domain too: with the arm on, they
+  // still get the office's 400 (production-errors.test.ts), not the app 404.
   const NON_APP_HOSTS = [
     "localhost",
     "127.0.0.1",
@@ -304,6 +297,7 @@ describe("app hosts: the office is untouched", () => {
     // Well-formed but not a hostname the normalizer will route on.
     "-lead.test",
     "under_score.test",
+    ...MALFORMED_HOSTS,
   ];
 
   it("answers every non-app Host identically before and after the arm turns on", async () => {

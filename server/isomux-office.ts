@@ -8169,7 +8169,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       if (appHostResponse) return await appHostResponse;
 
       const officeHostResponse = await (async () => {
-        const url = new URL(req.url);
+        // A Host that does not parse (a bad port, a space) leaves a URL that
+        // does not parse either. Inside the IIFE, so the 400 keeps the
+        // security headers.
+        const url = URL.parse(req.url);
+        if (!url) return new Response("Bad request", { status: 400 });
 
         if (url.pathname === EXTENSION_SOCKET_PATH) {
           if (!extensionUpgradeAllowed(req, buildPublicOrigin().origin))

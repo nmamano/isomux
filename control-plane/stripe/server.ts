@@ -84,7 +84,9 @@ export function serveWebhooks(
     // (stack, paths, source) unless NODE_ENV=production.
     development: false,
     async fetch(req) {
-      const url = new URL(req.url);
+      // A malformed Host leaves a URL that does not parse.
+      const url = URL.parse(req.url);
+      if (!url) return new Response("bad request\n", { status: 400 });
       if (url.pathname === "/healthz") {
         return new Response("ok\n", { status: 200 });
       }
@@ -103,11 +105,12 @@ export function serveWebhooks(
     },
   });
 
+  const bound = server.port ?? port;
   report(
-    `webhook endpoint listening on http://localhost:${port}${WEBHOOK_PATH}`,
+    `webhook endpoint listening on http://localhost:${bound}${WEBHOOK_PATH}`,
   );
   return {
-    port,
+    port: bound,
     async stop() {
       await server.stop(true);
     },

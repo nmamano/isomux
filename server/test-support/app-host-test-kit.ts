@@ -196,9 +196,8 @@ export function raw(
         ),
       );
     }, 2000);
-    // A malformed Host makes the office's own URL parse throw and Bun resets
-    // the connection, so "no response" is a real, comparable outcome here
-    // rather than a test-harness failure. Resolving with a marker keeps it
+    // A reset connection is a real, comparable outcome here rather than a
+    // test-harness failure. Resolving with a marker keeps it
     // comparable across two boots; a genuinely dead server surfaces as the
     // baseline sanity assertion failing instead.
     socket.on("error", (err) => {
