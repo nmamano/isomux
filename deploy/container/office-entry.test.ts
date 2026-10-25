@@ -4,6 +4,10 @@ import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
+import {
+  expectNoErrorPage,
+  sendBadHost,
+} from "../../server/test-support/bad-host.ts";
 
 // Every container deployment sits behind a load balancer
 // (internal-docs/proxy-trust-design.md). The entry script is run as the image
@@ -36,7 +40,8 @@ function boxAddress(): string {
   throw new Error("this test needs a non-loopback IPv4 interface");
 }
 
-test("the container entry trusts its load balancer for the office and the setup form", async () => {
+// Run the entry as the image runs it, and wait for its setup listener.
+async function startEntry(): Promise<number> {
   home = mkdtempSync(join(tmpdir(), "isomux-office-entry-"));
   const port = await freePort();
   entry = Bun.spawn([process.execPath, ENTRY], {
@@ -61,6 +66,11 @@ test("the container entry trusts its load balancer for the office and the setup 
     if (!up) await Bun.sleep(50);
   }
   expect(up).toBe(true);
+  return port;
+}
+
+test("the container entry trusts its load balancer for the office and the setup form", async () => {
+  const port = await startEntry();
 
   // The office reads this at boot.
   const config = JSON.parse(
@@ -88,4 +98,10 @@ test("the container entry trusts its load balancer for the office and the setup 
   expect(new Set(statuses.slice(0, -1))).toEqual(new Set([403]));
   expect(statuses.at(-1)).toBe(429);
   expect(await post("203.0.113.10")).toBe(403);
+}, 15_000);
+
+// The setup listener listens on every interface, so a throwing request must not
+// get Bun's development error page (task 8f6b0ce4).
+test("the setup listener answers a throwing request without the error page", async () => {
+  expectNoErrorPage(await sendBadHost(await startEntry()));
 }, 15_000);

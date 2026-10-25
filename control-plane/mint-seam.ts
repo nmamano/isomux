@@ -300,6 +300,9 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
   const server = Bun.serve({
     port,
     hostname,
+    // Without this, Bun answers an uncaught error with its development page
+    // (stack, paths, source) unless NODE_ENV=production.
+    development: false,
     async fetch(req) {
       const url = new URL(req.url);
       // No detail on a refusal, on either route. An unauthenticated caller

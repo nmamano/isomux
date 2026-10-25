@@ -80,6 +80,9 @@ export function serveWebhooks(
 
   const server = Bun.serve({
     port,
+    // Without this, Bun answers an uncaught error with its development page
+    // (stack, paths, source) unless NODE_ENV=production.
+    development: false,
     async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/healthz") {

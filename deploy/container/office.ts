@@ -67,6 +67,9 @@ if (!hasOwner()) {
   });
   const setup = Bun.serve({
     hostname: "0.0.0.0",
+    // Without this, Bun answers an uncaught error with its development page
+    // (stack, paths, source) unless NODE_ENV=production.
+    development: false,
     port: Number(process.env.PORT || 10000),
     maxRequestBodySize: 4096,
     fetch: (req, server) =>

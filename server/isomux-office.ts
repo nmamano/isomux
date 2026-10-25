@@ -8112,6 +8112,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
   loadApiTokens();
   return Bun.serve<WsData>({
     port: startOpts.port ?? PORT,
+    // Without this, Bun answers an uncaught error with its development page
+    // (stack, paths, source) unless NODE_ENV=production.
+    development: false,
     idleTimeout: OFFICE_IDLE_TIMEOUT_SECONDS,
     // Default is ~128MB, below our 200MB per-file / 400MB per-upload limits, so a
     // large upload would 413 before reaching the handler. Keep this above MAX_TOTAL.
