@@ -12,6 +12,18 @@ function jsonError(
   );
 }
 
+// --- Request caps ---
+// What one request may carry, so a request costs about what a widget turn
+// costs. The site widget (site/chatbot.js) trims its history to the same
+// numbers. A request starts and ends with a visitor turn, so its message count
+// is odd.
+export const CHAT_LIMITS = {
+  maxMessages: 41,
+  maxMessageChars: 16_000,
+  maxTotalChars: 48_000,
+  maxBodyBytes: 1_000_000,
+};
+
 // --- Rate limiting (in-memory, resets on cold start) ---
 // Sliding windows per IP. Every response reports them in the RateLimit-Policy
 // and RateLimit fields of the IETF draft draft-ietf-httpapi-ratelimit-headers.
@@ -450,6 +462,15 @@ export default async function handler(req: Request) {
   return response;
 }
 
+function bodyTooLarge(): Response {
+  return jsonError(
+    413,
+    "request_too_large",
+    `The request body is larger than ${CHAT_LIMITS.maxBodyBytes} bytes.`,
+    "Send only the most recent turns that fit.",
+  );
+}
+
 async function answer(req: Request, ip: string): Promise<Response> {
   if (req.method !== "POST") {
     return jsonError(
@@ -460,9 +481,16 @@ async function answer(req: Request, ip: string): Promise<Response> {
     );
   }
 
+  const declaredBytes = Number(req.headers.get("content-length"));
+  if (declaredBytes > CHAT_LIMITS.maxBodyBytes) return bodyTooLarge();
   let body: unknown;
   try {
-    body = await req.json();
+    // A body sent without Content-Length is measured after it is read.
+    const raw = await req.text();
+    if (new TextEncoder().encode(raw).length > CHAT_LIMITS.maxBodyBytes) {
+      return bodyTooLarge();
+    }
+    body = JSON.parse(raw);
   } catch {
     return jsonError(
       400,
@@ -515,6 +543,34 @@ async function answer(req: Request, ip: string): Promise<Response> {
       "invalid_request",
       "Each message needs a user or assistant role and string content.",
       "Check each item in the messages array against the OpenAPI specification.",
+    );
+  }
+  if (
+    messages.some(
+      (message, i) =>
+        message.role !== (i % 2 === 0 ? "user" : "assistant") ||
+        !message.content.trim(),
+    ) ||
+    messages.length % 2 === 0
+  ) {
+    return jsonError(
+      400,
+      "invalid_request",
+      "Messages must alternate between user and assistant, start and end with a user message, and each hold text.",
+      "Send the conversation in order, ending with the new user message.",
+    );
+  }
+  const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+  if (
+    messages.length > CHAT_LIMITS.maxMessages ||
+    messages.some((m) => m.content.length > CHAT_LIMITS.maxMessageChars) ||
+    totalChars > CHAT_LIMITS.maxTotalChars
+  ) {
+    return jsonError(
+      413,
+      "request_too_large",
+      `A request may hold at most ${CHAT_LIMITS.maxMessages} messages, ${CHAT_LIMITS.maxMessageChars} characters each and ${CHAT_LIMITS.maxTotalChars} in total.`,
+      "Send only the most recent turns that fit.",
     );
   }
 

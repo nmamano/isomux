@@ -129,6 +129,12 @@
     (b) => (b % 36).toString(36),
   ).join("");
 
+  // What /api/chat accepts in one request (CHAT_LIMITS in api/chat.ts; keep
+  // the numbers in step).
+  const MAX_MESSAGES = 41;
+  const MAX_MESSAGE_CHARS = 16000;
+  const MAX_TOTAL_CHARS = 48000;
+
   let messages = [];
   let isOpen = false;
   let isLoading = false;
@@ -204,7 +210,7 @@
           <div class="chat-messages" id="chat-msgs">${msgsHtml}</div>
           <div class="chat-footer">
             <form class="chat-form" onsubmit="event.preventDefault(); window.__chatSubmit()">
-              <input class="chat-input" id="chat-input" placeholder="${L.placeholder}" ${isLoading ? "disabled" : ""} autocomplete="off" />
+              <input class="chat-input" id="chat-input" placeholder="${L.placeholder}" maxlength="${MAX_MESSAGE_CHARS}" ${isLoading ? "disabled" : ""} autocomplete="off" />
               <button class="chat-send" type="submit" ${isLoading ? "disabled" : ""}>${sendSvg}</button>
             </form>
             <div class="chat-powered">${L.powered}</div>
@@ -223,6 +229,50 @@
     return d.innerHTML;
   }
 
+  // Cut to the per-message cap, never between the halves of a surrogate pair.
+  function cut(text) {
+    if (text.length <= MAX_MESSAGE_CHARS) return text;
+    const code = text.charCodeAt(MAX_MESSAGE_CHARS - 1);
+    const end =
+      code >= 0xd800 && code <= 0xdbff
+        ? MAX_MESSAGE_CHARS - 1
+        : MAX_MESSAGE_CHARS;
+    return text.slice(0, end);
+  }
+
+  // The turns sent with the visitor's new one: answered exchanges only (no
+  // failed or empty answer, nor the question it answered), the most recent
+  // that fit under the caps.
+  function requestMessages() {
+    const newTurn = messages[messages.length - 1];
+    const exchanges = [];
+    for (let i = 0; i < messages.length - 2; i++) {
+      const answer = messages[i + 1];
+      if (
+        messages[i].role === "user" &&
+        answer.role === "assistant" &&
+        !answer.error &&
+        answer.content.trim()
+      ) {
+        exchanges.push([
+          { role: "user", content: cut(messages[i].content) },
+          { role: "assistant", content: cut(answer.content) },
+        ]);
+      }
+    }
+    const sent = [{ role: "user", content: cut(newTurn.content) }];
+    let total = sent[0].content.length;
+    for (let i = exchanges.length - 1; i >= 0; i--) {
+      const size =
+        exchanges[i][0].content.length + exchanges[i][1].content.length;
+      if (sent.length + 2 > MAX_MESSAGES || total + size > MAX_TOTAL_CHARS)
+        break;
+      sent.unshift(...exchanges[i]);
+      total += size;
+    }
+    return sent;
+  }
+
   async function sendMessage(text) {
     if (!text.trim() || isLoading) return;
     messages.push({ role: "user", content: text });
@@ -231,7 +281,7 @@
 
     try {
       const body = {
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: requestMessages(),
         page,
         conversationId,
       };
