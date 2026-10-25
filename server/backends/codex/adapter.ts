@@ -270,7 +270,7 @@ const CAPABILITIES: BackendCapabilities = {
 // auth-appropriate subset (ChatGPT-login vs API-key users see different
 // sets) with per-model supportedReasoningEfforts. This list backs
 // getModelOptions() and modelDisplayLabel() when the RPC isn't available.
-// Slugs listed by `codex debug models` on codex-cli 0.160.0, 2026-10-02;
+// Slugs listed by `codex debug models` on codex-cli 0.164.0, 2026-10-25;
 // mirror of CODEX_MODELS in shared/types.ts.
 const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
@@ -674,8 +674,9 @@ export function mergeRateLimitSnapshots(
 }
 
 // Wire plan slugs -> the labels Codex itself shows in /status, copied from
-// openai/codex rust-v0.160.0 codex-rs/tui/src/subscription.rs
-// (SubscriptionDisplay::Status). Typed over the whole PlanType union, so a
+// openai/codex rust-v0.164.0 codex-rs/tui/src/subscription.rs
+// (SubscriptionDisplay::Status; sci and sci_plus take KnownPlan::display_name
+// in codex-rs/protocol/src/auth.rs). Typed over the whole PlanType union, so a
 // schema regen that adds a plan fails the typecheck until it has a label.
 // A slug outside the union passes through verbatim.
 const CODEX_PLAN_DISPLAY_NAMES: Record<PlanType, string> = {
@@ -696,6 +697,8 @@ const CODEX_PLAN_DISPLAY_NAMES: Record<PlanType, string> = {
   edu: "Edu",
   edu_plus: "Edu Plus",
   edu_pro: "Edu Pro",
+  sci: "Academic Researchers",
+  sci_plus: "Academic Researchers Plus",
   unknown: "Unknown",
 };
 

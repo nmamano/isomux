@@ -37,7 +37,7 @@ const GOLDEN_HOOK_PATH = join(
   "bin/.isomux-codex-safety-hook.golden",
 );
 const TRUST_SENTINEL = "# isomux-managed-codex-safety-hook";
-export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.160.0";
+export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.164.0";
 
 export interface CodexSafetyHookIdentity {
   sourcePath: string;

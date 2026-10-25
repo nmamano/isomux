@@ -42,6 +42,8 @@ On 2026-08-29, the production installer was proven end to end for the allow arm:
 
 On 2026-10-02, the trust pin (`CODEX_HOOK_TRUST_HASH_PROVEN_VERSION`) moved to Codex 0.160.0. The live trust contract test showed the installer hash equal to Codex's `currentHash`. The paid pair allowed the workspace write and blocked the protected write on both gpt-6.1-sol and gpt-5.6-sol. The coverage matrix passed on gpt-5.6-sol. On gpt-6.1-sol, every action the model issued got the expected hook result, but in 4 of 31 cells the model issued no tool call.
 
+On 2026-10-25, the trust pin moved to Codex 0.164.0, with an API-key login. The live trust contract test showed the installer hash equal to Codex's `currentHash`. The paid pair allowed the workspace write and blocked the protected write on both gpt-6.1-sol and gpt-5.6-sol. The coverage matrix passed on gpt-5.6-sol with no validation error, and the model issued the tool call in all 31 cells.
+
 ## Failure behavior
 
 Codex fails open when a hook executable is missing, exits with an error, times out, or returns an invalid result. Isomux surfaces the same signed transcript warning when it detects a pre-spawn installation or trust failure, a caught checker fault, or a technical `hook/completed` failure:

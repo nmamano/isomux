@@ -377,10 +377,10 @@ export function effortLabelParam(level: string): LogMessage | string {
 
 // Codex model identifiers and their UI labels. Lives here (shared) so both
 // the UI's display helpers and the server can reference the canonical set.
-// Every slug is listed by `codex debug models` on codex-cli 0.160.0
-// (2026-10-02), which dropped gpt-5.4 and gpt-5.4-mini.
-// Default first (CODEX_MODELS[0]): gpt-6.1-sol, the model Codex 0.160 marks
-// isDefault. Isomux follows Codex's own default (Nil, 2026-10-02): pickers and
+// Every slug is listed by `codex debug models` on codex-cli 0.164.0
+// (2026-10-25). 0.160.0 dropped gpt-5.4 and gpt-5.4-mini.
+// Default first (CODEX_MODELS[0]): gpt-6.1-sol, the model Codex 0.164.0 marks
+// isDefault for an API-key login (model/list, 2026-10-25). Isomux follows Codex's own default (Nil, 2026-10-02): pickers and
 // no-model spawns take the login's discovered default (codexDefaultModel), and
 // this order is the fallback when discovery is unavailable (boot restore,
 // failed discovery, offline dialogs). A ChatGPT login can lack gpt-6.1-sol.

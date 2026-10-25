@@ -1,4 +1,5 @@
-// Opt-in live integration probe for Codex 0.160.0 PreToolUse behavior.
+// Opt-in live integration probe for Codex PreToolUse behavior. The result
+// names the Codex version the App Server reported in its initialize answer.
 //
 // This script makes coverage claims only from model-driven App Server turns.
 // It never reads or writes the effective Isomux CODEX_HOME. The caller must
@@ -124,6 +125,22 @@ function requiredPrecondition(): string | null {
   return null;
 }
 
+// Every App Server the probe starts reports its version in the initialize
+// answer's userAgent ("<client name>/<version> (<os>) ..."). The result names
+// that measured version, never the package.json pin, so a stale node_modules
+// shows.
+const measuredCodexVersions = new Set<string>();
+const unparsedUserAgents: string[] = [];
+
+async function initializeClient(client: JsonRpcLiteClient): Promise<void> {
+  const { userAgent } = await client.initialize(initializeParams());
+  const version = /^[^/\s]+\/(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s|$)/.exec(
+    userAgent,
+  )?.[1];
+  if (version) measuredCodexVersions.add(version);
+  else unparsedUserAgents.push(userAgent);
+}
+
 function initializeParams() {
   return {
     clientInfo: {
@@ -241,7 +258,7 @@ async function prepareTrust(
   });
   await discovery.start();
   try {
-    await discovery.initialize(initializeParams());
+    await initializeClient(discovery);
     const hook = await listHook(discovery, cwd);
     if (trusted) {
       const hash = typeof hook.currentHash === "string" ? hook.currentHash : "";
@@ -408,7 +425,7 @@ async function runReading(
       };
     });
     await client.start();
-    await client.initialize(initializeParams());
+    await initializeClient(client);
     let thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
       startParams(cwd, action === "dynamic_tool"),
@@ -532,7 +549,7 @@ async function runManagedReading(behavior: "allow" | "deny"): Promise<Reading> {
     client = managedClient(cwd, home, fixture.managedEtc);
     const events: Json[] = [];
     await client.start();
-    await client.initialize(initializeParams());
+    await initializeClient(client);
     const hookListing = await listHook(client, cwd);
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
@@ -619,7 +636,7 @@ async function runOneShotReading(
     });
     const events: Json[] = [];
     await client.start();
-    await client.initialize(initializeParams());
+    await initializeClient(client);
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
       {
@@ -736,7 +753,7 @@ async function runMidSessionReload(
       skipSafetyPreflightForTestProbe: true,
     });
     await client.start();
-    await client.initialize(initializeParams());
+    await initializeClient(client);
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
       startParams(cwd),
@@ -860,6 +877,8 @@ function validate(readings: Reading[]): string[] {
 export async function runLiveProbe(): Promise<Json> {
   const missing = requiredPrecondition();
   if (missing) throw new Error(`missing live-probe precondition: ${missing}`);
+  measuredCodexVersions.clear();
+  unparsedUserAgents.length = 0;
   const uninstallSignalCleanup = installSignalCleanup();
   try {
     return await runLiveProbeWithCleanup();
@@ -925,9 +944,22 @@ async function runLiveProbeWithCleanup(): Promise<Json> {
     }
   }
   const validationErrors = validate(readings);
+  // A version error joins the validation errors, so the run still fails
+  // and keeps its readings.
+  if (measuredCodexVersions.size !== 1) {
+    validationErrors.push(
+      `expected one measured Codex version, got ${JSON.stringify([...measuredCodexVersions])}`,
+    );
+  }
+  for (const userAgent of new Set(unparsedUserAgents)) {
+    validationErrors.push(
+      `App Server userAgent carries no version: ${JSON.stringify(userAgent)}`,
+    );
+  }
   return {
     measuredAt: new Date().toISOString(),
-    codexVersion: "0.160.0",
+    codexVersion:
+      measuredCodexVersions.size === 1 ? [...measuredCodexVersions][0] : null,
     settings: { approvalPolicy: "never", sandbox: "danger-full-access", model },
     consecutiveRunCount: runCount,
     authMaterialCopied: { file: "auth.json", from: authHome },

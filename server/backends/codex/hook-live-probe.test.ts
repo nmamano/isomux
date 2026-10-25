@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runLiveProbe } from "./hook-live-probe.ts";
+import { CODEX_HOOK_TRUST_HASH_PROVEN_VERSION } from "./safety-hook-install.ts";
 
 const enabled = process.env.ISOMUX_TEST_CODEX_HOOK_LIVE === "1";
 const authHome = process.env.ISOMUX_TEST_CODEX_AUTH_HOME;
@@ -21,7 +22,8 @@ describe("Codex hook live coverage (opt-in)", () => {
       if (outputPath) {
         await Bun.write(outputPath, `${JSON.stringify(result, null, 2)}\n`);
       }
-      expect(result.codexVersion).toBe("0.160.0");
+      // The App Server the probe measured is the version the trust pin names.
+      expect(result.codexVersion).toBe(CODEX_HOOK_TRUST_HASH_PROVEN_VERSION);
       expect(result.validationErrors).toEqual([]);
     },
     30 * 60 * 1000,

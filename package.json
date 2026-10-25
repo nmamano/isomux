@@ -46,7 +46,7 @@
     "@codemirror/view": "^6.43.6",
     "@lezer/highlight": "^1.2.3",
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@openai/codex": "0.160.0",
+    "@openai/codex": "0.164.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "diff2html": "^3.4.56",
