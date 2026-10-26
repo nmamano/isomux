@@ -46,6 +46,7 @@ import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { sessionMessagePreview } from "../shared/session-label.ts";
 import { TRUSTED_PROXY_VALUES, type TrustedProxy } from "./proxy-trust.ts";
+import type { TurnInFlightRecord } from "./restart-wake.ts";
 import {
   DEFAULT_MEMBER_SHARE,
   validMemberShare,
@@ -1711,6 +1712,33 @@ export function peekMessageQueuesRaw(): MessageQueuesPeek {
 // already accepted, and stale disk merely widens at-least-once replay.
 export function saveMessageQueues(store: Record<string, unknown>) {
   atomicWriteFileSync(MESSAGE_QUEUES_FILE, JSON.stringify(store, null, 2));
+}
+
+const TURNS_IN_FLIGHT_FILE = join(ISOMUX_DIR, "turns-in-flight.json");
+
+// On-disk shape: { [agentId]: TurnInFlightRecord } (server/restart-wake.ts).
+// Record validation belongs to restart-wake's boot plan. A corrupt file is
+// quarantined, like message-queues.json. Never throws.
+export function loadTurnsInFlightRaw(): Record<string, unknown> {
+  try {
+    if (!existsSync(TURNS_IN_FLIGHT_FILE)) return {};
+    const parsed: unknown = JSON.parse(
+      readFileSync(TURNS_IN_FLIGHT_FILE, "utf-8"),
+    );
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      throw new Error("not an object");
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    quarantineCorruptFile(TURNS_IN_FLIGHT_FILE, err);
+    return {};
+  }
+}
+
+// THROWS on failure; agent-manager catches and logs (best-effort).
+export function saveTurnsInFlight(
+  store: Record<string, TurnInFlightRecord>,
+): void {
+  atomicWriteFileSync(TURNS_IN_FLIGHT_FILE, JSON.stringify(store, null, 2));
 }
 
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */

@@ -673,6 +673,9 @@ export interface QueuedMessage {
   // With limitResume: the members of the turn the usage limit stopped, so
   // the resumed turn is still theirs.
   limitResumeMemberIds?: string[];
+  // The wake isomux sends itself after a server restart cut the agent's turn
+  // (server/restart-wake.ts). Same shape as limitResume.
+  restartWake?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
 }

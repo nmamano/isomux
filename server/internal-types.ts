@@ -253,6 +253,10 @@ export interface ManagedAgent {
   // pending resume's fire time (persisted as agents.json limitResumeAt).
   limitStopResetsAtMs: number | null;
   limitResumeAt: number | null;
+  // Set by flushQueue for the turn its batch starts when the batch holds a
+  // wake after a server restart (server/restart-wake.ts); read when that turn
+  // is recorded, and reset when the flush ends.
+  nextTurnRestartWake?: boolean;
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;

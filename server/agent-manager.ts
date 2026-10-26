@@ -117,6 +117,8 @@ import {
   saveAgentHistory,
   loadMessageQueuesRaw,
   saveMessageQueues,
+  loadTurnsInFlightRaw,
+  saveTurnsInFlight,
   saveFile as savePersistedFile,
   type PersistedAgent,
   type Room,
@@ -251,6 +253,14 @@ import {
   limitResumeOn,
   limitResumeWaitMs,
 } from "./limit-resume.ts";
+import {
+  RESTART_WAKE_CLEAR_DELAY_MS,
+  RESTART_WAKE_TEXT,
+  planRestartWakes,
+  restartWakeDelayMs,
+  type TurnInFlightRecord,
+} from "./restart-wake.ts";
+import { serverStopping } from "./server-stop.ts";
 import { recordAudit } from "./audit-store.ts";
 import {
   BackendNotConfiguredError,
@@ -434,6 +444,12 @@ export interface ManagerDeps {
   // The clock and timers of the resume after a usage limit
   // (server/limit-resume.ts). Defaults to the real ones; tests move time.
   limitResumeClock?: LimitResumeClock;
+  // The clock and timers of the wake after a server restart
+  // (server/restart-wake.ts). Defaults to the real ones; tests move time.
+  restartWakeClock?: LimitResumeClock;
+  // Whether the server is stopping (server/server-stop.ts). Defaults to the
+  // real one; tests set it.
+  serverStopping?: () => boolean;
 }
 
 export interface LimitResumeClock {
@@ -1298,6 +1314,23 @@ export function createAgentManager(deps: ManagerDeps) {
   // id + stale logCache bound to the already-committed new cwd. The system_init
   // handler consumes this marker to clear that state on the empty-init path.
   const pendingFixedCwdReset = new Set<string>(); // agentId
+  // Wake after a server restart (server/restart-wake.ts). turnsInFlight holds
+  // this boot's turns; wakesOwed the cut turns of the previous boot whose wake
+  // is not sent yet. turns-in-flight.json mirrors both. Declared up here
+  // because updateState reaches them.
+  const turnsInFlight = new Map<string, TurnInFlightRecord>();
+  const wakesOwed = new Map<string, TurnInFlightRecord>();
+  const turnRecordClearTimers = new Map<string, unknown>();
+  // Turn deferreds a record clear already waits on.
+  const watchedTurnEnds = new WeakSet<Promise<void>>();
+  const restartWakeTimers = new Map<string, unknown>();
+  const restartWakeClock: LimitResumeClock = deps.restartWakeClock ?? {
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+  };
+  const isServerStopping = deps.serverStopping ?? serverStopping;
   // Event sink (instance-scoped). isomux-office.ts overrides this via onEvent() after
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: EventHandler = deps.eventSink ?? (() => {});
@@ -3041,6 +3074,9 @@ export function createAgentManager(deps: ManagerDeps) {
         }
       }
     }
+    // Wakes after the restart, before the replay kick so a wake for an agent
+    // with queued messages joins that replay.
+    restoreRestartWakes();
     // Boot replay kick: resume delivery exactly where the restart cut it off.
     // Fire-and-forget - each flush wakes its (dormant) agent via the !session
     // resume branch. The turn runner is configured before restoreAgents runs
@@ -3520,6 +3556,7 @@ export function createAgentManager(deps: ManagerDeps) {
     managed.lastNormalizedEventAt = 0;
     managed.busyTurnWatchdogObserved = false;
     managed.toolCallTimestamps.clear();
+    recordTurnStart(agentId, managed);
     updateState(agentId, "thinking");
   }
 
@@ -3911,6 +3948,8 @@ export function createAgentManager(deps: ManagerDeps) {
     const prev = managed.info.state;
     for (const event of officeState.updateAgent(agentId, { state }))
       emit(event);
+    if (state !== "thinking" && state !== "tool_executing")
+      scheduleTurnRecordClear(agentId);
 
     // Turn-end activity stamp: entering a queue-idle state means the turn just
     // finished, so reset the idle clock here too (not only at turn start). "Idle
@@ -7461,9 +7500,10 @@ export function createAgentManager(deps: ManagerDeps) {
     ) {
       return `[Handoff from your previous session] `;
     }
-    // The resume after a usage limit is a whole message of its own.
+    // The resume after a usage limit, and the wake after a server restart,
+    // are whole messages of their own.
     if (
-      m.limitResume &&
+      (m.limitResume || m.restartWake) &&
       m.sender.kind === "agent" &&
       m.sender.agentId === receiverAgentId
     ) {
@@ -7545,6 +7585,14 @@ export function createAgentManager(deps: ManagerDeps) {
         );
         continue;
       }
+      if (m.restartWake) {
+        addLogEntry(
+          agentId,
+          "system",
+          msg("systemEntries.restartWake.resumed"),
+        );
+        continue;
+      }
       addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
     }
     // Trigger topic generation only after the user_message log entries
@@ -7605,6 +7653,7 @@ export function createAgentManager(deps: ManagerDeps) {
       !m.sdkText &&
       !m.handoff &&
       !m.limitResume &&
+      !m.restartWake &&
       !m.native
     );
   }
@@ -8031,6 +8080,8 @@ export function createAgentManager(deps: ManagerDeps) {
       limitResume?: boolean;
       // QueuedMessage.limitResumeMemberIds.
       limitResumeMemberIds?: string[];
+      // QueuedMessage.restartWake.
+      restartWake?: boolean;
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -8097,6 +8148,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
       ...(msg.limitResume ? { limitResume: true } : {}),
+      ...(msg.restartWake ? { restartWake: true } : {}),
       ...(msg.limitResumeMemberIds?.length
         ? { limitResumeMemberIds: msg.limitResumeMemberIds }
         : {}),
@@ -8481,6 +8533,10 @@ export function createAgentManager(deps: ManagerDeps) {
       }
       const prompt = promptParts.join("\n\n");
 
+      // The turn this batch starts carries a wake after a server restart: its
+      // record says so (recordTurnStart), and the next boot does not wake it
+      // again. Reset in the finally below.
+      managed.nextTurnRestartWake = items.some((m) => m.restartWake);
       try {
         await runAgentTurn({
           managed,
@@ -8573,6 +8629,7 @@ export function createAgentManager(deps: ManagerDeps) {
         });
       }
     } finally {
+      managed.nextTurnRestartWake = false;
       if (agents.has(agentId)) {
         managed.flushInProgress = false;
         // Re-flush if more arrived during the await, and we're still in an idle
@@ -10443,6 +10500,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // A killed agent's durable queue record must not replay into a future
     // revive.
     removeQueueRecord(agentId);
+    forgetTurnRecord(agentId);
     // Drop any pending live fixed-cwd-change marker so a kill during the
     // sub-second replace window doesn't leave a dangling entry for a dead agent.
     pendingFixedCwdReset.delete(agentId);
@@ -11168,6 +11226,187 @@ export function createAgentManager(deps: ManagerDeps) {
       console.warn(
         `Resume after usage limit not delivered to ${agentId}: ${result.status} ${result.error}`,
       );
+  }
+
+  // Wake after a server restart (server/restart-wake.ts). The record is
+  // written at once when a turn starts, so a crash a moment later finds it.
+  function writeTurnsInFlight(): void {
+    const store: Record<string, TurnInFlightRecord> = {};
+    for (const [id, r] of wakesOwed) store[id] = r;
+    for (const [id, r] of turnsInFlight) store[id] = r;
+    try {
+      saveTurnsInFlight(store);
+    } catch (err) {
+      console.error(
+        "Failed to persist turns in flight (a restart may not wake a cut turn):",
+        errMessage(err),
+      );
+    }
+  }
+
+  // A new turn (beginTurn). It replaces the entry of the turn before, so the
+  // mark of a woken turn does not carry over to the next one. Any turn drops
+  // the agent's owed wake: the wake would speak of a turn that is over.
+  function recordTurnStart(agentId: string, managed: ManagedAgent): void {
+    const timer = turnRecordClearTimers.get(agentId);
+    if (timer !== undefined) restartWakeClock.clearTimeout(timer);
+    turnRecordClearTimers.delete(agentId);
+    dropOwedRestartWake(agentId);
+    turnsInFlight.set(agentId, {
+      // Wall time: it orders the wakes at the next boot, in another process.
+      since: Date.now(),
+      ...(managed.nextTurnRestartWake ? { restartWake: true as const } : {}),
+    });
+    managed.nextTurnRestartWake = false;
+    writeTurnsInFlight();
+  }
+
+  // The agent left the busy states. The entry goes after a delay, and only if
+  // the turn is over by then and the server is not stopping: when the server
+  // stops, every backend dies at once and ends its turn, in either order with
+  // the stop signal (server/server-stop.ts).
+  function scheduleTurnRecordClear(agentId: string): void {
+    if (!turnsInFlight.has(agentId)) return;
+    const prev = turnRecordClearTimers.get(agentId);
+    if (prev !== undefined) restartWakeClock.clearTimeout(prev);
+    const timer = restartWakeClock.setTimeout(() => {
+      turnRecordClearTimers.delete(agentId);
+      if (isServerStopping()) return;
+      const managed = agents.get(agentId);
+      if (
+        managed &&
+        (managed.info.state === "thinking" ||
+          managed.info.state === "tool_executing")
+      )
+        return;
+      // The turn is not over (a permission prompt, or a Stop whose abort is
+      // still draining), and its end may come with no further state change:
+      // try again when it settles. Attach to the deferred; never replace it.
+      const pending = managed?.sessionManager.pendingTurn;
+      if (pending) {
+        if (!watchedTurnEnds.has(pending.promise)) {
+          watchedTurnEnds.add(pending.promise);
+          const again = () => scheduleTurnRecordClear(agentId);
+          pending.promise.then(again, again);
+        }
+        return;
+      }
+      if (turnsInFlight.delete(agentId)) writeTurnsInFlight();
+    }, RESTART_WAKE_CLEAR_DELAY_MS);
+    turnRecordClearTimers.set(agentId, timer);
+  }
+
+  function dropOwedRestartWake(agentId: string): boolean {
+    const timer = restartWakeTimers.get(agentId);
+    if (timer !== undefined) restartWakeClock.clearTimeout(timer);
+    restartWakeTimers.delete(agentId);
+    return wakesOwed.delete(agentId);
+  }
+
+  // kill(): the agent's entries go now.
+  function forgetTurnRecord(agentId: string): void {
+    const timer = turnRecordClearTimers.get(agentId);
+    if (timer !== undefined) restartWakeClock.clearTimeout(timer);
+    turnRecordClearTimers.delete(agentId);
+    const owed = dropOwedRestartWake(agentId);
+    if (turnsInFlight.delete(agentId) || owed) writeTurnsInFlight();
+  }
+
+  // Boot: plan the wakes from the previous boot's record. An agent with
+  // queued messages gets its wake at once, so it joins the replay; the
+  // others go out a few at a time.
+  function restoreRestartWakes(): void {
+    const raw = loadTurnsInFlightRaw();
+    const plan = planRestartWakes(raw, {
+      exists: (id) => agents.has(id),
+      resumable: (id) => {
+        const m = agents.get(id);
+        return !!m && pickAutoResumeSessionId(m) !== null;
+      },
+    });
+    for (const { agentId, reason } of plan.drop) {
+      console.log(`Restart wake skipped for ${agentId}: ${reason}`);
+      // The woken turn was cut before its send landed: its wake is still in
+      // the durable queue, and must not go out a second time.
+      const managed = agents.get(agentId);
+      if (reason !== "already woken" || !managed) continue;
+      const kept = managed.messageQueue.filter((m) => !m.restartWake);
+      if (kept.length === managed.messageQueue.length) continue;
+      console.log(
+        `Dropping the queued restart wake of ${agentId}: its turn was cut again`,
+      );
+      managed.messageQueue = kept;
+      persistQueueState(agentId, managed);
+    }
+    for (const id of plan.wake)
+      wakesOwed.set(id, raw[id] as TurnInFlightRecord);
+    writeTurnsInFlight();
+    let spread = 0;
+    for (const id of plan.wake) {
+      const managed = agents.get(id)!;
+      if (managed.messageQueue.length > 0) {
+        fireRestartWake(id);
+        continue;
+      }
+      const timer = restartWakeClock.setTimeout(() => {
+        restartWakeTimers.delete(id);
+        fireRestartWake(id);
+      }, restartWakeDelayMs(spread++));
+      restartWakeTimers.set(id, timer);
+    }
+  }
+
+  // Why an owed wake does not go out, or null when it does. Queued messages
+  // are no reason: the wake joins them.
+  function restartWakeSkipReason(managed: ManagedAgent): string | null {
+    const state = managed.info.state;
+    if (state === "stopped") return "stopped";
+    if (!isQueueIdleState(state) && state !== "error") return "busy";
+    if (managed.sessionManager.pendingTurn) return "busy";
+    if (inMultiStepFlow(managed) || pendingPromptOf(managed) !== null)
+      return "prompt pending";
+    if (managed.autoHandoffPhase) return "automatic handoff";
+    if (managed.queueHolds.size > 0) return "conversation change";
+    // A wake from a boot that ended before the turn started is replayed.
+    if (managed.messageQueue.some((m) => m.restartWake))
+      return "already queued";
+    return null;
+  }
+
+  // The owed entry goes when the wake is sent: from then on the wake is in
+  // the durable queue, and the turn it starts carries the mark. A wake the
+  // queue refuses stays owed, for the next boot.
+  function fireRestartWake(agentId: string): void {
+    if (!wakesOwed.has(agentId)) return;
+    const managed = agents.get(agentId);
+    const self = getAgentDisplay(agentId);
+    const skip = managed ? restartWakeSkipReason(managed) : null;
+    if (!managed || !self || skip) {
+      dropOwedRestartWake(agentId);
+      writeTurnsInFlight();
+      console.log(
+        `Restart wake skipped for ${agentId}: ${skip ?? "agent not found"}`,
+      );
+      return;
+    }
+    const result = enqueueMessage(agentId, {
+      sender: {
+        kind: "agent",
+        agentId,
+        agentName: self.name,
+        roomName: self.roomName,
+      },
+      text: RESTART_WAKE_TEXT,
+      restartWake: true,
+    });
+    if (!result.ok) {
+      console.warn(
+        `Restart wake not delivered to ${agentId}: ${result.status} ${result.error}`,
+      );
+      return;
+    }
+    dropOwedRestartWake(agentId);
+    writeTurnsInFlight();
   }
 
   // Check-and-set with no await before it, so only one caller starts the

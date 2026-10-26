@@ -2865,6 +2865,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Automatic handoff is paused for this conversation: it started above the handoff threshold.",
   "systemEntries.limitResume.resumed":
     "Usage limit reset. Isomux resumed the agent.",
+  "systemEntries.restartWake.resumed":
+    "The server restarted during the turn. Isomux resumed the agent.",
   "systemEntries.usageLimit.stopped":
     "Usage limit reached. Resets {at} ({relative}).",
   "systemEntries.usageCap.pace":

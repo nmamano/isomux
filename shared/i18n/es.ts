@@ -2894,6 +2894,8 @@ Cosas que puedes hacer por él:
     "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
   "systemEntries.limitResume.resumed":
     "El límite de uso se restableció. Isomux reanudó el agente.",
+  "systemEntries.restartWake.resumed":
+    "El servidor se reinició durante el turno. Isomux reanudó el agente.",
   "systemEntries.usageLimit.stopped":
     "Se alcanzó el límite de uso. Se reinicia el {at} ({relative}).",
   "systemEntries.usageCap.pace":

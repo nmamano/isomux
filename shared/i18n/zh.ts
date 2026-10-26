@@ -2607,6 +2607,8 @@ App 的一些原则：
     "本对话的自动交接已暂停：它开始时已超过交接阈值。",
   "systemEntries.limitResume.resumed":
     "用量限制已重置。Isomux 已让智能体继续。",
+  "systemEntries.restartWake.resumed":
+    "服务器在回合中重启。Isomux 已让智能体继续。",
   "systemEntries.usageLimit.stopped":
     "已达到用量限制。将于 {at} 重置（{relative}）。",
   "systemEntries.usageCap.pace":
