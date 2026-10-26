@@ -21,9 +21,16 @@
 // filing as a task sends nothing more; a typed note goes with either. Tab and Shift+Tab move
 // between the reply fields inside the list that draws the cards
 // ([data-asks-list]); at either end the browser's order goes on.
+//
+// With `undoMs` (the Inbox), an answer is held that long first: the card turns
+// into a line with what was chosen and Undo, which brings the card back with
+// the draft. A held answer is sent at once when the card unmounts (the member
+// leaves the Inbox) and when the page is hidden or closes, with keepalive so the
+// request outlives the page. A send that fails shows the card with the error.
 
 import {
   useContext,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -51,6 +58,23 @@ import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 
 const PROMPT_LINES = 3;
+
+// keepalive's body limit is 64 KiB over all of a page's keepalive requests
+// in flight; fetch refuses a larger body at once. Over this, an answer goes
+// without keepalive.
+const KEEPALIVE_MAX_BYTES = 60_000;
+
+type AnswerKind = "reply" | "dismiss" | "file-task";
+type AnswerBody = AskReplyReq | (AskDismissReq & AskFileTaskReq);
+
+// An answer the card holds for the undo window. `shown` is the reply, or the
+// note that goes with a dismiss or a filing (null for none).
+interface HeldAnswer {
+  kind: AnswerKind;
+  shown: string | null;
+  body: AnswerBody;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 // Tab and Shift+Tab to the next or previous reply field of the list. No move
 // past either end, so focus is never trapped.
@@ -85,10 +109,12 @@ export function AskCard({
   entry,
   isMobile,
   onFocusAgent,
+  undoMs,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
+  undoMs?: number;
 }) {
   return entry.secret ? (
     <SecretAskCard
@@ -102,6 +128,7 @@ export function AskCard({
       entry={entry}
       isMobile={isMobile}
       onFocusAgent={onFocusAgent}
+      undoMs={undoMs}
     />
   );
 }
@@ -182,12 +209,14 @@ function ReplyAskCard({
   entry,
   isMobile,
   onFocusAgent,
+  undoMs,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
+  undoMs?: number;
 }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
   const { askDrafts, agents } = useAppState();
   const draft = askDrafts.get(entry.id);
@@ -203,6 +232,10 @@ function ReplyAskCard({
   // on the option the field already holds leaves the draft the same.
   const pendingFocus = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // The held answer: the ref for the timer and the page events, the state to
+  // draw the line.
+  const heldRef = useRef<HeldAnswer | null>(null);
+  const [held, setHeld] = useState<HeldAnswer | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
   const promptRef = useRef<HTMLDivElement>(null);
@@ -253,25 +286,20 @@ function ReplyAskCard({
     if (untouched) el.setSelectionRange(0, el.value.length);
   }
 
-  async function answer(kind: "reply" | "dismiss" | "file-task") {
-    if (sending.current) return;
-    if (kind === "reply" && reply.trim() === "") return;
-    sending.current = true;
-    setBusy(true);
-    setError(null);
-    const device = getDevice() || undefined;
+  // fetch() is reached in the same task as the call: a page event must start
+  // the request before the page goes.
+  async function send(kind: AnswerKind, body: AnswerBody, keepalive: boolean) {
     try {
-      if (kind !== "reply") {
-        const reason = dismissReason();
-        await apiFetch("POST", `/api/asks/${entry.id}/${kind}`, {
-          ...(reason !== null ? { text: reason } : {}),
-          ...(device ? { device } : {}),
-        } satisfies AskDismissReq & AskFileTaskReq);
-      } else
-        await apiFetch("POST", `/api/asks/${entry.id}/reply`, {
-          text: reply,
-          ...(device ? { device } : {}),
-        } satisfies AskReplyReq);
+      await apiFetch(
+        "POST",
+        `/api/asks/${entry.id}/${kind}`,
+        body,
+        keepalive &&
+          new TextEncoder().encode(JSON.stringify(body)).length <=
+            KEEPALIVE_MAX_BYTES
+          ? { keepalive: true }
+          : undefined,
+      );
       dispatch({ type: "ask_removed", id: entry.id });
     } catch (err) {
       sending.current = false;
@@ -283,6 +311,76 @@ function ReplyAskCard({
       );
     }
   }
+
+  function answer(kind: AnswerKind) {
+    if (sending.current) return;
+    if (kind === "reply" && reply.trim() === "") return;
+    sending.current = true;
+    setError(null);
+    const device = getDevice() || undefined;
+    const reason = kind === "reply" ? null : dismissReason();
+    const body: AnswerBody =
+      kind === "reply"
+        ? { text: reply, ...(device ? { device } : {}) }
+        : {
+            ...(reason !== null ? { text: reason } : {}),
+            ...(device ? { device } : {}),
+          };
+    if (undoMs === undefined) {
+      setBusy(true);
+      void send(kind, body, false);
+      return;
+    }
+    const pending: HeldAnswer = {
+      kind,
+      shown: kind === "reply" ? reply : reason,
+      body,
+      timer: setTimeout(() => flushRef.current(false), undoMs),
+    };
+    heldRef.current = pending;
+    setHeld(pending);
+  }
+
+  // Sends the held answer now, at most once; the card shows again, busy.
+  function flush(keepalive: boolean) {
+    const pending = heldRef.current;
+    if (!pending) return;
+    heldRef.current = null;
+    clearTimeout(pending.timer);
+    setHeld(null);
+    setBusy(true);
+    void send(pending.kind, pending.body, keepalive);
+  }
+
+  function undo() {
+    const pending = heldRef.current;
+    if (!pending) return;
+    heldRef.current = null;
+    clearTimeout(pending.timer);
+    sending.current = false;
+    pendingFocus.current = true;
+    setHeld(null);
+  }
+
+  // The page events and the unmount reach the latest flush.
+  const flushRef = useRef(flush);
+  useLayoutEffect(() => {
+    flushRef.current = flush;
+  });
+  useEffect(() => {
+    if (undoMs === undefined) return;
+    const onPageHide = () => flushRef.current(true);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushRef.current(true);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flushRef.current(false);
+    };
+  }, [undoMs]);
 
   const buttonPad = isMobile ? "8px 14px" : "5px 14px";
   const secondaryButton = {
@@ -302,25 +400,64 @@ function ReplyAskCard({
       type="button"
       data-ask-file-task=""
       disabled={busy}
-      onClick={() => void answer("file-task")}
+      onClick={() => answer("file-task")}
       style={secondaryButton}
     >
       {t("asks.fileTask")}
     </button>
   );
+  const cardBox = {
+    padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
+    borderRadius: 8,
+    background: "var(--bg-subtle)",
+    border: "1px solid var(--border-light)",
+    borderLeft: "3px solid var(--orange)",
+    marginBottom: 6,
+    fontFamily: "var(--font-ui)",
+  } as const;
+  if (held) {
+    const shown =
+      held.shown === null ? null : <span {...noTranslate()}>{held.shown}</span>;
+    return (
+      <div
+        data-ask={entry.id}
+        data-ask-pending={held.kind}
+        style={{ ...cardBox, display: "flex", alignItems: "center", gap: 10 }}
+      >
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: "var(--text-dim)",
+            fontSize,
+          }}
+        >
+          {held.kind === "reply"
+            ? rich("asks.replied", { reply: shown })
+            : held.kind === "dismiss"
+              ? shown === null
+                ? t("asks.dismissed")
+                : rich("asks.dismissedReason", { reason: shown })
+              : shown === null
+                ? t("asks.filedAsTaskPending")
+                : rich("asks.filedAsTaskPendingNote", { note: shown })}
+        </span>
+        <button
+          type="button"
+          data-ask-undo=""
+          onClick={undo}
+          style={{ ...secondaryButton, cursor: "pointer" }}
+        >
+          {t("asks.undo")}
+        </button>
+      </div>
+    );
+  }
   return (
-    <div
-      data-ask={entry.id}
-      style={{
-        padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
-        borderRadius: 8,
-        background: "var(--bg-subtle)",
-        border: "1px solid var(--border-light)",
-        borderLeft: "3px solid var(--orange)",
-        marginBottom: 6,
-        fontFamily: "var(--font-ui)",
-      }}
-    >
+    <div data-ask={entry.id} style={cardBox}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -467,7 +604,7 @@ function ReplyAskCard({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void answer("reply");
+          answer("reply");
         }}
         style={{ display: "flex", gap: 6, marginTop: 7, alignItems: "center" }}
       >
@@ -523,7 +660,7 @@ function ReplyAskCard({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void answer("dismiss")}
+          onClick={() => answer("dismiss")}
           style={secondaryButton}
         >
           {t("asks.dismiss")}

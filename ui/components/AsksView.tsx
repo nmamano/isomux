@@ -1,8 +1,9 @@
 // The Inbox's Asks tab: the member's open asks from every agent they can see,
 // grouped by agent, the longest wait first. Each ask is the AskCard the chat's
-// stack draws, so its answers work the same here; the agent's name opens
-// its chat. The list is the store's asks slice (ui/asks-sync.ts). InboxView
-// draws the header and the tabs around it.
+// stack draws, so its answers work the same here, except that an answer waits
+// ASK_UNDO_MS for an Undo before it is sent; the agent's name opens its chat.
+// The list is the store's asks slice (ui/asks-sync.ts). InboxView draws the
+// header and the tabs around it.
 
 import { useMemo } from "react";
 import { useAppState } from "../store.tsx";
@@ -37,6 +38,9 @@ function askGroups(
       (a.agent.id < b.agent.id ? -1 : 1),
   );
 }
+
+// How long an answer waits before it is sent, so the member can undo it.
+export const ASK_UNDO_MS = 5000;
 
 export function AsksView({
   onFocusAgent,
@@ -132,6 +136,7 @@ export function AsksView({
                     entry={entry}
                     isMobile={isMobile}
                     onFocusAgent={onFocusAgent}
+                    undoMs={ASK_UNDO_MS}
                   />
                 ))}
               </section>

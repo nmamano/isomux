@@ -56,7 +56,8 @@ export async function apiFetch<T = unknown>(
   // Extra request headers (network path only - the demo shim ignores them). The
   // editor rides X-Isomux-Connection-Id here to bind a file watch to this tab's
   // socket (see Conventions › Connection binding).
-  opts?: { headers?: Record<string, string> },
+  // `keepalive` lets the request outlive the page (a send on pagehide).
+  opts?: { headers?: Record<string, string>; keepalive?: boolean },
 ): Promise<T> {
   // Dev guard: every route on this surface is under /api/. A caller passing a
   // bare path (e.g. a leftover "/validate/cwd") would silently miss the shim and
@@ -77,6 +78,7 @@ export async function apiFetch<T = unknown>(
     init.body = JSON.stringify(body);
   }
   if (Object.keys(headers).length > 0) init.headers = headers;
+  if (opts?.keepalive) init.keepalive = true;
 
   const res = await fetch(path, init);
 
