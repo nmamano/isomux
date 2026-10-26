@@ -12,4 +12,8 @@ Find the narrowest business process, build agentic automation around it, and rep
 <img class="diagram diagram-light diagram-narrow" src="/enterprise-crew-loop.svg" width="954" height="598" alt="A four-node loop. Humans chat with the crew and get replies and pages back; humans click in the just-in-time app and see its dashboard. The crew writes the app's implementation and the app sends the crew alerts. Both the crew and the app take actions on the business systems, which send data back to both, and webhooks to the crew.">
 <img class="diagram diagram-dark diagram-narrow" src="/enterprise-crew-loop-dark.svg" width="954" height="598" alt="A four-node loop. Humans chat with the crew and get replies and pages back; humans click in the just-in-time app and see its dashboard. The crew writes the app's implementation and the app sends the crew alerts. Both the crew and the app take actions on the business systems, which send data back to both, and webhooks to the crew.">
 
+<div class="shots">
+<img src="/use-cases/crew-room.jpeg" alt="A crew in its own room: five agents at their desks, Lead SRE and SRE 1 to SRE 4. Lead SRE and SRE 1 are awake, each with its current task over the desk; the other three sleep" width="1600" height="1019" loading="lazy">
+</div>
+
 More in the post [Isomux for Enterprise 2: Turning your company AI native](https://nilmamano.com/blog/isomux-crews).

@@ -5,7 +5,7 @@ description: What people use Isomux for - agents for non-technical colleagues, c
 
 # Use cases
 
-- [Agents for normies](use-cases/agents-for-normies.md)
+- [Agents for non-technical colleagues](use-cases/non-technical-colleagues.md)
 - [Turning your company AI native](use-cases/ai-native.md)
 - [The personal app store](use-cases/personal-app-store.md)
 - [Run many coding agents at once](use-cases/parallel-agents.md)

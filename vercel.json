@@ -46,6 +46,16 @@
       "permanent": true
     },
     {
+      "source": "/docs/use-cases-agents-for-normies",
+      "destination": "/docs/use-cases-non-technical-colleagues",
+      "permanent": true
+    },
+    {
+      "source": "/_agent/docs/use-cases-agents-for-normies/index.md",
+      "destination": "/_agent/docs/use-cases-non-technical-colleagues/index.md",
+      "permanent": true
+    },
+    {
       "source": "/use-cases",
       "destination": "/docs/use-cases",
       "permanent": true

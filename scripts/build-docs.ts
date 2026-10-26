@@ -490,11 +490,19 @@ h1, h2, h3, h4 { font-family: "Space Grotesk", -apple-system, sans-serif; }
   transition: color 0.15s;
 }
 .topbar-brand:hover { color: var(--accent); text-decoration: none; }
+.topbar-brand, a.topbar-crumb { flex-shrink: 0; }
 .topbar-crumb {
   color: var(--text-dim);
   font-size: 0.95rem;
   text-decoration: none;
   transition: color 0.15s;
+}
+/* The page crumb stays on one line and gives way to the links. */
+span.topbar-crumb {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
 .topbar-crumb::before { content: "/ "; margin-right: 4px; color: var(--border); }
@@ -535,6 +543,9 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
   margin-bottom: 8px;
   padding: 4px 10px;
 }
+/* The menu folds behind its summary on narrow screens only (see the script
+   after it in renderSidebar). */
+.sidebar-menu > summary { display: none; }
 .sidebar ul { list-style: none; }
 .sidebar li { margin-bottom: 1px; }
 .sidebar a {
@@ -771,6 +782,33 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
     border-bottom: 1px solid var(--border);
     padding-bottom: 12px;
   }
+  .sidebar-label { display: none; }
+  .sidebar-menu > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    list-style: none;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-surface);
+    color: var(--text);
+    font-weight: 500;
+  }
+  .sidebar-menu > summary::-webkit-details-marker { display: none; }
+  .sidebar-menu > summary::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin: 0 4px 4px 0;
+    border-right: 2px solid var(--text-dim);
+    border-bottom: 2px solid var(--text-dim);
+    transform: rotate(45deg);
+  }
+  .sidebar-menu[open] > summary { margin-bottom: 8px; }
+  .sidebar-menu[open] > summary::after { margin: 4px 4px 0 0; transform: rotate(-135deg); }
+  .sidebar-menu > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .topbar-inner { padding: 10px 16px; gap: 12px; }
   .topbar-links { gap: 12px; }
   .content h1 { font-size: 1.6rem; }
@@ -813,6 +851,7 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
 .flow-leaf:has(> .flow-answer)::before { top: 12px; }
 .flow-leaf:has(> .flow-answer)::after { top: 8px; }
 @media (max-width: 650px) {
+  span.topbar-crumb { display: none; }
   .content img.diagram-narrow { width: 100%; }
   .content .hosting-flow { padding-left: 12px; }
   .content .flow-question { padding: 14px 12px; border-radius: 24px; }
@@ -843,9 +882,24 @@ function renderSidebar(pages: DocPage[], currentSlug: string): string {
       return `<li>${link(p)}${subpages}</li>`;
     })
     .join("");
+  // Open in the HTML, so readers without JavaScript keep the list. The script
+  // folds it while the screen is at most 900px wide, the width where the
+  // sidebar moves above the article.
   return `<aside class="sidebar">
   <div class="sidebar-label">Docs</div>
+  <details class="sidebar-menu" open>
+  <summary>Docs menu</summary>
   <nav aria-label="Documentation"><ul>${items}</ul></nav>
+  </details>
+  <script>
+  (function () {
+    var menu = document.currentScript.previousElementSibling;
+    var narrow = window.matchMedia("(max-width: 900px)");
+    var follow = function () { menu.open = !narrow.matches; };
+    follow();
+    narrow.addEventListener("change", follow);
+  })();
+  </script>
 </aside>`;
 }
 
@@ -1007,7 +1061,7 @@ ${articleHtml}
     title: page.title,
     description: page.description,
     path: pageUrl(page),
-    crumb: page.slug === LANDING_SLUG ? undefined : page.title,
+    crumb: page.slug === LANDING_SLUG ? undefined : page.navTitle,
     body,
     docContext: page.raw,
   });

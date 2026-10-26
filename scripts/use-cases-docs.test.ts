@@ -15,6 +15,8 @@ const MOVED: Record<string, string> = {
   "/use-cases": INDEX,
   "/use-cases/parallel-agents": "/docs/use-cases-parallel-agents",
   "/use-cases/phone": "/docs/use-cases-phone",
+  "/docs/use-cases-agents-for-normies":
+    "/docs/use-cases-non-technical-colleagues",
 };
 
 const builtFile = (path: string) =>
@@ -215,6 +217,18 @@ describe("use cases in the docs", () => {
       expect(existsSync(builtFile(destination)), destination).toBe(true);
       expect(existsSync(`site${source}.html`), source).toBe(false);
       expect(existsSync(`site${source}/index.html`), source).toBe(false);
+      // A moved docs page also moved its agent Markdown.
+      if (!source.startsWith("/docs/")) continue;
+      const markdown = VERCEL.redirects.find(
+        (r: { source: string }) => r.source === `/_agent${source}/index.md`,
+      );
+      expect(markdown, source).toBeDefined();
+      expect(markdown.destination, source).toBe(
+        `/_agent${destination}/index.md`,
+      );
+      expect(markdown.permanent, source).toBe(true);
+      expect(existsSync(`site${markdown.destination}`), source).toBe(true);
+      expect(existsSync(`site/_agent${source}/index.md`), source).toBe(false);
     }
     expect(
       readdirSync("site/use-cases").filter((file) => file.endsWith(".html")),
@@ -277,6 +291,66 @@ describe("use cases in the docs", () => {
     ).toBe(
       "[a](/docs/use-cases) [b](/docs/use-cases-phone) [c](/docs/use-cases-one-project#start) [d](/docs/use-cases-parallel-agents) [e](/docs#agent-coordination) [f](/docs/access-and-invites)",
     );
+  });
+});
+
+describe("the docs menu", () => {
+  it("is open in the served HTML of every page, folds under a summary, and the topbar names the page as the sidebar does", () => {
+    for (const path of builtDocsPaths()) {
+      const doc = docAt(path);
+      const menu = doc.querySelector(".sidebar details.sidebar-menu");
+      expect(menu, path).not.toBeNull();
+      // Readers without JavaScript keep the whole list.
+      expect(menu!.hasAttribute("open"), path).toBe(true);
+      expect(menu!.querySelector(":scope > summary"), path).not.toBeNull();
+      expect(
+        menu!.querySelector('nav[aria-label="Documentation"]'),
+        path,
+      ).not.toBeNull();
+      const crumb = doc.querySelector(".topbar span.topbar-crumb");
+      if (path === "/docs") continue;
+      expect(crumb?.textContent?.trim(), path).toBe(
+        menu!.querySelector('a[aria-current="page"]')!.textContent!.trim(),
+      );
+    }
+  });
+
+  it("closes on a phone and opens on a wide screen, also when the window crosses 900 px", async () => {
+    // The use case with the longest title, which crowded the phone layout.
+    const path = PAGES.reduce((a, b) =>
+      docAt(b).title.length > docAt(a).title.length ? b : a,
+    );
+    const html = readFileSync(builtFile(path), "utf8");
+    const open = async (width: number) => {
+      const window = new Window({
+        width,
+        height: 800,
+        settings: {
+          enableJavaScriptEvaluation: true,
+          suppressInsecureJavaScriptEnvironmentWarning: true,
+          disableCSSFileLoading: true,
+          disableJavaScriptFileLoading: true,
+        },
+      });
+      window.document.write(html);
+      const menu = window.document.querySelector(
+        ".sidebar details.sidebar-menu",
+      ) as unknown as { open: boolean } | null;
+      expect(menu, `${path} at ${width}px`).not.toBeNull();
+      return { window, menu: menu! };
+    };
+    const phone = await open(390);
+    expect(phone.menu.open).toBe(false);
+    await phone.window.happyDOM.close();
+    // happy-dom 20 sends the first change event only when the query starts
+    // to match, so the resizes start from a wide window.
+    const wide = await open(1280);
+    expect(wide.menu.open).toBe(true);
+    wide.window.happyDOM.setViewport({ width: 390 });
+    expect(wide.menu.open).toBe(false);
+    wide.window.happyDOM.setViewport({ width: 1280 });
+    expect(wide.menu.open).toBe(true);
+    await wide.window.happyDOM.close();
   });
 });
 

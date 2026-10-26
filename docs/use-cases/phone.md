@@ -28,7 +28,7 @@ Dictate messages instead of typing them. Pages and finished turns can show as no
 
 ## Reach the office from your phone
 
-Your phone opens the office at its web address. With Hosted Isomux, your own domain, or Tailscale Funnel, that address is public. With the private Tailscale setup, your phone needs Tailscale. An office from the local setup opens only on its own computer. The [hosting guides](../self-hosted.md) help you choose.
+Your phone opens the office at its web address. With [Hosted Isomux](/hosted), your own domain, or Tailscale Funnel, that address is public. With the private Tailscale setup, your phone needs Tailscale. An office from the local setup opens only on its own computer. The [hosting guides](../self-hosted.md) help you choose.
 
 ## Start
 

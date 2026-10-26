@@ -14,12 +14,12 @@
 
 - [Compare](https://isomux.com/compare): Isomux beside other agent harnesses and multi-agent tools: license, agents, where it runs, phone access, and shared conversations
 - [Use cases](https://isomux.com/docs/use-cases): What people use Isomux for
-- [Agents for normies](https://isomux.com/docs/use-cases-agents-for-normies): Engineers set up agents that non-technical colleagues chat with
+- [Agents for non-technical colleagues](https://isomux.com/docs/use-cases-non-technical-colleagues): Engineers set up agents that non-technical colleagues chat with
 - [Turning your company AI native](https://isomux.com/docs/use-cases-ai-native): A crew of agents in one room runs one business process
 - [The personal app store](https://isomux.com/docs/use-cases-personal-app-store): Agents build apps that Isomux runs behind the office sign-in
 - [Run many coding agents at once](https://isomux.com/docs/use-cases-parallel-agents): Run Claude Code, Codex and OpenCode agents side by side and keep track of them
 - [Agents on your phone](https://isomux.com/docs/use-cases-phone): Check on and talk to your agents from a phone
-- [Several agents on one project](https://isomux.com/docs/use-cases-one-project): A lead agent and its workers in one room
+- [Several agents on one project](https://isomux.com/docs/use-cases-one-project): One way to set up a lead agent and its workers in one room
 
 ## Company
 
