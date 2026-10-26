@@ -86,6 +86,12 @@ export function openCodeToolAction(
   }
 }
 
+// The profile's HOME and TMPDIR, baked in by safety-plugin-build.ts. Unset
+// when this file runs unbundled, as in tests.
+declare const ISOMUX_SAFETY_SHELL: { home: string; tmpDir: string } | undefined;
+const SHELL =
+  typeof ISOMUX_SAFETY_SHELL === "object" ? ISOMUX_SAFETY_SHELL : undefined;
+
 interface ToolEvent {
   tool: string;
   input: unknown;
@@ -131,6 +137,8 @@ export default {
         const decision = evaluateProposedAction(call.action, {
           cwd: call.cwd,
           codexHome: process.env.CODEX_HOME,
+          shellHome: SHELL?.home,
+          shellTmpDir: SHELL?.tmpDir,
         });
         if (decision.decision === "deny") throw new Error(decision.reason);
       }),

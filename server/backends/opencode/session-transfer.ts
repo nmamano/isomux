@@ -5,7 +5,11 @@ import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentHost } from "../../agent-host.ts";
 import { errMessage } from "../../../shared/errors.ts";
-import { OPENCODE_V2_DATABASE, openCodeTmpDir } from "./config-layers.ts";
+import {
+  OPENCODE_V2_DATABASE,
+  openCodeProfileHome,
+  openCodeTmpDir,
+} from "./config-layers.ts";
 import { openCodeDatabasePath, openCodeProfilePaths } from "./profile-paths.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
 import { absent, inspectOpenCodeProfileSession } from "./storage.ts";
@@ -30,7 +34,7 @@ function profileCliEnvironment(
   return {
     PATH: getAgentHost().baseEnv().PATH ?? "/usr/bin:/bin",
     LANG: "C.UTF-8",
-    HOME: join(profileDir, "home"),
+    HOME: openCodeProfileHome(profileDir),
     XDG_CONFIG_HOME: join(profileDir, "config"),
     XDG_DATA_HOME: join(profileDir, "data"),
     XDG_STATE_HOME: join(profileDir, "state"),

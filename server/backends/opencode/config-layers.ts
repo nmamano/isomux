@@ -95,7 +95,7 @@ export function openCodeServerEnvironment(
     ),
     PATH: env.PATH ?? "/usr/bin:/bin",
     LANG: "C.UTF-8",
-    HOME: join(server.profileDir, "home"),
+    HOME: openCodeProfileHome(server.profileDir),
     XDG_CONFIG_HOME: join(server.profileDir, "config"),
     XDG_DATA_HOME: join(server.profileDir, "data"),
     XDG_STATE_HOME: join(server.profileDir, "state"),
@@ -132,6 +132,10 @@ export function openCodeToolEnvironment(
   });
   for (const name of OPENCODE_SERVER_ONLY_VARIABLES) delete variables[name];
   return variables;
+}
+
+export function openCodeProfileHome(profileDir: string): string {
+  return join(profileDir, "home");
 }
 
 export function openCodeTmpDir(profileDir: string): string {

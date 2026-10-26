@@ -291,9 +291,16 @@ const cases: Case[] = [
   },
   {
     name: "nonliteral target plain",
-    command: 'cat > "$HOME/.isomux/x"',
+    command: 'cat > "$X/.isomux/x"',
     denied: true,
     reason: nonLiteral,
+  },
+  {
+    // $HOME is followed: it resolves to the state root (task fc942b38).
+    name: "home variable target",
+    command: 'cat > "$HOME/.isomux/x"',
+    denied: true,
+    reason: protectedWrite,
   },
   {
     name: "nonliteral glob target",
@@ -326,7 +333,7 @@ const cases: Case[] = [
   },
   {
     name: "dd dynamic output is protected",
-    command: 'dd if=/dev/null of="$HOME/.isomux/x"',
+    command: 'dd if=/dev/null of="$X/.isomux/x"',
     denied: true,
     reason: nonLiteral,
   },

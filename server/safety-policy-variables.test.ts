@@ -35,7 +35,8 @@ function reason(command: string): string {
 // Reference denials: a literal write to office state, and a write target
 // the hook cannot resolve.
 const stateRoot = reason("cp a ~/.isomux/x");
-const nonLiteral = reason('cat > "$HOME/.isomux/x"');
+// X is set nowhere, so the hook cannot follow it.
+const nonLiteral = reason('cat > "$X/.isomux/x"');
 
 describe("a variable that holds a state path", () => {
   it.each([
@@ -93,6 +94,15 @@ describe("a variable that holds a state path", () => {
   it("checks every value a name gets on the line, not only the last", () => {
     // In bash the first assignment wins here: the || branch does not run.
     expect(reason("D=~/.isomux/x || D=/tmp; cp a $D/y")).toBe(stateRoot);
+  });
+
+  it.each([
+    "HOME=~/.isomux; touch ~/x",
+    `export HOME=${STATE_ROOT}; echo hi > ~/x`,
+    "HOME=/tmp/h || HOME=~/.isomux/a; cp a ~/y",
+  ])("resolves ~ through the HOME set on the line: %p", (command) => {
+    // ~ in a later command expands from HOME, on every engine (task fc942b38).
+    expect(reason(command)).toBe(stateRoot);
   });
 
   it("expands a name anywhere in the target, not only at the start", () => {

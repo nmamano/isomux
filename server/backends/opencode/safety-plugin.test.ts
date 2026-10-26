@@ -393,13 +393,16 @@ describe("the bundled safety plugin", () => {
   it("bundles into one module with the given roots, not the process's", async () => {
     const home = "/srv/isomux-safety-plugin-home";
     const stateRoot = "/srv/isomux-safety-plugin-state";
-    const text = await buildOpenCodeSafetyPlugin({
-      home,
-      env: {
-        ISOMUX_HOME: stateRoot,
-        ISOMUX_ADMIN_SOCKET: join(stateRoot, "admin.sock"),
+    const text = await buildOpenCodeSafetyPlugin(
+      {
+        home,
+        env: {
+          ISOMUX_HOME: stateRoot,
+          ISOMUX_ADMIN_SOCKET: join(stateRoot, "admin.sock"),
+        },
       },
-    });
+      { home: join(home, "profile-home"), tmpDir: join(home, "profile-tmp") },
+    );
     expect(text, "no import of node:os is left").not.toMatch(
       /from "(node:)?os"/,
     );

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { AGENT_ROOT } from "../../split/roots.ts";
-import { OPENCODE_V2_DATABASE } from "./config-layers.ts";
+import { OPENCODE_V2_DATABASE, openCodeProfileHome } from "./config-layers.ts";
 
 export interface OpenCodeProfilePaths {
   profileDir: string;
@@ -27,7 +27,7 @@ export function openCodeProfilePaths(
   return {
     profileDir,
     configPath: join(profileDir, "opencode.json"),
-    home: join(profileDir, "home"),
+    home: openCodeProfileHome(profileDir),
     configHome: join(profileDir, "config"),
     dataHome: join(profileDir, "data"),
     stateHome: join(profileDir, "state"),

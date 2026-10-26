@@ -847,6 +847,90 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   });
 
+  it("builds the safety plugin with the HOME and TMPDIR the server's shell runs with", async () => {
+    // Task fc942b38: the plugin resolves ~, $HOME and $TMPDIR as the shell
+    // does. A profile under the state root, as in production.
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const profileDir = join(
+      STATE_ROOT,
+      "opencode",
+      "profiles",
+      path.split("/").at(-1)!,
+    );
+    scratch.push(profileDir);
+    const supervisor = new OpenCodeSupervisor({
+      profileDir,
+      serverCwd: path,
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    const environment = await childEnvironment(lease.pid);
+    const home = environment.get("HOME") ?? "";
+    const tmp = environment.get("TMPDIR") ?? "";
+    // The condition this test depends on: both folders are in the profile,
+    // under the state root, so only the exemption lets a write through.
+    expect(
+      [home, tmp].every((value) => value.startsWith(profileDir + "/")),
+    ).toBe(true);
+    type Hook = (event: Record<string, unknown>) => unknown;
+    const plugin = (await import(
+      `${pathToFileURL(safetyPluginPath(supervisor)).href}?shell`
+    )) as {
+      default: {
+        setup: (ctx: {
+          location: { directory: string };
+          tool: { hook: (name: string, callback: Hook) => Promise<unknown> };
+          shell: { hook: (name: string, callback: Hook) => Promise<unknown> };
+        }) => Promise<void>;
+      };
+    };
+    const hooks = new Map<string, Hook>();
+    const hook = (domain: string) => async (name: string, callback: Hook) =>
+      void hooks.set(`${domain}.${name}`, callback);
+    await plugin.default.setup({
+      location: { directory: path },
+      tool: { hook: hook("tool") },
+      shell: { hook: hook("shell") },
+    });
+    const verdict = (command: string) =>
+      Promise.resolve()
+        .then(() =>
+          hooks.get("tool.execute.before")!({
+            tool: "shell",
+            input: { command },
+          }),
+        )
+        .then(
+          () => "allow",
+          () => "deny",
+        );
+    // Labels name the case, never the environment's values.
+    const cases: [string, string][] = [
+      ["the shell's HOME", `touch ${home}/x`],
+      ["the shell's TMPDIR", `touch ${tmp}/x`],
+      ["~", "touch ~/x"],
+      ["$TMPDIR", "echo hi > $TMPDIR/x"],
+      ["~/..", "touch ~/../data/x"],
+      ["$TMPDIR/..", "echo hi > $TMPDIR/../data/x"],
+    ];
+    const verdicts: [string, string][] = [];
+    for (const [label, command] of cases)
+      verdicts.push([label, await verdict(command)]);
+    expect(verdicts).toEqual([
+      ["the shell's HOME", "allow"],
+      ["the shell's TMPDIR", "allow"],
+      ["~", "allow"],
+      ["$TMPDIR", "allow"],
+      ["~/..", "deny"],
+      ["$TMPDIR/..", "deny"],
+    ]);
+    lease.release();
+  });
+
   // S1: OpenCode 2 loads the plugin from a folder. An adopted server can be
   // importing it for a new folder, so a changed build replaces index.js in
   // one rename, never by truncation. The OpenCode 1 file goes.

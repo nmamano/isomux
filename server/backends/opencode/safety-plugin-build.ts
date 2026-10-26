@@ -11,11 +11,20 @@ export interface OpenCodeSafetyRoots {
   env: { ISOMUX_HOME: string; ISOMUX_ADMIN_SOCKET: string };
 }
 
+// The HOME and TMPDIR a session's shell runs with (openCodeToolEnvironment):
+// the policy resolves ~, $HOME and $TMPDIR from them, and leaves the two
+// folders writable.
+export interface OpenCodeSafetyShell {
+  home: string;
+  tmpDir: string;
+}
+
 // safety-plugin.ts as one self-contained module with the roots baked in: no
 // read of the OpenCode server's HOME or environment is left, and it imports
 // only Bun built-ins, so no config layer can change what it resolves.
 export async function buildOpenCodeSafetyPlugin(
   roots: OpenCodeSafetyRoots,
+  shell: OpenCodeSafetyShell,
 ): Promise<string> {
   const result = await Bun.build({
     entrypoints: [entry],
@@ -24,6 +33,7 @@ export async function buildOpenCodeSafetyPlugin(
     define: {
       ISOMUX_SAFETY_HOME: JSON.stringify(roots.home),
       ISOMUX_SAFETY_ENV: JSON.stringify(roots.env),
+      ISOMUX_SAFETY_SHELL: JSON.stringify(shell),
     },
     plugins: [
       {

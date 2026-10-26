@@ -54,11 +54,13 @@ export const STATE_PATH_VARIABLES: readonly string[] = [
 ];
 
 // Variables Isomux sets under the state root for one engine only, which the
-// engine-blind hook does not treat as state paths, with the reason.
+// hook does not treat as state paths, with the reason. The policy context
+// gives their values (shellHome, shellTmpDir), so a target resolves through
+// them like any path.
 export const STATE_PATH_EXCLUSIONS: Readonly<Record<string, string>> = {
   HOME:
-    "OpenCode shells get a profile home; on other engines it is the real " +
-    "home, and agents write there all the time.",
+    "OpenCode shells get a profile home, the agent's own space; on other " +
+    "engines it is the real home, and agents write there all the time.",
   TMPDIR:
     "OpenCode shells get a profile scratch directory; agents write their " +
     "scratch files there by design.",
@@ -77,8 +79,15 @@ export type ProposedAction =
   | { kind: "uncovered-tool"; toolName: string; input: unknown };
 
 // codexHome is the CODEX_HOME the agent runs with; its auth.json is a login
-// even when the directory name matches none of the known shapes.
-export type PolicyContext = { cwd?: unknown; codexHome?: string | null };
+// even when the directory name matches none of the known shapes. shellHome
+// and shellTmpDir are the HOME and TMPDIR the agent's shell runs with when
+// they are not the hook's own (OpenCode's profile folders).
+export type PolicyContext = {
+  cwd?: unknown;
+  codexHome?: string | null;
+  shellHome?: string | null;
+  shellTmpDir?: string | null;
+};
 
 const ALLOW: PolicyDecision = Object.freeze({ decision: "allow" });
 
@@ -2711,14 +2720,21 @@ function policyCwd(value: unknown): string | null {
   return resolve(value);
 }
 
-/** Resolve ~ and absolute paths without cwd; relative paths require agent cwd. */
-function resolvePath(filePath: string, cwd: unknown): string | null {
+/**
+ * Resolve ~ and absolute paths without cwd; relative paths require agent cwd.
+ * home is what ~ expands to; a literal ~/.isomux is office state whatever it is.
+ */
+function resolvePath(
+  filePath: string,
+  cwd: unknown,
+  home: string = homedir(),
+): string | null {
   if (filePath === "~/.isomux") return ISOMUX_DIR;
   if (filePath.startsWith("~/.isomux/")) {
     return resolve(ISOMUX_DIR, filePath.slice("~/.isomux/".length));
   }
-  if (filePath.startsWith("~/")) return resolve(homedir(), filePath.slice(2));
-  if (filePath === "~") return homedir();
+  if (filePath.startsWith("~/")) return resolve(home, filePath.slice(2));
+  if (filePath === "~") return resolve(home);
   if (isAbsolute(filePath)) return resolve(filePath);
   const base = policyCwd(cwd);
   if (!base) return null;
@@ -2736,6 +2752,42 @@ function isAtOrBelow(filePath: string, root: string): boolean {
 
 function isAtOrBelowStateRoot(filePath: string): boolean {
   return isAtOrBelow(filePath, ISOMUX_DIR);
+}
+
+/**
+ * The shell an action runs in. home is where its ~ starts, tmpDir its TMPDIR
+ * when the context gives one; agentSpace holds the folders under the state
+ * root that are the agent's own (an OpenCode profile's home and tmp), and is
+ * empty on Claude and Codex.
+ */
+type AgentShell = {
+  home: string;
+  tmpDir: string | null;
+  agentSpace: readonly string[];
+};
+
+function agentShell(context: PolicyContext): AgentShell {
+  const folder = (value: string | null | undefined): string | null => {
+    const trimmed = value?.trim();
+    return trimmed && isAbsolute(trimmed) ? resolve(trimmed) : null;
+  };
+  const home = folder(context.shellHome);
+  const tmpDir = folder(context.shellTmpDir);
+  // Only a folder strictly below the state root opens: the root itself or an
+  // ancestor of it would open all of office state.
+  const agentSpace = [home, tmpDir].filter(
+    (path): path is string =>
+      path !== null && path.startsWith(ISOMUX_DIR + "/"),
+  );
+  return { home: home ?? homedir(), tmpDir, agentSpace };
+}
+
+/** A write to office state: at or below the state root, outside agent space. */
+function isStateWrite(filePath: string, shell: AgentShell): boolean {
+  return (
+    isAtOrBelowStateRoot(filePath) &&
+    !shell.agentSpace.some((root) => isAtOrBelow(filePath, root))
+  );
 }
 
 function isProtectedRelativeCandidate(filePath: string): boolean {
@@ -2983,13 +3035,28 @@ const VARIABLE_REFERENCE =
   /\$(?:\{(!?)([A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]*\])?[^}]*\}|([A-Za-z_][A-Za-z0-9_]*))/g;
 const PATH_DELIMITERS = /[/)"'}\s(=`;|&<>]/;
 
-function seededVariables(): Variables {
-  return new Map(
+// HOME starts as "~", so $HOME and a leading ~ both resolve from the shell's
+// home (resolvePath), and through every value HOME gets on the line. TMPDIR
+// is followed only when the context gives the shell's own.
+function seededVariables(shell: AgentShell): Variables {
+  const variables: Variables = new Map(
     STATE_PATH_VARIABLES.map((name) => [
       name,
       { values: [], state: true, unresolvable: false },
     ]),
   );
+  variables.set("HOME", {
+    values: [{ text: "~", raws: [] }],
+    state: false,
+    unresolvable: false,
+  });
+  if (shell.tmpDir)
+    variables.set("TMPDIR", {
+      values: [{ text: shell.tmpDir, raws: [] }],
+      state: false,
+      unresolvable: false,
+    });
+  return variables;
 }
 
 function namesIsomuxSegment(text: string): boolean {
@@ -3052,6 +3119,43 @@ function expandVariables(
   }
   append(word.text.slice(last));
   return { state, unresolvable, expanded, results };
+}
+
+/**
+ * A leading ~ expands from HOME: the shell's home (the seeded "~", which
+ * resolvePath resolves) and every value HOME gets on the line.
+ */
+function expandTilde(
+  results: VariableValue[],
+  variables: Variables,
+): {
+  state: boolean;
+  unresolvable: boolean;
+  expanded: boolean;
+  results: VariableValue[];
+} {
+  const home = variables.get("HOME");
+  const leading = (text: string) => text === "~" || text.startsWith("~/");
+  if (!home || !results.some((result) => leading(result.text)))
+    return { state: false, unresolvable: false, expanded: false, results };
+  let expanded = false;
+  const expansions = results.flatMap((result) =>
+    leading(result.text)
+      ? home.values.map((value) => {
+          if (value.text !== "~") expanded = true;
+          return {
+            text: value.text + result.text.slice(1),
+            raws: [...result.raws, ...value.raws],
+          };
+        })
+      : [result],
+  );
+  return {
+    state: home.state,
+    unresolvable: home.unresolvable || expansions.length > VARIABLE_VALUE_CAP,
+    expanded,
+    results: expansions,
+  };
 }
 
 /** Every value given to a variable on the line, in source order. */
@@ -3205,13 +3309,15 @@ function cdMaySearch(target: string): boolean {
 function shellWriteDecision(
   command: string,
   initialCwd: unknown,
+  shell: AgentShell,
 ): PolicyDecision | null {
-  return shellWriteFlow(command, initialCwd, 0).decision;
+  return shellWriteFlow(command, initialCwd, shell, 0).decision;
 }
 
 function shellWriteFlow(
   command: string,
   initialCwd: unknown,
+  shell: AgentShell,
   depth: number,
   inheritedDirectories?: DirectorySet,
   inheritedCdSearch = false,
@@ -3225,7 +3331,7 @@ function shellWriteFlow(
   parseCommands(stripHeredocBodies(command), false, true, syntax);
   const variables = collectVariables(
     syntax,
-    inheritedVariables ?? seededVariables(),
+    inheritedVariables ?? seededVariables(shell),
   );
   let decision: PolicyDecision | null = null;
   const unchanged = (directories: DirectorySet): DirectoryFlow => ({
@@ -3248,22 +3354,30 @@ function shellWriteFlow(
           expanded: false,
           results: [{ text: target.text, raws: [] }],
         };
-    if (state) {
+    const tilde = expandTilde(results, variables);
+    if (state || tilde.state) {
       decision = denyStateRoot();
       return;
     }
-    if (unresolvable) {
+    if (unresolvable || tilde.unresolvable) {
       decision = denyShellPath(target.text, true);
       return;
     }
-    for (const result of results) {
+    for (const result of tilde.results) {
       // Do not turn a shell expansion into a fictitious literal directory.
       // This tightening is bounded to .isomux; a variable that holds a path
       // outside the state root stays allowed.
-      const dynamic = expanded
-        ? /[$`*?[\]{}]/.test(result.text)
-        : Boolean(target.dynamic);
-      if (dynamic && [result.text, ...result.raws].some(namesIsomuxSegment)) {
+      const dynamic =
+        expanded || tilde.expanded
+          ? /[$`*?[\]{}]/.test(result.text)
+          : Boolean(target.dynamic);
+      // The agent-space prefix a variable supplies ($TMPDIR in OpenCode) is
+      // not a .isomux the agent wrote; a typed one still counts.
+      const own = expanded
+        ? shell.agentSpace.find((root) => result.text.startsWith(root + "/"))
+        : undefined;
+      const written = own ? result.text.slice(own.length) : result.text;
+      if (dynamic && [written, ...result.raws].some(namesIsomuxSegment)) {
         decision = denyShellPath(target.text, true);
         return;
       }
@@ -3277,7 +3391,7 @@ function shellWriteFlow(
     directories: DirectorySet,
   ): boolean => {
     for (const directory of directories) {
-      const resolved = resolvePath(text, directory);
+      const resolved = resolvePath(text, directory, shell.home);
       if (
         resolved === null &&
         (directory === UNKNOWN_DIRECTORY || isProtectedRelativeCandidate(text))
@@ -3288,7 +3402,7 @@ function shellWriteFlow(
             : denyMissingCwd("Bash", target.text);
         return true;
       }
-      if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
+      if (resolved !== null && isStateWrite(resolved, shell)) {
         decision = denyStateRoot();
         return true;
       }
@@ -3332,11 +3446,21 @@ function shellWriteFlow(
         ) {
           success = new Set([UNKNOWN_DIRECTORY]);
         } else {
+          // cd ~ goes where a write to ~ does.
+          const tilde = expandTilde(
+            [{ text: target!.text, raws: [] }],
+            variables,
+          );
           success = new Set(
-            [...directories].map(
-              (directory) =>
-                resolvePath(target!.text, directory) ?? UNKNOWN_DIRECTORY,
-            ),
+            tilde.state || tilde.unresolvable
+              ? [UNKNOWN_DIRECTORY]
+              : [...directories].flatMap((directory) =>
+                  tilde.results.map(
+                    (result) =>
+                      resolvePath(result.text, directory, shell.home) ??
+                      UNKNOWN_DIRECTORY,
+                  ),
+                ),
           );
         }
       }
@@ -3355,6 +3479,7 @@ function shellWriteFlow(
           const nested = shellWriteFlow(
             payload,
             initialCwd,
+            shell,
             depth + 1,
             directories,
             cdSearch,
@@ -3570,11 +3695,12 @@ function checkBashSafety(
   commandValue: unknown,
   cwd: unknown,
   codexHome: string | null | undefined,
+  shell: AgentShell,
 ): PolicyDecision {
   const command = commandValue;
   if (typeof command !== "string" || !command) return allow();
 
-  const protectedWrite = shellWriteDecision(command, cwd);
+  const protectedWrite = shellWriteDecision(command, cwd, shell);
   if (protectedWrite) return protectedWrite;
 
   // Check process kills. This one gets the raw command: it does its own
@@ -3777,6 +3903,7 @@ function checkWritePaths(
   toolName: string,
   filePaths: string[],
   cwd: unknown,
+  shell: AgentShell,
 ): PolicyDecision {
   for (const filePath of filePaths) {
     const resolved = resolvePath(filePath, cwd);
@@ -3786,7 +3913,7 @@ function checkWritePaths(
       }
       continue;
     }
-    if (isAtOrBelowStateRoot(resolved)) {
+    if (isStateWrite(resolved, shell)) {
       return deny(
         `BLOCKED by isomux safety hooks\n\n` +
           `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. ` +
@@ -3805,22 +3932,24 @@ function checkWriteEditSafety(
   toolName: string,
   toolInput: unknown,
   cwd: unknown,
+  shell: AgentShell,
 ): PolicyDecision {
   const filePaths = collectToolPaths(toolName, toolInput);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths, cwd);
+  return checkWritePaths(toolName, filePaths, cwd, shell);
 }
 
 function checkPatchSafety(
   toolName: string,
   patch: unknown,
   cwd: unknown,
+  shell: AgentShell,
 ): PolicyDecision {
   const filePaths = extractApplyPatchPaths(patch);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths, cwd);
+  return checkWritePaths(toolName, filePaths, cwd, shell);
 }
 
 function checkSensitiveFileRead(
@@ -3865,9 +3994,15 @@ export function evaluateProposedAction(
   action: ProposedAction,
   context: PolicyContext = {},
 ): PolicyDecision {
+  const shell = agentShell(context);
   switch (action.kind) {
     case "shell":
-      return checkBashSafety(action.command, context.cwd, context.codexHome);
+      return checkBashSafety(
+        action.command,
+        context.cwd,
+        context.codexHome,
+        shell,
+      );
     case "read-files":
       return checkSensitiveFileRead(
         action.toolName,
@@ -3876,12 +4011,18 @@ export function evaluateProposedAction(
         context.codexHome,
       );
     case "write-files":
-      return checkWriteEditSafety(action.toolName, action.input, context.cwd);
+      return checkWriteEditSafety(
+        action.toolName,
+        action.input,
+        context.cwd,
+        shell,
+      );
     case "read-and-write-files": {
       const writeDecision = checkWriteEditSafety(
         action.toolName,
         action.input,
         context.cwd,
+        shell,
       );
       return writeDecision.decision === "deny"
         ? writeDecision
@@ -3893,7 +4034,12 @@ export function evaluateProposedAction(
           );
     }
     case "patch-files":
-      return checkPatchSafety(action.toolName, action.patch, context.cwd);
+      return checkPatchSafety(
+        action.toolName,
+        action.patch,
+        context.cwd,
+        shell,
+      );
     case "uncovered-tool":
       return allow();
   }
