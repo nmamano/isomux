@@ -57,6 +57,8 @@ const ALL_CAPS = new Set<Capability>([
   // stale.
   ...APP_CAPABILITIES,
   ...API_CAPABILITIES,
+  // In no set: appIdentityFromToken adds it to an app its owner let in.
+  "app:inbox",
 ]);
 
 function capsOf(auth: RouteAuth): readonly Capability[] {
@@ -1203,19 +1205,19 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["ask_removed"],
   },
   "asks.list": {
-    caps: ["agent:converse", "api:send-message"],
+    caps: ["agent:converse", "api:send-message", "app:inbox"],
     emits: [],
   },
   "asks.reply": {
-    caps: ["agent:converse", "api:send-message"],
+    caps: ["agent:converse", "api:send-message", "app:inbox"],
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   },
   "asks.dismiss": {
-    caps: ["agent:converse", "api:send-message"],
+    caps: ["agent:converse", "api:send-message", "app:inbox"],
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   },
   "asks.fileTask": {
-    caps: ["agent:converse", "api:send-message"],
+    caps: ["agent:converse", "api:send-message", "app:inbox"],
     emits: [
       "ask_removed",
       "log_entry",
@@ -1522,6 +1524,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apps.restart": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.archive": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.unarchive": { caps: ["app:write"], emits: ["app_upserted"] },
+  "apps.setInboxAccess": { caps: ["app:write"], emits: ["app_upserted"] },
   // The app-SELF route. app:message is held by APP scope alone, so this is the
   // one line in this table whose capability no human and no agent carries.
   "apps.sendMessage": { caps: ["app:message"], emits: ["log_entry"] },
@@ -2003,6 +2006,138 @@ describe("route table: an APP has its live owner agent's reach", () => {
     expect(orphan.capabilities).toEqual(APP_CAPABILITIES);
   });
 
+  // Task 4a1e58c9: the owner's switch adds the ask routes, and an ask's
+  // file only where the ask lookup says so.
+  it("adds exactly the ask routes when its owner let it in, and no reach without a live owner", () => {
+    const letIn = () => ({
+      userId: "u-owner",
+      createdByAgentId: "a-owner",
+      inboxAccess: true,
+    });
+    const app = appIdentityFromToken("raw", store, letIn, ownerAgent(false))!;
+    expect(app.capabilities).toContain("app:inbox");
+    const without = reach(appWith(ownerAgent(false)));
+    const withIt = reach(app);
+    expect([...withIt].filter((op) => !without.has(op)).sort()).toEqual([
+      "asks.dismiss",
+      "asks.fileTask",
+      "asks.list",
+      "asks.reply",
+    ]);
+    expect([...without].filter((op) => !withIt.has(op))).toEqual([]);
+
+    const files = API_ROUTES.find((r) => r.opId === "chatFiles.get")!;
+    const fileParams = { id: "a-asker", filename: "f1.png" };
+    const lookup = (open: boolean): GuardDeps => ({
+      ...generousDeps,
+      askReadFileOpenTo: () => open,
+    });
+    const forbidden = { ok: false, status: 403, code: "forbidden" } as const;
+    expect(
+      runAuthorize(files.auth, app, fileParams, undefined, lookup(true)),
+    ).toEqual({ ok: true });
+    expect(
+      runAuthorize(files.auth, app, fileParams, undefined, lookup(false)),
+    ).toEqual(forbidden);
+    // Without the switch the lookup is never asked to decide.
+    expect(
+      runAuthorize(
+        files.auth,
+        appWith(ownerAgent(false)),
+        fileParams,
+        undefined,
+        lookup(true),
+      ),
+    ).toEqual(forbidden);
+
+    // The switch alone is nothing: no live owner, or one with another
+    // manager, gives the app-self routes only.
+    for (const resolveAgent of [
+      (() => null) as AppOwnerAgentResolver,
+      ownerAgent(true, "u-other"),
+    ]) {
+      const orphan = appIdentityFromToken("raw", store, letIn, resolveAgent)!;
+      expect(orphan.capabilities).not.toContain("app:inbox");
+      expect([...reach(orphan)].sort()).toEqual(
+        [...APP_REACHABLE_OPIDS].sort(),
+      );
+      expect(
+        runAuthorize(files.auth, orphan, fileParams, undefined, lookup(true)),
+      ).toEqual(forbidden);
+    }
+  });
+
+  it("lets only the app's owner set the switch, by session or API token", () => {
+    const route = API_ROUTES.find((r) => r.opId === "apps.setInboxAccess")!;
+    const deps: GuardDeps = {
+      ...generousDeps,
+      appOwnerUserId: (name) => (name === "hello" ? "u-owner" : null),
+      isOfficeOwnerUserId: () => true,
+    };
+    const cases: Array<[string, Identity, string, boolean]> = [
+      [
+        "owner session",
+        {
+          scope: "user",
+          userId: "u-owner",
+          role: "member",
+          capabilities: USER_CAPABILITIES,
+        },
+        "hello",
+        true,
+      ],
+      [
+        "owner API token",
+        {
+          scope: "api",
+          userId: "u-owner",
+          role: "member",
+          apiTokenId: "pat-1",
+          apiTokenName: "Laptop",
+          capabilities: API_CAPABILITIES,
+        },
+        "hello",
+        true,
+      ],
+      [
+        "owner session, another app",
+        {
+          scope: "user",
+          userId: "u-owner",
+          role: "member",
+          capabilities: USER_CAPABILITIES,
+        },
+        "other",
+        false,
+      ],
+      [
+        "office owner who is not the owner",
+        {
+          scope: "user",
+          userId: "u-boss",
+          role: "owner",
+          capabilities: USER_CAPABILITIES,
+        },
+        "hello",
+        false,
+      ],
+      ["owner agent", agent(false), "hello", false],
+      ["privileged owner agent", agent(true), "hello", false],
+      ["the app", appWith(ownerAgent(true)), "hello", false],
+    ];
+    for (const [label, identity, name, allowed] of cases) {
+      expect({
+        label,
+        outcome: runAuthorize(route.auth, identity, { name }, {}, deps),
+      }).toEqual({
+        label,
+        outcome: allowed
+          ? { ok: true }
+          : { ok: false, status: 403, code: "forbidden" },
+      });
+    }
+  });
+
   it("never holds secret:show, even from an owner set that has it", () => {
     expect(appWith(ownerAgent(true)).capabilities).not.toContain("secret:show");
     expect(
@@ -2220,6 +2355,7 @@ const API_REACHABLE_OPIDS = [
   "apps.restart",
   "apps.archive",
   "apps.unarchive",
+  "apps.setInboxAccess",
   "webhooks.list",
   "webhooks.get",
   "webhooks.create",

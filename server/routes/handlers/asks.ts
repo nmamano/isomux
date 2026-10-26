@@ -5,7 +5,8 @@
 // (/api/asks...): only a member askVisibleTo admits (the member the ask is
 // for, or an owner for an office secret request), while that member can
 // still reach the agent's room; anyone else gets the same 404 as an unknown
-// id. A secret request is answered on its own routes (secret-requests.ts),
+// id. An app the member let in (app:inbox) answers as the member and never
+// sees a secret request. A secret request is answered on its own routes (secret-requests.ts),
 // never with a reply, a dismiss or a filed task.
 //
 // A reply, a dismiss or a filed task is a member message to the agent through
@@ -369,7 +370,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         fail(
           400,
           "api_attribution_not_supported",
-          "device is not supported for API token senders.",
+          "device is supported only for browser senders.",
         ),
       );
     let text: string | undefined;
@@ -383,7 +384,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (body.text.trim().length > 0) text = body.text;
     }
     const entry = addressedTo(ctx.identity, ctx.params.askId);
-    if (!entry) return refuse(notFound());
+    // An app never sees a secret request: the same 404 as an unknown id.
+    if (!entry || (entry.secret && ctx.identity.scope === "app"))
+      return refuse(notFound());
     // A secret request is answered with its masked form only: a reply would
     // carry what the member typed into the chat and to the agent.
     if (entry.secret)
@@ -623,10 +626,14 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.list": guarded((ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return ok([]);
+      const isApp = ctx.identity.scope === "app";
       return ok(
         store
           .listAll()
-          .filter((entry) => askVisibleTo(entry, userId, audience))
+          .filter(
+            (entry) =>
+              !(isApp && entry.secret) && askVisibleTo(entry, userId, audience),
+          )
           .map(askMemberWire),
       );
     }),

@@ -1471,6 +1471,10 @@ export interface AppRecord {
   // Set by a member to move a stopped app out of the way. Starting the app
   // clears it.
   archived?: boolean;
+  // Set by the owner only (PUT /api/apps/:name/inbox-access): the app may
+  // list and answer the owner's asks while its owner agent is live. Absent
+  // means off. A move to another owner clears it.
+  inboxAccess?: boolean;
 }
 
 // What an app is doing. The registry persists NO state field: a stored

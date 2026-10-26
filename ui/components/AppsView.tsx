@@ -557,6 +557,8 @@ type MenuAction =
   | "log"
   | "archive"
   | "unarchive"
+  | "inboxOn"
+  | "inboxOff"
   | "delete";
 
 /** The actions a manager's ⋯ menu offers for an app in this state. */
@@ -575,6 +577,19 @@ export function appMenuActions(
   if (section === "archived") actions.push("unarchive");
   actions.push("delete");
   return actions;
+}
+
+/**
+ * The owner's inbox switch item: only the app's owner sees it, and the label
+ * gives the action from the current state.
+ */
+export function inboxMenuAction(
+  app: AppListWire,
+  selfUserId: string | null,
+): "inboxOn" | "inboxOff" | null {
+  if (!("canManage" in app) || app.canManage !== true) return null;
+  if (selfUserId === null || app.userId !== selfUserId) return null;
+  return app.inboxAccess === true ? "inboxOff" : "inboxOn";
 }
 
 /**
@@ -993,6 +1008,24 @@ export function AppsView({
     }
   }
 
+  // PUT, not one of the verbs: the owner's switch, answered with the app.
+  async function setInboxAccess(name: string, enabled: boolean) {
+    setBusy(`${name}:inbox`);
+    setError(null);
+    try {
+      const app = await apiFetch<AppWire>(
+        "PUT",
+        `/api/apps/${encodeURIComponent(name)}/inbox-access`,
+        { enabled },
+      );
+      dispatch({ type: "app_upserted", app: { ...app, canManage: true } });
+    } catch (err) {
+      setError(pageError(err, "apps.actionFailed.inbox"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function doDelete(app: AppWire) {
     setBusy(`${app.name}:delete`);
     setError(null);
@@ -1083,6 +1116,9 @@ export function AppsView({
       ...(installHref ? (["install"] as const) : []),
       ...(app.canManage === true ? appMenuActions(app) : []),
     ];
+    // The owner's switch for the app's reach into their asks, before Delete.
+    const inbox = inboxMenuAction(app, selfUserId);
+    if (inbox) actions.splice(Math.max(actions.indexOf("delete"), 0), 0, inbox);
     const creatorAgentId = resolveCreatorAgentId(app, agents);
     const creatorName = creatorAgentId
       ? agents.find((agent) => agent.id === creatorAgentId)?.name
@@ -1256,6 +1292,8 @@ export function AppsView({
               if (action === "install" || app.canManage !== true) return;
               if (action === "log") void showLogs(app);
               else if (action === "delete") setConfirmDelete(app);
+              else if (action === "inboxOn" || action === "inboxOff")
+                void setInboxAccess(app.name, action === "inboxOn");
               else void act(app.name, action);
             }}
           />
@@ -1638,6 +1676,8 @@ const MENU_LABELS: Record<
   log: "apps.menu.log",
   archive: "apps.menu.archive",
   unarchive: "apps.menu.unarchive",
+  inboxOn: "apps.menu.inboxOn",
+  inboxOff: "apps.menu.inboxOff",
   delete: "apps.menu.delete",
 };
 

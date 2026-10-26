@@ -35,7 +35,8 @@ import {
 export interface PagerDeps {
   store: PagerStore;
   // The caller as a page viewer: its rooms, its user (an agent's manager) and
-  // whether that user is an office owner. An app caller sees no pages.
+  // whether that user is an office owner. An app with a live owner agent sees
+  // what that agent sees; an app without one sees no pages.
   viewer(identity: Identity): PagerViewer;
   // The raising agent as it is now: display name, room, and manager (the
   // user recorded on the agent, null on a legacy unowned agent). Null when the

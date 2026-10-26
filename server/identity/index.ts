@@ -105,6 +105,11 @@ export type Capability =
   // AGENT - a human has the chat box and an agent has agents.sendMessage, so
   // granting it anywhere else would only widen what a stolen token reaches.
   | "app:message"
+  // APP-identity only, and in NO static set: appIdentityFromToken adds it
+  // while the app has a live owner agent AND its owner turned on the app's
+  // inbox access. It reaches the owner's asks (GET /api/asks and the
+  // answers) and the read files of those asks, never a secret request.
+  | "app:inbox"
   // Shared by USER, AGENT and API - the webhook registry. Like app:read and
   // app:write, a BASELINE agent capability; the webhookOwnerOrOfficeOwner
   // guard scopes it to the caller's own hooks. CRON-RUN and APP do not hold

@@ -303,6 +303,10 @@ can pass it straight to its listen call.
 | Write to its own data directory | - | yes |
 | Survives an isomux restart | no (in memory) | yes (persisted, hashed at rest) |
 
+The app column is an app without a live owner agent. While its `createdByAgentId` agent is live and its manager is the app owner, the app token also has that agent's capabilities, minus `APP_NEVER_INHERITED` (`appIdentityFromToken`).
+
+Inbox access (task 4a1e58c9): the owner can let the app into their asks, with the app's menu on the Apps page or `PUT /api/apps/:name/inbox-access` `{enabled}`. The guard (`appOwnerSelf`) admits the owner's session and the owner's API token only; no agent, privileged or not, no app, and no office owner who is not the owner. The flag is `AppRecord.inboxAccess`; PATCH cannot set it, a new registration starts without it, and a registry update that changes the owner drops it. `appIdentityFromToken` adds `app:inbox`, a capability in no static set, only while the flag is on AND the owner agent is live, read on each request. With it the app reaches the member ask routes (`appInboxScope`; secret requests stay hidden and are 404) and, on `GET /api/files/:id/:filename`, the read files of the open asks it may answer (`appInboxAskFile` over `GuardDeps.askReadFileOpenTo`). Pages need no flag: `pager:read` and `pager:write` come with the owner agent's reach.
+
 Message limits: 10 per minute as the burst guard, 500 per rolling 24 hours as
 the cost guard, 4000 characters per message.
 

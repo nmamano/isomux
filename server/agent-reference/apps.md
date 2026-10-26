@@ -19,7 +19,9 @@ An app token cannot use these routes, even with a live owner agent:
 - cron create, run-now and run messages
 - the agent reference
 - logout and env validation
-- the chat file routes under `/api/upload/`, `/api/files/` and `/api/images/`
+- the chat file routes under `/api/upload/`, `/api/files/` and `/api/images/`, except the ask files below
+
+The app owner can let the app answer their asks: the app's menu on the Apps page, or `PUT /api/apps/:name/inbox-access` with `{enabled}` from the owner. An agent cannot turn it on. While it is on and the `createdByAgentId` agent is live, the token can use `GET /api/asks` and `POST /api/asks/:askId/reply`, `/dismiss` and `/file-task`, as the owner does in the Inbox. The answer reaches the agent as the owner's message, with the app's name as the device. Secret requests are not listed. `GET /api/files/<agentId>/<filename>` serves the `readFiles` of those open asks, and no other file. Pages need no switch: `GET /api/pager` and `POST /api/pager/:id/ack` follow that agent's reach.
 
 When a person must act and the agent may be down, the app server can page its owner instead: `POST /api/app/pager` with `{title, body?, key?}`, and `POST /api/app/pager/resolve` with `{id}` or `{key}` when the problem is gone. Same token. The `pager` reference has the details.
 
@@ -33,20 +35,21 @@ Safe example: `GET /api/apps`.
 
 ## Route contract
 
-| Method and route                 | Request                                                 | Success                          |
-| -------------------------------- | ------------------------------------------------------- | -------------------------------- |
-| `GET /api/apps`                  | None                                                    | `AppWire[]` projected for caller |
-| `GET /api/apps/:name`            | Name                                                    | `AppWire`                        |
-| `POST /api/apps`                 | Registration fields above                               | `201 AppWire`                    |
-| `PATCH /api/apps/:name`          | Partial command/cwd/description/target/creator          | `AppWire`                        |
-| `DELETE /api/apps/:name`         | Empty body                                              | `204`                            |
-| `GET /api/apps/:name/logs`       | Optional `lines`                                        | `{lines:string[]}`               |
-| `POST /api/apps/:name/start`     | Empty body                                              | `AppWire`                        |
-| `POST /api/apps/:name/stop`      | Empty body                                              | `AppWire`                        |
-| `POST /api/apps/:name/restart`   | Empty body                                              | `AppWire`                        |
-| `POST /api/apps/:name/archive`   | Empty body                                              | `AppWire`                        |
-| `POST /api/apps/:name/unarchive` | Empty body                                              | `AppWire`                        |
-| `PUT /api/apps/:name/thumbnail`  | Raw PNG, JPEG or WebP bytes, or JSON `{path}`; max 2 MB | `AppWire`                        |
-| `GET /api/apps/:name/thumbnail`  | None                                                    | Image bytes                      |
+| Method and route                   | Request                                                 | Success                          |
+| ---------------------------------- | ------------------------------------------------------- | -------------------------------- |
+| `GET /api/apps`                    | None                                                    | `AppWire[]` projected for caller |
+| `GET /api/apps/:name`              | Name                                                    | `AppWire`                        |
+| `POST /api/apps`                   | Registration fields above                               | `201 AppWire`                    |
+| `PATCH /api/apps/:name`            | Partial command/cwd/description/target/creator          | `AppWire`                        |
+| `DELETE /api/apps/:name`           | Empty body                                              | `204`                            |
+| `GET /api/apps/:name/logs`         | Optional `lines`                                        | `{lines:string[]}`               |
+| `POST /api/apps/:name/start`       | Empty body                                              | `AppWire`                        |
+| `POST /api/apps/:name/stop`        | Empty body                                              | `AppWire`                        |
+| `POST /api/apps/:name/restart`     | Empty body                                              | `AppWire`                        |
+| `POST /api/apps/:name/archive`     | Empty body                                              | `AppWire`                        |
+| `POST /api/apps/:name/unarchive`   | Empty body                                              | `AppWire`                        |
+| `PUT /api/apps/:name/thumbnail`    | Raw PNG, JPEG or WebP bytes, or JSON `{path}`; max 2 MB | `AppWire`                        |
+| `PUT /api/apps/:name/inbox-access` | `{enabled:boolean}`, from the owner only                | `AppWire`                        |
+| `GET /api/apps/:name/thumbnail`    | None                                                    | Image bytes                      |
 
 An agent can create and manage apps for its manager; visibility also follows creator-room access. Invalid names, commands, cwd, targets, creators, or line counts return 400/422; invisible apps return 404; ownership failures return 403; lifecycle conflicts, including archive of an app that may be running, return 409; a thumbnail over 2 MB returns 413 (400 by path, as does a path to no readable file) and other bytes 415; supervisor failures return 500/502. A host that cannot run apps (no Linux systemd) answers every route that would change or run an app with 501 `apps_not_supported`; tell the member.

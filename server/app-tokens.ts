@@ -261,7 +261,8 @@ export const appTokens: AppTokenStore = createAppTokenStore();
 // the app owner. A killed agent, a mismatch (an app moved to another member's
 // agent), or no owner at all gives APP_CAPABILITIES. Nothing about the owner is
 // cached on the token or the identity, so a demotion, a kill or a lost room
-// grant takes effect on the next request.
+// grant takes effect on the next request. The owner's inbox switch (app:inbox)
+// is read the same way, and counts only with that reach.
 //
 // FAIL CLOSED, INCLUDING ON FAILURE TO ASK. A registry that throws (corrupt or
 // unreadable state) denies rather than resolves, logged without token material -
@@ -302,7 +303,11 @@ export function appIdentityFromToken(
     role: "member",
     ...(reach ? { ownerAgentId: reach.agentId } : {}),
     capabilities: reach
-      ? appCapabilities(agentCapabilities(reach.privileged))
+      ? [
+          ...appCapabilities(agentCapabilities(reach.privileged)),
+          // The owner's switch counts only with the live reach.
+          ...(app.inboxAccess === true ? (["app:inbox"] as const) : []),
+        ]
       : APP_CAPABILITIES,
   };
 }
@@ -310,9 +315,11 @@ export function appIdentityFromToken(
 // Look up a registered app's live owner, or null when there is no such app.
 // Injectable so tests state which records exist instead of depending on the
 // production registry.
-export type AppOwnerResolver = (
-  appName: string,
-) => { userId: string | null; createdByAgentId?: string } | null;
+export type AppOwnerResolver = (appName: string) => {
+  userId: string | null;
+  createdByAgentId?: string;
+  inboxAccess?: boolean;
+} | null;
 
 // Look up a LIVE agent (never a killed one) with its manager and its privileged
 // flag as they are now, or null. Injectable for the same reason.
@@ -341,6 +348,7 @@ const liveAppOwner: AppOwnerResolver = (appName) => {
         ...(record.createdByAgentId
           ? { createdByAgentId: record.createdByAgentId }
           : {}),
+        ...(record.inboxAccess === true ? { inboxAccess: true } : {}),
       }
     : null;
 };

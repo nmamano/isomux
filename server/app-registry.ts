@@ -446,6 +446,7 @@ function isLegacyPersistedApp(
     createdAt,
     thumbnailUpdatedAt,
     archived,
+    inboxAccess,
   } = value;
   return (
     // The name is the key AND a path component, so it is re-checked against the
@@ -477,7 +478,8 @@ function isLegacyPersistedApp(
     (thumbnailUpdatedAt === undefined ||
       (Number.isSafeInteger(thumbnailUpdatedAt) &&
         (thumbnailUpdatedAt as number) >= 0)) &&
-    (archived === undefined || typeof archived === "boolean")
+    (archived === undefined || typeof archived === "boolean") &&
+    (inboxAccess === undefined || typeof inboxAccess === "boolean")
   );
 }
 
@@ -808,6 +810,9 @@ export interface UpdateAppInput {
   thumbnailUpdatedAt?: number;
   // true sets the flag; false removes the key.
   archived?: boolean;
+  // The owner's switch (apps.setInboxAccess), never PATCH. true sets it;
+  // false removes the key. A new owner removes it too.
+  inboxAccess?: boolean;
 }
 
 export interface AppRegistry {
@@ -1088,6 +1093,11 @@ export function createAppRegistry(
       }
       if (patch.archived === true) updated.archived = true;
       else if (patch.archived === false) delete updated.archived;
+      // The switch is the owner's consent: it never passes to a new owner.
+      if (patch.owner && patch.owner.userId !== apps[index].userId)
+        delete updated.inboxAccess;
+      else if (patch.inboxAccess === true) updated.inboxAccess = true;
+      else if (patch.inboxAccess === false) delete updated.inboxAccess;
       withRegistrationGeneration(
         updated,
         appRegistrationGeneration(apps[index]),

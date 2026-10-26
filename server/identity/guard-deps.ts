@@ -64,6 +64,13 @@ export interface GuardDepsLiveReaders {
   // The registered webhooks; id -> owner userId. webhookRegistry.list. A
   // corrupt registry throws here, like listApps.
   listWebhooks(): readonly { id: string; userId: string }[];
+  // The open asks' read-file lookup (asks.ts askReadFileOpenTo). Optional so
+  // the test fakes need not carry it; absent denies.
+  askReadFileOpenTo?(
+    userId: string,
+    agentId: string,
+    filename: string,
+  ): boolean;
 }
 
 export function buildProductionGuardDeps(
@@ -144,6 +151,15 @@ export function buildProductionGuardDeps(
 
     cronRunVisibleTo(identity: Identity, streamId: string): boolean {
       return live.cronRunVisibleTo(identity, streamId);
+    },
+
+    askReadFileOpenTo(
+      userId: string,
+      agentId: string,
+      filename: string,
+    ): boolean {
+      // A reader that is not wired denies.
+      return live.askReadFileOpenTo?.(userId, agentId, filename) === true;
     },
   };
 }

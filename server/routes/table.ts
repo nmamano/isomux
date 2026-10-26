@@ -71,6 +71,9 @@ import {
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
   appScope,
+  appInboxScope,
+  appInboxAskFile,
+  appOwnerSelf,
   webhookOwnerOrOfficeOwner,
   hasOwningUser,
   runParamMustEqualTokenRun,
@@ -217,6 +220,7 @@ import type {
   AppMessageReq,
   AppRegisterReq,
   AppUpdateReq,
+  AppInboxAccessReq,
   AppListWire,
   AppWire,
   MemoryCreateReq,
@@ -363,6 +367,14 @@ function authn(resourceGuard: Guard): RouteAuth {
   return { kind: "authenticated", resourceGuard };
 }
 const pub: RouteAuth = { kind: "public" };
+
+// The member routes for an ask: a member or their API token, or an app its
+// owner let into their asks.
+const ASK_ANSWER_CAPS: readonly Capability[] = [
+  "agent:converse",
+  "api:send-message",
+  "app:inbox",
+];
 
 const roomParam = (name: string): Guard =>
   requiresRoomAccess({ kind: "paramRoomId", name });
@@ -889,8 +901,9 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Asks (internal-docs/asks-design.md): the agent manages its
   // own list (self:affordance, :id must be the token's agent); the member the
-  // ask is for answers it. The handlers check that member and its room
-  // access against live state, the same 404 for anyone else.
+  // ask is for answers it, or an app of theirs they let in (app:inbox). The
+  // handlers check that member and its room access against live state, the
+  // same 404 for anyone else.
   defineRoute<AskCreateReq, AskAgentWire>({
     opId: "agents.createAsk",
     audit: { owner: "executor", targets: resourceTargets },
@@ -935,7 +948,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "asks.list",
     method: "GET",
     path: "/api/asks",
-    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    auth: cap(ASK_ANSWER_CAPS, or(memberScope, appInboxScope)),
     emits: [],
   }),
   defineRoute<AskReplyReq, NoContent>({
@@ -943,7 +956,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/asks/:askId/reply",
-    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    auth: cap(ASK_ANSWER_CAPS, or(memberScope, appInboxScope)),
     plainText: { params: ASK_REPLY_PLAIN_TEXT_PARAMS },
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   }),
@@ -952,7 +965,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/asks/:askId/dismiss",
-    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    auth: cap(ASK_ANSWER_CAPS, or(memberScope, appInboxScope)),
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   }),
   defineRoute<AskFileTaskReq, TaskItem>({
@@ -960,7 +973,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/asks/:askId/file-task",
-    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    auth: cap(ASK_ANSWER_CAPS, or(memberScope, appInboxScope)),
     emits: [
       "ask_removed",
       "log_entry",
@@ -1090,7 +1103,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "chatFiles.get",
     method: "GET",
     path: "/api/files/:id/:filename",
-    auth: authn(and(authenticated, agentFilesRead)),
+    // An app reaches only the read files of the asks it may answer.
+    auth: authn(or(and(authenticated, agentFilesRead), appInboxAskFile)),
     emits: [],
   }),
   // Older transcripts link images here.
@@ -2514,6 +2528,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/unarchive",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: ["app_upserted"],
+  }),
+  // The owner lets the app into their asks. Only the owner, never an agent
+  // or the app (appOwnerSelf); PATCH cannot set it.
+  defineRoute<AppInboxAccessReq, AppWire>({
+    opId: "apps.setInboxAccess",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/apps/:name/inbox-access",
+    auth: cap("app:write", appOwnerSelf("name")),
     emits: ["app_upserted"],
   }),
 

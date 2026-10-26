@@ -1626,6 +1626,12 @@ export interface AppUpdateReq {
   createdByAgentId?: string;
 }
 
+// PUT /api/apps/:name/inbox-access: the owner turns the app's reach into
+// their asks on or off.
+export interface AppInboxAccessReq {
+  enabled: boolean;
+}
+
 // The `error.code` values the app routes answer with, as a closed union so the
 // registry (which raises them) and the handler (which maps them to statuses)
 // cannot drift.

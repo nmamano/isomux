@@ -27,6 +27,8 @@ Create and edit take optional chat affordances (task dc79ace0): `commands`, `edi
 
 The member answers on `/api/asks/:id/reply`, `/dismiss` and `/file-task` (`agent:converse` or `api:send-message`, `memberScope`). One function, `askVisibleTo` in `server/asks.ts`, decides who sees and answers an ask, from live state: the target member, or every office owner for an office secret request, and only while that member can reach the agent's room. `GET /api/asks`, the `ask_*` push, the answer routes and the secret request routes all call it. On the ask routes anyone it refuses gets the 404 of an unknown id; on a secret request's save and decline routes, 403 `forbidden`.
 
+An app its owner let in (`app:inbox`, task 4a1e58c9; see internal-docs/agent-apps-design.md) also passes `appInboxScope` on `GET /api/asks` and the three answer routes, with the owner as the member. The list leaves out secret requests, and an answer to one is the 404 of an unknown id. The message is the owner's, with `App <name>` as its device, and the audit row names the app. `GET /api/files/:id/:filename` serves the app the read files of the open asks it may answer, and no other file.
+
 The entry stores the agent's session when it opened the ask, for the reply note. No route or push sends it: `askMemberWire` in `server/asks.ts` drops it from the agent routes, `GET /api/asks` and `ask_upserted` (task 26dd1857).
 
 ## The answer

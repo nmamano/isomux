@@ -1326,13 +1326,24 @@ function demoAppLog(app: Pick<AppWire, "port">): string[] {
   ];
 }
 
+// An app as the client sees it. The fixture names the owner "demo-user"; the
+// demo's Ricky gets a generated id at boot, and the client matches by id (the
+// secrets apps checklist, the owner's menu items).
+function demoAppWire(app: AppWire): AppWire {
+  const ricky = users.get("ricky");
+  return ricky && app.userId === "demo-user"
+    ? { ...app, userId: ricky.id }
+    : app;
+}
+
 // Mutate one app and push the same delta the real server would.
 function demoAppSet(name: string, patch: Partial<AppWire>): AppWire {
   const i = demoApps.findIndex((a) => a.name === name);
   if (i === -1) throw new ApiError(404, "not_found", "No such app.");
   demoApps[i] = { ...demoApps[i], ...patch };
-  shimEmit({ type: "app_upserted", app: demoApps[i] });
-  return demoApps[i];
+  const wire = demoAppWire(demoApps[i]);
+  shimEmit({ type: "app_upserted", app: wire });
+  return wire;
 }
 
 function computeNextFireDemo(
@@ -2842,16 +2853,8 @@ export async function demoApi(
     case "GET /api/asks":
       return [...demoAskEntries()];
     // apps.list - the Apps tab fetches on open and polls while it is open.
-    // The fixture names the owner "demo-user"; the demo's Ricky gets a
-    // generated id at boot, and the secrets apps checklist matches by id.
-    case "GET /api/apps": {
-      const ricky = users.get("ricky");
-      return demoApps.map((app) =>
-        ricky && app.userId === "demo-user"
-          ? { ...app, userId: ricky.id }
-          : app,
-      );
-    }
+    case "GET /api/apps":
+      return demoApps.map(demoAppWire);
     // cron.listAllRuns - one completed fixture backs the Runs tab.
     case "GET /api/cron-runs":
       return {
@@ -3372,6 +3375,14 @@ export async function demoApi(
     return demoAppSet(name, {
       state: verb === "stop" ? "stopped" : "running",
       ...(verb === "stop" ? {} : { restartCount: 0, archived: undefined }),
+    });
+  }
+  // apps.setInboxAccess: the owner's switch.
+  const appInboxMatch = pathname.match(/^\/api\/apps\/([^/]+)\/inbox-access$/);
+  if (appInboxMatch && method === "PUT") {
+    const enabled = (body as { enabled?: unknown } | undefined)?.enabled;
+    return demoAppSet(decodeURIComponent(appInboxMatch[1]), {
+      inboxAccess: enabled === true || undefined,
     });
   }
   const appMatch = pathname.match(/^\/api\/apps\/([^/]+)$/);

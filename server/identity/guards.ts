@@ -101,6 +101,14 @@ export interface GuardDeps {
   // for any id that is not a run stream; a run whose job is gone is office
   // owners' only.
   cronRunVisibleTo(identity: Identity, streamId: string): boolean;
+  // Whether `filename` is a read file of an OPEN, non-secret ask from agent
+  // `agentId` that member `userId` may answer (askVisibleTo). Optional so a
+  // fake without it denies: an absent lookup is false.
+  askReadFileOpenTo?(
+    userId: string,
+    agentId: string,
+    filename: string,
+  ): boolean;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer; contract
@@ -259,6 +267,39 @@ export const apiTokenInboxSelf: Guard = ({ identity }) =>
 // safe reading of a bug here is "not this app's route".
 export const appScope: Guard = ({ identity }) =>
   identity.scope === "app" && !!identity.appName ? ALLOW : FORBIDDEN;
+
+// An app its owner let into their asks: a live owner agent and app:inbox,
+// which appIdentityFromToken adds only while the owner's switch is on.
+export const appInboxScope: Guard = ({ identity }) =>
+  identity.scope === "app" &&
+  actsForAgent(identity) &&
+  identityHasCapability(identity, "app:inbox")
+    ? ALLOW
+    : FORBIDDEN;
+
+// GET /api/files/:id/:filename for such an app: only a read file of an open
+// ask the owner may answer.
+export const appInboxAskFile: Guard = (ctx) => {
+  if (!appInboxScope(ctx).ok) return FORBIDDEN;
+  const { identity, params, deps } = ctx;
+  const agentId = params.id;
+  const filename = params.filename;
+  if (!identity.userId || !agentId || !filename) return FORBIDDEN;
+  return deps.askReadFileOpenTo?.(identity.userId, agentId, filename) === true
+    ? ALLOW
+    : FORBIDDEN;
+};
+
+// The app's owner, as a member or the member's API token: never an agent,
+// the app itself, or an office owner who is not the owner.
+export function appOwnerSelf(nameParamName = "name"): Guard {
+  return ({ identity, params, deps }) => {
+    if (identity.scope !== "user" && identity.scope !== "api") return FORBIDDEN;
+    const name = params[nameParamName];
+    if (!name || !identity.userId) return FORBIDDEN;
+    return deps.appOwnerUserId(name) === identity.userId ? ALLOW : FORBIDDEN;
+  };
+}
 
 // The caller has an OWNING USER. Composed onto routes that create something a
 // user must own afterwards - today apps.register.
