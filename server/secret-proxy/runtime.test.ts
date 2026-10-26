@@ -37,6 +37,7 @@ import {
   startCompanyProxy,
   startEchoStub,
 } from "../test-support/secret-proxy-stubs.ts";
+import { STATE_PATH_VARIABLES } from "../safety-policy.ts";
 import { saveProxyPort, secretMaterialPaths } from "./material.ts";
 import {
   createSecretsRuntime,
@@ -323,6 +324,13 @@ describe("an office with secrets", () => {
     expect(alice.SSL_CERT_FILE).toBe(
       secretMaterialPaths(STATE_ROOT, STATE_ROOT).bundle,
     );
+    // The safety hook treats a write through each state-path variable as a
+    // write to office state (task 7ea62548).
+    const statePaths = Object.entries(runtime.environmentFor(ALICE)!.fixed)
+      .filter(([, value]) => value.startsWith(STATE_ROOT + "/"))
+      .map(([name]) => name);
+    expect(statePaths).toContain("SSL_CERT_FILE");
+    for (const name of statePaths) expect(STATE_PATH_VARIABLES).toContain(name);
     expect(envText(alice)).not.toContain(OFFICE_VALUE);
     expect(envText(alice)).not.toContain(ALICE_VALUE);
 

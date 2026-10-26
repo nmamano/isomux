@@ -34,6 +34,36 @@ import { STATE_ROOT } from "./config.ts";
 // typed, not resolved app state. Do not replace those literals with STATE_ROOT.
 const ISOMUX_DIR = STATE_ROOT;
 
+// Variables Isomux sets to paths at or below the state root. A shell write
+// target that names one is a write to office state, whatever its value.
+export const STATE_PATH_VARIABLES: readonly string[] = [
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "ISOMUX_HOME",
+  "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS",
+  "CODEX_CA_CERTIFICATE",
+  "REQUESTS_CA_BUNDLE",
+  "CURL_CA_BUNDLE",
+  "GIT_SSL_CAINFO",
+  "CARGO_HTTP_CAINFO",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+];
+
+// Variables Isomux sets under the state root for one engine only, which the
+// engine-blind hook does not treat as state paths, with the reason.
+export const STATE_PATH_EXCLUSIONS: Readonly<Record<string, string>> = {
+  HOME:
+    "OpenCode shells get a profile home; on other engines it is the real " +
+    "home, and agents write there all the time.",
+  TMPDIR:
+    "OpenCode shells get a profile scratch directory; agents write their " +
+    "scratch files there by design.",
+};
+
 export type PolicyDecision =
   | { decision: "allow" }
   | { decision: "deny"; reason: string };
@@ -2060,6 +2090,8 @@ type ShellWord = {
   quoted: boolean;
   redirect?: "input" | "output";
   dynamic?: boolean;
+  /** The word as written, with its quotes and substitution bodies. */
+  raw?: string;
 };
 
 /** Optional control-flow view; other policy checks keep their flat command list. */
@@ -2183,19 +2215,27 @@ function parseCommands(
   let substitutions: ShellSyntax[][] = [];
   let dropWord = false; // set after a redirection operator: its target is noise
   let keepAsRedirect: false | "input" | "output" = false;
+  let wordStart = -1;
+  let i = 0;
+  const mark = () => {
+    if (wordStart < 0) wordStart = i;
+  };
 
   const endWord = () => {
+    const raw = wordStart < 0 ? cur : cmd.slice(wordStart, i);
+    wordStart = -1;
     // An explicit empty word (`''`, `""`) is still an argument: `git -C ''`
     // gives -C its value rather than the next word.
     if (!cur && !curQuoted) return;
     if (!dropWord)
-      words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic });
+      words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic, raw });
     else if (keepAsRedirect)
       words.push({
         text: cur,
         quoted: curQuoted,
         dynamic: curDynamic,
         redirect: keepAsRedirect,
+        raw,
       });
     dropWord = false;
     keepAsRedirect = false;
@@ -2212,9 +2252,9 @@ function parseCommands(
     substitutions = [];
   };
 
-  let i = 0;
   while (i < cmd.length) {
     const ch = cmd[i];
+    if (!" \t;|&\n()<>".includes(ch) && !(syntax && ch === "#" && !cur)) mark();
 
     if (ch === "$" && cmd[i + 1] === "(") {
       const end = matchParen(cmd, i + 1);
@@ -2912,6 +2952,221 @@ function dynamicDirectoryTarget(target: ShellWord | undefined): boolean {
   );
 }
 
+/**
+ * What a shell line may have put in each variable, so a write through `$D`
+ * is checked like the path D holds. Scope is flat and assignments apply to
+ * the whole line, so every value a name gets on the line counts: this fails
+ * closed. `state` marks a name Isomux sets to a state path; `unresolvable`
+ * one whose value the hook cannot follow (printf -v, a chain past the cap).
+ * read, mapfile and a variable from an earlier call stay untracked.
+ */
+type VariableValue = { text: string; raws: string[] };
+type Variable = {
+  values: VariableValue[];
+  state: boolean;
+  unresolvable: boolean;
+};
+type Variables = Map<string, Variable>;
+
+// Past this many values a name, or combinations a target, are unresolvable.
+const VARIABLE_VALUE_CAP = 32;
+const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?\+?=/;
+const DECLARATION_BUILTINS = [
+  "export",
+  "declare",
+  "local",
+  "readonly",
+  "typeset",
+];
+// $NAME, ${NAME}, ${NAME[i]}, ${NAME<op>...} and ${!...}.
+const VARIABLE_REFERENCE =
+  /\$(?:\{(!?)([A-Za-z_][A-Za-z0-9_]*)?(?:\[[^\]]*\])?[^}]*\}|([A-Za-z_][A-Za-z0-9_]*))/g;
+const PATH_DELIMITERS = /[/)"'}\s(=`;|&<>]/;
+
+function seededVariables(): Variables {
+  return new Map(
+    STATE_PATH_VARIABLES.map((name) => [
+      name,
+      { values: [], state: true, unresolvable: false },
+    ]),
+  );
+}
+
+function namesIsomuxSegment(text: string): boolean {
+  return text.split(PATH_DELIMITERS).includes(".isomux");
+}
+
+/**
+ * The texts a word may expand to with the names tracked so far. A reference
+ * to an untracked name stays as written.
+ */
+function expandVariables(
+  word: { text: string; raw?: string },
+  variables: Variables,
+): {
+  state: boolean;
+  unresolvable: boolean;
+  expanded: boolean;
+  results: VariableValue[];
+} {
+  let state = false;
+  let unresolvable = false;
+  let expanded = false;
+  let results: VariableValue[] = [{ text: "", raws: [word.raw ?? word.text] }];
+  let last = 0;
+  const append = (text: string) => {
+    for (const result of results) result.text += text;
+  };
+  for (const match of word.text.matchAll(VARIABLE_REFERENCE)) {
+    append(word.text.slice(last, match.index));
+    last = match.index + match[0].length;
+    const name = match[2] ?? match[3];
+    if (match[1] === "!") {
+      unresolvable = true;
+      append(match[0]);
+      continue;
+    }
+    const variable = name ? variables.get(name) : undefined;
+    if (!variable) {
+      append(match[0]);
+      continue;
+    }
+    expanded = true;
+    if (variable.state) state = true;
+    if (variable.unresolvable) unresolvable = true;
+    if (variable.values.length === 0) {
+      append(match[0]);
+      continue;
+    }
+    if (results.length * variable.values.length > VARIABLE_VALUE_CAP) {
+      unresolvable = true;
+      append(match[0]);
+      continue;
+    }
+    results = results.flatMap((result) =>
+      variable.values.map((value) => ({
+        text: result.text + value.text,
+        raws: [...result.raws, ...value.raws],
+      })),
+    );
+  }
+  append(word.text.slice(last));
+  return { state, unresolvable, expanded, results };
+}
+
+/** Every value given to a variable on the line, in source order. */
+function collectVariables(
+  syntax: ShellSyntax[],
+  inherited: Variables,
+): Variables {
+  const variables: Variables = new Map(
+    [...inherited].map(([name, variable]) => [
+      name,
+      { ...variable, values: [...variable.values] },
+    ]),
+  );
+  const entry = (name: string): Variable => {
+    let variable = variables.get(name);
+    if (!variable) {
+      variable = { values: [], state: false, unresolvable: false };
+      variables.set(name, variable);
+    }
+    return variable;
+  };
+  const assign = (name: string, word: { text: string; raw?: string }) => {
+    const { state, unresolvable, results } = expandVariables(word, variables);
+    const variable = entry(name);
+    if (state) variable.state = true;
+    if (unresolvable) variable.unresolvable = true;
+    for (const result of results) {
+      if (variable.values.some((value) => value.text === result.text)) continue;
+      if (variable.values.length >= VARIABLE_VALUE_CAP) {
+        variable.unresolvable = true;
+        break;
+      }
+      variable.values.push(result);
+    }
+  };
+  const assignWord = (word: ShellWord) => {
+    const match = ASSIGNMENT.exec(word.text);
+    if (!match) return false;
+    const raw = word.raw ?? word.text;
+    assign(match[1], {
+      text: word.text.slice(match[0].length),
+      raw: raw.slice(raw.indexOf("=") + 1),
+    });
+    return true;
+  };
+  // NAME=( ... ) arrives as `NAME=`, then a ( operator, then the elements.
+  const visit = (nodes: ShellSyntax[]) => {
+    for (let n = 0; n < nodes.length; n++) {
+      const node = nodes[n];
+      if (!("words" in node)) continue;
+      for (const substitution of node.substitutions) visit(substitution);
+      const words = node.words.filter((word) => !word.redirect);
+      const lastWord = words.at(-1);
+      const next = nodes[n + 1];
+      const opensArray =
+        lastWord &&
+        !lastWord.quoted &&
+        next &&
+        "operator" in next &&
+        next.operator === "(" &&
+        ASSIGNMENT.exec(lastWord.text)?.[0].length === lastWord.text.length;
+      const candidates = commandCandidates(words);
+      // Assignments before the command, also those a wrapper passes on
+      // (`env D=x sh -c ...`, `sudo D=x ...`).
+      const commandStart = candidates.length
+        ? words.length - candidates.at(-1)!.args.length - 1
+        : words.length;
+      for (const word of words.slice(0, commandStart)) assignWord(word);
+      for (const candidate of candidates) {
+        if (DECLARATION_BUILTINS.includes(candidate.name)) {
+          // A nameref (-n) reads another variable by name: unresolvable.
+          const nameref = candidate.args.some((word) =>
+            /^[-+][A-Za-z]*n/.test(word.text),
+          );
+          for (const word of candidate.args) {
+            if (!nameref) assignWord(word);
+            else if (/^[A-Za-z_]/.test(word.text))
+              entry(
+                /^[A-Za-z_][A-Za-z0-9_]*/.exec(word.text)![0],
+              ).unresolvable = true;
+          }
+        } else if (
+          (candidate.name === "for" || candidate.name === "select") &&
+          candidate.args[1]?.text === "in" &&
+          /^[A-Za-z_][A-Za-z0-9_]*$/.test(candidate.args[0]?.text ?? "")
+        ) {
+          for (const word of candidate.args.slice(2))
+            assign(candidate.args[0].text, word);
+        } else if (candidate.name === "printf") {
+          candidate.args.forEach((word, index) => {
+            const name =
+              word.text === "-v"
+                ? candidate.args[index + 1]?.text
+                : /^-v./.test(word.text)
+                  ? word.text.slice(2)
+                  : undefined;
+            if (name) entry(name).unresolvable = true;
+          });
+        }
+      }
+      if (opensArray) {
+        n++; // the ( operator
+        const elements = nodes[n + 1];
+        if (elements && "words" in elements) {
+          const name = ASSIGNMENT.exec(lastWord.text)![1];
+          for (const word of elements.words) assign(name, word);
+          n++;
+        }
+      }
+    }
+  };
+  visit(syntax);
+  return variables;
+}
+
 // null means the envelope omitted cwd; UNKNOWN_DIRECTORY means a shell operation
 // made it unresolvable. Keep the causes separate for the denial message.
 const UNKNOWN_DIRECTORY = Symbol("unknown shell directory");
@@ -2960,6 +3215,7 @@ function shellWriteFlow(
   depth: number,
   inheritedDirectories?: DirectorySet,
   inheritedCdSearch = false,
+  inheritedVariables?: Variables,
 ): { decision: PolicyDecision | null; flow: DirectoryFlow } {
   // CDPATH and cdable_vars can send a relative cd anywhere, so with either
   // named on the line such a cd leaves the directory unresolved.
@@ -2967,40 +3223,77 @@ function shellWriteFlow(
     inheritedCdSearch || /\b(?:CDPATH|cdable_vars)\b/.test(command);
   const syntax: ShellSyntax[] = [];
   parseCommands(stripHeredocBodies(command), false, true, syntax);
+  const variables = collectVariables(
+    syntax,
+    inheritedVariables ?? seededVariables(),
+  );
   let decision: PolicyDecision | null = null;
   const unchanged = (directories: DirectorySet): DirectoryFlow => ({
     success: directories,
     failure: directories,
   });
+  const denyStateRoot = () =>
+    denyMessage(
+      "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
+        "Read operations (cat, ls, grep, etc.) are permitted. " +
+        "Do not write there another way, such as through a script or a variable.",
+      command,
+    );
   const checkTarget = (target: ShellWord, directories: DirectorySet) => {
-    // Do not turn a shell expansion into a fictitious literal directory. This
-    // tightening is bounded to .isomux, not arbitrary variable-based targets.
-    if (target.dynamic && target.text.split("/").includes(".isomux")) {
+    const { state, unresolvable, expanded, results } = target.dynamic
+      ? expandVariables(target, variables)
+      : {
+          state: false,
+          unresolvable: false,
+          expanded: false,
+          results: [{ text: target.text, raws: [] }],
+        };
+    if (state) {
+      decision = denyStateRoot();
+      return;
+    }
+    if (unresolvable) {
       decision = denyShellPath(target.text, true);
       return;
     }
+    for (const result of results) {
+      // Do not turn a shell expansion into a fictitious literal directory.
+      // This tightening is bounded to .isomux; a variable that holds a path
+      // outside the state root stays allowed.
+      const dynamic = expanded
+        ? /[$`*?[\]{}]/.test(result.text)
+        : Boolean(target.dynamic);
+      if (dynamic && [result.text, ...result.raws].some(namesIsomuxSegment)) {
+        decision = denyShellPath(target.text, true);
+        return;
+      }
+      if (checkResolved(result.text, target, directories)) return;
+    }
+  };
+  // text is the target after expansion; messages name the target as written.
+  const checkResolved = (
+    text: string,
+    target: ShellWord,
+    directories: DirectorySet,
+  ): boolean => {
     for (const directory of directories) {
-      const resolved = resolvePath(target.text, directory);
+      const resolved = resolvePath(text, directory);
       if (
         resolved === null &&
-        (directory === UNKNOWN_DIRECTORY ||
-          isProtectedRelativeCandidate(target.text))
+        (directory === UNKNOWN_DIRECTORY || isProtectedRelativeCandidate(text))
       ) {
         decision =
           directory === UNKNOWN_DIRECTORY
             ? denyShellPath(target.text, Boolean(target.dynamic))
             : denyMissingCwd("Bash", target.text);
-        return;
+        return true;
       }
       if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
-        decision = denyMessage(
-          "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
-            "Read operations (cat, ls, grep, etc.) are permitted.",
-          command,
-        );
-        return;
+        decision = denyStateRoot();
+        return true;
       }
     }
+    return false;
   };
 
   const simple = (
@@ -3065,6 +3358,7 @@ function shellWriteFlow(
             depth + 1,
             directories,
             cdSearch,
+            variables,
           );
           if (nested.decision) decision = nested.decision;
           if (evalFollows) ({ success, failure } = nested.flow);
@@ -3495,7 +3789,8 @@ function checkWritePaths(
     if (isAtOrBelowStateRoot(resolved)) {
       return deny(
         `BLOCKED by isomux safety hooks\n\n` +
-          `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server.\n\n` +
+          `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. ` +
+          `Do not write there another way, such as through a shell command or a script.\n\n` +
           `${toolName} target: ${filePath}\n\n` +
           `If this operation is truly needed, ask the member for explicit ` +
           `permission and have them run the command manually.`,

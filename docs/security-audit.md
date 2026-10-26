@@ -228,7 +228,7 @@ The check reads each command of a shell line, also the commands inside `bash -c`
 
 The safety hooks are a guardrail against mistakes by honest agents. They are not a security boundary:
 
-- They recognize known command forms. A script, a renamed program or an interpreter can do the same thing.
+- They recognize known command forms. A script, a renamed program, an interpreter or a variable set in an earlier command can do the same thing.
 - They see only the tools that they map. For example, an MCP server with file access goes around them.
 - For Codex and OpenCode, if the checker cannot run, the call runs. Isomux then shows a warning in the chat.
 - Reads in the state directory are allowed, because agents need logs and discovery.
