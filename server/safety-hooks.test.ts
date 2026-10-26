@@ -959,6 +959,75 @@ describe("sensitive-read guard covers Bash readers", () => {
   });
 });
 
+// An SSH public key holds no secret, and installing a login needs it read.
+// The private half, and any trailing-* glob that could select it, stay refused.
+describe("SSH key files: the public half is readable", () => {
+  const STEMS = ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"];
+  const denies = (cmd: string) =>
+    it(`denies: ${cmd}`, async () => {
+      const { denied, reason } = await bash(cmd);
+      expect(denied).toBe(true);
+      expect(reason).toContain("may contain secrets");
+    });
+  const allows = (cmd: string) =>
+    it(`allows: ${cmd}`, async () => {
+      expect(await bash(cmd)).toEqual({ denied: false, reason: "" });
+    });
+  const read = async (file_path: string) =>
+    (await decide("Read", { file_path })).denied;
+  const grepGlob = async (glob: string) =>
+    (await decide("Grep", { pattern: "x", glob })).denied;
+
+  describe("each key pair, by name", () => {
+    for (const stem of STEMS) {
+      allows(`cat ~/.ssh/${stem}.pub`);
+      denies(`cat ~/.ssh/${stem}`);
+    }
+  });
+
+  describe("the exemption needs a name that ends in .pub", () => {
+    denies("cat ~/.ssh/id_rsa.pub.bak");
+    // Strips to id_ed25519.p, which could be the start of anything.
+    denies("cat ~/.ssh/id_ed25519.p*");
+    denies("cat ~/.ssh/id_ed25519{,.pub}");
+    // The .pub exemption belongs to the SSH key names only.
+    denies("cat .env.pub");
+  });
+
+  describe("a trailing-* glob that could select a private key", () => {
+    denies("cat ~/.ssh/id_ed25519*");
+    denies("cat ~/.ssh/id_*");
+    denies("cat ~/.ssh/id_e*");
+    // Cannot select a key: no stem starts with id_x.
+    allows("cat ~/.ssh/id_x*");
+    // Not a glob: a file really named id_e is no key.
+    allows("cat ~/.ssh/id_e");
+  });
+
+  describe("the Read and Grep tools follow the same rule", () => {
+    const cases: [string, () => Promise<boolean>, boolean][] = [
+      [
+        "Read id_ed25519.pub",
+        () => read("/tmp/isomux-safety-probe/id_ed25519.pub"),
+        false,
+      ],
+      [
+        "Read id_ed25519",
+        () => read("/tmp/isomux-safety-probe/id_ed25519"),
+        true,
+      ],
+      ["Grep glob id_*", () => grepGlob("id_*"), true],
+      ["Grep glob id_ed25519*", () => grepGlob("id_ed25519*"), true],
+      ["Grep glob id_*.pub", () => grepGlob("id_*.pub"), false],
+    ];
+    for (const [label, run, denied] of cases) {
+      it(`${denied ? "denies" : "allows"}: ${label}`, async () => {
+        expect(await run()).toBe(denied);
+      });
+    }
+  });
+});
+
 // A copy reads its sources. Without this, `cp .env x && cat x` reads a secret
 // that `cat .env` may not. mv and ln give the file a new name the same way.
 describe("sensitive-read guard covers copies and renames", () => {

@@ -655,6 +655,9 @@ const SENSITIVE_EXACT: Set<string> = new Set([
   "service_account.json",
 ]);
 
+/** SSH private key names, also for a glob prefix (id_*, id_ed*) */
+const SSH_KEY_STEMS = ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"];
+
 /** Patterns matched against the basename */
 const SENSITIVE_PATTERNS: RegExp[] = [
   /^\.env\./, // .env.local, .env.production, .env.development, etc.
@@ -663,10 +666,11 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /\.p12$/, // PKCS#12 keystores
   /\.pfx$/, // PKCS#12 (Windows naming)
   /\.jks$/, // Java keystores
-  /^id_rsa/, // SSH private keys (id_rsa, id_rsa.pub is harmless but block anyway)
-  /^id_ed25519/, // SSH ed25519 keys
-  /^id_ecdsa/, // SSH ECDSA keys
-  /^id_dsa/, // SSH DSA keys
+  // SSH private keys. The public half (id_ed25519.pub) holds no secret, so a
+  // name that ends in .pub passes. The name is matched after the trailing-*
+  // strip, and a name whose fixed part ends in .pub cannot select the private
+  // key: id_ed25519.pub* passes, id_ed25519.p* and id_ed25519* do not.
+  new RegExp(`^(?:${SSH_KEY_STEMS.join("|")})(?!.*\\.pub$)`),
 ];
 
 /** Bash commands that read file contents. Every bare operand is a path. */
@@ -1731,6 +1735,15 @@ function isSensitiveFile(
   if (resolved !== null && isCredentialStorePath(resolved)) return true;
   if (SAFE_SUFFIXES.some((s) => name.endsWith(s))) return false;
   if (SENSITIVE_EXACT.has(name)) return true;
+  // id_* and id_e* select a private key too. Only when a * was stripped: a
+  // file named id_e is not a key. Still name matching, so id*, i* and * pass,
+  // the same limit as ~/.ssh/*.
+  if (
+    name !== basename(filePath) &&
+    name.startsWith("id_") &&
+    SSH_KEY_STEMS.some((stem) => stem.startsWith(name))
+  )
+    return true;
   return SENSITIVE_PATTERNS.some((p) => p.test(name));
 }
 
