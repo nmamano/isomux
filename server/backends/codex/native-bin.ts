@@ -50,8 +50,10 @@ let ensuredCodexWrapper = false;
 // after a successful mkdir so a transient failure (permissions, full disk)
 // gets retried on the next spawn and surfaces as a real backend error,
 // rather than being swallowed and silently disabling Codex going forward.
+// The flag skips the mkdir only while the dir exists, so a dir deleted
+// after the first call is created again.
 function ensureIsomuxCodexHomeExists(): void {
-  if (ensuredIsomuxCodexHome) return;
+  if (ensuredIsomuxCodexHome && existsSync(ISOMUX_CODEX_HOME)) return;
   mkdirSync(ISOMUX_CODEX_HOME, { recursive: true, mode: 0o700 });
   ensuredIsomuxCodexHome = true;
 }
@@ -179,9 +181,10 @@ export async function codexEnvApiKeyWins(env?: {
 // fronts the bundled launcher with a friendlier path for the [Copy to
 // terminal] card. Regenerates when content drifts (e.g. bun path or
 // node_modules layout changed across a reinstall) so a stale wrapper from
-// a previous install can't outlive the right paths.
+// a previous install can't outlive the right paths. The flag skips the
+// work only while the file exists, so a deleted wrapper is written again.
 export function ensureCodexWrapperScript(): void {
-  if (ensuredCodexWrapper) return;
+  if (ensuredCodexWrapper && existsSync(ISOMUX_CODEX_WRAPPER_PATH)) return;
   const expected = buildCodexWrapperScript();
   mkdirSync(ISOMUX_BIN_DIR, { recursive: true, mode: 0o700 });
   let existing: string | null = null;
