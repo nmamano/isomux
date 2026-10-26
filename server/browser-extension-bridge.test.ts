@@ -3,6 +3,7 @@ import {
   BrowserExtensionBridge,
   browserCredentialHash,
   captureKickDelay,
+  FENCE_CEILING_MS,
 } from "./browser-extension-bridge";
 import {
   BROWSER_REATTACH_MS,
@@ -1704,7 +1705,7 @@ describe("screenshot kicks", () => {
     const time = fakeTimeline();
     const h = await harness(false, time.clock);
     try {
-      const { sessionId } = await create(h);
+      const { sessionId, assignment } = await create(h);
       const shot = h.agent.receive({
         id: 9,
         sessionId,
@@ -1713,7 +1714,11 @@ describe("screenshot kicks", () => {
       });
       await time.advanceTo(300_000);
       await shot;
-      expect(reply(h, 9)?.error).toBeDefined();
+      // Nothing answers: the ceiling retires the client 30 s after the
+      // capture's own timeout, before the last kick times out.
+      expect(h.client.closed).toBe(true);
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      expect(h.connection.offered("agent")).toBe(assignment);
       expect(captures(h)).toHaveLength(1 + 7);
     } finally {
       time.restore();
@@ -2811,6 +2816,216 @@ describe("child frames across clients", () => {
       expect(resumes(h)).toEqual([]);
     } finally {
       h.connection.close();
+    }
+  });
+
+  // A command that Chrome never answers fences its grant until a ceiling
+  // after its own timeout. Then the office retires the CDP client, as a
+  // debugger detach does, and keeps the grant (task f499efba, hold B).
+  const PREFIX = "[browser-extension] ";
+  const logged = (info: { mock: { calls: unknown[][] } }) =>
+    info.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith(PREFIX))
+      .map((line) => JSON.parse(line.slice(PREFIX.length)) as Fields);
+
+  test("an unanswered command fences its grant only until the ceiling; then its client retires and the grant stays", async () => {
+    const time = fakeTimeline();
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true, time.clock);
+    try {
+      const { sessionId, assignment } = await create(h);
+      await autoAttach(h, h.agent, sessionId);
+      attachChild(h, "child", false);
+      attachChild(h, "left", true);
+      const main = h.agent.receive({
+        id: 7,
+        sessionId,
+        method: "Input.insertText",
+        params: { text: "private fixture" },
+      });
+      const mainCommand = await lastCdp(h, "Input.insertText");
+      const child = h.agent.receive({
+        id: 8,
+        sessionId: "child",
+        method: "Runtime.evaluate",
+        params: { expression: "1" },
+      });
+      const childCommand = await lastCdp(h, "Runtime.evaluate");
+      await time.advanceTo(30_000);
+      await Promise.all([main, child]);
+      expect(h.connection.pendingCount(assignment)).toBe(2);
+      expect(h.connection.pendingTimedOut(assignment)).toBe(true);
+      // The ceiling counts from the command timeout, not from the send.
+      await time.advanceTo(30_000 + FENCE_CEILING_MS - 1);
+      expect(h.connection.pendingCount(assignment)).toBe(2);
+      expect(h.client.closed).toBe(false);
+      expect(resumes(h)).toEqual([]);
+      expect(() => h.connection.assign("agent", peer(), true)).toThrow();
+      await time.advanceTo(30_000 + FENCE_CEILING_MS);
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      expect(h.client.closed).toBe(true);
+      // The debugger stays attached: the frame the client left waiting is
+      // resumed, as at a retained close.
+      expect(resumes(h)).toEqual(["left"]);
+      expect(h.connection.offered("agent")).toBe(assignment);
+      expect(h.connection.targets("agent")).toHaveLength(1);
+      expect(h.extension.closed).toBe(false);
+      expect(h.extension.messages.some((m) => m.method === "detach")).toBe(
+        false,
+      );
+
+      // The next client attaches; late results of the old commands reach
+      // nobody and do not fence it.
+      const next = peer();
+      const nextAgent = h.connection.assign("agent", next, true);
+      const oldMessages = h.client.messages.length;
+      result(h, mainCommand);
+      result(h, childCommand);
+      expect(h.client.messages).toHaveLength(oldMessages);
+      expect(next.messages).toEqual([]);
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      await nextAgent.receive({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      const attached = next.messages.find(
+        (m) => m.method === "Target.attachedToTarget",
+      )!;
+      const insert = nextAgent.receive({
+        id: 2,
+        sessionId: fields(attached.params).sessionId,
+        method: "Input.insertText",
+        params: { text: "next" },
+      });
+      result(h, await lastCdp(h, "Input.insertText"));
+      await insert;
+      expect(next.messages.find((m) => m.id === 2)?.result).toEqual({});
+      expect(h.connection.offered("agent")).toBe(assignment);
+
+      // Each timed-out command and the retire name the CDP method and the
+      // session, never a payload.
+      const logs = logged(info);
+      const generation = h.connection.generation;
+      const timedOut = logs.filter((l) => l.reason === "command_timed_out");
+      expect(timedOut).toHaveLength(2);
+      expect(timedOut).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            generation,
+            assignment,
+            method: "Input.insertText",
+            session: "main",
+          }),
+          expect.objectContaining({
+            generation,
+            assignment,
+            method: "Runtime.evaluate",
+            session: "child",
+          }),
+        ]),
+      );
+      const retired = logs.filter((l) => l.reason === "client_retired");
+      expect(retired).toHaveLength(1);
+      expect(retired[0]).toMatchObject({ generation, assignment });
+      expect(typeof retired[0].cause).toBe("string");
+      expect(retired[0].pending).toHaveLength(2);
+      expect(retired[0].pending).toEqual(
+        expect.arrayContaining([
+          { method: "Input.insertText", session: "main" },
+          { method: "Runtime.evaluate", session: "child" },
+        ]),
+      );
+      expect(JSON.stringify(logs)).not.toContain("private fixture");
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+      time.restore();
+    }
+  });
+
+  test("a timed-out command answered before the ceiling keeps its client", async () => {
+    const time = fakeTimeline();
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true, time.clock);
+    try {
+      const { sessionId, assignment } = await create(h);
+      const work = h.agent.receive({
+        id: 7,
+        sessionId,
+        method: "Input.insertText",
+        params: { text: "fixture" },
+      });
+      const command = await lastCdp(h, "Input.insertText");
+      await time.advanceTo(30_000);
+      await work;
+      expect(h.connection.pendingTimedOut(assignment)).toBe(true);
+      await time.advanceTo(30_000 + FENCE_CEILING_MS / 2);
+      result(h, command);
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      await time.advanceTo(30_000 + 2 * FENCE_CEILING_MS);
+      expect(h.client.closed).toBe(false);
+      expect(logged(info).filter((l) => l.reason === "client_retired")).toEqual(
+        [],
+      );
+      expect(h.connection.offered("agent")).toBe(assignment);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+      time.restore();
+    }
+  });
+
+  test("retireClient drops a gone client's pending commands and leaves debugger recovery and unknown grants alone", async () => {
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true);
+    try {
+      h.connection.retireClient(crypto.randomUUID(), "fence_ceiling");
+      const { sessionId, assignment } = await create(h);
+      const work = h.agent.receive({
+        id: 4,
+        sessionId,
+        method: "Input.insertText",
+        params: { text: "fixture" },
+      });
+      await lastCdp(h, "Input.insertText");
+      // A retained close leaves the command pending with no client: no new
+      // client can attach over it.
+      h.agent.close();
+      expect(h.connection.pendingCount(assignment)).toBe(1);
+      expect(() => h.connection.assign("agent", peer(), true)).toThrow();
+      h.connection.retireClient(assignment, "fence_ceiling");
+      await work;
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      expect(h.connection.offered("agent")).toBe(assignment);
+      const next = peer();
+      h.connection.assign("agent", next, true);
+      expect(next.closed).toBe(false);
+
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        assignment,
+        method: "recovering",
+        params: {},
+      });
+      expect(h.connection.isRecovering(assignment)).toBe(true);
+      h.connection.retireClient(assignment, "fence_ceiling");
+      expect(h.connection.isRecovering(assignment)).toBe(true);
+      const ready = h.connection.waitForRecovery(assignment, 3000);
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        assignment,
+        method: "recovered",
+        params: {},
+      });
+      expect(await ready).toBe(true);
+      expect(h.connection.offered("agent")).toBe(assignment);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
     }
   });
 });

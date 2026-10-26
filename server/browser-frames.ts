@@ -1,5 +1,26 @@
 import type { Frame, Locator } from "playwright-core";
 
+/** A Playwright wait that had no timeout of its own and outlived its bound. */
+export class StalledWaitError extends Error {
+  override name = "TimeoutError";
+}
+
+/** Rejects with StalledWaitError when p has not settled after ms. p can
+ * still reject later, when its client closes: that rejection is handled. */
+export function withinDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  p.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new StalledWaitError("The browser wait got no answer")),
+        Math.max(1, ms),
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 export const MAX_FRAME_DEPTH = 8;
 const MAX_READ_FRAMES = 64;
 /** Replaces the value of a password field in a snapshot. */
@@ -129,7 +150,8 @@ async function snapshotWithEditableText(
     .filter({ visible: true });
   const values: string[] = [];
   let length = 0;
-  const count = await boxes.count();
+  // count() has no timeout of its own.
+  const count = await withinDeadline(boxes.count(), deadline - Date.now());
   for (let index = 0; index < count && length < limit; index++) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
@@ -170,7 +192,7 @@ async function readPasswordValues(
   const passDeadline =
     Date.now() + Math.max(deadline - Date.now(), PASSWORD_READ_FLOOR_MS);
   const fields = frame.locator("input[type=password]");
-  const count = await fields.count();
+  const count = await withinDeadline(fields.count(), passDeadline - Date.now());
   const values: string[] = [];
   for (let index = 0; index < count; index++)
     values.push(

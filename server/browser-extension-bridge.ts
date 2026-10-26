@@ -40,6 +40,10 @@ const offerHandle = (credentialHash: string, assignment: string): string => {
 // origin that the office answered at the first offer.
 type Resume = { expiresAt: number | null; offerOrigin: string };
 
+// How long a timed-out command or action may still fence its grant before
+// the office retires the grant's CDP client and drops its pending commands.
+export const FENCE_CEILING_MS = 30_000;
+
 type Pending = {
   assignment: string;
   resolve(value: Fields): void;
@@ -48,6 +52,9 @@ type Pending = {
   done: Promise<void>;
   settled(): void;
   timedOut: boolean;
+  // For the logs: the CDP method (or the bridge method) and its session.
+  method: string;
+  session: "main" | "popup" | "child";
 };
 interface GrantClock {
   now(): number;
@@ -78,6 +85,8 @@ type Assignment = {
   session: string;
   browserSession: string;
   peer: BridgePeer;
+  // Clients retired so far; work of a retired client sends nothing new.
+  retirements: number;
   target?: Fields;
   children: Map<string, ChildFrame>;
   popups: Map<string, Fields>;
@@ -530,6 +539,44 @@ export class ExtensionConnection {
     };
   }
 
+  /** Retires the grant's CDP client and drops its pending commands; the
+   * grant, its offer and its deadline stay. A late result of a dropped
+   * command reaches nobody, but the command can still run in Chrome. */
+  retireClient(grant: string, cause: string): void {
+    const a = this.assignments.get(grant);
+    if (!a || a.closed) return;
+    const dropped = [...this.pending].filter(([, p]) => p.assignment === grant);
+    console.info(
+      "[browser-extension] " +
+        JSON.stringify({
+          reason: "client_retired",
+          generation: this.generation,
+          assignment: grant,
+          cause,
+          pending: dropped.map(([, p]) => ({
+            method: p.method,
+            session: p.session,
+          })),
+        }),
+    );
+    for (const [id, pending] of dropped) {
+      clearTimeout(pending.timer);
+      pending.settled();
+      pending.reject(
+        new Error("Browser client retired; pending outcomes may be unknown"),
+      );
+      this.pending.delete(id);
+    }
+    // The debugger stays attached, so the frames stay; the next client
+    // resumes them (as at a retained close).
+    const peer = a.peer;
+    a.peer = { send() {}, close() {} };
+    a.connected = false;
+    a.retirements++;
+    for (const key of a.children.keys()) this.resumeChild(a, key);
+    peer.close();
+  }
+
   isRecovering(grant: string): boolean {
     return !!this.assignments.get(grant)?.recovery;
   }
@@ -687,6 +734,7 @@ export class ExtensionConnection {
       session: crypto.randomUUID(),
       browserSession: crypto.randomUUID(),
       peer: { send() {}, close() {} },
+      retirements: 0,
       children: new Map(),
       popups: new Map(),
       pages: new Map(),
@@ -932,10 +980,26 @@ export class ExtensionConnection {
           return;
         }
         // A timeout is not evidence of socket loss. Retain this entry until the
-        // real response or ownership loss, so the next action cannot overtake it.
+        // real response, ownership loss or the ceiling, so the next action
+        // cannot overtake it. After the ceiling the client retires.
         pending.timedOut = true;
+        console.info(
+          "[browser-extension] " +
+            JSON.stringify({
+              reason: "command_timed_out",
+              generation: this.generation,
+              assignment: a.id,
+              method: pending.method,
+              session: pending.session,
+            }),
+        );
+        this.clock.schedule(() => {
+          if (this.pending.get(id) === pending)
+            this.retireClient(a.id, "command_unanswered");
+        }, FENCE_CEILING_MS);
         reject(new Error(COMMAND_TIMED_OUT));
       }, 30_000);
+      const sessionId = method === "cdp" ? params.sessionId : undefined;
       this.pending.set(id, {
         assignment: a.id,
         resolve,
@@ -944,6 +1008,16 @@ export class ExtensionConnection {
         done,
         settled,
         timedOut: false,
+        method:
+          method === "cdp" && typeof params.method === "string"
+            ? params.method
+            : method,
+        session:
+          typeof sessionId !== "string" || sessionId === a.session
+            ? "main"
+            : a.popups.has(sessionId)
+              ? "popup"
+              : "child",
       });
       sent?.(id);
       try {
@@ -1416,8 +1490,9 @@ export class ExtensionConnection {
   // kicks settle. Kicks continue while any of them is unanswered, because a
   // kick sent as the capture finishes can stick too, and the next kick frees
   // it. Each kick still ends at its own 30 s command timeout, and the doubled
-  // delay outgrows that timeout, so at most 7 kicks go out and the chain is
-  // quiet by about 68 s even if nothing answers. Kicks after the action
+  // delay outgrows that timeout, so at most 7 kicks go out, all by about 38 s.
+  // If the capture is still unanswered, the ceiling retires the client at
+  // about 60 s, and the chain stops: a retired client sends no kick. Kicks after the action
   // deadline are intended: they stay inside the fence, and they can free the
   // retained capture so that the fence drains sooner. The capture's own
   // failure wins; a failed kick is ignored, but a kick that times out after a
@@ -1428,6 +1503,7 @@ export class ExtensionConnection {
     sessionId: unknown,
   ): Promise<Fields> {
     const command = { method: "Page.captureScreenshot", params, sessionId };
+    const retirements = a.retirements;
     let open = 1;
     const settle = (sent: Promise<Fields>) =>
       sent.then(
@@ -1444,7 +1520,7 @@ export class ExtensionConnection {
     const kicks: ReturnType<typeof settle>[] = [];
     let cancel = () => {};
     const kick = () => {
-      if (open === 0) return;
+      if (open === 0 || a.retirements !== retirements) return;
       let sent: Promise<Fields>;
       try {
         sent = this.request(a, "cdp", command);

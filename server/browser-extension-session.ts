@@ -5,7 +5,12 @@ import {
   type UploadedFile,
 } from "./browser-upload";
 import type { Browser, Dialog, Page } from "playwright-core";
-import { readBrowserFrames, resolveBrowserFrame } from "./browser-frames";
+import {
+  readBrowserFrames,
+  resolveBrowserFrame,
+  StalledWaitError,
+  withinDeadline,
+} from "./browser-frames";
 import {
   CHECK_REASON,
   SELECT_REASON,
@@ -16,7 +21,10 @@ import {
   watchNavigation,
 } from "./browser-input";
 import { browserExtensionTransport } from "./browser-extension-transport";
-import type { ExtensionConnection } from "./browser-extension-bridge";
+import {
+  FENCE_CEILING_MS,
+  type ExtensionConnection,
+} from "./browser-extension-bridge";
 import { officePageRefused } from "./browser-office-gate";
 import type { BrowserExtensionService } from "./browser-extension-service";
 import {
@@ -162,18 +170,24 @@ type Resolved = {
 const same = (a: Resolved | undefined, b: Resolved | undefined): boolean =>
   a?.connection === b?.connection && a?.grant === b?.grant;
 
+// The fence of a timed-out action, until its work settles or the ceiling.
+type Recovery = {
+  connection: ExtensionConnection;
+  grant: string;
+  done: Promise<void>;
+  ceiling?: ReturnType<typeof setTimeout>;
+};
+
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
-  private recovering = new Map<
-    string,
-    { connection: ExtensionConnection; grant: string; done: Promise<void> }
-  >();
+  private recovering = new Map<string, Recovery>();
   constructor(
     private service: BrowserExtensionService,
     private owner: (agent: string) => string | undefined,
     private mayUse: (member: string, agent: string) => boolean,
     private actionDeadline: () => number = () => BROWSER_ACTION_DEADLINE_MS,
+    private fenceCeiling: () => number = () => FENCE_CEILING_MS,
   ) {}
   private end(key: string): void {
     const session = this.sessions.get(key);
@@ -182,7 +196,21 @@ export class ExtensionBrowserSessions {
     void session.browser.close().catch(() => {});
   }
   stop(): void {
+    for (const recovery of this.recovering.values())
+      clearTimeout(recovery.ceiling);
     for (const key of this.sessions.keys()) this.end(key);
+  }
+  // A client that is stuck goes, and the next action attaches a fresh one.
+  // The bridge drops the client first: its close rejects every hung
+  // Playwright call, while browser.close() can itself wait on Chrome.
+  private retire(
+    key: string,
+    connection: ExtensionConnection,
+    grant: string,
+    cause: string,
+  ): void {
+    connection.retireClient(grant, cause);
+    this.end(key);
   }
   run(agent: string, body: unknown): Promise<BrowserResult> {
     const params = parseBrowserParams(body);
@@ -278,6 +306,21 @@ export class ExtensionBrowserSessions {
           (outdated.length ? " " + outdatedNote(outdated) : ""),
       );
     const { connection, grant, target } = bound;
+    // fence: the check that refused this action.
+    const notSent = (fence: string) => {
+      console.info(
+        "[browser-extension] " +
+          JSON.stringify({
+            reason: "not_sent",
+            action: params.action,
+            generation: connection.generation,
+            assignment: grant,
+            fence,
+            pending: connection.pendingCount(grant),
+          }),
+      );
+      return notSentResult();
+    };
     if (
       params.action === "goto" &&
       officePageRefused(
@@ -297,7 +340,7 @@ export class ExtensionBrowserSessions {
       return officeRefused();
     if (!(await connection.waitForRecovery(grant, actionMs))) {
       return connection.offered(agent, target) === grant
-        ? notSentResult()
+        ? notSent("recovery_wait")
         : ended();
     }
     if (session && (session.signal.aborted || !session.browser.isConnected())) {
@@ -306,7 +349,7 @@ export class ExtensionBrowserSessions {
     }
     const prior = this.recovering.get(key);
     if (prior?.connection === connection && prior.grant === grant)
-      return notSentResult();
+      return notSent("settling");
     if (connection.pendingCount(grant)) {
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
@@ -316,15 +359,26 @@ export class ExtensionBrowserSessions {
         }),
       ]);
       clearTimeout(drainTimer);
-      if (connection.pendingCount(grant)) return notSentResult();
+      if (connection.pendingCount(grant)) return notSent("pending");
     }
     if (session && session.actor !== agent) {
       // One client at a time per grant. Its immutable actor retires with it;
       // delayed old-client commands cannot borrow the next caller's access.
+      // A close that waits on Chrome must not hold the grant's queue: after
+      // the grace the transport closes, which ends the client at once.
       this.sessions.delete(key);
-      await session.browser.close().catch(() => {});
+      const old = session;
+      let closeTimer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        old.browser.close().catch(() => {}),
+        new Promise<void>((resolve) => {
+          closeTimer = setTimeout(resolve, SETTLEMENT_GRACE_MS);
+        }),
+      ]);
+      clearTimeout(closeTimer);
+      old.transport.close();
       session = undefined;
-      if (connection.pendingCount(grant)) return notSentResult();
+      if (connection.pendingCount(grant)) return notSent("actor_change");
     }
     // A client cannot attach on a refused office page: the gate refuses its
     // first commands. A goto leaves the page through the bridge first, and a
@@ -757,7 +811,11 @@ export class ExtensionBrowserSessions {
         current = session.page;
         if (current.isClosed()) throw new Error("Selected browser page closed");
         try {
-          title = await current.title();
+          // title() has no timeout of its own.
+          title = await withinDeadline(
+            current.title(),
+            deadline - performance.now(),
+          );
         } catch (error) {
           if (
             !closedTarget(error) ||
@@ -859,7 +917,12 @@ export class ExtensionBrowserSessions {
     const operation = task().finally(() => {
       operationSettled = true;
     });
-    const settleTimeout = async (winner: string): Promise<BrowserResult> => {
+    // retire: why the client is stuck (a wait outlived its own timeout or had
+    // none), so that it goes once the timed-out work settles.
+    const settleTimeout = async (
+      winner: string,
+      retire = winner === "watchdog_timeout" ? winner : undefined,
+    ): Promise<BrowserResult> => {
       if (!valid()) return ended();
       timedOut = true;
       diagnostic(winner);
@@ -867,14 +930,16 @@ export class ExtensionBrowserSessions {
         params.action === "goto"
           ? connection.stopLoading(grant).catch(() => {})
           : Promise.resolve();
-      const recovery = { connection, grant, done: Promise.resolve() };
+      const recovery: Recovery = { connection, grant, done: Promise.resolve() };
       this.recovering.set(key, recovery);
       recovery.done = Promise.all([operation.catch(() => {}), stop])
         .then(() => connection.drain(grant))
         .then(() => {
           diagnostic("drain_completed");
-          if (this.recovering.get(key) === recovery)
-            this.recovering.delete(key);
+          if (this.recovering.get(key) !== recovery) return;
+          clearTimeout(recovery.ceiling);
+          if (retire) this.retire(key, connection, grant, retire);
+          this.recovering.delete(key);
         });
       let grace: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
@@ -886,7 +951,16 @@ export class ExtensionBrowserSessions {
       clearTimeout(grace);
       if (!valid()) return ended();
       const busy = this.recovering.get(key) === recovery;
-      if (busy) diagnostic("drain_exceeded");
+      if (busy) {
+        diagnostic("drain_exceeded");
+        // Work that never settles fences the grant only until the ceiling.
+        recovery.ceiling = setTimeout(() => {
+          if (this.recovering.get(key) !== recovery) return;
+          diagnostic("fence_ceiling");
+          this.recovering.delete(key);
+          this.retire(key, connection, grant, "fence_ceiling");
+        }, this.fenceCeiling());
+      }
       return busy ? stillSettlingResult() : timedOutResult();
     };
     const respond = async (): Promise<BrowserResult> => {
@@ -912,6 +986,8 @@ export class ExtensionBrowserSessions {
       } catch (error) {
         if (!valid()) return ended();
         if (debuggerDetached) return detachedResult();
+        if (error instanceof StalledWaitError)
+          return await settleTimeout("operation_timeout", "stalled_wait");
         if (
           (error instanceof Error && error.name === "TimeoutError") ||
           connection.pendingTimedOut(grant)

@@ -1093,10 +1093,18 @@ test("agents learn which of their manager's browsers is out of date", async () =
   }
 });
 
+// "hang": the action never settles, even when its client closes (a wait that
+// nothing bounds). hangTitle: the first client's title read never answers.
+// hangClose: the first client's close never returns.
 async function timeoutSessionFixture(
-  held: boolean | "watchdog" | "navigation" = false,
+  held: boolean | "watchdog" | "navigation" | "hang" = false,
   all = false,
   durationMinutes = 0,
+  opts: {
+    fenceCeiling?: number;
+    hangTitle?: boolean;
+    hangClose?: boolean;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "browser-timeout-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
@@ -1113,6 +1121,7 @@ async function timeoutSessionFixture(
     () => "member",
     access,
     () => 20,
+    opts.fenceCeiling === undefined ? undefined : () => opts.fenceCeiling!,
   );
   const { code } = store.pair("member");
   const { credential } = store.redeem(code, origin, () => true);
@@ -1164,11 +1173,15 @@ async function timeoutSessionFixture(
     background = false,
     sendOnClose = false,
     pageClosed = false;
-  let settled = false;
+  // A hang that only a ceiling or a fresh client ends lets the next action run
+  // before the old one settles.
+  let settled = held === "hang" || !!opts.hangTitle || !!opts.hangClose;
+  let clients = 0;
   let transport!: import("playwright-core").ConnectOverCDPTransport;
   let sessionId: unknown;
   const connect = spyOn(chromium, "connectOverCDP").mockImplementation(
     async (wire) => {
+      const client = ++clients;
       transport = wire as import("playwright-core").ConnectOverCDPTransport;
       transport.onmessage = (message) => {
         const m = message as {
@@ -1185,6 +1198,7 @@ async function timeoutSessionFixture(
       });
       await Promise.resolve();
       const timeout = async () => {
+        if (held === "hang") return new Promise<never>(() => {});
         if (held === true || held === "navigation")
           transport.send({
             id: 2,
@@ -1221,7 +1235,10 @@ async function timeoutSessionFixture(
         },
         isClosed: () => pageClosed,
         url: () => "https://example.com/",
-        title: async () => "Fixture",
+        title: () =>
+          opts.hangTitle && client === 1
+            ? new Promise<string>(() => {})
+            : Promise.resolve("Fixture"),
         mainFrame: () => mainFrame,
         fill: timeout,
         goto: timeout,
@@ -1245,6 +1262,8 @@ async function timeoutSessionFixture(
         on() {},
         close: async () => {
           retired++;
+          if (opts.hangClose && client === 1)
+            return new Promise<void>(() => {});
           // Cleanup that the old client sends while it closes.
           if (sendOnClose)
             transport.send({
@@ -1403,7 +1422,10 @@ test("watchdog response waits for old operation settlement without releasing the
     });
     expect(await next).toMatchObject({ ok: true });
     expect(h.connection.offered("agent")).toBe(h.grant);
-    expect(h.connect).toHaveBeenCalledTimes(1);
+    // A wait that outlived its own timeout marks the client as stuck: the
+    // next action gets a fresh one.
+    expect(h.retired()).toBe(1);
+    expect(h.connect).toHaveBeenCalledTimes(2);
     expect(diagnostics.mock.calls.flat().join(" ")).toContain(
       "watchdog_timeout",
     );
@@ -1413,6 +1435,91 @@ test("watchdog response waits for old operation settlement without releasing the
     h.stop();
   }
 });
+
+// Task f499efba, hold A: a Playwright wait with no timeout of its own (a
+// title or a Locator.count) left the fence on until the member's toggle.
+test("a title read that never answers ends as a timeout and the next action gets a fresh client", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, { hangTitle: true });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      code: "action_timeout",
+      error: TIMED_OUT_ERROR,
+    });
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: true,
+      title: "Fixture",
+      text: "fixture",
+    });
+    expect(h.retired()).toBe(1);
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    // The bound ended it, not the watchdog or the ceiling.
+    const log = diagnostics.mock.calls.flat().join(" ");
+    expect(log).toContain("operation_timeout");
+    expect(log).not.toContain("watchdog_timeout");
+    expect(log).not.toContain("fence_ceiling");
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+});
+
+const diagnosticsOf = (info: { mock: { calls: unknown[][] } }) =>
+  info.mock.calls
+    .map((call) => String(call[0]))
+    .filter((line) => line.startsWith("[browser-extension] "))
+    .map(
+      (line) =>
+        JSON.parse(line.slice("[browser-extension] ".length)) as Record<
+          string,
+          unknown
+        >,
+    );
+
+test("an action that never settles fences its grant until the ceiling, then a fresh client runs the next action", async () => {
+  // The stuck client's close also waits on Chrome: only the bridge's retire
+  // frees the grant for the next client.
+  const h = await timeoutSessionFixture("hang", false, 0, {
+    fenceCeiling: 200,
+    hangClose: true,
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    expect(
+      await h.sessions.run("agent", {
+        action: "fill",
+        selector: "#fixture",
+        text: "fixture",
+      }),
+    ).toMatchObject({ code: "action_timeout", error: STILL_SETTLING_ERROR });
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      code: "action_timeout",
+      error: NOT_SENT_ERROR,
+    });
+    expect(h.calls()).toBe(0);
+    await Bun.sleep(400);
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: true,
+      text: "fixture",
+    });
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    expect(h.messages.some((m) => m.method === "detach")).toBe(false);
+    const logs = diagnosticsOf(diagnostics);
+    const reasons = logs.map((l) => l.reason);
+    expect(reasons).toContain("watchdog_timeout");
+    expect(reasons).toContain("fence_ceiling");
+    // Each refusal is logged with the fence that refused it.
+    const refusals = logs.filter((l) => l.reason === "not_sent");
+    expect(refusals).toHaveLength(1);
+    expect(Object.values(refusals[0])).toContain("settling");
+    expect(JSON.stringify(logs)).not.toContain("#fixture");
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+}, 10_000);
 
 test("Playwright initialization timeout retains the offer while outstanding initialization drains", async () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-init-timeout-"));
@@ -1798,6 +1905,25 @@ test("an actor switch whose retiring client leaves a command pending sends nothi
     h.stop();
   }
 });
+
+test("an actor switch whose old client never finishes closing still runs the next caller", async () => {
+  const h = await timeoutSessionFixture(false, true, 0, { hangClose: true });
+  try {
+    expect(
+      await h.sessions.run("agent", { action: "click", selector: "button" }),
+    ).toMatchObject({ ok: true });
+    const outcome = await Promise.race([
+      h.sessions.run("second", { action: "text" }),
+      Bun.sleep(4000).then(() => ({ outcome: "no answer in 4 s" })),
+    ]);
+    expect(outcome).toMatchObject({ ok: true, text: "fixture" });
+    expect(h.retired()).toBe(1);
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(h.connection.offered("second")).toBe(h.grant);
+  } finally {
+    h.stop();
+  }
+}, 10_000);
 
 for (const expiry of [false, true])
   test(`All release interrupts both active and queued callers (expiry=${expiry})`, async () => {

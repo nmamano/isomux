@@ -4,6 +4,8 @@ import {
   PASSWORD_MASK,
   readBrowserFrames,
   resolveBrowserFrame,
+  StalledWaitError,
+  withinDeadline,
 } from "./browser-frames";
 import {
   PASSWORD_LEAKS,
@@ -568,4 +570,98 @@ test("the mask covers the editable text section and runs before the output limit
   );
   expect(read).toContain(`"draft with ${PASSWORD_MASK}"`);
   expect(read).not.toContain("longsecret");
+});
+
+// Locator.count() has no timeout of its own and waits for a frame context that
+// may never come; the read must still end within its budget.
+function stalledFrame(where: "password" | "editable"): Frame {
+  const never = () => new Promise<number>(() => {});
+  return {
+    getByRole: () => ({}),
+    childFrames: () => [],
+    isDetached: () => false,
+    locator: (selector: string) =>
+      selector === PASSWORD_FIELDS
+        ? where === "password"
+          ? { count: never }
+          : noPasswordFields
+        : {
+            innerText: async () => "",
+            ariaSnapshot: async () => "- textbox",
+            locator: () => ({
+              and: () => ({
+                and: () => ({ filter: () => ({ count: never }) }),
+              }),
+            }),
+          },
+  } as unknown as Frame;
+}
+
+const HUNG = Symbol("hung");
+const settledWithin = <T>(work: Promise<T>, ms: number) =>
+  Promise.race([
+    work.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    ),
+    Bun.sleep(ms).then(() => HUNG),
+  ]);
+
+for (const where of ["password", "editable"] as const)
+  test(`the ${where} count that never answers ends the snapshot as a stalled wait`, async () => {
+    // The password read keeps its 1 s floor; the editable count has the
+    // 50 ms snapshot budget.
+    const outcome = await settledWithin(
+      readBrowserFrames(stalledFrame(where), "snapshot", 20_000, 50),
+      2500,
+    );
+    expect(outcome).not.toBe(HUNG);
+    const { error } = outcome as { error?: unknown };
+    expect(error).toBeInstanceOf(StalledWaitError);
+    expect((error as Error).name).toBe("TimeoutError");
+  });
+
+test("a child frame whose count never answers is marked unread and the rest is read", async () => {
+  const outcome = await settledWithin(
+    readBrowserFrames(
+      frame("Shell", [stalledFrame("editable")]),
+      "snapshot",
+      20_000,
+      1000,
+    ),
+    2500,
+  );
+  expect(outcome).not.toBe(HUNG);
+  const { value } = outcome as { value?: string };
+  expect(value).toStartWith("- text: Shell");
+  expect(value).toContain("framePath=[0]");
+  expect(value).not.toContain("- textbox");
+});
+
+test("withinDeadline passes a settled outcome and rejects a stall once", async () => {
+  expect(await withinDeadline(Promise.resolve(7), 50)).toBe(7);
+  const failure = new Error("own failure");
+  expect(
+    await withinDeadline(Promise.reject(failure), 50).catch((e) => e),
+  ).toBe(failure);
+  let late!: (error: Error) => void;
+  const stalled = new Promise<never>((_resolve, reject) => {
+    late = reject;
+  });
+  const started = performance.now();
+  const error = await withinDeadline(stalled, 30).catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(StalledWaitError);
+  expect(performance.now() - started).toBeGreaterThanOrEqual(25);
+  // The wait rejects after the bound when its client closes. Bun ends the
+  // process on an unhandled rejection; this one must stay handled.
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    late(new Error("client closed"));
+    await Bun.sleep(10);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
 });
