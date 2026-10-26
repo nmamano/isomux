@@ -3,11 +3,13 @@
 // subscription pill: that reading needs a live session and does not say which
 // account it describes. This one reads the office account directory itself.
 //
-// One warm reader process per provider, closed after a quiet spell. A reading
-// counts for FRESH_MS; an older one triggers a probe that concurrent callers
-// share. A failed probe is never cached: it answers with the last good reading
-// if that is under FALLBACK_MS old, else as failed, and the cap lets a failed
-// reading through (Nil's ruling, 2026-10-02).
+// One warm reader process per provider, closed after a quiet spell. Every
+// answer, failed included, counts for FRESH_MS. An older one under FALLBACK_MS
+// still answers at once while a probe that concurrent callers share reads a
+// new one; with none, the caller waits for that probe. A failed answer stands
+// for the last good reading if that is under FALLBACK_MS old, else it is
+// failed, and the cap lets a failed reading through (Nil's ruling,
+// 2026-10-02).
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
@@ -24,6 +26,7 @@ import {
 import type { GetAccountResponse } from "./backends/codex/_generated/v2/GetAccountResponse.ts";
 import type { GetAccountRateLimitsResponse } from "./backends/codex/_generated/v2/GetAccountRateLimitsResponse.ts";
 import type { RateLimitSnapshot } from "./backends/codex/_generated/v2/RateLimitSnapshot.ts";
+import type { RateLimitWindow } from "./backends/codex/_generated/v2/RateLimitWindow.ts";
 
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const FRESH_MS = 60_000;
@@ -74,7 +77,9 @@ function validPercent(value: unknown): value is number {
 }
 
 // The experimental Claude /usage answer -> the weekly outcome. Exported for
-// tests. Only `seven_day` counts; the 5-hour and per-model windows do not.
+// tests. Only `seven_day` counts; the 5-hour and per-model windows do not. A
+// `seven_day` sent as null (a team plan) means the account has no weekly
+// window; a missing key is an answer we do not know.
 export function parseClaudeWeekly(raw: unknown): ProbeResult {
   if (!raw || typeof raw !== "object") return { kind: "failed" };
   const resp = raw as {
@@ -83,8 +88,13 @@ export function parseClaudeWeekly(raw: unknown): ProbeResult {
   };
   if (resp.rate_limits_available === false) return { kind: "no_limit" };
   if (resp.rate_limits_available !== true) return { kind: "failed" };
-  const week = (resp.rate_limits as Record<string, unknown> | undefined)
-    ?.seven_day as { utilization?: unknown; resets_at?: unknown } | undefined;
+  const limits = resp.rate_limits;
+  if (!limits || typeof limits !== "object") return { kind: "failed" };
+  const week = (limits as Record<string, unknown>).seven_day as
+    | { utilization?: unknown; resets_at?: unknown }
+    | null
+    | undefined;
+  if (week === null) return { kind: "no_limit" };
   if (!week || !validPercent(week.utilization)) return { kind: "failed" };
   const resetsAtMs =
     typeof week.resets_at === "string" ? Date.parse(week.resets_at) : NaN;
@@ -94,7 +104,8 @@ export function parseClaudeWeekly(raw: unknown): ProbeResult {
 
 // Codex account + rate limits -> the weekly outcome. Exported for tests. The
 // weekly window is the one 10080 minutes long, whichever slot it rides in (a
-// Pro plan sends it as `primary`).
+// Pro plan sends it as `primary`). Windows that are all of another length (the
+// free plan's 30-day window) mean the plan has no weekly window.
 export function parseCodexWeekly(
   account: GetAccountResponse["account"],
   limits: GetAccountRateLimitsResponse | null,
@@ -108,18 +119,30 @@ export function parseCodexWeekly(
     limits.rateLimitsByLimitId?.[CODEX_LEGACY_LIMIT_KEY] ??
     limits.rateLimits;
   if (!snapshot) return { kind: "failed" };
-  for (const win of [snapshot.primary, snapshot.secondary]) {
-    if (!win || win.windowDurationMins !== CODEX_WEEK_MINUTES) continue;
-    if (!validPercent(win.usedPercent)) return { kind: "failed" };
-    if (typeof win.resetsAt !== "number" || !Number.isFinite(win.resetsAt))
-      return { kind: "failed" };
-    return {
-      kind: "weekly",
-      usedPercent: win.usedPercent,
-      resetsAtMs: win.resetsAt * 1000,
-    };
+  const windows = [snapshot.primary, snapshot.secondary].filter(
+    (win): win is RateLimitWindow => !!win,
+  );
+  const win = windows.find((w) => w.windowDurationMins === CODEX_WEEK_MINUTES);
+  if (!win) {
+    // No window, or one of unknown length (it could be the weekly one), says
+    // nothing about the plan.
+    const known = windows.every(
+      (w) =>
+        typeof w.windowDurationMins === "number" &&
+        Number.isFinite(w.windowDurationMins),
+    );
+    return windows.length > 0 && known
+      ? { kind: "no_limit" }
+      : { kind: "failed" };
   }
-  return { kind: "failed" };
+  if (!validPercent(win.usedPercent)) return { kind: "failed" };
+  if (typeof win.resetsAt !== "number" || !Number.isFinite(win.resetsAt))
+    return { kind: "failed" };
+  return {
+    kind: "weekly",
+    usedPercent: win.usedPercent,
+    resetsAtMs: win.resetsAt * 1000,
+  };
 }
 
 type UsageQuery = {
@@ -223,12 +246,14 @@ export interface OfficeUsageReaderDeps {
 }
 
 export interface OfficeUsageReader {
-  // A reading at most FRESH_MS old, or the result of a probe shared with
-  // concurrent callers. A failed probe answers with the last good reading
-  // while it is under FALLBACK_MS old.
+  // The last answer if under FRESH_MS old. Else a probe shared with
+  // concurrent callers starts, and the caller gets the last answer at once if
+  // it is under FALLBACK_MS old (a weekly one only until its reset), or waits
+  // for the probe. A failed answer stands for the last good reading while
+  // that is under FALLBACK_MS old.
   read(provider: ProviderAccountProvider): Promise<OfficeWeeklyOutcome>;
-  // Drop the cached and last good readings and the warm process, e.g. after
-  // the office signs in or out.
+  // Drop the last answer, the last good reading and the warm process, e.g.
+  // after the office signs in or out.
   invalidate(provider: ProviderAccountProvider): void;
   close(): void;
 }
@@ -252,7 +277,8 @@ export function createOfficeUsageReader(
   type Slot = {
     key: string;
     generation: number;
-    cached: OfficeWeeklyOutcome | null;
+    // The last answer of any kind, and when it was read.
+    answer: { outcome: OfficeWeeklyOutcome; at: number } | null;
     // The last weekly or no_limit reading, for a failed probe to fall back on.
     lastGood: GoodOutcome | null;
     inFlight: Promise<OfficeWeeklyOutcome> | null;
@@ -272,7 +298,7 @@ export function createOfficeUsageReader(
       slot = {
         key,
         generation: 0,
-        cached: null,
+        answer: null,
         lastGood: null,
         inFlight: null,
         probe: null,
@@ -299,11 +325,22 @@ export function createOfficeUsageReader(
     }, IDLE_CLOSE_MS);
   }
 
-  function usable(outcome: OfficeWeeklyOutcome | null, at: number): boolean {
-    if (!outcome || !("observedAtMs" in outcome)) return false;
-    if (at - outcome.observedAtMs > FRESH_MS) return false;
-    // A reset already past means the reading predates a rollover.
+  // The last answer if it is at most `maxAge` old. A reset already past
+  // means the reading predates a rollover: it never answers.
+  function kept(slot: Slot, at: number, maxAge: number): boolean {
+    const answer = slot.answer;
+    if (!answer || at - answer.at > maxAge) return false;
+    const outcome = answer.outcome;
     return outcome.kind !== "weekly" || outcome.resetsAtMs > at;
+  }
+
+  // What the last answer says now: a failed one stands for the last good
+  // reading while that is eligible.
+  function keptAnswer(slot: Slot, at: number): OfficeWeeklyOutcome {
+    const outcome = slot.answer!.outcome;
+    return outcome.kind === "failed"
+      ? (fallback(slot, at) ?? outcome)
+      : outcome;
   }
 
   // The last good reading, if under FALLBACK_MS old and, for a weekly one,
@@ -362,7 +399,7 @@ export function createOfficeUsageReader(
     const current =
       slots.get(provider) === slot && slot.generation === generation;
     if (current) {
-      slot.cached = outcome.kind === "failed" ? null : outcome;
+      slot.answer = { outcome, at };
       if (outcome.kind === "weekly" || outcome.kind === "no_limit")
         slot.lastGood = outcome;
       if (slot.probe) armIdleClose(slot);
@@ -403,15 +440,19 @@ export function createOfficeUsageReader(
         if (!target) return { kind: "failed" };
         const slot = slotFor(provider, target.key);
         const generation = slot.generation;
-        if (usable(slot.cached, now())) return slot.cached!;
+        if (kept(slot, now(), FRESH_MS)) return keptAnswer(slot, now());
         let flight = slot.inFlight;
         if (!flight) {
           const started = probeOnce(provider, slot, target.env).finally(() => {
             if (slot.inFlight === started) slot.inFlight = null;
           });
+          // No caller may await it: Bun kills the process on an unhandled
+          // rejection.
+          started.catch(() => {});
           slot.inFlight = started;
           flight = started;
         }
+        if (kept(slot, now(), FALLBACK_MS)) return keptAnswer(slot, now());
         const outcome = await flight;
         if (
           slots.get(provider) === slot &&
@@ -426,7 +467,7 @@ export function createOfficeUsageReader(
       const slot = slots.get(provider);
       if (!slot) return;
       slot.generation++;
-      slot.cached = null;
+      slot.answer = null;
       slot.lastGood = null;
       slot.inFlight = null;
       dropProbe(slot);

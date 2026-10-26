@@ -19,6 +19,13 @@ one triggers one probe shared by concurrent admissions. Exempt only billing
 positively identified as having no such weekly limit. (The first version's
 "a failed reading denies" is replaced by Nil's fail-open ruling above.)
 
+Task 895efffa (Nil's triage go, 2026-10-26), which replaces the 60 s half of
+the PM ruling above: an account whose plan reports no weekly window (a Claude
+team plan, the ChatGPT free plan) reads as no weekly limit, not failed. Every
+answer, failed included, is kept for 60 s, and an answer under an hour old
+answers at once while a new one is read, so a turn start does not wait on a
+probe when a recent answer exists.
+
 ## 1. The moving limit
 
 A member turn may start only while the office account's weekly utilization is
@@ -59,7 +66,8 @@ balance. Use can pass the line through:
 - a reading that cannot be had: members go through with no cap, and the last
   good reading stands in for up to an hour (Nil's ruling);
 - turns already running when the line is crossed (Nil's ruling);
-- the 60 s reuse window: turns admitted on a reading up to 60 s old;
+- the reuse window: turns admitted on a reading up to an hour old while a new
+  one is read;
 - provider reporting lag: the provider's own figure can trail real use;
 - Claude background-task wake turns (section 4), which start without isomux;
 - delegation: a member who has an owner's agent pass work on through agent
@@ -86,18 +94,24 @@ sign-in (`ProviderAccountManager` office target: its `dir` and `env`).
 The reader process stays warm while admissions arrive and closes after 10
 minutes with no admission, so an idle office keeps no process.
 
-**Freshness (PM ruling):** a committed reading admits for 60 s from its
-observation time. An admission with no such reading starts a probe, or joins
-the one in flight.
+**Freshness (task 895efffa):** the reader keeps its last answer of every kind
+(weekly, no_limit, failed, signed_out) with the time it was read. Under 60 s
+old it answers with no probe. Older but under 1 hour (FALLBACK_MS, the bound
+Nil set on how old a reading may stand in), it answers at once and starts a
+probe, or joins the one in flight, that replaces it when it lands. With no
+answer, one older than an hour, or a weekly reading whose reset has passed, the
+caller waits for the probe.
 
 **Failure (Nil's ruling):** a probe that fails, times out (20 s) or returns an
 invalid reading answers with the last good reading (weekly or no_limit) for
 that account if it was observed less than 1 hour ago and, for a weekly
 reading, its reset is still in the future. With no such reading the outcome is
-failed, and a failed outcome **admits**. The fallback is not cached: the next
-admission probes again.
+failed, and a failed outcome **admits**. The failed answer is kept like any
+other (Freshness above), and each read works out its fallback again, so a
+fallback that has aged past the hour or past its reset no longer answers.
 
-**Validity.** A reading is weekly only if all hold, else it is failed:
+**Validity.** A reading is weekly only if all hold, else it is failed (or
+no_limit, when the plan reports no weekly window: see Exemption):
 
 - the weekly window is present;
 - `usedPercent` is a finite number in [0, 100] (not clamped: an out-of-range
@@ -113,12 +127,22 @@ admission probes again.
 - Claude office reading with `rate_limits_available: false` (the provider's
   own statement that the account has no plan limits: API key, Bedrock,
   Vertex);
-- Codex office `account/read` reports `type: "apiKey"` or `"amazonBedrock"`.
+- Codex office `account/read` reports `type: "apiKey"` or `"amazonBedrock"`;
+- Claude office reading with `rate_limits_available: true` and `seven_day`
+  present as `null`: the plan has no account-wide weekly window (a team plan,
+  probe on 2026-10-26: only the 5-hour window and a per-model weekly row). A
+  missing `seven_day` key stays failed. Known risk: if a plan with a weekly
+  window ever reports `seven_day: null` (for example before the window
+  starts), the owner sees "no weekly limit" for that reading; members get the
+  same admission as with a failed reading, so the cap is no weaker;
+- Codex ChatGPT plan whose rate-limit snapshot has at least one window, every
+  window of a known length, and none of 10080 minutes (the free plan, probe on
+  2026-10-26: one 43200-minute window).
 
 Everything else without a valid weekly window is a failed probe and follows
 the failure rule above (the last good reading if eligible, else admit): SDK
-method gone, an unparseable answer, a ChatGPT plan with no 10080-minute
-window, a missing `resetsAt`. A signed-out office account (`signed_out`) is
+method gone, an unparseable answer, a Codex snapshot with no window or a
+window of unknown length, a missing `resetsAt`. A signed-out office account (`signed_out`) is
 not a failure: it admits with no fallback and has no status line.
 
 **Invalidation.** The reader's key is the office account directory plus a hash
@@ -126,7 +150,7 @@ of the env the reader runs with, so a changed office variable (an API key, a
 cloud switch) is a different account even in the same directory. Office
 sign-in, sign-out and any write of the office variables (`PUT /api/office/env`
 or `PUT`/`DELETE /api/office/env/:name`) also bump a generation in the
-reader and in the cap's recent answers, and clear the cached and the last
+reader and in the cap's recent answers, and clear the last answer and the last
 good reading. An
 answer counts only if its key and generation still hold when it arrives: a
 probe that an invalidation overtook is neither cached nor returned, and its

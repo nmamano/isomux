@@ -44,10 +44,53 @@ describe("parseClaudeWeekly", () => {
     });
   });
 
+  it("reads an answer whose weekly window is null as no limit (a team plan)", () => {
+    // The shape of a team-plan answer (office sign-in, 2026-10-26): only the
+    // 5-hour window and per-model weekly rows, which do not count.
+    const team = {
+      subscription_type: "team",
+      rate_limits_available: true,
+      rate_limits: {
+        five_hour: { utilization: 70, resets_at: "2026-10-02T14:00:00Z" },
+        seven_day: null,
+        seven_day_opus: null,
+        seven_day_sonnet: null,
+        limits: [
+          {
+            kind: "weekly_scoped",
+            group: "weekly",
+            percent: 0,
+            resets_at: "2026-10-02T15:00:00Z",
+            is_active: false,
+            scope: { model: { display_name: "Model", id: null } },
+          },
+        ],
+        model_scoped: [
+          {
+            display_name: "Model",
+            utilization: 0,
+            resets_at: "2026-10-02T15:00:00Z",
+          },
+        ],
+      },
+    };
+    expect(parseClaudeWeekly(team)).toEqual({ kind: "no_limit" });
+  });
+
   it("fails on anything it cannot read as a weekly window", () => {
     for (const raw of [
       null,
       { rate_limits: {} },
+      // No seven_day key at all is a shape we do not know, not "no limit".
+      {
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: { utilization: 1, resets_at: "2026-10-02T14:00:00Z" },
+        },
+      },
+      { rate_limits_available: true, rate_limits: null },
+      { rate_limits_available: true },
+      { rate_limits: { seven_day: null } },
       claudeRaw(undefined),
       claudeRaw({ utilization: null, resets_at: "2026-10-03T00:00:00Z" }),
       claudeRaw({ utilization: 120, resets_at: "2026-10-03T00:00:00Z" }),
@@ -108,6 +151,16 @@ describe("parseCodexWeekly", () => {
         ]),
       ),
     ).toEqual({ kind: "weekly", usedPercent: 20, resetsAtMs: resetsAt * 1000 });
+    // A window of unknown length beside it does not hide the weekly one.
+    expect(
+      parseCodexWeekly(
+        chatgpt,
+        codexLimits([
+          { usedPercent: 20, windowDurationMins: 10080, resetsAt },
+          { usedPercent: 90, windowDurationMins: null, resetsAt },
+        ]),
+      ),
+    ).toEqual({ kind: "weekly", usedPercent: 20, resetsAtMs: resetsAt * 1000 });
   });
 
   it("exempts only API-key and Bedrock billing", () => {
@@ -123,13 +176,52 @@ describe("parseCodexWeekly", () => {
     expect(parseCodexWeekly(null, null)).toEqual({ kind: "signed_out" });
   });
 
-  it("fails for a plan with no weekly window or a missing reset", () => {
+  it("reads a plan whose windows are all other than a week as no limit", () => {
+    // The free plan (office sign-in, 2026-10-26): one 30-day window.
+    const free = { type: "chatgpt", email: null, planType: "free" } as const;
+    expect(
+      parseCodexWeekly(
+        free,
+        codexLimits([
+          { usedPercent: 10, windowDurationMins: 43200, resetsAt: 1 },
+        ]),
+      ),
+    ).toEqual({ kind: "no_limit" });
     expect(
       parseCodexWeekly(
         chatgpt,
-        codexLimits([{ usedPercent: 5, windowDurationMins: 300, resetsAt: 1 }]),
+        codexLimits([
+          { usedPercent: 5, windowDurationMins: 300, resetsAt: 1 },
+          { usedPercent: 5, windowDurationMins: 43200, resetsAt: 1 },
+        ]),
+      ),
+    ).toEqual({ kind: "no_limit" });
+  });
+
+  it("fails when a window could be the weekly one or no window is reported", () => {
+    // A window of unknown length could be the weekly one.
+    expect(
+      parseCodexWeekly(
+        chatgpt,
+        codexLimits([
+          { usedPercent: 5, windowDurationMins: 300, resetsAt: 1 },
+          { usedPercent: 5, windowDurationMins: null, resetsAt: 1 },
+        ]),
       ),
     ).toEqual({ kind: "failed" });
+    expect(
+      parseCodexWeekly(
+        chatgpt,
+        codexLimits([{ usedPercent: 5, windowDurationMins: NaN, resetsAt: 1 }]),
+      ),
+    ).toEqual({ kind: "failed" });
+    // A snapshot with no window says nothing about the plan.
+    expect(parseCodexWeekly(chatgpt, codexLimits([]))).toEqual({
+      kind: "failed",
+    });
+  });
+
+  it("fails for a weekly window with a missing reset", () => {
     expect(
       parseCodexWeekly(
         chatgpt,
@@ -220,18 +312,61 @@ describe("claudeOfficeProbe", () => {
   });
 });
 
+// Lets a probe that is not held land, so the reader stores its answer.
+const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+// The read's answer, or WAITED when it still waits for a probe after every
+// pending microtask has run.
+const WAITED = "waited for the probe" as const;
+function quick<T>(read: Promise<T>): Promise<T | typeof WAITED> {
+  return Promise.race([read, settled().then(() => WAITED)]);
+}
+
 describe("createOfficeUsageReader", () => {
-  it("reuses a reading for FRESH_MS and probes again after", async () => {
+  it("reuses a reading for FRESH_MS, then answers with it at once while one shared probe reads a new one", async () => {
     const h = harness([weekly(10), weekly(20)]);
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 10 });
     h.advance(FRESH_MS);
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 10 });
     expect(h.reads).toBe(1);
     h.advance(1);
+    h.hold(true);
+    expect(await quick(h.reader.read("claude"))).toEqual(
+      expect.objectContaining({
+        usedPercent: 10,
+      }),
+    );
+    expect(await quick(h.reader.read("claude"))).toEqual(
+      expect.objectContaining({
+        usedPercent: 10,
+      }),
+    );
+    expect(h.reads).toBe(2);
+    h.release();
+    await settled();
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 20 });
     expect(h.reads).toBe(2);
     // The warm process served both reads.
     expect(h.created).toBe(1);
+  });
+
+  it("answers with a reading under FALLBACK_MS old without waiting, and waits for an older one", async () => {
+    const h = harness([weekly(10), weekly(20), weekly(30)]);
+    await h.reader.read("claude");
+    h.advance(FALLBACK_MS - 1);
+    h.hold(true);
+    expect(await quick(h.reader.read("claude"))).toEqual(
+      expect.objectContaining({
+        usedPercent: 10,
+      }),
+    );
+    h.release();
+    await settled();
+    h.advance(FALLBACK_MS + 1);
+    const late = h.reader.read("claude");
+    expect(await quick(late)).toBe(WAITED);
+    h.release();
+    expect(await late).toMatchObject({ usedPercent: 30 });
   });
 
   it("shares one probe between concurrent callers", async () => {
@@ -244,110 +379,165 @@ describe("createOfficeUsageReader", () => {
     expect(h.reads).toBe(1);
   });
 
-  it("answers a failed probe with the last good reading, as observed, and probes again next time", async () => {
-    const h = harness([
-      weekly(10),
-      new Error("rpc died"),
-      { kind: "failed" },
-      weekly(40),
-    ]);
+  it("keeps a team-plan answer as no limit, like a good reading", async () => {
+    let usageCalls = 0;
+    const reader = createOfficeUsageReader({
+      officeTarget: () => ({ dir: "/office/claude", env: {} }),
+      now: () => NOW,
+      setTimer: () => () => {},
+      createProbe: (_provider, env) =>
+        claudeOfficeProbe(env, () => ({
+          async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET() {
+            usageCalls++;
+            return claudeRaw(null);
+          },
+          close() {},
+        })),
+    });
+    const noLimit = { kind: "no_limit", observedAtMs: NOW } as const;
+    expect(await reader.read("claude")).toEqual(noLimit);
+    expect(await reader.read("claude")).toEqual(noLimit);
+    expect(usageCalls).toBe(1);
+    reader.close();
+  });
+
+  it("does not probe again within FRESH_MS after a failed or signed-out read", async () => {
+    const answers = [{ kind: "failed" }, { kind: "signed_out" }] as const;
+    for (const answer of answers) {
+      const h = harness([answer, weekly(40)]);
+      expect(await h.reader.read("claude")).toEqual(answer);
+      h.advance(FRESH_MS - 1);
+      expect(await h.reader.read("claude")).toEqual(answer);
+      expect(h.reads).toBe(1);
+      // Older: the same answer at once, and a probe for the next read.
+      h.advance(2);
+      expect(await quick(h.reader.read("claude"))).toEqual(answer);
+      await settled();
+      expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 40 });
+      expect(h.reads).toBe(2);
+    }
+  });
+
+  it("answers a failed probe with the last good reading, as observed, for as long as it keeps the failed answer", async () => {
+    const h = harness([weekly(10), new Error("rpc died"), weekly(40)]);
     await h.reader.read("claude");
     h.advance(FRESH_MS + 1);
     const lastGood = { kind: "weekly", usedPercent: 10, observedAtMs: NOW };
     expect(await h.reader.read("claude")).toMatchObject(lastGood);
-    // The failed process is dropped and the next read probes a new one.
+    await settled();
+    // The failed process is dropped.
     expect(h.closed).toBe(1);
-    // The fallback is not cached and keeps its own age.
     expect(await h.reader.read("claude")).toMatchObject(lastGood);
-    expect(h.reads).toBe(3);
+    expect(h.reads).toBe(2);
+    h.advance(FRESH_MS + 1);
+    expect(await quick(h.reader.read("claude"))).toEqual(
+      expect.objectContaining(lastGood),
+    );
+    await settled();
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 40 });
-    expect(h.created).toBe(3);
+    // The next probe ran in a new process.
+    expect(h.created).toBe(2);
   });
 
   it("falls back only while the last good reading is under an hour old", async () => {
-    const h = harness([weekly(10), { kind: "failed" }, { kind: "failed" }]);
+    const h = harness([weekly(10), { kind: "failed" }]);
     await h.reader.read("claude");
     h.advance(FALLBACK_MS - 1);
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 10 });
+    await settled();
     h.advance(1);
     expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+    expect(h.reads).toBe(2);
   });
 
   it("does not fall back on a weekly reading whose reset has passed", async () => {
     const h = harness([
       { kind: "weekly", usedPercent: 70, resetsAtMs: NOW + 30 * 60_000 },
       { kind: "failed" },
-      { kind: "failed" },
     ]);
     await h.reader.read("claude");
     h.advance(30 * 60_000 - 1);
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 70 });
+    await settled();
     h.advance(1);
     expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+    expect(h.reads).toBe(2);
   });
 
   it("falls back on a no-limit reading", async () => {
     const h = harness([{ kind: "no_limit" }, { kind: "failed" }]);
     await h.reader.read("claude");
     h.advance(FRESH_MS + 1);
+    await h.reader.read("claude");
+    await settled();
     expect(await h.reader.read("claude")).toEqual({
       kind: "no_limit",
       observedAtMs: NOW,
     });
+    expect(h.reads).toBe(2);
   });
 
-  it("forgets the last good reading on invalidation, on a directory move, and from a probe an invalidation overtook", async () => {
-    const h = harness([
-      weekly(10),
-      { kind: "failed" },
-      weekly(20),
-      { kind: "failed" },
-      weekly(30),
-      { kind: "failed" },
-    ]);
-    await h.reader.read("claude");
-    h.reader.invalidate("claude");
-    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+  it("forgets the old and the last good reading on invalidation, on a directory move, and from a probe an invalidation overtook", async () => {
+    // Invalidation: no old answer to give at once, and none to fall back on.
+    const a = harness([weekly(10), { kind: "failed" }]);
+    await a.reader.read("claude");
+    a.advance(FRESH_MS + 1);
+    a.reader.invalidate("claude");
+    a.hold(true);
+    const afterInvalidate = a.reader.read("claude");
+    expect(await quick(afterInvalidate)).toBe(WAITED);
+    a.release();
+    expect(await afterInvalidate).toEqual({ kind: "failed" });
 
-    await h.reader.read("claude");
-    h.setDir("/office/other");
-    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+    const b = harness([weekly(20), { kind: "failed" }]);
+    await b.reader.read("claude");
+    b.setDir("/office/other");
+    expect(await b.reader.read("claude")).toEqual({ kind: "failed" });
 
     // weekly(30) lands after an invalidation: it is not kept, and the
     // caller's next probe fails with nothing to fall back on.
-    h.hold(true);
-    const pending = h.reader.read("claude");
+    const c = harness([weekly(30), { kind: "failed" }]);
+    c.hold(true);
+    const overtaken = c.reader.read("claude");
     await Promise.resolve();
-    h.reader.invalidate("claude");
-    h.hold(false);
-    h.release();
-    expect(await pending).toEqual({ kind: "failed" });
+    c.reader.invalidate("claude");
+    c.hold(false);
+    c.release();
+    expect(await overtaken).toEqual({ kind: "failed" });
   });
 
   it("rejects a reset in the past or more than a week and an hour away", async () => {
-    const h = harness([
-      { kind: "weekly", usedPercent: 5, resetsAtMs: NOW - 1 },
-      {
-        kind: "weekly",
-        usedPercent: 5,
-        resetsAtMs: NOW + WEEK_MS + 2 * 3600_000,
-      },
-      { kind: "weekly", usedPercent: 5, resetsAtMs: NOW + WEEK_MS },
-    ]);
-    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
-    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
-    expect(await h.reader.read("claude")).toMatchObject({ kind: "weekly" });
+    for (const { resetsAtMs, kind } of [
+      { resetsAtMs: NOW - 1, kind: "failed" },
+      { resetsAtMs: NOW + WEEK_MS + 2 * 3600_000, kind: "failed" },
+      { resetsAtMs: NOW + WEEK_MS, kind: "weekly" },
+    ] as const) {
+      const h = harness([{ kind: "weekly", usedPercent: 5, resetsAtMs }]);
+      expect({
+        resetsAtMs,
+        kind: (await h.reader.read("claude")).kind,
+      }).toEqual({ resetsAtMs, kind });
+    }
   });
 
-  it("probes again once a cached reading's reset has passed", async () => {
-    const h = harness([
-      { kind: "weekly", usedPercent: 70, resetsAtMs: NOW + 1000 },
-      weekly(1),
-    ]);
-    await h.reader.read("claude");
-    h.advance(1000);
-    expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 1 });
-    expect(h.reads).toBe(2);
+  it("waits for a probe once a kept reading's reset has passed", async () => {
+    for (const resetIn of [1000, 5 * 60_000]) {
+      const h = harness([
+        { kind: "weekly", usedPercent: 70, resetsAtMs: NOW + resetIn },
+        weekly(1),
+      ]);
+      await h.reader.read("claude");
+      h.advance(resetIn);
+      h.hold(true);
+      const pending = h.reader.read("claude");
+      expect({ resetIn, answer: await quick(pending) }).toEqual({
+        resetIn,
+        answer: WAITED,
+      });
+      h.release();
+      expect(await pending).toMatchObject({ usedPercent: 1 });
+      expect(h.reads).toBe(2);
+    }
   });
 
   it("treats a changed office env in the same directory as another account", async () => {
@@ -357,7 +547,7 @@ describe("createOfficeUsageReader", () => {
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 70 });
     expect(h.created).toBe(2);
     // And an env change during a read sends the caller round again.
-    h.advance(FRESH_MS + 1);
+    h.advance(FALLBACK_MS + 1);
     h.hold(true);
     const pending = h.reader.read("claude");
     await Promise.resolve();

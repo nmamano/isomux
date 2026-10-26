@@ -12,6 +12,7 @@ import {
   WEEK_MS,
   type OfficeUsageReader,
   type OfficeWeeklyOutcome,
+  type ProbeResult,
 } from "./office-usage.ts";
 import { english } from "./i18n.ts";
 import { msg, renderLogText } from "../shared/i18n/log-message.ts";
@@ -362,6 +363,42 @@ describe("createMemberUsageCap invalidation", () => {
     c.invalidate("claude");
     expect(await pending).toMatchObject({ kind: "refused" });
     expect(c.peek(OFFICE)).toMatchObject({ kind: "refused" });
+  });
+
+  it("does not make a turn start wait for a slow probe when it has a recent answer", async () => {
+    let now = NOW;
+    let probes = 0;
+    const c = createMemberUsageCap({
+      reader: createOfficeUsageReader({
+        officeTarget: () => ({ dir: "/office/claude", env: {} }),
+        // The first probe answers; every later one never does.
+        createProbe: () => ({
+          read: (): Promise<ProbeResult> =>
+            ++probes === 1
+              ? Promise.resolve({
+                  kind: "weekly",
+                  usedPercent: 90,
+                  resetsAtMs: NOW + WEEK_MS / 2,
+                })
+              : new Promise<never>(() => {}),
+          close() {},
+        }),
+        now: () => now,
+        setTimer: () => () => {},
+      }),
+      officeDir: () => "/office/claude",
+      load: () => true,
+      now: () => now,
+    });
+    expect(await c.admit(OFFICE)).toMatchObject({ kind: "refused" });
+    now += FRESH_MS + 1;
+    const admission = await Promise.race([
+      c.admit(OFFICE),
+      new Promise((resolve) => setTimeout(() => resolve("waited"), 0)),
+    ]);
+    expect(admission).toEqual(expect.objectContaining({ kind: "refused" }));
+    // The newer reading is being read.
+    expect(probes).toBe(2);
   });
 });
 
