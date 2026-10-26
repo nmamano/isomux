@@ -94,6 +94,7 @@ const NAV_ORDER = [
   "how-it-works",
   "access-and-invites",
   "llm-providers",
+  "browser-use",
   "security-audit",
   "data-retention",
 ];
@@ -308,13 +309,14 @@ export const ACCESS_LEGACY_LINKS: Record<string, string> = {
 // agent Markdown lists them.
 // Sections that moved off the hosting reference (task d6552c37).
 export const HOSTING_REFERENCE_LEGACY_LINKS: Record<string, string> = {
-  "desktop-chrome-extension": "/docs#desktop-chrome-extension",
+  "desktop-chrome-extension": "/docs/browser-use",
   "provider-api-keys": "/docs/llm-providers#use-your-own-provider-account",
 };
 
-// Sections that moved off the features page (task 30666e83).
+// Sections that moved off the features page (tasks 30666e83, da5f61ff).
 export const FEATURES_LEGACY_LINKS: Record<string, string> = {
   "several-agents-on-one-project": "/docs/use-cases-one-project",
+  "desktop-chrome-extension": "/docs/browser-use",
 };
 
 export const LEGACY_LINKS: Record<string, Record<string, string>> = {

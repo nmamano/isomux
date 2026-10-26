@@ -143,7 +143,7 @@ describe("complete hosting guides", () => {
   // removing one strands a reader. Adding one needs no edit here.
   it("retains the old public fragment contract", () => {
     const fragments: Record<string, string[]> = {
-      features: ["several-agents-on-one-project"],
+      features: ["several-agents-on-one-project", "desktop-chrome-extension"],
       hosting: [
         "self-hosted-setup",
         "vps-install",

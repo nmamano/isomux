@@ -36,6 +36,7 @@
 - [Hosting and setup](https://isomux.com/docs/hosting): Selector and complete guides for Hosted Isomux, Render, AWS, Kubernetes (EKS), VPS, local, and own-hardware setups
 - [Access and invites](https://isomux.com/docs/access-and-invites): Roles, first-owner claim, invites, devices, sessions, external access, and owner recovery
 - [LLM provider connections](https://isomux.com/docs/llm-providers): Provider accounts, connection variables, and Claude on Amazon Bedrock
+- [Browser use](https://isomux.com/docs/browser-use): Install and pair the Chrome extension, offer a tab to agents, and unpair a browser
 - [Security audit](https://isomux.com/docs/security-audit): Security model, findings, and access internals
 - [Data retention and deletion](https://isomux.com/docs/data-retention): What each delete keeps, where copies of office data are, and how to erase all of it
 

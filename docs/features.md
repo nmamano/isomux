@@ -1,4 +1,5 @@
 ---
+# Editors: one line per feature, what a member can do or gains. Never steps, mechanics or edge cases: they go on the area's docs page, in the agent reference or in the UI (internal-docs/documentation.md, section 4).
 description: Every Isomux feature. Isomux runs Claude Code, Codex and OpenCode agents side by side, with agent messaging, a task board, human collaboration and a mobile UI.
 navTitle: Full feature list
 ---
@@ -20,17 +21,17 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Discovery** via a shared office manifest - every agent can look up who else is in the office (name, room, desk, cwd, model, topic), scoped to the rooms its manager can see.
 - **Cross-conversation reads** - an agent can read the live conversation of any agent in the rooms its manager can see. Ask "what does Isomuxer3 think of this?"
 - **Searchable conversation history** - agents can search and re-read past conversations (their own or other agents') through the office API.
-- **Shared memory** - agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's instructions. When a level's notes near their size cap, the agent flags it at the start of its next conversation and can help trim them.
+- **Shared memory** - agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's instructions.
 - **Agent-to-agent messages** - agents can message other agents directly, choosing between steering and queueing, and can stop another agent's turn. An agent trusts messages from agents with the same manager, and each message says whether its sender has the same manager.
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
-- **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
+- **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API. Task details show who changed each field and its old and new values.
 - **GitHub issues on the board** - an office owner links a GitHub repo to a room. Open issues with the chosen labels become tasks in that room, and closing or reopening an issue on GitHub updates its task. Agents read the issue text as outside data.
 - **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set office, room and agent instructions, manage schedules, post in members chat, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
 
 ### Prompts, skills, and commands
 
-- **Hierarchical system prompts** - office-wide, per-room, and per-agent instructions compose into one assembled system prompt for every agent, all editable from the UI. The Spawn and Edit agent menus keep instructions and memory together; Show full system prompt previews unsaved settings without saving them.
+- **Hierarchical system prompts** - office-wide, per-room, and per-agent instructions compose into one assembled system prompt for every agent, all editable from the UI.
 - **Custom instructions per agent**, editable at spawn and later.
 - **Agent-collaboration skills**: `/pair-programming`, `/peer-review`, `/soft-handoff`, `/second-opinion`, `/subagent-review`.
 - **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/loose-ends` (recap what is in flight and what needs you, without ending the session), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out`, `/isomux-report-bug`.
@@ -44,8 +45,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room display** - each member picks which of their accessible rooms actually show in their own view.
 - **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, and walk through the door when they change rooms. Click a ghost to open that member's settings.
 - **Members chat** - a humans-only, office-wide chat in the lobby.
-- **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office. The first owner manages it; it is an ordinary agent with that owner's access.
-- **Agent managers** - an office owner can give an agent another manager in its settings. When a member is removed, their agents pass to the oldest office owner.
+- **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
+- **Agent managers** - an office owner can give an agent another manager in its settings.
 - **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
 - **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
@@ -96,7 +97,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Office language** - each person picks a language, like Spanish or Chinese, under Settings → You → Language and the whole office reads in it.
 - **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost), or via OpenAI. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API, or via OpenAI voices.
-- **Voice settings** in Integrations > Voice: each member picks the browser or OpenAI for the mic and for read aloud. OpenAI uses the `OPENAI_VOICE_API_KEY` variable and gives better accuracy and voices, and a mic in Firefox.
+- **Voice settings** in Integrations > Voice: each member picks the browser or OpenAI for the mic and for read aloud. OpenAI gives better accuracy and voices, and a mic in Firefox.
 - **Context check** - agents and humans (`/context`) can see how full a context window is, and a battery meter in the header drains as it fills.
 - **Automatic handoff** - when an agent's context gets full, it writes a brief and continues in a fresh session. On by default; turn it off in the Edit agent menu.
 - **Plan usage at a glance** - for subscriptions, a ring next to the context meter shows how much of the plan allowance the agent's account has burned. Hovering (or tapping) it lists every limit that can gate the agent, with when each resets and how old the reading is.
@@ -115,35 +116,17 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
-- **Skills page** - shared skills appear once in All agents; engine tabs show the differences. The read-only Commands tab lists office commands and their aliases with the same descriptions as /help. Open a preview or the full SKILL.md, edit user and project skills, or create new ones for all agents. Saves require valid YAML front matter with a name and description. Broken files stay listed for repair; legacy command files keep their existing format. Delete user or project skills after confirmation: the whole skill folder is removed. Legacy commands delete one file. Linked targets remain.
+- **Skills page** - shared skills appear once in All agents; engine tabs show the differences. The read-only Commands tab lists office commands and their aliases with the same descriptions as /help. Open a preview or the full SKILL.md, edit or delete user and project skills, or create new ones for all agents.
 
 ## Developer tools
 
-- **Embedded terminal** for direct shell access per agent. Copy/paste works with the usual shortcuts: Cmd+C/V on Mac; on Windows and Linux, Ctrl+V pastes and Ctrl+C copies when text is selected (and interrupts, as usual, when nothing is selected). Selecting text also surfaces a "Send to chat" button that drops the selection into the chat input as a code block, ready to discuss with the agent. Agents can read the output of the terminals in their rooms.
+- **Embedded terminal** for direct shell access per agent. Copy/paste works with the usual shortcuts. Selecting text also surfaces a "Send to chat" button that drops the selection into the chat input as a code block, ready to discuss with the agent. Agents can read the output of the terminals in their rooms.
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards, or open the file for you). Selecting text surfaces a "Cite" button that drops the selection into the chat input with its file path and lines.
 - `/isomux-diff` - rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
-- **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](hosting-vps.md) sets up for you (runs headless, so no display is needed); everything else works without one.
-- **Agents use your browser** - they open pages, click, and fill forms in a Chrome tab you share with them. See [Desktop Chrome extension](#desktop-chrome-extension).
+- **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser.
+- **Agents use your browser** - they open pages, click, and fill forms in a Chrome tab you share with them. See [Browser use](browser-use.md).
 - `/isomux-usage` - token spend per agent and per room, for the rooms you can see. Owners also see each schedule. Also in Settings → Housekeeping → Usage.
 - `/isomux-storage` - disk usage by category; owners also see the biggest agents.
-
-### Desktop Chrome extension
-
-In **Integrations → Browser Use**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
-
-Create a pairing code in Integrations → Browser Use. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browsers: one code per computer, and every paired browser stays paired. Name each browser when you create its code; Integrations → Browser Use lists them, and Unpair removes one. Agents use their manager's browsers. Another chat speaker does not change the browser owner.
-
-Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
-
-Open an HTTP(S) tab, choose **All** (the default) or an agent in the extension popup, and turn on **Agent control**. The agent can read the page immediately and navigate that same tab. An individual agent can have one exclusive offered tab across all paired browsers. Any number of tabs can be offered to All eligible agents managed by the paired member. An individual offer takes precedence; with several All tabs, agents use `tabs` and an explicit `target` to choose. Actions on each grant run one at a time, including timeout recovery. Before offering it, choose when control expires: **Never** (the default), **15 minutes**, **1 hour** or **4 hours**. Timed control starts when the offer succeeds; the popup shows its local expiry time. Agent actions do not extend the deadline. Turn control off before changing its expiry or assigning the tab to another agent.
-
-Agents can attach one office-server file to an exact file input with the browser `upload` action. The file must be a regular file up to 4 MiB; sensitive files are refused. The office sends the bytes to Chrome, so the path refers to the server, not the desktop. Upload replaces the input’s selection. Sites may upload as soon as a file is selected; the action does not press Submit or Publish.
-
-The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup separates the Office connection from Agent control and names All or the assigned agent. Stopping control leaves pages open. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. To revoke a browser that is offline, unpair it in Integrations → Browser Use. If an unpair acknowledgement is lost, the popup reports an unknown result; check Integrations → Browser Use. Pairing a Chrome again adds a new browser; unpair its old, offline entry in Integrations → Browser Use.
-
-Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. Chrome mode never creates a replacement tab or repeats a command. Check the page before repeating an action with an unknown outcome. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
-
-Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. The server refuses an extension with an older protocol, so update the server and the extension together. Reloading releases offers, so offer tabs again. Saved pairing remains, but a terminal version refusal can require pairing again. No Web Store installation is available.
 
 ## Automations
 
@@ -153,7 +136,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any schedule, independent of its timing.
 - **Agents can make schedules** too, in Bypass mode (Never ask for Codex).
-- **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Automations page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet.
+- **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. GitHub must reach the office from the internet.
 - **Agent alerts** - a schedule can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
 
@@ -164,9 +147,9 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Chat beside an app** - Chat with the agent who created the app from a widget in the app itself.
-- **Install as app** - put an app on a phone's Home Screen or a computer's app list, as its own app with its own name. On Chrome and Edge it takes one click; on iPhone the app's page shows the two steps.
+- **Install as app** - put an app on a phone's Home Screen or a computer's app list, as its own app with its own name.
 - **Apps can do what the agent that built them can**, so an app can report an event or hand out work to other agents.
-- **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
+- **Deleting an app keeps its data** on the office's disk. Nothing is erased automatically.
 
 ## Inbox
 
@@ -182,9 +165,9 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 - **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, recognized process-kill commands, reading secret-bearing files like `.env`, reading another process's environment, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
 - **Secret leak prevention** - Isomux masks recognized secret patterns before they reach the logs or the chat.
-- **Managed environment variables** - keep API tokens and other secrets out of prompts: set office-wide and personal variables on the Integrations page, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Values are not embedded in prompts or conversation logs.
+- **Managed environment variables** - keep API tokens and other secrets out of prompts: set office-wide and personal variables on the Integrations page. Personal values override office-wide values. Values are not embedded in prompts or conversation logs.
 - **Secrets** - save a credential with the hosts that may receive it. Agents get a stand-in, not the value. An agent that reads the office's files on purpose can still find the value. Show reveals a value to its own member, and an office value to an owner.
-- **Integrations page** - everything your agents can use. Each tab shows the office-wide items and your own, except Browser Use, Pager and API tokens, which are only yours, and the MCP tab lists the claude.ai connectors of your Claude sign-in. Owners manage every member's items there. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.
+- **Integrations page** - everything your agents can use. The MCP tab also lists the claude.ai connectors of your Claude sign-in. Owners manage every member's items there. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.
 - **Remote MCP servers** - register a remote MCP server once, for the office or for your own agents, and Claude, Codex and OpenCode agents all get it. For a server that needs a sign-in (OAuth), you sign in once in the browser and Isomux keeps the access current.
 - **Codex approvals** - when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - **Personal API tokens** - drive the office from an external tool and receive the token’s sends and replies through the office WebSocket.
@@ -200,5 +183,5 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Office audit log:** Filter logs by actor, target, operation, or time. The log keeps task history and snapshots of memory and instructions. Owners can restore deleted tasks from their audit rows.
 - **Terminal recording:** With **Record terminals** on in Settings → Housekeeping → Audit log, owners can replay each terminal session from its audit row: what the terminal showed and who typed when. Keystrokes are never saved. Off by default, and a recorded terminal tells everyone who opens it.
 - **Local backups:** Isomux keeps seven daily office backups by default. Owners set how often, how many and the folder in Settings → Housekeeping → Storage.
-- **Disk-usage breakdown and manual pruning** - `/isomux-storage` in any conversation, or `GET /api/storage/usage`, splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. Office owners also get Settings → Housekeeping → Storage to see a breakdown of isomux disk storage and manage it, and to compress old transcripts without losing anything. `POST /api/storage/prune` removes old transcripts, API token logs and terminal recordings, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each live agent's newest sessions, and any session another was branched from. [Data retention and deletion](data-retention.md) says what each delete keeps.
-- **Update notice** - the header shows when a new release is out. On installer-managed hosts and AWS containers the owner applies it from there, and a failed direct-host update rolls back. On Render and Kubernetes the owner deploys the new image. A source checkout shows how far main is ahead.
+- **Disk-usage breakdown and manual pruning** - `/isomux-storage` in any conversation splits the office footprint by category, with per-agent detail for the owner. Office owners also get Settings → Housekeeping → Storage to compress old transcripts without losing anything and to prune old data. [Data retention and deletion](data-retention.md) says what each delete keeps.
+- **Update notice** - the header shows when a new release is out. On installer-managed hosts and AWS containers, the owner applies it from there.

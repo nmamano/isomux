@@ -210,7 +210,7 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
   "app-hostnames": "/docs/hosting-reference#app-hostnames",
   "opening-an-agents-dev-server": `${hostingUrl("vps")}#opening-an-agents-dev-server`,
   notes: `${hostingUrl("vps")}#installer-notes`,
-  "desktop-chrome-extension": "/docs#desktop-chrome-extension",
+  "desktop-chrome-extension": "/docs/browser-use",
   "your-own-hardware": hostingUrl("private"),
   "native-build-recovery": hostingUrl("local"),
   "keep-the-server-running": `${hostingUrl("private")}#keep-the-office-running`,
