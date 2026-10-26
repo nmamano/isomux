@@ -164,7 +164,6 @@ A token cannot:
 - change other member record fields or room access,
 - change other office settings,
 - make an agent privileged,
-- give an agent another manager,
 - read a webhook secret after the answer to its create, or rotate one,
 - open a terminal panel.
 
