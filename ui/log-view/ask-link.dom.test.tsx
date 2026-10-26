@@ -294,3 +294,256 @@ it("puts the count of open asks on the desk's nameplate, and nothing at zero", (
   expect(none.container.querySelector("[data-ask-dot]")).toBe(null);
   none.unmount();
 });
+
+// An answered ask can be read in full: the one-line link expands to the whole
+// prompt and its options, and folds again.
+const { askRefOf } = await import("./ask-link.tsx");
+const { act } = await import("@testing-library/react");
+
+function answerTo(id: string, ask: Record<string, unknown>): LogEntry {
+  return {
+    id,
+    agentId: "a1",
+    timestamp: 10,
+    kind: "user_message",
+    content: "yes",
+    metadata: { username: "Tester", ask },
+  };
+}
+
+// happy-dom has no layout: the one-line prompt is cut when its text is
+// wider than the line.
+function withWidths<T>(run: () => T, lineWidth: () => number = () => 300): T {
+  const proto = HTMLElement.prototype;
+  const scroll = Object.getOwnPropertyDescriptor(proto, "scrollWidth");
+  const client = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+  Object.defineProperty(proto, "scrollWidth", {
+    configurable: true,
+    get() {
+      return (this.textContent?.length ?? 0) * 7;
+    },
+  });
+  Object.defineProperty(proto, "clientWidth", {
+    configurable: true,
+    get: lineWidth,
+  });
+  try {
+    return run();
+  } finally {
+    if (scroll) Object.defineProperty(proto, "scrollWidth", scroll);
+    else Reflect.deleteProperty(proto, "scrollWidth");
+    if (client) Object.defineProperty(proto, "clientWidth", client);
+    else Reflect.deleteProperty(proto, "clientWidth");
+  }
+}
+
+const SECOND_LINE = "The tag is cut; the notes are not.";
+
+it("expands an answered ask to its whole prompt and options, and a second click folds it", () => {
+  const scrolled: string[] = [];
+  const proto = HTMLElement.prototype as unknown as {
+    scrollIntoView: (this: HTMLElement) => void;
+  };
+  const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
+  proto.scrollIntoView = function () {
+    scrolled.push(this.dataset.logEntryId ?? "");
+  };
+  try {
+    const entries = [
+      ...logs(true),
+      answerTo("long", {
+        id: "abcd1234",
+        prompt: `Ship the **release** tonight?\n${SECOND_LINE}`,
+        options: ["Tonight", "Tomorrow", "Hold"],
+        recommended: "Tomorrow",
+      }),
+    ];
+    const view = render(onLanguage("en", <Transcript entries={entries} />));
+    const line = view.container.querySelector<HTMLElement>(
+      '[data-log-entry-id="long"] [data-ask-link="abcd1234"]',
+    )!;
+    const toggle = () =>
+      line.querySelector<HTMLElement>("[data-ask-link-toggle]")!;
+    const full = () => line.querySelector<HTMLElement>("[data-ask-link-full]");
+    const options = () => [
+      ...line.querySelectorAll<HTMLElement>("[data-ask-link-option]"),
+    ];
+    // Collapsed: the toggle is named by the one-line prompt.
+    expect(toggle().tagName).toBe("BUTTON");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(toggle().getAttribute("aria-label")).toBe(null);
+    expect(toggle().textContent).toContain(SECOND_LINE);
+    expect(full()).toBe(null);
+    expect(options()).toEqual([]);
+
+    // The jump keeps its own click and does not expand.
+    const jump = [...line.querySelectorAll("button")].find(
+      (b) => !b.hasAttribute("data-ask-link-toggle"),
+    )!;
+    fireEvent.click(jump);
+    expect(scrolled).toEqual(["call"]);
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(full()).toBe(null);
+
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    const shown = full()!;
+    // The whole prompt as the open card draws it: markdown, line breaks kept,
+    // outside the toggle, and the line shows it once.
+    expect(shown.textContent).toContain(`tonight?\n${SECOND_LINE}`);
+    expect(shown.querySelector("strong")?.textContent).toBe("release");
+    expect(toggle().contains(shown)).toBe(false);
+    expect(line.textContent.split(SECOND_LINE).length - 1).toBe(1);
+    expect(toggle().getAttribute("aria-label")).toBeTruthy();
+    // The options in order, the recommended one marked; none is a control.
+    const recommended = en.t("asks.recommended");
+    expect(options().map((o) => o.textContent?.split(" ")[0])).toEqual([
+      "Tonight",
+      "Tomorrow",
+      "Hold",
+    ]);
+    const marked = [
+      ...line.querySelectorAll<HTMLElement>(
+        "[data-ask-link-option-recommended]",
+      ),
+    ];
+    expect(marked.map((o) => o.textContent?.split(" ")[0])).toEqual([
+      "Tomorrow",
+    ]);
+    expect(options().map((o) => o.textContent?.includes(recommended))).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    expect(line.querySelectorAll("button").length).toBe(2);
+
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(full()).toBe(null);
+    expect(options()).toEqual([]);
+    expect(toggle().textContent).toContain(SECOND_LINE);
+    view.unmount();
+  } finally {
+    if (before) Object.defineProperty(proto, "scrollIntoView", before);
+    else delete (proto as { scrollIntoView?: unknown }).scrollIntoView;
+  }
+});
+
+it("expands a one-line prompt only when the line cuts it", () => {
+  withWidths(() => {
+    const cut =
+      "Move the nightly backup to the second disk and drop the copies older than a month?";
+    const entries = [
+      answerTo("short", { id: "abcd1234", prompt: "Go?" }),
+      answerTo("cut", { id: "abcd1235", prompt: cut }),
+    ];
+    const view = render(onLanguage("en", <Transcript entries={entries} />));
+    const line = (id: string) =>
+      view.container.querySelector<HTMLElement>(
+        `[data-log-entry-id="${id}"] [data-ask-link]`,
+      )!;
+    // Fits on the line: plain text, nothing to expand.
+    expect(line("short").textContent).toContain("Go?");
+    expect(line("short").querySelector("[data-ask-link-toggle]")).toBe(null);
+    expect(line("short").querySelector("button")).toBe(null);
+
+    const toggle = line("cut").querySelector<HTMLElement>(
+      "[data-ask-link-toggle]",
+    )!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(
+      line("cut").querySelector("[data-ask-link-full]")?.textContent,
+    ).toContain(cut);
+    expect(line("cut").querySelector("[data-ask-link-option]")).toBe(null);
+    view.unmount();
+  });
+});
+
+it("reads an answer's options from its metadata, and drops malformed ones but keeps the ask", () => {
+  const ref = (ask: Record<string, unknown>) =>
+    askRefOf(answerTo("x", { id: "abcd1234", prompt: "Go?", ...ask }));
+  const good = ref({ options: ["Yes", "No"], recommended: "No" });
+  expect([good?.options, good?.recommended]).toEqual([["Yes", "No"], "No"]);
+  for (const options of ["Yes", [], ["Yes", 2], null, { 0: "Yes" }]) {
+    const r = ref({ options });
+    expect(`${JSON.stringify(options)} ${r?.id} ${r?.prompt}`).toBe(
+      `${JSON.stringify(options)} abcd1234 Go?`,
+    );
+    expect(r?.options).toBe(undefined);
+  }
+  const badMark = ref({ options: ["Yes", "No"], recommended: 1 });
+  expect([badMark?.options, badMark?.recommended]).toEqual([
+    ["Yes", "No"],
+    undefined,
+  ]);
+  // An answer from before options were stored has neither.
+  const old = ref({});
+  expect([old?.options, old?.recommended]).toEqual([undefined, undefined]);
+});
+
+it("measures the line again when its width changes", () => {
+  // Only an element still in the document gets resize events, as in a browser.
+  const OriginalObserver = globalThis.ResizeObserver;
+  const observed = new Map<Element, () => void>();
+  globalThis.ResizeObserver = class {
+    constructor(private callback: () => void) {}
+    observe(element: Element) {
+      observed.set(element, this.callback);
+    }
+    unobserve(element: Element) {
+      observed.delete(element);
+    }
+    disconnect() {
+      for (const [element, callback] of observed)
+        if (callback === this.callback) observed.delete(element);
+    }
+  } as unknown as typeof ResizeObserver;
+  let width = 1000;
+  const resize = (to: number) => {
+    width = to;
+    act(() => {
+      for (const [element, callback] of observed)
+        if (element.isConnected) callback();
+    });
+  };
+  try {
+    withWidths(
+      () => {
+        const prompt =
+          "Move the nightly backup to the second disk and drop the copies older than a month?";
+        const view = render(
+          onLanguage(
+            "en",
+            <Transcript
+              entries={[answerTo("resized", { id: "abcd1234", prompt })]}
+            />,
+          ),
+        );
+        const toggle = () =>
+          view.container.querySelector<HTMLElement>("[data-ask-link-toggle]");
+        // Wide enough at first: plain text.
+        expect(toggle()).toBe(null);
+        // A narrower chat (a side panel opens, a phone turns) cuts it.
+        resize(300);
+        expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+        // Open and fold, then widen: the folded line is measured again.
+        fireEvent.click(toggle()!);
+        expect(
+          view.container.querySelector("[data-ask-link-full]")?.textContent,
+        ).toContain(prompt);
+        fireEvent.click(toggle()!);
+        expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+        resize(1000);
+        expect(toggle()).toBe(null);
+        expect(
+          view.container.querySelector("[data-ask-link]")?.textContent,
+        ).toContain(prompt);
+        view.unmount();
+      },
+      () => width,
+    );
+  } finally {
+    globalThis.ResizeObserver = OriginalObserver;
+  }
+});

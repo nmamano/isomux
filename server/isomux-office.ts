@@ -7058,6 +7058,11 @@ function deliverAskAnswer(
     ...(opts.dismissed ? { dismissed: true } : {}),
     ...(opts.taskId ? { taskId: opts.taskId } : {}),
     ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+    // The chat shows the answered ask in full (ui/log-view/ask-link.tsx).
+    ...(entry.options ? { options: entry.options } : {}),
+    ...(entry.recommended !== undefined
+      ? { recommended: entry.recommended }
+      : {}),
   };
   const send = (device: string | undefined) =>
     sendMemberMessage(entry.agentId, text, username, device, undefined, {

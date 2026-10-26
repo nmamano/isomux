@@ -1399,6 +1399,10 @@ export interface AskRef {
   // The task the member filed the ask as, instead of an answer.
   taskId?: string;
   sessionId?: string;
+  // The ask's options and the one the agent recommended, when it had them,
+  // so the chat can show the answered ask in full.
+  options?: string[];
+  recommended?: string;
 }
 
 export function generateAskId(existing?: string[]): string {

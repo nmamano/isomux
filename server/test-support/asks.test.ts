@@ -829,6 +829,61 @@ describe("the member's answer", () => {
     expect(after.status).toBe(404);
   });
 
+  it("keeps the ask's options and recommended one on the answer, so the chat can show them", async () => {
+    const w = await world();
+    const r = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/asks?option=Tonight&option=Tomorrow&recommended=Tomorrow`,
+      w.as(w.asker.id),
+      { text: "Ship the release?\n" },
+    );
+    expect(r.status).toBe(201);
+    const created = r.body as AskEntry;
+    // Hold the agent, so the answer waits in the queue first.
+    const hold = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/messages`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: { text: "hold on" } },
+    );
+    expect(hold.status).toBe(200);
+    await waitUntil(
+      () => w.srv.fakeBackend.sessionForAgent(w.asker.id) !== undefined,
+      "session",
+    );
+    const reply = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${created.id}/reply`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: { text: "Tomorrow" } },
+    );
+    expect(reply.status).toBe(204);
+    const ask = {
+      id: created.id,
+      prompt: "Ship the release?",
+      options: ["Tonight", "Tomorrow"],
+      recommended: "Tomorrow",
+    };
+    const queued = agentOf(w.srv, w.asker.id).queue ?? [];
+    expect(queued.map((m) => m.ask)).toEqual([ask]);
+
+    w.srv.fakeBackend.sessionForAgent(w.asker.id)!.completeTurn({ text: "ok" });
+    await waitUntil(
+      () =>
+        w.srv.agentManager
+          .getAgentLogs(w.asker.id)
+          .some((e) => e.kind === "user_message" && e.content === "Tomorrow"),
+      "answer delivered",
+    );
+    const entry = w.srv.agentManager
+      .getAgentLogs(w.asker.id)
+      .find((e) => e.kind === "user_message" && e.content === "Tomorrow")!;
+    expect(entry.metadata?.ask).toEqual(ask);
+  });
+
   it("sends the text the member typed with a dismiss, still marked as dismissed", async () => {
     const w = await world();
     const created = await open(w, "Book the room?");
