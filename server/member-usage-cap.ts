@@ -153,7 +153,8 @@ export interface MemberUsageCap {
   // waiting for a provider; null when there is none. For callers that cannot
   // await (the queue's early refusal); turn start always calls `admit`.
   peek(billing: BillingAccount): Admission | null;
-  status(): Promise<OfficeUsageStatusWire[]>;
+  // Every provider's line, or only `provider`'s.
+  status(provider?: ProviderAccountProvider): Promise<OfficeUsageStatusWire[]>;
   invalidate(provider: ProviderAccountProvider): void;
   close(): void;
 }
@@ -264,8 +265,10 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
         return null;
       return last.admission;
     },
-    async status() {
-      const providers: ProviderAccountProvider[] = ["claude", "codex"];
+    async status(provider) {
+      const providers: ProviderAccountProvider[] = provider
+        ? [provider]
+        : ["claude", "codex"];
       const rows = await Promise.all(
         providers.map(
           async (provider): Promise<OfficeUsageStatusWire | null> => {

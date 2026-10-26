@@ -524,11 +524,26 @@ describe("office settings for agents and API tokens", () => {
     it("is checked live: after its manager loses the owner role, the next GET and PUT get 403", async () => {
       const o = await office();
       expect(await change(o.srv, o.ownerAgent, { name: "Before" })).toBe(204);
+      // The usage status is the same owner's reach. Off, the cap reads no
+      // provider (an earlier test in this file may have left it on).
+      memberUsageCap().setEnabled(false);
+      expect(
+        await call(o.srv, "GET", "/api/office/member-usage-status", {
+          bearer: o.ownerAgent,
+        }),
+      ).toEqual({ status: 200, body: { memberUsageStatus: [] } });
       const { version } = await read(o.srv, o.ownerAgent);
       expect(setUserRoleById(o.morganId, "member")).toBe(true);
       expect(
         (
           await call(o.srv, "GET", "/api/office/settings", {
+            bearer: o.ownerAgent,
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await call(o.srv, "GET", "/api/office/member-usage-status", {
             bearer: o.ownerAgent,
           })
         ).status,
@@ -604,7 +619,7 @@ describe("office settings for agents and API tokens", () => {
   });
 
   describe("every other caller keeps the owner-only rule", () => {
-    it("refuses a member's privileged agent, an owner's ordinary agent, a member's API token and a member on GET and PUT", async () => {
+    it("refuses a member's privileged agent, an owner's ordinary agent, a member's API token and a member on GET and PUT, and on the usage status", async () => {
       const o = await office();
       const { version } = await read(o.srv, o.ownerAgent);
       const { token: memberApi } = await mintApiToken({
@@ -623,7 +638,18 @@ describe("office settings for agents and API tokens", () => {
           ...auth,
           body: { name: "X", version },
         });
-        expect([who, get.status, put.status]).toEqual([who, 403, 403]);
+        const status = await call(
+          o.srv,
+          "GET",
+          "/api/office/member-usage-status",
+          auth,
+        );
+        expect([who, get.status, put.status, status.status]).toEqual([
+          who,
+          403,
+          403,
+          403,
+        ]);
       }
       expect(o.srv.agentManager.getOfficeSettings().name).toBeNull();
     });

@@ -299,9 +299,12 @@ the GET carries it.
 - Switch label: **Pace member usage**
 - Hint: **Members' turns on the office sign-in stop at a line that rises each day of the week, up to the member share.**
 - Select under the switch, shown while it is on: **Member share of the weekly limit**, options **10%** to **100%**.
-- Status, one line per provider with an office sign-in, from a read-only
-  field on `GET /api/office/settings` (owner-only like the route), read only
-  while the switch is on. Three states:
+- Status, one line per provider with an office sign-in, from
+  `GET /api/office/member-usage-status` (owner-only like the settings routes;
+  task d13eacc4), read only while the switch is on. The settings read does not
+  wait on it: the card reads each provider with `?provider=` and shows
+  **{Provider}: reading weekly usage…** in its line until that answer comes.
+  Three states:
   - **{Provider}: {used}% used; members stop at {line}% today.** (`linePercent`
     on the wire; the UI prints it to one decimal, so a line of 11.4% does not
     read as 11% while 11% of use still runs.)
@@ -321,7 +324,8 @@ no public doc; owners find it in Settings → Office-wide connections.
    transitive version adds persisted state to every queue and scheduled item
    for a gap that needs deliberate effort to use.
 3. 429 `usage_cap` with `retryAtMs`, and the owner-only status field on
-   `GET /api/office/settings`: yes.
+   `GET /api/office/settings`: yes. (Since task d13eacc4 the status has its
+   own route, `GET /api/office/member-usage-status`.)
 4. Refused queued items are drained with one error entry.
 5. A member's own credential variable on the office directory counts as
    office-billed.

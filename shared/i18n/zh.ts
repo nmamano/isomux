@@ -505,6 +505,7 @@ App 的一些原则：
     "{provider}：办公室通用登录没有每周限额。成员不受限制。",
   "settings.office.memberUsageFailed":
     "{provider}：无法读取每周用量。成员不受限制。",
+  "settings.office.memberUsageLoading": "{provider}：正在读取每周用量…",
   "settings.room.title": "{room} · 设置",
   "settings.room.intro": "墙上的通风口、s 键和双击房间标签页都可打开此页面。",
   "settings.room.namePlaceholder": "房间名称",
@@ -1540,6 +1541,7 @@ App 的一些原则：
   "apiCall.users.readMemberPrompt": "读取成员特别指令",
   "apiCall.users.updatePrompt": "编辑成员特别指令",
   "apiCall.office.readSettings": "读取办公室设置",
+  "apiCall.office.readMemberUsageStatus": "读取成员用量状态",
   "apiCall.office.saveSettings": "更改办公室设置",
   "apiCall.office.readInstructions": "读取办公室指令",
   "apiCall.office.saveInstructions": "更改办公室指令",

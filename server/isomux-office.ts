@@ -5217,24 +5217,19 @@ function buildExecutorDeps(
   // agentManager.validateCwd directly; validate.env/backends share the cores.
   register(
     officeSettingsHandlers({
-      getSettings: async () => {
-        // The editable fields and their version are read together, before
-        // the status read awaits a provider.
-        const settings = {
-          name: agentManager.getOfficeSettings().name,
-          version: officeSettingsVersion(),
-          memberUsageCap: memberUsageCap().isEnabled(),
-          memberUsageShare: memberUsageCap().share(),
-          recordTerminals: loadRecordTerminals(),
-        };
-        // Status reads the providers, so only while the cap is on.
-        return {
-          ...settings,
-          memberUsageStatus: settings.memberUsageCap
-            ? await memberUsageCap().status()
-            : [],
-        };
-      },
+      getSettings: () => ({
+        name: agentManager.getOfficeSettings().name,
+        version: officeSettingsVersion(),
+        memberUsageCap: memberUsageCap().isEnabled(),
+        memberUsageShare: memberUsageCap().share(),
+        recordTerminals: loadRecordTerminals(),
+      }),
+      // Status reads the providers, so only while the cap is on.
+      getMemberUsageStatus: async (provider) => ({
+        memberUsageStatus: memberUsageCap().isEnabled()
+          ? await memberUsageCap().status(provider)
+          : [],
+      }),
       applySettings: (input, ctx) =>
         applyOfficeSettings(
           input,

@@ -1,6 +1,7 @@
 // Office-settings resource handlers. The office-wide
 // settings and instructions on the unified REST surface (opIds
-// office.{getSettings,setSettings,readInstructions,setInstructions}). The route table gates both with
+// office.{getSettings,setSettings,getMemberUsageStatus,readInstructions,
+// setInstructions}). The route table gates all of them with
 // office:settings + officeSettingsOwner: an owner, or a privileged agent whose
 // manager is an office owner.
 //
@@ -15,8 +16,9 @@
 // office.{read,set}Instructions read and write the prompt alone, with a
 // version over the text only. The settings routes do not carry it.
 //
-// office.getSettings returns the display name, the member usage cap switch,
-// the member share and the cap's status lines.
+// office.getSettings returns the display name, the member usage cap switch
+// and the member share. office.getMemberUsageStatus returns the cap's status
+// lines, which read the providers.
 // The legacy envFile field remains persistence-only until
 // the boot migration clears it.
 //
@@ -35,7 +37,11 @@ import {
   type RouteHandlerContext,
   type HandlerErrorStatus,
 } from "../executor.ts";
-import type { OfficeSettingsRes } from "../../../shared/contract-shapes.ts";
+import type {
+  OfficeSettingsRes,
+  OfficeUsageStatusRes,
+} from "../../../shared/contract-shapes.ts";
+import type { ProviderAccountProvider } from "../../../shared/types.ts";
 import { validMemberShare } from "../../../shared/member-usage-share.ts";
 import {
   instructionsConflict,
@@ -54,7 +60,12 @@ export type ApplyOfficeSettingsResult =
   | { ok: false; conflict: true; version: string };
 
 export interface OfficeSettingsDeps {
-  getSettings(): Promise<OfficeSettingsRes>;
+  getSettings(): OfficeSettingsRes;
+  // The cap's status lines: every provider, or only `provider`. Empty while
+  // the cap is off.
+  getMemberUsageStatus(
+    provider?: ProviderAccountProvider,
+  ): Promise<OfficeUsageStatusRes>;
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.
   // `memberUsageCap === undefined` preserves the switch, and
@@ -86,7 +97,18 @@ export function officeSettingsHandlers(
   deps: OfficeSettingsDeps,
 ): Record<string, RouteHandler> {
   return {
-    "office.getSettings": async () => ok(await deps.getSettings()),
+    "office.getSettings": () => ok(deps.getSettings()),
+
+    // `provider` names one provider; absent, both. The reads can take
+    // seconds, so the settings read does not carry them.
+    "office.getMemberUsageStatus": async (ctx) => {
+      const named = ctx.query.getAll("provider");
+      if (named.length === 0) return ok(await deps.getMemberUsageStatus());
+      const provider = named[0];
+      if (named.length > 1 || (provider !== "claude" && provider !== "codex"))
+        return fail(400, "invalid_request", "provider must be claude or codex");
+      return ok(await deps.getMemberUsageStatus(provider));
+    },
 
     "office.readInstructions": () =>
       ok(instructionsRes(deps.readInstructions())),

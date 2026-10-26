@@ -58,8 +58,9 @@ export type Capability =
   | "user:prompt"
   | "office:admin"
   // Read and change the office prompt, the office name, the member usage cap
-  // switch and the members' share of the weekly limit (office.getSettings and
-  // office.setSettings). Held by USER, API and the PRIVILEGED agent set (Nil,
+  // switch and the members' share of the weekly limit, and read the cap's
+  // status (office.getSettings, office.setSettings and
+  // office.getMemberUsageStatus). Held by USER, API and the PRIVILEGED agent set (Nil,
   // 2026-10-14); absent from the AGENT baseline, RUN and APP. Its guard admits
   // an owner, or a token or agent whose user is an office owner. office:admin
   // keeps the other owner routes (access, update, storage).

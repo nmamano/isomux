@@ -1474,6 +1474,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "office.triggerUpdate": { caps: ["office:admin"], emits: [] },
   // Office settings, validation, backends
   "office.getSettings": { caps: ["office:settings"], emits: [] },
+  "office.getMemberUsageStatus": { caps: ["office:settings"], emits: [] },
   "office.setSettings": {
     caps: ["office:settings"],
     emits: ["office_settings_updated"],
@@ -2335,6 +2336,7 @@ const API_REACHABLE_OPIDS = [
   "users.readInstructions",
   "users.setInstructions",
   "office.getSettings",
+  "office.getMemberUsageStatus",
   "office.setSettings",
   "office.readInstructions",
   "office.setInstructions",

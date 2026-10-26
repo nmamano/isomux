@@ -543,6 +543,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "{provider}: no weekly limit on the office sign-in. Members are not capped.",
   "settings.office.memberUsageFailed":
     "{provider}: weekly usage could not be read. Members are not capped.",
+  "settings.office.memberUsageLoading": "{provider}: reading weekly usage…",
 
   "settings.room.title": "{room} · Settings",
   "settings.room.intro":
@@ -1703,6 +1704,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.users.readMemberPrompt": "Read member special instructions",
   "apiCall.users.updatePrompt": "Edit member special instructions",
   "apiCall.office.readSettings": "Read office settings",
+  "apiCall.office.readMemberUsageStatus": "Read member usage status",
   "apiCall.office.saveSettings": "Change office settings",
   "apiCall.office.readInstructions": "Read office instructions",
   "apiCall.office.saveInstructions": "Change office instructions",

@@ -36,7 +36,11 @@ import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { setTestManagedOfficeEnv } from "./managed-office-env.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
-import type { OfficeSettingsRes } from "../../shared/contract-shapes.ts";
+import type {
+  OfficeSettingsRes,
+  OfficeUsageStatusRes,
+} from "../../shared/contract-shapes.ts";
+import type { ProviderAccountProvider } from "../../shared/types.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { removeStateDir } from "./temp-state.ts";
 
@@ -205,6 +209,21 @@ function expectCappedSetup(cap: { reads: number }) {
   expect(memberUsageCap().isEnabled()).toBe(true);
   expect(getUserByName("Alice")?.role).toBe("member");
   expect(cap.reads).toBe(0);
+}
+
+// The status route, as `rawSessionId` reads it.
+async function getStatus(
+  srv: TestServer,
+  rawSessionId: string,
+  query = "",
+): Promise<{ status: number; body: OfficeUsageStatusRes }> {
+  const res = await srv.http(`/api/office/member-usage-status${query}`, {
+    rawSessionId,
+  });
+  return {
+    status: res.status,
+    body: (await res.json()) as OfficeUsageStatusRes,
+  };
 }
 
 async function boot() {
@@ -677,7 +696,7 @@ describe("member usage cap: cron run follow-ups", () => {
 });
 
 describe("member usage cap: owner switch", () => {
-  it("is off by default, persists, moves the settings version, and reports status while on", async () => {
+  it("is off by default, persists, moves the settings version, and reports status on its own route while on", async () => {
     const { srv, owner, member } = await boot();
     installCap({ enabled: false });
     const get = async (rawSessionId: string) => {
@@ -691,7 +710,12 @@ describe("member usage cap: owner switch", () => {
     const before = await get(owner.rawSessionId);
     expect(before.body.memberUsageCap).toBe(false);
     expect(before.body.memberUsageShare).toBe(80);
-    expect(before.body.memberUsageStatus).toEqual([]);
+    // The settings read never carries the status, so it never waits on it.
+    expect(Object.keys(before.body)).not.toContain("memberUsageStatus");
+    expect(await getStatus(srv, owner.rawSessionId)).toEqual({
+      status: 200,
+      body: { memberUsageStatus: [] },
+    });
 
     const put = await srv.http("/api/office/settings", {
       method: "PUT",
@@ -707,7 +731,10 @@ describe("member usage cap: owner switch", () => {
     const after = await get(owner.rawSessionId);
     expect(after.body.memberUsageCap).toBe(true);
     expect(after.body.version).not.toBe(before.body.version);
-    expect(after.body.memberUsageStatus).toEqual([
+    expect(Object.keys(after.body)).not.toContain("memberUsageStatus");
+    expect(
+      (await getStatus(srv, owner.rawSessionId)).body.memberUsageStatus,
+    ).toEqual([
       {
         provider: "claude",
         state: "weekly",
@@ -746,8 +773,9 @@ describe("member usage cap: owner switch", () => {
     });
     expect(bad.status).toBe(400);
 
-    // Members cannot read or set it.
+    // Members cannot read or set it, or read its status.
     expect((await get(member.rawSessionId)).status).toBe(403);
+    expect((await getStatus(srv, member.rawSessionId)).status).toBe(403);
   });
 
   it("sets the member share: persisted, in the version, preserved when omitted, refused off the 10-step grid", async () => {
@@ -776,7 +804,9 @@ describe("member usage cap: owner switch", () => {
     expect(after.memberUsageShare).toBe(70);
     expect(after.version).not.toBe(before.version);
     // The status line follows the new share: day 4 of 7 at 70%.
-    expect(after.memberUsageStatus?.[0]).toMatchObject({ linePercent: 40 });
+    expect(
+      (await getStatus(srv, owner.rawSessionId)).body.memberUsageStatus[0],
+    ).toMatchObject({ linePercent: 40 });
     const config = JSON.parse(
       readFileSync(join(STATE_ROOT, "office-config.json"), "utf8"),
     ) as { memberUsageShare?: number };
@@ -879,9 +909,151 @@ describe("member usage cap: office sign-in changes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as OfficeSettingsRes;
     expect(body.memberUsageCap).toBe(true);
-    expect(body.memberUsageStatus?.map((row) => row.state)).toEqual([
+    const status = await getStatus(srv, owner.rawSessionId);
+    expect(status.status).toBe(200);
+    expect(status.body.memberUsageStatus.map((row) => row.state)).toEqual([
       "failed",
       "failed",
     ]);
+  });
+});
+
+describe("member usage cap: status apart from the settings", () => {
+  // Task d13eacc4: the settings read answers without a provider read, and the
+  // status route reads one provider or both, each on its own.
+  const NEVER = new Promise<OfficeWeeklyOutcome>(() => {});
+
+  // A cap over a reader that answers each provider with `answer`, counting
+  // the reads per provider.
+  function installStatusCap(
+    answer: (provider: ProviderAccountProvider) => Promise<OfficeWeeklyOutcome>,
+    enabled = true,
+  ) {
+    const reads: ProviderAccountProvider[] = [];
+    setMemberUsageCapForTests(
+      createMemberUsageCap({
+        reader: {
+          read(provider) {
+            reads.push(provider);
+            return answer(provider);
+          },
+          invalidate() {},
+          close() {},
+        },
+        officeDir: (provider) =>
+          effectiveProviderDirectory(provider, buildOfficeEnv()),
+        load: () => enabled,
+      }),
+    );
+    return reads;
+  }
+
+  // Fails the test, instead of hanging it, when `request` waits on a read.
+  async function answersWithin<T>(request: Promise<T>, label: string) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, fail) => {
+      timer = setTimeout(
+        () => fail(new Error(`${label} waited on a provider read`)),
+        1000,
+      );
+    });
+    try {
+      return await Promise.race([request, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  it("answers the settings read while every provider read hangs", async () => {
+    const { srv, owner } = await boot();
+    const reads = installStatusCap(() => NEVER);
+    expect(memberUsageCap().isEnabled()).toBe(true);
+    const res = await answersWithin(
+      srv.http("/api/office/settings", { rawSessionId: owner.rawSessionId }),
+      "the settings read",
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as OfficeSettingsRes).memberUsageCap).toBe(true);
+    expect(reads).toEqual([]);
+  });
+
+  it("reads only the named provider, and answers it while the other hangs", async () => {
+    const { srv, owner } = await boot();
+    const reads = installStatusCap(async (provider) =>
+      provider === "claude" ? BEHIND() : NEVER,
+    );
+    const claude = await answersWithin(
+      getStatus(srv, owner.rawSessionId, "?provider=claude"),
+      "the Claude status read",
+    );
+    expect(claude).toEqual({
+      status: 200,
+      body: {
+        memberUsageStatus: [
+          {
+            provider: "claude",
+            state: "weekly",
+            usedPercent: 40,
+            linePercent: (80 * 4) / 7,
+          },
+        ],
+      },
+    });
+    expect(reads).toEqual(["claude"]);
+  });
+
+  it("answers a signed-out provider with no row, and both rows without a provider", async () => {
+    const { srv, owner } = await boot();
+    const reads = installStatusCap(async (provider) =>
+      provider === "codex"
+        ? { kind: "signed_out" }
+        : { kind: "no_limit", observedAtMs: Date.now() },
+    );
+    expect(
+      (await getStatus(srv, owner.rawSessionId, "?provider=codex")).body,
+    ).toEqual({ memberUsageStatus: [] });
+    expect(reads).toEqual(["codex"]);
+    expect(
+      (await getStatus(srv, owner.rawSessionId, "?provider=claude")).body,
+    ).toEqual({
+      memberUsageStatus: [{ provider: "claude", state: "no_limit" }],
+    });
+    expect((await getStatus(srv, owner.rawSessionId)).body).toEqual({
+      memberUsageStatus: [{ provider: "claude", state: "no_limit" }],
+    });
+    expect(reads.slice(2).sort()).toEqual(["claude", "codex"]);
+  });
+
+  it("reads no provider while the cap is off", async () => {
+    const { srv, owner } = await boot();
+    const reads = installStatusCap(async () => BEHIND(), false);
+    expect(memberUsageCap().isEnabled()).toBe(false);
+    for (const query of ["", "?provider=claude", "?provider=codex"])
+      expect([query, await getStatus(srv, owner.rawSessionId, query)]).toEqual([
+        query,
+        { status: 200, body: { memberUsageStatus: [] } },
+      ]);
+    expect(reads).toEqual([]);
+  });
+
+  it("refuses another provider name with 400 and reads nothing", async () => {
+    const { srv, owner } = await boot();
+    const reads = installStatusCap(async () => BEHIND());
+    for (const query of [
+      "?provider=gemini",
+      "?provider=",
+      "?provider=Claude",
+    ]) {
+      const res = await srv.http(`/api/office/member-usage-status${query}`, {
+        rawSessionId: owner.rawSessionId,
+      });
+      const body = (await res.json()) as { error?: { code: string } };
+      expect([query, res.status, body.error?.code]).toEqual([
+        query,
+        400,
+        "invalid_request",
+      ]);
+    }
+    expect(reads).toEqual([]);
   });
 });

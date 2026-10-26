@@ -833,6 +833,11 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/users/*/member-prompt", "apiCall.users.readMemberPrompt"],
   ["PATCH", "/api/users/*", "apiCall.users.updatePrompt"],
   ["GET", "/api/office/settings", "apiCall.office.readSettings"],
+  [
+    "GET",
+    "/api/office/member-usage-status",
+    "apiCall.office.readMemberUsageStatus",
+  ],
   ["PUT", "/api/office/settings", "apiCall.office.saveSettings"],
   ["GET", "/api/office/instructions", "apiCall.office.readInstructions"],
   ["PUT", "/api/office/instructions", "apiCall.office.saveInstructions"],

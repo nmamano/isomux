@@ -206,6 +206,7 @@ import type {
   AccessSettings,
   OfficeSettingsReq,
   OfficeSettingsRes,
+  OfficeUsageStatusRes,
   ValidateCwdReq,
   ValidateEnvReq,
   TaskCreateReq,
@@ -2200,6 +2201,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "office.getSettings",
     method: "GET",
     path: "/api/office/settings",
+    auth: cap("office:settings", officeSettingsOwner),
+    emits: [],
+  }),
+  // The member usage cap's status lines, read from the providers. Apart from
+  // the settings so that read does not wait on them.
+  defineRoute<void, OfficeUsageStatusRes>({
+    opId: "office.getMemberUsageStatus",
+    method: "GET",
+    path: "/api/office/member-usage-status",
     auth: cap("office:settings", officeSettingsOwner),
     emits: [],
   }),

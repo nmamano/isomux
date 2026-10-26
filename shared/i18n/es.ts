@@ -532,6 +532,7 @@ Cosas que puedes hacer por él:
     "{provider}: la sesión de toda la oficina no tiene límite semanal. Los miembros no tienen tope.",
   "settings.office.memberUsageFailed":
     "{provider}: no se pudo leer el uso semanal. Los miembros no tienen tope.",
+  "settings.office.memberUsageLoading": "{provider}: leyendo el uso semanal…",
 
   "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
@@ -1736,6 +1737,8 @@ Cosas que puedes hacer por él:
   "apiCall.users.readMemberPrompt": "Leer instrucciones especiales del miembro",
   "apiCall.users.updatePrompt": "Editar instrucciones especiales del miembro",
   "apiCall.office.readSettings": "Leer la configuración de la oficina",
+  "apiCall.office.readMemberUsageStatus":
+    "Leer el estado del uso de los miembros",
   "apiCall.office.saveSettings": "Cambiar la configuración de la oficina",
   "apiCall.office.readInstructions": "Leer las instrucciones de la oficina",
   "apiCall.office.saveInstructions": "Cambiar las instrucciones de la oficina",

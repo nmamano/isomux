@@ -531,6 +531,7 @@ Coses que pots fer per ell:
     "{provider}: la sessió de tota l'oficina no té límit setmanal. Els membres no tenen topall.",
   "settings.office.memberUsageFailed":
     "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres no tenen topall.",
+  "settings.office.memberUsageLoading": "{provider}: llegint l'ús setmanal…",
 
   "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
@@ -1743,6 +1744,7 @@ Coses que pots fer per ell:
     "Llegeix les instruccions especials del membre",
   "apiCall.users.updatePrompt": "Edita les instruccions especials del membre",
   "apiCall.office.readSettings": "Llegir la configuració de l'oficina",
+  "apiCall.office.readMemberUsageStatus": "Llegir l'estat de l'ús dels membres",
   "apiCall.office.saveSettings": "Canviar la configuració de l'oficina",
   "apiCall.office.readInstructions": "Llegir les instruccions de l'oficina",
   "apiCall.office.saveInstructions": "Canviar les instruccions de l'oficina",

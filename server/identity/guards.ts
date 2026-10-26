@@ -471,7 +471,8 @@ export const integrationSelfOrOwner: Guard = (ctx) => {
 export const integrationOfficeReader: Guard = ({ identity }) =>
   isIntegrationCaller(identity) ? ALLOW : FORBIDDEN;
 
-// The office.getSettings and office.setSettings routes (cap office:settings):
+// The office.getSettings, office.setSettings and office.getMemberUsageStatus
+// routes (cap office:settings):
 // an owner's reach (Nil, 2026-10-14). Stage 1 checks the privileged flag: of
 // the agent sets, only PRIVILEGED holds office:settings. Separate from
 // officeOwner, which stays USER-only for the other owner routes.

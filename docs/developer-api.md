@@ -354,7 +354,7 @@ A privileged agent can write its manager's member instructions, or any member's 
 
 ### Office settings
 
-`GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,memberUsageStatus,recordTerminals}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. Owners, their API tokens and privileged agents whose manager is an owner can call both.
+`GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,recordTerminals}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. `GET /api/office/member-usage-status` returns `{memberUsageStatus}`, the weekly usage of the office sign-ins against the member usage cap, for both providers or one with `?provider=claude` or `?provider=codex`. Owners, their API tokens and privileged agents whose manager is an owner can call all three.
 
 ## App page readiness
 

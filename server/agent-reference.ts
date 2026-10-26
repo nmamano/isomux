@@ -104,6 +104,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "users.readInstructions": "members",
   "users.setInstructions": "members",
   "office.getSettings": "office-settings",
+  "office.getMemberUsageStatus": "office-settings",
   "office.setSettings": "office-settings",
   "office.readInstructions": "office-settings",
   "office.setInstructions": "office-settings",

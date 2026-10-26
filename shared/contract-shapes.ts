@@ -1307,8 +1307,13 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   // Optional for the same reason as `version`.
   memberUsageCap?: boolean;
   memberUsageShare?: number;
-  memberUsageStatus?: OfficeUsageStatusWire[];
   recordTerminals?: boolean;
+};
+
+// office.getMemberUsageStatus response: the member usage cap's status lines,
+// all providers or the one the query names. Empty while the cap is off.
+export type OfficeUsageStatusRes = {
+  memberUsageStatus: OfficeUsageStatusWire[];
 };
 
 export interface ValidateCwdReq {
