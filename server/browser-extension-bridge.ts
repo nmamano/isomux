@@ -3,6 +3,7 @@ import {
   BROWSER_EXTENSION_PROTOCOL,
   BROWSER_REATTACH_MS,
   validGrantDuration,
+  validGrantExpiry,
   validGrantScope,
   type BrowserGrantScope,
   type BrowserGrantDuration,
@@ -23,6 +24,20 @@ const COMMAND_TIMED_OUT = "Browser command timed out";
 
 export const browserCredentialHash = (credential: string): string =>
   createHash("sha256").update(credential).digest("hex");
+
+// The agent-facing target of an offer. The extension picks a new assignment id
+// for each offer and keeps it when it resumes one, so a resumed offer keeps its
+// target across connections and office restarts, and a new offer gets a new one.
+const offerHandle = (credentialHash: string, assignment: string): string => {
+  const hex = createHash("sha256")
+    .update(credentialHash + ":" + assignment)
+    .digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+};
+
+// What an extension sends back to resume an offer: the deadline and the pinned
+// origin that the office answered at the first offer.
+type Resume = { expiresAt: number | null; offerOrigin: string };
 
 type Pending = {
   assignment: string;
@@ -163,6 +178,8 @@ export class BrowserExtensionBridge {
         kind: "ready",
         version: BROWSER_EXTENSION_PROTOCOL,
         debuggerRecovery: true,
+        // The extension sends its ON offers again after a connection loss.
+        offerResume: true,
         generation: connection.generation,
       });
       connection.sendMetadata();
@@ -604,12 +621,36 @@ export class ExtensionConnection {
     );
   }
 
+  // A resume with both fields, a pinned http(s) origin, and a deadline that
+  // its duration allows from now; null for any other resume.
+  private resumeOf(
+    durationMinutes: BrowserGrantDuration,
+    expiresAt: unknown,
+    offerOrigin: unknown,
+  ): Resume | null {
+    if (
+      typeof offerOrigin !== "string" ||
+      httpOrigin(offerOrigin) !== offerOrigin ||
+      !validGrantExpiry(durationMinutes, expiresAt)
+    )
+      return null;
+    const now = this.clock.now();
+    if (
+      expiresAt !== null &&
+      (expiresAt <= now || expiresAt > now + durationMinutes * 60_000)
+    )
+      return null;
+    return { expiresAt, offerOrigin };
+  }
+
   private async offer(
     id: string,
     scope: BrowserGrantScope,
     durationMinutes: BrowserGrantDuration,
+    resume?: Resume | null,
   ): Promise<void> {
     if (
+      resume === null ||
       !this.ownerValid() ||
       (scope.kind === "agent" && !this.authorize(scope.agentId)) ||
       this.assignments.has(id) ||
@@ -628,7 +669,7 @@ export class ExtensionConnection {
       expiresAt: null,
       id,
       scope,
-      handle: crypto.randomUUID(),
+      handle: offerHandle(this.credentialHash, id),
       session: crypto.randomUUID(),
       browserSession: crypto.randomUUID(),
       peer: { send() {}, close() {} },
@@ -657,17 +698,24 @@ export class ExtensionConnection {
       )
         throw new Error("Invalid offered target");
       a.target = target;
-      a.offerOrigin = httpOrigin(target.url);
-      a.pages.set(a.session, { url: target.url, gated: false });
+      // A resumed offer keeps its first pin: a tab that moved onto an office
+      // page while the office was away starts behind the gate.
+      a.offerOrigin = resume ? resume.offerOrigin : httpOrigin(target.url);
+      a.pages.set(a.session, {
+        url: target.url,
+        gated: this.officeRefused(a, target.url),
+      });
       a.creating = false;
-      a.expiresAt =
-        durationMinutes === 0
+      a.expiresAt = resume
+        ? resume.expiresAt
+        : durationMinutes === 0
           ? null
           : this.clock.now() + durationMinutes * 60_000;
+      this.check(a);
       if (a.expiresAt !== null)
         a.cancelExpiry = this.clock.schedule(() => {
           if (this.assignments.get(id) === a) this.release(a);
-        }, durationMinutes * 60_000);
+        }, a.expiresAt - this.clock.now());
       this.peer.send({
         kind: "offered",
         generation: this.generation,
@@ -675,6 +723,7 @@ export class ExtensionConnection {
         scope,
         durationMinutes,
         expiresAt: a.expiresAt,
+        offerOrigin: a.offerOrigin,
       });
       this.sendMetadata();
     } catch {
@@ -845,7 +894,13 @@ export class ExtensionConnection {
           !validGrantDuration(msg.durationMinutes)
         )
           throw new Error("Invalid offer");
-        void this.offer(msg.assignment, msg.scope, msg.durationMinutes);
+        // A refused resume is answered, never closed: a close would make the
+        // extension reconnect and send the same resume again.
+        const resume =
+          "expiresAt" in msg || "offerOrigin" in msg
+            ? this.resumeOf(msg.durationMinutes, msg.expiresAt, msg.offerOrigin)
+            : undefined;
+        void this.offer(msg.assignment, msg.scope, msg.durationMinutes, resume);
         return;
       }
       if (msg.kind === "agents") {

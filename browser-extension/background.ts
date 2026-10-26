@@ -35,6 +35,9 @@ type OwnedTab = {
   releasing?: Promise<void>;
   recovery?: object;
   epoch?: number;
+  // The origin the office pinned at the offer, sent back to resume it.
+  offerOrigin?: string;
+  resuming?: boolean;
 };
 type Connection = {
   ws: WebSocket;
@@ -45,6 +48,7 @@ type Connection = {
   terminal?: boolean;
   watchdog?: ReturnType<typeof setTimeout>;
   debuggerRecovery?: boolean;
+  offerResume?: boolean;
   metadata?: BrowserMetadata;
   offers: Map<string, (ok: boolean) => void>;
   unpairResult?: (ok: boolean) => void;
@@ -61,6 +65,65 @@ let savedCredential: string | undefined;
 const badgeTabs = new Set<number>();
 let badgeWork = Promise.resolve();
 let cleanup = Promise.resolve();
+// The offers to send again after a connection loss, such as an office restart,
+// by assignment id. An entry leaves only on the office's answer to its resume
+// or the member's Off. Session storage keeps the list across a worker restart;
+// an extension reload or a Chrome restart clears it.
+type ResumeOffer = {
+  tabId: number;
+  scope: BrowserGrantScope;
+  agent?: { id: string; name: string };
+  durationMinutes: BrowserGrantDuration;
+  expiresAt: number | null;
+  offerOrigin: string;
+};
+const RESUME_KEY = "resumeOffers";
+const resumable = new Map<string, ResumeOffer>();
+let resumeWrites = Promise.resolve();
+const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
+  (stored) => {
+    const list = stored[RESUME_KEY];
+    if (!Array.isArray(list)) return;
+    for (const item of list as unknown[]) {
+      if (!Array.isArray(item) || typeof item[0] !== "string") continue;
+      const r = fields(item[1]);
+      const agent = r.agent === undefined ? undefined : fields(r.agent);
+      if (
+        Number.isSafeInteger(r.tabId) &&
+        validGrantScope(r.scope) &&
+        validGrantExpiry(r.durationMinutes, r.expiresAt) &&
+        typeof r.offerOrigin === "string" &&
+        (agent === undefined ||
+          (typeof agent.id === "string" && typeof agent.name === "string"))
+      )
+        resumable.set(item[0], {
+          tabId: r.tabId as number,
+          scope: r.scope,
+          ...(agent
+            ? { agent: { id: agent.id as string, name: agent.name as string } }
+            : {}),
+          durationMinutes: r.durationMinutes as BrowserGrantDuration,
+          expiresAt: r.expiresAt,
+          offerOrigin: r.offerOrigin,
+        });
+    }
+  },
+  () => {},
+);
+function saveResumable(): Promise<void> {
+  const list = [...resumable];
+  resumeWrites = resumeWrites
+    .catch(() => {})
+    .then(() => chrome.storage.session.set({ [RESUME_KEY]: list }));
+  return resumeWrites;
+}
+// Disconnect, pairing, unpairing and a refusal end every offer.
+async function clearResumable(): Promise<void> {
+  await resumeLoaded;
+  if (!resumable.size) return;
+  resumable.clear();
+  await saveResumable();
+}
 function controlledTabs(): Set<number> {
   const result = new Set<number>();
   const c = current;
@@ -140,6 +203,7 @@ async function currentTab(tabId: unknown) {
   }
 }
 async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
+  await resumeLoaded;
   const { connection } = await chrome.storage.local.get("connection");
   const config = connection ? fields(connection) : {};
   const selected = await currentTab(tabId);
@@ -192,7 +256,17 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
               ]
             : [],
         )
-      : [],
+      : // While the office is away, the offers that wait to resume.
+        [...resumable].map(([id, r]) => ({
+          id,
+          scope: r.scope,
+          agent: r.agent,
+          tabId: r.tabId,
+          phase: "offering" as const,
+          durationMinutes: r.durationMinutes,
+          expiresAt: r.expiresAt,
+          current: selected?.id === r.tabId,
+        })),
   };
 }
 async function uiCommand(value: unknown): Promise<ExtensionUIState> {
@@ -209,6 +283,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       !/^[A-Za-z0-9_-]{43}$/.test(msg.code.trim())
     )
       throw new Error();
+    await clearResumable();
     await chrome.storage.local.setAccessLevel({
       accessLevel: "TRUSTED_CONTEXTS",
     });
@@ -226,9 +301,19 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       (config.blocked || config.unknown || !config.credential)
     )
       throw new Error();
+    if (msg.action === "disconnect") await clearResumable();
     await chrome.storage.local.set({
       connection: { ...config, disabled: msg.action === "disconnect" },
     });
+  } else if (
+    msg.action === "stop" &&
+    typeof msg.assignment === "string" &&
+    resumable.has(msg.assignment) &&
+    !current?.tabs.has(msg.assignment)
+  ) {
+    // Off while the office is away: the offer is not sent again.
+    resumable.delete(msg.assignment);
+    await saveResumable();
   } else {
     const c = current;
     if (!c) throw new Error();
@@ -272,23 +357,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
         children: new Set(),
         popups: new Map(),
       };
-      c.tabs.set(id, tab);
-      const accepted = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => {
-          close(c);
-        }, 30_000);
-        c.offers.set(id, (ok) => {
-          clearTimeout(timer);
-          resolve(ok);
-        });
-        send(c, {
-          kind: "offer",
-          generation: c.generation,
-          assignment: id,
-          scope,
-          durationMinutes: msg.durationMinutes,
-        });
-      });
+      const accepted = await requestOffer(c, id, tab);
       if (!accepted || c.tabs.get(id) !== tab || tab.phase !== "offering") {
         await revoke(c, id);
         throw new Error();
@@ -297,6 +366,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       tab.phase = "on";
       refreshBadges();
     } else if (msg.action === "unpair") {
+      await clearResumable();
       const acknowledged = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
           c.terminal = true;
@@ -347,9 +417,62 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   return true;
 });
 
+// Sends an offer of tab. Resolves with the office's answer, or with false when
+// the connection ends first.
+function requestOffer(
+  c: Connection,
+  id: string,
+  tab: OwnedTab,
+  resume?: { expiresAt: number | null; offerOrigin: string },
+): Promise<boolean> {
+  c.tabs.set(id, tab);
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      close(c);
+    }, 30_000);
+    c.offers.set(id, (ok) => {
+      clearTimeout(timer);
+      resolve(ok);
+    });
+    send(c, {
+      kind: "offer",
+      generation: c.generation,
+      assignment: id,
+      scope: tab.scope,
+      durationMinutes: tab.durationMinutes,
+      ...resume,
+    });
+  });
+}
+
+// Called at ready, before any popup offer or metadata can take the tab. The
+// office's answer settles the entry; a connection loss leaves it for the next
+// connection.
+function resumeOffer(c: Connection, id: string, r: ResumeOffer): void {
+  const tab: OwnedTab = {
+    tabId: r.tabId,
+    scope: r.scope,
+    agent: r.agent,
+    durationMinutes: r.durationMinutes,
+    expiresAt: r.expiresAt,
+    offerOrigin: r.offerOrigin,
+    phase: "offering",
+    resuming: true,
+    children: new Set(),
+    popups: new Map(),
+  };
+  void requestOffer(c, id, tab, {
+    expiresAt: r.expiresAt,
+    offerOrigin: r.offerOrigin,
+  }).then((accepted) => {
+    if (!accepted && !c.closed) void revoke(c, id);
+  });
+}
+
 async function revoke(c: Connection, id: string): Promise<void> {
   const tab = c.tabs.get(id);
   if (!tab) return;
+  if (!c.closed && resumable.delete(id)) void saveResumable();
   if (tab.releasing) return tab.releasing;
   tab.phase = "revoking";
   c.creating.delete(id);
@@ -413,6 +536,25 @@ function close(c: Connection): void {
   clearTimeout(c.watchdog);
   if (current === c) current = undefined;
   c.ws.close();
+  // A loss the member did not ask for keeps the ON offers, to send them again.
+  if (!c.terminal && c.offerResume) {
+    for (const [id, tab] of c.tabs)
+      if (
+        tab.phase === "on" &&
+        tab.scope &&
+        tab.durationMinutes !== undefined &&
+        tab.offerOrigin
+      )
+        resumable.set(id, {
+          tabId: tab.tabId,
+          scope: tab.scope,
+          ...(tab.agent ? { agent: tab.agent } : {}),
+          durationMinutes: tab.durationMinutes,
+          expiresAt: tab.expiresAt ?? null,
+          offerOrigin: tab.offerOrigin,
+        });
+    void saveResumable();
+  }
   const retiring = [...c.tabs.values()];
   for (const tab of retiring) tab.phase = "revoking";
   cleanup = Promise.all([
@@ -602,7 +744,7 @@ async function configure(reset = true): Promise<void> {
       (typeof config.credential !== "string" && typeof config.code !== "string")
     )
       return;
-    await cleanup;
+    await Promise.all([cleanup, resumeLoaded]);
     if (serial !== configuration) return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
@@ -615,6 +757,7 @@ async function configure(reset = true): Promise<void> {
     current = c;
     const refuse = () => {
       c.terminal = true;
+      void clearResumable();
       void chrome.alarms.clear("reconnect");
       void chrome.storage.local.set({
         connection: { ...config, blocked: true },
@@ -687,6 +830,9 @@ async function configure(reset = true): Promise<void> {
         ) {
           c.generation = msg.generation;
           c.debuggerRecovery = msg.debuggerRecovery === true;
+          c.offerResume = msg.offerResume === true;
+          if (!c.offerResume) void clearResumable();
+          else for (const [id, r] of resumable) resumeOffer(c, id, r);
           refreshBadges();
           retry = 0;
           void chrome.alarms.clear("reconnect");
@@ -777,7 +923,15 @@ async function configure(reset = true): Promise<void> {
             )
               throw new Error("Invalid grant expiry");
             tab.expiresAt = msg.expiresAt;
+            if (typeof msg.offerOrigin === "string")
+              tab.offerOrigin = msg.offerOrigin;
+            if (tab.resuming) {
+              tab.phase = "on";
+              refreshBadges();
+            }
           }
+          tab.resuming = false;
+          if (resumable.delete(msg.assignment)) void saveResumable();
           c.offers.get(msg.assignment)?.(!msg.error);
           c.offers.delete(msg.assignment);
           return;

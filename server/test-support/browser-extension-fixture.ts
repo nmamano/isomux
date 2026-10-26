@@ -14,8 +14,13 @@ type SocketData = {
   timer?: ReturnType<typeof setTimeout>;
   heartbeat?: ReturnType<typeof setInterval>;
 };
-export function browserExtensionFixture() {
-  const credential = crypto.randomUUID() + crypto.randomUUID();
+// A port and credential from an earlier fixture model an office restart: a new
+// bridge with no state, where the paired extension reconnects.
+export function browserExtensionFixture(
+  opts: { port?: number; credential?: string } = {},
+) {
+  const credential =
+    opts.credential ?? crypto.randomUUID() + crypto.randomUUID();
   const hash = browserCredentialHash(credential);
   const bridge = new BrowserExtensionBridge({
     memberForCredentialHash: (value) =>
@@ -29,7 +34,7 @@ export function browserExtensionFixture() {
   let starts = 0;
   const server = Bun.serve<SocketData>({
     hostname: "127.0.0.1",
-    port: 0,
+    port: opts.port ?? 0,
     fetch(req, server) {
       const url = new URL(req.url);
       if (url.pathname === "/extension") {
@@ -96,6 +101,7 @@ export function browserExtensionFixture() {
   const origin = "http://127.0.0.1:" + server.port;
   return {
     origin,
+    port: server.port,
     credential,
     bridge,
     extensionURL: origin.replace("http:", "ws:") + "/extension",

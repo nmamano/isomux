@@ -91,7 +91,10 @@ export const NOT_SENT_ERROR =
   "This browser action was not sent: the previous action is still settling, and only its outcome is unknown. Control remains on. Inspect the page after it settles before retrying.";
 const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
 const offline = () =>
-  failure("browser_offline", "No paired Chrome browser is online");
+  failure(
+    "browser_offline",
+    "No paired Chrome browser is online. If the office just restarted, try again in a minute: offers come back with the same targets.",
+  );
 // playwright-core takes most of a second to load, so the office loads it at
 // the first browser session, not at boot.
 let playwright: Promise<typeof import("playwright-core")> | undefined;

@@ -2606,3 +2606,256 @@ describe("child frames across clients", () => {
     }
   });
 });
+
+// An office restart drops every bridge object. The extension keeps the offers
+// that were on and sends each again with the deadline and the pinned origin
+// the office answered at the first offer (task 2c1c81ff).
+describe("offer resume after a restart", () => {
+  const SITE = "https://site.test";
+  const OFFICE = "https://office.test";
+  function restartHarness(offices: string[] = []) {
+    let now = 1_800_000_000_000;
+    const timers: Array<{
+      callback: () => void;
+      at: number;
+      cancelled: boolean;
+    }> = [];
+    const clock = {
+      now: () => now,
+      schedule: (callback: () => void, delayMs: number) => {
+        const timer = { callback, at: now + delayMs, cancelled: false };
+        timers.push(timer);
+        return () => {
+          timer.cancelled = true;
+        };
+      },
+    };
+    // A fresh bridge per boot, as a new office process builds one.
+    const boot = () => {
+      const bridge = new BrowserExtensionBridge(
+        {
+          memberForCredentialHash: (hash) =>
+            hash === browserCredentialHash("restart-credential")
+              ? "member"
+              : undefined,
+          mayUse: (member, agent) => member === "member" && agent === "agent",
+          officeOrigins: () => offices,
+        },
+        clock,
+      );
+      const extension = peer();
+      const connection = bridge.connect("restart-credential", extension);
+      return { bridge, extension, connection };
+    };
+    const offer = async (
+      b: ReturnType<typeof boot>,
+      assignment: string,
+      durationMinutes: number,
+      url: string,
+      resume?: { expiresAt: unknown; offerOrigin: unknown },
+    ) => {
+      const before = b.extension.messages.length;
+      b.connection.receive({
+        kind: "offer",
+        generation: b.connection.generation,
+        assignment,
+        scope: { kind: "agent", agentId: "agent" },
+        durationMinutes,
+        ...resume,
+      });
+      const attach = b.extension.messages
+        .slice(before)
+        .find((m) => m.method === "attach");
+      if (attach)
+        b.connection.receive({
+          kind: "result",
+          generation: b.connection.generation,
+          id: attach.id,
+          result: {
+            targetInfo: { targetId: crypto.randomUUID(), type: "page", url },
+          },
+        });
+      await Promise.resolve();
+      return {
+        attached: !!attach,
+        answer: b.extension.messages
+          .slice(before)
+          .findLast((m) => m.kind === "offered" && m.assignment === assignment),
+      };
+    };
+    return {
+      boot,
+      offer,
+      timers,
+      now: () => now,
+      advance: (ms: number) => {
+        now += ms;
+        for (const timer of [...timers])
+          if (!timer.cancelled && timer.at <= now) timer.callback();
+      },
+    };
+  }
+
+  test("a resumed offer keeps its target, its deadline and its pinned origin; a new offer gets a new target", async () => {
+    const h = restartHarness();
+    const first = h.boot();
+    expect(first.extension.messages[0]).toMatchObject({
+      kind: "ready",
+      offerResume: true,
+    });
+    const id = crypto.randomUUID();
+    const { answer: original } = await h.offer(first, id, 15, `${SITE}/start`);
+    expect(original).toMatchObject({
+      durationMinutes: 15,
+      expiresAt: h.now() + 15 * 60_000,
+      offerOrigin: SITE,
+    });
+    const [before] = first.bridge.targets("member", "agent");
+    first.connection.close();
+
+    h.advance(5 * 60_000);
+    const second = h.boot();
+    // The tab moved to another site while the office was away.
+    const { answer: resumed } = await h.offer(
+      second,
+      id,
+      15,
+      "https://elsewhere.test/page",
+      { expiresAt: original!.expiresAt, offerOrigin: SITE },
+    );
+    expect(resumed).toMatchObject({
+      durationMinutes: 15,
+      expiresAt: original!.expiresAt,
+      offerOrigin: SITE,
+    });
+    expect(resumed!.error).toBeUndefined();
+    const after = second.bridge.targets("member", "agent");
+    expect(after.map((t) => t.target)).toEqual([before.target]);
+    expect(after[0].url).toBe("https://elsewhere.test/page");
+    expect(
+      second.bridge.resolve("member", "agent", before.target),
+    ).toMatchObject({ grant: id, offerOrigin: SITE });
+
+    // The deadline is the first offer's, not a fresh 15 minutes.
+    h.advance(10 * 60_000 - 1);
+    expect(second.connection.offered("agent")).toBe(id);
+    h.advance(1);
+    expect(second.connection.offered("agent")).toBeUndefined();
+
+    const fresh = crypto.randomUUID();
+    await h.offer(second, fresh, 0, `${SITE}/start`);
+    const [renewed] = second.bridge.targets("member", "agent");
+    expect(second.connection.offered("agent")).toBe(fresh);
+    expect(renewed.target).not.toBe(before.target);
+    second.connection.close();
+  });
+
+  test("a resume that the office cannot honor is refused with an answer and the connection stays open", async () => {
+    const h = restartHarness();
+    const minute = 60_000;
+    // [durationMinutes, resume fields] relative to the clock at the resume.
+    const cases: Array<[string, number, Record<string, unknown>]> = [
+      ["expired", 15, { expiresAt: 0, offerOrigin: SITE }],
+      ["expires now", 15, { expiresAt: "now", offerOrigin: SITE }],
+      ["beyond its duration", 15, { expiresAt: 16, offerOrigin: SITE }],
+      ["Never with a deadline", 0, { expiresAt: 5, offerOrigin: SITE }],
+      ["a deadline without one", 15, { expiresAt: null, offerOrigin: SITE }],
+      [
+        "a deadline that is not a number",
+        15,
+        { expiresAt: "5", offerOrigin: SITE },
+      ],
+      [
+        "an origin with a path",
+        0,
+        { expiresAt: null, offerOrigin: `${SITE}/start` },
+      ],
+      [
+        "an origin that is not http",
+        0,
+        { expiresAt: null, offerOrigin: "file://" },
+      ],
+      ["no origin", 0, { expiresAt: null }],
+      ["no deadline", 0, { offerOrigin: SITE }],
+    ];
+    for (const [name, duration, extra] of cases) {
+      const b = h.boot();
+      try {
+        const resume = { ...extra };
+        if (typeof resume.expiresAt === "number")
+          resume.expiresAt = h.now() + resume.expiresAt * minute;
+        if (resume.expiresAt === "now") resume.expiresAt = h.now();
+        const id = crypto.randomUUID();
+        const result = await h.offer(
+          b,
+          id,
+          duration,
+          `${SITE}/start`,
+          resume as { expiresAt: unknown; offerOrigin: unknown },
+        );
+        expect({ name, attached: result.attached }).toEqual({
+          name,
+          attached: false,
+        });
+        expect({ name, error: result.answer?.error }).toEqual({
+          name,
+          error: true,
+        });
+        expect({ name, closed: b.extension.closed }).toEqual({
+          name,
+          closed: false,
+        });
+        expect(b.connection.offered("agent")).toBeUndefined();
+      } finally {
+        b.connection.close();
+      }
+    }
+    // The enabling case: the same harness honors a valid resume.
+    const b = h.boot();
+    const id = crypto.randomUUID();
+    const valid = await h.offer(b, id, 15, `${SITE}/start`, {
+      expiresAt: h.now() + 15 * minute,
+      offerOrigin: SITE,
+    });
+    expect(valid.attached).toBe(true);
+    expect(valid.answer?.error).toBeUndefined();
+    expect(b.connection.offered("agent")).toBe(id);
+    b.connection.close();
+  });
+
+  test("a resumed tab on an office page keeps the pin: refused against another origin, usable on its own office", async () => {
+    const h = restartHarness([OFFICE]);
+    for (const [pin, gated] of [
+      [SITE, true],
+      [OFFICE, false],
+    ] as const) {
+      const b = h.boot();
+      try {
+        const id = crypto.randomUUID();
+        const { answer } = await h.offer(b, id, 0, `${OFFICE}/tasks`, {
+          expiresAt: null,
+          offerOrigin: pin,
+        });
+        expect({ pin, error: answer?.error }).toEqual({
+          pin,
+          error: undefined,
+        });
+        expect({ pin, origin: b.connection.offerOrigin(id) }).toEqual({
+          pin,
+          origin: pin,
+        });
+        expect({ pin, gated: b.connection.officeGated(id) }).toEqual({
+          pin,
+          gated,
+        });
+        const [tab] = b.bridge.targets("member", "agent");
+        expect({ pin, refused: tab.officePageRefused === true }).toEqual({
+          pin,
+          refused: gated,
+        });
+      } finally {
+        b.connection.close();
+      }
+    }
+  });
+});

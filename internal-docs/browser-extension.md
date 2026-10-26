@@ -59,7 +59,8 @@ Authentication or revocation refusal persists a blocked configuration until the
 member pairs again. Deliberate disconnect is a separate persisted disabled flag;
 Reconnect cannot clear blocked or unknown-revocation state. No command queue survives disconnection or either restart.
 A new connection gets a fresh generation, Playwright object and task assignment.
-Every tab offer is released. Members must offer a tab again; previously opened pages remain open.
+The server releases every tab offer of the old connection; the extension offers
+the ON tabs again (see "Offer resume after a connection loss").
 
 ## Public Playwright seam and ownership
 
@@ -273,16 +274,24 @@ The popup offers Never, 15 minutes, 1 hour and 4 hours. Each new offer defaults 
 
 Protocol 4 requires `durationMinutes` to be exactly 0, 15, 60 or 240. The server starts the deadline after attachment succeeds, installs one identity-bound assignment timer, then sends `offered` with `durationMinutes` and `expiresAt`. Never uses null and no timer; timed grants use an absolute epoch-millisecond deadline. Metadata and popup state carry that same pair. Missing or inconsistent pairs fail closed. Metadata lists established targets only, so a pending offer is never cancelled by an earlier empty list.
 
-The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. There is no hidden idle timer. Off, close, access loss, disconnect and reload still release grants and never replay work.
+The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. There is no hidden idle timer. Off, close, access loss, disconnect and reload still release grants and never replay work. A resumed offer keeps its first deadline.
 
-Protocol 3 and older extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. Never does not restore grants after connection loss.
+Protocol 3 and older extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. A resume after a connection loss keeps the deadline of the first offer, Never included.
 
+
+## Offer resume after a connection loss
+
+An office restart or a lost socket drops every bridge object; the server keeps no grants. The extension keeps them instead (task 2c1c81ff). `ready` carries `offerResume:true`, and `offered` then carries `offerOrigin`, the origin pinned at the offer.
+
+At a close that the member did not ask for (no disconnect, pairing, unpair or refusal), the extension detaches each tab and keeps its ON offers, with id, tab, scope, agent, duration, `expiresAt` and `offerOrigin`, in `chrome.storage.session`, which survives a worker restart and is cleared by an extension reload or a Chrome restart. At the next `ready` with `offerResume`, it puts each one in its tabs as offering, before a popup offer or metadata can take the tab, and sends the same `offer` with `expiresAt` and `offerOrigin` added. An entry leaves the list only on the office's `offered` answer or the member's Off; a second loss during the resume keeps it. The popup lists the waiting offers as offering while the office is away, and Off removes one. A `ready` without `offerResume` clears the list. Disconnect, pairing, unpairing and a refusal clear it too.
+
+The server accepts a resume only with both fields, an `offerOrigin` that is its own http(s) origin, and a deadline with `0 <=> null` and `now < expiresAt <= now + duration`. It judges expiry by its own clock. A refused resume gets `offered` with an error and the socket stays open; a close would start the same resume again. A resumed offer keeps the deadline and the pin, so a tab that moved onto an office page during the outage starts behind the gate. The target handle stays the same (see "All grants and explicit targets"). Popups and in-flight commands do not resume.
 
 ## Action timeout and command settlement
 
 Desktop Chrome action timeouts preserve the offered assignment, its deadline and ON badge. Playwright receives the operation deadline; a separate watchdog runs one second later so normal TimeoutError cancellation can settle first. Both return action_timeout with unknown-outcome guidance. A timeout never proves that an already-dispatched Chrome command stopped.
 
-The per-grant caller queue checks a separate recovery barrier before dispatch. A timed-out operation and its pending CDP commands must settle before a different action runs. A one-second cleanup wait bounds the response; if work remains, subsequent calls return action_timeout with a still-settling message and dispatch nothing. There is no retry or replay. Off, expiry and actual connection loss still release the grant. Individual access loss releases an individual grant; on All it rejects that caller while preserving other eligible callers.
+The per-grant caller queue checks a separate recovery barrier before dispatch. A timed-out operation and its pending CDP commands must settle before a different action runs. A one-second cleanup wait bounds the response; if work remains, subsequent calls return action_timeout with a still-settling message and dispatch nothing. There is no retry or replay. Off, expiry and actual connection loss still release the grant; after a connection loss the extension can resume the offer, never its commands. Individual access loss releases an individual grant; on All it rejects that caller while preserving other eligible callers.
 
 For goto only, the bridge sends Page.stopLoading to the assignment’s owned root or active popup, then drains the original navigation command. Fill uses Runtime checks and Input.insertText; click uses Runtime/DOM checks and Input.dispatchMouseEvent; press uses Input.dispatchKeyEvent; payload upload uses Runtime.callFunctionOn. These commands have no generic cancellation claim: they remain fenced until their actual result or ownership loss. A command whose response deadline expires remains a tombstone; its late response resolves the barrier and is not delivered twice to Playwright. A retained client disconnect does not revoke the user offer, and replacement clients cannot attach over pending commands.
 
@@ -296,9 +305,9 @@ The popup keeps what the member types into the pairing form (office and code) in
 
 Offers carry `scope:{kind:"all"}` or `scope:{kind:"agent",agentId}`. Popup default is All, with Office connection and Agent control sections. Metadata and acknowledgement validate the exact scope and expiry. Older peers fail closed. Reload requires re-offer; pairing data is preserved.
 
-`tabs` returns accessible established grants with an opaque random target handle, scope and cached title/URL hints from owned target admission. It sends no page commands, so a busy grant does not block discovery or another grant. Handles never reuse Chrome IDs and die with the assignment or connection. Explicit target selection rechecks current access at queue entry and dispatch. Unqualified routing prefers an individual offer, then a sole All offer; multiple All grants return `browser_target_required` with no page metadata or dispatch.
+`tabs` returns accessible established grants with an opaque target handle, scope and cached title/URL hints from owned target admission. It sends no page commands, so a busy grant does not block discovery or another grant. Handles never reuse Chrome IDs. A handle is derived from the browser credential and the extension's assignment id, so a new offer gets a new handle and a resumed offer keeps its own. Explicit target selection rechecks current access at queue entry and dispatch. Unqualified routing prefers an individual offer, then a sole All offer; multiple All grants return `browser_target_required` with no page metadata or dispatch.
 
-Queues and timeout recovery belong to the generation/assignment, not an agent. A Playwright peer has one immutable actor. At an actor change, the prior operation and pending commands must settle before its retained client closes and a new client attaches to the same grant. Delayed retired peer commands/results/close cannot affect the replacement. Access loss rejects that caller without revoking an All grant for other eligible callers. Off, expiry, close and connection loss release the grant and its popup chain once for everyone. No automatic replay or transfer API exists.
+Queues and timeout recovery belong to the generation/assignment, not an agent. A Playwright peer has one immutable actor. At an actor change, the prior operation and pending commands must settle before its retained client closes and a new client attaches to the same grant. Delayed retired peer commands/results/close cannot affect the replacement. Access loss rejects that caller without revoking an All grant for other eligible callers. Off, expiry, close and connection loss release the grant and its popup chain once for everyone. No automatic replay or transfer API exists; a resume after a connection loss is a new grant on the same tab, without its popups.
 
 Navigation status events refresh badges only for locally tracked roots and admitted popups. Every badge write rechecks current ON ownership after earlier awaits; Off and cleanup cannot leave a stale ON badge. Untracked tab updates are ignored without reading URL/title.
 

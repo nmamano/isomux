@@ -13,7 +13,18 @@ beforeAll(async () => {
 });
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function harness(autoAck = true, debuggerRecovery = true) {
+async function harness(
+  autoAck = true,
+  debuggerRecovery = true,
+  // offerResume: the office advertises offer resume in ready. session: the
+  // chrome.storage.session of an earlier worker, for a worker restart.
+  // slowSession: session reads answer after the first socket could open.
+  opts: {
+    offerResume?: boolean;
+    session?: Map<string, unknown>;
+    slowSession?: boolean;
+  } = {},
+) {
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
   let debuggerDetached!: (source: { tabId: number }, reason: string) => void;
@@ -91,7 +102,7 @@ async function harness(autoAck = true, debuggerRecovery = true) {
     credential: "fixture",
   };
   const badges: { text: string | null; tabId?: number }[] = [];
-  const session = new Map<string, unknown>();
+  const session = opts.session ?? new Map<string, unknown>();
   const chrome = {
     action: {
       setBadgeText: async (value: { text: string | null; tabId?: number }) => {
@@ -117,11 +128,17 @@ async function harness(autoAck = true, debuggerRecovery = true) {
         get: async () => ({ connection: config }),
       },
       session: {
-        get: async (key: string) =>
-          session.has(key) ? { [key]: session.get(key) } : {},
+        get: async (key: string) => {
+          if (opts.slowSession)
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          return session.has(key) ? { [key]: session.get(key) } : {};
+        },
         set: async (value: Record<string, unknown>) => {
           for (const [key, item] of Object.entries(value))
             session.set(key, item);
+        },
+        remove: async (keys: string | string[]) => {
+          for (const key of [keys].flat()) session.delete(key);
         },
       },
       onChanged: {
@@ -210,7 +227,7 @@ async function harness(autoAck = true, debuggerRecovery = true) {
     },
     clearTimeout: (id: number) => timers.delete(id),
   });
-  await settle();
+  for (let i = 0; i < 100 && !sockets.length; i++) await settle();
   const socket = sockets[0];
   socket.onopen?.();
   socket.receive({
@@ -218,6 +235,7 @@ async function harness(autoAck = true, debuggerRecovery = true) {
     version: 4,
     generation: "generation-1",
     debuggerRecovery,
+    ...(opts.offerResume ? { offerResume: true } : {}),
   });
   socket.receive({
     kind: "metadata",
@@ -1421,4 +1439,307 @@ test("commands cannot dispatch while detached target identity is being checked",
   await settle();
   expect(recoveryEvents(h)).toEqual(["recovering", "recovered"]);
   expect(h.calls.includes("Runtime.evaluate")).toBe(false);
+});
+
+// Offer resume (task 2c1c81ff): an office restart closes the socket without a
+// terminal reason. The worker keeps each ON offer and sends it again, with the
+// same id, the office's deadline and the pinned origin, to an office that
+// advertises offerResume. The office decides whether it still holds.
+const ORIGIN = "https://example.com";
+type Harness = Awaited<ReturnType<typeof harness>>;
+async function onOffer(h: Harness, expiresAt: number | null) {
+  const durationMinutes = expiresAt === null ? 0 : 15;
+  const { result, assignment } = await h.startOffer(durationMinutes);
+  h.command(1, "attach");
+  await settle();
+  h.socket.receive({
+    kind: "offered",
+    generation: "generation-1",
+    assignment,
+    scope: { kind: "agent", agentId: "a" },
+    durationMinutes,
+    expiresAt,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect((await result).error).toBeUndefined();
+  return assignment;
+}
+// The office goes away (its socket closes) and comes back as generation n.
+async function restart(h: Harness, n: number, offerResume = true) {
+  h.sockets.at(-1)!.close();
+  const backoff = Math.max(...h.timers.keys());
+  await settle();
+  const run = h.timers.get(backoff)!;
+  h.timers.delete(backoff);
+  run();
+  await settle();
+  const ws = h.sockets.at(-1)!;
+  expect(h.sockets).toHaveLength(n);
+  ws.onopen?.();
+  ws.receive({
+    kind: "ready",
+    version: 4,
+    generation: `generation-${n}`,
+    debuggerRecovery: true,
+    ...(offerResume ? { offerResume: true } : {}),
+  });
+  ws.receive({
+    kind: "metadata",
+    generation: `generation-${n}`,
+    member: { id: "m", name: "Member" },
+    agents: [
+      { id: "a", name: "Agent" },
+      { id: "b", name: "Other" },
+    ],
+    assignments: [],
+  });
+  await settle();
+  return ws;
+}
+const offers = (ws: { sent: Fields[] }) =>
+  ws.sent.filter((m) => m.kind === "offer");
+const listed = async (h: Harness) =>
+  ((await h.ui({ action: "state" })).assignments as Fields[]).map((a) => ({
+    id: a.id,
+    phase: a.phase,
+  }));
+
+test("an office restart resumes each ON offer with its id, deadline and pinned origin; a pending offer is not resumed", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const expiresAt = Date.now() + 15 * 60_000;
+  const id = await onOffer(h, expiresAt);
+  // A second offer, still waiting for its attach at the restart.
+  h.selected(8);
+  void h.ui({
+    action: "offer",
+    generation: "generation-1",
+    scope: { kind: "agent", agentId: "b" },
+  });
+  await settle();
+  expect(offers(h.socket)).toHaveLength(2);
+  const detaches = h.calls.filter((c) => c === "detach").length;
+
+  const ws = await restart(h, 2);
+  // No tab stays half controlled while the office is away.
+  expect(h.calls.filter((c) => c === "detach").length).toBeGreaterThan(
+    detaches,
+  );
+  expect(offers(ws)).toEqual([
+    {
+      kind: "offer",
+      generation: "generation-2",
+      assignment: id,
+      scope: { kind: "agent", agentId: "a" },
+      durationMinutes: 15,
+      expiresAt,
+      offerOrigin: ORIGIN,
+    },
+  ]);
+  const attaches = h.calls.filter((c) => c === "attach").length;
+  ws.receive({
+    kind: "command",
+    assignment: id,
+    id: 1,
+    generation: "generation-2",
+    method: "attach",
+    params: {},
+  });
+  await settle();
+  expect(h.calls.filter((c) => c === "attach")).toHaveLength(attaches + 1);
+  expect(ws.sent.find((m) => m.kind === "result" && m.id === 1)?.error).toBe(
+    undefined,
+  );
+  ws.receive({
+    kind: "offered",
+    generation: "generation-2",
+    assignment: id,
+    scope: { kind: "agent", agentId: "a" },
+    durationMinutes: 15,
+    expiresAt,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  h.selected(7);
+  expect(await listed(h)).toEqual([{ id, phase: "on" }]);
+});
+
+test("a connection loss during a resume keeps the offer; only the office's answer settles it", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const expiresAt = Date.now() + 15 * 60_000;
+  const id = await onOffer(h, expiresAt);
+  const second = await restart(h, 2);
+  expect(offers(second).map((m) => m.assignment)).toEqual([id]);
+  // The office goes away again before it answers.
+  const third = await restart(h, 3);
+  expect(offers(third)).toEqual([
+    expect.objectContaining({
+      generation: "generation-3",
+      assignment: id,
+      expiresAt,
+      offerOrigin: ORIGIN,
+    }),
+  ]);
+  third.receive({
+    kind: "offered",
+    generation: "generation-3",
+    assignment: id,
+    error: true,
+  });
+  await settle();
+  third.close();
+  await settle();
+  expect(await listed(h)).toEqual([]);
+  const fourth = await restart(h, 4);
+  expect(offers(fourth)).toEqual([]);
+});
+
+test("the office judges expiry: an offer the member's clock calls expired is still sent, and the refusal drops it", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  // The member's clock runs ahead of the office's.
+  const expiresAt = Date.now() - 60_000;
+  const id = await onOffer(h, expiresAt);
+  const ws = await restart(h, 2);
+  expect(offers(ws)).toEqual([
+    expect.objectContaining({ assignment: id, expiresAt }),
+  ]);
+  ws.receive({
+    kind: "offered",
+    generation: "generation-2",
+    assignment: id,
+    error: true,
+  });
+  await settle();
+  expect(await listed(h)).toEqual([]);
+  expect(offers(await restart(h, 3))).toEqual([]);
+});
+
+test("while the office is away the popup lists the offer as offering, and Off removes it", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const id = await onOffer(h, null);
+  h.socket.close();
+  await settle();
+  const state = await h.ui({ action: "state" });
+  expect(state.state).not.toBe("connected");
+  expect(state.assignments).toEqual([
+    expect.objectContaining({
+      id,
+      phase: "offering",
+      tabId: 7,
+      current: true,
+      scope: { kind: "agent", agentId: "a" },
+      agent: { id: "a", name: "Agent" },
+      durationMinutes: 0,
+      expiresAt: null,
+    }),
+  ]);
+  // The popup sends the generation of its last state: none while offline.
+  const off = await h.ui({
+    action: "stop",
+    assignment: id,
+    generation: state.generation,
+  });
+  expect(off.error).toBeUndefined();
+  expect(off.assignments).toEqual([]);
+  // A worker restart reads the same session storage.
+  const later = await harness(false, true, {
+    offerResume: true,
+    session: h.session,
+  });
+  expect(offers(later.socket)).toEqual([]);
+  expect(await listed(later)).toEqual([]);
+});
+
+test("a worker restart during the outage keeps the offers to resume", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const expiresAt = Date.now() + 15 * 60_000;
+  const id = await onOffer(h, expiresAt);
+  h.socket.close();
+  await settle();
+  // Chrome stops an idle worker; the next one starts with empty memory, and
+  // its session storage answers after it could already connect.
+  const later = await harness(false, true, {
+    offerResume: true,
+    session: h.session,
+    slowSession: true,
+  });
+  expect(offers(later.socket)).toEqual([
+    {
+      kind: "offer",
+      generation: "generation-1",
+      assignment: id,
+      scope: { kind: "agent", agentId: "a" },
+      durationMinutes: 15,
+      expiresAt,
+      offerOrigin: ORIGIN,
+    },
+  ]);
+});
+
+test("an office without offerResume clears the offers to resume", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const id = await onOffer(h, null);
+  h.socket.close();
+  await settle();
+  // The enabling state: the offer waits to resume.
+  expect(await listed(h)).toEqual([{ id, phase: "offering" }]);
+  const old = await restart(h, 2, false);
+  expect(offers(old)).toEqual([]);
+  old.close();
+  await settle();
+  expect(await listed(h)).toEqual([]);
+  expect(offers(await restart(h, 3))).toEqual([]);
+});
+
+for (const when of ["online", "offline"] as const)
+  test(`Disconnect ${when} ends the offers to resume`, async () => {
+    const h = await harness(false, true, { offerResume: true });
+    const id = await onOffer(h, null);
+    if (when === "offline") {
+      h.socket.close();
+      await settle();
+      expect(await listed(h)).toEqual([{ id, phase: "offering" }]);
+    } else expect(await listed(h)).toEqual([{ id, phase: "on" }]);
+    await h.ui({ action: "disconnect" });
+    await settle();
+    expect(await listed(h)).toEqual([]);
+    await h.ui({ action: "reconnect" });
+    await settle();
+    const ws = h.sockets.at(-1)!;
+    ws.onopen?.();
+    ws.receive({
+      kind: "ready",
+      version: 4,
+      generation: "generation-2",
+      debuggerRecovery: true,
+      offerResume: true,
+    });
+    await settle();
+    expect(h.sockets.length).toBeGreaterThan(1);
+    expect(offers(ws)).toEqual([]);
+  });
+
+test("a resumed tab is reserved from ready on: a popup offer cannot take the tab before the resume settles", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const id = await onOffer(h, null);
+  const ws = await restart(h, 2);
+  expect(offers(ws).map((m) => m.assignment)).toEqual([id]);
+  const taken = await h.ui({
+    action: "offer",
+    generation: "generation-2",
+    scope: { kind: "agent", agentId: "b" },
+  });
+  expect(taken.error).toBeDefined();
+  // The same popup offer on another tab goes out.
+  h.selected(8);
+  void h.ui({
+    action: "offer",
+    generation: "generation-2",
+    scope: { kind: "agent", agentId: "b" },
+  });
+  await settle();
+  expect(offers(ws)).toHaveLength(2);
+  expect(offers(ws)[1]).toMatchObject({
+    scope: { kind: "agent", agentId: "b" },
+  });
 });
