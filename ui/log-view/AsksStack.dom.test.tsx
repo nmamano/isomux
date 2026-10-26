@@ -885,3 +885,48 @@ it("shows the path and the command with no panel button when the office has no e
   ).toBe(1);
   view.unmount();
 });
+
+// The open ask card renders the prompt with code too, and its links stay live.
+it("renders an open card prompt with code and keeps its links live", async () => {
+  const mine: AskEntry[] = [
+    entry(
+      "pppp0101",
+      "a1",
+      "Ship the **release**? Run `bun test` in [route](https://example.com).",
+      1,
+    ),
+  ];
+  function SeedMine({
+    entries,
+    children,
+  }: {
+    entries: AskEntry[];
+    children?: React.ReactNode;
+  }) {
+    const dispatch = useDispatch();
+    useEffect(() => {
+      dispatch({ type: "asks_loaded", entries, revision: 0 });
+    }, [dispatch, entries]);
+    return <>{children}</>;
+  }
+  const view = render(
+    <StoreProvider>
+      <OfficeLinkOpener.Provider value={null}>
+        <SeedMine entries={mine}>
+          <AsksStack agentId="a1" isMobile={false} />
+        </SeedMine>
+      </OfficeLinkOpener.Provider>
+    </StoreProvider>,
+  );
+  await waitFor(() => expect(cards(view.container)).toEqual(["pppp0101"]));
+  const prompt = view.container.querySelector<HTMLElement>(
+    '[data-ask="pppp0101"] [data-ask-prompt]',
+  )!;
+  expect(prompt.querySelector("code")?.textContent).toBe("bun test");
+  expect(prompt.querySelector("strong")?.textContent).toBe("release");
+  expect(prompt.querySelector("a")?.getAttribute("href")).toBe(
+    "https://example.com",
+  );
+  expect(prompt.textContent).not.toContain("`");
+  view.unmount();
+});

@@ -101,3 +101,65 @@ it("opens an app link in Safari from the iPhone Home Screen office, and nothing 
     undo();
   }
 });
+
+// The opt-in grammar of the ask surfaces: code spans render as code, a safe
+// link can render as its text. Defaults are untouched; the pinned test above
+// still holds them.
+it("with code, a codespan renders as code without its markers", () => {
+  const view = render(
+    createElement(InlineMarkdown, {
+      content: "run `bun test` now",
+      code: true,
+    }),
+  );
+  const code = view.container.querySelector("code");
+  expect(code).not.toBe(null);
+  expect(code!.textContent).toBe("bun test");
+  expect(view.container.textContent).toBe("run bun test now");
+  // ui/styles.ts .md-content code is the source; the size is relative here,
+  // because a fixed 12px does not follow an 11px line.
+  expect(code!.style.fontFamily).toBe("var(--font-mono)");
+  expect(code!.style.fontSize).toBe("0.92em");
+});
+
+it("with code, markup inside a codespan stays text", () => {
+  const view = render(
+    createElement(InlineMarkdown, { content: "`<img src=x>`", code: true }),
+  );
+  expect(view.container.querySelector("code")?.textContent).toBe("<img src=x>");
+  expect(view.container.querySelector("img")).toBe(null);
+});
+
+it("with code, a codespan inside strong renders there too", () => {
+  const view = render(
+    createElement(InlineMarkdown, { content: "**go `fast` now**", code: true }),
+  );
+  const strong = view.container.querySelector("strong");
+  expect(strong).not.toBe(null);
+  expect(strong!.querySelector("code")?.textContent).toBe("fast");
+  expect(strong!.textContent).toBe("go fast now");
+});
+
+it("passes whiteSpace through", () => {
+  const view = render(
+    createElement(InlineMarkdown, { content: "now", whiteSpace: "nowrap" }),
+  );
+  const root = view.container.firstElementChild as HTMLElement;
+  expect(root.style.whiteSpace).toBe("nowrap");
+  expect(view.container.textContent).toBe("now");
+  expect(view.container.querySelector("strong,code,a")).toBe(null);
+});
+
+it("with links=false, a safe link draws as text and an unsafe one stays raw", () => {
+  const view = render(
+    createElement(InlineMarkdown, {
+      content:
+        "see [docs](https://example.com) and [bad](javascript:alert%281%29)",
+      links: false,
+    }),
+  );
+  expect(view.container.querySelector("a")).toBe(null);
+  const text = view.container.textContent ?? "";
+  expect(text).toContain("see docs and");
+  expect(text).toContain("[bad](javascript:alert%281%29)");
+});

@@ -479,7 +479,7 @@ function ReplyAskCard({
                   }),
             }}
           >
-            <InlineMarkdown content={entry.prompt} />
+            <InlineMarkdown content={entry.prompt} code />
           </div>
           {(clamped || expanded) && (
             <button

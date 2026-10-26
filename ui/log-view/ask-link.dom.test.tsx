@@ -547,3 +547,61 @@ it("measures the line again when its width changes", () => {
     globalThis.ResizeObserver = OriginalObserver;
   }
 });
+
+// Nil's sign-off notes on the ask screenshots: the collapsed line drew the raw
+// ** markers, and inline code drew its backticks; the open prompt keeps code
+// rendered and its links live.
+const MARKDOWN_PROMPT =
+  "Ship the **release** tonight, then run `bun test`. See [route](https://example.com).";
+
+function markdownEntry(
+  id: string,
+  extra: Record<string, unknown> = {},
+): LogEntry {
+  return answerTo(id, {
+    id: "abcd1234",
+    prompt: MARKDOWN_PROMPT,
+    options: ["Tonight", "Tomorrow"],
+    ...extra,
+  });
+}
+
+it("formats the collapsed line and keeps no anchor inside the toggle", () => {
+  const view = render(
+    onLanguage("en", <Transcript entries={[markdownEntry("formatted")]} />),
+  );
+  const line = view.container.querySelector<HTMLElement>(
+    '[data-log-entry-id="formatted"] [data-ask-link="abcd1234"]',
+  )!;
+  const toggle = line.querySelector<HTMLElement>("[data-ask-link-toggle]")!;
+  expect(toggle.querySelector("a")).toBe(null);
+  expect(toggle.querySelector("strong")?.textContent).toBe("release");
+  const code = toggle.querySelector("code");
+  expect(code).not.toBe(null);
+  expect(code!.textContent).toBe("bun test");
+  const text = toggle.textContent ?? "";
+  expect(text).not.toContain("**");
+  expect(text).not.toContain("`");
+  expect(text).not.toContain("[route]");
+  expect(text).toContain("route");
+  // The cut measure needs one line: the inline span cannot wrap.
+  expect(code!.parentElement!.style.whiteSpace).toBe("nowrap");
+  view.unmount();
+});
+
+it("renders the expanded prompt as code and keeps its links live", () => {
+  const view = render(
+    onLanguage("en", <Transcript entries={[markdownEntry("expanded")]} />),
+  );
+  const line = view.container.querySelector<HTMLElement>(
+    '[data-log-entry-id="expanded"] [data-ask-link="abcd1234"]',
+  )!;
+  fireEvent.click(line.querySelector("[data-ask-link-toggle]")!);
+  const full = line.querySelector<HTMLElement>("[data-ask-link-full]")!;
+  expect(full.querySelector("code")?.textContent).toBe("bun test");
+  expect(full.querySelector("strong")?.textContent).toBe("release");
+  expect(full.querySelector("a")?.getAttribute("href")).toBe(
+    "https://example.com",
+  );
+  view.unmount();
+});

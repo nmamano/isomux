@@ -193,7 +193,12 @@ export function AskLink({
         minWidth: 0,
       }}
     >
-      {oneLine}
+      <InlineMarkdown
+        content={oneLine}
+        code
+        links={false}
+        whiteSpace="nowrap"
+      />
     </span>
   );
   const fontSize = isMobile ? 12 : 11;
@@ -284,7 +289,7 @@ export function AskLink({
           }}
         >
           <div {...noTranslate()}>
-            <InlineMarkdown content={ask.prompt.trim()} />
+            <InlineMarkdown content={ask.prompt.trim()} code />
           </div>
           {options.length > 0 && (
             <ul
