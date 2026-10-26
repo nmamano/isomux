@@ -43,6 +43,10 @@ import {
   type SecretSetChange,
   type SecretsRuntime,
 } from "./runtime.ts";
+import {
+  removeStateDir,
+  assertTestStatePath,
+} from "../test-support/temp-state.ts";
 
 const TEST_CHILD = join(
   import.meta.dir,
@@ -115,7 +119,7 @@ function add(scope: SecretScope, name: string, value: string) {
 
 beforeEach(() => {
   // Other test files in the same process may leave secrets behind.
-  rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
+  removeStateDir(join(STATE_ROOT, "secrets"));
   changes = [];
   values = [];
   logs = [];
@@ -134,7 +138,7 @@ afterEach(async () => {
     managedUserEnvPath(ALICE),
     managedUserEnvPath(BOB),
   ])
-    rmSync(path, { recursive: true, force: true });
+    removeStateDir(path);
 });
 
 // An agent's HTTPS_PROXY without the proxy password.
@@ -479,7 +483,9 @@ describe("restarts", () => {
     const revision = environmentSourceRevisionForUserId(ALICE);
     await runtime.stop();
     const paths = secretMaterialPaths(STATE_ROOT, STATE_ROOT);
+    assertTestStatePath(paths.placeholderKey);
     rmSync(paths.placeholderKey);
+    assertTestStatePath(paths.caKey);
     rmSync(paths.caKey);
     // A new server process: a new runtime on the same state.
     runtime = makeRuntime();
@@ -581,7 +587,7 @@ describe("the proxy password", () => {
 
     // New secret material: a new placeholder key, as in another office.
     await runtime.stop();
-    rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
+    removeStateDir(join(STATE_ROOT, "secrets"));
     add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
     runtime = makeRuntime();
     await runtime.enable();

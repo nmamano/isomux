@@ -4,7 +4,6 @@
 // from what the member's sessions report: name and source only.
 
 import { afterAll, afterEach, expect, it } from "bun:test";
-import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { STATE_ROOT } from "../config.ts";
@@ -16,6 +15,7 @@ import { resetClaudeEngineServersForTests } from "../claude-connectors.ts";
 import { getUserByName } from "../users.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 const OFFICE_VALUE = "fake-office-agent-mcp-0000";
 const MEMBER_VALUE = "fake-member-agent-mcp-0000";
@@ -32,8 +32,8 @@ afterEach(async () => {
   await server?.stop();
   server = null;
   resetClaudeEngineServersForTests();
-  rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
-  rmSync(join(STATE_ROOT, "mcp-servers"), { recursive: true, force: true });
+  removeStateDir(join(STATE_ROOT, "secrets"));
+  removeStateDir(join(STATE_ROOT, "mcp-servers"));
 });
 
 // A spawn is lazy: the first message starts the session. The turn itself is

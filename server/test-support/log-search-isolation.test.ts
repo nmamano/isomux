@@ -40,7 +40,7 @@
 // T0-ish: no server and no LLM, but it does spawn real child processes.
 
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { parseLogQuery, type LogQuery } from "../log-search.ts";
@@ -50,6 +50,7 @@ import {
   runSearchInChild,
 } from "../log-search-runner.ts";
 import type { LogEntry } from "../../shared/types.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 const LOGS_DIR = join(STATE_ROOT, "logs");
 const AGENT = "agent-isolation-fixture";
@@ -144,7 +145,7 @@ describe("log search: process isolation", () => {
 
     const marker = join(LOGS_DIR, AGENT, "scan-entered");
     const preload = join(LOGS_DIR, AGENT, "scan-preload.ts");
-    rmSync(marker, { force: true });
+    removeStateDir(marker);
     // This runs in the real child. A marker before the first bait exec proves
     // the deadline cannot win merely because the child has not started yet.
     writeFileSync(

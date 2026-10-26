@@ -20,6 +20,7 @@ import { createProductionAgentManager } from "../agent-manager.ts";
 import { managedOfficeEnvPath, writeManagedOfficeEnv } from "../user-env.ts";
 import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 import { buildSkillCatalog, createSkill } from "../skill-catalog.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -33,7 +34,7 @@ describe("skills page and the office Claude root", () => {
       ? readFileSync(envPath, "utf8")
       : null;
     cleanup.push(() => {
-      if (previousEnv === null) rmSync(envPath, { force: true });
+      if (previousEnv === null) removeStateDir(envPath);
       else writeFileSync(envPath, previousEnv);
     });
     const officeRoot = mkdtempSync(join(tmpdir(), "isomux-office-claude-"));

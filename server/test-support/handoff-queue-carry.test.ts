@@ -7,7 +7,7 @@
 // completeTurn(), so the receiver is held mid-turn while messages queue.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
@@ -390,7 +390,7 @@ describe("handoff carries the queue to the fresh session", () => {
     const storePath = join(STATE_ROOT, "message-queues.json");
     blockAtomicFileReplacement(storePath);
     const r = await mgr.handoff(info.id, BRIEF);
-    rmSync(storePath, { recursive: true, force: true });
+    removeStateDir(storePath);
     expect(r).toMatchObject({ ok: false, error: "persist_failed" });
 
     // Not reset: same live session, still mid-turn, queue unchanged.

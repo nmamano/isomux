@@ -42,6 +42,7 @@ import {
 import { createCertificateAuthority, createLeafIssuer } from "./x509.ts";
 import { createSecretsRuntime, type SecretsRuntime } from "./runtime.ts";
 import type { ProxyUse } from "./proxy.ts";
+import { removeStateDir } from "../test-support/temp-state.ts";
 
 const LIVE = process.env.ISOMUX_TEST_LIVE === "1";
 const has = (bin: string) =>
@@ -333,7 +334,7 @@ function reset() {
 }
 
 beforeAll(async () => {
-  rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
+  removeStateDir(join(STATE_ROOT, "secrets"));
   stub = await startServiceStub(HOSTS);
   deny = await startCompanyProxy({});
   const store = createSecretStore();
@@ -392,7 +393,7 @@ afterAll(async () => {
   await stub?.close();
   await deny?.close();
   for (const dir of scratches) rmSync(dir, { recursive: true, force: true });
-  rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
+  removeStateDir(join(STATE_ROOT, "secrets"));
 });
 
 const sdkReached = (s: Seen) =>

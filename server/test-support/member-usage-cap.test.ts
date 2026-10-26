@@ -6,7 +6,7 @@
 // swapped for one over a scripted reader, so no provider is ever read.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -38,6 +38,7 @@ import { setTestManagedOfficeEnv } from "./managed-office-env.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import type { OfficeSettingsRes } from "../../shared/contract-shapes.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -811,7 +812,7 @@ describe("member usage cap: owner switch", () => {
       expect(loadMemberUsageShare()).toBe(30);
     } finally {
       if (previous !== null) writeFileSync(file, previous);
-      else rmSync(file, { force: true });
+      else removeStateDir(file);
     }
   });
 });

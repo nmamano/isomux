@@ -5,7 +5,7 @@
 // the office ones.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, rmSync } from "fs";
+import { existsSync } from "fs";
 import { dirname, join } from "path";
 
 import { STATE_ROOT } from "./config.ts";
@@ -22,16 +22,17 @@ import {
   writeManagedOfficeEnv,
   writeManagedUserEnv,
 } from "./user-env.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const office = { kind: "office" } as const;
 const member = (userId: string) => ({ kind: "user", userId }) as const;
 
 afterEach(() => {
   setOfficeEnvFileProvider(() => null);
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
-  rmSync(dirname(managedUserEnvPath("any")), { recursive: true, force: true });
-  rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
-  rmSync(join(STATE_ROOT, "mcp-servers"), { recursive: true, force: true });
+  removeStateDir(dirname(managedOfficeEnvPath()));
+  removeStateDir(dirname(managedUserEnvPath("any")));
+  removeStateDir(join(STATE_ROOT, "secrets"));
+  removeStateDir(join(STATE_ROOT, "mcp-servers"));
 });
 
 function addServer(

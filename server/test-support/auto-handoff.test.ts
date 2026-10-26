@@ -7,7 +7,7 @@
 // next message to arrive starts the brief turn (Nil, 2026-10-15).
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
@@ -1286,7 +1286,7 @@ describe("automatic handoff: failures", () => {
         "the attempt ended",
       );
     } finally {
-      rmSync(storePath, { recursive: true, force: true });
+      removeStateDir(storePath);
     }
     expect(h.fake.sessions).toHaveLength(1);
     expect(old.closed).toBe(false);

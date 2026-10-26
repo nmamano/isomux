@@ -4,7 +4,7 @@
 // engines get, stay the same).
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { STATE_ROOT } from "./config.ts";
@@ -35,16 +35,17 @@ import {
   CONNECTION_NOTE_MAX_LENGTH,
   checkConnectionNote,
 } from "../shared/connection-notes.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const office = { kind: "office" } as const;
 const member = { kind: "user", userId: "notes-u1" } as const;
 
 afterEach(() => {
   setOfficeEnvFileProvider(() => null);
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
-  rmSync(dirname(managedUserEnvPath("any")), { recursive: true, force: true });
-  rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
-  rmSync(join(STATE_ROOT, "mcp-servers"), { recursive: true, force: true });
+  removeStateDir(dirname(managedOfficeEnvPath()));
+  removeStateDir(dirname(managedUserEnvPath("any")));
+  removeStateDir(join(STATE_ROOT, "secrets"));
+  removeStateDir(join(STATE_ROOT, "mcp-servers"));
 });
 
 const afterEachRestores: (() => void)[] = [];

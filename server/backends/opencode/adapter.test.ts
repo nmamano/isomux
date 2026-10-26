@@ -32,6 +32,7 @@ import {
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "../../test-support/opencode-live-config.ts";
+import { removeStateDir } from "../../test-support/temp-state.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
@@ -636,9 +637,7 @@ describe("OpenCode pinned transport", () => {
     const files = join(STATE_ROOT, "logs", agentId, "files");
     await mkdir(files, { recursive: true });
     await writeFile(join(files, "proof.txt"), "proof");
-    cleanup.push(() =>
-      rm(join(STATE_ROOT, "logs", agentId), { recursive: true, force: true }),
-    );
+    cleanup.push(() => removeStateDir(join(STATE_ROOT, "logs", agentId)));
     expect(
       buildOpenCodePromptParts(
         "inspect",

@@ -8,7 +8,7 @@
 // covered at the harness layer.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -21,6 +21,7 @@ import {
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 function rooms(...ids: string[]): RoomWire[] {
   return ids.map((id, i) => ({
@@ -758,7 +759,7 @@ describe("skill dispatch on a dormant agent", () => {
       expect(mgr.getAgentLogs(id).some((e) => e.kind === "error")).toBe(false);
       fake.lastSession?.close();
     } finally {
-      rmSync(skillDir, { recursive: true, force: true });
+      removeStateDir(skillDir);
     }
   });
 

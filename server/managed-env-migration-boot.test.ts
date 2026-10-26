@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { rmSync, writeFileSync } from "fs";
+import { writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { managedOfficeEnvPath } from "./user-env.ts";
 import { startTestServer, type TestServer } from "./test-support/harness.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 let server: TestServer | null = null;
 
 afterEach(async () => {
   await server?.stop();
   server = null;
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
+  removeStateDir(dirname(managedOfficeEnvPath()));
 });
 
 describe("managed env migration at real boot", () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { STATE_ROOT } from "./config.ts";
@@ -12,21 +12,16 @@ import {
   readManagedOfficeEnv,
   writeManagedOfficeEnv,
 } from "./user-env.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const USER_ID = "migration-user";
 
 // Before as well as after: a managed office env another test file left
 // behind would read as already migrated.
 function clearManagedEnv(): void {
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
-  rmSync(dirname(managedUserEnvPath(USER_ID)), {
-    recursive: true,
-    force: true,
-  });
-  rmSync(join(STATE_ROOT, "migration-fixtures"), {
-    recursive: true,
-    force: true,
-  });
+  removeStateDir(dirname(managedOfficeEnvPath()));
+  removeStateDir(dirname(managedUserEnvPath(USER_ID)));
+  removeStateDir(join(STATE_ROOT, "migration-fixtures"));
 }
 
 beforeEach(clearManagedEnv);

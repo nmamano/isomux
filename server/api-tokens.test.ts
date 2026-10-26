@@ -13,7 +13,11 @@ import {
 import { join } from "path";
 import * as crypto from "crypto";
 import * as fs from "fs";
-import { blockAtomicFileReplacement } from "./test-support/temp-state.ts";
+import {
+  blockAtomicFileReplacement,
+  removeStateDir,
+  assertTestStatePath,
+} from "./test-support/temp-state.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
   API_TOKEN_LAST_USED_PERSIST_INTERVAL_MS,
@@ -36,13 +40,13 @@ const file = join(STATE_ROOT, "api-tokens.json");
 
 beforeEach(() => {
   _testResetApiTokens();
-  rmSync(API_TOKEN_LOG_DIR, { recursive: true, force: true });
+  removeStateDir(API_TOKEN_LOG_DIR);
   for (const name of readdirSync(STATE_ROOT, { encoding: "utf-8" })) {
     if (
       name === "api-tokens.json" ||
       name.startsWith("api-tokens.json.corrupt-")
     ) {
-      rmSync(join(STATE_ROOT, name), { force: true });
+      removeStateDir(join(STATE_ROOT, name));
     }
   }
 });
@@ -500,7 +504,7 @@ describe("API token conversation log", () => {
         "saved before counter",
       );
     } finally {
-      rmSync(file, { recursive: true, force: true });
+      removeStateDir(file);
       writeFileSync(file, before);
     }
     _testResetApiTokens();
@@ -513,6 +517,7 @@ describe("API token conversation log", () => {
   it("reads a pruned file as empty and starts the next file above the preserved counter", async () => {
     const { apiToken } = await mint();
     for (let i = 0; i < 3; i++) await inboxMessage(apiToken.id, "old");
+    assertTestStatePath(pathFor(apiToken.id));
     rmSync(pathFor(apiToken.id)); // the storage-prune tests exercise the owner path
     expect(await readInbox(apiToken.id, 0)).toMatchObject({
       entries: [],
@@ -740,6 +745,7 @@ describe("token log recovery and read offsets", () => {
     expect(
       (await readInbox(apiToken.id, 1)).entries.map((e) => e.sequence),
     ).toEqual([2]);
+    assertTestStatePath(pathFor(apiToken.id));
     rmSync(pathFor(apiToken.id));
     expect(await readInbox(apiToken.id, 1)).toMatchObject({
       entries: [],

@@ -7,7 +7,7 @@
 // backends/claude.session.test.ts and backends/codex/adapter.test.ts.
 import { describe, expect, it, afterAll } from "bun:test";
 import { join } from "path";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { STATE_ROOT } from "./config.ts";
 import {
   resolveAttachmentNotices,
@@ -17,6 +17,7 @@ import {
 // formatSize moved to the leaf formatting module; the notice-line contract it
 // feeds is still asserted here, alongside the lines that embed it.
 import { formatSize } from "../shared/format-human.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const TEST_AGENT_ID = `test-att-prompt-${Date.now()}-${Math.random()
   .toString(36)
@@ -32,14 +33,7 @@ function spec(filename: string, mediaType = "text/plain", size = 1) {
   return { filename, originalName: filename, mediaType, size };
 }
 
-afterAll(() => {
-  try {
-    rmSync(join(STATE_ROOT, "logs", TEST_AGENT_ID), {
-      recursive: true,
-      force: true,
-    });
-  } catch {}
-});
+afterAll(() => removeStateDir(join(STATE_ROOT, "logs", TEST_AGENT_ID)));
 
 describe("resolveAttachmentNotices", () => {
   it("resolves specs to notices with the on-disk path", () => {

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { rmSync } from "fs";
 import { dirname } from "path";
 import {
   environmentSourceKeyForUserId,
@@ -22,13 +21,14 @@ import {
   writeManagedUserEnv,
 } from "./user-env.ts";
 import type { ProviderAccountProvider } from "../shared/types.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 afterEach(() => {
   setOfficeEnvFileProvider(() => null);
   // The managed env files are process-wide state; a later test file must not
   // inherit the values these tests wrote.
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
-  rmSync(dirname(managedUserEnvPath("any")), { recursive: true, force: true });
+  removeStateDir(dirname(managedOfficeEnvPath()));
+  removeStateDir(dirname(managedUserEnvPath("any")));
 });
 
 // Sets process env names for the run, then puts back what was there.

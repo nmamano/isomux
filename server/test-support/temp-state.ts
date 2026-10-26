@@ -31,11 +31,13 @@ export function canonicalize(target: string): string {
   return tail ? realAnc + tail : realAnc;
 }
 
-// Throw unless `target` is safe to recursively delete: it must realpath-resolve
+// Throw unless a test may delete or write `target`: it must realpath-resolve
 // strictly under the OS temp dir AND must not be (or be under) the real
 // ~/.isomux. The temp check is path-boundary aware (separator-delimited) so a
-// sibling like `/tmpx` is never mistaken for being under `/tmp`.
-export function assertSafeToDelete(target: string): void {
+// sibling like `/tmpx` is never mistaken for being under `/tmp`. A test helper
+// that writes state calls it first; one that deletes goes through
+// removeStateDir.
+export function assertTestStatePath(target: string): void {
   const canonical = canonicalize(target);
 
   const realHomeIsomux = canonicalize(join(homedir(), ".isomux"));
@@ -44,16 +46,20 @@ export function assertSafeToDelete(target: string): void {
     canonical.startsWith(realHomeIsomux + sep)
   ) {
     throw new Error(
-      `Refusing to delete ${target}: it resolves to the real isomux state root (${realHomeIsomux}).`,
+      `Refusing to touch ${target}: it resolves to the real isomux state root (${realHomeIsomux}).`,
     );
   }
 
   const realTmp = canonicalize(tmpdir());
   if (!canonical.startsWith(realTmp + sep)) {
     throw new Error(
-      `Refusing to delete ${target}: ${canonical} is not strictly under the OS temp dir (${realTmp}).`,
+      `Refusing to touch ${target}: ${canonical} is not strictly under the OS temp dir (${realTmp}).`,
     );
   }
+}
+
+export function assertSafeToDelete(target: string): void {
+  assertTestStatePath(target);
 }
 
 // Guarded recursive delete. No-op if the path is already gone.

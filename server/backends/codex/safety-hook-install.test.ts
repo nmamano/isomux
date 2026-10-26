@@ -23,6 +23,7 @@ import {
 import { SAFETY_WARNING } from "./safety-hook.ts";
 import { JsonRpcLiteClient } from "./client.ts";
 import { _test as trustProbeTest } from "./safety-hook-trust-probe.ts";
+import { assertTestStatePath } from "../../test-support/temp-state.ts";
 
 const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
 
@@ -253,7 +254,9 @@ describe("Codex safety hook installation", () => {
   it.skipIf(INTEL_MAC)(
     "re-prepares a deleted golden once for concurrent preflights and installs the hook from it",
     async () => {
+      assertTestStatePath(_test.goldenPath);
       rmSync(_test.goldenPath);
+      assertTestStatePath(CODEX_SAFETY_HOOK_PATH);
       rmSync(CODEX_SAFETY_HOOK_PATH);
       expect(existsSync(_test.goldenPath)).toBe(false);
 

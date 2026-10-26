@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readdirSync, rmSync, statSync } from "fs";
+import { readdirSync, statSync } from "fs";
 import { dirname } from "path";
 
 import { parseDotenv, readEnvFile } from "./persistence.ts";
@@ -13,6 +13,7 @@ import {
   writeManagedOfficeEnv,
   readManagedOfficeEnv,
 } from "./user-env.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const USER_ID = "user-env-test";
 // Only this user's entries: the user-env directory is a per-process
@@ -25,8 +26,8 @@ const ownEntries = () =>
 const path = managedUserEnvPath(USER_ID);
 
 afterEach(() => {
-  rmSync(dirname(path), { recursive: true, force: true });
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
+  removeStateDir(dirname(path));
+  removeStateDir(dirname(managedOfficeEnvPath()));
 });
 
 describe("managed user env storage", () => {

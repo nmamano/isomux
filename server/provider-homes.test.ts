@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -8,13 +8,14 @@ import {
   isPersonalProviderActive,
   personalProviderHome,
 } from "./provider-homes.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const stateFile = join(STATE_ROOT, "provider-account-state.json");
 const homesDir = join(STATE_ROOT, "provider-homes");
 
 afterEach(() => {
-  rmSync(stateFile, { force: true });
-  rmSync(homesDir, { recursive: true, force: true });
+  removeStateDir(stateFile);
+  removeStateDir(homesDir);
 });
 
 describe("personal provider homes", () => {

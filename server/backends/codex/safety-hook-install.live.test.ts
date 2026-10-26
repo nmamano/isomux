@@ -20,6 +20,7 @@ import {
   CODEX_SAFETY_HOOK_PATH,
   ensureCodexSafetyHook,
 } from "./safety-hook-install.ts";
+import { removeStateDir } from "../../test-support/temp-state.ts";
 
 const enabled = process.env.ISOMUX_TEST_LIVE === "1";
 const authHome = process.env.ISOMUX_TEST_CODEX_AUTH_HOME;
@@ -181,7 +182,7 @@ describe.skipIf(!enabled || !authHome)(
         // The home holds an auth.json copy; remove it only after the App
         // Server's group is gone, or the stopping server writes it back.
         if (client) await closeAndReap(client);
-        rmSync(home, { recursive: true, force: true });
+        removeStateDir(home);
       }
     }, 30000);
   },
@@ -308,7 +309,7 @@ describe.skipIf(!paidEnabled || !authHome)(
           // The home holds an auth.json copy; remove it only after the App
           // Server's group is gone, or the stopping server writes it back.
           if (client) await closeAndReap(client);
-          rmSync(home, { recursive: true, force: true });
+          removeStateDir(home);
           if (!presetCwd) rmSync(cwd, { recursive: true, force: true });
         }
       },

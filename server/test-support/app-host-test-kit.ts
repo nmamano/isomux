@@ -17,6 +17,7 @@ import { connect } from "net";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { assertTestStatePath } from "./temp-state.ts";
 import { STATE_ROOT } from "../config.ts";
 import { appRegistry } from "../app-registry.ts";
 import { APP_COOKIE_NAME } from "../app-auth.ts";
@@ -38,6 +39,7 @@ export const HTTPS_ORIGIN = `https://${OFFICE_HOST}`;
 
 export function patchOfficeConfig(patch: Record<string, unknown>): void {
   const file = join(STATE_ROOT, "office-config.json");
+  assertTestStatePath(file);
   let current: Record<string, unknown> = {};
   try {
     current = JSON.parse(readFileSync(file, "utf-8"));

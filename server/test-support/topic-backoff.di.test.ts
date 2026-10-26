@@ -31,6 +31,7 @@ import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
+import { assertTestStatePath } from "./temp-state.ts";
 
 const MINUTE = 60_000;
 // The conversation summary (task ac41c60e) shares the one-shot backend with
@@ -321,6 +322,7 @@ describe("topic generation backoff", () => {
             "Earlier label",
             () => {
               // Signed out while the call ran: the reply is the auth notice.
+              assertTestStatePath(authFile);
               rmSync(authFile);
               return notice;
             },

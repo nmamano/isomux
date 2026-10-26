@@ -5,7 +5,7 @@
 // detectAuthError calls every text below auth-shaped, so a sniff that comes
 // back fails the cases without auth_needed.
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { OfficeState } from "../../shared/office-state.ts";
@@ -14,6 +14,7 @@ import type { NormalizedEvent } from "../backends/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(pred: () => boolean, label = "cond"): Promise<void> {
@@ -44,7 +45,7 @@ beforeAll(() => {
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(join(skillDir, "SKILL.md"), "Do the thing.");
 });
-afterAll(() => rmSync(skillDir, { recursive: true, force: true }));
+afterAll(() => removeStateDir(skillDir));
 
 // `idle`: the events land after a first turn ended, with no turn waiting on
 // them. The others end the turn that a queued message, a direct send or a

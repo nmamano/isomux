@@ -25,7 +25,7 @@ import {
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
-import { readFileSync, rmSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { createAppTokenStore } from "../app-tokens.ts";
@@ -38,6 +38,7 @@ import type { AppWire } from "../../shared/contract-shapes.ts";
 import type { AgentInfo, AppListWire, AppRecord } from "../../shared/types.ts";
 import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
 import type { RouteHandlerContext } from "../routes/executor.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -1631,7 +1632,7 @@ describe("routes/apps REST: app tokens", () => {
     let srv = await startTestServer();
     server = srv;
     await registerApp(srv);
-    rmSync(join(STATE_ROOT, "apps", "app-tokens.json"), { force: true });
+    removeStateDir(join(STATE_ROOT, "apps", "app-tokens.json"));
     srv.appSupervisor.tokenFiles.clear();
     // ...and its unit predates tokens too, so it references no token file. All
     // three facts absent is what a self-hoster who upgrades mid-flight has.

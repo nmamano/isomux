@@ -66,6 +66,7 @@ import {
   resetCodexSandboxProbeForTests,
 } from "./sandbox-probe.ts";
 import { SAFETY_WARNING } from "./safety-hook.ts";
+import { removeStateDir } from "../../test-support/temp-state.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
 
@@ -3461,14 +3462,7 @@ describe("CodexSession user input", () => {
     return { filename, originalName: filename, mediaType, size };
   }
 
-  afterAll(() => {
-    try {
-      rmSync(join(STATE_ROOT, "logs", AGENT_ID), {
-        recursive: true,
-        force: true,
-      });
-    } catch {}
-  });
+  afterAll(() => removeStateDir(join(STATE_ROOT, "logs", AGENT_ID)));
 
   async function sentInput(
     text: string,

@@ -5,7 +5,6 @@
 // placeholder.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { rmSync } from "fs";
 import { dirname } from "path";
 import {
   buildEnvForUserId,
@@ -20,6 +19,7 @@ import {
   writeManagedUserEnv,
 } from "./user-env.ts";
 import { voiceKeyForUserId } from "./voice-key.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 
 const KEY = "OPENAI_API_KEY";
 const VOICE = "OPENAI_VOICE_API_KEY";
@@ -38,8 +38,8 @@ afterEach(() => {
   else process.env[KEY] = priorProcessKey;
   if (priorProcessVoiceKey === undefined) delete process.env[VOICE];
   else process.env[VOICE] = priorProcessVoiceKey;
-  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
-  rmSync(dirname(managedUserEnvPath("any")), { recursive: true, force: true });
+  removeStateDir(dirname(managedOfficeEnvPath()));
+  removeStateDir(dirname(managedUserEnvPath("any")));
 });
 
 const secrets = (

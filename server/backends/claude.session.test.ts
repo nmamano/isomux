@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
@@ -39,6 +39,7 @@ import type {
 } from "./types";
 import { msg } from "../../shared/i18n/log-message.ts";
 import { FAMILY_TO_MODEL } from "../../shared/types.ts";
+import { removeStateDir } from "../test-support/temp-state.ts";
 
 // ---------------------------------------------------------------------------
 // FakeSdkConversation - test double for SdkConversation
@@ -444,12 +445,7 @@ describe("ClaudeSession send", () => {
     mediaType,
     size: 1,
   });
-  afterAll(() =>
-    rmSync(join(STATE_ROOT, "logs", "test-agent"), {
-      recursive: true,
-      force: true,
-    }),
-  );
+  afterAll(() => removeStateDir(join(STATE_ROOT, "logs", "test-agent")));
 
   it("sends text alone as a string, and text with attachments as one notice block after it", async () => {
     mkdirSync(FILES_DIR, { recursive: true });
