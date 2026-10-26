@@ -44,6 +44,7 @@ const deps: GuardDeps = {
   cronjobCreatorAgentId: () => null,
   appOwnerUserId: () => null,
   webhookOwnerUserId: () => null,
+  webhookCreatorAgentId: () => null,
   isOfficeOwnerUserId: () => false,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,

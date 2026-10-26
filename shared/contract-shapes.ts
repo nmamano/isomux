@@ -31,6 +31,7 @@ import type {
   WebhookRule,
   WebhookScheme,
   WebhookTarget,
+  WebhookWire,
   PagerDeliveryFailure,
   AskMemberWire,
 } from "./types.ts";
@@ -1686,6 +1687,10 @@ export interface WebhookCreateReq {
   enabled?: boolean;
 }
 
+// The 201 answer of POST /api/webhooks: the hook and, this once, its secret.
+// No later read returns it.
+export type WebhookCreateRes = WebhookWire & { secret: string };
+
 // PATCH /api/webhooks/:id. Any subset; the server merges it into the stored
 // record and validates the whole result. The scheme is fixed at create: a
 // PATCH that names it gets 422.
@@ -1723,7 +1728,8 @@ export type WebhookDryRunRes =
       truncated: string[];
     };
 
-// The two secret routes. Only a human session reaches them.
+// The two secret routes. A human session reaches both; the agent that made
+// the hook also reaches the rotate route.
 export interface WebhookSecretRes {
   secret: string;
 }

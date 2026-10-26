@@ -76,6 +76,7 @@ import {
   appOwnerSelf,
   agentManagerOwner,
   webhookOwnerOrOfficeOwner,
+  webhookMakerAgent,
   hasOwningUser,
   runParamMustEqualTokenRun,
   taskDelete,
@@ -253,6 +254,7 @@ import type {
   StoragePruneRes,
   BackupStatusWire,
   WebhookCreateReq,
+  WebhookCreateRes,
   WebhookDeliveriesRes,
   WebhookDryRunReq,
   WebhookDryRunRes,
@@ -2586,8 +2588,9 @@ export const API_ROUTES: readonly RouteDef[] = [
   // hook's room, as for cronjobs, and are checked per caller in the handler
   // (server/webhook-visibility.ts). Writes stay with the owner and office
   // owners. Create and update also check the target against live state
-  // (webhookTargetAllowed). The secret routes admit a human session only: an
-  // agent, a privileged agent, a cron run, an app and an API token get 403.
+  // (webhookTargetAllowed). Create answers with the secret once, to every
+  // creator. The read secret route admits a human session only; the rotate
+  // route also admits the agent that made the hook (webhookMakerAgent).
   defineRoute<void, WebhookWire[]>({
     opId: "webhooks.list",
     method: "GET",
@@ -2602,7 +2605,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("webhook:read", operationalAuthenticated),
     emits: [],
   }),
-  defineRoute<WebhookCreateReq, WebhookWire>({
+  defineRoute<WebhookCreateReq, WebhookCreateRes>({
     opId: "webhooks.create",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
@@ -2658,7 +2661,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/webhooks/:id/secret",
-    auth: cap("webhook:write", and(userScope, webhookOwnerOrOfficeOwner("id"))),
+    auth: cap(
+      "webhook:write",
+      and(
+        or(userScope, webhookMakerAgent("id")),
+        webhookOwnerOrOfficeOwner("id"),
+      ),
+    ),
     emits: ["webhook_upserted"],
   }),
 

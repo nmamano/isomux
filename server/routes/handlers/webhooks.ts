@@ -7,9 +7,9 @@
 // body, as for apps: the hook belongs to the caller's user, so it outlives the
 // agent that created it.
 //
-// [the secret] Only readSecret and rotateSecret put it in a response.
-// webhookToWire is the one place a record becomes wire, and the record has no
-// secret field.
+// [the secret] Only the create answer, readSecret and rotateSecret put it in
+// a response (task 37b2876b: the creator gets it once). webhookToWire is the
+// one place a record becomes wire, and the record has no secret field.
 //
 // [reads] get, deliveries and dryRun reach every caller and check the hook's
 // visibility here (server/webhook-visibility.ts): the members of the hook's
@@ -322,7 +322,15 @@ export function webhooksHandlers(
       });
       const wire = toWire(record);
       announced(() => deps.announce(wire, null));
-      return created(wire);
+      // The creator gets the secret once; the announce keeps the plain wire.
+      const secret = registry.readSecret(record.id);
+      if (secret === null) {
+        throw new WebhookRegistryError(
+          "persist_failed",
+          "the webhook has no secret after its create; inspect server logs and rotate it",
+        );
+      }
+      return created({ ...wire, secret });
     }),
 
     "webhooks.update": guarded((ctx) => {

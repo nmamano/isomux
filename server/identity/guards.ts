@@ -76,6 +76,8 @@ export interface GuardDeps {
   // The OWNER userId of webhook `id`, or null if no such hook exists. Every
   // hook has an owner.
   webhookOwnerUserId(id: string): string | null;
+  // The agent that made webhook `id`, or null if unknown or a member made it.
+  webhookCreatorAgentId(id: string): string | null;
   // Whether userId names a live office owner. Agent and API identities carry
   // their user's id, so app authorization can grant that user's office-wide
   // reach without making Identity.role authoritative outside USER scope.
@@ -651,6 +653,23 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
     if (ownerUserId === null) return FORBIDDEN;
     if (hasOfficeOwnerReach(identity, deps)) return ALLOW;
     return ownerUserId === identity.userId ? ALLOW : FORBIDDEN;
+  };
+}
+
+// The rotate route's agent arm (task 37b2876b): the agent that made the hook,
+// while its manager still owns it. No office-owner arm: an office owner's
+// agent rotates only the hooks it made.
+export function webhookMakerAgent(idParamName = "id"): Guard {
+  return ({ identity, params, deps }) => {
+    if (identity.scope !== "agent" || !identity.agentId) return FORBIDDEN;
+    const id = params[idParamName];
+    if (!id) return FORBIDDEN;
+    const ownerUserId = deps.webhookOwnerUserId(id);
+    return deps.webhookCreatorAgentId(id) === identity.agentId &&
+      ownerUserId !== null &&
+      ownerUserId === identity.userId
+      ? ALLOW
+      : FORBIDDEN;
   };
 }
 

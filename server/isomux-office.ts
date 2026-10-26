@@ -3375,9 +3375,16 @@ async function transferAgentManager(
   } catch (err) {
     console.error(`[manager] the schedules of ${agentId} did not move:`, err);
   }
+  // The old manager could read each hook's secret, so a hook moves with a new
+  // one (task 37b2876b). Rotate before setOwner, in the one try: a rotate
+  // that throws stops the loop before that hook moves, so the old manager
+  // keeps it with the secret they knew. The maker agent rotates again to get
+  // the new secret.
   try {
-    for (const hook of webhookRegistry.list().filter(made))
+    for (const hook of webhookRegistry.list().filter(made)) {
+      webhookRegistry.rotateSecret(hook.id);
       webhookRegistry.setOwner(hook.id, to.id, to.name);
+    }
   } catch (err) {
     console.error(`[manager] the webhooks of ${agentId} did not move:`, err);
   }

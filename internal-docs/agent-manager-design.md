@@ -99,8 +99,11 @@ still owns (`createdByAgentId === agent` and owner `=== old manager`):
   10 seconds of `createdAt`, stands in (the id alone is not enough: a deleted
   job's id can come back). Jobs older than the audit log stay with the old
   member. A run in flight keeps its environment;
-- webhooks: `webhookRegistry.setOwner`. Ingress checks that the owner can reach
-  the target agent, so a hook left behind would stop.
+- webhooks: `webhookRegistry.rotateSecret`, then `setOwner`. Ingress checks
+  that the owner can reach the target agent, so a hook left behind would stop.
+  The old manager could read the secret, so the hook moves with a new one
+  (task 37b2876b); the agent rotates again to get it. A rotate that throws
+  stops the loop before its hook moves.
 
 A record the agent made that a third member owns stays with that member. The
 old manager's own schedules and webhooks that target the agent stay with the

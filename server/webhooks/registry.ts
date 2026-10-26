@@ -8,8 +8,9 @@
 //                             deliveries.ts)
 //
 // THE SECRET HAS ITS OWN FILE so that no list or read of a record can return it
-// by accident. Only readSecret and rotateSecret hand it out. The two human
-// secret routes call them, and ingress calls readSecret to verify a delivery.
+// by accident. Only readSecret and rotateSecret hand it out. The create
+// answer and the two secret routes call them, and ingress calls readSecret to
+// verify a delivery.
 //
 // CORRUPTION FAILS LOUD, as in server/app-registry.ts: a malformed file raises
 // `registry_corrupt` on every operation, reads included. An empty worldview
@@ -404,8 +405,8 @@ export interface WebhookRegistry {
     username: string | null,
   ): WebhookRecord | null;
   secretState(id: string): "set" | "missing";
-  // The two human secret routes, and ingress to verify a delivery. Never put
-  // into any other response.
+  // The create answer, the two secret routes, and ingress to verify a
+  // delivery. Never put into any other response.
   readSecret(id: string): string | null;
   // The new secret; the old one stops working at once. Null when no hook has
   // that id.

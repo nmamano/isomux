@@ -7,7 +7,9 @@
 //     session under the new manager's token, also for a message that was
 //     queued when the transfer started;
 //   - the apps, schedules and webhooks the agent made move with it while the
-//     old manager owns them, and nothing else moves;
+//     old manager owns them, and nothing else moves; each webhook that moves
+//     gets a new secret, which its maker agent can rotate to get (task
+//     37b2876b);
 //   - a resumed session from an earlier manager names that manager;
 //   - deleting a member passes their live and killed agents to the oldest
 //     office owner, not to the owner who deletes;
@@ -611,6 +613,83 @@ describe("agents.setManager: what the agent made moves with it", () => {
     expect(
       (await api(srv, "GET", "/api/cronjobs", { bearer: appToken })).status,
     ).toBe(200);
+  });
+
+  // The old manager could read the secret of every hook they owned, so a hook
+  // that moves gets a new one (task 37b2876b). Its maker agent's sender then
+  // fails its signature; the agent rotates and so gets the new secret.
+  it("gives each webhook that moves a new secret, keeps it on, and leaves the agent's rotate working; a hook that stays keeps its secret", async () => {
+    const { srv, morgan, alice } = await office();
+    const agent = await spawn(srv, "Maker", "Alice");
+    const asMorgan = { rawSessionId: morgan.rawSessionId };
+    const secretOf = async (id: string): Promise<string> => {
+      const res = await api(srv, "GET", `/api/webhooks/${id}/secret`, asMorgan);
+      expect(res.status).toBe(200);
+      return (res.body as { secret: string }).secret;
+    };
+    const made = await api(
+      srv,
+      "POST",
+      "/api/webhooks",
+      { bearer: getAgentTokenRaw(agent.id)! },
+      {
+        name: "deadman",
+        scheme: "github-hmac-sha256",
+        rules: [{ event: "push" }],
+      },
+    );
+    expect(made.status).toBe(201);
+    const moved = made.body as WebhookWire & { secret: string };
+    expect(await secretOf(moved.id)).toBe(moved.secret);
+    // Alice's own hook on the same agent: no agent made it, so it stays.
+    const own = await api(
+      srv,
+      "POST",
+      "/api/webhooks",
+      { rawSessionId: alice.rawSessionId },
+      {
+        name: "alice-own",
+        scheme: "github-hmac-sha256",
+        rules: [{ event: "push" }],
+        target: { kind: "agent", agentId: agent.id },
+      },
+    );
+    expect(own.status).toBe(201);
+    const stays = own.body as WebhookWire;
+    const staysSecret = await secretOf(stays.id);
+
+    const res = await setManager(
+      srv,
+      agent.id,
+      idOf("Bea"),
+      morgan.rawSessionId,
+    );
+    expect(res.status).toBe(200);
+
+    const hookNow = (
+      await api(srv, "GET", `/api/webhooks/${moved.id}`, asMorgan)
+    ).body as WebhookWire;
+    expect(hookNow).toMatchObject({ userId: idOf("Bea"), enabled: true });
+    const afterMove = await secretOf(moved.id);
+    expect(afterMove).not.toBe(moved.secret);
+    expect(
+      (
+        (await api(srv, "GET", `/api/webhooks/${stays.id}`, asMorgan))
+          .body as WebhookWire
+      ).userId,
+    ).toBe(idOf("Alice"));
+    expect(await secretOf(stays.id)).toBe(staysSecret);
+
+    // The agent, now under Bea, rotates the hook it made and gets the secret.
+    const bearer = getAgentTokenRaw(agent.id)!;
+    expect(resolveToken(bearer)?.userId).toBe(idOf("Bea"));
+    const rotated = await api(srv, "POST", `/api/webhooks/${moved.id}/secret`, {
+      bearer,
+    });
+    expect(rotated.status).toBe(200);
+    const fresh = (rotated.body as { secret: string }).secret;
+    expect(fresh).not.toBe(afterMove);
+    expect(await secretOf(moved.id)).toBe(fresh);
   });
 });
 

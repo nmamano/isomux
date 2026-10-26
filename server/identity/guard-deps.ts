@@ -61,9 +61,13 @@ export interface GuardDepsLiveReaders {
   // registry THROWS here rather than reading as an empty list - see the
   // adapter below for why the guard lets that through.
   listApps(): readonly { name: string; userId?: string | null }[];
-  // The registered webhooks; id -> owner userId. webhookRegistry.list. A
-  // corrupt registry throws here, like listApps.
-  listWebhooks(): readonly { id: string; userId: string }[];
+  // The registered webhooks; id -> owner userId and maker agent.
+  // webhookRegistry.list. A corrupt registry throws here, like listApps.
+  listWebhooks(): readonly {
+    id: string;
+    userId: string;
+    createdByAgentId?: string;
+  }[];
   // The open asks' read-file lookup (asks.ts askReadFileOpenTo). Optional so
   // the test fakes need not carry it; absent denies.
   askReadFileOpenTo?(
@@ -129,6 +133,12 @@ export function buildProductionGuardDeps(
     webhookOwnerUserId(id: string): string | null {
       // Not caught, as appOwnerUserId: a corrupt registry answers 500.
       return live.listWebhooks().find((w) => w.id === id)?.userId ?? null;
+    },
+
+    webhookCreatorAgentId(id: string): string | null {
+      return (
+        live.listWebhooks().find((w) => w.id === id)?.createdByAgentId ?? null
+      );
     },
 
     agentManagerUserId(agentId: string): string | null {

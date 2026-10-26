@@ -153,6 +153,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "webhooks.delete": "webhooks",
   "webhooks.deliveries": "webhooks",
   "webhooks.dryRun": "webhooks",
+  "webhooks.rotateSecret": "webhooks",
   "memory.read": "memory",
   "memory.append": "memory",
   "memory.replace": "memory",

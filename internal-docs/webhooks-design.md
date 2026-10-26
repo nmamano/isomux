@@ -102,12 +102,14 @@ The secret:
 
 - The server generates it at create time: 32 random bytes, base64url. Nobody types it. The API has no field to set it in this design (see open decision D4).
 - It is stored in plain text, because the HMAC needs it. It is in its own file, not in `webhooks.json`, so no list or read path can return it by accident.
-- Only a human session sees it: `GET /api/webhooks/:id/secret` and the rotate route accept `scope === "user"`, for the hook owner or an office owner. An agent, a privileged agent, a cron run, an app and an API token get 403. Nil ruled on 2026-09-01 that an API token has the same reach as a privileged agent, and a privileged agent cannot read a secret, so an API token cannot either.
+- The 201 answer of `POST /api/webhooks` holds it once, for every creator: a member, an agent or an API token (task 37b2876b, Nil, 2026-10-26). An agent whose own job sends the deliveries (a timer, a deploy script) saves it to a 0600 file, so no member copies it out of the UI. The agent reference gives the command, which prints only the id: a printed secret would land in the agent's conversation.
+- `GET /api/webhooks/:id/secret` accepts `scope === "user"` only, for the hook owner or an office owner. The rotate route accepts the same sessions, and the agent that made the hook while its manager still owns it (`webhookMakerAgent`; no office-owner arm). Every other agent, a cron run, an app and an API token get 403. Nil ruled on 2026-09-01 that an API token has the same reach as a privileged agent; an API token has no maker identity, so it rotates nothing, as a privileged agent that did not make the hook.
+- A hook that passes to another owner gets a new secret: on an agent manager change, and on a member delete (`server/isomux-office.ts`).
 - No other response, log row, event, prompt or delivery message contains the secret. A test checks this for every webhook route.
 - Limit, stated plainly: agents run as the same OS user as the server, and the safety policy allows reads of `~/.isomux/`. So an agent can read `secrets.json` from disk. This is the same limit that `server/app-tokens.ts` states for app tokens ("Cross-app secrecy is NOT enforceable at this layer"). "Never shown to agents" means: the office never gives the secret to an agent. It does not mean the OS stops an agent from reading the file. The planned server OS user (security audit, commit a2fdd887) closes this.
 - Backups exclude `webhooks/secrets.json`, in the same way as `apps/units` and `user-env` (`BACKUP_EXCLUSIONS` in `server/backup.ts`), because backups contain no credentials. After a restore, each hook shows "needs a new secret". The owner rotates the secret once and pastes it into GitHub once. See open decision D5.
 
-Setup by a human: GitHub needs the URL and the secret in its webhook settings. An agent can create the hook, but it cannot read the secret, so a member does the last step in the UI (section 8). The UI shows the three GitHub fields: payload URL, content type, secret.
+Setup by a human: GitHub needs the URL and the secret in its webhook settings. An agent can create the hook and gets the secret once, but it must not print it, so a member does the last step in the UI (section 8). The UI shows the three GitHub fields: payload URL, content type, secret.
 
 ## 3. The rule language
 
@@ -306,13 +308,13 @@ Visibility follows rooms, as for cronjobs (Nil, 2026-10-06, task fe0c21fd). A ho
 |---|---|---|---|
 | `webhooks.list` | `GET /api/webhooks` | `webhook:read`, filtered per caller | the hooks the caller can see |
 | `webhooks.get` | `GET /api/webhooks/:id` | `webhook:read`, visibility in the handler | |
-| `webhooks.create` | `POST /api/webhooks` | `webhook:write` + `hasOwningUser`; precondition `webhookTargetAllowed` | `201 WebhookWire` |
+| `webhooks.create` | `POST /api/webhooks` | `webhook:write` + `hasOwningUser`; precondition `webhookTargetAllowed` | `201 WebhookWire` plus `secret`, once |
 | `webhooks.update` | `PATCH /api/webhooks/:id` | `webhook:write` + owner guard; precondition `webhookTargetAllowed` | name, rules, target, enabled, headers |
 | `webhooks.delete` | `DELETE /api/webhooks/:id` | `webhook:write` + owner guard | `204` |
 | `webhooks.deliveries` | `GET /api/webhooks/:id/deliveries?limit=N` | `webhook:read`, visibility in the handler | newest first, default 50 |
 | `webhooks.dryRun` | `POST /api/webhooks/:id/dry-run` | `webhook:read`, visibility in the handler | body `{event, payload}`; returns the matched rule, args and block; no dispatch, no row |
 | `webhooks.readSecret` | `GET /api/webhooks/:id/secret` | `webhook:write` + `userScope` + owner guard | `{secret}` |
-| `webhooks.rotateSecret` | `POST /api/webhooks/:id/secret` | `webhook:write` + `userScope` + owner guard | `{secret}`; the old secret stops working at once |
+| `webhooks.rotateSecret` | `POST /api/webhooks/:id/secret` | `webhook:write` + (`userScope` or `webhookMakerAgent`) + owner guard | `{secret}`; the old secret stops working at once |
 | `hooks.deliver` | `POST /hooks/:id` | public, in `PUBLIC_ROUTES` | section 1 |
 
 `WebhookWire` is the record plus `url` (the public origin from `buildPublicOrigin()` and `/hooks/<id>`), `secretState` (`"set"` or `"missing"`), `counters`, `countersSince` and `lastDelivery` (outcome and time of the newest row). It never contains the secret.

@@ -29,7 +29,9 @@ import { mintApiToken } from "../api-tokens.ts";
 import { STATE_ROOT } from "../config.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { API_ROUTES } from "../routes/table.ts";
+import { webhookRegistry } from "../webhooks/registry.ts";
 import type { AgentInfo, Cronjob, WebhookWire } from "../../shared/types.ts";
+import type { WebhookCreateRes } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -269,7 +271,8 @@ describe("webhooks REST: lifecycle", () => {
       },
     );
     expect(made.status).toBe(201);
-    const hook = made.body as WebhookWire;
+    // The 201 alone carries the secret (the maker's secret describe below).
+    const { secret: _secret, ...hook } = made.body as WebhookCreateRes;
     expect(hook.target).toEqual({ kind: "agent", agentId: bot.id });
     // Ownership is the agent's manager, from the token.
     expect(hook.userId).toBe(aliceId);
@@ -524,7 +527,7 @@ describe("webhooks REST: who may point a hook at what", () => {
 });
 
 describe("webhooks REST: the secret", () => {
-  it("the secret routes answer the member, rotate at once, and refuse an agent, a privileged agent, a cron run and an API token", async () => {
+  it("the secret routes answer the member, rotate at once, and refuse an agent that did not make the hook, a privileged agent, a cron run and an API token", async () => {
     const { srv, alice, aliceId, roomA } = await office();
     const bot = await spawnAgent(srv, "HookBot", roomA);
     const asAlice = { rawSessionId: alice.rawSessionId };
@@ -586,7 +589,7 @@ describe("webhooks REST: the secret", () => {
     expect(await secretOf()).toBe(after);
   });
 
-  it("no webhook route response and no socket frame contains the secret, except the two secret routes", async () => {
+  it("no webhook route response and no socket frame contains the secret, except the create answer and the two secret routes", async () => {
     const { srv, alice, aliceId, roomA } = await office();
     const sock = await srv.connectWs(alice.rawSessionId);
     const bot = await spawnAgent(srv, "HookBot", roomA);
@@ -600,11 +603,11 @@ describe("webhooks REST: the secret", () => {
     const readSecret = await api(srv, `/api/webhooks/${id}/secret`, asAlice);
     const original = (readSecret.body as { secret: string }).secret;
     expect(original).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    // The create response and the create frame, against the secret they
-    // were made with.
+    // The create response gives its caller the secret once; the create
+    // frame, which every member who sees the hook gets, does not.
     await sock.waitFor("webhook_upserted");
     const framesBeforeRotate = sock.messages.map((m) => JSON.stringify(m));
-    expect(made.text.includes(original)).toBe(false);
+    expect((made.body as WebhookCreateRes).secret).toBe(original);
     expect(framesBeforeRotate.some((f) => f.includes(original))).toBe(false);
 
     const rotate = await api(srv, `/api/webhooks/${id}/secret`, asAlice, {
@@ -661,6 +664,205 @@ describe("webhooks REST: the secret", () => {
     expect(frames.some((f) => f.includes(original))).toBe(false);
     expect(frames.some((f) => f.includes(rotated))).toBe(false);
     sock.close();
+  });
+});
+
+// The agent that makes a hook signs its own deliveries (a dead-man timer, a
+// deploy script), so the office gives it the secret: once in the create
+// answer, and again each time it rotates (task 37b2876b). No later read
+// shows it, and no other agent may rotate it.
+describe("webhooks REST: the creator's secret", () => {
+  const SECRET = /^[A-Za-z0-9_-]{43}$/;
+
+  it("every creator - a member, an agent, an API token - gets the secret once in the 201; later reads and the frames do not hold it", async () => {
+    const { srv, alice, aliceId, roomA } = await office();
+    const sock = await srv.connectWs(alice.rawSessionId);
+    const asAlice = { rawSessionId: alice.rawSessionId };
+    const maker = await spawnAgent(srv, "Maker", roomA);
+    const target = { kind: "agent", agentId: maker.id };
+    const creators: [string, Caller][] = [
+      ["member", asAlice],
+      ["agent", { bearer: mintAgentToken(maker.id, aliceId) }],
+      [
+        "API token",
+        {
+          bearer: (
+            await mintApiToken({
+              userId: aliceId,
+              name: "Laptop",
+              expiresInDays: null,
+            })
+          ).token,
+        },
+      ],
+    ];
+    const made: [string, Caller, string, string][] = [];
+    for (const [label, caller] of creators) {
+      const res = await api(srv, "/api/webhooks", caller, {
+        method: "POST",
+        body: hookBody(target, { name: `hook-${made.length}` }),
+      });
+      expect({ label, status: res.status }).toEqual({ label, status: 201 });
+      const { id, secret } = res.body as WebhookCreateRes;
+      expect({ label, shaped: SECRET.test(secret) }).toEqual({
+        label,
+        shaped: true,
+      });
+      made.push([label, caller, id, secret]);
+    }
+    // Each 201 held its own hook's live secret, read where a member reads it.
+    for (const [label, , id, secret] of made) {
+      const read = await api(srv, `/api/webhooks/${id}/secret`, asAlice);
+      expect({
+        label,
+        secret: (read.body as { secret: string }).secret,
+      }).toEqual({ label, secret });
+    }
+    // The creator's own later reads do not hold it.
+    for (const [label, caller, id, secret] of made) {
+      for (const path of ["/api/webhooks", `/api/webhooks/${id}`]) {
+        const res = await api(srv, path, caller);
+        expect({
+          label,
+          path,
+          status: res.status,
+          leaks: res.text.includes(secret),
+        }).toEqual({ label, path, status: 200, leaks: false });
+      }
+    }
+    await waitUntil(
+      () =>
+        made.every(
+          ([, , id]) => framesOf(sock, "webhook_upserted", id).length > 0,
+        ),
+      "a create frame per hook",
+    );
+    const frames = sock.messages.map((m) => JSON.stringify(m));
+    for (const [label, , , secret] of made)
+      expect({
+        label,
+        inFrame: frames.some((f) => f.includes(secret)),
+      }).toEqual({ label, inFrame: false });
+    sock.close();
+  });
+
+  it("the agent that made a hook rotates it and gets the new secret, but cannot read it; a non-maker agent, a privileged agent, an office owner's agent and an API token cannot rotate", async () => {
+    const { srv, alice, aliceId, roomA } = await office();
+    const sock = await srv.connectWs(alice.rawSessionId);
+    const asAlice = { rawSessionId: alice.rawSessionId };
+    const morganId = getUserByName("Morgan")!.id;
+    const maker = await spawnAgent(srv, "Maker", roomA);
+    const sibling = await spawnAgent(srv, "Sibling", roomA);
+    const operator = await spawnAgent(srv, "Operator", roomA);
+    const owners = await spawnAgent(srv, "OwnersBot", roomA);
+    const asMaker = { bearer: mintAgentToken(maker.id, aliceId) };
+    const created = await api(srv, "/api/webhooks", asMaker, {
+      method: "POST",
+      body: hookBody(undefined),
+    });
+    expect(created.status).toBe(201);
+    const { id, secret: first } = created.body as WebhookCreateRes;
+    const secretOf = async () =>
+      (
+        (await api(srv, `/api/webhooks/${id}/secret`, asAlice)).body as {
+          secret: string;
+        }
+      ).secret;
+    expect(await secretOf()).toBe(first);
+
+    // The maker reads nothing later: GET /secret stays with members.
+    expect((await api(srv, `/api/webhooks/${id}/secret`, asMaker)).status).toBe(
+      403,
+    );
+
+    const refused: [string, Caller][] = [
+      [
+        "agent of the same manager",
+        { bearer: mintAgentToken(sibling.id, aliceId) },
+      ],
+      [
+        "privileged agent of the same manager",
+        { bearer: mintAgentToken(operator.id, aliceId, true) },
+      ],
+      [
+        "office owner's privileged agent",
+        { bearer: mintAgentToken(owners.id, morganId, true) },
+      ],
+      [
+        "API token",
+        {
+          bearer: (
+            await mintApiToken({
+              userId: aliceId,
+              name: "Laptop",
+              expiresInDays: null,
+            })
+          ).token,
+        },
+      ],
+    ];
+    for (const [label, caller] of refused) {
+      const res = await api(srv, `/api/webhooks/${id}/secret`, caller, {
+        method: "POST",
+      });
+      expect({ label, status: res.status }).toEqual({ label, status: 403 });
+    }
+    expect(await secretOf()).toBe(first);
+
+    const rotated = await api(srv, `/api/webhooks/${id}/secret`, asMaker, {
+      method: "POST",
+    });
+    expect(rotated.status).toBe(200);
+    const second = (rotated.body as { secret: string }).secret;
+    expect(SECRET.test(second)).toBe(true);
+    expect(second).not.toBe(first);
+    expect(await secretOf()).toBe(second);
+    // Later reads by the maker and the frames do not hold the new one.
+    for (const path of ["/api/webhooks", `/api/webhooks/${id}`]) {
+      const res = await api(srv, path, asMaker);
+      expect({ path, leaks: res.text.includes(second) }).toEqual({
+        path,
+        leaks: false,
+      });
+    }
+    const frames = sock.messages.map((m) => JSON.stringify(m));
+    expect(frames.some((f) => f.includes(second))).toBe(false);
+    sock.close();
+  });
+
+  // An office owner's agent passes the route's owner-or-office-owner guard
+  // on any hook, so only the maker arm's own owner check refuses it here.
+  it("the maker agent cannot rotate a hook that another member owns now, even when its manager is an office owner", async () => {
+    const { srv, roomA } = await office();
+    const carol = await srv.seedMember("Carol");
+    const carolId = getUserByName("Carol")!.id;
+    const morganId = getUserByName("Morgan")!.id;
+    const maker = await spawnAgent(srv, "Maker", roomA);
+    const asMaker = { bearer: mintAgentToken(maker.id, morganId) };
+    const created = await api(srv, "/api/webhooks", asMaker, {
+      method: "POST",
+      body: hookBody(undefined),
+    });
+    expect(created.status).toBe(201);
+    const { id, secret } = created.body as WebhookCreateRes;
+    expect(webhookRegistry.get(id)?.createdByAgentId).toBe(maker.id);
+    // The enabling condition: before the hook passes, the maker may rotate.
+    const own = await api(srv, `/api/webhooks/${id}/secret`, asMaker, {
+      method: "POST",
+    });
+    expect(own.status).toBe(200);
+    const live = (own.body as { secret: string }).secret;
+    expect(live).not.toBe(secret);
+    webhookRegistry.setOwner(id, carolId, "Carol");
+    expect(webhookRegistry.get(id)?.userId).toBe(carolId);
+    const res = await api(srv, `/api/webhooks/${id}/secret`, asMaker, {
+      method: "POST",
+    });
+    expect(res.status).toBe(403);
+    const read = await api(srv, `/api/webhooks/${id}/secret`, {
+      rawSessionId: carol.rawSessionId,
+    });
+    expect((read.body as { secret: string }).secret).toBe(live);
   });
 });
 

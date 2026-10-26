@@ -71,6 +71,7 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     cronjobCreatorAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
+    webhookCreatorAgentId: () => null,
     isOfficeOwnerUserId: () => false,
     // Default: the target agent is managed by the member fixture (for the
     // setPrivileged (i-b) tests, which override per case).
