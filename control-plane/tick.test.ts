@@ -48,6 +48,11 @@ function clock(start = 1_000_000) {
   };
 }
 
+/** The audit rows the reconcile loop's provider reads wrote. */
+async function providerGetRows(store: Store) {
+  return (await store.auditEvents()).filter((e) => e.action === "provider_get");
+}
+
 async function seed(store: Store, goal = "live"): Promise<string> {
   await store.createInstance({
     id: "inst-1",
@@ -803,6 +808,8 @@ describe("reconcile", () => {
     expect((await store.assetForInstance(inst))?.next_reconcile_at).toBe(
       c.now() + 60_000,
     );
+    // Nothing was read from a provider, so nothing is audited.
+    expect(await providerGetRows(store)).toEqual([]);
   });
 
   test("moves the asset row toward what the provider says", async () => {
@@ -836,12 +843,24 @@ describe("reconcile", () => {
     expect(asset.asset_state).toBe("cancel_scheduled");
     expect(asset.ipv4).toBe("169.58.97.2");
     expect(asset.next_reconcile_at).toBeGreaterThan(c.now());
-    // The provider read is audited.
-    const actions = (await store.auditEvents()).map(
-      (e) => `${e.action}:${e.outcome}`,
-    );
-    expect(actions).toContain("provider_get:started");
-    expect(actions).toContain("provider_get:succeeded");
+    // The change is audited once: it names what moved, and the state
+    // transition in our own terms, but carries no provider value.
+    const rows = await providerGetRows(store);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].outcome).toBe("succeeded");
+    expect(rows[0].instance_id).toBe(inst);
+    const detail = rows[0].detail ?? "";
+    for (const part of [
+      "asset_state",
+      "active",
+      "cancel_scheduled",
+      "ipv4",
+      "service_ends_at",
+    ]) {
+      expect(detail).toContain(part);
+    }
+    expect(detail).not.toContain("169.58.97.2");
+    expect(detail).not.toContain("2026-08-29");
   });
 
   test("an absent asset stops being read once its office is deprovisioned", async () => {
@@ -897,6 +916,155 @@ describe("reconcile", () => {
     });
     await ticker.once();
     expect(reads).toEqual(["asset-absent"]);
+  });
+});
+
+describe("a provider poll is audited only when it fails or changes our row", () => {
+  // The row the poll compares against. Every column the reconcile patch can
+  // write holds a value, so "the provider left it out" and "the provider
+  // agrees" are both expressible.
+  const ROW = {
+    asset_state: "active",
+    ipv4: "192.0.2.10",
+    service_ends_at: "2026-12-31",
+  };
+
+  async function pollOnce(truth: {
+    assetState: string;
+    ipv4?: string;
+    serviceEndsAt?: string;
+  }) {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
+      id: "asset-poll",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-poll",
+      intent_id: null,
+      ...ROW,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
+    let reads = 0;
+    const ticker = new Ticker({
+      store,
+      handlers: [],
+      now: c.now,
+      reconcile: async () => {
+        reads++;
+        return truth;
+      },
+    });
+    await ticker.once();
+    const asset = (await store.getAsset("asset-poll"))!;
+    // The poll ran and its answer was applied: the reconcile moved on.
+    expect(reads).toBe(1);
+    expect(asset.next_reconcile_at).toBe(c.now() + 60_000);
+    return { inst, asset, rows: await providerGetRows(store) };
+  }
+
+  test("a poll that agrees with our row writes no audit row", async () => {
+    for (const truth of [
+      {
+        assetState: ROW.asset_state,
+        ipv4: ROW.ipv4,
+        serviceEndsAt: ROW.service_ends_at,
+      },
+      // A field the provider leaves out is not written, so it is no change.
+      { assetState: ROW.asset_state },
+    ]) {
+      const { asset, rows } = await pollOnce(truth);
+      expect({
+        asset_state: asset.asset_state,
+        ipv4: asset.ipv4,
+        service_ends_at: asset.service_ends_at,
+      }).toEqual(ROW);
+      expect(rows).toEqual([]);
+    }
+  });
+
+  test("each changed column alone writes one row that names it", async () => {
+    const cases = [
+      {
+        field: "asset_state",
+        truth: {
+          assetState: "cancel_scheduled",
+          ipv4: ROW.ipv4,
+          serviceEndsAt: ROW.service_ends_at,
+        },
+        applied: { asset_state: "cancel_scheduled" },
+        hidden: [],
+      },
+      {
+        field: "ipv4",
+        truth: {
+          assetState: ROW.asset_state,
+          ipv4: "198.51.100.7",
+          serviceEndsAt: ROW.service_ends_at,
+        },
+        applied: { ipv4: "198.51.100.7" },
+        hidden: ["198.51.100.7"],
+      },
+      {
+        field: "service_ends_at",
+        truth: {
+          assetState: ROW.asset_state,
+          ipv4: ROW.ipv4,
+          serviceEndsAt: "2027-01-15",
+        },
+        applied: { service_ends_at: "2027-01-15" },
+        hidden: ["2027-01-15"],
+      },
+    ];
+    const fields = cases.map((k) => k.field);
+    for (const k of cases) {
+      const { inst, asset, rows } = await pollOnce(k.truth);
+      expect(asset).toMatchObject(k.applied);
+      expect(rows.map((r) => [r.instance_id, r.outcome])).toEqual([
+        [inst, "succeeded"],
+      ]);
+      const detail = rows[0].detail ?? "";
+      expect(detail).toContain(k.field);
+      for (const other of fields.filter((f) => f !== k.field)) {
+        expect(detail).not.toContain(other);
+      }
+      for (const value of k.hidden) expect(detail).not.toContain(value);
+    }
+  });
+
+  test("a refused poll writes one failed row and no provider text", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
+      id: "asset-refused",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-refused",
+      intent_id: null,
+      ...ROW,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
+    const ticker = new Ticker({
+      store,
+      handlers: [],
+      now: c.now,
+      reconcile: async () => {
+        throw new Error("provider returned HTTP 400");
+      },
+    });
+    await ticker.once();
+    // The failure path ran: it rescheduled the read.
+    expect((await store.getAsset("asset-refused"))?.next_reconcile_at).toBe(
+      c.now() + 60_000,
+    );
+    const rows = await providerGetRows(store);
+    expect(rows.map((r) => [r.instance_id, r.outcome, r.detail])).toEqual([
+      [inst, "failed", null],
+    ]);
   });
 });
 
@@ -1339,6 +1507,9 @@ describe("reconcile losers re-read", () => {
     // number, which is the trap this rule exists to close.
     expect(asset.asset_state).toBe("cancelled");
     expect(asset.ipv4).toBe("10.0.0.1");
+    // Our response differed from the row we read, but we changed nothing, so
+    // we record nothing: the winner audits its own change.
+    expect(await providerGetRows(store)).toEqual([]);
   });
 
   test("a failed read does not push out a newer schedule set by someone else", async () => {
@@ -1442,10 +1613,9 @@ describe("a real faulted provider seam reaches the audit trail as ambiguous", ()
       },
     });
     await ticker.once();
-    const actions = (await store.auditEvents()).map(
-      (e) => `${e.action}:${e.outcome}`,
-    );
-    expect(actions).toContain("provider_get:ambiguous");
-    expect(actions).not.toContain("provider_get:failed");
+    const rows = await providerGetRows(store);
+    expect(rows.map((r) => [r.instance_id, r.outcome, r.detail])).toEqual([
+      [inst, "ambiguous", null],
+    ]);
   });
 });

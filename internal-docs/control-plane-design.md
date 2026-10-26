@@ -856,7 +856,9 @@ in-flight box is the sharpest thing in this design:
   interpolated from customer input. No dashboard SSH proxy, ever.
 - Host key pinned on first contact; a later mismatch is a hard stop that pages
   us, not a warning.
-- Every remote action lands in `audit_events`.
+- Every remote action lands in `audit_events`. A provider poll is a read, not
+  an action: it writes a row only when it fails, is ambiguous, or changes our
+  asset row, so a box whose provider read keeps failing writes one a minute.
 - Keys are destroyed at revocation, which bounds the blast radius by how many
   customers are mid-setup rather than by how many exist.
 

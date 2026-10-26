@@ -278,11 +278,11 @@ export class Ticker {
   private async reconcileAssets(): Promise<void> {
     if (!this.reconcileFn) return;
     for (const asset of await this.store.assetsDueForReconcile(this.now())) {
+      // A poll is a read, not an action: it writes an audit row only when it
+      // fails, is ambiguous, or changes our row.
       let truth;
-      await this.auditRow(asset.instance_id, "provider_get", "started");
       try {
         truth = await this.reconcileFn(asset);
-        await this.auditRow(asset.instance_id, "provider_get", "succeeded");
       } catch (err) {
         await this.auditRow(
           asset.instance_id,
@@ -307,7 +307,19 @@ export class Ticker {
           : { service_ends_at: truth.serviceEndsAt }),
         next_reconcile_at: this.now() + RECONCILE_INTERVAL_MS,
       };
-      if (!(await this.store.casAsset(asset.id, asset.version, patch))) {
+      // Measured against the row this loop read, so it is the change only when
+      // the CAS below wins on that same version.
+      const drift = driftOf(asset, truth);
+      if (await this.store.casAsset(asset.id, asset.version, patch)) {
+        if (drift) {
+          await this.auditRow(
+            asset.instance_id,
+            "provider_get",
+            "succeeded",
+            drift,
+          );
+        }
+      } else {
         // A losing writer re-reads and DECIDES - and the decision here is to
         // DROP this response. Re-applying it on the winner's version would put
         // our older provider answer on top of their newer one, which is the
@@ -789,6 +801,32 @@ export function serviceStateAfter(kind: OperationKind): ServiceState | null {
   // "is it up" into service state is exactly the collapse it warns about.
   if (kind === "power_on") return "live";
   return null;
+}
+
+/**
+ * What a provider answer changes in our asset row, as audit detail: the column
+ * names, plus the asset_state transition because both sides are our own enum.
+ * Never a provider value such as an address or a date. Null when nothing
+ * changes. A field the answer leaves out is not written, so it is no change.
+ */
+function driftOf(
+  asset: AssetRow,
+  truth: { assetState: string; ipv4?: string; serviceEndsAt?: string },
+): string | null {
+  const changed: string[] = [];
+  if (truth.assetState !== asset.asset_state) {
+    changed.push(`asset_state ${asset.asset_state} -> ${truth.assetState}`);
+  }
+  if (truth.ipv4 !== undefined && truth.ipv4 !== asset.ipv4) {
+    changed.push("ipv4");
+  }
+  if (
+    truth.serviceEndsAt !== undefined &&
+    truth.serviceEndsAt !== asset.service_ends_at
+  ) {
+    changed.push("service_ends_at");
+  }
+  return changed.length ? changed.join("; ") : null;
 }
 
 /**
