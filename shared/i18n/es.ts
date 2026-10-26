@@ -794,6 +794,8 @@ Cosas que puedes hacer por él:
     "Portapapeles bloqueado. La URL de arriba está seleccionada - cópiala a mano.",
   "settings.access.sendUrl":
     "Envía esta URL a la persona invitada. Es de un solo uso: al abrirla en su dispositivo, entra. La URL se muestra una vez - cópiala ahora.",
+  "settings.access.signInUrl": "URL de inicio de sesión",
+  "settings.access.openUrlSelf": "La URL se muestra una vez - cópiala ahora.",
 
   "settings.invites.intro":
     "Un enlace de inicio de sesión inicia la sesión de un dispositivo como un miembro existente. Para invitar a un miembro nuevo, créalo primero en <i>Miembros</i>.",

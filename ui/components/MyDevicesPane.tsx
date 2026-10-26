@@ -138,7 +138,7 @@ function GenerateDeviceLinkForm() {
           {error}
         </p>
       )}
-      {mintedUrl && <MintedUrlBox url={mintedUrl} />}
+      {mintedUrl && <MintedUrlBox url={mintedUrl} forSelf />}
     </div>
   );
 }

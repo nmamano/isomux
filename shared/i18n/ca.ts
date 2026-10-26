@@ -791,6 +791,8 @@ Coses que pots fer per ell:
     "Porta-retalls bloquejat. La URL de dalt està seleccionada - copia-la a mà.",
   "settings.access.sendUrl":
     "Envia aquesta URL a la persona convidada. És d'un sol ús: en obrir-la al seu dispositiu, hi entra. La URL es mostra un cop - copia-la ara.",
+  "settings.access.signInUrl": "URL d'inici de sessió",
+  "settings.access.openUrlSelf": "La URL es mostra un cop - copia-la ara.",
 
   "settings.invites.intro":
     "Un enllaç d'inici de sessió inicia la sessió d'un dispositiu com a membre existent. Per convidar un membre nou, crea'l primer a <i>Membres</i>.",

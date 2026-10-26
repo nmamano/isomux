@@ -341,7 +341,7 @@ function ExternalAccessSection({
               <p style={{ ...hint, marginTop: 10 }}>
                 {t("settings.externalAccess.signInAfterRestart")}
               </p>
-              <MintedUrlBox url={signInUrl} />
+              <MintedUrlBox url={signInUrl} forSelf />
             </>
           )}
         </div>

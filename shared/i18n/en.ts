@@ -791,6 +791,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Clipboard blocked. The URL above is selected - copy it manually.",
   "settings.access.sendUrl":
     "Send this URL to the invitee. It's one-time: opening it on their device signs them in. The URL is shown once - copy it now.",
+  // The same box when the link is for the member's own device.
+  "settings.access.signInUrl": "Sign-in URL",
+  "settings.access.openUrlSelf": "The URL is shown once - copy it now.",
 
   "settings.invites.intro":
     "A sign-in link signs one device in as an existing member. To invite a new member, create them first in <i>Members</i>.",

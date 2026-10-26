@@ -717,6 +717,8 @@ App 的一些原则：
     "剪贴板被阻止。已选中上方的 URL，请手动复制。",
   "settings.access.sendUrl":
     "请将此 URL 发给受邀者。此链接只能使用一次：在受邀者的设备上打开即可登录。URL 只显示一次，请立即复制。",
+  "settings.access.signInUrl": "登录 URL",
+  "settings.access.openUrlSelf": "URL 只显示一次，请立即复制。",
   "settings.invites.intro":
     "登录链接让一台设备以现有成员身份登录。要邀请新成员，请先在<i>成员</i>中创建。",
   "settings.invites.linkHint":

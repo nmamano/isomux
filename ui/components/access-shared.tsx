@@ -66,8 +66,15 @@ export function renderListSection<T>(
 // Surfaces a freshly-minted invite URL with a working copy button and
 // visible feedback. Falls back to a hidden-textarea + execCommand path
 // when navigator.clipboard rejects (mobile, focus quirks, permissions);
-// final fallback selects the URL so the user can copy manually.
-export function MintedUrlBox({ url }: { url: string }) {
+// final fallback selects the URL so the user can copy manually. `forSelf`
+// marks a link for the member's own device: no invitee to send it to.
+export function MintedUrlBox({
+  url,
+  forSelf = false,
+}: {
+  url: string;
+  forSelf?: boolean;
+}) {
   const { t } = useI18n();
   const { isMobile } = useAppState();
   const codeRef = useRef<HTMLElement | null>(null);
@@ -140,7 +147,7 @@ export function MintedUrlBox({ url }: { url: string }) {
   return (
     <div style={mintedBox}>
       <div style={{ ...subLabel, marginTop: 0 }}>
-        {t("settings.access.inviteUrl")}
+        {t(forSelf ? "settings.access.signInUrl" : "settings.access.inviteUrl")}
       </div>
       <div style={mintedRow}>
         <code ref={codeRef} style={codeStyle}>
@@ -151,11 +158,11 @@ export function MintedUrlBox({ url }: { url: string }) {
             void handleCopy();
           }}
           // The URL is shown once and copying it is the only action here,
-          // so the button is the primary one, sized for a thumb on a phone.
+          // so the button is the primary one, with a larger label on a phone.
           style={{
             ...dialogSaveBtn,
             flexShrink: 0,
-            ...(isMobile ? { padding: "10px 18px", fontSize: 14 } : null),
+            ...(isMobile ? { padding: "7px 12px", fontSize: 14 } : null),
           }}
           title={t("settings.access.copyUrl")}
         >
@@ -169,7 +176,9 @@ export function MintedUrlBox({ url }: { url: string }) {
           {t("settings.access.clipboardBlocked")}
         </p>
       )}
-      <p style={hint}>{t("settings.access.sendUrl")}</p>
+      <p style={hint}>
+        {t(forSelf ? "settings.access.openUrlSelf" : "settings.access.sendUrl")}
+      </p>
     </div>
   );
 }
