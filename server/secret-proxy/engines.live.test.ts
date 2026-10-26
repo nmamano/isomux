@@ -444,14 +444,20 @@ describe.skipIf(!LIVE || !HAS_OPENSSL)(
 
     test("no tool reached a host outside the stubs", () => {
       const allowed = new Set(MODEL_HOSTS.map((h) => `${h}:443`));
-      // Codex asks for github.com and api.github.com at start; the deny
-      // proxy refuses them, as it refuses any host it does not route.
-      const others = [...new Set(deny.connects)].filter((c) => !allowed.has(c));
-      expect(
-        others.every(
-          (c) => c === "github.com:443" || c === "api.github.com:443",
-        ),
-      ).toBe(true);
+      // Hosts a tool asks for at start. The deny proxy refuses them, as it
+      // refuses any host it does not route.
+      const refused = new Set([
+        // Codex: github.com and api.github.com.
+        "github.com:443",
+        "api.github.com:443",
+        // OpenCode 2, only with OPENCODE_API_KEY set: its provider config
+        // (opencode.ai/console/api/v2/config).
+        ...(env.OPENCODE_API_KEY ? ["opencode.ai:443"] : []),
+      ]);
+      const extra = [...new Set(deny.connects)].filter(
+        (c) => !allowed.has(c) && !refused.has(c),
+      );
+      expect(extra).toEqual([]);
     });
   },
 );
