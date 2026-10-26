@@ -7,17 +7,19 @@
 // Expected text comes from the catalog engine; `differs` proves a Spanish
 // expectation is not the English one (testing guide, principle 15).
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, jest, setSystemTime } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { render, fireEvent } = await import("@testing-library/react");
+const { render, fireEvent, act } = await import("@testing-library/react");
 const { LogEntryCard } = await import("./LogEntryCard.tsx");
 const { ChoiceInteractionCard } = await import("./LogView.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { msg } = await import("../../shared/i18n/log-message.ts");
+const { formatDateTime, timeSince, timeUntilFine } =
+  await import("../../shared/i18n/time.ts");
 
 import type { AgentChoiceInteraction, LogEntry } from "../../shared/types.ts";
 
@@ -80,6 +82,60 @@ describe("a log entry with a message", () => {
     );
     expect(view.container.textContent).toBe(switched());
     view.unmount();
+  });
+});
+
+// Task 9845e1da: a line with a relative moment ("in 3 hours") is worded
+// against the reader's clock, and a chat left open re-words it as the clock
+// moves, so it never says "in 3 hours" after the reset.
+describe("a log entry with a relative moment", () => {
+  it("re-words the moment on screen as the clock passes it", async () => {
+    const HOUR = 60 * 60 * 1000;
+    const reset = Date.UTC(2026, 9, 20, 12, 0);
+    const want = (relative: string) =>
+      es.t("systemEntries.usageLimit.stopped", {
+        at: formatDateTime("es", reset, "weekdayDateTime"),
+        relative,
+      });
+    const e: LogEntry = {
+      id: "e1",
+      agentId: "agent",
+      timestamp: 0,
+      kind: "system",
+      content: "stored English",
+      message: [
+        msg("systemEntries.usageLimit.stopped", {
+          at: { time: reset, shape: "weekdayDateTime" },
+          relative: { relative: reset },
+        }),
+      ],
+    };
+    jest.useFakeTimers();
+    try {
+      const before = reset - 3 * HOUR;
+      setSystemTime(new Date(before));
+      const until = timeUntilFine("es", reset, before);
+      expect(until.kind).toBe("formatted");
+      const view = render(onLanguage("es", <LogEntryCard entry={e} />));
+      expect(view.container.textContent).toBe(
+        want(until.kind === "formatted" ? until.text : ""),
+      );
+      // Two hours past the reset, with nothing else re-rendering the card.
+      const after = reset + 2 * HOUR;
+      setSystemTime(new Date(after));
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+      const since = timeSince("es", reset, after);
+      expect(since.kind).toBe("formatted");
+      expect(view.container.textContent).toBe(
+        want(since.kind === "formatted" ? since.text : ""),
+      );
+      view.unmount();
+    } finally {
+      jest.useRealTimers();
+      setSystemTime();
+    }
   });
 });
 

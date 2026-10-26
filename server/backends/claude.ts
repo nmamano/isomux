@@ -971,6 +971,9 @@ export class ClaudeSession implements BackendSession {
   // can never go stale across resume/swap (each new session gets a fresh one).
   private readonly taskTracker = new TaskBreadcrumbTracker();
   private readonly usageLimitTracker = new ClaudeUsageLimitTracker();
+  // The translated CLI limit sentence, held until the turn's result says
+  // whether a usage-limit stop replaces it.
+  private heldLimitEvents: NormalizedEvent[] = [];
   private pendingApprovals = new Map<
     string,
     {
@@ -1078,16 +1081,23 @@ export class ClaudeSession implements BackendSession {
       for await (const msg of this.conversation.messages()) {
         this.observePlanMode(msg);
         // Before the translation: a stop it reports goes ahead of the
-        // result's turn_completed.
-        for (const ev of this.usageLimitTracker.observe(msg)) {
-          this.enqueue(ev);
+        // result's turn_completed, and replaces the CLI's limit sentence,
+        // which names the server's time zone (agent-manager words the reset
+        // for each reader). With no stop the sentence goes out as before.
+        const limitSentence = ClaudeUsageLimitTracker.isLimitMessage(msg);
+        const stop = this.usageLimitTracker.observe(msg);
+        if (msg.type === "result") {
+          if (stop.length > 0) this.heldLimitEvents = [];
+          else this.flushHeldLimitEvents();
         }
+        for (const ev of stop) this.enqueue(ev);
         for (const ev of translateSDKMessage(
           msg,
           this.imageSink,
           this.translateOptions,
         )) {
-          this.enqueue(ev);
+          if (limitSentence) this.heldLimitEvents.push(ev);
+          else this.enqueue(ev);
         }
         // Background-task lifecycle breadcrumbs ride after the message's
         // translated events (task_started for a tool arrives in a later SDK
@@ -1097,6 +1107,7 @@ export class ClaudeSession implements BackendSession {
         }
       }
     } catch (err) {
+      this.flushHeldLimitEvents();
       if (!this.closed) {
         for (const ev of claudeAuthSignal(
           { kind: "error", message: errMessage(err) },
@@ -1105,9 +1116,17 @@ export class ClaudeSession implements BackendSession {
           this.enqueue(ev);
       }
     } finally {
+      this.flushHeldLimitEvents();
       this.ended = true;
       this.wake();
     }
+  }
+
+  // A stream that ends before the result still shows the held sentence.
+  private flushHeldLimitEvents() {
+    const held = this.heldLimitEvents;
+    this.heldLimitEvents = [];
+    for (const ev of held) this.enqueue(ev);
   }
 
   private enqueue(ev: NormalizedEvent) {
@@ -1705,17 +1724,23 @@ class ClaudeUsageLimitTracker {
   private latest: { status?: unknown; resetsAt?: unknown } | null = null;
   private stoppedThisTurn = false;
 
+  // The main thread's synthetic limit message.
+  static isLimitMessage(msg: SDKMessage): boolean {
+    return (
+      msg.type === "assistant" &&
+      msg.error === "rate_limit" &&
+      msg.message?.model === "<synthetic>" &&
+      !msg.parent_tool_use_id
+    );
+  }
+
   observe(msg: SDKMessage): NormalizedEvent[] {
     if (msg.type === "rate_limit_event") {
       this.latest = msg.rate_limit_info ?? null;
       return [];
     }
     if (msg.type === "assistant") {
-      if (
-        msg.error === "rate_limit" &&
-        msg.message?.model === "<synthetic>" &&
-        !msg.parent_tool_use_id
-      )
+      if (ClaudeUsageLimitTracker.isLimitMessage(msg))
         this.stoppedThisTurn = true;
       return [];
     }

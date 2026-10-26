@@ -178,7 +178,8 @@ const persistedAt = (id: string) =>
     .find((a) => a.id === id)?.limitResumeAt;
 
 // A member turn that a usage limit stops. `resetsAtMs` is what the engine
-// reports; Codex ends such a turn failed, after an error.
+// reports; Codex ends such a turn failed. Neither adapter sends the engine's
+// own sentence when it reports a stop (task 9845e1da).
 async function limitedTurn(
   h: Harness,
   id: string,
@@ -195,7 +196,6 @@ async function limitedTurn(
   );
   const s = h.fake.sessionForAgent(id)!;
   if (engine === "codex") {
-    s.push({ kind: "error", message: "You've hit your usage limit." });
     s.push({ kind: "usage_limit_stop", resetsAtMs });
     s.push({
       kind: "turn_completed",
@@ -204,7 +204,6 @@ async function limitedTurn(
     });
     await waitUntil(() => stateOf(h, id) === "error", "codex stop: error");
   } else {
-    s.push({ kind: "system_text", text: "You've hit your limit" });
     s.push({ kind: "usage_limit_stop", resetsAtMs });
     s.completeTurn();
     await waitUntil(
@@ -256,6 +255,115 @@ describe("resume after a usage limit", () => {
       expect(resumesSent(h)).toBe(1);
     });
   }
+});
+
+// Task 9845e1da: Isomux writes the stop as its own line, a message each reader
+// words in their own language and time zone, in place of the engine's
+// sentence (worded in the server's zone).
+describe("the usage-limit notice", () => {
+  const notices = (h: Harness) =>
+    h.logs.filter(
+      (e) =>
+        Array.isArray(e.message) &&
+        e.message.some(
+          (p) =>
+            typeof p === "object" &&
+            p.key === "systemEntries.usageLimit.stopped",
+        ),
+    );
+
+  for (const engine of ["claude", "codex"] as const) {
+    it(`${engine}: one system line carries the reset as data, and no error line`, async () => {
+      const h = makeHarness();
+      const info = await spawn(h, engine);
+      const reset = h.clock.now() + 5 * HOUR;
+      await limitedTurn(h, info.id, reset, engine);
+      await settle();
+      const lines = notices(h);
+      expect(lines.map((e) => ({ kind: e.kind, message: e.message }))).toEqual([
+        {
+          kind: "system",
+          message: [
+            {
+              key: "systemEntries.usageLimit.stopped",
+              params: {
+                at: { time: reset, shape: "weekdayDateTime" },
+                relative: { relative: reset },
+              },
+            },
+          ],
+        },
+      ]);
+      // The failed Codex turn and its caller add nothing: the notice is the
+      // one line.
+      expect(h.logs.filter((e) => e.kind === "error")).toEqual([]);
+      // A Codex stop still leaves the agent in error, as before.
+      expect(stateOf(h, info.id)).toBe(
+        engine === "codex" ? "error" : "waiting_for_response",
+      );
+    });
+  }
+
+  it("is written with the resume switched off", async () => {
+    const h = makeHarness();
+    const info = await spawn(h);
+    await h.mgr.editAgent(info.id, { limitResume: false });
+    await limitedTurn(h, info.id, h.clock.now() + HOUR);
+    await settle();
+    expect(notices(h)).toHaveLength(1);
+  });
+
+  it("a failed Codex turn with no stop keeps its error line", async () => {
+    const h = makeHarness();
+    const info = await spawn(h, "codex");
+    void h.mgr.sendMessage(info.id, "work");
+    await waitUntil(
+      () =>
+        stateOf(h, info.id) === "thinking" &&
+        texts(h.fake.sessionForAgent(info.id)).some((t) => t.endsWith("work")),
+      "member turn running",
+    );
+    h.fake.sessionForAgent(info.id)!.push({
+      kind: "turn_completed",
+      status: "failed",
+      error: "You've hit your usage limit.",
+    });
+    await waitUntil(() => stateOf(h, info.id) === "error", "turn failed");
+    await settle();
+    expect(notices(h)).toEqual([]);
+    expect(
+      h.logs.filter(
+        (e) =>
+          e.kind === "error" &&
+          e.content.includes("You've hit your usage limit."),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a stop in an earlier turn does not silence a later failure", async () => {
+    const h = makeHarness();
+    const info = await spawn(h, "codex");
+    await limitedTurn(h, info.id, h.clock.now() + HOUR, "codex");
+    void h.mgr.sendMessage(info.id, "again");
+    await waitUntil(
+      () =>
+        stateOf(h, info.id) === "thinking" &&
+        texts(h.fake.sessionForAgent(info.id)).some((t) => t.endsWith("again")),
+      "second turn running",
+    );
+    h.fake.sessionForAgent(info.id)!.push({
+      kind: "turn_completed",
+      status: "failed",
+      error: "stream disconnected",
+    });
+    await waitUntil(() => stateOf(h, info.id) === "error", "turn failed");
+    await settle();
+    expect(
+      h.logs.filter(
+        (e) => e.kind === "error" && e.content.includes("stream disconnected"),
+      ),
+    ).toHaveLength(1);
+  });
 });
 
 // Task 10d7ead6: the resume finishes the member's request, so its turn end is

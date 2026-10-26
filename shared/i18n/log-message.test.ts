@@ -12,6 +12,7 @@
 
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import {
+  hasLiveTimeParam,
   logEntryText,
   localizeLogParts,
   msg,
@@ -292,6 +293,167 @@ describe("slice 2 value kinds", () => {
       });
     expect(renderLogText(en, m)).toBe(want(en));
     expect(localizeLogParts(es, [m])).toBe(differs(want(es), want(en)));
+  });
+});
+
+// A relative moment is the one value worded against the READER's clock (task
+// 9845e1da): a usage-limit notice read after the reset must not still say
+// "in 3 hours". A duration or elapsed time, above, is frozen at write.
+describe("a relative moment is worded when it is read", () => {
+  afterEach(() => setSystemTime());
+
+  const RESET = Date.UTC(2026, 9, 20, 12, 0);
+  const HOUR = 60 * 60 * 1000;
+  const notice = () =>
+    msg("systemEntries.usageLimit.stopped", {
+      at: { time: RESET, shape: "weekdayDateTime" },
+      relative: { relative: RESET },
+    });
+  const want = (tr: typeof en, relative: string) =>
+    tr.t("systemEntries.usageLimit.stopped", {
+      at: formatDateTime(tr.language, RESET, "weekdayDateTime"),
+      relative,
+    });
+  const until = (lang: "en" | "es", now: number) => {
+    const r = timeUntilFine(lang, RESET, now);
+    expect(r.kind).toBe("formatted");
+    return r.kind === "formatted" ? r.text : "";
+  };
+  const since = (lang: "en" | "es", now: number) => {
+    const r = timeSince(lang, RESET, now);
+    expect(r.kind).toBe("formatted");
+    return r.kind === "formatted" ? r.text : "";
+  };
+
+  it("before the moment, the time left; after it, the time since", () => {
+    const before = RESET - 3 * HOUR;
+    setSystemTime(new Date(before));
+    expect(localizeLogParts(es, [notice()])).toBe(
+      differs(want(es, until("es", before)), want(en, until("en", before))),
+    );
+    expect(renderLogText(en, notice())).toBe(want(en, until("en", before)));
+
+    // The same stored line, read two hours after the reset.
+    const after = RESET + 2 * HOUR;
+    setSystemTime(new Date(after));
+    expect(localizeLogParts(es, [notice()])).toBe(
+      differs(want(es, since("es", after)), want(en, since("en", after))),
+    );
+    expect(renderLogText(en, notice())).toBe(want(en, since("en", after)));
+  });
+
+  it("under a minute either side is the reader's word for just now", () => {
+    for (const offset of [-20_000, 20_000]) {
+      setSystemTime(new Date(RESET + offset));
+      expect({ offset, text: localizeLogParts(es, [notice()]) }).toEqual({
+        offset,
+        text: differs(
+          want(es, es.t("common.justNow")),
+          want(en, en.t("common.justNow")),
+        ),
+      });
+    }
+  });
+
+  it("a malformed moment gives no line to a reader, and an empty value in the stored English", () => {
+    for (const relative of [NaN, Infinity, -Infinity, "5", null]) {
+      const bad = [
+        {
+          key: "systemEntries.usageLimit.stopped",
+          params: {
+            at: { time: RESET, shape: "weekdayDateTime" },
+            relative: { relative },
+          },
+        },
+      ];
+      expect({ relative, text: localizeLogParts(es, bad) }).toEqual({
+        relative,
+        text: null,
+      });
+      expect(renderLogText(en, bad as LogPart[])).toBe(want(en, ""));
+    }
+  });
+});
+
+// Which stored lines a view must re-word as the clock moves.
+describe("hasLiveTimeParam", () => {
+  const live = { relative: Date.UTC(2026, 9, 20, 12, 0) };
+
+  it("finds a relative moment at any depth", () => {
+    const top = {
+      key: "systemEntries.usageLimit.stopped",
+      params: { at: { time: 0, shape: "weekdayDateTime" }, relative: live },
+    };
+    const cases: [string, unknown][] = [
+      ["a top-level param", [top]],
+      ["after a plain string part", ["note: ", top]],
+      [
+        "inside a nested message",
+        [{ key: "systemEntries.contextCompacted", params: { summary: top } }],
+      ],
+      [
+        "inside a part list",
+        [
+          {
+            key: "systemEntries.contextCompacted",
+            params: { summary: { parts: ["a", top] } },
+          },
+        ],
+      ],
+      [
+        "inside a lowered message",
+        [
+          {
+            key: "systemEntries.contextCompacted",
+            params: { summary: { lower: top } },
+          },
+        ],
+      ],
+    ];
+    for (const [name, parts] of cases)
+      expect({ name, live: hasLiveTimeParam(parts) }).toEqual({
+        name,
+        live: true,
+      });
+  });
+
+  it("a line with only frozen or fixed values is not live", () => {
+    const cases: [string, unknown][] = [
+      ["a plain message", [notFound()]],
+      [
+        "a duration and an elapsed time",
+        [
+          msg("systemEntries.usageCap.pace", { when: { duration: 60_000 } }),
+          msg("settings.storage.measured", { when: { elapsed: 60_000 } }),
+        ],
+      ],
+      [
+        "a date",
+        [
+          {
+            key: "systemEntries.pathRefusal.notFound",
+            params: { path: { time: 0, shape: "date" } },
+          },
+        ],
+      ],
+      ["plain text", ["just text"]],
+      ["no message", undefined],
+      ["not a list", "text"],
+    ];
+    for (const [name, parts] of cases)
+      expect({ name, live: hasLiveTimeParam(parts) }).toEqual({
+        name,
+        live: false,
+      });
+  });
+
+  it("returns on a cycle", () => {
+    const cyclic: { key: string; params: Record<string, unknown> } = {
+      key: "systemEntries.contextCompacted",
+      params: {},
+    };
+    cyclic.params.summary = cyclic;
+    expect(hasLiveTimeParam([cyclic])).toBe(false);
   });
 });
 

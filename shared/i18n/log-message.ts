@@ -44,6 +44,9 @@ export type LogParam =
   | { duration: number }
   // How long ago, frozen when the server writes it ("3 hours ago").
   | { elapsed: number }
+  // A moment (epoch ms) worded against the reader's clock when shown: "in 3
+  // hours" before it, "3 hours ago" after it (hasLiveTimeParam).
+  | { relative: number }
   // A message lowercased in the reader's language. Only for a label with no
   // placeholders: the whole rendered text is lowercased.
   | { lower: LogMessage }
@@ -154,6 +157,29 @@ export function logTextFields(text: LogText): {
   return content === null
     ? { content: renderLogText(ENGLISH, parts) }
     : { content, message: parts };
+}
+
+/**
+ * Whether `parts` holds a { relative } param at any depth, so a view that
+ * shows it re-words it as the clock moves.
+ */
+export function hasLiveTimeParam(parts: unknown): boolean {
+  return Array.isArray(parts) && parts.some((part) => isLive(part, 0));
+}
+
+function isLive(value: unknown, depth: number): boolean {
+  if (depth > MAX_DEPTH) return false;
+  if (Array.isArray(value)) return value.some((v) => isLive(v, depth + 1));
+  if (!isRecord(value)) return false;
+  if ("relative" in value) return true;
+  if ("key" in value)
+    return (
+      isRecord(value.params) &&
+      Object.values(value.params).some((v) => isLive(v, depth + 1))
+    );
+  if ("lower" in value) return isLive(value.lower, depth + 1);
+  if ("parts" in value) return isLive(value.parts, depth + 1);
+  return false;
 }
 
 const ENGLISH = translatorFor("en");
@@ -290,6 +316,18 @@ function wordParam(
     const now = Date.now();
     const since = timeSince(lang, now - elapsed, now);
     return since.kind === "formatted" ? since.text : tr.t("common.justNow");
+  }
+  if ("relative" in value) {
+    const { relative } = value;
+    if (typeof relative !== "number" || !Number.isFinite(relative))
+      return fail("");
+    const now = Date.now();
+    if (Math.abs(relative - now) < 60_000) return tr.t("common.justNow");
+    const span =
+      relative > now
+        ? timeUntilFine(lang, relative, now)
+        : timeSince(lang, relative, now);
+    return span.kind === "formatted" ? span.text : tr.t("common.justNow");
   }
   if ("lower" in value) {
     if (!isRecord(value.lower)) return fail("");

@@ -49,6 +49,7 @@ import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
 import {
+  hasLiveTimeParam,
   localizeLogParts,
   logEntryText,
 } from "../../shared/i18n/log-message.ts";
@@ -542,6 +543,17 @@ export function describeMessageSender(
   };
 }
 
+// Re-renders each minute while `on`: a line with a relative moment ("in 3
+// hours") is worded against the clock when shown.
+function useMinuteTick(on: boolean): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const id = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, [on]);
+}
+
 export const LogEntryCard = memo(function LogEntryCard({
   entry,
   isLastInTurn,
@@ -581,6 +593,7 @@ export const LogEntryCard = memo(function LogEntryCard({
 }) {
   const i18n = useI18n();
   const { t } = i18n;
+  useMinuteTick(hasLiveTimeParam(entry.message));
   // A server-written line in the reader's language (task c37a7365). Only what
   // is shown reads it; the detectors below keep reading entry.content.
   const display = logEntryText(i18n, entry);

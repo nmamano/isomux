@@ -2886,6 +2886,8 @@ Coses que pots fer per ell:
     "El traspàs automàtic està en pausa en aquesta conversa: ha començat per sobre del llindar de traspàs.",
   "systemEntries.limitResume.resumed":
     "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
+  "systemEntries.usageLimit.stopped":
+    "S'ha arribat al límit d'ús. Es reinicia el {at} ({relative}).",
   "systemEntries.usageCap.pace":
     "Els torns dels membres estan en pausa: l'ús de l'oficina ha arribat al límit d'avui per als membres. Es reprenen {when}.",
   "systemEntries.usageCap.headsUp":

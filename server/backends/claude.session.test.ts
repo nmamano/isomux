@@ -1766,6 +1766,9 @@ const kindsOf = (evs: NormalizedEvent[]) => evs.map((e) => e.kind).join(", ");
 const kinds = (evs: NormalizedEvent[]) => evs.map((e) => e.kind);
 const stops = (evs: NormalizedEvent[]) =>
   evs.filter((e) => e.kind === "usage_limit_stop");
+// The CLI's limit sentence as the chat would get it.
+const limitTexts = (evs: NormalizedEvent[]) =>
+  evs.filter((e) => e.kind === "system_text" && e.text === LIMIT_TEXT);
 
 describe("Claude usage-limit stop", () => {
   it("a rejected limit and the limit message report the reset, ahead of the turn's end", async () => {
@@ -1779,9 +1782,10 @@ describe("Claude usage-limit stop", () => {
       expect(stops(evs)).toEqual([
         { kind: "usage_limit_stop", resetsAtMs: RESETS_AT * 1000 },
       ]);
-      // The message still reaches the chat, and the stop comes right before
-      // the turn ends.
-      expect(evs).toContainEqual({ kind: "system_text", text: LIMIT_TEXT });
+      // The stop replaces the CLI's sentence, which names the server's time
+      // zone (task 9845e1da): Isomux words the reset for each reader. The
+      // stop comes right before the turn ends.
+      expect(limitTexts(evs)).toEqual([]);
       expect(kinds(evs).slice(-2)).toEqual([
         "usage_limit_stop",
         "turn_completed",
@@ -1814,6 +1818,9 @@ describe("Claude usage-limit stop", () => {
         RESULT,
       ]);
       expect(stops(evs)).toEqual([]);
+      // No stop: the CLI's sentence is the only word on it, in its place.
+      expect(limitTexts(evs)).toHaveLength(1);
+      expect(kinds(evs).slice(-2)).toEqual(["system_text", "turn_completed"]);
     } finally {
       s.close();
     }
@@ -1838,6 +1845,7 @@ describe("Claude usage-limit stop", () => {
         RESULT,
       ]);
       expect(stops(evs)).toEqual([]);
+      expect(limitTexts(evs)).toHaveLength(1);
     } finally {
       s.close();
     }
@@ -1852,8 +1860,49 @@ describe("Claude usage-limit stop", () => {
       delete event.rate_limit_info.resetsAt;
       const evs = await s.turn([event, limitMessage(), RESULT]);
       expect(stops(evs)).toEqual([]);
+      expect(limitTexts(evs)).toHaveLength(1);
     } finally {
       s.close();
+    }
+  });
+
+  // The sentence waits for the result to learn whether a stop replaces it.
+  // A stream that ends with no result still shows it, ahead of the error.
+  it("a held limit sentence still reaches the chat when the stream throws before the result", async () => {
+    const { session, conv } = makeSession(new FakeSdkClient());
+    const it = session.stream()[Symbol.asyncIterator]();
+    try {
+      conv.emit(rateLimitEvent("rejected"));
+      conv.emit(limitMessage());
+      conv.throwNext(new Error("transport boom"));
+      expect(await nextEvent(it)).toEqual({
+        kind: "system_text",
+        text: LIMIT_TEXT,
+      });
+      expect(await nextEvent(it)).toEqual({
+        kind: "error",
+        message: "transport boom",
+      });
+      expect((await it.next()).done).toBe(true);
+    } finally {
+      session.close();
+    }
+  });
+
+  it("a held limit sentence still reaches the chat when the stream ends before the result", async () => {
+    const { session, conv } = makeSession(new FakeSdkClient());
+    const it = session.stream()[Symbol.asyncIterator]();
+    try {
+      conv.emit(rateLimitEvent("rejected"));
+      conv.emit(limitMessage());
+      conv.finish();
+      expect(await nextEvent(it)).toEqual({
+        kind: "system_text",
+        text: LIMIT_TEXT,
+      });
+      expect((await it.next()).done).toBe(true);
+    } finally {
+      session.close();
     }
   });
 

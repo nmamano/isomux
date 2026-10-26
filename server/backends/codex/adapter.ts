@@ -1094,6 +1094,10 @@ export class CodexSession implements BackendSession {
   private modelProvider = "openai";
   // A usage limit ended this turn (codexErrorInfo "usageLimitExceeded").
   private usageLimitThisTurn = false;
+  // Codex's limit error, held until the turn's end shows whether a reset time
+  // replaces it: its sentence names the server's time zone, and agent-manager
+  // words the reset for each reader (endUsageLimitedTurn).
+  private heldLimitEvents: NormalizedEvent[] = [];
   // Items of this attempt the chat already shows: completed items and tool
   // cards shown at item/started. A capacity retry runs only while it is 0.
   private shownItemsThisAttempt = 0;
@@ -2045,8 +2049,10 @@ export class CodexSession implements BackendSession {
         pickCodexLimitBucket(this.rateLimitBuckets)?.snapshot ?? null,
       );
     const finish = (at: number | null) => {
-      if (at !== null)
+      if (at !== null) {
+        this.heldLimitEvents = [];
         this.enqueue({ kind: "usage_limit_stop", resetsAtMs: at });
+      } else this.flushHeldLimitEvents();
       this.enqueue(turnCompleted);
     };
     const known = resetsAtMs();
@@ -2090,6 +2096,13 @@ export class CodexSession implements BackendSession {
   // auth_needed. Text Isomux wrote itself uses plain enqueue.
   private enqueueSignalled(ev: NormalizedEvent): void {
     for (const out of authSignal(ev, detectCodexAuthError)) this.enqueue(out);
+  }
+
+  // A turn that ends with no reset time still shows Codex's limit error.
+  private flushHeldLimitEvents(): void {
+    const held = this.heldLimitEvents;
+    this.heldLimitEvents = [];
+    for (const ev of held) this.enqueue(ev);
   }
 
   // Fire-and-forget turn/interrupt when an auth signal latches. Best-effort:
@@ -2212,7 +2225,10 @@ export class CodexSession implements BackendSession {
       turnError?.codexErrorInfo === "usageLimitExceeded";
     this.usageLimitThisTurn = false;
     if (usageLimited) this.endUsageLimitedTurn(turnCompleted);
-    else this.enqueue(turnCompleted);
+    else {
+      this.flushHeldLimitEvents();
+      this.enqueue(turnCompleted);
+    }
     this.clearCapacityRetry();
   }
 
@@ -2547,6 +2563,13 @@ export class CodexSession implements BackendSession {
           // auth gate; a terminal one is a single event.
           if (notification?.willRetry === true)
             this.enqueueAuthAwareSystemText(inertMarkdown(shown));
+          else if (notification?.error.codexErrorInfo === "usageLimitExceeded")
+            this.heldLimitEvents.push(
+              ...authSignal(
+                { kind: "error", message: shown },
+                detectCodexAuthError,
+              ),
+            );
           else this.enqueueSignalled({ kind: "error", message: shown });
         }
         break;
@@ -3103,6 +3126,7 @@ export class CodexSession implements BackendSession {
     signal: NodeJS.Signals | null,
   ): void {
     if (this.closed) return;
+    this.flushHeldLimitEvents();
     if (
       this.finishCapacityBackoff(
         "failed",

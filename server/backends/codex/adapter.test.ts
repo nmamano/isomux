@@ -4103,16 +4103,16 @@ describe("Codex usage-limit stop", () => {
   const reads = (fake: FakeCodexTransport) =>
     fake.requests.filter((r) => r.method === "account/rateLimits/read").length;
 
-  it("reports the reset from the pushed limits, between the error and the turn's end", async () => {
+  // The stop replaces Codex's sentence, which names the server's time zone
+  // (task 9845e1da): no error event carries it. The first event after the
+  // stop's notifications is the stop itself.
+  it("reports the reset from the pushed limits, in place of the error, before the turn's end", async () => {
     const { session, fake, it } = await bootstrapped();
     fake.fireNotification("account/rateLimits/updated", {
       rateLimits: limits(),
     });
     await session.send("work");
     fireStop(fake);
-    expect(expectKind(await nextEvent(it, "error"), "error").message).toBe(
-      LIMIT_TEXT,
-    );
     expect(await nextEvent(it, "stop")).toEqual({
       kind: "usage_limit_stop",
       resetsAtMs: FIVE_HOUR_RESET * 1000,
@@ -4139,7 +4139,6 @@ describe("Codex usage-limit stop", () => {
       threadId: FIXTURE_THREAD_ID,
       turnId: "turn-1",
     });
-    expectKind(await nextEvent(it, "error"), "error");
     await watchdog.runNext();
     expect(await nextEvent(it, "stop")).toEqual({
       kind: "usage_limit_stop",
@@ -4162,7 +4161,6 @@ describe("Codex usage-limit stop", () => {
     });
     await session.send("work");
     fireStop(fake);
-    expectKind(await nextEvent(it, "error"), "error");
     await Promise.resolve();
     expect(reads(fake)).toBe(1);
     fake.rateLimitsReadResponse = {
@@ -4207,7 +4205,6 @@ describe("Codex usage-limit stop", () => {
     });
     await session.send("work");
     fireStop(fake);
-    expectKind(await nextEvent(it, "error"), "error");
     expect(await nextEvent(it, "stop")).toEqual({
       kind: "usage_limit_stop",
       resetsAtMs: WEEK_RESET * 1000,
@@ -4216,7 +4213,7 @@ describe("Codex usage-limit stop", () => {
     expect(reads(fake)).toBe(1);
   });
 
-  it("a read that does not answer in time ends the turn with no stop", async () => {
+  it("a read that does not answer in time ends the turn with no stop: Codex's sentence is shown, then the turn ends", async () => {
     const clock = retryClock();
     const fake = new FakeCodexTransport();
     fake.holdRateLimitsRead = true;
@@ -4225,12 +4222,35 @@ describe("Codex usage-limit stop", () => {
     });
     await session.send("work");
     fireStop(fake);
-    expectKind(await nextEvent(it, "error"), "error");
     expect(clock.pending.map((t) => t.delayMs)).toEqual([
       CODEX_LIMIT_RESET_READ_MS,
     ]);
     await clock.runNext();
+    expect(expectKind(await nextEvent(it, "error"), "error").message).toBe(
+      LIMIT_TEXT,
+    );
     expectKind(await nextEvent(it, "turn end"), "turn_completed");
+  });
+
+  it("a usage-limited turn the subprocess ends before turn/completed still shows Codex's sentence", async () => {
+    const { session, fake, it } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: limits(),
+    });
+    await session.send("work");
+    fake.fireNotification("error", {
+      error: { message: LIMIT_TEXT, codexErrorInfo: "usageLimitExceeded" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    fake.fireExit(1);
+    expect(expectKind(await nextEvent(it, "error"), "error").message).toBe(
+      LIMIT_TEXT,
+    );
+    expect(
+      expectKind(await nextEvent(it, "exit failure"), "turn_completed").status,
+    ).toBe("failed");
   });
 
   it("another failure reports no stop and reads nothing", async () => {

@@ -1300,7 +1300,6 @@ describe("automatic handoff: failures", () => {
   // Part of a brief, then the usage limit, as the Claude engine reports it.
   function limitStop(s: FakeSession, resetsAtMs: number) {
     s.push({ kind: "assistant_text", text: "BRIEF-PART" });
-    s.push({ kind: "system_text", text: "You've hit your limit" });
     s.push({ kind: "usage_limit_stop", resetsAtMs });
     s.completeTurn();
   }

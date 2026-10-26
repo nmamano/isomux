@@ -5339,6 +5339,10 @@ export function createAgentManager(deps: ManagerDeps) {
         break;
       }
       case "turn_completed": {
+        // A usage limit stopped this turn: its notice is the turn's one line.
+        // Read before the blocks below clear it.
+        const limitStopped =
+          (agents.get(agentId)?.limitStopResetsAtMs ?? null) !== null;
         // Items delivered at this turn's tool boundaries leave the queue now,
         // before the idle transition below can start a flush that would send
         // them again. Only the installed session's claim drains (liveClaimed).
@@ -5466,7 +5470,9 @@ export function createAgentManager(deps: ManagerDeps) {
             // its own (Codex after its stderr 401) adds no error line.
             const isAuthError = managed?.authNeededThisTurn === true;
             const silentAuthEnd = isAuthError && ev.error === undefined;
-            if (!silentAuthEnd) {
+            // A usage-limit stop's notice already says why the turn ended.
+            const silentEnd = silentAuthEnd || limitStopped;
+            if (!silentEnd) {
               const meta = backendFailureMeta(failure);
               addLogEntry(
                 agentId,
@@ -5479,7 +5485,7 @@ export function createAgentManager(deps: ManagerDeps) {
             // Arm the caller-catch echo suppressor (see ManagedAgent.
             // lastBackendFailure): the turn rejection below wakes the owning
             // caller, whose catch would otherwise repeat this same sentence.
-            if (managed && !silentAuthEnd)
+            if (managed && !silentEnd)
               managed.sessionManager.lastBackendFailure = failure.id;
             if (!isAuthError) flushPendingFreshRecoveryNotice(agentId, managed);
             // Auth-failed turns: leave the agent in waiting_for_response so the
@@ -5549,6 +5555,17 @@ export function createAgentManager(deps: ManagerDeps) {
         // Read at the turn's end (turn_completed above).
         const managed = agents.get(agentId);
         if (managed) managed.limitStopResetsAtMs = ev.resetsAtMs;
+        // In place of the engine's sentence, which the adapter drops: it
+        // names the server's time zone, and each reader gets the reset in
+        // their own.
+        addLogEntry(
+          agentId,
+          "system",
+          msg("systemEntries.usageLimit.stopped", {
+            at: { time: ev.resetsAtMs, shape: "weekdayDateTime" },
+            relative: { relative: ev.resetsAtMs },
+          }),
+        );
         break;
       }
       case "plan_mode": {

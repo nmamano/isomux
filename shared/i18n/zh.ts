@@ -2595,6 +2595,8 @@ App 的一些原则：
     "本对话的自动交接已暂停：它开始时已超过交接阈值。",
   "systemEntries.limitResume.resumed":
     "用量限制已重置。Isomux 已让智能体继续。",
+  "systemEntries.usageLimit.stopped":
+    "已达到用量限制。将于 {at} 重置（{relative}）。",
   "systemEntries.usageCap.pace":
     "成员轮次已暂停：办公室用量已达到成员今天的上限。将于{when}恢复。",
   "systemEntries.usageCap.headsUp":
