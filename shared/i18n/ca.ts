@@ -1715,6 +1715,7 @@ Coses que pots fer per ell:
   "apiCall.agents.terminal": "Llegir la sortida del terminal",
   "apiCall.agents.terminalFor": "Llegir el terminal de {who}",
   "apiCall.agents.move": "Moure {who}",
+  "apiCall.agents.setManager": "Canviar el responsable de {who}",
   "apiCall.agents.revive": "Reviure {who}",
   "apiCall.agents.cancelQueued": "Cancel·lar un missatge en cua per a {who}",
   "apiCall.agents.readQueue": "Llistar els missatges en cua per a {who}",

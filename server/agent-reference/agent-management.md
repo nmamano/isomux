@@ -8,11 +8,13 @@ Spawn with `POST /api/agents` and `{name,roomId,cwd?,desk?}`. With no `cwd`, the
 
 To drive another agent's conversation: resume a past session with `POST /api/agents/:id/resume` and `{sessionId}`; cancel any queued message with `DELETE /api/agents/:id/queue/:messageId` (the ids are in `GET /api/agents/:id/queue`, see messaging); edit a message with `PATCH /api/agents/:id/messages/:logEntryId` and `{newText}`. `POST /api/agents/:id/send-now` flushes queued messages and returns 409 `agent_error`, `queue_empty`, or `awaiting_prompt` when it cannot. Listing sessions, clearing, and handoff are in conversation-history and conversation-lifecycle. Stopping a turn is in messaging.
 
+When your manager is an office owner, you can give any agent another manager: `PUT /api/agents/:id/manager` with `{userId}`. The agent then runs on that member's credentials, its conversation restarts, and the apps, schedules and webhooks it made move to that member. An ordinary agent, or a privileged agent whose manager is not an office owner, gets 403; an unknown member returns 422 `unknown_member`.
+
 Safe example: `GET /api/agents/:id/instructions`.
 
 ## Route contract
 
-`POST /api/agents`, `DELETE /api/agents/:id`, `POST /api/agents/:id/revive`, `PATCH /api/agents/:id`, `GET /api/agents/:id/instructions`, `PUT /api/agents/:id/instructions`, `POST /api/agents/:id/move`, `PUT /api/agents/:id/topic`, `DELETE /api/agents/:id/topic`, `POST /api/rooms/:roomId/swap-desks`, `PATCH /api/agents/:id/messages/:logEntryId`, `POST /api/agents/:id/send-now`, and `POST /api/agents/:id/resume` use the request bodies described above and return the updated agent/message outcome or 204.
+`POST /api/agents`, `DELETE /api/agents/:id`, `POST /api/agents/:id/revive`, `PATCH /api/agents/:id`, `GET /api/agents/:id/instructions`, `PUT /api/agents/:id/instructions`, `POST /api/agents/:id/move`, `PUT /api/agents/:id/manager`, `PUT /api/agents/:id/topic`, `DELETE /api/agents/:id/topic`, `POST /api/rooms/:roomId/swap-desks`, `PATCH /api/agents/:id/messages/:logEntryId`, `POST /api/agents/:id/send-now`, and `POST /api/agents/:id/resume` use the request bodies described above and return the updated agent/message outcome or 204.
 
 Driving another agent's conversation also uses `GET /api/agents/:id/sessions`, `DELETE /api/agents/:id/queue/:messageId`, `POST /api/agents/:id/new-conversation`, and `POST /api/agents/:id/handoff`; their contracts are in conversation-history, messaging, and conversation-lifecycle.
 

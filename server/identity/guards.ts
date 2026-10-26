@@ -1025,6 +1025,12 @@ export function or(...guards: readonly Guard[]): Guard {
   };
 }
 
+// agents.setManager (cap agent:manage): an owner's reach (Nil, 2026-10-26).
+// Stage 1 keeps ordinary agents out; of the agent sets, only PRIVILEGED holds
+// agent:manage. No manager match: a member cannot give an agent away.
+export const agentManagerOwner: Guard = ({ identity, deps }) =>
+  hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
+
 // Audit authority: an owner's reach. Separate from officeOwner so existing
 // owner-only routes do not acquire agent reach.
 export const auditOwner: Guard = ({ identity, deps }) =>

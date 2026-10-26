@@ -1350,6 +1350,17 @@ describe("humanizeIsomuxRequest", () => {
     ).toBe("Send a message to Isomuxer4");
   });
 
+  test("a manager change names the agent it moves", () => {
+    const req = parse(
+      `curl -s -X PUT localhost:4000/api/agents/agent-123-abc/manager -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"userId":"u-1"}'`,
+    );
+    const label = humanizeIsomuxRequest(EN, req, (id) =>
+      id === "agent-123-abc" ? "Isomuxer4" : null,
+    );
+    expect(label).toBe(EN.t("apiCall.agents.setManager", { who: "Isomuxer4" }));
+    expect(label).toContain("Isomuxer4");
+  });
+
   test("deliverAt turns send into schedule", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -d '{"text":"hi","deliverAt":"2026-01-01T00:00:00Z"}'`,

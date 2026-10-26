@@ -25,6 +25,8 @@ import {
   AGENT_CAPABILITIES,
   PRIVILEGED_AGENT_CAPABILITIES,
   API_CAPABILITIES,
+  APP_CAPABILITIES,
+  appCapabilities,
   type Identity,
 } from "../identity/index.ts";
 
@@ -504,76 +506,117 @@ describe("agents.setPrivileged: double-gated + (i-b) manager-or-owner conferral"
   });
 });
 
-// agents.setManager (task 6a9deaba): an office owner by cookie session only
-// (Nil, 2026-09-15). A transfer hands the agent its new manager's
-// credentials, so no agent and no API token reaches it, also when its user is
-// an office owner, and a manager cannot give their own agent away.
-describe("agents.setManager: an office owner by cookie session only", () => {
+// agents.setManager: an office owner's reach (Nil, 2026-10-26, task
+// 704542d9). The owner by cookie, the owner's privileged agent and its app
+// while that agent is live, and the owner's API token, with the manager's
+// owner role read live. No manager-match branch: a member cannot give their
+// own agent away, and neither can their privileged agent or token.
+describe("agents.setManager: an office owner's reach", () => {
+  const OWNER = owner.userId!;
   const body = { userId: "u-new" };
-  // Every live fact that could open another branch is true: the caller's user
-  // is an office owner by the live record and manages the agent.
-  const generous = (userId: string) =>
+  // The caller's user manages the target agent, so a manager-match branch
+  // would open for every caller below.
+  const managedBy = (userId: string | null, ownerIds: string[] = [OWNER]) =>
     deps({
-      isOfficeOwnerUserId: () => true,
+      isOfficeOwnerUserId: (id) => ownerIds.includes(id),
       agentManagerUserId: () => userId,
     });
+  const agentOf = (
+    userId: string,
+    capabilities: Identity["capabilities"],
+    role: Identity["role"] = "member",
+  ): Identity => ({
+    scope: "agent",
+    userId,
+    agentId: "a-2",
+    role,
+    capabilities,
+  });
+  const tokenOf = (userId: string, role: Identity["role"]): Identity => ({
+    scope: "api",
+    userId,
+    role,
+    apiTokenId: "t-1",
+    capabilities: API_CAPABILITIES,
+  });
+  // An app with a live owner agent has that agent's set (appCapabilities);
+  // without one it has APP_CAPABILITIES and no ownerAgentId.
+  const appOf = (
+    userId: string,
+    ownerAgentSet: Identity["capabilities"] | null,
+  ): Identity => ({
+    scope: "app",
+    userId,
+    appName: "ops",
+    role: "member",
+    capabilities: ownerAgentSet
+      ? appCapabilities(ownerAgentSet)
+      : APP_CAPABILITIES,
+    ...(ownerAgentSet ? { ownerAgentId: "a-2" } : {}),
+  });
+  const verdicts = (cases: [string, Identity, GuardDeps][]) =>
+    cases.map(([label, identity, d]) => [
+      label,
+      can("agents.setManager", identity, AGENT_PARAMS, body, d),
+    ]);
 
-  it("lets an office owner move any agent, also one with no manager", () => {
-    expect(
-      can("agents.setManager", owner, AGENT_PARAMS, body, generous("u-x")),
-    ).toBe(true);
-    expect(
-      can(
-        "agents.setManager",
-        owner,
-        AGENT_PARAMS,
-        body,
-        deps({ agentManagerUserId: () => null }),
-      ),
-    ).toBe(true);
+  it("lets an office owner's cookie, privileged agent, its app and API token move an agent", () => {
+    const cases: [string, Identity, GuardDeps][] = [
+      ["owner cookie", owner, managedBy("u-x")],
+      ["owner cookie, agent with no manager", owner, managedBy(null)],
+      [
+        "owner's privileged agent",
+        agentOf(OWNER, PRIVILEGED_AGENT_CAPABILITIES),
+        managedBy("u-x"),
+      ],
+      [
+        "app of owner's live privileged agent",
+        appOf(OWNER, PRIVILEGED_AGENT_CAPABILITIES),
+        managedBy("u-x"),
+      ],
+      ["owner's API token", tokenOf(OWNER, "owner"), managedBy("u-x")],
+    ];
+    expect(verdicts(cases)).toEqual(cases.map(([label]) => [label, true]));
   });
 
-  it("refuses a member, also the agent's own manager", () => {
-    expect(
-      can(
-        "agents.setManager",
-        member,
-        AGENT_PARAMS,
-        body,
-        deps({ agentManagerUserId: () => member.userId }),
-      ),
-    ).toBe(false);
-  });
-
-  it("refuses every agent and an office owner's API token", () => {
-    const ownerUser = owner.userId!;
-    const ownersAgent = (capabilities: Identity["capabilities"]): Identity => ({
-      scope: "agent",
-      userId: ownerUser,
-      agentId: "a-2",
-      role: "owner",
-      capabilities,
-    });
-    const ownersApiToken: Identity = {
-      scope: "api",
-      userId: ownerUser,
-      role: "owner",
-      apiTokenId: "t-1",
-      capabilities: API_CAPABILITIES,
-    };
-    for (const identity of [
-      ownersAgent(PRIVILEGED_AGENT_CAPABILITIES),
-      ownersAgent(AGENT_CAPABILITIES),
-      ownersApiToken,
-    ])
-      expect(
-        can(
-          "agents.setManager",
-          identity,
-          AGENT_PARAMS,
-          body,
-          generous(ownerUser),
-        ),
-      ).toBe(false);
+  it("refuses a member's reach, an ordinary agent and an app with no live privileged agent", () => {
+    const MEMBER = member.userId!;
+    const cases: [string, Identity, GuardDeps][] = [
+      ["member cookie, own agent", member, managedBy(MEMBER)],
+      [
+        "member's privileged agent, own manager's agent",
+        agentOf(MEMBER, PRIVILEGED_AGENT_CAPABILITIES),
+        managedBy(MEMBER),
+      ],
+      [
+        "member's API token, own agent",
+        tokenOf(MEMBER, "member"),
+        managedBy(MEMBER),
+      ],
+      [
+        "owner's ordinary agent",
+        agentOf(OWNER, AGENT_CAPABILITIES),
+        managedBy(OWNER),
+      ],
+      [
+        "app of owner's ordinary agent",
+        appOf(OWNER, AGENT_CAPABILITIES),
+        managedBy(OWNER),
+      ],
+      ["owner's app with no live agent", appOf(OWNER, null), managedBy(OWNER)],
+      // The owner role is read live, never from the identity: a manager who
+      // lost the owner role takes the reach with them.
+      [
+        "privileged agent whose manager is no longer an owner",
+        agentOf(OWNER, PRIVILEGED_AGENT_CAPABILITIES, "owner"),
+        managedBy(OWNER, []),
+      ],
+      [
+        "API token whose user is no longer an owner",
+        tokenOf(OWNER, "owner"),
+        managedBy(OWNER, []),
+      ],
+    ];
+    expect(verdicts(cases)).toEqual(cases.map(([label]) => [label, false]));
   });
 });

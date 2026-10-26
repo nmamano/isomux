@@ -1103,7 +1103,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // A transfer clears the chat and moves the apps, schedules and webhooks
   // the agent made (task 6a9deaba).
   "agents.setManager": {
-    caps: ["agent:privilege"],
+    caps: ["agent:manage"],
     emits: [
       "agent_updated",
       "clear_logs",
@@ -2223,6 +2223,7 @@ const API_REACHABLE_OPIDS = [
   "agents.setInstructions",
   "agents.readSystemPrompt",
   "agents.previewSystemPrompt",
+  "agents.setManager",
   "agents.move",
   "agents.setTopic",
   "agents.regenerateTopic",

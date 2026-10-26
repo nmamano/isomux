@@ -1709,6 +1709,7 @@ Cosas que puedes hacer por él:
   "apiCall.agents.terminal": "Leer la salida del terminal",
   "apiCall.agents.terminalFor": "Leer el terminal de {who}",
   "apiCall.agents.move": "Mover a {who}",
+  "apiCall.agents.setManager": "Cambiar el responsable de {who}",
   "apiCall.agents.revive": "Revivir a {who}",
   "apiCall.agents.cancelQueued": "Cancelar un mensaje en cola para {who}",
   "apiCall.agents.readQueue": "Listar los mensajes en cola para {who}",

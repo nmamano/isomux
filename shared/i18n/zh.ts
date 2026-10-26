@@ -1517,6 +1517,7 @@ App 的一些原则：
   "apiCall.agents.terminal": "读取终端输出",
   "apiCall.agents.terminalFor": "读取 {who} 的终端",
   "apiCall.agents.move": "移动 {who}",
+  "apiCall.agents.setManager": "更改 {who} 的负责人",
   "apiCall.agents.revive": "恢复 {who}",
   "apiCall.agents.cancelQueued": "取消向 {who} 发送的一条队列消息",
   "apiCall.agents.readQueue": "列出向 {who} 发送的队列消息",

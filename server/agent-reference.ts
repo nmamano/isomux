@@ -60,6 +60,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.readInstructions": "agent-management",
   "agents.setInstructions": "agent-management",
   "agents.move": "agent-management",
+  "agents.setManager": "agent-management",
   "agents.setTopic": "agent-management",
   "agents.regenerateTopic": "agent-management",
   "rooms.swapDesks": "agent-management",

@@ -699,7 +699,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.setManager": async (ctx) => {
-      // Gated to an office owner by cookie session; the heavy lifting (fields,
+      // Gated to an office owner's reach; the heavy lifting (fields,
       // token, fresh conversation, what the agent made) is the office's.
       const b = (ctx.body ?? {}) as { userId?: unknown };
       if (typeof b.userId !== "string" || b.userId.length === 0) {

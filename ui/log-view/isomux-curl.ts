@@ -1229,6 +1229,8 @@ export function humanizeIsomuxRequest(
         }
         if (sub === "move" && m === "POST")
           return t("apiCall.agents.move", { who });
+        if (sub === "manager" && m === "PUT")
+          return t("apiCall.agents.setManager", { who });
         if (sub === "revive" && m === "POST")
           return t("apiCall.agents.revive", { who });
       }

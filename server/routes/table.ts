@@ -74,6 +74,7 @@ import {
   appInboxScope,
   appInboxAskFile,
   appOwnerSelf,
+  agentManagerOwner,
   webhookOwnerOrOfficeOwner,
   hasOwningUser,
   runParamMustEqualTokenRun,
@@ -616,15 +617,12 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     emits: ["agent_updated"],
   }),
-  // Manager transfer (task 6a9deaba). An office owner only (Nil, 2026-09-15),
-  // by cookie session: `agent:privilege` keeps every agent and API token out at
-  // stage 1, and `userScope` at stage 2. A transfer hands the agent the new
-  // manager's credentials. No agent reads any member's secret values, and an
-  // API token reads only its own user's (user:env and secret:show under
-  // selfUserOrApi), so a privileged agent or a token, an owner's too, that
-  // could move an agent onto a member would get another member's
-  // credentials. No manager-match branch: a manager cannot give an agent
-  // away.
+  // Manager transfer (task 6a9deaba). An office owner's reach (Nil,
+  // 2026-10-26): an owner by cookie session, a privileged agent whose manager
+  // is an office owner (or its app), or an owner's API token. A transfer makes
+  // the agent run on the new manager's credentials, so a caller with this
+  // reach can put an agent on any member's credentials. No manager-match
+  // branch: a member cannot give an agent away.
   defineRoute<SetManagerReq, AgentEnvelope>({
     opId: "agents.setManager",
     audit: {
@@ -633,7 +631,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "PUT",
     path: "/api/agents/:id/manager",
-    auth: cap("agent:privilege", and(userScope, officeOwner)),
+    auth: cap("agent:manage", agentManagerOwner),
     emits: [
       "agent_updated",
       "clear_logs",

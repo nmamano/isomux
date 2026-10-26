@@ -420,6 +420,57 @@ describe("agents.setManager: the agent itself", () => {
   });
 });
 
+// An office owner's privileged agent moves an agent with its own token (task
+// 704542d9): the transfer runs as the owner's does, and the chat line and
+// the audit row name the agent, the audit row with its manager.
+describe("agents.setManager: an office owner's privileged agent", () => {
+  it("moves an agent, and the chat line and audit row name the privileged agent", async () => {
+    const { srv } = await office();
+    const ops = await spawn(srv, "Ops", "Morgan");
+    await srv.agentManager.setPrivileged(ops.id, true);
+    const opsToken = getAgentTokenRaw(ops.id)!;
+    expect(resolveToken(opsToken)).toMatchObject({
+      scope: "agent",
+      userId: idOf("Morgan"),
+    });
+    const target = await spawn(srv, "Target", "Alice");
+    const old = await runTurn(srv, target.id);
+
+    const res = await api(
+      srv,
+      "PUT",
+      `/api/agents/${target.id}/manager`,
+      { bearer: opsToken },
+      { userId: idOf("Bea") },
+    );
+    expect(res.status).toBe(200);
+    expect(agentOf(srv, target.id)).toMatchObject({
+      userId: idOf("Bea"),
+      manager: "Bea",
+    });
+    expect(resolveToken(getAgentTokenRaw(target.id)!)?.userId).toBe(
+      idOf("Bea"),
+    );
+    expect(old.closed).toBe(true);
+
+    const lines = systemLines(srv, target.id);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("Ops");
+    expect(lines[0]).toContain("Bea");
+
+    const rows = officeAuditStore().list({
+      operation: "agents.setManager",
+    }).items;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].actor).toEqual({
+      kind: "agent",
+      id: ops.id,
+      name: "Ops",
+      ownerId: idOf("Morgan"),
+    });
+  });
+});
+
 describe("agents.setManager: what the agent made moves with it", () => {
   it("moves the agent's apps, schedules and webhooks that the old manager owns, and nothing else", async () => {
     const { srv, morgan } = await office();

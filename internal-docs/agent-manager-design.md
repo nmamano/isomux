@@ -55,11 +55,12 @@ The code reads the manager for these behaviors:
 
 ## The transfer
 
-`PUT /api/agents/:id/manager` with `{userId}` (`agents.setManager`). Only an
-office owner by cookie session: `agent:privilege` plus `userScope`. No agent
-and no API token, an owner's included, can call it: no agent reads a member's
-secret values and a token reads only its own user's, so moving an agent onto a
-member would give either of them another member's credentials. Errors: 422
+`PUT /api/agents/:id/manager` with `{userId}` (`agents.setManager`). An office
+owner's reach (ruling 8): an owner by cookie session, a privileged agent whose
+manager is an office owner (or its app), or an owner's API token, by
+`agent:manage` plus `agentManagerOwner`. The agent then runs on the new
+manager's credentials, so such a caller can put an agent on any member's
+credentials. A member cannot give an agent away. Errors: 422
 `invalid_request` for a bad body, 422 `unknown_member`, 404 `agent_not_found`.
 The same manager is a 200 no-op.
 
@@ -152,7 +153,7 @@ member's own apps and schedules that no agent made are not part of this.
 2026-09-15:
 
 1. Only office owners can change an agent's manager. There is no consent step,
-   no room-access precondition and no confirmation.
+   no room-access precondition and no confirmation. (Ruling 8 widens who.)
 2. A session started under a previous manager may still be resumed. On resume,
    the chat shows a warning: "This session still has X as manager and uses their
    connections."
@@ -168,6 +169,12 @@ member's own apps and schedules that no agent made are not part of this.
 6. A transfer kills the agent's running session, for an owner change and a
    member deletion alike.
 7. Privilege carries over on transfer.
+
+2026-10-26:
+
+8. A privileged agent whose manager is an office owner, and an owner's API
+   token, can change an agent's manager too (task 704542d9). This supersedes
+   ruling 1's "only office owners" for those callers.
 
 Implication of rulings 4 and 5, applied in task 6a9deaba: the webhooks the
 agent created move too, by the same rule. A webhook left with a deleted member

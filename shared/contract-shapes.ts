@@ -157,8 +157,8 @@ export interface SetPrivilegedReq {
   privileged: boolean;
 }
 
-// Body for agents.setManager (PUT /api/agents/:id/manager). Its own route for
-// the reason SetPrivilegedReq is: an office owner only, by cookie session.
+// Body for agents.setManager (PUT /api/agents/:id/manager). Its own route:
+// it needs an office owner's reach, which PATCH /api/agents/:id does not.
 export interface SetManagerReq {
   userId: string;
 }

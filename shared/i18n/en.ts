@@ -1679,6 +1679,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.agents.terminal": "Read terminal output",
   "apiCall.agents.terminalFor": "Read {who}'s terminal",
   "apiCall.agents.move": "Move {who}",
+  "apiCall.agents.setManager": "Change {who}'s manager",
   "apiCall.agents.revive": "Revive {who}",
   "apiCall.agents.cancelQueued": "Cancel a queued message to {who}",
   "apiCall.agents.readQueue": "List queued messages to {who}",
