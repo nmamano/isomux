@@ -65,7 +65,10 @@ jobs:
         run: |
           if docker buildx imagetools inspect "$IMAGE:inputs-$KEY" > /dev/null 2>&1; then
             echo "The served files did not change: tagging the existing image."
-            docker buildx imagetools create -t "$IMAGE:sha-$COMMIT" -t "$IMAGE:main" "$IMAGE:inputs-$KEY"
+            # --prefer-index=false copies the manifest as it is. Without it, buildx wraps
+            # the image in a new manifest list, main gets a new digest, and the VPS
+            # redeploys the same image.
+            docker buildx imagetools create --prefer-index=false -t "$IMAGE:sha-$COMMIT" -t "$IMAGE:main" "$IMAGE:inputs-$KEY"
           else
             docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
               -f site-host/Dockerfile \
