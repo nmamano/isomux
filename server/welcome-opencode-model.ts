@@ -1,8 +1,43 @@
 import type { AgentInfo, BackendModelWire } from "../shared/types.ts";
+import { LOBBY_ROOM_ID, OPENCODE_DEFAULT_MODEL } from "../shared/types.ts";
 import {
   preferredFreeOpenCodeModel,
   type OpenCodeFreeModelCandidate,
 } from "../shared/opencode-model.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+import { DEFAULT_LANGUAGE } from "../shared/languages.ts";
+
+// The names the office seeds its free agents with.
+export const FREE_WELCOME_AGENT_NAME = "Free Welcome Agent";
+export const RECEPTIONIST_NAME = translatorFor(DEFAULT_LANGUAGE).t(
+  "lobby.receptionistName",
+);
+
+// Every value OPENCODE_DEFAULT_MODEL has had: the free models the office
+// seeded its free agents on.
+export const PAST_FREE_DEFAULT_MODELS: readonly string[] = [
+  "opencode/muse-spark-1.2-contributor-free",
+  "opencode/nemotron-3-ultra-free",
+  OPENCODE_DEFAULT_MODEL,
+];
+
+// The boot backfill of task c00b3973: a Free Welcome Agent or lobby
+// Receptionist seeded before AgentInfo.officeFreeModel existed, and still on
+// a free default model, gets the mark.
+export function needsOfficeFreeModelMark(
+  agent: Pick<
+    AgentInfo,
+    "agentType" | "name" | "roomId" | "modelFamily" | "officeFreeModel"
+  >,
+): boolean {
+  if (agent.agentType !== "opencode" || agent.officeFreeModel !== undefined)
+    return false;
+  if (!PAST_FREE_DEFAULT_MODELS.includes(agent.modelFamily)) return false;
+  return (
+    agent.name === FREE_WELCOME_AGENT_NAME ||
+    (agent.name === RECEPTIONIST_NAME && agent.roomId === LOBBY_ROOM_ID)
+  );
+}
 
 export type WelcomeOpenCodeModelResult =
   | { kind: "selected"; model: string }

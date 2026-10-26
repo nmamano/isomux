@@ -599,6 +599,105 @@ describe("receptionist profile and lobby", () => {
       ]);
     });
 
+    // Task c00b3973: an office installed before the mark existed. Its Free
+    // Welcome Agent and Receptionist sit on the old default with no mark; the
+    // boot after the update marks them once, so a refused model moves them.
+    it("marks the pre-change seeds on a past default once at boot, and the Free Welcome Agent then falls back", async () => {
+      const OLD = "opencode/nemotron-3-ultra-free";
+      const { fake, state } = backend();
+      let srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: { discoverWelcomeOpenCodeModels: async () => listed },
+      }));
+      const cookie = await claimOwner(srv, "Morgan");
+      // A member's agent on the same model is never marked.
+      const other = await srv.agentManager.spawn(
+        "Other OpenCode",
+        "~",
+        "bypassPermissions",
+        undefined,
+        undefined,
+        srv.agentManager.getOrdinaryRooms()[0].id,
+        undefined,
+        OLD,
+        undefined,
+        "Morgan",
+        "opencode",
+      );
+      expect(other).not.toBeNull();
+      // The seeds as an old office has them: the old default, no mark.
+      for (const agent of [freeWelcomeOf(srv), receptionistOf(srv)])
+        await srv.agentManager.editAgent(agent.id, { modelFamily: OLD });
+      const configPath = join(srv.stateRoot, "office-config.json");
+      const config = JSON.parse(readFileSync(configPath, "utf8"));
+      delete config.freeModelMarkBackfillDone;
+      writeFileSync(configPath, JSON.stringify(config));
+      expect(
+        opencodeAgentsOnDisk(srv).map((a) => [
+          a.modelFamily,
+          a.officeFreeModel,
+        ]),
+      ).toEqual([
+        [OLD, undefined],
+        [OLD, undefined],
+        [OLD, undefined],
+      ]);
+
+      srv = server = await srv.restart();
+      const welcome = freeWelcomeOf(srv);
+      expect(welcome.officeFreeModel).toBe(OLD);
+      expect(receptionistOf(srv).officeFreeModel).toBe(OLD);
+      expect(
+        srv.agentManager.getAgent(other!.id)?.officeFreeModel,
+      ).toBeUndefined();
+      expect(
+        opencodeAgentsOnDisk(srv)
+          .filter((a) => a.officeFreeModel === OLD)
+          .map((a) => a.id)
+          .sort(),
+      ).toEqual([welcome.id, receptionistOf(srv).id].sort());
+
+      // The provider refuses the old default: the marked agent moves.
+      state.turnRefused.add(OLD);
+      state.refused.add(OLD);
+      const sent = await api(
+        srv,
+        "POST",
+        `/api/agents/${welcome.id}/messages`,
+        {
+          rawSessionId: cookie,
+          body: { text: "First message" },
+        },
+      );
+      expect(sent.status).toBe(200);
+      await waitUntil(
+        () => {
+          const now = srv.agentManager.getAgent(welcome.id);
+          return (
+            now?.modelFamily !== OLD && now?.state === "waiting_for_response"
+          );
+        },
+        3000,
+        "welcome agent moved and done",
+      );
+      const moved = srv.agentManager.getAgent(welcome.id)!;
+      expect(moved.officeFreeModel).toBe(moved.modelFamily);
+      expect(
+        srv.agentManager
+          .getAgentLogs(welcome.id)
+          .filter((e) => e.kind === "error"),
+      ).toEqual([]);
+
+      // Once: a member who later picks the old default keeps it unmarked.
+      await srv.agentManager.editAgent(welcome.id, { modelFamily: OLD });
+      expect(srv.agentManager.getAgent(welcome.id)?.officeFreeModel).toBe(
+        undefined,
+      );
+      srv = server = await srv.restart();
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OLD);
+      expect(freeWelcomeOf(srv).officeFreeModel).toBeUndefined();
+    });
+
     // While the search runs the agent is busy with no turn: a model list
     // that never comes must not keep it busy.
     it("shows today's error when the model list does not come during the search", async () => {

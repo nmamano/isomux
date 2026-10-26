@@ -1,13 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import {
   firstAnsweringModel,
+  FREE_WELCOME_AGENT_NAME,
   freeOpenCodeCandidates,
+  needsOfficeFreeModelMark,
+  PAST_FREE_DEFAULT_MODELS,
+  RECEPTIONIST_NAME,
   resolveWelcomeOpenCodeModel,
   retryWelcomeOpenCodeModel,
   WELCOME_MODEL_RETRY_WINDOW_CLOSED,
   type WelcomeModelRetryClock,
 } from "./welcome-opencode-model.ts";
-import type { BackendModelWire } from "../shared/types.ts";
+import { LOBBY_ROOM_ID, type BackendModelWire } from "../shared/types.ts";
 import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
 
 describe("welcome OpenCode model resolution", () => {
@@ -340,5 +344,64 @@ describe("the first free model that answers", () => {
       await firstAnsweringModel(["a", "b"], probe, timing, fakeClock()),
     ).toBe("b");
     expect(started).toEqual(["a", "b"]);
+  });
+});
+
+// Task c00b3973: the boot backfill marks only the two agents the office seeds,
+// and only while they sit on a model the office used as its free default.
+describe("needsOfficeFreeModelMark", () => {
+  const OLD = "opencode/nemotron-3-ultra-free";
+  const seed = (
+    changes: Partial<Parameters<typeof needsOfficeFreeModelMark>[0]> = {},
+  ): Parameters<typeof needsOfficeFreeModelMark>[0] => ({
+    agentType: "opencode",
+    name: FREE_WELCOME_AGENT_NAME,
+    roomId: "room-1",
+    modelFamily: OLD,
+    ...changes,
+  });
+
+  it("marks the Free Welcome Agent and the lobby Receptionist on each past default", () => {
+    expect(PAST_FREE_DEFAULT_MODELS).toContain(OLD);
+    for (const model of PAST_FREE_DEFAULT_MODELS) {
+      expect(needsOfficeFreeModelMark(seed({ modelFamily: model }))).toBe(true);
+      expect(
+        needsOfficeFreeModelMark(
+          seed({
+            name: RECEPTIONIST_NAME,
+            roomId: LOBBY_ROOM_ID,
+            modelFamily: model,
+          }),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("leaves a seed on another model, and every other agent, unmarked", () => {
+    expect(
+      needsOfficeFreeModelMark(seed({ modelFamily: "opencode/a-member-pick" })),
+    ).toBe(false);
+    expect(
+      needsOfficeFreeModelMark(
+        seed({
+          name: RECEPTIONIST_NAME,
+          roomId: LOBBY_ROOM_ID,
+          modelFamily: "opencode/a-member-pick",
+        }),
+      ),
+    ).toBe(false);
+    // The Receptionist's name outside the lobby is a member's agent.
+    expect(needsOfficeFreeModelMark(seed({ name: RECEPTIONIST_NAME }))).toBe(
+      false,
+    );
+    // Another agent, in the lobby or in a room.
+    expect(
+      needsOfficeFreeModelMark(
+        seed({ name: "Lobby Helper", roomId: LOBBY_ROOM_ID }),
+      ),
+    ).toBe(false);
+    expect(needsOfficeFreeModelMark(seed({ name: "Builder" }))).toBe(false);
+    // Only OpenCode agents run on a free model of the office.
+    expect(needsOfficeFreeModelMark(seed({ agentType: "claude" }))).toBe(false);
   });
 });

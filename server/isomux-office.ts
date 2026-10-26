@@ -138,6 +138,8 @@ import {
   peekMessageQueuesRaw,
   loadRecordTerminals,
   saveRecordTerminals,
+  loadFreeModelMarkBackfillDone,
+  saveFreeModelMarkBackfillDone,
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
@@ -197,7 +199,10 @@ import {
 import { errMessage } from "../shared/errors.ts";
 import {
   firstAnsweringModel,
+  FREE_WELCOME_AGENT_NAME,
   freeOpenCodeCandidates,
+  needsOfficeFreeModelMark,
+  RECEPTIONIST_NAME,
   resolveWelcomeOpenCodeModel,
   retryWelcomeOpenCodeModel,
   type FreeModelProbeTiming,
@@ -1389,7 +1394,6 @@ function stopFallbackRepick(): void {
 }
 
 // A default profile is seeded only when the office first gains a lobby.
-const RECEPTIONIST_NAME = english.t("lobby.receptionistName");
 
 async function ensureReceptionist(username: string): Promise<void> {
   const lobby = agentManager
@@ -1447,6 +1451,26 @@ async function ensureReceptionist(username: string): Promise<void> {
   } catch (err) {
     console.warn(`[bootstrap] ${RECEPTIONIST_NAME} spawn threw:`, err);
   }
+}
+
+// Once per office, after the restore (task c00b3973): the Free Welcome Agent
+// and lobby Receptionist seeded before AgentInfo.officeFreeModel existed get
+// the mark when they still sit on a free default model, so a refused model
+// moves them as it moves a new seed. The flag is saved only after every agent
+// was checked, so a failure retries at the next boot.
+function backfillOfficeFreeModelMarks(): void {
+  if (loadFreeModelMarkBackfillDone()) return;
+  let marked = 0;
+  for (const agent of agentManager.getAllAgents()) {
+    if (!needsOfficeFreeModelMark(agent)) continue;
+    agentManager.setOfficeFreeModel(agent.id, agent.modelFamily);
+    marked++;
+  }
+  if (marked > 0)
+    console.log(
+      `[bootstrap] marked ${marked} seeded agent(s) for the free model fallback`,
+    );
+  saveFreeModelMarkBackfillDone();
 }
 
 // Boot-time half: an office that already has an owner but no receptionist
@@ -1524,7 +1548,11 @@ function registerBootHooks(): void {
   }> = [
     { agentType: "claude", name: "Claude Welcome Agent", family: "Claude" },
     { agentType: "codex", name: "Codex Welcome Agent", family: "Codex" },
-    { agentType: "opencode", name: "Free Welcome Agent", family: "OpenCode" },
+    {
+      agentType: "opencode",
+      name: FREE_WELCOME_AGENT_NAME,
+      family: "OpenCode",
+    },
   ];
 
   // OpenCode runs only on Linux, so other hosts get no Free Welcome Agent.
@@ -1658,7 +1686,7 @@ function registerBootHooks(): void {
     const openCodeModel = await welcomeOpenCodeModel(username);
     if (openCodeModel) {
       const created = await spawnWelcomeAgent(
-        "Free Welcome Agent",
+        FREE_WELCOME_AGENT_NAME,
         "opencode",
         openCodeModel.model,
         "bypassPermissions",
@@ -9190,6 +9218,11 @@ function runBackgroundBoot(
       console.log(
         `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
       );
+    }
+    try {
+      backfillOfficeFreeModelMarks();
+    } catch (err) {
+      console.warn("[bootstrap] free model mark backfill failed:", err);
     }
     try {
       const justClaimedOwner = listUsers().find((u) => u.role === "owner");

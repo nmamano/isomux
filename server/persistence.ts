@@ -1300,6 +1300,16 @@ export function saveRecordTerminals(enabled: boolean): void {
   saveOfficeConfigField("recordTerminals", enabled);
 }
 
+// Set once the boot backfill of AgentInfo.officeFreeModel ran (task
+// c00b3973), so it never runs again.
+export function loadFreeModelMarkBackfillDone(): boolean {
+  return readOfficeConfigRaw().freeModelMarkBackfillDone === true;
+}
+
+export function saveFreeModelMarkBackfillDone(): void {
+  saveOfficeConfigField("freeModelMarkBackfillDone", true);
+}
+
 export function loadMemberUsageShare(): number {
   const share = readOfficeConfigRaw().memberUsageShare;
   return validMemberShare(share) ? share : DEFAULT_MEMBER_SHARE;
