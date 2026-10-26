@@ -384,6 +384,17 @@ export function createSkill(
   const folder = join(newSkillDir, name);
   const path = join(folder, "SKILL.md");
   try {
+    // A session start links the bundled skills into this folder. A member's
+    // own skill of a bundled name takes the name over from that link.
+    if (
+      resolve(newSkillDir, readlinkSync(folder)) ===
+      join(resolve(BUNDLED_SKILLS_DIR), name)
+    )
+      unlinkSync(folder);
+  } catch {
+    // No link there.
+  }
+  try {
     mkdirSync(newSkillDir, { recursive: true });
     mkdirSync(folder);
   } catch (err) {

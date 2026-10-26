@@ -3,7 +3,13 @@ import type { CommandRow, EnginePlugin } from "./backends/types.ts";
 import { isAbsolute, join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "fs";
 
 // Shape of ~/.claude/plugins/installed_plugins.json that we care about.
 interface PluginManifest {
@@ -94,6 +100,18 @@ function toSkillInfo(skill: LocatedSkill): SkillInfo {
   return info;
 }
 
+// A link a session start made: the bundled skill folder of the same name.
+function isBundledSkillLink(dir: string, name: string): boolean {
+  try {
+    return (
+      realpathSync(join(dir, name)) ===
+      realpathSync(join(BUNDLED_SKILLS_DIR, name))
+    );
+  } catch {
+    return false;
+  }
+}
+
 // Scan disk for user-defined skills and commands that the SDK doesn't report.
 // Backend-agnostic dirs (.isomux) come first so they win on name collisions
 // against Claude-specific dirs (.claude); both are still scanned so existing
@@ -115,6 +133,9 @@ function scanSkillsDir(
       if (isDirectory) {
         const skillPath = join(dir, entry.name, "SKILL.md");
         if (!existsSync(skillPath)) continue;
+        // A session start links the bundled skills into the provider homes;
+        // such a link is the bundled skill, listed once with its own origin.
+        if (origin === "user" && isBundledSkillLink(dir, entry.name)) continue;
         const description = extractSkillDescription(skillPath);
         skills.push({
           name: entry.name,
@@ -156,6 +177,24 @@ function scanCommandsDir(
   } catch {}
 }
 
+// The folders the user skills come from, in priority order. A session start
+// reads the same list: a member skill in any of them keeps its name from the
+// bundled skill links (provider-skill-links.ts exposeBundledSkills).
+export function userSkillFolders(
+  roots: UserSkillRoot[] | string,
+  includeCommands = true,
+): { skills: string; commands?: string }[] {
+  return [
+    { skills: join(STATE_ROOT, "skills") },
+    ...normalizeUserSkillRoots(roots, includeCommands).map((source) => ({
+      skills: join(source.root, "skills"),
+      ...(source.includeCommands
+        ? { commands: join(source.root, "commands") }
+        : {}),
+    })),
+  ];
+}
+
 export function locateUserSkills(
   roots: UserSkillRoot[] | string = [
     { root: join(homedir(), ".claude"), includeCommands: true },
@@ -163,11 +202,9 @@ export function locateUserSkills(
   includeCommands = true,
 ): LocatedSkill[] {
   const skills: LocatedSkill[] = [];
-  scanSkillsDir(join(STATE_ROOT, "skills"), "user", skills);
-  for (const source of normalizeUserSkillRoots(roots, includeCommands)) {
-    scanSkillsDir(join(source.root, "skills"), "user", skills);
-    if (source.includeCommands)
-      scanCommandsDir(join(source.root, "commands"), "user", skills);
+  for (const folder of userSkillFolders(roots, includeCommands)) {
+    scanSkillsDir(folder.skills, "user", skills);
+    if (folder.commands) scanCommandsDir(folder.commands, "user", skills);
   }
   return skills;
 }

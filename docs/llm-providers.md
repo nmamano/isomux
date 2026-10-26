@@ -54,4 +54,6 @@ CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
 OPENCODE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/opencode
 ```
 
+Isomux links its bundled skills into the `skills` folder of the Claude and Codex directories its agents use. Your own skill of the same name wins.
+
 OpenCode agents load user-level plugins and config from `OPENCODE_CONFIG_DIR`, else from `~/.config/opencode` of the OS user that runs the agents. Isomux's own OpenCode settings take precedence. Changes load after you send `/reload-plugins` to an OpenCode agent, after Isomux restarts, or when your variables change on the Integrations page.

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -268,12 +269,15 @@ describe("skill catalog", () => {
 // (routes/handlers/skills.test.ts); what makes a linked entry read-only is
 // where its file really is.
 describe("protection through a link", () => {
+  // Task e832fc7c: a link of the built-in's own name is the link isomux
+  // makes, listed as the built-in (skills.test.ts); another name is the
+  // member's.
   it("keeps a user-folder link to a built-in read-only", () => {
     const user = tmp("user");
     mkdirSync(join(user, "skills"), { recursive: true });
     symlinkSync(
       join(BUNDLED_SKILLS_DIR, "grill-me"),
-      join(user, "skills", "grill-me"),
+      join(user, "skills", "my-grill"),
     );
     const catalog = buildSkillCatalog(
       [context({ userRoots: [user] })],
@@ -282,7 +286,7 @@ describe("protection through a link", () => {
       "/home",
     );
     expect(
-      findCatalogEntry(catalog, join(user, "skills", "grill-me", "SKILL.md")),
+      findCatalogEntry(catalog, join(user, "skills", "my-grill", "SKILL.md")),
     ).toMatchObject({ source: "user", editable: false });
   });
 
@@ -374,6 +378,52 @@ describe("skill create", () => {
     expect(createSkill(dir, { name: "ok", description: "d" }).kind).toBe(
       "exists",
     );
+  });
+
+  // Task e832fc7c: isomux links its bundled skills into the box Claude home,
+  // where the page creates skills. A member's own skill of a bundled name
+  // still overrides the bundled one; a link that is not isomux's still counts.
+  it("creates a skill in place of the link to a bundled skill, and keeps any other link", () => {
+    const dir = join(tmp("home"), "skills");
+    mkdirSync(dir);
+    const bundledFile = join(BUNDLED_SKILLS_DIR, "wrap-session", "SKILL.md");
+    const bundledText = readFileSync(bundledFile, "utf8");
+    symlinkSync(
+      join(BUNDLED_SKILLS_DIR, "wrap-session"),
+      join(dir, "wrap-session"),
+    );
+    const elsewhere = tmp("elsewhere");
+    skill(elsewhere, "grill-me", "member grill prompt");
+    symlinkSync(join(elsewhere, "skills", "grill-me"), join(dir, "grill-me"));
+
+    const created = createSkill(dir, {
+      name: "wrap-session",
+      description: "member wrap",
+      instructions: "My own wrap-up.",
+    });
+    expect(created).toEqual({
+      kind: "ok",
+      path: join(dir, "wrap-session", "SKILL.md"),
+    });
+    expect(lstatSync(join(dir, "wrap-session")).isDirectory()).toBe(true);
+    expect(
+      readFileSync(join(dir, "wrap-session", "SKILL.md"), "utf8"),
+    ).toContain("My own wrap-up.");
+    expect(readFileSync(bundledFile, "utf8")).toBe(bundledText);
+
+    expect(createSkill(dir, { name: "grill-me", description: "d" })).toEqual({
+      kind: "exists",
+      path: join(dir, "grill-me", "SKILL.md"),
+    });
+    expect(lstatSync(join(dir, "grill-me")).isSymbolicLink()).toBe(true);
+
+    // The member's own link to a built-in under another name.
+    symlinkSync(join(BUNDLED_SKILLS_DIR, "grill-me"), join(dir, "my-grill"));
+    expect(createSkill(dir, { name: "my-grill", description: "d" })).toEqual({
+      kind: "exists",
+      path: join(dir, "my-grill", "SKILL.md"),
+    });
+    expect(lstatSync(join(dir, "my-grill")).isSymbolicLink()).toBe(true);
   });
 });
 

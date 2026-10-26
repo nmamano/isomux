@@ -4,14 +4,16 @@ import {
   mkdirSync,
   readlinkSync,
   readdirSync,
+  realpathSync,
+  statSync,
   unlinkSync,
   symlinkSync,
   type Dirent,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ProviderAccountProvider } from "../shared/types.ts";
-import type { UserSkillRoot } from "./skills.ts";
+import { BUNDLED_SKILLS_DIR, type UserSkillRoot } from "./skills.ts";
 import { personalProviderHome } from "./provider-homes.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
 
@@ -95,19 +97,118 @@ function linkEntries(
   }
 }
 
+// Where a link points, read one level. Null for an entry that is no link.
+function linkTarget(path: string): string | null {
+  try {
+    return resolve(dirname(path), readlinkSync(path));
+  } catch {
+    return null;
+  }
+}
+
+function realPath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+// A link isomux made: <skillsDir>/<name> pointing at <bundledDir>/<name>. A
+// member's link to a bundled skill under another name is the member's.
+function isBundledLink(path: string, bundledDir: string): boolean {
+  return linkTarget(path) === join(resolve(bundledDir), basename(path));
+}
+
+// A member's skill folder: an entry that resolves to a folder other than the
+// bundled skill of its name, so a box-home link isomux made is no member skill.
+function isMemberSkillFolder(path: string, bundledDir: string): boolean {
+  try {
+    if (!statSync(path).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return realPath(path) !== realPath(join(bundledDir, basename(path)));
+}
+
+function folderNames(dir: string): string[] {
+  try {
+    return readdirSync(dir).filter((name) => !name.startsWith("."));
+  } catch {
+    return [];
+  }
+}
+
+// Links each bundled skill folder into an agent's skills folder (the one the
+// engine's own skill tool reads), so Claude and Codex agents can load them
+// without a member typing them. A member's skill of the same name wins: an
+// entry already in skillsDir, or a skill folder in one of memberSourceDirs,
+// which the member pass links next. Only isomux's own links are removed, plus
+// a dead link with a bundled name (an isomux checkout that moved).
+export function exposeBundledSkills(
+  skillsDir: string,
+  memberSourceDirs: string[],
+  bundledDir: string,
+): void {
+  const bundled = new Set(
+    folderNames(bundledDir).filter((name) => {
+      try {
+        return statSync(join(bundledDir, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    }),
+  );
+  const memberHas = (name: string) =>
+    memberSourceDirs.some((dir) =>
+      isMemberSkillFolder(join(dir, name), bundledDir),
+    );
+  for (const name of folderNames(skillsDir)) {
+    const path = join(skillsDir, name);
+    const ours = isBundledLink(path, bundledDir);
+    const dead = linkTarget(path) !== null && !existsSync(path);
+    if (
+      (ours && (dead || !bundled.has(name) || memberHas(name))) ||
+      (dead && bundled.has(name))
+    ) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // Another agent's start removed it first.
+      }
+    }
+  }
+  if (bundled.size === 0) return;
+  try {
+    mkdirSync(skillsDir, { recursive: true, mode: 0o700 });
+  } catch {
+    return;
+  }
+  for (const name of bundled) {
+    const path = join(skillsDir, name);
+    if (pathExists(path) || memberHas(name)) continue;
+    try {
+      symlinkSync(join(resolve(bundledDir), name), path, "dir");
+    } catch {
+      // EEXIST: another agent of this home linked it first. Any other error
+      // skips this skill only: skill exposure never blocks a session start.
+    }
+  }
+}
+
 export function exposePersonalProviderSkills(
   provider: ProviderAccountProvider,
   userId: string,
   effectiveRoot: string,
   sourceRoot = join(homedir(), provider === "claude" ? ".claude" : ".codex"),
   personalRoot = personalProviderHome(userId, provider),
+  bundledDir = BUNDLED_SKILLS_DIR,
 ): void {
   if (resolve(effectiveRoot) !== resolve(personalRoot)) return;
   if (resolve(sourceRoot) === resolve(personalRoot)) return;
-  linkEntries(
-    join(sourceRoot, "skills"),
-    join(personalRoot, "skills"),
-    (entry) => entry.isDirectory(),
+  const sourceSkills = join(sourceRoot, "skills");
+  linkEntries(sourceSkills, join(personalRoot, "skills"), (entry) =>
+    isMemberSkillFolder(join(sourceSkills, entry.name), bundledDir),
   );
   if (provider === "claude") {
     linkEntries(

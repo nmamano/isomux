@@ -8,12 +8,14 @@ import {
   rmSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
+  BUNDLED_SKILLS_DIR,
   discoverPluginSkills,
   discoverSyncedSkills,
   discoverProjectSkills,
@@ -25,6 +27,7 @@ import {
 import type { CommandRow, EnginePlugin } from "./backends/types.ts";
 import {
   agentUserSkillRoots,
+  exposeBundledSkills,
   exposePersonalProviderSkills,
   providerUserSkillRoots,
 } from "./provider-skill-links.ts";
@@ -671,5 +674,215 @@ describe("synced skills", () => {
     ).toBeNull();
     // An empty row list is a list.
     expect(discoverSyncedSkills(home, [], new Set())).toEqual([]);
+  });
+});
+
+// Task e832fc7c: a Claude or Codex agent's own skill tool reads only its
+// provider home's skills folder, so the bundled skills are linked there. A
+// link is isomux's when its target (read one level) is in the bundled folder.
+describe("bundled skill links", () => {
+  // Where a link points, read one level: a dangling link has no real path.
+  const target = (link: string) => resolve(dirname(link), readlinkSync(link));
+  const isLink = (path: string) => {
+    try {
+      return lstatSync(path).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  };
+  // The non-dot names in a skills folder, sorted.
+  const names = (dir: string) =>
+    readdirSync(dir)
+      .filter((name) => !name.startsWith("."))
+      .sort();
+  function bundledFixture(...skills: string[]): string {
+    const dir = root("bundled");
+    for (const name of skills) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "SKILL.md"), `bundled ${name}`);
+    }
+    return dir;
+  }
+
+  it("links each bundled skill folder into a new skills folder, and only the folders", () => {
+    const bundled = bundledFixture("wrap-session", "grill-me");
+    writeFileSync(join(bundled, "README.md"), "not a skill");
+    mkdirSync(join(bundled, ".cache"));
+    const skills = join(root("home"), "skills");
+
+    exposeBundledSkills(skills, [], bundled);
+
+    expect(names(skills)).toEqual(["grill-me", "wrap-session"]);
+    expect(existsSync(join(skills, ".cache"))).toBe(false);
+    for (const name of ["grill-me", "wrap-session"]) {
+      const link = join(skills, name);
+      expect([name, isLink(link), target(link)]).toEqual([
+        name,
+        true,
+        join(bundled, name),
+      ]);
+      expect(readFileSync(join(link, "SKILL.md"), "utf8")).toBe(
+        `bundled ${name}`,
+      );
+    }
+  });
+
+  it("follows an update: a removed or renamed skill's link goes, a new name comes, a kept link is not replaced", () => {
+    const bundled = bundledFixture("kept", "removed", "old-name");
+    const skills = join(root("home"), "skills");
+    exposeBundledSkills(skills, [], bundled);
+    expect(names(skills)).toEqual(["kept", "old-name", "removed"]);
+    const keptInode = lstatSync(join(skills, "kept")).ino;
+
+    rmSync(join(bundled, "removed"), { recursive: true });
+    renameSync(join(bundled, "old-name"), join(bundled, "new-name"));
+    exposeBundledSkills(skills, [], bundled);
+
+    expect(names(skills)).toEqual(["kept", "new-name"]);
+    expect(target(join(skills, "new-name"))).toBe(join(bundled, "new-name"));
+    // Agents of one home start at different times: a link that stays right
+    // is never removed and made again under a running agent.
+    expect(lstatSync(join(skills, "kept")).ino).toBe(keptInode);
+    exposeBundledSkills(skills, [], bundled);
+    expect(names(skills)).toEqual(["kept", "new-name"]);
+    expect(lstatSync(join(skills, "kept")).ino).toBe(keptInode);
+  });
+
+  it("removes a link of its own that no longer has a target, though the bundled skill still has that name as a file", () => {
+    const bundled = bundledFixture("wrap-session", "gone");
+    const skills = join(root("home"), "skills");
+    exposeBundledSkills(skills, [], bundled);
+    // An update replaces the folder with a file: the name is no skill now.
+    rmSync(join(bundled, "gone"), { recursive: true });
+    writeFileSync(join(bundled, "gone"), "a file now");
+    exposeBundledSkills(skills, [], bundled);
+    expect(names(skills)).toEqual(["wrap-session"]);
+  });
+
+  it("never changes an entry that is not its own, except a dead link that holds a bundled name", () => {
+    const bundled = bundledFixture(
+      "wrap-session",
+      "grill-me",
+      "loose-ends",
+      "figure-it-out",
+    );
+    const home = root("home");
+    const skills = join(home, "skills");
+    // The member's own folder with a bundled name.
+    skill(home, "wrap-session", "member wrap prompt");
+    // The member's link to their own folder elsewhere, with a bundled name.
+    const elsewhere = root("elsewhere");
+    skill(elsewhere, "grill-me", "member grill prompt");
+    symlinkSync(
+      join(elsewhere, "skills", "grill-me"),
+      join(skills, "grill-me"),
+    );
+    // A plain file with a bundled name.
+    writeFileSync(join(skills, "loose-ends"), "member file");
+    // A dead link with another name (Claude and Codex skip it).
+    symlinkSync("/nonexistent/old-tool/skills/other", join(skills, "other"));
+    // A dead link with a bundled name: an earlier isomux checkout that moved.
+    symlinkSync(
+      "/nonexistent/old-checkout/skills/figure-it-out",
+      join(skills, "figure-it-out"),
+    );
+    // Codex keeps its own skills in a dot folder.
+    mkdirSync(join(skills, ".system"));
+    // The member's link to a bundled skill under another name.
+    symlinkSync(join(bundled, "wrap-session"), join(skills, "my-wrap"));
+
+    exposeBundledSkills(skills, [], bundled);
+
+    expect(isLink(join(skills, "wrap-session"))).toBe(false);
+    expect(
+      readFileSync(join(skills, "wrap-session", "SKILL.md"), "utf8"),
+    ).toContain("member wrap prompt");
+    expect(target(join(skills, "grill-me"))).toBe(
+      join(elsewhere, "skills", "grill-me"),
+    );
+    expect(isLink(join(skills, "loose-ends"))).toBe(false);
+    expect(readFileSync(join(skills, "loose-ends"), "utf8")).toBe(
+      "member file",
+    );
+    expect(readlinkSync(join(skills, "other"))).toBe(
+      "/nonexistent/old-tool/skills/other",
+    );
+    expect(target(join(skills, "figure-it-out"))).toBe(
+      join(bundled, "figure-it-out"),
+    );
+    expect(readdirSync(join(skills, ".system"))).toEqual([]);
+    expect(target(join(skills, "my-wrap"))).toBe(join(bundled, "wrap-session"));
+  });
+
+  it("leaves a name to the member's source skill folder, linked or not, and takes back a name its own link holds", () => {
+    const bundled = bundledFixture(
+      "wrap-session",
+      "grill-me",
+      "loose-ends",
+      "figure-it-out",
+    );
+    const source = root("box-home");
+    const skills = join(root("personal-home"), "skills");
+    // Earlier starts linked every bundled skill into the personal home.
+    exposeBundledSkills(skills, [join(source, "skills")], bundled);
+    expect(names(skills)).toEqual([
+      "figure-it-out",
+      "grill-me",
+      "loose-ends",
+      "wrap-session",
+    ]);
+
+    // Then the member adds their own wrap-session to the box home, and links
+    // their grill-me folder from elsewhere.
+    skill(source, "wrap-session", "member wrap prompt");
+    const elsewhere = root("elsewhere");
+    skill(elsewhere, "grill-me", "member grill prompt");
+    symlinkSync(
+      join(elsewhere, "skills", "grill-me"),
+      join(source, "skills", "grill-me"),
+    );
+    // A box-home agent's own link is no member skill.
+    symlinkSync(
+      join(bundled, "loose-ends"),
+      join(source, "skills", "loose-ends"),
+    );
+    // A plain file is no skill folder.
+    writeFileSync(join(source, "skills", "figure-it-out"), "a file");
+
+    exposeBundledSkills(skills, [join(source, "skills")], bundled);
+
+    // The member pass that follows links the member's two.
+    expect(names(skills)).toEqual(["figure-it-out", "loose-ends"]);
+    expect(target(join(skills, "loose-ends"))).toBe(
+      join(bundled, "loose-ends"),
+    );
+    expect(target(join(skills, "figure-it-out"))).toBe(
+      join(bundled, "figure-it-out"),
+    );
+  });
+
+  it("lists a bundled skill linked into a user folder once, as built in, and a member's link under another name as theirs", () => {
+    const user = root("user-home");
+    mkdirSync(join(user, "skills"));
+    symlinkSync(
+      join(BUNDLED_SKILLS_DIR, "wrap-session"),
+      join(user, "skills", "wrap-session"),
+    );
+    symlinkSync(
+      join(BUNDLED_SKILLS_DIR, "wrap-session"),
+      join(user, "skills", "my-wrap"),
+    );
+    skill(user, "member-own", "member prompt");
+    const roots = [{ root: user, includeCommands: true }];
+
+    const userNames = discoverUserSkills(roots).map((entry) => entry.name);
+    expect(userNames).toContain("member-own");
+    expect(userNames).toContain("my-wrap");
+    expect(userNames).not.toContain("wrap-session");
+    const listed = deduplicateSkills([
+      ...discoverUserSkills(roots),
+      ...discoverBundledSkills(),
+    ]).filter((entry) => entry.name === "wrap-session");
+    expect(listed.map((entry) => entry.origin)).toEqual(["isomux"]);
   });
 });

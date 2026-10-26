@@ -206,10 +206,12 @@ import {
   discoverBundledSkills,
   deduplicateSkills,
   BUNDLED_SKILLS_DIR,
+  userSkillFolders,
   type UserSkillRoot,
 } from "./skills.ts";
 import {
   agentUserSkillRoots,
+  exposeBundledSkills,
   exposePersonalProviderSkills,
   officeClaudeSourceRoot,
 } from "./provider-skill-links.ts";
@@ -289,7 +291,10 @@ import {
   claudeSignInState,
   isClaudeCloudSelected,
 } from "./backends/claude-install-check.ts";
-import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
+import {
+  ISOMUX_CODEX_HOME,
+  isCodexAuthenticated,
+} from "./backends/codex/native-bin.ts";
 import type {
   ApprovalDecision,
   Backend,
@@ -434,6 +439,10 @@ export interface ManagerDeps {
   // Production supplies the box provider homes. Tests omit this field so
   // fixtures never read the real member home.
   providerSkillSourceRoots?: { claude: string; codex: string };
+  // Production supplies BUNDLED_SKILLS_DIR. A session start links its skills
+  // into the agent's Claude or Codex skills folder. Tests omit this field so
+  // fixtures never write links into the real member home.
+  bundledSkillsDir?: string;
   // The total time the boot gives the pending OpenCode profile moves
   // (server/opencode-profile-keys.ts). Defaults to 60 s; moves left when it
   // expires stay pending for the next boot.
@@ -6979,13 +6988,39 @@ export function createAgentManager(deps: ManagerDeps) {
       provider === "codex"
         ? env?.CODEX_HOME || join(homedir(), ".codex")
         : env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    if (managed.info.userId && provider) {
-      exposePersonalProviderSkills(
-        provider,
-        managed.info.userId,
-        effectiveRoot,
-        deps.providerSkillSourceRoots?.[provider] ?? effectiveRoot,
-      );
+    if (provider) {
+      const sourceRoot =
+        deps.providerSkillSourceRoots?.[provider] ?? effectiveRoot;
+      // The bundled skills go into the skills folder the engine reads: Codex
+      // without CODEX_HOME runs on the office's own Codex home
+      // (withIsomuxCodexHome). Claude's box-root fallback comes from deps,
+      // never homedir(), so a test without a provider home in its env writes
+      // no link into the real one.
+      const linkRoot =
+        provider === "codex"
+          ? env?.CODEX_HOME || ISOMUX_CODEX_HOME
+          : env?.CLAUDE_CONFIG_DIR || deps.providerSkillSourceRoots?.claude;
+      // A member skill in any user folder of the agent's Sk menu keeps its
+      // name, so the engine's own tool and the menu agree.
+      if (deps.bundledSkillsDir && linkRoot) {
+        exposeBundledSkills(
+          join(linkRoot, "skills"),
+          userSkillFolders(userSkillRootsForInfo(managed.info, env)).map(
+            (folder) => folder.skills,
+          ),
+          deps.bundledSkillsDir,
+        );
+      }
+      if (managed.info.userId) {
+        exposePersonalProviderSkills(
+          provider,
+          managed.info.userId,
+          effectiveRoot,
+          sourceRoot,
+          undefined,
+          deps.bundledSkillsDir,
+        );
+      }
     }
     if (resumeSessionId) {
       const resumeError = getBackend(
@@ -13095,6 +13130,7 @@ export function createProductionAgentManager(overrides?: {
       },
       codex: join(homedir(), ".codex"),
     },
+    bundledSkillsDir: BUNDLED_SKILLS_DIR,
   });
   // Production-only global registration (kept out of createAgentManager so DI
   // tests don't clobber this env-loader process-global).
