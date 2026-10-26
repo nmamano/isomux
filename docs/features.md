@@ -175,7 +175,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ## Running the office
 
-- **Agents persist across server restarts**; auto-resume last conversation on restart. An agent that a restart cut mid-turn continues by itself.
+- **Agents persist across server restarts**; auto-resume last conversation on restart.
 - **Per-agent session history** with `/resume` support.
 - **Kill** removes agent and frees desk.
 - **Office address** - self-hosted owners can set the public URL and external access in Settings → Office → Access. Hosted offices show the Isomux-managed address read-only.
