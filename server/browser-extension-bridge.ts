@@ -267,6 +267,13 @@ export class ExtensionConnection {
   private pending = new Map<number, Pending>();
   private assignments = new Map<string, Assignment>();
   private gateListeners = new Map<string, Set<() => void>>();
+  // leaveOffice waits, keyed by the page session they navigate.
+  private leaves = new Set<{
+    a: Assignment;
+    key: string;
+    commit(loaderId: string, url: string): void;
+    end(error: Error): void;
+  }>();
   constructor(
     readonly memberId: string,
     private peer: BridgePeer,
@@ -435,6 +442,10 @@ export class ExtensionConnection {
       page.url = frame.url;
       if (this.officeRefused(a, frame.url)) this.closeGate(a, key);
       else page.gated = false;
+      if (typeof frame.loaderId === "string")
+        for (const leave of [...this.leaves])
+          if (leave.a === a && leave.key === key)
+            leave.commit(frame.loaderId, frame.url);
     }
   }
 
@@ -798,6 +809,83 @@ export class ExtensionConnection {
     });
   }
 
+  /** Navigates the grant's leaf away from a refused office page to url, an
+   * open http(s) page. Resolves at the first main-frame commit of this
+   * navigation to an open URL; rejects at a refused commit, a failed
+   * navigation, the leaf's end, or deadline (a performance.now() time). */
+  async leaveOffice(
+    grant: string,
+    url: string,
+    deadline: number,
+  ): Promise<void> {
+    const a = this.assignments.get(grant);
+    if (!a) throw new Error("Browser control ended");
+    this.check(a);
+    // request() skips officeCommand: its rule for a gated page applies here.
+    if (httpOrigin(url) === undefined || this.officeRefused(a, url))
+      throw new Error("Office page refused");
+    const key = this.leaf(a);
+    const done = Promise.withResolvers<void>();
+    // Commits from the send on: the answer and the commit come in any order.
+    const commits = new Map<string, string>();
+    let loaderId: string | undefined;
+    const settle = (committed: string) => {
+      if (this.officeRefused(a, committed))
+        done.reject(new Error("Office page refused"));
+      else done.resolve();
+    };
+    const leave = {
+      a,
+      key,
+      commit: (id: string, committed: string) => {
+        commits.set(id, committed);
+        if (id === loaderId) settle(committed);
+      },
+      end: (error: Error) => done.reject(error),
+    };
+    this.leaves.add(leave);
+    const timer = setTimeout(
+      () => {
+        const error = new Error("The navigation did not commit in time");
+        // The session settles it as an action timeout.
+        error.name = "TimeoutError";
+        done.reject(error);
+      },
+      Math.max(0, deadline - performance.now()),
+    );
+    try {
+      this.request(a, "cdp", {
+        method: "Page.navigate",
+        params: { url },
+        ...(key === a.session ? {} : { sessionId: key }),
+      })
+        .then((result) => {
+          if (typeof result.errorText === "string" && result.errorText)
+            throw new Error(`The navigation failed: ${result.errorText}`);
+          if (result.isDownload === true)
+            throw new Error("The navigation started a download");
+          if (typeof result.loaderId !== "string")
+            throw new Error("The navigation committed no new document");
+          loaderId = result.loaderId;
+          const committed = commits.get(loaderId);
+          if (committed !== undefined) settle(committed);
+        })
+        .catch(done.reject);
+      await done.promise;
+    } finally {
+      clearTimeout(timer);
+      this.leaves.delete(leave);
+    }
+  }
+
+  // Rejects the leaveOffice waits on a page that went away (all its pages
+  // when key is undefined).
+  private endLeaves(a: Assignment, key?: string): void {
+    for (const leave of [...this.leaves])
+      if (leave.a === a && (key === undefined || leave.key === key))
+        leave.end(new Error("The page closed"));
+  }
+
   pendingCount(grant: string): number {
     return [...this.pending.values()].filter((p) => p.assignment === grant)
       .length;
@@ -1026,6 +1114,7 @@ export class ExtensionConnection {
         if (!popup) return;
         a.popups.delete(params.sessionId);
         a.pages.delete(params.sessionId);
+        this.endLeaves(a, params.sessionId);
         for (const [child, page] of a.childPages)
           if (page === params.sessionId) a.childPages.delete(child);
         if (a.leafTargetId === popup.targetId)
@@ -1392,6 +1481,7 @@ export class ExtensionConnection {
         }),
     );
     a.closed = true;
+    this.endLeaves(a);
     if (a.recovery) {
       clearTimeout(a.recovery.timer);
       a.recovery.finish();

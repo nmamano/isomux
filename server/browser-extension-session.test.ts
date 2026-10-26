@@ -314,13 +314,18 @@ async function gateSession(actionMs = 5000) {
   const connection = {
     current: undefined as unknown as ReturnType<typeof service.bridge.connect>,
   };
-  const event = (method: string, params: Record<string, unknown>) =>
+  const event = (
+    method: string,
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ) =>
     connection.current.receive({
       kind: "event",
       generation: connection.current.generation,
       assignment: grant,
       method,
       params,
+      ...(sessionId ? { sessionId } : {}),
     });
   class Page extends EventEmitter {
     current = `${SITE}/start`;
@@ -356,8 +361,11 @@ async function gateSession(actionMs = 5000) {
       this.calls.push("goto");
       this.gotos.push(url);
       await this.onGoto(url);
+      // The stand-in extension commits the navigation (navigated below).
       await playwrightCall("Page.navigate", { url });
-      navigate(url);
+    }
+    async waitForLoadState() {
+      this.calls.push("waitForLoadState");
     }
     async screenshot() {
       this.calls.push("screenshot");
@@ -384,6 +392,42 @@ async function gateSession(actionMs = 5000) {
     });
     page.current = url;
   };
+  // Each Page.navigate that reached the extension, by URL. Chrome answers
+  // with the navigation's loader and commits it, unless commits is off.
+  const navigated: string[] = [];
+  const chrome = { commits: true };
+  const extensionNavigate = (url: string, sessionId?: string) => {
+    navigated.push(url);
+    const loaderId = `loader-${navigated.length}`;
+    const frameId = "root";
+    event(
+      "Network.requestWillBeSent",
+      {
+        requestId: loaderId,
+        loaderId,
+        frameId,
+        type: "Document",
+        documentURL: url,
+        request: { url, method: "GET", headers: {} },
+      },
+      sessionId,
+    );
+    return {
+      result: { frameId, loaderId },
+      commit: () => {
+        if (!chrome.commits) return;
+        event(
+          "Page.frameNavigated",
+          {
+            frame: { id: frameId, loaderId, url, mimeType: "text/html" },
+            type: "Navigation",
+          },
+          sessionId,
+        );
+        page.current = url;
+      },
+    };
+  };
   const context = Object.assign(new EventEmitter(), { pages: () => [page] });
   const connect = spyOn(chromium, "connectOverCDP").mockImplementation(
     async (wire) => {
@@ -399,11 +443,19 @@ async function gateSession(actionMs = 5000) {
           sessionId = m.params?.sessionId;
         if (m.id !== undefined) answers.get(m.id)?.(m);
       };
-      transport.send({
-        id: 1,
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true },
-      });
+      await cdp(
+        "Target.setAutoAttach",
+        { autoAttach: true },
+        { wire: transport, session: undefined },
+      );
+      // Playwright's first commands on the page, as connectOverCDP sends
+      // them: a refused one fails the attach.
+      for (const method of [
+        "Page.enable",
+        "Page.getFrameTree",
+        "Runtime.enable",
+      ])
+        await playwrightCall(method);
       return Object.assign(new EventEmitter(), {
         contexts: () => [context],
         isConnected: () => true,
@@ -422,9 +474,27 @@ async function gateSession(actionMs = 5000) {
     send(message) {
       if (message.kind === "offered") offered.resolve();
       if (message.kind !== "command") return;
-      const params = message.params as { method?: string } | undefined;
+      const params = message.params as
+        | { method?: string; params?: { url?: string }; sessionId?: string }
+        | undefined;
       if (message.method === "cdp" && params?.method)
         reached.push(params.method);
+      if (message.method === "cdp" && params?.method === "Page.navigate") {
+        const nav = extensionNavigate(
+          params.params?.url ?? "",
+          params.sessionId,
+        );
+        queueMicrotask(() => {
+          connection.current.receive({
+            kind: "result",
+            generation: connection.current.generation,
+            id: message.id,
+            result: nav.result,
+          });
+          queueMicrotask(nav.commit);
+        });
+        return;
+      }
       queueMicrotask(() =>
         connection.current.receive({
           kind: "result",
@@ -459,6 +529,8 @@ async function gateSession(actionMs = 5000) {
     page,
     reached,
     navigate,
+    navigated,
+    chrome,
     cdp,
     via: () => ({ wire: transport, session: sessionId }),
     // Attach the client with a harmless first action, as an agent's first
@@ -634,6 +706,9 @@ test("a gate that closes during an action refuses it at once, and a goto away wo
       url: `${SITE}/after`,
     });
     expect(away).toMatchObject({ ok: true, url: `${SITE}/after` });
+    // Task 662ed08b: the goto attaches a new client, whose first commands
+    // must not land on the office page; the site gets one request.
+    expect(h.navigated).toEqual([`${SITE}/after`]);
     // The ended click resumes on its own client and tries its input.
     hold.resolve();
     await Promise.race([lateDone.promise, Bun.sleep(500)]);
@@ -645,29 +720,70 @@ test("a gate that closes during an action refuses it at once, and a goto away wo
   }
 }, 15_000);
 
-test("a goto away from a gated page succeeds although Playwright's own commands there were refused", async () => {
+// Task 662ed08b: the page reached the office between two actions, with the
+// client still attached. The goto leaves, the site gets one request, and the
+// client that sat on the office page sends nothing after.
+test("a goto away from a page that reached an office between actions works and asks the site once", async () => {
   const h = await gateSession();
   try {
     await h.warm();
+    const old = h.via();
     h.navigate(`${OFFICE}/`);
-    let background: { error?: unknown } | undefined;
-    // Playwright still works on the office document it saw last.
-    h.page.onGoto = async () => {
-      background = await h.cdp("Runtime.callFunctionOn", {
-        functionDeclaration: "() => 1",
-      });
-    };
     const result = await h.sessions.run("agent", {
       action: "goto",
       url: `${SITE}/after`,
     });
-    // The condition this test needs: a command was refused during the action.
-    expect(background?.error).toBeDefined();
     expect(result).toMatchObject({
       ok: true,
       url: `${SITE}/after`,
       title: `Title of ${SITE}/after`,
     });
+    expect(h.navigated).toEqual([`${SITE}/after`]);
+    // The gate is open again (the goto is ok), so a live old client would
+    // reach the page.
+    const before = h.reached.length;
+    try {
+      await Promise.race([
+        h.cdp("Runtime.evaluate", { expression: "1" }, old),
+        Bun.sleep(100),
+      ]);
+    } catch {
+      // A closed transport throws at send.
+    }
+    expect(h.reached.slice(before)).toEqual([]);
+  } finally {
+    h.stop();
+  }
+});
+
+// Task 662ed08b: a leave whose navigation never commits ends with the
+// action, and does not hold the grant: the next action is sent.
+test("a goto away that never commits does not lock the target out", async () => {
+  const actionMs = 300;
+  const h = await gateSession(actionMs);
+  try {
+    await h.warm();
+    h.navigate(`${OFFICE}/`);
+    h.chrome.commits = false;
+    const before = h.reached.length;
+    const stuck = await h.sessions.run("agent", {
+      action: "goto",
+      url: `${SITE}/slow`,
+    });
+    // The condition: the navigation reached Chrome and did not commit.
+    expect(h.navigated).toEqual([`${SITE}/slow`]);
+    expect(h.page.current).toBe(`${OFFICE}/`);
+    expect(stuck.ok).toBe(false);
+    // The leave that ran out stops its load, so it cannot commit later
+    // behind the agent's next action.
+    expect(h.reached.slice(before)).toContain("Page.stopLoading");
+    h.chrome.commits = true;
+    const away = await h.sessions.run("agent", {
+      action: "goto",
+      url: `${SITE}/after`,
+    });
+    expect(away).toMatchObject({ ok: true, url: `${SITE}/after` });
+    expect(h.navigated).toEqual([`${SITE}/slow`, `${SITE}/after`]);
   } finally {
     h.stop();
   }

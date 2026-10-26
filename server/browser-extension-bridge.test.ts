@@ -1822,12 +1822,16 @@ describe("office gate", () => {
         : {}),
     },
   ];
-  const commit = (url: string, frameId = "owned"): [string, Fields] => [
+  const commit = (
+    url: string,
+    frameId = "owned",
+    loaderId = "loader",
+  ): [string, Fields] => [
     "Page.frameNavigated",
     {
       frame: {
         id: frameId,
-        loaderId: "loader",
+        loaderId,
         url,
         securityOrigin: new URL(url).origin,
         mimeType: "text/html",
@@ -2353,6 +2357,210 @@ describe("office gate", () => {
       expect(await read(h)).toEqual(refused);
       event(h, commit(`${SITE}/back`));
       expect(await read(h)).toEqual(passes);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  // leaveOffice (task 662ed08b): a goto that starts on a gated page leaves
+  // through the bridge, because a new client cannot attach there. It settles
+  // on the commit of its own navigation only.
+  const navigations = (h: Gate) =>
+    h.extension.messages.filter(
+      (m) =>
+        m.kind === "command" &&
+        m.method === "cdp" &&
+        fields(m.params).method === "Page.navigate",
+    );
+  // Starts a leave and waits until its Page.navigate reached the extension.
+  async function leave(
+    h: Gate,
+    url: string,
+    deadline = performance.now() + 5000,
+  ) {
+    const before = navigations(h).length;
+    let state: "pending" | "resolved" | "rejected" = "pending";
+    const done = h.connection.leaveOffice(h.assignment, url, deadline).then(
+      () => {
+        state = "resolved";
+      },
+      () => {
+        state = "rejected";
+      },
+    );
+    for (let i = 0; i < 50 && navigations(h).length === before; i++)
+      await Promise.resolve();
+    const sent = navigations(h).slice(before);
+    return {
+      sent,
+      done,
+      state: async () => {
+        await Bun.sleep(1);
+        return state;
+      },
+      answer: (result: Fields) =>
+        h.connection.receive({
+          kind: "result",
+          generation: h.connection.generation,
+          id: sent[0].id,
+          result,
+        }),
+    };
+  }
+
+  for (const order of ["answer first", "commit first"] as const)
+    test(`leaveOffice navigates a gated page once and settles on its own commit, ${order}`, async () => {
+      const h = await gateHarness();
+      try {
+        event(h, commit(`${OFFICE}/`));
+        expect(h.connection.officeGated(h.assignment)).toBe(true);
+        const l = await leave(h, `${SITE}/away`);
+        expect(l.sent.map((m) => fields(m.params))).toEqual([
+          {
+            method: "Page.navigate",
+            params: { url: `${SITE}/away` },
+          },
+        ]);
+        const answer = { frameId: "owned", loaderId: "away" };
+        if (order === "answer first") l.answer(answer);
+        // A late commit of the office load the gate stopped is not this
+        // navigation's.
+        event(h, commit(`${OFFICE}/late`, "owned", "office"));
+        expect(await l.state()).toBe("pending");
+        event(h, commit(`${SITE}/away`, "owned", "away"));
+        if (order === "commit first") l.answer(answer);
+        expect(await l.state()).toBe("resolved");
+        expect(h.connection.officeGated(h.assignment)).toBe(false);
+        expect(navigations(h)).toHaveLength(1);
+      } finally {
+        h.connection.close();
+      }
+    });
+
+  test("leaveOffice rejects at once when its navigation commits a refused page", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, commit(`${OFFICE}/`));
+      const l = await leave(h, `${SITE}/hop`);
+      expect(l.sent).toHaveLength(1);
+      l.answer({ frameId: "owned", loaderId: "hop" });
+      // The site redirects back to the office.
+      event(h, request(`${SITE}/hop`));
+      event(h, request(`${OFFICE}/`, { redirectedFrom: `${SITE}/hop` }));
+      event(h, commit(`${OFFICE}/`, "owned", "hop"));
+      expect(await l.state()).toBe("rejected");
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  for (const [name, result] of [
+    [
+      "a failed navigation",
+      {
+        frameId: "owned",
+        loaderId: "fail",
+        errorText: "net::ERR_NAME_NOT_RESOLVED",
+      },
+    ],
+    ["a download", { frameId: "owned", loaderId: "file", isDownload: true }],
+  ] as const)
+    test(`leaveOffice rejects ${name}`, async () => {
+      const h = await gateHarness();
+      try {
+        event(h, commit(`${OFFICE}/`));
+        const l = await leave(h, `${SITE}/file`);
+        expect(l.sent).toHaveLength(1);
+        l.answer(result);
+        expect(await l.state()).toBe("rejected");
+        expect(h.connection.officeGated(h.assignment)).toBe(true);
+      } finally {
+        h.connection.close();
+      }
+    });
+
+  test("leaveOffice rejects at its deadline when the navigation never commits, and a later leave works", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, commit(`${OFFICE}/`));
+      const first = await leave(h, `${SITE}/slow`, performance.now() + 50);
+      expect(first.sent).toHaveLength(1);
+      first.answer({ frameId: "owned", loaderId: "slow" });
+      expect(await first.state()).toBe("pending");
+      await Promise.race([first.done, Bun.sleep(1000)]);
+      expect(await first.state()).toBe("rejected");
+      const second = await leave(h, `${SITE}/after`);
+      expect(second.sent).toHaveLength(1);
+      second.answer({ frameId: "owned", loaderId: "after" });
+      event(h, commit(`${SITE}/after`, "owned", "after"));
+      expect(await second.state()).toBe("resolved");
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("leaveOffice rejects when the gated popup it navigates goes away", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, [
+        "popup",
+        {
+          sessionId: "popup-session",
+          targetInfo: {
+            type: "page",
+            targetId: "popup",
+            openerId: "owned",
+            url: `${SITE}/popup`,
+          },
+        },
+      ]);
+      event(h, commit(`${OFFICE}/`, "popup"), "popup-session");
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      const l = await leave(h, `${SITE}/away`);
+      // The popup is the leaf: the leave navigates it, not the tab.
+      expect(l.sent.map((m) => fields(m.params).sessionId)).toEqual([
+        "popup-session",
+      ]);
+      l.answer({ frameId: "popup", loaderId: "away" });
+      event(h, ["popupDetached", { sessionId: "popup-session" }]);
+      expect(await l.state()).toBe("rejected");
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("leaveOffice rejects when the grant ends while it waits", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, commit(`${OFFICE}/`));
+      const l = await leave(h, `${SITE}/away`);
+      expect(l.sent).toHaveLength(1);
+      l.answer({ frameId: "owned", loaderId: "away" });
+      expect(await l.state()).toBe("pending");
+      h.connection.close();
+      expect(await l.state()).toBe("rejected");
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("leaveOffice sends nothing toward an office or a URL that is not http(s)", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, commit(`${OFFICE}/`));
+      for (const url of [
+        `${OFFICE}/settings`,
+        "javascript:alert(1)",
+        "data:text/html,x",
+      ]) {
+        const l = await leave(h, url);
+        expect({ url, state: await l.state() }).toEqual({
+          url,
+          state: "rejected",
+        });
+      }
+      expect(navigations(h)).toEqual([]);
     } finally {
       h.connection.close();
     }

@@ -313,6 +313,14 @@ export class ExtensionBrowserSessions {
       session = undefined;
       if (connection.pendingCount(grant)) return notSentResult();
     }
+    // A client cannot attach on a refused office page: the gate refuses its
+    // first commands. A goto leaves the page through the bridge first, and a
+    // client that sat on the page ends.
+    const leaving = params.action === "goto" && connection.officeGated(grant);
+    if (leaving && session) {
+      this.end(key);
+      session = undefined;
+    }
     const started = performance.now();
     const deadline = actionStarted + actionMs;
     let operationSettled = false;
@@ -375,6 +383,10 @@ export class ExtensionBrowserSessions {
       same(this.service.bridge.resolve(member, agent, params.target), bound);
     if (session) watchEnd(session.signal);
     const task = async (): Promise<BrowserResult> => {
+      if (leaving) {
+        phase = "leave";
+        await connection.leaveOffice(grant, params.url!.href, deadline);
+      }
       if (!session) {
         // Load before the transport exists: it is assigned at once and must
         // not wait on the import before Playwright attaches its handlers.
@@ -507,10 +519,13 @@ export class ExtensionBrowserSessions {
       const inputBudget = () => Math.max(1, deadline - performance.now());
       switch (params.action) {
         case "goto":
-          await page.goto(params.url!.toString(), {
-            waitUntil: "load",
-            timeout,
-          });
+          // After a leave the page is already on its way to the URL.
+          if (leaving) await page.waitForLoadState("load", { timeout });
+          else
+            await page.goto(params.url!.toString(), {
+              waitUntil: "load",
+              timeout,
+            });
           session.opened = true;
           break;
         case "click": {
