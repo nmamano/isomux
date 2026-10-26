@@ -16,7 +16,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { Database } from "bun:sqlite";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir, tmpdir } from "node:os";
 import { STATE_ROOT } from "../../config.ts";
@@ -416,15 +416,33 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  // 1010dd4b: a session's shell commands get the server's environment
-  // without the server's secrets, from one builder (R2).
+  // 1010dd4b, task 956b994b: a session's shell commands get the server's
+  // environment without the server's secrets, and the seven shell variables
+  // (OPENCODE_SHELL_VARIABLES) as the env carries them, not as the profile
+  // sets them.
   it("gives tools the environment the server got, without its password or its config", async () => {
     const path = await root();
     const { binary } = await makeHealthOnlyBinary(path);
+    // The OS user's own folders, as the env carries them. The helper makes
+    // its debug folder in TMPDIR, so that one exists.
+    const userTmp = join(path, "users-tmp");
+    await mkdir(userTmp);
+    const userFolders: Record<string, string> = {
+      HOME: "/users-home",
+      XDG_CONFIG_HOME: "/users-xdg-config",
+      XDG_DATA_HOME: "/users-xdg-data",
+      XDG_STATE_HOME: "/users-xdg-state",
+      XDG_CACHE_HOME: "/users-xdg-cache",
+      TMPDIR: userTmp,
+    };
     const launchEnv = {
       MEMBER_VARIABLE: "member-value",
       HTTPS_PROXY: "http://127.0.0.1:9",
       OPENCODE_API_KEY: "zen-test-key",
+      ...userFolders,
+      // A member's own OPENCODE_DB value never reaches a shell: a shell
+      // opens no database copy.
+      OPENCODE_DB: "/users/other.db",
     };
     const supervisor = makeSupervisor(path, undefined, 1000, launchEnv, binary);
     const lease = await supervisor.acquire();
@@ -435,9 +453,22 @@ describe("OpenCode shared server supervisor", () => {
       "OPENCODE_CONFIG",
       "OPENCODE_CONFIG_CONTENT",
     ];
+    const shellVariables = [
+      "HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_STATE_HOME",
+      "XDG_CACHE_HOME",
+      "TMPDIR",
+      "OPENCODE_DB",
+    ];
     const expected = new Map(
-      [...child].filter(([name]) => !secret.includes(name)),
+      [...child].filter(
+        ([name]) => !secret.includes(name) && !shellVariables.includes(name),
+      ),
     );
+    for (const [name, value] of Object.entries(userFolders))
+      expected.set(name, value);
     // The member's env as a session start passes it: the agent token is
     // never part of a shared environment.
     const tools = supervisor.toolEnvironment({
@@ -453,9 +484,9 @@ describe("OpenCode shared server supervisor", () => {
       Object.entries(tools).every(
         ([name, value]) => expected.get(name) === value,
       ),
-      "every value as the server got it",
+      "every value as the env carries it",
     ).toBe(true);
-    for (const name of [...secret, "ISOMUX_AGENT_TOKEN"])
+    for (const name of [...secret, "ISOMUX_AGENT_TOKEN", "OPENCODE_DB"])
       expect(Object.hasOwn(tools, name), name).toBe(false);
     // A later session start with a changed variable gets it, while the
     // server keeps the env it started with.
@@ -848,9 +879,15 @@ describe("OpenCode shared server supervisor", () => {
   });
 
   it("builds the safety plugin with the HOME and TMPDIR the server's shell runs with", async () => {
-    // Task fc942b38: the plugin resolves ~, $HOME and $TMPDIR as the shell
-    // does. A profile under the state root, as in production.
+    // Tasks fc942b38, 956b994b: the plugin resolves ~, $HOME and $TMPDIR as
+    // the shell does, from the OS user's values in the helper's environment,
+    // not from the profile folders the server runs with. A profile under the
+    // state root, as in production.
     const path = await root();
+    const userHome = join(path, "users-home");
+    // The helper makes its debug folder in TMPDIR, so that one exists.
+    const userTmp = join(path, "users-tmp");
+    await mkdir(userTmp);
     const { binary } = await makeHealthOnlyBinary(path);
     const profileDir = join(
       STATE_ROOT,
@@ -863,7 +900,11 @@ describe("OpenCode shared server supervisor", () => {
       profileDir,
       serverCwd: path,
       idleShutdownMs: 1000,
-      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      launchEnv: {
+        OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+        HOME: userHome,
+        TMPDIR: userTmp,
+      },
       binary,
     });
     supervisors.push(supervisor);
@@ -871,8 +912,8 @@ describe("OpenCode shared server supervisor", () => {
     const environment = await childEnvironment(lease.pid);
     const home = environment.get("HOME") ?? "";
     const tmp = environment.get("TMPDIR") ?? "";
-    // The condition this test depends on: both folders are in the profile,
-    // under the state root, so only the exemption lets a write through.
+    // The condition this test depends on: the server runs with both folders
+    // in the profile, under the state root.
     expect(
       [home, tmp].every((value) => value.startsWith(profileDir + "/")),
     ).toBe(true);
@@ -908,25 +949,31 @@ describe("OpenCode shared server supervisor", () => {
           () => "allow",
           () => "deny",
         );
+    // A path that reaches the state root from the user's folder, and from
+    // no other: only the user's values resolve it there.
+    const intoState = (from: string) => relative(from, join(STATE_ROOT, "x"));
     // Labels name the case, never the environment's values.
     const cases: [string, string][] = [
-      ["the shell's HOME", `touch ${home}/x`],
-      ["the shell's TMPDIR", `touch ${tmp}/x`],
+      ["the server's HOME", `touch ${home}/x`],
+      ["the server's TMPDIR", `touch ${tmp}/x`],
       ["~", "touch ~/x"],
       ["$TMPDIR", "echo hi > $TMPDIR/x"],
-      ["~/..", "touch ~/../data/x"],
-      ["$TMPDIR/..", "echo hi > $TMPDIR/../data/x"],
+      ["~ into the state root", `touch ~/${intoState(userHome)}`],
+      [
+        "$TMPDIR into the state root",
+        `echo hi > $TMPDIR/${intoState(userTmp)}`,
+      ],
     ];
     const verdicts: [string, string][] = [];
     for (const [label, command] of cases)
       verdicts.push([label, await verdict(command)]);
     expect(verdicts).toEqual([
-      ["the shell's HOME", "allow"],
-      ["the shell's TMPDIR", "allow"],
+      ["the server's HOME", "deny"],
+      ["the server's TMPDIR", "deny"],
       ["~", "allow"],
       ["$TMPDIR", "allow"],
-      ["~/..", "deny"],
-      ["$TMPDIR/..", "deny"],
+      ["~ into the state root", "deny"],
+      ["$TMPDIR into the state root", "deny"],
     ]);
     lease.release();
   });

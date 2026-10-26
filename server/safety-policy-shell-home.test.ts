@@ -1,14 +1,14 @@
-// An OpenCode agent's shell runs with HOME and TMPDIR in its profile folder,
-// under the state root (task fc942b38). The policy context carries them as
-// shellHome and shellTmpDir, and the shell write check resolves ~, $HOME and
-// $TMPDIR the way that shell does. The two folders stay writable: they are
-// the agent's own space. The profile's other folders, and every other path
-// under the state root, stay refused. Without the fields (Claude, Codex)
+// An OpenCode agent's shell runs with the agents' OS user's HOME and TMPDIR,
+// as a Claude or Codex shell does (task 956b994b). The policy context carries
+// them as shellHome and shellTmpDir, and the shell write check resolves ~,
+// $HOME and $TMPDIR the way that shell does. The profile folders under the
+// state root are not the agent's own space any more: every path under the
+// state root refuses, also through ~. Without the fields (Claude, Codex)
 // nothing changes.
 
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -21,10 +21,14 @@ import {
 const cwd = "/tmp/safety-shell-home";
 const profiles = join(STATE_ROOT, "opencode", "profiles");
 const profile = join(profiles, "k");
-const openCode: PolicyContext = {
+// The OS user's folders, as the context carries them: outside the state
+// root, and equal to the process home, as in a running office. A shell
+// without TMPDIR is the common case.
+const openCode: PolicyContext = { cwd, shellHome: homedir() };
+const openCodeTmp: PolicyContext = {
   cwd,
-  shellHome: join(profile, "home"),
-  shellTmpDir: join(profile, "tmp"),
+  shellHome: homedir(),
+  shellTmpDir: "/tmp/agent-shell-tmp",
 };
 const noShell: PolicyContext = { cwd };
 
@@ -71,7 +75,7 @@ it("compares against refusals", () => {
   ]).not.toContain("allow");
 });
 
-describe("an OpenCode shell's home and tmp folders", () => {
+describe("an OpenCode shell's real home and tmp", () => {
   it("are what ~, $HOME and $TMPDIR resolve to, and are writable", () => {
     const commands = [
       "touch ~/x",
@@ -80,17 +84,28 @@ describe("an OpenCode shell's home and tmp folders", () => {
       'echo hi > "${HOME}/.cache/a"',
       "echo hi > $TMPDIR/x",
       "cd ~; mkdir -p .npm/a; cp a .npm/a/b",
-      `echo hi > ${join(profile, "home", "x")}`,
-      `echo hi > ${join(profile, "tmp", "x")}`,
+      // Past the home: the folder above it is not office state.
+      "touch ~/../x",
+      "cd ~/..; echo hi > x",
     ];
     // One comparison, so a red run names every case that was refused.
-    expect(commands.map((c) => [c, verdict(shell(c, openCode))])).toEqual(
+    expect(commands.map((c) => [c, verdict(shell(c, openCodeTmp))])).toEqual(
       commands.map((c) => [c, "allow"]),
     );
   });
 
+  it("without TMPDIR, a $TMPDIR target stays allowed", () => {
+    // The shell expands $TMPDIR to nothing; the check does not open a
+    // state path with it.
+    expect(verdict(shell("echo hi > $TMPDIR/x", openCode))).toBe("allow");
+  });
+
   it("are writable through the file tools", () => {
-    const paths = [join(profile, "home", "x"), join(profile, "tmp", "x")];
+    const paths = [
+      join(homedir(), "x"),
+      join(homedir(), ".gitconfig"),
+      "/tmp/agent-shell-tmp/x",
+    ];
     expect(
       paths.flatMap((p) => [
         [`write ${p}`, verdict(write(p, openCode))],
@@ -105,20 +120,18 @@ describe("an OpenCode shell's home and tmp folders", () => {
   });
 });
 
-describe("the rest of an OpenCode profile", () => {
-  it("is refused from the shell, through .. from ~, $HOME, $TMPDIR and cd", () => {
+describe("an OpenCode profile under the state root", () => {
+  it("is refused from the shell, also through ~ and $HOME", () => {
     const commands = [
-      "touch ~/../data/x",
-      "echo hi > $HOME/../data/x",
-      "echo hi > ${HOME}/../config/x",
-      'echo hi > "$TMPDIR/../state/x"',
-      "cp a ~/../opencode.json",
-      "cd ~/..; echo hi > data/x",
-      // The starting home counts too: the assignment may not run.
-      "false && HOME=/tmp/elsewhere; touch ~/../data/x",
+      `echo hi > ${join(profile, "home", "x")}`,
+      `echo hi > ${join(profile, "tmp", "x")}`,
+      `touch ${join(profile, "data", "x")}`,
       // Another profile's home is not this agent's.
       `echo hi > ${join(profiles, "other", "home", "x")}`,
-      "touch ~/../../other/home/x",
+      // The office state an agent types, from the real home.
+      "cp a ~/.isomux/x",
+      "echo hi > $HOME/.isomux/x",
+      "HOME=~/.isomux; touch ~/x",
     ];
     expect(commands.map((c) => [c, verdict(shell(c, openCode))])).toEqual(
       commands.map((c) => [c, shellStateRoot]),
@@ -126,9 +139,9 @@ describe("the rest of an OpenCode profile", () => {
   });
 
   it("stays refused after a cd the hook does not follow", () => {
-    // A bare cd and a cd to a variable leave the directory unresolved on
-    // every engine; following them is allowed, opening them is not.
-    const commands = ["cd; echo hi > ../data/x", "cd $HOME/..; touch data/x"];
+    // A bare cd leaves the directory unresolved on every engine; following
+    // it is allowed, opening the state root is not.
+    const commands = ["cd; echo hi > ../data/x"];
     const opened = commands.filter(
       (c) =>
         ![shellStateRoot, unresolvedCd].includes(verdict(shell(c, openCode))),
@@ -155,11 +168,43 @@ describe("the rest of an OpenCode profile", () => {
       ]),
     );
   });
+});
 
-  it("keeps a literal ~/.isomux refused", () => {
-    // In this shell ~/.isomux is inside the profile home, but an agent that
-    // types it means office state.
-    expect(verdict(shell("cp a ~/.isomux/x", openCode))).toBe(shellStateRoot);
+describe("a context that still names the profile folders", () => {
+  // No production shell runs with these any more: the plugin passes the OS
+  // user's values. The policy gives no own space for a home under the state
+  // root; the profile's home and tmp were writable through this context
+  // before task 956b994b removed the agent space.
+  const profileContext: PolicyContext = {
+    cwd,
+    shellHome: join(profile, "home"),
+    shellTmpDir: join(profile, "tmp"),
+  };
+  it("opens nothing from the shell, also through ~ and $TMPDIR", () => {
+    const commands = [
+      "touch ~/x",
+      "echo hi > $TMPDIR/x",
+      "touch ~/../data/x",
+      `echo hi > ${join(profile, "home", "x")}`,
+    ];
+    expect(commands.map((c) => [c, verdict(shell(c, profileContext))])).toEqual(
+      commands.map((c) => [c, shellStateRoot]),
+    );
+  });
+
+  it("refuses the file tools", () => {
+    const paths = [join(profile, "home", "x"), join(profile, "tmp", "x")];
+    expect(
+      paths.flatMap((p) => [
+        [`write ${p}`, verdict(write(p, profileContext))],
+        [`patch ${p}`, verdict(patch(p, profileContext))],
+      ]),
+    ).toEqual(
+      paths.flatMap((p) => [
+        [`write ${p}`, writeStateRoot],
+        [`patch ${p}`, patchStateRoot],
+      ]),
+    );
   });
 });
 
@@ -223,24 +268,24 @@ describe("a shell without the fields (Claude, Codex)", () => {
 });
 
 describe("an office's own layout, with the state root at ~/.isomux", () => {
-  it("keeps a dynamic target in the home and tmp folders writable", () => {
-    // The test state root has no .isomux segment. An office's has, and so
-    // does every profile path under it: only a process with that layout
-    // sees a check that reads the folder's own path as a written .isomux.
+  it("keeps the real home and tmp writable, and refuses the office state in them", () => {
+    // The test state root has no .isomux segment. An office's has: the real
+    // home holds it, so a dynamic target that names the office state
+    // refuses even though the home itself stays writable.
     const home = mkdtempSync(join(tmpdir(), "shell-home-layout-"));
     try {
       const stateRoot = join(home, ".isomux");
-      const profile = join(stateRoot, "opencode", "profiles", "k");
       const commands = [
         "echo hi > $TMPDIR/out-$$.txt",
         'echo hi > "$TMPDIR/$name"',
         "cp a $TMPDIR/*.txt",
         'echo hi > "$HOME/$name"',
         "touch ~/x",
-        `touch ${join(profile, "home", "x")}`,
-        "touch ~/../data/x",
-        "echo hi > $TMPDIR/../data/$f",
+        "touch ~/../x",
+        "echo hi > $TMPDIR/../data/x",
         "echo hi > ~/.isomux/x",
+        "echo hi > $HOME/.isomux/$f",
+        `echo hi > ${join(stateRoot, "x")}`,
       ];
       const script = `
         const { STATE_ROOT } = await import(${JSON.stringify(join(import.meta.dir, "config.ts"))});
@@ -264,8 +309,8 @@ describe("an office's own layout, with the state root at ~/.isomux", () => {
             commands,
             context: {
               cwd: join(home, "project"),
-              shellHome: join(profile, "home"),
-              shellTmpDir: join(profile, "tmp"),
+              shellHome: home,
+              shellTmpDir: "/tmp/agent-shell-layout-tmp",
             },
           }),
         },
@@ -283,10 +328,11 @@ describe("an office's own layout, with the state root at ~/.isomux", () => {
         ["cp a $TMPDIR/*.txt", "allow"],
         ['echo hi > "$HOME/$name"', "allow"],
         ["touch ~/x", "allow"],
-        [`touch ${join(profile, "home", "x")}`, "allow"],
-        ["touch ~/../data/x", "deny"],
-        ["echo hi > $TMPDIR/../data/$f", "deny"],
+        ["touch ~/../x", "allow"],
+        ["echo hi > $TMPDIR/../data/x", "allow"],
         ["echo hi > ~/.isomux/x", "deny"],
+        ["echo hi > $HOME/.isomux/$f", "deny"],
+        [`echo hi > ${join(stateRoot, "x")}`, "deny"],
       ]);
     } finally {
       rmSync(home, { recursive: true, force: true });

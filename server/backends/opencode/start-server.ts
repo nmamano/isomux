@@ -28,7 +28,8 @@ import {
   OPENCODE_V2_DATABASE,
   openCodeConfigOverride,
   openCodeServerEnvironment,
-  openCodeProfileHome,
+  openCodeShellProfileValues,
+  openCodeShellUserValues,
   openCodeTmpDir,
 } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
@@ -90,7 +91,10 @@ const safetyPluginText = await buildOpenCodeSafetyPlugin(
   JSON.parse(required("OPENCODE_SAFETY_ROOTS")) as Parameters<
     typeof buildOpenCodeSafetyPlugin
   >[0],
-  { home: openCodeProfileHome(profileDir), tmpDir: openCodeTmpDir(profileDir) },
+  {
+    user: openCodeShellUserValues(process.env),
+    profile: openCodeShellProfileValues(profileDir),
+  },
 );
 const safetyPlugin = createHash("sha256")
   .update(safetyPluginText)

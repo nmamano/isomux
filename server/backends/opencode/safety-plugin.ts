@@ -18,7 +18,9 @@ import {
 import {
   OPENCODE_SAFETY_PLUGIN_ID,
   OPENCODE_SERVER_ONLY_VARIABLES,
+  OPENCODE_SHELL_VARIABLES,
 } from "./safety-plugin-tool.ts";
+import type { OpenCodeSafetyShell } from "./safety-plugin-build.ts";
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -86,11 +88,26 @@ export function openCodeToolAction(
   }
 }
 
-// The profile's HOME and TMPDIR, baked in by safety-plugin-build.ts. Unset
-// when this file runs unbundled, as in tests.
-declare const ISOMUX_SAFETY_SHELL: { home: string; tmpDir: string } | undefined;
+// The shell variables, baked in by safety-plugin-build.ts. Unset when this
+// file runs unbundled, as in tests.
+declare const ISOMUX_SAFETY_SHELL: OpenCodeSafetyShell | undefined;
 const SHELL =
   typeof ISOMUX_SAFETY_SHELL === "object" ? ISOMUX_SAFETY_SHELL : undefined;
+
+// Gives a shell the agents' OS user's value of each shell variable that
+// still holds the server's profile value (a shell that started from the
+// server's environment), and deletes it where the user has none.
+export function restoreOpenCodeShellVariables(
+  env: Record<string, string | undefined>,
+  shell: OpenCodeSafetyShell,
+): void {
+  for (const name of OPENCODE_SHELL_VARIABLES) {
+    if (env[name] !== shell.profile[name]) continue;
+    const value = shell.user[name];
+    if (value === null) delete env[name];
+    else env[name] = value;
+  }
+}
 
 interface ToolEvent {
   tool: string;
@@ -137,17 +154,19 @@ export default {
         const decision = evaluateProposedAction(call.action, {
           cwd: call.cwd,
           codexHome: process.env.CODEX_HOME,
-          shellHome: SHELL?.home,
-          shellTmpDir: SHELL?.tmpDir,
+          shellHome: SHELL?.user.HOME,
+          shellTmpDir: SHELL?.user.TMPDIR,
         });
         if (decision.decision === "deny") throw new Error(decision.reason);
       }),
       // E2: a shell of a session whose environment Isomux did not set (a
       // subagent's, before its PUT lands) starts from the server's, which
-      // holds the server password. OpenCode spawns with this object's env.
+      // holds the server password and the profile's HOME and XDG folders.
+      // OpenCode spawns with this object's env.
       ctx.shell.hook("create.before", (event) => {
         for (const name of OPENCODE_SERVER_ONLY_VARIABLES)
           delete event.env[name];
+        if (SHELL) restoreOpenCodeShellVariables(event.env, SHELL);
       }),
     ]);
   },

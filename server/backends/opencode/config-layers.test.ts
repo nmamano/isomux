@@ -2,8 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  OPENCODE_V2_DATABASE,
   openCodeConfigOverride,
   openCodeMcpServerConfig,
+  openCodeShellProfileValues,
+  openCodeShellUserValues,
   openCodeUserConfigDir,
 } from "./config-layers.ts";
 import {
@@ -39,6 +42,42 @@ describe("openCodeUserConfigDir", () => {
         XDG_CONFIG_HOME: "xdg",
       }),
     ).toBe(join(homedir(), ".config", "opencode"));
+  });
+});
+
+// Task 956b994b: the seven variables a shell takes from the agents' OS user.
+describe("the shell variables the agents' OS user gives back", () => {
+  it("maps each profile folder, and names the database copy for OPENCODE_DB", () => {
+    const profileDir = "/state/opencode/profiles/k";
+    expect(openCodeShellProfileValues(profileDir)).toEqual({
+      HOME: join(profileDir, "home"),
+      XDG_CONFIG_HOME: join(profileDir, "config"),
+      XDG_DATA_HOME: join(profileDir, "data"),
+      XDG_STATE_HOME: join(profileDir, "state"),
+      XDG_CACHE_HOME: join(profileDir, "cache"),
+      TMPDIR: join(profileDir, "tmp"),
+      OPENCODE_DB: OPENCODE_V2_DATABASE,
+    });
+  });
+
+  it("takes each value from the env; an empty or missing one counts as none", () => {
+    const values = openCodeShellUserValues({
+      HOME: "/users-home",
+      XDG_CONFIG_HOME: "",
+      XDG_DATA_HOME: "/users-xdg-data",
+    });
+    expect(values.HOME).toBe("/users-home");
+    expect(values.XDG_CONFIG_HOME).toBeNull();
+    expect(values.XDG_DATA_HOME).toBe("/users-xdg-data");
+    expect(values.XDG_STATE_HOME).toBeNull();
+    expect(values.XDG_CACHE_HOME).toBeNull();
+    expect(values.TMPDIR).toBeNull();
+  });
+
+  it("never takes OPENCODE_DB from the env: a shell opens no database copy", () => {
+    expect(
+      openCodeShellUserValues({ OPENCODE_DB: "/users/other.db" }).OPENCODE_DB,
+    ).toBeNull();
   });
 });
 

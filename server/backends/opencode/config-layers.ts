@@ -2,7 +2,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
-import { OPENCODE_SERVER_ONLY_VARIABLES } from "./safety-plugin-tool.ts";
+import {
+  OPENCODE_SERVER_ONLY_VARIABLES,
+  type OpenCodeShellVariable,
+} from "./safety-plugin-tool.ts";
 
 // A member's user-level OpenCode plugins and config: their OPENCODE_CONFIG_DIR
 // when it is an absolute path, else the directory a stock OpenCode install
@@ -77,7 +80,9 @@ export const OPENCODE_V2_DATABASE = "opencode-v2.db";
 // The server's environment, built from the helper's environment (the agent
 // user's own plus the member's variables). The server's shell tool starts
 // from it, so openCodeToolEnvironment derives from this one builder: a
-// variable added here reaches a session's shell commands too.
+// variable added here reaches a session's shell commands too, except the
+// shell variables (OPENCODE_SHELL_VARIABLES), which a shell takes from the
+// agents' OS user.
 export function openCodeServerEnvironment(
   env: Record<string, string | undefined>,
   server: OpenCodeServerVariables,
@@ -95,20 +100,15 @@ export function openCodeServerEnvironment(
     ),
     PATH: env.PATH ?? "/usr/bin:/bin",
     LANG: "C.UTF-8",
-    HOME: openCodeProfileHome(server.profileDir),
-    XDG_CONFIG_HOME: join(server.profileDir, "config"),
-    XDG_DATA_HOME: join(server.profileDir, "data"),
-    XDG_STATE_HOME: join(server.profileDir, "state"),
-    XDG_CACHE_HOME: join(server.profileDir, "cache"),
-    // E5. 2.1.4's persistent-terminal daemon ignores it (a fixed
-    // /tmp/opencode-pty-<uid>/), and Isomux creates no persistent terminal.
-    TMPDIR: openCodeTmpDir(server.profileDir),
+    // HOME, the XDG folders, TMPDIR and OPENCODE_DB. TMPDIR: E5, 2.1.4's
+    // persistent-terminal daemon ignores it (a fixed /tmp/opencode-pty-<uid>/),
+    // and Isomux creates no persistent terminal.
+    ...openCodeShellProfileValues(server.profileDir),
     OPENCODE_CONFIG: server.configPath,
     OPENCODE_CONFIG_CONTENT: server.configContent,
     OPENCODE_CONFIG_DIR: existsSync(userConfigDir) ? userConfigDir : undefined,
     // Read by the 2.1.4 updater; serve itself makes no update request (S10).
     OPENCODE_DISABLE_AUTOUPDATE: "1",
-    OPENCODE_DB: OPENCODE_V2_DATABASE,
     OPENCODE_SERVER_PASSWORD: server.password,
   };
   return Object.fromEntries(
@@ -119,7 +119,9 @@ export function openCodeServerEnvironment(
 }
 
 // The environment of a session's shell commands (PUT
-// /api/session/:id/environment, which replaces the server's for them).
+// /api/session/:id/environment, which replaces the server's for them): the
+// server's without its secrets, and with the agents' OS user's HOME, XDG
+// folders and TMPDIR, as a Claude agent's shell has them.
 export function openCodeToolEnvironment(
   env: Record<string, string | undefined>,
   profileDir: string,
@@ -131,6 +133,10 @@ export function openCodeToolEnvironment(
     password: "",
   });
   for (const name of OPENCODE_SERVER_ONLY_VARIABLES) delete variables[name];
+  for (const [name, value] of Object.entries(openCodeShellUserValues(env))) {
+    if (value === null) delete variables[name];
+    else variables[name] = value;
+  }
   return variables;
 }
 
@@ -140,4 +146,37 @@ export function openCodeProfileHome(profileDir: string): string {
 
 export function openCodeTmpDir(profileDir: string): string {
   return join(profileDir, "tmp");
+}
+
+// The value the server sets for each shell variable from the profile.
+export function openCodeShellProfileValues(
+  profileDir: string,
+): Record<OpenCodeShellVariable, string> {
+  return {
+    HOME: openCodeProfileHome(profileDir),
+    XDG_CONFIG_HOME: join(profileDir, "config"),
+    XDG_DATA_HOME: join(profileDir, "data"),
+    XDG_STATE_HOME: join(profileDir, "state"),
+    XDG_CACHE_HOME: join(profileDir, "cache"),
+    TMPDIR: openCodeTmpDir(profileDir),
+    OPENCODE_DB: OPENCODE_V2_DATABASE,
+  };
+}
+
+// The value each shell variable takes from the agents' OS user (the env the
+// server starts from), or null when it has none. OPENCODE_DB is always null:
+// a shell's opencode reads the user's data folder, not the profile's.
+export function openCodeShellUserValues(
+  env: Record<string, string | undefined>,
+): Record<OpenCodeShellVariable, string | null> {
+  const value = (name: string) => env[name]?.trim() || null;
+  return {
+    HOME: value("HOME"),
+    XDG_CONFIG_HOME: value("XDG_CONFIG_HOME"),
+    XDG_DATA_HOME: value("XDG_DATA_HOME"),
+    XDG_STATE_HOME: value("XDG_STATE_HOME"),
+    XDG_CACHE_HOME: value("XDG_CACHE_HOME"),
+    TMPDIR: value("TMPDIR"),
+    OPENCODE_DB: null,
+  };
 }

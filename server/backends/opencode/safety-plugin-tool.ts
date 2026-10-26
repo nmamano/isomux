@@ -18,6 +18,24 @@ export const OPENCODE_SERVER_ONLY_VARIABLES = [
   "OPENCODE_CONFIG_CONTENT",
 ] as const;
 
+// The variables a shell gets from the agents' OS user, not from the server:
+// OpenCode's own process keeps its HOME, XDG folders and TMPDIR in the
+// profile (credentials and data per member) and opens opencode-v2.db there.
+// A shell gets the OS user's value, or none when the OS user has none, so
+// git, gh, ssh and other tools read the user's config, as in a Claude
+// agent's shell.
+export const OPENCODE_SHELL_VARIABLES = [
+  "HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "TMPDIR",
+  "OPENCODE_DB",
+] as const;
+
+export type OpenCodeShellVariable = (typeof OPENCODE_SHELL_VARIABLES)[number];
+
 // The folder the Isomux safety plugin loads from under OpenCode 2, which
 // skips a plugin entry that names a file. GET /api/plugin reports it as the
 // row's source.path.

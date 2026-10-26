@@ -16,7 +16,9 @@ import {
 
 const OUTSIDE = "/tmp/probe-project";
 
-// An OpenCode shell: HOME is a profile folder under the state root.
+// A shell whose home is a folder under the state root. No production shell
+// runs with one any more (task 956b994b), and the policy must still refuse
+// such an input through find's forms.
 const profile = join(STATE_ROOT, "opencode", "profiles", "k");
 const openCode: PolicyContext = {
   shellHome: join(profile, "home"),

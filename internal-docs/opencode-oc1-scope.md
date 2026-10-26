@@ -139,8 +139,15 @@ server: 2.1.4 takes each server whole from the last layer that names it, so
 the transport adds Isomux's servers to each folder at run time
 (`PUT /api/experimental/mcp/:name`).
 
-The profile keeps its own HOME and XDG directories, so credentials and data
-stay per member. Isomux sends its full rule list at session create, repeats it
+The OpenCode server keeps the profile's HOME, XDG directories and TMPDIR, so
+credentials and data stay per member. Shell commands get the agents' OS
+user's HOME, XDG directories and TMPDIR (unset when the user has none), as a
+Claude agent's shell does, so git, gh, ssh and other tools read the user's
+config, and they get no `OPENCODE_DB` (task 956b994b). The session environment
+Isomux sets carries the user's values; for a shell that starts from the
+server's environment (a subagent's, before its session environment lands),
+the safety plugin's `create.before` hook replaces each profile value with the
+user's. Isomux sends its full rule list at session create, repeats it
 in each of its agent blocks in the top layer, and names the agent on every
 session (gate C1). User and project config cannot turn off the safety policy.
 
@@ -155,14 +162,17 @@ name, and the calls of a subagent's session. Config cannot remove it: plugin
 lists from all layers are joined, and a duplicate entry keeps its last
 position. `start-server.ts` bundles the plugin at each server start into a
 folder in the profile (2.1.4 skips a plugin entry that names a file), with the
-Isomux server's home, state root and admin socket baked in: OpenCode runs with
-the profile's HOME, and its environment holds the member's variables. A server
+Isomux server's home, state root and admin socket baked in, and each shell
+variable's profile and user value (the policy resolves `~` and `$TMPDIR` from
+the user's): OpenCode runs with the profile's HOME, and its environment holds
+the member's variables. A server
 that loaded another build is not adopted. OpenCode loads plugins fail-open,
 and a project plugin with the same id displaces this one, so before every
 prompt the transport requires that `GET /api/plugin` for the folder lists this
 plugin active and alone with its id. The plugin also removes the server
 password and Isomux's config variables from the environment of every shell it
-sees (the `create.before` shell hook). Plugins are code with the member's
+sees, and gives it the user's HOME and folders (the `create.before` shell
+hook). Plugins are code with the member's
 trust, as Claude hooks are: a plugin that runs a command itself is outside any
 policy. Two consequences of that trust are not a boundary Isomux defends. A
 project or member plugin can rename a tool for the model (a session request

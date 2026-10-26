@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { OpenCodeShellVariable } from "./safety-plugin-tool.ts";
 
 const entry = join(import.meta.dir, "safety-plugin.ts");
 const osShim = join(import.meta.dir, "safety-plugin-os.ts");
@@ -11,12 +12,13 @@ export interface OpenCodeSafetyRoots {
   env: { ISOMUX_HOME: string; ISOMUX_ADMIN_SOCKET: string };
 }
 
-// The HOME and TMPDIR a session's shell runs with (openCodeToolEnvironment):
-// the policy resolves ~, $HOME and $TMPDIR from them, and leaves the two
-// folders writable.
+// The shell variables (OPENCODE_SHELL_VARIABLES) as the server sets them
+// from the profile, and as the agents' OS user has them (null: unset). The
+// shell hook gives a shell the user's value in place of the profile's, and
+// the policy resolves ~, $HOME and $TMPDIR from the user's.
 export interface OpenCodeSafetyShell {
-  home: string;
-  tmpDir: string;
+  user: Record<OpenCodeShellVariable, string | null>;
+  profile: Record<OpenCodeShellVariable, string>;
 }
 
 // safety-plugin.ts as one self-contained module with the roots baked in: no

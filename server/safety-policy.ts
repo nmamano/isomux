@@ -59,11 +59,11 @@ export const STATE_PATH_VARIABLES: readonly string[] = [
 // them like any path.
 export const STATE_PATH_EXCLUSIONS: Readonly<Record<string, string>> = {
   HOME:
-    "OpenCode shells get a profile home, the agent's own space; on other " +
-    "engines it is the real home, and agents write there all the time.",
+    "The OpenCode server runs with a profile home; agent shells on every " +
+    "engine get the real home, and agents write there all the time.",
   TMPDIR:
-    "OpenCode shells get a profile scratch directory; agents write their " +
-    "scratch files there by design.",
+    "The OpenCode server runs with a profile scratch directory; agent " +
+    "shells get the real one, and agents write their scratch files there.",
 };
 
 export type PolicyDecision =
@@ -81,7 +81,8 @@ export type ProposedAction =
 // codexHome is the CODEX_HOME the agent runs with; its auth.json is a login
 // even when the directory name matches none of the known shapes. shellHome
 // and shellTmpDir are the HOME and TMPDIR the agent's shell runs with when
-// they are not the hook's own (OpenCode's profile folders).
+// they can differ from the hook's own (the OpenCode safety plugin runs in a
+// server with the profile's).
 export type PolicyContext = {
   cwd?: unknown;
   codexHome?: string | null;
@@ -2921,14 +2922,11 @@ function isAtOrBelowStateRoot(filePath: string): boolean {
 
 /**
  * The shell an action runs in. home is where its ~ starts, tmpDir its TMPDIR
- * when the context gives one; agentSpace holds the folders under the state
- * root that are the agent's own (an OpenCode profile's home and tmp), and is
- * empty on Claude and Codex.
+ * when the context gives one.
  */
 type AgentShell = {
   home: string;
   tmpDir: string | null;
-  agentSpace: readonly string[];
 };
 
 function agentShell(context: PolicyContext): AgentShell {
@@ -2936,23 +2934,10 @@ function agentShell(context: PolicyContext): AgentShell {
     const trimmed = value?.trim();
     return trimmed && isAbsolute(trimmed) ? resolve(trimmed) : null;
   };
-  const home = folder(context.shellHome);
-  const tmpDir = folder(context.shellTmpDir);
-  // Only a folder strictly below the state root opens: the root itself or an
-  // ancestor of it would open all of office state.
-  const agentSpace = [home, tmpDir].filter(
-    (path): path is string =>
-      path !== null && path.startsWith(ISOMUX_DIR + "/"),
-  );
-  return { home: home ?? homedir(), tmpDir, agentSpace };
-}
-
-/** A write to office state: at or below the state root, outside agent space. */
-function isStateWrite(filePath: string, shell: AgentShell): boolean {
-  return (
-    isAtOrBelowStateRoot(filePath) &&
-    !shell.agentSpace.some((root) => isAtOrBelow(filePath, root))
-  );
+  return {
+    home: folder(context.shellHome) ?? homedir(),
+    tmpDir: folder(context.shellTmpDir),
+  };
 }
 
 function isProtectedRelativeCandidate(filePath: string): boolean {
@@ -3542,13 +3527,7 @@ function shellWriteFlow(
         expanded || tilde.expanded
           ? /[$`*?[\]{}]/.test(result.text)
           : Boolean(target.dynamic);
-      // The agent-space prefix a variable supplies ($TMPDIR in OpenCode) is
-      // not a .isomux the agent wrote; a typed one still counts.
-      const own = expanded
-        ? shell.agentSpace.find((root) => result.text.startsWith(root + "/"))
-        : undefined;
-      const written = own ? result.text.slice(own.length) : result.text;
-      if (dynamic && [written, ...result.raws].some(namesIsomuxSegment)) {
+      if (dynamic && [result.text, ...result.raws].some(namesIsomuxSegment)) {
         decision = denyShellPath(target.text, true);
         return;
       }
@@ -3573,7 +3552,7 @@ function shellWriteFlow(
             : denyMissingCwd("Bash", target.text);
         return true;
       }
-      if (resolved !== null && isStateWrite(resolved, shell)) {
+      if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
         decision = denyStateRoot();
         return true;
       }
@@ -4104,7 +4083,6 @@ function checkWritePaths(
   toolName: string,
   filePaths: string[],
   cwd: unknown,
-  shell: AgentShell,
 ): PolicyDecision {
   for (const filePath of filePaths) {
     const resolved = resolvePath(filePath, cwd);
@@ -4114,7 +4092,7 @@ function checkWritePaths(
       }
       continue;
     }
-    if (isStateWrite(resolved, shell)) {
+    if (isAtOrBelowStateRoot(resolved)) {
       return deny(
         `BLOCKED by isomux safety hooks\n\n` +
           `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. ` +
@@ -4133,24 +4111,22 @@ function checkWriteEditSafety(
   toolName: string,
   toolInput: unknown,
   cwd: unknown,
-  shell: AgentShell,
 ): PolicyDecision {
   const filePaths = collectToolPaths(toolName, toolInput);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths, cwd, shell);
+  return checkWritePaths(toolName, filePaths, cwd);
 }
 
 function checkPatchSafety(
   toolName: string,
   patch: unknown,
   cwd: unknown,
-  shell: AgentShell,
 ): PolicyDecision {
   const filePaths = extractApplyPatchPaths(patch);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths, cwd, shell);
+  return checkWritePaths(toolName, filePaths, cwd);
 }
 
 function checkSensitiveFileRead(
@@ -4212,18 +4188,12 @@ export function evaluateProposedAction(
         context.codexHome,
       );
     case "write-files":
-      return checkWriteEditSafety(
-        action.toolName,
-        action.input,
-        context.cwd,
-        shell,
-      );
+      return checkWriteEditSafety(action.toolName, action.input, context.cwd);
     case "read-and-write-files": {
       const writeDecision = checkWriteEditSafety(
         action.toolName,
         action.input,
         context.cwd,
-        shell,
       );
       return writeDecision.decision === "deny"
         ? writeDecision
@@ -4235,12 +4205,7 @@ export function evaluateProposedAction(
           );
     }
     case "patch-files":
-      return checkPatchSafety(
-        action.toolName,
-        action.patch,
-        context.cwd,
-        shell,
-      );
+      return checkPatchSafety(action.toolName, action.patch, context.cwd);
     case "uncovered-tool":
       return allow();
   }

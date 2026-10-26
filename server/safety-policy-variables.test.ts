@@ -215,13 +215,19 @@ describe("Isomux's own state-path variables", () => {
     } finally {
       setPersonalProviderActiveProvider(previous);
     }
+    // The OpenCode tools take the env's own values (task 956b994b): the
+    // profile folders reach the server process, not a session's tools.
+    const env = { HOME: "/users-home", XDG_DATA_HOME: "/users-xdg-data" };
     const openCode = openCodeToolEnvironment(
-      {},
+      env,
       join(STATE_ROOT, "opencode", "profiles", "k"),
     );
-    // The condition this test depends on: both builders set state paths.
+    // The condition this test depends on: the session builder sets state
+    // paths, and the tools carry the env's values, not the profile's.
     expect(atOrBelowStateRoot(session.CLAUDE_CONFIG_DIR)).toBe(true);
-    expect(atOrBelowStateRoot(openCode.XDG_DATA_HOME)).toBe(true);
+    expect(openCode.HOME).toBe("/users-home");
+    expect(openCode.XDG_DATA_HOME).toBe("/users-xdg-data");
+    expect(atOrBelowStateRoot(openCode.XDG_DATA_HOME)).toBe(false);
     const unlisted = Object.entries({ ...session, ...openCode })
       .filter(([name, value]) => atOrBelowStateRoot(value) && !listed.has(name))
       .map(([name]) => name);

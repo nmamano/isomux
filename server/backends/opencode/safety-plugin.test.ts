@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { STATE_ROOT } from "../../config.ts";
 import { evaluateOpenCodePermission } from "./safety-adapter.ts";
+import { OPENCODE_V2_DATABASE } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import safetyPlugin, { openCodeToolAction } from "./safety-plugin.ts";
 import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
@@ -393,6 +394,27 @@ describe("the bundled safety plugin", () => {
   it("bundles into one module with the given roots, not the process's", async () => {
     const home = "/srv/isomux-safety-plugin-home";
     const stateRoot = "/srv/isomux-safety-plugin-state";
+    const profile = join(stateRoot, "opencode", "profiles", "k");
+    // The shell variables as production bakes them: the profile's folders
+    // under the state root, and the OS user's values beside them.
+    const profileValues = {
+      HOME: join(profile, "home"),
+      XDG_CONFIG_HOME: join(profile, "config"),
+      XDG_DATA_HOME: join(profile, "data"),
+      XDG_STATE_HOME: join(profile, "state"),
+      XDG_CACHE_HOME: join(profile, "cache"),
+      TMPDIR: join(profile, "tmp"),
+      OPENCODE_DB: OPENCODE_V2_DATABASE,
+    };
+    const userValues = {
+      HOME: "/users-home",
+      XDG_CONFIG_HOME: null,
+      XDG_DATA_HOME: "/users-xdg-data",
+      XDG_STATE_HOME: null,
+      XDG_CACHE_HOME: null,
+      TMPDIR: null,
+      OPENCODE_DB: null,
+    };
     const text = await buildOpenCodeSafetyPlugin(
       {
         home,
@@ -401,7 +423,7 @@ describe("the bundled safety plugin", () => {
           ISOMUX_ADMIN_SOCKET: join(stateRoot, "admin.sock"),
         },
       },
-      { home: join(home, "profile-home"), tmpDir: join(home, "profile-tmp") },
+      { user: userValues, profile: profileValues },
     );
     expect(text, "no import of node:os is left").not.toMatch(
       /from "(node:)?os"/,
@@ -429,13 +451,43 @@ describe("the bundled safety plugin", () => {
           "the process roots differ",
         ).toBe("allow");
       }
-      // The shell hook survives the bundle too.
-      const env: Record<string, string | undefined> = {
+      // ~ in a file tool resolves from the server's home, outside the state
+      // root: a write through ~ is allowed, and the office state an agent
+      // types through ~ refuses.
+      expect(await verdict(hooks, "write", write("~/x"))).toBe("allow");
+      expect(await verdict(hooks, "write", write("~/../data/x"))).toBe("allow");
+      // An agent that types the office state refuses it from any home.
+      expect(await verdict(hooks, "write", write("~/.isomux/x"))).not.toBe(
+        "allow",
+      );
+      // The shell hook survives the bundle too, and gives a shell that
+      // started from the server's environment the OS user's values back.
+      const fromServer: Record<string, string | undefined> = {
         OPENCODE_SERVER_PASSWORD: "fake-server-password",
         PATH: "/usr/bin",
+        HOME: profileValues.HOME,
+        XDG_DATA_HOME: profileValues.XDG_DATA_HOME,
+        TMPDIR: profileValues.TMPDIR,
+        OPENCODE_DB: OPENCODE_V2_DATABASE,
+        OPENCODE_CONFIG_DIR: "/member/opencode",
       };
-      await hooks.get("shell.create.before")!({ env });
-      expect(Object.keys(env)).toEqual(["PATH"]);
+      await hooks.get("shell.create.before")!({ env: fromServer });
+      expect(fromServer).toEqual({
+        PATH: "/usr/bin",
+        HOME: "/users-home",
+        XDG_DATA_HOME: "/users-xdg-data",
+        OPENCODE_CONFIG_DIR: "/member/opencode",
+      });
+      // A session's own values, or a member's, stay as they came.
+      const fromSession: Record<string, string | undefined> = {
+        HOME: "/member-home",
+        TMPDIR: "/member-tmp",
+      };
+      await hooks.get("shell.create.before")!({ env: fromSession });
+      expect(fromSession).toEqual({
+        HOME: "/member-home",
+        TMPDIR: "/member-tmp",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
