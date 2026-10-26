@@ -1,7 +1,8 @@
 // How an OpenCode 2.1.4 turn fails, recovers and ends when the server or its
 // event stream misbehaves (task e47be82a): the failed step, the lease, the
 // stream deadline and its recovery (T2), the no-progress check (T9), the
-// folder setup and catalog waits, and the journal of a silence.
+// folder setup and catalog waits, the journal of a silence, and the shells a
+// stopped turn leaves running (task 1c6c1b25).
 import { afterEach, expect, it, spyOn } from "bun:test";
 import { join } from "node:path";
 import { createOpenCodeBackend } from "./adapter.ts";
@@ -36,6 +37,7 @@ import {
   messageItems,
   modelRow,
   settleUntil,
+  shellRow,
   type FakeLeaseOptions,
   type FakeOptions,
 } from "./fake-opencode-v2.ts";
@@ -687,6 +689,7 @@ function driven(
     fake?: FakeOptions;
     lease?: FakeLeaseOptions;
     transport?: Partial<OpenCodeTransportOptions>;
+    onEvent?: (event: NormalizedEvent) => void;
   } = {},
 ) {
   const clock = drivenClock();
@@ -718,7 +721,12 @@ function driven(
     },
     ...options.transport,
   });
-  cleanups.push(() => transport.close());
+  // A close during a turn stops it and removes its shells after this test
+  // ends: let those requests reach this test's fake, not the next one's.
+  cleanups.push(async () => {
+    transport.close();
+    await settleUntil(() => false, 50);
+  });
   const events: NormalizedEvent[] = [];
   const completions: Completion[] = [];
   const notices: LogText[] = [];
@@ -733,6 +741,7 @@ function driven(
       if (event.kind === "assistant_text") texts.push(event.text);
       if (event.kind === "approval_request") approvals.push(event.approvalId);
       if (event.kind === "approval_withdrawn") withdrawn.push(event.approvalId);
+      options.onEvent?.(event);
     });
   return {
     clock,
@@ -2264,3 +2273,283 @@ for (const pending of [true, false])
       ),
     ).toHaveLength(pending ? 1 : 0);
   });
+
+// ---------------------------------------------------------------------------
+// Task 1c6c1b25: OpenCode 2.1.4 can end a stopped turn and leave its shell
+// command running. A stop, a failed turn's own interrupt and a close during a
+// turn remove the running shells of the turn's sessions. A command the agent
+// moved to the background, another session's shell and one from before the
+// turn stay.
+
+const TOOLS_MESSAGE = "msg_tools";
+const SHELL = "sh_running";
+const CHILD = "ses_child";
+
+// The agent runs a shell command and is still in it. With background, it
+// moved another command to the background first; with subagent, a child
+// session runs.
+async function inShell(
+  turn: Driven,
+  options: { background?: boolean; subagent?: boolean } = {},
+): Promise<void> {
+  await turn.sendDelivered();
+  const m = TOOLS_MESSAGE;
+  turn.fake.emit(f.stepStarted(m));
+  if (options.background)
+    turn.fake.emit(
+      ...f.toolCalled(m, "call_bg", "shell", { command: "serve" }),
+      f.toolProgress(m, "call_bg", { shellID: "sh_background" }),
+      f.backgroundSuccess(m, "call_bg", "sh_background"),
+    );
+  if (options.subagent)
+    turn.fake.emit(
+      ...f.toolCalled(m, "call_sub", "subagent", { prompt: "run" }),
+      f.toolProgress(m, "call_sub", { sessionID: CHILD }),
+    );
+  turn.fake.emit(
+    ...f.toolCalled(m, "call_shell", "shell", { command: "sleep 30" }),
+    f.toolProgress(m, "call_shell", { shellID: SHELL }),
+  );
+  await settleUntil(() => false, 10);
+}
+
+// What OpenCode sends after a stop: the shell tool's end, then the end of
+// the busy period. The tool ends even when its command goes on running.
+const afterStop = () => [
+  f.toolInterrupted(TOOLS_MESSAGE, "call_shell", SHELL),
+  f.interrupted("user"),
+];
+
+// The member's stop, and what OpenCode sends after it.
+async function stopTurn(turn: Driven): Promise<void> {
+  await turn.transport.abort();
+  turn.fake.emit(...afterStop());
+  await settleUntil(() => turn.completions.length > 0);
+}
+
+const stopped = { kind: "turn_completed", status: "interrupted" } as const;
+const shellDeletes = (turn: Driven) =>
+  turn.fake.calls("DELETE", /^\/api\/shell\//);
+
+it("removes the running shells of the turn and its subagent when the member stops it, before the turn ends, and keeps the others", async () => {
+  const beforeTurn = Date.now() - 60_000;
+  let removedAtEnd: string[] | undefined;
+  const turn = driven({
+    fake: {
+      // Rows read at the request, so "now" is inside the turn.
+      shells: () => [
+        shellRow(SHELL, FAKE_SESSION, Date.now()),
+        shellRow("sh_child", CHILD, Date.now()),
+        shellRow("sh_background", FAKE_SESSION, Date.now()),
+        shellRow("sh_other", "ses_other", Date.now()),
+        shellRow("sh_before", FAKE_SESSION, beforeTurn),
+      ],
+    },
+    onEvent: (event) => {
+      if (event.kind === "turn_completed")
+        removedAtEnd = turn.fake.deletedShells();
+    },
+  });
+  await inShell(turn, { background: true, subagent: true });
+  await stopTurn(turn);
+  expect(turn.completions).toEqual([stopped]);
+  expect(removedAtEnd?.toSorted()).toEqual(["sh_child", SHELL]);
+  for (const request of [
+    ...turn.fake.calls("GET", /^\/api\/shell$/),
+    ...shellDeletes(turn),
+  ])
+    expect(request.query.get("location[directory]")).toBe(FAKE_CWD);
+});
+
+it("keeps a shell that an earlier turn moved to the background when the member stops the next turn", async () => {
+  let firstTurnShell = 0;
+  const turn = driven({
+    fake: {
+      shells: () => [
+        shellRow("sh_background", FAKE_SESSION, firstTurnShell),
+        shellRow(SHELL, FAKE_SESSION, Date.now()),
+      ],
+    },
+  });
+  await turn.sendDelivered();
+  firstTurnShell = Date.now();
+  turn.fake.emit(
+    f.stepStarted("msg_first"),
+    ...f.toolCalled("msg_first", "call_bg", "shell", { command: "serve" }),
+    f.toolProgress("msg_first", "call_bg", { shellID: "sh_background" }),
+    f.backgroundSuccess("msg_first", "call_bg", "sh_background"),
+  );
+  turn.complete();
+  await settleUntil(() => turn.completions.length > 0);
+  // The next turn starts in a later millisecond than the shell.
+  await Bun.sleep(2);
+  await inShell(turn);
+  await turn.transport.abort();
+  turn.fake.emit(...afterStop());
+  await settleUntil(() => turn.completions.length > 1);
+  expect(turn.completions).toEqual([
+    expect.objectContaining({ status: "completed" }),
+    stopped,
+  ]);
+  expect(turn.fake.deletedShells()).toEqual([SHELL]);
+});
+
+it("reads no shell list for a turn that completes", async () => {
+  const turn = driven({
+    fake: { shells: () => [shellRow(SHELL, FAKE_SESSION, Date.now())] },
+  });
+  await turn.sendDelivered();
+  turn.complete();
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "completed" }]);
+  expect(turn.fake.count("shell.list")).toBe(0);
+});
+
+it("removes the turn's running shell after a failed turn's own interrupt", async () => {
+  const turn = driven({
+    fake: { shells: () => [shellRow(SHELL, FAKE_SESSION, Date.now())] },
+  });
+  await inShell(turn);
+  turn.fake.failStreams();
+  await settleUntil(
+    () => turn.completions.length > 0 && turn.fake.deletedShells().length > 0,
+  );
+  expect(turn.completions).toMatchObject([{ status: "failed" }]);
+  expect(turn.fake.deletedShells()).toEqual([SHELL]);
+  const at = (pattern: RegExp) =>
+    turn.fake.requests.findIndex((request) => pattern.test(request.path));
+  expect(at(/\/interrupt$/)).toBeGreaterThan(-1);
+  expect(at(/^\/api\/shell\//)).toBeGreaterThan(at(/\/interrupt$/));
+});
+
+it("removes the failed turn's shells after its interrupt when the next turn has already started", async () => {
+  const turn = driven({
+    fake: {
+      shells: () => [
+        shellRow(SHELL, FAKE_SESSION, Date.now()),
+        shellRow("sh_child", CHILD, Date.now()),
+        shellRow("sh_background", FAKE_SESSION, Date.now()),
+      ],
+      hold: { interrupt: "always" },
+    },
+  });
+  await inShell(turn, { background: true, subagent: true });
+  turn.fake.failStreams();
+  await settleUntil(
+    () => turn.completions.length > 0 && turn.fake.heldCount("interrupt") > 0,
+  );
+  // The next turn runs its checks, which come after it reset the turn
+  // state, and waits on the failed turn's interrupt before its prompt.
+  const plugins = turn.fake.count("plugin");
+  const next = turn.send();
+  await settleUntil(() => turn.fake.count("plugin") > plugins);
+  expect(turn.fake.count("plugin"), "the next turn has started").toBe(
+    plugins + 1,
+  );
+  expect(turn.fake.prompts(), "its prompt waits").toBe(1);
+  turn.fake.release("interrupt");
+  await settleUntil(() => turn.fake.deletedShells().length > 0);
+  expect(turn.fake.deletedShells().toSorted()).toEqual(["sh_child", SHELL]);
+  // The next turn ends here: a close during it would send its own shell
+  // requests after this test, to the next test's fake.
+  await next;
+  turn.fake.emit(f.delivered(`msg_input_${turn.fake.prompts()}`));
+  turn.complete();
+  await settleUntil(() => turn.completions.length > 1);
+  expect(turn.completions).toMatchObject([
+    { status: "failed" },
+    { status: "completed" },
+  ]);
+});
+
+it("removes the turn's running shell when the transport closes during the turn", async () => {
+  const turn = driven({
+    fake: { shells: () => [shellRow(SHELL, FAKE_SESSION, Date.now())] },
+  });
+  await inShell(turn);
+  turn.transport.close();
+  await settleUntil(() => turn.fake.deletedShells().length > 0);
+  expect(turn.fake.deletedShells()).toEqual([SHELL]);
+  const at = (pattern: RegExp) =>
+    turn.fake.requests.findIndex((request) => pattern.test(request.path));
+  expect(at(/\/interrupt$/)).toBeGreaterThan(-1);
+  expect(at(/^\/api\/shell\//)).toBeGreaterThan(at(/\/interrupt$/));
+});
+
+const networkFailure = () =>
+  Promise.reject(
+    Object.assign(new TypeError("Unable to connect."), {
+      code: "ConnectionRefused",
+    }),
+  );
+for (const [what, override] of [
+  [
+    "the shell list fails",
+    (route: string) =>
+      route === "shell.list"
+        ? Response.json({ message: "failed" }, { status: 500 })
+        : undefined,
+  ],
+  [
+    "the shell list cannot connect",
+    (route: string) => (route === "shell.list" ? networkFailure() : undefined),
+  ],
+] as const)
+  it(`ends the member's stop as stopped when ${what}`, async () => {
+    const turn = driven({
+      fake: {
+        shells: () => [shellRow(SHELL, FAKE_SESSION, Date.now())],
+        override,
+      },
+    });
+    await inShell(turn);
+    await stopTurn(turn);
+    expect(turn.fake.count("shell.list"), "the list was asked").toBe(1);
+    expect(turn.completions).toEqual([stopped]);
+    expect(shellDeletes(turn)).toEqual([]);
+  });
+
+it("removes the other running shells when one delete fails, and ends the stop as stopped", async () => {
+  let deletes = 0;
+  const turn = driven({
+    fake: {
+      shells: () => [
+        shellRow(SHELL, FAKE_SESSION, Date.now()),
+        shellRow("sh_second", FAKE_SESSION, Date.now()),
+      ],
+      override: (route) =>
+        route === "shell.delete" && ++deletes === 1
+          ? Response.json({ message: "failed" }, { status: 500 })
+          : undefined,
+    },
+  });
+  await inShell(turn);
+  await stopTurn(turn);
+  expect(turn.completions).toEqual([stopped]);
+  expect(
+    shellDeletes(turn)
+      .map((request) => request.path.split("/").at(-1))
+      .toSorted(),
+  ).toEqual(["sh_second", SHELL].toSorted());
+  expect(
+    turn.fake.deletedShells(),
+    "the one delete OpenCode took",
+  ).toHaveLength(1);
+});
+
+it("ends the member's stop at the deadline when the shell list never answers", async () => {
+  const turn = driven({
+    fake: {
+      shells: () => [shellRow(SHELL, FAKE_SESSION, Date.now())],
+      hold: { "shell.list": "always" },
+    },
+  });
+  await inShell(turn);
+  await turn.transport.abort();
+  turn.fake.emit(...afterStop());
+  await settleUntil(() => turn.fake.heldCount("shell.list") > 0);
+  expect(turn.fake.heldCount("shell.list"), "the list is held").toBe(1);
+  turn.clock.advance(DEADLINE_MS);
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toEqual([stopped]);
+});

@@ -162,6 +162,8 @@ type Route =
   | "mcp.add"
   | "mcp.remove"
   | "session.environment"
+  | "shell.list"
+  | "shell.delete"
   | "event";
 
 export interface FakeOptions {
@@ -191,6 +193,8 @@ export interface FakeOptions {
   // Items of GET /api/permission/request: every open request in the
   // folder, of any session.
   permissionRequests?: () => unknown[];
+  // Rows of GET /api/shell before any delete (shellRow).
+  shells?: () => unknown[];
   // GET /api/session/:id data of other sessions, by id (a child carries
   // parentID).
   sessionsById?: Record<string, Record<string, unknown>>;
@@ -295,6 +299,7 @@ export function fakeOpenCode(options: FakeOptions = {}) {
   const interruptWaiters: (() => void)[] = [];
   const held = new Map<Route, (() => void)[]>();
   let promptCount = 0;
+  const deletedShells: string[] = [];
   // The MCP servers of each folder: its config's, plus run-time adds, minus
   // run-time removes (core/src/mcp/index.ts:730-744).
   const mcpByFolder = new Map<string, Set<string>>();
@@ -526,6 +531,22 @@ export function fakeOpenCode(options: FakeOptions = {}) {
           data: options.permissionRequests?.() ?? [],
         }),
       );
+    // Running shells only: 2.1.4 lists no exited command.
+    if (method === "GET" && path === "/api/shell")
+      return r("shell.list", () =>
+        json({
+          location: { directory: url.searchParams.get("location[directory]") },
+          data: (options.shells?.() ?? []).filter(
+            (row) => !deletedShells.includes((row as { id: string }).id),
+          ),
+        }),
+      );
+    // 2.1.4 answers 204 again for a shell it already removed.
+    if (method === "DELETE" && rest[0] === "shell" && rest.length === 2)
+      return r("shell.delete", () => {
+        deletedShells.push(rest[1]);
+        return new Response(null, { status: 204 });
+      });
     if (rest[0] !== "session") return null;
     if (method === "POST" && rest.length === 1)
       return r("session.create", () => {
@@ -725,6 +746,8 @@ export function fakeOpenCode(options: FakeOptions = {}) {
       ),
     replies,
     promptLog,
+    // The shells DELETE /api/shell/:id removed, in order.
+    deletedShells: () => [...deletedShells],
     interrupts: () => interrupts,
     // Prompts the transport sent, answered or not.
     prompts: () => counts.get("prompt") ?? 0,
@@ -965,6 +988,36 @@ export function framesOf(sessionID: string) {
         metadata: { status: "completed", exit: 0 },
         executed: false,
       }),
+    // The shell tool names its shell, and the subagent tool its child
+    // session, in a progress frame.
+    toolProgress: (
+      message: string,
+      id: string,
+      metadata: Record<string, unknown>,
+    ) =>
+      frame("session.tool.progress", {
+        assistantMessageID: message,
+        id,
+        metadata,
+      }),
+    // A stopped shell tool, as 2.1.4 ends it before the busy period ends.
+    toolInterrupted: (message: string, id: string, shellID: string) =>
+      frame("session.tool.failed", {
+        assistantMessageID: message,
+        id,
+        error: { type: "aborted", message: "Tool execution interrupted" },
+        metadata: { shellID },
+        executed: false,
+      }),
+    // A shell command moved to the background: its tool succeeds at once.
+    backgroundSuccess: (message: string, id: string, shellID: string) =>
+      frame("session.tool.success", {
+        assistantMessageID: message,
+        id,
+        content: [{ type: "text", text: "Command moved to the background." }],
+        metadata: { status: "running", truncated: false, shellID },
+        executed: false,
+      }),
     retry: (message: string, attempt: number, errorMessage: string) =>
       frame("session.retry.scheduled", {
         assistantMessageID: message,
@@ -989,6 +1042,25 @@ export function framesOf(sessionID: string) {
       ...frame("session.created", { parentID: sessionID }),
       data: { sessionID: child, parentID: sessionID },
     }),
+  };
+}
+
+// A row of GET /api/shell as 2.1.4 sends it (2026-10-26, task 1c6c1b25).
+export function shellRow(
+  id: string,
+  sessionID: string,
+  started: number,
+): Record<string, unknown> {
+  return {
+    id,
+    status: "running",
+    command: "sleep 30",
+    cwd: FAKE_CWD,
+    shell: "/bin/bash",
+    file: `${FAKE_PROFILE}/data/opencode/shell/folder/${id}.out`,
+    pid: 4343,
+    metadata: { sessionID },
+    time: { started },
   };
 }
 

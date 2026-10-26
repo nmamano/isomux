@@ -1488,9 +1488,7 @@ describe("OpenCode pinned transport", () => {
     "routes tools to two working directories through the real OpenCode contract",
   ];
   for (const [index, name] of toolsSteps.entries()) {
-    // Quarantined (task 1c6c1b25): the edit-and-abort step hung to its timeout
-    // in CI; the step after it needs it, so both skip.
-    it.skipIf(!LIVE || index >= 1)(
+    it.skipIf(!LIVE)(
       name,
       async () => {
         expect(

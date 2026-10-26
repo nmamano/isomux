@@ -424,6 +424,16 @@ interface TrackedTool {
   callEmitted: boolean;
   terminal: boolean;
   calledAt?: number;
+  // The shell command a shell tool runs, from its progress frame.
+  shellId?: string;
+}
+
+// What a turn's shell sweep may remove: the running shells of these sessions
+// that started at or after since, except the kept ones.
+interface ShellSweepScope {
+  sessions: Set<string>;
+  kept: Set<string>;
+  since: number;
 }
 
 function toolCall(tool: TrackedTool): NormalizedEvent {
@@ -542,6 +552,9 @@ export class OpenCodeTransport {
   private openForms = new Map<string, string>();
   // The open turn's subagent sessions, nested ones included.
   private subagentSessions = new Set<string>();
+  // The shells the open turn's tools moved to the background, or that ended
+  // with their tool. A stop does not remove them.
+  private keptShells = new Set<string>();
   // The open turn's sink, so a request that OpenCode closes outside a member
   // answer can be withdrawn from the orchestrator.
   private turnSink: EventSink | null = null;
@@ -841,12 +854,14 @@ export class OpenCodeTransport {
           this.sessionId
         ) {
           const path = `/api/session/${encodeURIComponent(this.sessionId)}/interrupt`;
+          const scope = this.shellSweepScope();
           const stop: Promise<void> = rejected
             .then(() => this.request(path, { method: "POST" }))
             .then(
               () => undefined,
               () => undefined,
             )
+            .then(() => this.sweepLeakedShells(scope))
             .finally(() => {
               if (this.sessionStop === stop) this.sessionStop = null;
             });
@@ -1240,6 +1255,68 @@ export class OpenCodeTransport {
     }
   }
 
+  // Read when the turn stops, before the next turn clears its state.
+  private shellSweepScope(): ShellSweepScope {
+    return {
+      sessions: new Set([
+        ...(this.sessionId ? [this.sessionId] : []),
+        ...this.subagentSessions,
+      ]),
+      kept: new Set(this.keptShells),
+      since: this.promptSentAt,
+    };
+  }
+
+  // OpenCode 2.1.4 can end a stopped turn and leave its shell command
+  // running: a stop that lands after the spawn, before the shell tool sets
+  // up its cancel, ends the tool and not the process (task 1c6c1b25). So a
+  // stop removes the turn's running shells, and keeps the ones its tools
+  // moved to the background and those of other sessions or earlier turns.
+  // OpenCode adds a shell to the list once its spawn returns; a spawn still
+  // pending at the end of the busy period can add it after this read, and
+  // no 2.1.4 signal orders the two. Errors are dropped, as for the stop.
+  private async sweepLeakedShells(scope: ShellSweepScope): Promise<void> {
+    const bounded = new AbortController();
+    const timer = this.deadlineScheduler.setTimeout(
+      () => bounded.abort(),
+      this.eventStreamDeadlineMs,
+    );
+    try {
+      const rows = listData(
+        await this.request(folderPath("/api/shell", this.cwd), {
+          signal: bounded.signal,
+        }).then((response) => response.json()),
+      ).map(asRecord);
+      const leaked = rows.flatMap((row) => {
+        const id = stringField(row, "id");
+        const session = stringField(asRecord(row.metadata), "sessionID");
+        const started = numberField(asRecord(row.time), "started");
+        return id &&
+          row.status === "running" &&
+          session &&
+          scope.sessions.has(session) &&
+          started !== null &&
+          started >= scope.since &&
+          !scope.kept.has(id)
+          ? [id]
+          : [];
+      });
+      await Promise.all(
+        leaked.map((id) =>
+          this.request(
+            folderPath(`/api/shell/${encodeURIComponent(id)}`, this.cwd),
+            { method: "DELETE", signal: bounded.signal },
+          ).catch(() => undefined),
+        ),
+      );
+    } catch {
+      // The stop stands without the sweep. A server that stopped took its
+      // shells with it.
+    } finally {
+      this.deadlineScheduler.clearTimeout(timer);
+    }
+  }
+
   canAbortInPlace(): boolean {
     return this.activeTurn;
   }
@@ -1250,8 +1327,12 @@ export class OpenCodeTransport {
     // release() only drops the supervisor reference count. It must keep this
     // lease's endpoint fields usable until this close-time reject and
     // interrupt chain finishes.
-    if (this.activeTurn)
-      void this.rejectPendingPermission().then(() => this.abort());
+    if (this.activeTurn) {
+      const scope = this.promptSent ? this.shellSweepScope() : null;
+      void this.rejectPendingPermission()
+        .then(() => this.abort())
+        .then(() => (scope ? this.sweepLeakedShells(scope) : undefined));
+    }
     this.abortController?.abort();
     this.authorityBinding?.deactivate();
     this.authorityBinding?.unbind();
@@ -1311,6 +1392,7 @@ export class OpenCodeTransport {
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
     this.subagentSessions.clear();
+    this.keptShells.clear();
     // What a silence report names: the turn's open steps, its running
     // tools, its permission names and its last frames.
     const openSteps = new Set<string>();
@@ -1697,6 +1779,11 @@ export class OpenCodeTransport {
       if (frame.type === "session.execution.interrupted") {
         // A member's stop wins over the deny mapping below.
         if (this.abortRequested || data.reason !== "shutdown") {
+          // The busy period is over, so every shell whose spawn returned is
+          // in the list. The sweep runs before the turn ends, on the turn's
+          // lease.
+          if (this.abortRequested)
+            await this.sweepLeakedShells(this.shellSweepScope());
           for (const result of interruptedToolResults(tools.values()))
             sink(result);
           settle({ kind: "turn_completed", status: "interrupted" });
@@ -2009,6 +2096,9 @@ export class OpenCodeTransport {
                 const child = stringField(asRecord(data.metadata), "sessionID");
                 if (tool.name === "subagent" && child)
                   this.adoptSubagent(child);
+                tool.shellId =
+                  stringField(asRecord(data.metadata), "shellID") ??
+                  tool.shellId;
                 continue;
               }
               if (
@@ -2017,6 +2107,9 @@ export class OpenCodeTransport {
               )
                 continue;
               runningTools.delete(key);
+              // A background command's tool succeeds while its shell runs.
+              if (type === "session.tool.success" && tool.shellId)
+                this.keptShells.add(tool.shellId);
               if (tool.terminal) continue;
               tool.terminal = true;
               if (!tool.callEmitted) {

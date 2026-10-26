@@ -509,7 +509,11 @@ abort may idle without `step-finish` and is interrupted, not completed. Abort
 rejects a pending permission before it calls the session abort route. A turn
 that fails after its prompt went out stops its session in the same order,
 unless its server stopped or was marked; the next turn's prompt waits for that
-stop, up to the stream deadline (task 4817cf7b). Any
+stop, up to the stream deadline (task 4817cf7b). OpenCode 2.1.4 can end a
+stopped shell tool and leave its command running, so after a stop, a failed
+turn's own stop or a close during a turn, Isomux deletes the running shells
+that the turn's sessions started in that turn, except those their tools moved
+to the background (task 1c6c1b25). Any
 non-terminal tool at abort receives one synthesized interrupted result; the
 2026-08-28 pinned running-shell probe emitted its own terminal result before
 idle, so the synthesis is a future-shape guard. This rule assumes Isomux is the
