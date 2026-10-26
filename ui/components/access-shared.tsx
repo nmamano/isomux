@@ -18,7 +18,7 @@ import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { absoluteTime, timeSince, timeUntil } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogLabel, dialogHint } from "./dialog-styles.ts";
+import { dialogLabel, dialogHint, dialogSaveBtn } from "./dialog-styles.ts";
 import { noTranslate } from "../no-translate.ts";
 
 // Lazily seed the invites + active-sessions lists via GET. The
@@ -69,6 +69,7 @@ export function renderListSection<T>(
 // final fallback selects the URL so the user can copy manually.
 export function MintedUrlBox({ url }: { url: string }) {
   const { t } = useI18n();
+  const { isMobile } = useAppState();
   const codeRef = useRef<HTMLElement | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copyState, setCopyState] = useState<
@@ -141,20 +142,28 @@ export function MintedUrlBox({ url }: { url: string }) {
       <div style={{ ...subLabel, marginTop: 0 }}>
         {t("settings.access.inviteUrl")}
       </div>
-      <code ref={codeRef} style={codeStyle}>
-        {url}
-      </code>
-      <button
-        onClick={() => {
-          void handleCopy();
-        }}
-        style={smallBtn}
-        title={t("settings.access.copyUrl")}
-      >
-        {copyState === "ok" || copyState === "fallback"
-          ? t("settings.access.urlCopied")
-          : t("common.copy")}
-      </button>
+      <div style={mintedRow}>
+        <code ref={codeRef} style={codeStyle}>
+          {url}
+        </code>
+        <button
+          onClick={() => {
+            void handleCopy();
+          }}
+          // The URL is shown once and copying it is the only action here,
+          // so the button is the primary one, sized for a thumb on a phone.
+          style={{
+            ...dialogSaveBtn,
+            flexShrink: 0,
+            ...(isMobile ? { padding: "10px 18px", fontSize: 14 } : null),
+          }}
+          title={t("settings.access.copyUrl")}
+        >
+          {copyState === "ok" || copyState === "fallback"
+            ? t("settings.access.urlCopied")
+            : t("common.copy")}
+        </button>
+      </div>
       {copyState === "fail" && (
         <p style={{ ...hint, color: "var(--red-text)", marginTop: 4 }}>
           {t("settings.access.clipboardBlocked")}
@@ -562,11 +571,17 @@ const mintedBox: React.CSSProperties = {
   borderRadius: 6,
   background: "var(--bg-hover)",
 };
+const mintedRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  margin: "4px 0",
+};
 const codeStyle: React.CSSProperties = {
+  minWidth: 0,
   display: "block",
   wordBreak: "break-all",
   fontFamily: "'JetBrains Mono', monospace",
   fontSize: 11,
-  margin: "4px 0",
   color: "var(--text-primary)",
 };
