@@ -224,7 +224,7 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - recognized commands that open outbound tunnels,
 - recognized uses of the owner recovery socket.
 
-The check reads each command of a shell line, also the commands inside `bash -c`, `eval` and command substitutions. One blocked command blocks the line.
+The check reads each command of a shell line, also the commands inside `bash -c`, `eval`, `find -exec` and command substitutions. One blocked command blocks the line.
 
 The safety hooks are a guardrail against mistakes by honest agents. They are not a security boundary:
 

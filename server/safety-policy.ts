@@ -16,7 +16,7 @@
  */
 
 import { homedir } from "os";
-import { basename, isAbsolute, join, normalize, resolve } from "path";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "path";
 import {
   codexLoginFile,
   isBackendCredentialPath,
@@ -2522,6 +2522,160 @@ function shellPayloads(cmd: EffectiveCommand): string[] {
   return payloads;
 }
 
+const FIND_EXEC_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+const FIND_FILE_ACTIONS = new Set(["-fprint", "-fprint0", "-fls", "-fprintf"]);
+const FIND_EXPRESSION_START = new Set(["(", "!", ","]);
+// The find runs one shell line may expand to, across nested finds and bash -c
+// payloads, and the text of their words: every check parses each run again.
+// Each start path adds runs and each nesting level multiplies them, so past
+// either cap the lists are not followed and the line is refused.
+const FIND_RUN_CAP = 256;
+const FIND_TEXT_CAP = 32 * 1024;
+type FindBudget = { left: number; text: number };
+const findBudget = (): FindBudget => ({
+  left: FIND_RUN_CAP,
+  text: FIND_TEXT_CAP,
+});
+
+/**
+ * What a find invocation names: its start paths (`.` when it names none), the
+ * command lists its -exec family runs, whether it has -delete, and the files
+ * the -fprint family creates or truncates. A list ends at `;`, or at `+`
+ * right after `{}`; with no end it runs to the last word.
+ */
+function findExpression(args: ShellWord[]): {
+  starts: ShellWord[];
+  lists: { words: ShellWord[]; inDirectory: boolean }[];
+  deletes: boolean;
+  files: ShellWord[];
+} {
+  const words = args.filter((word) => !word.redirect);
+  let i = 0;
+  while (i < words.length) {
+    const text = words[i].text;
+    if (["-H", "-L", "-P"].includes(text) || /^-O\d*$/.test(text)) i++;
+    else if (text === "-D") i += 2;
+    else break;
+  }
+  const starts: ShellWord[] = [];
+  for (; i < words.length; i++) {
+    const text = words[i].text;
+    if (text.startsWith("-") || FIND_EXPRESSION_START.has(text)) break;
+    starts.push(words[i]);
+  }
+  if (starts.length === 0) starts.push({ text: ".", quoted: false });
+  const lists: { words: ShellWord[]; inDirectory: boolean }[] = [];
+  const files: ShellWord[] = [];
+  let deletes = false;
+  for (; i < words.length; i++) {
+    const text = words[i].text;
+    if (text === "-delete") deletes = true;
+    else if (FIND_FILE_ACTIONS.has(text)) {
+      if (words[i + 1]) files.push(words[i + 1]);
+      i += text === "-fprintf" ? 2 : 1;
+    } else if (FIND_EXEC_ACTIONS.has(text)) {
+      const list: ShellWord[] = [];
+      for (i++; i < words.length; i++) {
+        const word = words[i].text;
+        if (word === ";" || (word === "+" && list.at(-1)?.text === "{}")) break;
+        list.push(words[i]);
+      }
+      lists.push({ words: list, inDirectory: text.endsWith("dir") });
+    }
+  }
+  return { starts, lists, deletes, files };
+}
+
+type FindRun = { words: ShellWord[]; directory: ShellWord | null };
+
+/**
+ * The commands a find runs through its -exec family, each once per start path
+ * S with `{}` as S and once as `S/{}`, a path below S: either can be the one a
+ * write or read lands on. A -execdir list runs in the directory of each path;
+ * `directory` names S then. A list with neither runs once. The runs come out
+ * of the line's budget, counted before any is built: past it, null.
+ */
+function takeFindRuns(
+  command: EffectiveCommand,
+  budget: FindBudget,
+): FindRun[] | null {
+  if (budget.left < 0) return null;
+  if (command.name !== "find") return [];
+  const { starts, lists } = findExpression(command.args);
+  const plans = lists.map((list) => {
+    const placeholders = list.words.reduce(
+      (count, word) => count + word.text.split("{}").length - 1,
+      0,
+    );
+    return {
+      list,
+      placeholders,
+      text: list.words.reduce((length, word) => length + word.text.length, 0),
+      starts: placeholders || list.inDirectory ? starts : starts.slice(0, 1),
+      belows: placeholders ? ["", "/{}"] : [""],
+    };
+  });
+  for (const plan of plans)
+    for (const start of plan.starts)
+      for (const below of plan.belows) {
+        budget.left--;
+        budget.text -=
+          plan.text +
+          plan.placeholders * (start.text.length + below.length - 2);
+        if (budget.left < 0 || budget.text < 0) {
+          budget.left = -1;
+          return null;
+        }
+      }
+  return plans.flatMap(({ list, starts, belows }) =>
+    starts.flatMap((start) =>
+      belows.map((below) => ({
+        words: list.words.map((word) =>
+          word.text.includes("{}")
+            ? {
+                ...word,
+                text: word.text.replaceAll("{}", start.text + below),
+                raw: (word.raw ?? word.text).replaceAll(
+                  "{}",
+                  (start.raw ?? start.text) + below,
+                ),
+                // The parser marks the braces of {} as an expansion.
+                dynamic: Boolean(
+                  start.dynamic ||
+                  (word.dynamic &&
+                    /[$*?[\]{}`]/.test(word.text.replaceAll("{}", ""))),
+                ),
+              }
+            : word,
+        ),
+        directory: list.inDirectory ? start : null,
+      })),
+    ),
+  );
+}
+
+/** The command, followed by every command its find lists run. */
+function withFindRuns(
+  command: EffectiveCommand,
+  budget: FindBudget,
+): EffectiveCommand[] {
+  return [
+    command,
+    ...(takeFindRuns(command, budget) ?? []).flatMap((run) =>
+      commandCandidates(run.words).flatMap((nested) =>
+        withFindRuns(nested, budget),
+      ),
+    ),
+  ];
+}
+
+/** True when the line's find runs pass FIND_RUN_CAP or FIND_TEXT_CAP. */
+function findRunsPastCap(command: string): boolean {
+  const budget = findBudget();
+  collectCommands(command, false, budget);
+  return budget.left < 0;
+}
+
 /** A literal PID, a `%1` job spec, or `$$`/`$!` - a target already in hand. */
 const LITERAL_PID = /^(?:\d+|%\d*|\$\$|\$!)$/;
 
@@ -2594,25 +2748,36 @@ function candidatesWithRedirects(words: ShellWord[]): EffectiveCommand[] {
 
 /**
  * The line and every `bash -c` payload it runs, followed into the payloads
- * they run in turn. Depth-limited because a payload can nest.
+ * they run in turn. Depth-limited because a payload can nest. Past the find
+ * budget, find lists are not followed: checkBashSafety refuses such a line
+ * before any check reads it.
  */
-function commandLines(command: string, depth = 0): string[] {
+function commandLines(
+  command: string,
+  depth = 0,
+  budget: FindBudget = findBudget(),
+): string[] {
   if (depth > 4) return [];
   const payloads = parseCommands(stripHeredocBodies(command))
     .flatMap(commandCandidates)
+    .flatMap((candidate) => withFindRuns(candidate, budget))
     .flatMap(shellPayloads);
-  return [command, ...payloads.flatMap((p) => commandLines(p, depth + 1))];
+  return [
+    command,
+    ...payloads.flatMap((p) => commandLines(p, depth + 1, budget)),
+  ];
 }
 
-/** Every command a line runs, `bash -c` payloads included. */
+/** Every command a line runs, `bash -c` payloads and find lists included. */
 function collectCommands(
   command: string,
   keepInputTargets = false,
+  budget: FindBudget = findBudget(),
 ): EffectiveCommand[] {
   return commandLines(command).flatMap((line) =>
-    parseCommands(stripHeredocBodies(line), keepInputTargets).flatMap(
-      keepInputTargets ? candidatesWithRedirects : commandCandidates,
-    ),
+    parseCommands(stripHeredocBodies(line), keepInputTargets)
+      .flatMap(keepInputTargets ? candidatesWithRedirects : commandCandidates)
+      .flatMap((candidate) => withFindRuns(candidate, budget)),
   );
 }
 
@@ -2886,6 +3051,11 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
   }
   if (command.name === "truncate")
     return [...redirects, ...truncateFileOperands(args)];
+  // -delete removes each start path and what is below it.
+  if (command.name === "find") {
+    const { starts, deletes, files } = findExpression(args);
+    return [...redirects, ...files, ...(deletes ? starts : [])];
+  }
   if (COPY_COMMANDS.includes(command.name))
     return [...redirects, ...copyOperands({ ...command, args }).destinations];
   // A program parses its options after the shell removed the quotes, so a
@@ -3322,6 +3492,7 @@ function shellWriteFlow(
   inheritedDirectories?: DirectorySet,
   inheritedCdSearch = false,
   inheritedVariables?: Variables,
+  runBudget: FindBudget = findBudget(),
 ): { decision: PolicyDecision | null; flow: DirectoryFlow } {
   // CDPATH and cdable_vars can send a relative cd anywhere, so with either
   // named on the line such a cd leaves the directory unresolved.
@@ -3410,6 +3581,22 @@ function shellWriteFlow(
     return false;
   };
 
+  // Where a literal directory operand leads from each directory, as cd goes:
+  // ~ expands from HOME as the line sets it.
+  const resolveDirectory = (
+    text: string,
+    directories: DirectorySet,
+  ): ShellDirectory[] => {
+    const tilde = expandTilde([{ text, raws: [] }], variables);
+    if (tilde.state || tilde.unresolvable) return [UNKNOWN_DIRECTORY];
+    return [...directories].flatMap((directory) =>
+      tilde.results.map(
+        (result) =>
+          resolvePath(result.text, directory, shell.home) ?? UNKNOWN_DIRECTORY,
+      ),
+    );
+  };
+
   const simple = (
     node: Extract<ShellSyntax, { words: ShellWord[] }>,
     directories: DirectorySet,
@@ -3434,6 +3621,30 @@ function shellWriteFlow(
       })) {
         checkTarget(target, directories);
       }
+      // A find list is a command of its own, run in a child. The first
+      // refusal stands: a later run would only name the same write again.
+      const runs = takeFindRuns(candidate, runBudget);
+      if (!runs) decision = denyShellPath("{}", true);
+      else {
+        for (const run of runs) {
+          if (decision) break;
+          // -execdir runs in the directory of each path: the one that holds
+          // S for S itself, and S or below it for the rest.
+          const start = run.directory;
+          const runDirectories = !start
+            ? directories
+            : dynamicDirectoryTarget(start)
+              ? new Set<ShellDirectory>([UNKNOWN_DIRECTORY])
+              : new Set<ShellDirectory>(
+                  // dirname of the text would turn `~` and `..` into `.`.
+                  resolveDirectory(start.text, directories).flatMap(
+                    (path): ShellDirectory[] =>
+                      typeof path === "string" ? [dirname(path), path] : [path],
+                  ),
+                );
+          simple({ words: run.words, substitutions: [] }, runDirectories);
+        }
+      }
       if (candidate.name === "popd" || candidate.name === "pushd") {
         success = new Set([UNKNOWN_DIRECTORY]);
       } else if (candidate.name === "cd") {
@@ -3447,21 +3658,7 @@ function shellWriteFlow(
           success = new Set([UNKNOWN_DIRECTORY]);
         } else {
           // cd ~ goes where a write to ~ does.
-          const tilde = expandTilde(
-            [{ text: target!.text, raws: [] }],
-            variables,
-          );
-          success = new Set(
-            tilde.state || tilde.unresolvable
-              ? [UNKNOWN_DIRECTORY]
-              : [...directories].flatMap((directory) =>
-                  tilde.results.map(
-                    (result) =>
-                      resolvePath(result.text, directory, shell.home) ??
-                      UNKNOWN_DIRECTORY,
-                  ),
-                ),
-          );
+          success = new Set(resolveDirectory(target!.text, directories));
         }
       }
       // eval runs its payload in this shell, so the payload's directory flow
@@ -3484,6 +3681,7 @@ function shellWriteFlow(
             directories,
             cdSearch,
             variables,
+            runBudget,
           );
           if (nested.decision) decision = nested.decision;
           if (evalFollows) ({ success, failure } = nested.flow);
@@ -3699,6 +3897,9 @@ function checkBashSafety(
 ): PolicyDecision {
   const command = commandValue;
   if (typeof command !== "string" || !command) return allow();
+
+  // Past the budget no check follows every find list, so refuse first.
+  if (findRunsPastCap(command)) return denyShellPath("{}", true);
 
   const protectedWrite = shellWriteDecision(command, cwd, shell);
   if (protectedWrite) return protectedWrite;
