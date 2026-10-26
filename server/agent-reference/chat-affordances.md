@@ -2,7 +2,7 @@
 
 All routes target the current agent.
 
-- `POST /api/agents/:id/read-file` with `{path}` adds an inline image or file chip. Paths can be relative, absolute, or start with `~/`.
+- `POST /api/agents/:id/read-file` with `{path}` adds an inline image, a video or audio player, or a file chip. Paths can be relative, absolute, or start with `~/`.
 - `POST /api/agents/:id/diff` with `{dir?}` shows uncommitted changes, or `{commit}` shows a commit or range.
 - `POST /api/agents/:id/edit-file` with `{path, open?}` adds an editor card. With `open: true`, the file also opens in the editor of each member who has your chat on screen.
 - `POST /api/agents/:id/terminal-command` with `{command, open?}` adds a single-line command for the server terminal. It does not run it. With `open: true`, the command also goes into the terminal of each member who has your chat on screen. Do not use it for a command that must run on the member's device. To read what the terminal printed, see `conversation-history`.

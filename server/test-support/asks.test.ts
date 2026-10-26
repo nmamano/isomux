@@ -1792,6 +1792,61 @@ describe("chat affordances on an ask", () => {
     expect(Buffer.from(await res.arrayBuffer()).equals(PNG)).toBe(true);
   });
 
+  // Task 3f5b8f33: an .mp4 was stored as application/octet-stream, so the
+  // card could not play it. iPhone browsers also need byte ranges to play.
+  it("keeps a video's and an audio file's type, and serves the video in byte ranges", async () => {
+    const w = await world();
+    const cwd = agentOf(w.srv, w.asker.id).cwd;
+    const VIDEO = Buffer.from(Array.from({ length: 100 }, (_, i) => i));
+    writeFileSync(join(cwd, "short.mp4"), VIDEO);
+    writeFileSync(join(cwd, "voice.mp3"), Buffer.from([0xff, 0xfb, 0x90]));
+    const made = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/asks`,
+      w.as(w.asker.id),
+      {
+        json: {
+          text: "Publish this Short?",
+          readFiles: ["short.mp4", "voice.mp3"],
+        },
+      },
+    );
+    expect(made.status).toBe(201);
+    const entry = made.body as AskEntry;
+    const want = {
+      commands: null,
+      editFiles: null,
+      readFiles: [
+        ["short.mp4", "video/mp4", VIDEO.length],
+        ["voice.mp3", "audio/mpeg", 3],
+      ],
+    };
+    expect(affordances(entry)).toEqual(want);
+    expect(affordances(stored(w, entry.id)!)).toEqual(want);
+
+    const res = await w.srv.http(
+      `/api/files/${w.asker.id}/${entry.readFiles![0].filename}`,
+      {
+        method: "GET",
+        rawSessionId: w.owner.rawSessionId,
+        headers: { Range: "bytes=10-19" },
+      },
+    );
+    expect({
+      status: res.status,
+      type: res.headers.get("content-type"),
+      range: res.headers.get("content-range"),
+    }).toEqual({
+      status: 206,
+      type: "video/mp4",
+      range: `bytes 10-19/${VIDEO.length}`,
+    });
+    expect(
+      Buffer.from(await res.arrayBuffer()).equals(VIDEO.subarray(10, 20)),
+    ).toBe(true);
+  });
+
   it("takes them as JSON, and an edit keeps a list it omits, replaces one it sends, and removes one with [] or a lone empty value", async () => {
     const w = await world();
     const cwd = seed(w);

@@ -1,6 +1,6 @@
-// Extension → MIME type lookup, shared between /api/files response headers
-// and emitAgentReadFile attachment inference, and the ?download header of the
-// chat file routes. Active types (HTML, SVG, XML)
+// Extension → MIME type lookup, shared between /api/files response headers,
+// emitAgentReadFile attachment inference, legacy log entries (loadLog), and
+// the ?download header of the chat file routes. Active types (HTML, SVG, XML)
 // are safe to name here because every file route serves them under
 // untrustedFileHeaders (server/auth-middleware.ts).
 
@@ -19,6 +19,21 @@ const EXT_TO_MIME: Record<string, string> = {
   xml: "text/xml",
   html: "text/html",
   css: "text/css",
+  yaml: "text/yaml",
+  yml: "text/yaml",
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  ogv: "video/ogg",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/ogg",
+  flac: "audio/flac",
 };
 
 const DEFAULT_MIME = "application/octet-stream";

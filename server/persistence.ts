@@ -7,6 +7,7 @@ import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecor } from "../shared/room-decor.ts";
 import { basename, join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
+import { mimeTypeForFilename } from "./mime-types.ts";
 import {
   TRANSCRIPT_SUFFIX,
   inflateTranscript,
@@ -190,9 +191,7 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
       const entry = JSON.parse(line) as LogEntry & { images?: string[] };
       if (entry.images && !entry.attachments) {
         entry.attachments = entry.images.map((filename) => {
-          const ext = filename.split(".").pop() ?? "";
-          const mediaType =
-            EXTENSION_TO_MIME[ext] ?? "application/octet-stream";
+          const mediaType = mimeTypeForFilename(filename);
           return { filename, originalName: filename, mediaType, size: 0 };
         });
         delete entry.images;
@@ -1713,24 +1712,6 @@ export function peekMessageQueuesRaw(): MessageQueuesPeek {
 export function saveMessageQueues(store: Record<string, unknown>) {
   atomicWriteFileSync(MESSAGE_QUEUES_FILE, JSON.stringify(store, null, 2));
 }
-
-const EXTENSION_TO_MIME: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  webp: "image/webp",
-  pdf: "application/pdf",
-  txt: "text/plain",
-  md: "text/markdown",
-  csv: "text/csv",
-  json: "application/json",
-  xml: "text/xml",
-  yaml: "text/yaml",
-  yml: "text/yaml",
-  html: "text/html",
-  css: "text/css",
-};
 
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */
 export function sanitizeFilename(name: string): string {

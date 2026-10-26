@@ -126,3 +126,87 @@ describe("chat attachments: download under the original name", () => {
     });
   }
 });
+
+// Task 3f5b8f33: the read-file card (and the ask card, which renders its
+// readFiles through it) plays video and audio inline, and still offers the
+// file chip and its download for each.
+describe("FileViewCard: video and audio play inline", () => {
+  const VIDEO = {
+    filename: "short_1.mp4",
+    originalName: "Daily short.mp4",
+    mediaType: "video/mp4",
+    size: 2638537,
+  };
+  const AUDIO = {
+    filename: "voice_1.mp3",
+    originalName: "Voice over.mp3",
+    mediaType: "audio/mpeg",
+    size: 4200,
+  };
+  const OTHER = {
+    filename: "data_1.bin",
+    originalName: "data.bin",
+    mediaType: "application/octet-stream",
+    size: 10,
+  };
+  const base = "/api/files/agent-1";
+  const pathOf = (url: string | null) =>
+    new URL(url ?? "", "http://office.test").pathname;
+
+  for (const isMobile of [false, true]) {
+    it(`${isMobile ? "phone" : "desktop"}: a player for each video and audio file, a chip and a download for each file`, () => {
+      const view = render(
+        onLanguage(
+          "en",
+          <FileViewCard
+            attachments={[IMAGE, VIDEO, AUDIO, OTHER]}
+            agentId="agent-1"
+            isMobile={isMobile}
+          />,
+        ),
+      );
+      const root = view.container;
+
+      // One player per media file, on the file route, with controls. The
+      // video plays in the page on an iPhone, not only in fullscreen.
+      const videos = [...root.querySelectorAll("video")];
+      expect(videos.map((v) => pathOf(v.getAttribute("src")))).toEqual([
+        `${base}/${VIDEO.filename}`,
+      ]);
+      expect(videos[0].hasAttribute("controls")).toBe(true);
+      expect(videos[0].hasAttribute("playsinline")).toBe(true);
+      const audios = [...root.querySelectorAll("audio")];
+      expect(audios.map((a) => pathOf(a.getAttribute("src")))).toEqual([
+        `${base}/${AUDIO.filename}`,
+      ]);
+      expect(audios[0].hasAttribute("controls")).toBe(true);
+
+      // The image stays an image; nothing else becomes one.
+      expect(
+        [...root.querySelectorAll("img")].map((i) => pathOf(i.src)),
+      ).toEqual([`${base}/${IMAGE.filename}`]);
+
+      // Each non-image file keeps its chip (name, opens in a new tab), and
+      // every attachment keeps its download.
+      const chips = [
+        ...root.querySelectorAll<HTMLAnchorElement>(
+          'a[target="_blank"]:not([download])',
+        ),
+      ];
+      expect(
+        chips.map((c) => [pathOf(c.getAttribute("href")), c.textContent]),
+      ).toEqual(
+        [VIDEO, AUDIO, OTHER].map((a) => [
+          `${base}/${a.filename}`,
+          expect.stringContaining(a.originalName),
+        ]),
+      );
+      const links = downloadLinks(root);
+      expect(links).toHaveLength(4);
+      const byName = new Map(links.map((l) => [l.getAttribute("download"), l]));
+      for (const att of [IMAGE, VIDEO, AUDIO, OTHER])
+        expectDownloadOf(byName.get(att.originalName)!, base, att);
+      view.unmount();
+    });
+  }
+});

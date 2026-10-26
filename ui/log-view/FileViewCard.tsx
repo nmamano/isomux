@@ -8,10 +8,12 @@ import {
   type LightboxImage,
 } from "./attachment-download.tsx";
 
-// Card emitted by POST /api/agents/:id/read-file and /preview-url. Images render
-// inline (clickable for lightbox); other media types render as a clickable file
-// chip via the same /api/files/<agentId>/<filename> route used by uploaded
-// attachments. Each image and chip has a download button. `caption`
+// Card emitted by POST /api/agents/:id/read-file and /preview-url, and the
+// read files of an ask card. Images render inline (clickable for lightbox);
+// video and audio play inline, with the file chip under the player; other
+// media types render as a clickable file chip via the same
+// /api/files/<agentId>/<filename> route used by uploaded attachments. Each
+// image and chip has a download button. `caption`
 // (preview-url provenance: sanitized origin + pathname) renders as a dim line
 // under the attachments when provided.
 export function FileViewCard({
@@ -25,11 +27,12 @@ export function FileViewCard({
   isMobile?: boolean;
   caption?: string;
 }) {
-  const i18n = useI18n();
-  const { t } = i18n;
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
-  const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
+  const media = attachments.filter(isPlayable);
+  const files = attachments.filter(
+    (a) => !a.mediaType.startsWith("image/") && !isPlayable(a),
+  );
 
   return (
     <div style={{ margin: "8px 0" }}>
@@ -66,76 +69,65 @@ export function FileViewCard({
           })}
         </div>
       )}
+      {media.map((att, i) => {
+        const src = `/api/files/${agentId}/${att.filename}`;
+        return (
+          <div
+            key={att.filename}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 6,
+              marginTop: images.length > 0 || i > 0 ? 8 : 0,
+            }}
+          >
+            {att.mediaType.startsWith("video/") ? (
+              <video
+                // The fragment makes iOS paint the first frame instead of an
+                // empty box; it is not sent to the server.
+                src={`${src}#t=0.001`}
+                controls
+                playsInline
+                preload="metadata"
+                style={{
+                  display: "block",
+                  maxWidth: isMobile ? "100%" : 360,
+                  maxHeight: isMobile ? "70vh" : 360,
+                  borderRadius: 4,
+                  border: "1px solid var(--green-border)",
+                  background: "#000",
+                }}
+              />
+            ) : (
+              <audio
+                src={src}
+                controls
+                preload="metadata"
+                style={{ display: "block", maxWidth: "100%" }}
+              />
+            )}
+            <FileChip att={att} src={src} isMobile={isMobile} />
+          </div>
+        );
+      })}
       {files.length > 0 && (
         <div
           style={{
             display: "flex",
             flexWrap: "wrap",
             gap: 6,
-            marginTop: images.length > 0 ? 8 : 0,
+            marginTop: images.length > 0 || media.length > 0 ? 8 : 0,
           }}
         >
-          {files.map((att) => {
-            const src = `/api/files/${agentId}/${att.filename}`;
-            const sizeStr =
-              formatBytes(i18n.language, att.size) ?? t("common.unknownSize");
-            return (
-              <span
-                key={att.filename}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  maxWidth: "100%",
-                }}
-              >
-                <a
-                  href={src}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 10px",
-                    borderRadius: 6,
-                    border: "1px solid var(--green-border)",
-                    background: "var(--green-bg)",
-                    color: "var(--text-secondary)",
-                    fontFamily: "var(--font-ui)",
-                    fontSize: isMobile ? 13 : 12,
-                    textDecoration: "none",
-                    cursor: "pointer",
-                    maxWidth: "100%",
-                  }}
-                >
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {att.originalName}
-                  </span>
-                  <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-                    {sizeStr}
-                  </span>
-                </a>
-                <DownloadButton
-                  src={src}
-                  name={att.originalName}
-                  isMobile={isMobile}
-                  style={{
-                    boxSizing: "border-box",
-                    background: "var(--green-bg)",
-                    border: "1px solid var(--green-border)",
-                    color: "var(--text-secondary)",
-                  }}
-                />
-              </span>
-            );
-          })}
+          {files.map((att) => (
+            <FileChip
+              key={att.filename}
+              att={att}
+              src={`/api/files/${agentId}/${att.filename}`}
+              isMobile={isMobile}
+            />
+          ))}
         </div>
       )}
       {caption && (
@@ -161,5 +153,80 @@ export function FileViewCard({
         />
       )}
     </div>
+  );
+}
+
+function isPlayable(att: Attachment): boolean {
+  return (
+    att.mediaType.startsWith("video/") || att.mediaType.startsWith("audio/")
+  );
+}
+
+function FileChip({
+  att,
+  src,
+  isMobile,
+}: {
+  att: Attachment;
+  src: string;
+  isMobile?: boolean;
+}) {
+  const i18n = useI18n();
+  const sizeStr =
+    formatBytes(i18n.language, att.size) ?? i18n.t("common.unknownSize");
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        maxWidth: "100%",
+      }}
+    >
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "4px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--green-border)",
+          background: "var(--green-bg)",
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: isMobile ? 13 : 12,
+          textDecoration: "none",
+          cursor: "pointer",
+          maxWidth: "100%",
+        }}
+      >
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {att.originalName}
+        </span>
+        <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+          {sizeStr}
+        </span>
+      </a>
+      <DownloadButton
+        src={src}
+        name={att.originalName}
+        isMobile={isMobile}
+        style={{
+          boxSizing: "border-box",
+          background: "var(--green-bg)",
+          border: "1px solid var(--green-border)",
+          color: "var(--text-secondary)",
+        }}
+      />
+    </span>
   );
 }

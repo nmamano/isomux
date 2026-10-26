@@ -792,7 +792,13 @@ describe("loadLog images -> attachments read-time migration (Phase 1.3, deferred
         timestamp: 1,
         kind: "file-view",
         content: "legacy",
-        images: ["pic.png", "report.pdf", "weird.xyz"],
+        images: [
+          "pic.png",
+          "report.pdf",
+          "weird.xyz",
+          "notes.yaml",
+          "clip.mp4",
+        ],
       },
       { id: "e2", agentId, timestamp: 2, kind: "text", content: "plain" },
     ]);
@@ -817,6 +823,20 @@ describe("loadLog images -> attachments read-time migration (Phase 1.3, deferred
         filename: "weird.xyz",
         originalName: "weird.xyz",
         mediaType: "application/octet-stream",
+        size: 0,
+      },
+      // The one shared mapping (server/mime-types.ts) also names text and
+      // video types (task 3f5b8f33).
+      {
+        filename: "notes.yaml",
+        originalName: "notes.yaml",
+        mediaType: "text/yaml",
+        size: 0,
+      },
+      {
+        filename: "clip.mp4",
+        originalName: "clip.mp4",
+        mediaType: "video/mp4",
         size: 0,
       },
     ]);
