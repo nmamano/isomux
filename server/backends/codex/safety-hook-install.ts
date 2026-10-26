@@ -37,6 +37,8 @@ const GOLDEN_HOOK_PATH = join(
   "bin/.isomux-codex-safety-hook.golden",
 );
 const TRUST_SENTINEL = "# isomux-managed-codex-safety-hook";
+const HOOK_REFUSAL =
+  "Codex not started: the installed safety hook differs from this checkout's source, and only the office server installs it.";
 export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.164.0";
 
 export interface CodexSafetyHookIdentity {
@@ -47,6 +49,9 @@ export interface CodexSafetyHookIdentity {
 export interface CodexSafetyPreflightResult {
   warning: string | null;
   hookIdentity: CodexSafetyHookIdentity | null;
+  // Set when this process may not start Codex: the live hook does not match
+  // this checkout and only the office server may write it.
+  refusal?: string;
 }
 
 interface PreparedArtifact {
@@ -75,6 +80,9 @@ interface HooksFile {
 }
 
 let preparation: Promise<PreparedArtifact> | null = null;
+// True in the office server: the process that prepared the artifact at boot
+// is the only one that may write the hook, its golden copy or the artifact.
+let hookWriter = false;
 let trustMeasurement: Promise<string> | null = null;
 
 async function sha256File(path: string): Promise<string> {
@@ -103,12 +111,16 @@ async function executableStamp(path: string): Promise<string> {
   return stdout.trim();
 }
 
-async function prepareArtifact(): Promise<PreparedArtifact> {
+function assertTrustPin(): void {
   if (getCodexPinnedVersion() !== CODEX_HOOK_TRUST_HASH_PROVEN_VERSION) {
     throw new Error(
       `Codex hook trust measurement is pinned to ${CODEX_HOOK_TRUST_HASH_PROVEN_VERSION}, found ${getCodexPinnedVersion()}`,
     );
   }
+}
+
+async function prepareArtifact(): Promise<PreparedArtifact> {
+  assertTrustPin();
   mkdirSync(dirname(GOLDEN_HOOK_PATH), { recursive: true, mode: 0o700 });
   const source = await hashCodexSafetyHookSources();
   let rebuild = !existsSync(GOLDEN_HOOK_PATH);
@@ -189,6 +201,7 @@ async function awaitPreparation(
 }
 
 export async function prepareCodexSafetyHookArtifact(): Promise<void> {
+  hookWriter = true;
   await awaitPreparation((preparation ??= prepareArtifact()));
 }
 
@@ -602,10 +615,59 @@ async function configureInAgentSpace(
   return { warning: SAFETY_WARNING, hookIdentity: null };
 }
 
+// Read only: why the live hook does not match this checkout's source, or
+// null when it does.
+async function liveHookMismatch(): Promise<string | null> {
+  const source = await hashCodexSafetyHookSources();
+  if (!existsSync(GOLDEN_HOOK_PATH))
+    return `golden artifact missing at ${GOLDEN_HOOK_PATH}`;
+  let stamp: string;
+  try {
+    stamp = await executableStamp(GOLDEN_HOOK_PATH);
+  } catch (err) {
+    return `golden artifact stamp unreadable: ${errMessage(err)}`;
+  }
+  if (stamp !== source.sha256)
+    return `stale artifact: embedded ${stamp || "<empty>"}, source ${source.sha256}`;
+  const goldenHash = await sha256File(GOLDEN_HOOK_PATH);
+  let installedHash: string | null = null;
+  try {
+    installedHash = await sha256File(CODEX_SAFETY_HOOK_PATH);
+  } catch {}
+  if (installedHash !== goldenHash)
+    return `content mismatch: expected ${goldenHash}, received ${installedHash ?? "<missing>"}`;
+  return null;
+}
+
+// A process other than the office server compares and never writes the hook,
+// its golden copy or the artifact: a script run from another checkout must
+// not install that checkout's hook for the whole office.
+async function compareLiveHook(
+  codexHome: string,
+): Promise<CodexSafetyPreflightResult> {
+  let trustedHash: string;
+  try {
+    assertTrustPin();
+    const mismatch = await liveHookMismatch();
+    if (mismatch) {
+      console.error(`[codex safety] ${mismatch}; ${HOOK_REFUSAL}`);
+      return { warning: null, hookIdentity: null, refusal: HOOK_REFUSAL };
+    }
+    trustedHash = await measuredTrustedHash();
+  } catch (err) {
+    console.error(
+      `[codex safety] artifact unavailable: ${errMessage(err)}; ${SAFETY_WARNING}`,
+    );
+    return { warning: SAFETY_WARNING, hookIdentity: null };
+  }
+  return configureInAgentSpace(codexHome, trustedHash);
+}
+
 export async function ensureCodexSafetyHook(
   codexHome: string,
 ): Promise<CodexSafetyPreflightResult> {
   try {
+    if (!hookWriter) return await compareLiveHook(codexHome);
     let artifact: PreparedArtifact;
     try {
       artifact = await preparedArtifact();
@@ -660,6 +722,12 @@ export async function ensureCodexSafetyHook(
 export const _test = {
   resetPreparation(): void {
     preparation = null;
+  },
+  setHookWriter(value: boolean): void {
+    hookWriter = value;
+  },
+  isHookWriter(): boolean {
+    return hookWriter;
   },
   goldenPath: GOLDEN_HOOK_PATH,
   trustSentinel: TRUST_SENTINEL,

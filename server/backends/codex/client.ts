@@ -180,6 +180,10 @@ export class JsonRpcLiteClient {
     if (!this.opts.skipSafetyPreflightForTestProbe) {
       safety = await ensureCodexSafetyHook(effectiveEnv.CODEX_HOME!);
     }
+    if (safety.refusal) {
+      this.starting = false;
+      throw new Error(safety.refusal);
+    }
     // Analytics starts with the App Server, before thread config overrides.
     // A launch override also covers per-user CODEX_HOME without file writes.
     const baseArgs = this.opts.args ?? ["app-server", "--listen", "stdio://"];

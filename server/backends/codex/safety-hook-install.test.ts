@@ -588,3 +588,176 @@ describe("Codex safety hook installation", () => {
     expect(setters.sort()).toEqual([...allowed].sort());
   });
 });
+
+// Only the office server may write the hook, its golden copy or the artifact
+// (task 43d82751). Any other process that starts Codex against the same state
+// root compares only and refuses on a mismatch.
+describe("Codex safety hook in a process other than the office server", () => {
+  // Names, bytes, inodes and mtimes of every file in both bin directories:
+  // a rebuild, a repair or a leftover temporary file all change it.
+  function binSnapshot(): string[] {
+    const dirs = [
+      ...new Set([dirname(_test.goldenPath), dirname(CODEX_SAFETY_HOOK_PATH)]),
+    ];
+    return dirs.flatMap((dir) =>
+      readdirSync(dir)
+        .sort()
+        .map((name) => {
+          const path = join(dir, name);
+          const stat = statSync(path);
+          return `${path} ${stat.ino} ${stat.mtimeMs} ${sha256(path)}`;
+        }),
+    );
+  }
+
+  // A script process never prepared: no cached artifact, not the writer.
+  async function asOtherProcess<T>(run: () => Promise<T>): Promise<T> {
+    _test.resetPreparation();
+    _test.setHookWriter(false);
+    try {
+      expect(_test.isHookWriter()).toBe(false);
+      return await run();
+    } finally {
+      _test.setHookWriter(true);
+    }
+  }
+
+  function expectRefusal(result: { refusal?: string }): string {
+    expect(typeof result.refusal).toBe("string");
+    const refusal = result.refusal as string;
+    expect(refusal.trim().length).toBeGreaterThan(0);
+    expect(refusal).not.toContain("\n");
+    return refusal;
+  }
+
+  async function withGoldenRestored(run: () => Promise<void>): Promise<void> {
+    const golden = readFileSync(_test.goldenPath);
+    const mode = statSync(_test.goldenPath).mode & 0o7777;
+    try {
+      await run();
+    } finally {
+      writeFileSync(_test.goldenPath, golden);
+      chmodSync(_test.goldenPath, mode);
+      _test.resetPreparation();
+      await prepareCodexSafetyHookArtifact();
+    }
+  }
+
+  function tamperInstalled(): void {
+    installGolden();
+    const bytes = readFileSync(CODEX_SAFETY_HOOK_PATH);
+    bytes[Math.floor(bytes.length / 2)] ^= 0xff;
+    writeFileSync(CODEX_SAFETY_HOOK_PATH, bytes);
+    expect(sha256(CODEX_SAFETY_HOOK_PATH)).not.toBe(sha256(_test.goldenPath));
+  }
+
+  it("refuses on a changed installed hook and writes nothing", async () => {
+    await withGoldenRestored(async () => {
+      tamperInstalled();
+      const before = binSnapshot();
+      const result = await asOtherProcess(() =>
+        ensureCodexSafetyHook(defaultHome),
+      );
+      expectRefusal(result);
+      expect(binSnapshot()).toEqual(before);
+    });
+  }, 30_000);
+
+  it("refuses on a golden copy built from another source and writes nothing", async () => {
+    await withGoldenRestored(async () => {
+      // The installed hook matches the golden copy, so only the golden
+      // copy's source stamp can tell this checkout from the installed hook.
+      writeFileSync(
+        _test.goldenPath,
+        "#!/bin/sh\nprintf '%s\\n' another-source-stamp\n",
+      );
+      chmodSync(_test.goldenPath, 0o700);
+      installGolden();
+      expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
+      const before = binSnapshot();
+      const result = await asOtherProcess(() =>
+        ensureCodexSafetyHook(defaultHome),
+      );
+      expectRefusal(result);
+      expect(binSnapshot()).toEqual(before);
+    });
+  }, 30_000);
+
+  it("starts Codex when the installed hook matches this checkout", async () => {
+    await withGoldenRestored(async () => {
+      installGolden();
+      const before = binSnapshot();
+      const result = await asOtherProcess(() =>
+        ensureCodexSafetyHook(defaultHome),
+      );
+      expect(result.refusal).toBeUndefined();
+      expect(result.warning).toBeNull();
+      expect(result.hookIdentity?.sourcePath).toBe(
+        join(defaultHome, "hooks.json"),
+      );
+      expect(binSnapshot()).toEqual(before);
+    });
+  }, 30_000);
+
+  it("the office server still repairs a changed installed hook", async () => {
+    tamperInstalled();
+    expect(_test.isHookWriter()).toBe(true);
+    const result = await ensureCodexSafetyHook(defaultHome);
+    expect(result.refusal).toBeUndefined();
+    expect(result.warning).toBeNull();
+    expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
+  }, 30_000);
+
+  it("a refusal stops JsonRpcLiteClient.start() before Codex spawns", async () => {
+    await withGoldenRestored(async () => {
+      const dir = join(STATE_ROOT, "client-refusal");
+      mkdirSync(dir, { recursive: true });
+      const marker = join(dir, "spawned");
+      rmSync(marker, { force: true });
+      const bin = join(dir, "codex.sh");
+      writeFileSync(bin, `#!/bin/sh\ntouch '${marker}'\nexec sleep 600\n`);
+      chmodSync(bin, 0o755);
+      tamperInstalled();
+      await asOtherProcess(async () => {
+        const refusal = expectRefusal(await ensureCodexSafetyHook(defaultHome));
+        const client = new JsonRpcLiteClient({
+          codexBin: bin,
+          args: [],
+          cwd: dir,
+          env: { ...process.env, CODEX_HOME: defaultHome },
+        });
+        try {
+          // Twice: a refused start must not leave the client half started.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const message = await client.start().then(
+              () => "started",
+              (err) => (err as Error).message,
+            );
+            expect(message).toBe(refusal);
+          }
+          expect(client.pid()).toBeUndefined();
+          await Bun.sleep(100);
+          expect(existsSync(marker)).toBe(false);
+        } finally {
+          await client.close();
+        }
+      });
+    });
+  }, 30_000);
+
+  // A production caller of the preparation would make that process a writer.
+  it("only the office server boot prepares the artifact", () => {
+    const root = resolve(import.meta.dir, "../..");
+    const callers = readdirSync(root, { recursive: true })
+      .map(String)
+      .filter((path) => path.endsWith(".ts") && !path.endsWith(".test.ts"))
+      .filter((relative) =>
+        /prepareCodexSafetyHookArtifact\s*\(/.test(
+          readFileSync(resolve(root, relative), "utf8"),
+        ),
+      );
+    expect(callers.sort()).toEqual(
+      ["backends/codex/safety-hook-install.ts", "isomux-office.ts"].sort(),
+    );
+  });
+});

@@ -23,6 +23,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { JsonRpcLiteClient } from "./client.ts";
 import { CodexAccountClient } from "./account.ts";
+import { prepareCodexSafetyHookArtifact } from "./safety-hook-install.ts";
 import { codexOfficeProbe } from "../../office-usage.ts";
 
 const KEY = "sk-test-envlogin-0123456789abcdef";
@@ -188,6 +189,9 @@ describe("the bundled Codex app-server, an OPENAI_API_KEY and an empty CODEX_HOM
   });
 
   it("a session client is signed in with the key; the sign-in card and the office usage probe are not", async () => {
+    // A fresh state root has no golden copy of the safety hook, and a process
+    // that did not prepare one refuses to start Codex.
+    await prepareCodexSafetyHookArtifact();
     const homeEnv = env();
     const session = new JsonRpcLiteClient({ env: homeEnv });
     try {

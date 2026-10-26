@@ -14,6 +14,8 @@ The agent browser (`server/browser-actions.ts`, `server/browser-extension-sessio
 
 Before each Codex spawn, Isomux hashes the installed checker bytes and repairs missing or changed content from a verified build artifact. However, a replacement at the same path can affect the next tool call in an already running session. The pre-spawn repair therefore limits a replaced checker to the remainder of the current session; it does not protect that live session.
 
+Only the office server, the process that prepares the artifact at boot, builds the artifact or repairs the installed checker. Any other process that starts Codex against the same state root, such as a script run from another checkout, only compares: when the artifact is stale for its own checkout's source or the installed checker differs from the artifact, it writes nothing and refuses to start Codex.
+
 ## Protected paths and limits
 
 Protected write targets resolve against the agent working directory. When a hook input has no non-empty absolute working directory, a relative target with a bounded `.isomux` path segment denies, while an ordinary relative target remains allowed. The residue is that an ordinary relative target can fail open if the provider stops sending the working directory and the agent is already working inside the state root. Codex emits a transcript warning on every tool call with a missing or invalid working directory, so this reduced coverage is visible rather than silent; the parser test does not prove that a future Codex version will keep sending the field.
@@ -58,7 +60,7 @@ Codex fails open when a hook executable is missing, exits with an error, times o
 
 > Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the isomux service logs.
 
-The Codex session still starts after a pre-spawn failure. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
+The Codex session still starts after a pre-spawn failure; the only exception is the refusal of a process other than the office server described above. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
 
 OpenCode also fails open when a permission envelope no longer matches the pinned contract or its adapter throws. Isomux answers the owned request once and puts the same warning in the transcript, at most once per turn. The agent then works without Isomux enforcement. That degraded state is the OpenCode coverage that existed before this adapter, so it is not a regression from the prior status quo. A real policy denial still rejects the call.
 

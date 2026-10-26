@@ -35,6 +35,7 @@ import { LIVE } from "../test-support/live-gate.ts";
 
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
+import { prepareCodexSafetyHookArtifact } from "./codex/safety-hook-install.ts";
 import type {
   Backend,
   BackendSession,
@@ -254,11 +255,18 @@ function texts(messages: NormalizedMessage[], role?: string): string[] {
     .map((m) => m.text.toLowerCase());
 }
 
+// A fresh state root has no golden copy of the Codex safety hook, and a
+// process that did not prepare one refuses to start Codex.
+async function prepare(cfg: ProviderConfig): Promise<void> {
+  if (cfg.backend === codexBackend) await prepareCodexSafetyHookArtifact();
+}
+
 for (const cfg of PROVIDERS) {
   describe.skipIf(!LIVE)(`live smoke - ${cfg.name}`, () => {
     it(
       "starts a session, runs a harmless tool, and completes the turn",
       async () => {
+        await prepare(cfg);
         const { turns } = await runTurns(cfg, openSession(cfg, newCwd(cfg)), [
           TOOL_PROMPT,
         ]);
@@ -273,6 +281,7 @@ for (const cfg of PROVIDERS) {
     it(
       "plants a fact, reads history, resumes, and forks",
       async () => {
+        await prepare(cfg);
         const cwd = newCwd(cfg);
         const access = accessFor(cfg, cwd);
         // Random hex suffixes: a reply holding one can only come from the

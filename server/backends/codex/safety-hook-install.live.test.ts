@@ -19,6 +19,7 @@ import {
   CODEX_HOOK_TRUST_HASH_PROVEN_VERSION,
   CODEX_SAFETY_HOOK_PATH,
   ensureCodexSafetyHook,
+  prepareCodexSafetyHookArtifact,
 } from "./safety-hook-install.ts";
 import { removeStateDir } from "../../test-support/temp-state.ts";
 
@@ -123,6 +124,8 @@ describe.skipIf(!enabled || !authHome)(
             2,
           )}\n`,
         );
+        // As the office server: only the preparing process repairs the hook.
+        await prepareCodexSafetyHookArtifact();
         const installed = await ensureCodexSafetyHook(home);
         expect(installed.warning).toBeNull();
         expect(installed.hookIdentity?.displayOrder).toBe(2);
@@ -216,6 +219,7 @@ describe.skipIf(!paidEnabled || !authHome)(
         try {
           copyFileSync(join(authHome!, "auth.json"), join(home, "auth.json"));
           chmodSync(join(home, "auth.json"), 0o600);
+          await prepareCodexSafetyHookArtifact();
           expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
 
           client = new JsonRpcLiteClient({
