@@ -1,6 +1,7 @@
 import { beforeAll, test, expect } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { fields, type Fields } from "../shared/browser-extension-protocol";
+import manifest from "./manifest.json";
 
 let source: string;
 beforeAll(async () => {
@@ -19,10 +20,14 @@ async function harness(
   // offerResume: the office advertises offer resume in ready. session: the
   // chrome.storage.session of an earlier worker, for a worker restart.
   // slowSession: session reads answer after the first socket could open.
+  // extensionVersion: this extension's manifest version (default: the real
+  // one). officePackage: the office's package in ready.
   opts: {
     offerResume?: boolean;
     session?: Map<string, unknown>;
     slowSession?: boolean;
+    extensionVersion?: string;
+    officePackage?: string;
   } = {},
 ) {
   const sockets: FakeSocket[] = [];
@@ -150,6 +155,9 @@ async function harness(
     runtime: {
       id: "fixture-id",
       getURL: (path: string) => "chrome-extension://fixture-id/" + path,
+      getManifest: () => ({
+        version: opts.extensionVersion ?? manifest.version,
+      }),
       onMessage: {
         addListener: (fn: typeof runtimeMessage) => {
           runtimeMessage = fn;
@@ -236,6 +244,7 @@ async function harness(
     generation: "generation-1",
     debuggerRecovery,
     ...(opts.offerResume ? { offerResume: true } : {}),
+    ...(opts.officePackage ? { package: opts.officePackage } : {}),
   });
   socket.receive({
     kind: "metadata",
@@ -1742,4 +1751,32 @@ test("a resumed tab is reserved from ready on: a popup offer cannot take the tab
   expect(offers(ws)[1]).toMatchObject({
     scope: { kind: "agent", agentId: "b" },
   });
+});
+
+// Task 825bb286: the hello reports this extension's package, and the popup
+// learns when the office has a newer one.
+test("the hello reports the extension's package; a newer office package offers an update", async () => {
+  // Not the real manifest version, so a hard-coded one fails.
+  const fresh = await harness(true, true, {
+    extensionVersion: "0.4.3",
+    officePackage: "0.4.10",
+  });
+  expect(fresh.socket.sent[0]).toMatchObject({
+    kind: "hello",
+    package: "0.4.3",
+  });
+  // Precondition: ready was accepted.
+  expect((await fresh.ui({ action: "state" })).state).toBe("connected");
+  expect((await fresh.ui({ action: "state" })).update).toEqual({
+    latest: "0.4.10",
+  });
+  for (const officePackage of ["0.4.3", "0.4.2", undefined]) {
+    const h = await harness(true, true, {
+      extensionVersion: "0.4.3",
+      officePackage,
+    });
+    const state = await h.ui({ action: "state" });
+    expect(state.state).toBe("connected");
+    expect(state.update).toBeUndefined();
+  }
 });

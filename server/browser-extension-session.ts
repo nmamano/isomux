@@ -90,10 +90,17 @@ const stillSettlingResult = () =>
 export const NOT_SENT_ERROR =
   "This browser action was not sent: the previous action is still settling, and only its outcome is unknown. Control remains on. Inspect the page after it settles before retrying.";
 const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
-const offline = () =>
+// An out-of-date extension may not offer its tabs again after a restart, so
+// this replaces the promise that offers come back.
+const outdatedNote = (names: string[]) =>
+  `The extension in ${names.join(", ")} is out of date: ask your manager to update it in Integrations → Browser Use.`;
+const offline = (outdated: string[]) =>
   failure(
     "browser_offline",
-    "No paired Chrome browser is online. If the office just restarted, try again in a minute: offers come back with the same targets.",
+    "No paired Chrome browser is online. " +
+      (outdated.length
+        ? outdatedNote(outdated)
+        : "If the office just restarted, try again in a minute: offers come back with the same targets."),
   );
 // playwright-core takes most of a second to load, so the office loads it at
 // the first browser session, not at boot.
@@ -188,12 +195,15 @@ export class ExtensionBrowserSessions {
           failure("browser_not_paired", "No Chrome browser is paired"),
         );
       if (!this.mayUse(member, agent)) return Promise.resolve(ended());
-      if (!bridge.connections(member).length) return Promise.resolve(offline());
+      const outdated = this.service.outdatedBrowsers(member);
+      if (!bridge.connections(member).length)
+        return Promise.resolve(offline(outdated));
       return Promise.resolve({
         ok: true,
         url: "",
         title: "",
         tabs: bridge.targets(member, agent),
+        ...(outdated.length ? { outdatedBrowsers: outdated } : {}),
       });
     }
     if (!params.target && member && bridge.ambiguous(member, agent))
@@ -246,7 +256,9 @@ export class ExtensionBrowserSessions {
     if (!params.ok) return params;
     if (!this.service.store.paired(member))
       return failure("browser_not_paired", "No Chrome browser is paired");
-    if (!this.service.bridge.connections(member).length) return offline();
+    const outdated = this.service.outdatedBrowsers(member);
+    if (!this.service.bridge.connections(member).length)
+      return offline(outdated);
     let session = this.sessions.get(key);
     if (
       session &&
@@ -260,9 +272,10 @@ export class ExtensionBrowserSessions {
     if (!bound)
       return failure(
         "browser_control_ended",
-        params.target
+        (params.target
           ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
-          : "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control",
+          : "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control.") +
+          (outdated.length ? " " + outdatedNote(outdated) : ""),
       );
     const { connection, grant, target } = bound;
     if (

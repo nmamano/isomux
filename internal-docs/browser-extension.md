@@ -43,8 +43,12 @@ URL credentials, query strings and fragments are refused.
 
 The first frame, within five seconds and at most 4 KiB, is
 `{kind: "hello", version: 4, code}` or the same shape with `credential`.
+The hello also carries `package`, the extension's manifest version (0.4.5 and
+later). A `package` that is not one to four dot-separated integers is a bad
+hello and is refused before a code is redeemed.
 Pairing returns `{kind: "paired", version: 4, credential}` before
-`{kind: "ready", version: 4, generation}`. Authentication binds the credential
+`{kind: "ready", version: 4, generation}`. `ready` carries the office's
+`package`. Authentication binds the credential
 hash to the saved extension Origin. Each credential has at most one live
 connection; a duplicate is refused.
 
@@ -61,6 +65,27 @@ Reconnect cannot clear blocked or unknown-revocation state. No command queue sur
 A new connection gets a fresh generation, Playwright object and task assignment.
 The server releases every tab offer of the old connection; the extension offers
 the ON tabs again (see "Offer resume after a connection loss").
+
+## Out-of-date extensions
+
+Chrome loads the unpacked extension from a folder on disk, and Reload in
+`chrome://extensions` reloads those same files. An update therefore means new
+files in that folder, then Reload. The service keeps, per credential and in
+memory only, the `package` of the last hello, or null for a hello without one
+(an extension before 0.4.5). A browser is out of date when that value is null
+or older than the office's package, compared part by part as numbers. A browser
+not seen since the office started is not out of date.
+
+- `GET /api/me/browser` gives each browser `package` and `outdated`; the
+  Browser Use pane names the out-of-date browsers with the download and the
+  update steps.
+- The popup compares its own manifest version with `ready.package` and shows
+  the same notice, with a link to the office's ZIP. An extension before 0.4.5
+  has no such notice.
+- The agent `tabs` answer adds `outdatedBrowsers`. The no-offer
+  `browser_control_ended` answers add a sentence that names them, and
+  `browser_offline` replaces its promise that offers come back with that
+  sentence.
 
 ## Public Playwright seam and ownership
 

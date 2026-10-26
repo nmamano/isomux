@@ -119,6 +119,13 @@ export const en = {
   "browser.blocked": "Pair again in office Integrations.",
   "browser.unknown": "Unpair result unknown. Check office Integrations.",
   "browser.download": "Download extension {version}",
+  "browser.outdated": "The extension in {names} is out of date.",
+  "browser.updateSteps":
+    "Extract the ZIP, copy its files into the folder you loaded, then select Reload on Isomux Browser in chrome://extensions. Reload alone keeps the old files.",
+  "browser.updateHelp": "To update, download the ZIP again. {steps}",
+  "browser.updateReady": "An update is ready.",
+  "browser.updateOffice":
+    "Or download it in office Integrations → Browser Use.",
   "browser.install":
     "Extract the ZIP. In desktop Chrome, open chrome://extensions, enable Developer mode, select Load unpacked and choose the extracted folder. Pin Isomux Browser in the toolbar.",
   "browser.permission":

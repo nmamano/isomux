@@ -78,6 +78,20 @@ button:focus-visible {
 #offline-help {
   color: #bbc3d4;
 }
+#update {
+  margin: 14px 0 0;
+  padding: 2px 12px;
+  border-left: 3px solid #f0c674;
+  background: #242b38;
+  border-radius: 8px;
+}
+#update a {
+  color: #99b8ff;
+}
+#update-steps,
+#update-office {
+  color: #bbc3d4;
+}
 [hidden] {
   display: none !important;
 }

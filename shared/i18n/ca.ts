@@ -108,6 +108,13 @@ export const ca: Catalog = {
   "browser.unknown":
     "Resultat de desvinculació desconegut. Comprova Integracions a l’oficina.",
   "browser.download": "Descarrega l’extensió {version}",
+  "browser.outdated": "L’extensió de {names} no està actualitzada.",
+  "browser.updateSteps":
+    "Extreu el ZIP, copia’n els fitxers a la carpeta que vas carregar i selecciona Torna a carregar a Isomux Browser a chrome://extensions. Només tornar a carregar manté els fitxers antics.",
+  "browser.updateHelp": "Per actualitzar, torna a descarregar el ZIP. {steps}",
+  "browser.updateReady": "Hi ha una actualització disponible.",
+  "browser.updateOffice":
+    "O descarrega-la a Integracions → Ús del navegador de l’oficina.",
   "browser.install":
     "Extreu el ZIP. A Chrome d’escriptori, obre chrome://extensions, activa el mode de desenvolupador, selecciona Carrega una extensió desempaquetada i tria la carpeta extreta. Fixa Isomux Browser a la barra d’eines.",
   "browser.permission":

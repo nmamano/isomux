@@ -2,6 +2,8 @@ import { translatorFor } from "../shared/i18n/translate";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   BROWSER_REATTACH_MS,
+  extensionOutdated,
+  validExtensionPackage,
   validGrantDuration,
   validGrantScope,
   sameGrantScope,
@@ -49,6 +51,8 @@ type Connection = {
   watchdog?: ReturnType<typeof setTimeout>;
   debuggerRecovery?: boolean;
   offerResume?: boolean;
+  // The office's extension package, from ready.
+  officePackage?: string;
   metadata?: BrowserMetadata;
   offers: Map<string, (ok: boolean) => void>;
   unpairResult?: (ok: boolean) => void;
@@ -235,6 +239,11 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                 ? "offline"
                 : "unpaired",
     member: online ? c.metadata?.member : undefined,
+    ...(online &&
+    c.officePackage &&
+    extensionOutdated(chrome.runtime.getManifest().version, c.officePackage)
+      ? { update: { latest: c.officePackage } }
+      : {}),
     assignments: online
       ? [...c.tabs].flatMap(([id, tab]) =>
           tab.scope
@@ -768,6 +777,7 @@ async function configure(reset = true): Promise<void> {
       send(c, {
         kind: "hello",
         version: BROWSER_EXTENSION_PROTOCOL,
+        package: chrome.runtime.getManifest().version,
         ...(typeof config.credential === "string"
           ? { credential: config.credential }
           : { code: config.code }),
@@ -831,6 +841,7 @@ async function configure(reset = true): Promise<void> {
           c.generation = msg.generation;
           c.debuggerRecovery = msg.debuggerRecovery === true;
           c.offerResume = msg.offerResume === true;
+          if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
           if (!c.offerResume) void clearResumable();
           else for (const [id, r] of resumable) resumeOffer(c, id, r);
           refreshBadges();

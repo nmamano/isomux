@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import manifest from "../browser-extension/manifest.json";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   BROWSER_REATTACH_MS,
@@ -180,6 +181,8 @@ export class BrowserExtensionBridge {
         debuggerRecovery: true,
         // The extension sends its ON offers again after a connection loss.
         offerResume: true,
+        // The office's extension package, so an older extension can say so.
+        package: manifest.version,
         generation: connection.generation,
       });
       connection.sendMetadata();

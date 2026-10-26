@@ -25,6 +25,7 @@ declare const chrome: {
   runtime: {
     id: string;
     getURL(path: string): string;
+    getManifest(): { version: string };
     sendMessage(message: unknown): Promise<unknown>;
     onMessage: {
       addListener(

@@ -108,6 +108,13 @@ export const es: Catalog = {
   "browser.unknown":
     "Resultado de desvinculación desconocido. Comprueba Integraciones en la oficina.",
   "browser.download": "Descargar extensión {version}",
+  "browser.outdated": "La extensión de {names} está desactualizada.",
+  "browser.updateSteps":
+    "Extrae el ZIP, copia sus archivos en la carpeta que cargaste y selecciona Volver a cargar en Isomux Browser en chrome://extensions. Volver a cargar por sí solo mantiene los archivos antiguos.",
+  "browser.updateHelp": "Para actualizar, descarga el ZIP de nuevo. {steps}",
+  "browser.updateReady": "Hay una actualización disponible.",
+  "browser.updateOffice":
+    "O descárgala en Integraciones → Uso del navegador de la oficina.",
   "browser.install":
     "Extrae el ZIP. En Chrome de escritorio, abre chrome://extensions, activa el modo de desarrollador, selecciona Cargar descomprimida y elige la carpeta extraída. Fija Isomux Browser en la barra de herramientas.",
   "browser.permission":

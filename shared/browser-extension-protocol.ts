@@ -153,6 +153,26 @@ export interface BrowserMetadata {
     expiresAt: number | null;
   }[];
 }
+// A reported package older than the office's is out of date; null (a hello
+// without a package) is too. undefined (not seen this server run) is not.
+export function extensionOutdated(
+  reported: string | null | undefined,
+  latest: string,
+): boolean {
+  if (reported === undefined) return false;
+  if (reported === null) return true;
+  const a = reported.split(".").map(Number);
+  const b = latest.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff) return diff < 0;
+  }
+  return false;
+}
+// A package version as Chrome allows it: one to four dot-separated integers.
+export function validExtensionPackage(value: unknown): value is string {
+  return typeof value === "string" && /^\d{1,9}(\.\d{1,9}){0,3}$/.test(value);
+}
 export interface MemberBrowserStatus {
   paired: boolean;
   online: boolean;
@@ -163,6 +183,10 @@ export interface MemberBrowserStatus {
     name: string;
     pairedAt: number | null;
     online: boolean;
+    // The package the extension reported this server run; null when its hello
+    // carried none (before 0.4.5). Absent until it connects.
+    package?: string | null;
+    outdated: boolean;
   }[];
 }
 export interface ExtensionUIState {
@@ -176,6 +200,8 @@ export interface ExtensionUIState {
     | "blocked"
     | "unknown";
   member?: BrowserDisplay;
+  // The office's package, when it is newer than this extension.
+  update?: { latest: string };
   agents: BrowserDisplay[];
   currentTab?: { id: number; eligible: boolean };
   assignments: {

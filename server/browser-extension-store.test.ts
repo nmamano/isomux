@@ -182,6 +182,7 @@ test("legacy headless choices migrate to Chrome and preserve pairing and profile
           name: "Browser 1",
           pairedAt: null,
           online: false,
+          outdated: false,
         },
       ]);
       // The next write is version 2 and keeps the migrated credential.

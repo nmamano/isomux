@@ -50,6 +50,9 @@ const labels: Record<string, PlainMessageKey> = {
   unpair: "browser.unpair",
   retained: "browser.retained",
   "offline-help": "browser.offlineHelp",
+  "update-ready": "browser.updateReady",
+  "update-steps": "browser.updateSteps",
+  "update-office": "browser.updateOffice",
   "agent-label": "browser.agent",
   "allow-label": "browser.allow",
   "expiry-label": "browser.expiry",
@@ -124,6 +127,12 @@ function render(next: typeof state) {
   element("unpair").hidden = state.state !== "connected";
   element("offline-help").hidden =
     state.state === "connected" || state.state === "unpaired";
+  element("update").hidden = !state.update;
+  if (state.update) {
+    const link = element("update-download") as HTMLAnchorElement;
+    link.href = `${state.office}/api/me/browser/extension.zip`;
+    link.textContent = t("browser.download", { version: state.update.latest });
+  }
   const current = state.assignments.find((a) => a.current);
   if (current) expiry.value = String(current.durationMinutes);
   else if (previous) expiry.value = "0";

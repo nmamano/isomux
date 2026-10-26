@@ -62,8 +62,20 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
     paired: true,
     online: true,
     browsers: [
-      { id: "laptop", name: "Work laptop", pairedAt: 0, online: true },
-      { id: "desk", name: "Desk", pairedAt: null, online: false },
+      {
+        id: "laptop",
+        name: "Work laptop",
+        pairedAt: 0,
+        online: true,
+        outdated: false,
+      },
+      {
+        id: "desk",
+        name: "Desk",
+        pairedAt: null,
+        online: false,
+        outdated: false,
+      },
     ],
   };
   const paired = render(<BrowserPane />);
@@ -130,4 +142,62 @@ test("the extensions step copies the Chrome address it names", async () => {
     if (original) Object.defineProperty(navigator, "clipboard", original);
     else delete (navigator as { clipboard?: unknown }).clipboard;
   }
+});
+
+// Task 825bb286: Reload in chrome://extensions keeps the old files, so the
+// pane names each out-of-date browser and links the new package.
+test("an out-of-date browser gets an update notice with the download; up-to-date browsers get none", async () => {
+  type Status =
+    import("../../shared/browser-extension-protocol").MemberBrowserStatus;
+  let status: Status = {
+    paired: true,
+    online: true,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.4.5",
+    browsers: [
+      {
+        id: "laptop",
+        name: "Work laptop",
+        pairedAt: 0,
+        online: true,
+        package: "0.4.5",
+        outdated: false,
+      },
+      {
+        id: "desk",
+        name: "Desk",
+        pairedAt: 0,
+        online: true,
+        package: null,
+        outdated: true,
+      },
+    ],
+  };
+  setApiShim(async () => status);
+  const view = render(<BrowserPane />);
+  await act(async () => {});
+  const notice = view.getByTestId("browser-update");
+  expect(notice.textContent).toContain("Desk");
+  expect(notice.textContent).not.toContain("Work laptop");
+  const link = notice.querySelector<HTMLAnchorElement>(
+    'a[href="/api/me/browser/extension.zip"]',
+  );
+  expect(link).not.toBeNull();
+  expect(link!.hasAttribute("download")).toBe(true);
+  expect(link!.textContent).toContain("0.4.5");
+  view.unmount();
+  status = {
+    ...status,
+    browsers: status.browsers.map((b) => ({
+      ...b,
+      package: "0.4.5",
+      outdated: false,
+    })),
+  };
+  const current = render(<BrowserPane />);
+  await act(async () => {});
+  // Precondition: the pane rendered the browsers.
+  expect(current.getAllByTestId("browser-row")).toHaveLength(2);
+  expect(current.queryByTestId("browser-update")).toBeNull();
+  current.unmount();
 });

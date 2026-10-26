@@ -469,3 +469,53 @@ test("a code typed while the popup checks the confirmation is kept", async () =>
     window.dispatchEvent(new Event("pagehide"));
   }
 });
+
+// Task 825bb286: Reload in chrome://extensions keeps the old files, so the
+// popup says an update is ready and links the office's package.
+test("the popup shows an update notice with the office's download exactly while one is ready", async () => {
+  document.body.innerHTML = popupHTML;
+  let state: Record<string, unknown> = {
+    state: "connected",
+    generation: "g",
+    office: "https://office.example.com",
+    currentTab: { id: 7, eligible: true },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [],
+    update: { latest: "0.4.10" },
+  };
+  let poll!: () => void;
+  await popupScript.runInNewContext({
+    document,
+    window,
+    navigator: { language: "en" },
+    Date,
+    chrome: {
+      storage: { session: noDraft },
+      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      runtime: { sendMessage: async () => structuredClone(state) },
+    },
+    setInterval: (callback: () => void) => {
+      poll = callback;
+      return 1;
+    },
+    clearInterval() {},
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  await settle();
+  // Precondition: the popup rendered the connected state.
+  expect(document.getElementById("status")!.dataset.state).toBe("connected");
+  const notice = document.getElementById("update")!;
+  expect(notice.hidden).toBe(false);
+  expect(notice.textContent).toContain("0.4.10");
+  const link = document.getElementById("update-download") as HTMLAnchorElement;
+  expect(notice.contains(link)).toBe(true);
+  expect(link.href).toBe(
+    "https://office.example.com/api/me/browser/extension.zip",
+  );
+  expect(link.target).toBe("_blank");
+  state = { ...state, update: undefined };
+  poll();
+  await settle();
+  expect(document.getElementById("update")!.hidden).toBe(true);
+  window.dispatchEvent(new Event("pagehide"));
+});

@@ -13,7 +13,9 @@ import {
 } from "./browser-extension-store";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  extensionOutdated,
   fields,
+  validExtensionPackage,
   type MemberBrowserStatus,
 } from "../shared/browser-extension-protocol";
 
@@ -56,6 +58,9 @@ export function extensionUpgradeAllowed(
 export class BrowserExtensionService {
   readonly bridge: BrowserExtensionBridge;
   private sockets = new Set<ServerWebSocket<ExtensionWsData>>();
+  // The package each credential's extension reported in this server run; null
+  // when its hello had none (before 0.4.5). Read only for paired browsers.
+  private packages = new Map<string, string | null>();
   constructor(
     readonly store: BrowserExtensionStore,
     private access: {
@@ -87,12 +92,17 @@ export class BrowserExtensionService {
     });
   }
   status(member: string): MemberBrowserStatus {
-    const browsers = this.store.browsers(member).map((b) => ({
-      id: b.id,
-      name: b.name,
-      pairedAt: b.pairedAt,
-      online: !!this.bridge.forCredentialHash(b.hash),
-    }));
+    const browsers = this.store.browsers(member).map((b) => {
+      const reported = this.packages.get(b.hash);
+      return {
+        id: b.id,
+        name: b.name,
+        pairedAt: b.pairedAt,
+        online: !!this.bridge.forCredentialHash(b.hash),
+        ...(reported === undefined ? {} : { package: reported }),
+        outdated: extensionOutdated(reported, manifest.version),
+      };
+    });
     return {
       member: browserDisplay(
         member,
@@ -103,6 +113,15 @@ export class BrowserExtensionService {
       online: browsers.some((b) => b.online),
       browsers,
     };
+  }
+  // Names of the member's paired browsers whose extension is out of date.
+  outdatedBrowsers(member: string): string[] {
+    return this.store
+      .browsers(member)
+      .filter((b) =>
+        extensionOutdated(this.packages.get(b.hash), manifest.version),
+      )
+      .map((b) => b.name);
   }
   // Ends the member's live connections, or only the one with this credential.
   disconnect(member: string, terminal = false, credentialHash?: string): void {
@@ -143,7 +162,8 @@ export class BrowserExtensionService {
         if (
           msg.version !== BROWSER_EXTENSION_PROTOCOL ||
           msg.kind !== "hello" ||
-          !extensionOrigin(ws.data.origin)
+          !extensionOrigin(ws.data.origin) ||
+          (msg.package !== undefined && !validExtensionPackage(msg.package))
         )
           throw new Error();
         let credential: string;
@@ -190,6 +210,10 @@ export class BrowserExtensionService {
           close: () => ws.close(),
         });
         ws.data.credentialHash = browserCredentialHash(credential);
+        this.packages.set(
+          ws.data.credentialHash,
+          validExtensionPackage(msg.package) ? msg.package : null,
+        );
         clearTimeout(ws.data.deadline);
         ws.data.lastPong = Date.now();
         ws.data.heartbeat = setInterval(() => this.heartbeat(ws), 15_000);

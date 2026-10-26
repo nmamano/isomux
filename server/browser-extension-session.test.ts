@@ -10,7 +10,11 @@ import {
   type ConnectOverCDPTransport,
 } from "playwright-core";
 import { BrowserExtensionStore } from "./browser-extension-store";
-import { BrowserExtensionService } from "./browser-extension-service";
+import type { ServerWebSocket } from "bun";
+import {
+  BrowserExtensionService,
+  type ExtensionWsData,
+} from "./browser-extension-service";
 import {
   ExtensionBrowserSessions,
   NOT_SENT_ERROR,
@@ -974,6 +978,113 @@ test("connected extension without an offered tab rejects agent actions without c
         ok: false,
         code: "browser_control_ended",
       });
+    }
+  } finally {
+    sessions.stop();
+    service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Task 825bb286: an extension from before 0.4.5 cannot resume offers after an
+// office restart. The agent learns which of its manager's browsers is out of
+// date, so it asks the manager to update instead of waiting for offers.
+test("agents learn which of their manager's browsers is out of date", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-outdated-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, {
+    memberExists: () => true,
+    mayUse: () => true,
+  });
+  const owners: Record<string, string> = {
+    agent: "member",
+    visitor: "third",
+  };
+  const sessions = new ExtensionBrowserSessions(
+    service,
+    (agent) => owners[agent],
+    () => true,
+    () => 500,
+  );
+  // An extension socket as the server opens one, paired by its hello.
+  const connect = (member: string, name: string, extra: object) => {
+    const ws = {
+      data: { kind: "extension", origin } as ExtensionWsData,
+      send() {},
+      close: () => service.close(typed),
+    };
+    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
+    service.open(typed);
+    service.message(
+      typed,
+      JSON.stringify({
+        kind: "hello",
+        version: 4,
+        code: store.pair(member, name).code,
+        ...extra,
+      }),
+    );
+    expect(typed.data.connection).toBeDefined();
+    return typed;
+  };
+  type Answer = { ok: boolean; code?: string; error: string };
+  const run = async (agent: string, body: object) =>
+    (await sessions.run(agent, body)) as unknown as Answer;
+  const untargeted = () => run("agent", { action: "snapshot" });
+  const targeted = () =>
+    run("agent", { action: "snapshot", target: crypto.randomUUID() });
+  try {
+    const latest = service.status("member").version;
+    const laptop = connect("member", "Laptop", { package: latest });
+    connect("other", "Elsewhere", {});
+    // Only another member's browser is out of date: nothing to report.
+    const tabs = await run("agent", { action: "tabs" });
+    expect(tabs).toMatchObject({ ok: true, tabs: [] });
+    expect(
+      (tabs as unknown as { outdatedBrowsers?: unknown }).outdatedBrowsers,
+    ).toBeUndefined();
+    const before = [await untargeted(), await targeted()];
+    for (const answer of before) {
+      expect(answer.code).toBe("browser_control_ended");
+      expect(answer.error).not.toContain("Laptop");
+    }
+    expect(before[0].error).not.toBe(before[1].error);
+
+    const desk = connect("member", "Desk", {});
+    expect(await run("agent", { action: "tabs" })).toMatchObject({
+      ok: true,
+      tabs: [],
+      outdatedBrowsers: ["Desk"],
+    });
+    // Both no-offer answers keep their guidance and name the old browser.
+    const after = [await untargeted(), await targeted()];
+    after.forEach((answer, i) => {
+      expect(answer.code).toBe("browser_control_ended");
+      expect(answer.error).toContain(before[i].error);
+      expect(answer.error).toContain("Desk");
+      expect(answer.error).not.toContain("Laptop");
+    });
+
+    // The offline answer of a member with no out-of-date browser.
+    service.close(connect("third", "Current", { package: latest }));
+    const baseline = await run("visitor", { action: "tabs" });
+    expect(baseline.code).toBe("browser_offline");
+    expect(baseline.error).not.toContain("Desk");
+    // Its promise that offers come back with the same targets.
+    const promise = baseline.error.slice(baseline.error.indexOf(". ") + 2);
+    expect(promise.length).toBeGreaterThan(0);
+
+    service.close(laptop);
+    service.close(desk);
+    for (const offline of [
+      await run("agent", { action: "tabs" }),
+      await untargeted(),
+    ]) {
+      expect(offline.code).toBe("browser_offline");
+      expect(offline.error).toContain("Desk");
+      expect(offline.error).not.toContain("Laptop");
+      // An old extension cannot resume offers: the answer does not promise it.
+      expect(offline.error).not.toContain(promise);
     }
   } finally {
     sessions.stop();

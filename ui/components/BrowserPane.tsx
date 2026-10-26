@@ -81,6 +81,7 @@ export function BrowserPane() {
   const [extensionsCopied, setExtensionsCopied] = useState(false);
   const [name, setName] = useState("");
   const expired = !!pair && now >= pair.expiresAt;
+  const outdated = status?.browsers.filter((b) => b.outdated) ?? [];
   return (
     // The Integrations Browser Use tab shows the title and intro above this.
     <section
@@ -91,6 +92,29 @@ export function BrowserPane() {
       {status ? (
         <>
           <p style={hint}>{t("browser.chromeHelp")}</p>
+          {outdated.length > 0 && (
+            <div
+              role="status"
+              data-testid="browser-update"
+              style={{ ...cardStyle, marginTop: 16 }}
+            >
+              <p style={{ margin: 0 }}>
+                {t("browser.outdated", {
+                  names: outdated.map((b) => b.name).join(", "),
+                })}{" "}
+                <a
+                  style={{ color: "var(--accent-text)" }}
+                  href="/api/me/browser/extension.zip"
+                  download="isomux-browser.zip"
+                >
+                  {t("browser.download", { version: status.version })}
+                </a>
+              </p>
+              <p style={{ ...hint, marginBottom: 0 }}>
+                {t("browser.updateSteps")}
+              </p>
+            </div>
+          )}
           <div style={{ ...cardStyle, marginTop: 16 }}>
             <h4 style={{ ...sectionHeader, marginBottom: 8 }}>
               {t("browser.setup")}
@@ -135,6 +159,9 @@ export function BrowserPane() {
               <li>{t("browser.offerHelp")}</li>
             </ol>
             <p style={{ ...hint, marginTop: 16, marginBottom: 0 }}>
+              {t("browser.updateHelp", { steps: t("browser.updateSteps") })}
+            </p>
+            <p style={{ ...hint, marginTop: 8, marginBottom: 0 }}>
               {t("browser.permission")}
             </p>
           </div>

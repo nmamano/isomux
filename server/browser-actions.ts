@@ -60,6 +60,8 @@ interface BrowserSuccess {
      * offer, so title and url are empty. */
     officePageRefused?: true;
   }[];
+  /** `tabs` only: names of the manager's browsers with an out-of-date extension. */
+  outdatedBrowsers?: string[];
   /** The page's URL after the action. */
   url: string;
   /** The page's title after the action. */

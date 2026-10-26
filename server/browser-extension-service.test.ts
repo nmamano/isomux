@@ -349,6 +349,83 @@ test("popup unpair from one of two browsers revokes only that browser and keeps 
   }
 });
 
+// Task 825bb286: each hello reports the extension's package, and the member's
+// status marks a browser out of date against the office's package. An
+// extension from before 0.4.5 reports none.
+test("a hello records the extension package; status marks an older or missing one out of date", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-package-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const access = { memberExists: () => true, mayUse: () => true };
+  const service = new BrowserExtensionService(store, access);
+  try {
+    const latest = service.status("m").version;
+    const connect = (name: string, extra: Fields) => {
+      const opened = openSocket(service);
+      service.message(
+        opened.ws,
+        hello({ code: store.pair("m", name).code, ...extra }),
+      );
+      return opened;
+    };
+    const current = connect("Current", { package: latest });
+    const old = connect("Old", {});
+    const older = connect("Older", { package: "0.0.1" });
+    // Precondition: all three are connected.
+    for (const s of [current, old, older])
+      expect(s.ws.data.connection).toBeDefined();
+    // ready names the office's package, so an extension can see it is behind.
+    expect(current.messages.find((m) => m.kind === "ready")!.package).toBe(
+      latest,
+    );
+    const view = () =>
+      service.status("m").browsers.map((b) => [b.name, b.package, b.outdated]);
+    expect(view()).toEqual([
+      ["Current", latest, false],
+      ["Old", null, true],
+      ["Older", "0.0.1", true],
+    ]);
+    // A malformed package is a bad hello: refused before the code is redeemed.
+    for (const bad of ["0.4.x", 4, "", "1.2.3.4.5", "v0.4.5"]) {
+      const s = openSocket(service);
+      service.message(
+        s.ws,
+        hello({ code: store.pair("m", "Bad").code, package: bad }),
+      );
+      expect(s.closed()).toBe(true);
+      expect(s.messages.map((m) => m.kind)).toEqual(["refused"]);
+    }
+    expect(store.browsers("m")).toHaveLength(3);
+    // The updated extension reconnects with its new package.
+    const credential = String(
+      old.messages.find((m) => m.kind === "paired")!.credential,
+    );
+    old.ws.close();
+    const updated = openSocket(service);
+    service.message(updated.ws, hello({ credential, package: latest }));
+    expect(updated.ws.data.connection).toBeDefined();
+    expect(view()[1]).toEqual(["Old", latest, false]);
+    // After an office restart nothing is known until each browser connects
+    // again: no package, and not out of date.
+    const restarted = new BrowserExtensionService(store, access);
+    try {
+      expect(
+        restarted
+          .status("m")
+          .browsers.map((b) => [b.name, b.package === undefined, b.outdated]),
+      ).toEqual([
+        ["Current", true, false],
+        ["Old", true, false],
+        ["Older", true, false],
+      ]);
+    } finally {
+      restarted.stop();
+    }
+  } finally {
+    service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("missing extension package fails closed instead of serving the app shell", async () => {
   const { browserExtensionHandlers } =
     await import("./routes/handlers/browser-extension");
