@@ -407,7 +407,7 @@ const DEMO_BACKEND_DEFAULTS: Record<
     capabilities: {
       fork: true,
       hooks: false,
-      skills: false,
+      skills: true,
       canUseTool: true,
       topicGen: true,
       edit: true,

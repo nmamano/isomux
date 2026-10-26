@@ -101,7 +101,7 @@ export function openCodeAutoCompactTokens(limits: {
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
   hooks: false,
-  skills: false,
+  skills: true,
   canUseTool: true,
   // oneShotPrompt supports topic generation.
   topicGen: true,
@@ -332,6 +332,7 @@ export function createOpenCodeBackend(
       opts.env,
       opts.environmentRevision,
       opts.mcpServers,
+      opts.skillPaths,
     );
   };
   const transportForSession = (sessionId: string): OpenCodeTransport => {

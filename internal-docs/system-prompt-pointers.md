@@ -117,6 +117,8 @@ An OpenCode agent has no bearer token. It fetches the same route through the aut
 curl -s http://isomux/api/agent-reference/<topic> --unix-socket <authority-socket> -H "X-Isomux-Turn: __ISOMUX_OPENCODE_TURN__"
 ```
 
+For an OpenCode agent, the builder rewrites the whole assembled prompt into this form as its last step, so the curls in member special instructions, the office, room and personal instructions, and memory work too. Outside a curl command it rewrites only a bare office address and the /api/ and /agents routes, so a page link for a human (the Receptionist's setup link) stays on localhost. For text the office does not write (skills, files, other agents' messages), the OpenCode prompt says in one sentence how to convert such a curl.
+
 The system prompt renders the one inline fetch example in the syntax for that agent's engine. The route works when the agent's current directory is outside the Isomux checkout.
 
 The checked-in Markdown remains readable to maintainers and testable without starting a provider. Built-in skills may link to topic names, but they do not copy route details. Public product documentation remains in the surfaces listed by `internal-docs/documentation.md`; the reference is the agent-facing operational contract.

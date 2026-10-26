@@ -2015,6 +2015,52 @@ describe("OpenCode shared server supervisor", () => {
     long.release();
   }, 20_000);
 
+  // Task 30dd196e: the skill folders an OpenCode agent's own skill tool
+  // reads are part of the Isomux config. The same list keeps the server; a
+  // new list replaces it, so the new folders reach OpenCode.
+  it("writes the skill folders into the Isomux config, and replaces the server only when the list changes", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const first = [join(path, "user", "skills"), join(path, "bundled")];
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      skillPaths: first,
+      binary,
+    });
+    supervisors.push(supervisor);
+    const written = async () =>
+      (
+        JSON.parse(
+          await readFile(join(supervisor.profileDir, "opencode.json"), "utf8"),
+        ) as { skills?: unknown }
+      ).skills;
+    const lease = await supervisor.acquire();
+    const pid = lease.pid;
+    expect(await written()).toEqual(first);
+    const top = JSON.parse(
+      (await childEnvironment(pid)).get("OPENCODE_CONFIG_CONTENT") ?? "{}",
+    ) as { skills?: unknown };
+    expect(top.skills).toEqual(first);
+    lease.release();
+
+    // A session start passes the list again: a copy is no change.
+    expect(supervisor.updateSkillPaths([...first])).toBe(false);
+    const same = await supervisor.acquire();
+    expect(same.pid, "the same list keeps the server").toBe(pid);
+    same.release();
+
+    const next = [join(path, "other", "skills"), join(path, "bundled")];
+    expect(supervisor.updateSkillPaths(next)).toBe(true);
+    const after = await supervisor.acquire();
+    expect(after.pid, "a new list replaces the server").not.toBe(pid);
+    expect(await dies(pid)).toBe(true);
+    expect(await written()).toEqual(next);
+    after.release();
+  }, 20_000);
+
   // Task 935e795e: a lease that acquires while the start of replaceOnceIdle
   // is in flight takes the server that start brings up, even when it has an
   // older environment, and that server stays while the lease holds it. Its

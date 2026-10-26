@@ -162,6 +162,8 @@ export interface OpenCodeSupervisorOptions {
   environmentRevision?: string;
   // The Isomux MCP servers the transport adds to each folder at run time.
   mcpServers?: AgentMcpServer[];
+  // The skill folders the Isomux config lists under `skills`.
+  skillPaths?: string[];
   idleScheduler?: {
     setTimeout(
       callback: () => void | Promise<void>,
@@ -227,6 +229,7 @@ export class OpenCodeSupervisor {
     this.platform = options.platform ?? process.platform;
     this.config = {
       ...(options.config ?? openCodeDefaultConfig()),
+      ...(options.skillPaths ? { skills: [...options.skillPaths] } : {}),
       update: "disable",
     };
     this.configRevision = this.computeConfigRevision(this.config);
@@ -409,6 +412,12 @@ export class OpenCodeSupervisor {
       ...launchEnv,
       ISOMUX_AGENT_TOKEN: undefined,
     };
+  }
+
+  // The skill folders OpenCode's own skill tool reads. A changed list
+  // changes the config revision, so the next acquire replaces the server.
+  updateSkillPaths(paths: string[]): boolean {
+    return this.updateConfiguration({ ...this.config, skills: [...paths] });
   }
 
   updateConfiguration(config: Record<string, unknown>): boolean {
@@ -802,6 +811,8 @@ export function openCodeSupervisorForEnvironment(
   env: Record<string, string | undefined> | undefined,
   environmentRevision = "default",
   mcpServers?: AgentMcpServer[],
+  // Undefined keeps the list the supervisor has, as for mcpServers.
+  skillPaths?: string[],
 ): OpenCodeSupervisor {
   const launchEnv = launchEnvFor(env);
   if (!environmentKey) {
@@ -816,10 +827,12 @@ export function openCodeSupervisorForEnvironment(
       launchEnv,
       environmentRevision,
       mcpServers: mcpServers ?? [],
+      skillPaths,
     });
     environmentSupervisors.set(key, supervisor);
   } else {
     if (mcpServers) supervisor.updateMcpServers(mcpServers);
+    if (skillPaths) supervisor.updateSkillPaths(skillPaths);
     supervisor.updateLaunchEnvironment(launchEnv, environmentRevision);
   }
   return supervisor;

@@ -2,8 +2,11 @@
 // whichever call reaches a cold profile first starts it with the env it was
 // given. Every path that hands the OpenCode backend a launch env therefore
 // passes the same one: the agent session, the topic label, the history read
-// and fork of an edit, the office model list and a schedule run. The
-// saved-settings push is held to the same env in opencode-settings-push.test.ts.
+// and fork of an edit, the office model list and a schedule run. The skill
+// folders are part of the server's config (task 30dd196e), so each path passes
+// the same list too: one that passed none would start the server without
+// them, and the next agent session would replace it. The saved-settings push
+// is held to the same env in opencode-settings-push.test.ts.
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
 import { STATE_ROOT } from "../config.ts";
@@ -47,6 +50,7 @@ interface LaunchInput {
   env?: Record<string, string | undefined>;
   environmentKey?: string;
   environmentRevision?: string;
+  skillPaths?: string[];
 }
 
 describe("OpenCode launch env", () => {
@@ -111,6 +115,8 @@ describe("OpenCode launch env", () => {
       expect(session.env?.TZ === "Europe/Madrid", "the saved variable").toBe(
         true,
       );
+      // A list to compare: undefined on both sides would prove nothing.
+      expect((session.skillPaths ?? []).length).toBeGreaterThan(0);
 
       // The first reply asks for a topic label.
       await waitUntil(() => oneShots.length > 0, "topic one-shot");
@@ -173,6 +179,7 @@ describe("OpenCode launch env", () => {
         expect(input!.environmentRevision, path).toBe(
           session.environmentRevision,
         );
+        expect(input!.skillPaths, path).toEqual(session.skillPaths);
       }
     } finally {
       listModels.mockRestore();

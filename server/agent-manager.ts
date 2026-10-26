@@ -205,6 +205,7 @@ import {
   discoverSyncedSkills,
   discoverBundledSkills,
   deduplicateSkills,
+  BUNDLED_SKILLS_DIR,
   type UserSkillRoot,
 } from "./skills.ts";
 import {
@@ -2979,6 +2980,7 @@ export function createAgentManager(deps: ManagerDeps) {
               buildOpenCodeLaunchEnvironmentForUserId(move.userId),
               environmentSourceRevisionForUserId(move.userId),
               agentMcpServers(move.userId),
+              openCodeSkillPathsForUserId(move.userId),
             ),
             targetEnvironmentKey: move.toKey,
           });
@@ -4368,6 +4370,7 @@ export function createAgentManager(deps: ManagerDeps) {
             environmentRevision: environmentSourceRevisionForUserId(
               managed.info.userId,
             ),
+            skillPaths: openCodeSkillPathsForUserId(managed.info.userId),
           }
         : {}),
     });
@@ -6567,6 +6570,38 @@ export function createAgentManager(deps: ManagerDeps) {
     );
   }
 
+  // The skill folders OpenCode's own skill tool reads: the user roots and
+  // the bundled skills of the Sk menu. One OpenCode server serves all of a
+  // member's OpenCode work, so only the member's inputs go in, and every path
+  // that can start that server passes them: a server started without them is
+  // replaced at the next agent session.
+  function openCodeSkillPathsForUserId(
+    userId: string | null | undefined,
+  ): string[] {
+    userId ??= null;
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(userId);
+    } catch {
+      env = undefined;
+    }
+    return [
+      ...userSkillRootsForInfo({ agentType: "opencode", userId }, env).map(
+        (source) => join(source.root, "skills"),
+      ),
+      BUNDLED_SKILLS_DIR,
+    ];
+  }
+
+  function openCodeSkillInput(
+    agentType: AgentBackendType,
+    userId: string | null | undefined,
+  ): { skillPaths?: string[] } {
+    return agentType === "opencode"
+      ? { skillPaths: openCodeSkillPathsForUserId(userId) }
+      : {};
+  }
+
   function userSkillRootsFor(managed: ManagedAgent): UserSkillRoot[] {
     return userSkillRootsForInfo(managed.info, buildSessionEnv(managed));
   }
@@ -7014,6 +7049,7 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.info.userId,
       ),
       mcpServers: agentMcpServers(managed.info.userId),
+      ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
     };
     const backend = getBackend(managed.info.agentType);
     // Plan mode is session state the engine may not keep (a resumed Claude
@@ -12022,6 +12058,7 @@ export function createAgentManager(deps: ManagerDeps) {
           managed.info.userId,
         ),
         mcpServers: agentMcpServers(managed.info.userId),
+        ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
       });
       console.log(
         `[resume] agent ${agentId}: stored ${managed.info.agentType} session ${sessionId} is missing; ${recovered ? "brought it back from other storage" : "no other storage holds it"}`,
@@ -12290,6 +12327,7 @@ export function createAgentManager(deps: ManagerDeps) {
         environmentRevision: environmentSourceRevisionForUserId(
           managed.info.userId,
         ),
+        ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
       };
       const backendMessages = await backend.getSessionMessages(
         oldSessionId,
@@ -12985,6 +13023,7 @@ export function createAgentManager(deps: ManagerDeps) {
     refreshLimitedClaudeFamilies,
     providerAccountChanged,
     buildOpenCodeLaunchEnvironmentForUserId,
+    openCodeSkillPathsForUserId,
     pushOpenCodeSettings,
     environmentSourceKeyForUserId,
     environmentSourceRevisionForUserId,

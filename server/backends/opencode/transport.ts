@@ -917,6 +917,22 @@ export class OpenCodeTransport {
       );
       return;
     }
+    // A skill's office calls carry the turn handle placeholder too
+    // (command-handlers.ts executeSkill).
+    let turnText = parts.map((part) => part.text).join("\n\n");
+    if (turnText.includes(OPENCODE_TURN_HANDLE_PLACEHOLDER)) {
+      if (!this.authorityBinding) {
+        fail(
+          new Error(),
+          "OpenCode cannot send office calls without an authority binding",
+        );
+        return;
+      }
+      turnText = turnText.replaceAll(
+        OPENCODE_TURN_HANDLE_PLACEHOLDER,
+        this.authorityBinding.handle,
+      );
+    }
     this.folderSetupNoticeShown = false;
     let settleAcquire = () => {};
     try {
@@ -1087,9 +1103,7 @@ export class OpenCodeTransport {
         method: "POST",
         signal: controller.signal,
         // The 2.1.4 prompt takes text only.
-        body: JSON.stringify({
-          text: parts.map((part) => part.text).join("\n\n"),
-        }),
+        body: JSON.stringify({ text: turnText }),
       });
       const input = stringField(
         asRecord(asRecord(await response.json()).data),

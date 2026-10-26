@@ -333,6 +333,57 @@ describe("OpenCode 2 turn requests", () => {
     expect(h.fake.calls("POST", /\/(model|prompt)$/)).toEqual([]);
   });
 
+  // Task 30dd196e: a /skill body reaches the turn with its office calls in
+  // the proxy form, which names the turn handle by its placeholder, as the
+  // system prompt does. The transport fills in its bound handle everywhere.
+  it("sends the bound handle in place of each turn handle placeholder in the turn text", async () => {
+    const handle = "session-handle";
+    const authorityBroker = {
+      bind: () => ({
+        handle,
+        activate: () => "turn-handle",
+        deactivate: () => {},
+        unbind: () => {},
+      }),
+    } as unknown as OpenCodeAuthorityBroker;
+    const h = setup({
+      fake: { turns: [fixtureTurn("text-reasoning")] },
+      transport: {
+        systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
+        agentId: "agent-1",
+        agentToken: "token-1",
+        authorityBroker,
+      },
+    });
+    const { end } = await h.turn([
+      { type: "text", text: `first ${OPENCODE_TURN_HANDLE_PLACEHOLDER}` },
+      { type: "text", text: `second ${OPENCODE_TURN_HANDLE_PLACEHOLDER}` },
+    ]);
+    expect(end?.status).toBe("completed");
+    expect(h.fake.calls("POST", /\/prompt$/).map((r) => r.body)).toEqual([
+      { text: `first ${handle}\n\nsecond ${handle}` },
+    ]);
+  });
+
+  it("refuses a turn whose text names the turn handle when it has no authority binding, before it sends a prompt", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("text-reasoning")] },
+    });
+    const { end } = await h.turn([
+      { type: "text", text: `call ${OPENCODE_TURN_HANDLE_PLACEHOLDER}` },
+    ]);
+    expect(end?.status).toBe("failed");
+    // MUTANT: a prompt sent with the placeholder makes every office call in
+    // it fail at the proxy.
+    expect(h.fake.calls("POST", /\/prompt$/)).toEqual([]);
+    // The same transport sends a turn without the placeholder: the refusal
+    // came from the placeholder, not from the setup.
+    expect((await h.turn()).end?.status).toBe("completed");
+    expect(h.fake.calls("POST", /\/prompt$/).map((r) => r.body)).toEqual([
+      { text: "go" },
+    ]);
+  });
+
   it("selects no variant for a model without one, and names the effort it cannot honor", async () => {
     const h = setup({
       fake: {

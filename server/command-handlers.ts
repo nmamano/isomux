@@ -46,6 +46,7 @@ import {
 import { listCronjobs } from "./cronjob-manager.ts";
 import { cronjobVisibleTo } from "./cronjob-visibility.ts";
 import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
+import { rewriteOpenCodeOfficeCommands } from "./system-prompt.ts";
 import { recordSkillUse } from "./skill-usage.ts";
 import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
 import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
@@ -1375,9 +1376,13 @@ export function createCommandHandling(deps: HandlerDeps) {
     device?: string,
   ): Promise<boolean> {
     const userArgs = args.join(" ");
-    const fullPrompt = userArgs
-      ? `${skillPrompt}\n\nUser context: ${userArgs}`
-      : skillPrompt;
+    // An OpenCode agent has no bearer token: the skill's office calls go out
+    // in its own form, as in its system prompt.
+    const body =
+      managed.info.agentType === "opencode"
+        ? rewriteOpenCodeOfficeCommands(skillPrompt)
+        : skillPrompt;
+    const fullPrompt = userArgs ? `${body}\n\nUser context: ${userArgs}` : body;
     return runCommandTurn(
       agentId,
       managed,

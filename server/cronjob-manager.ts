@@ -210,6 +210,9 @@ export interface CronjobManagerDeps {
   // The remote MCP servers a run of this member gets (production:
   // server/mcp-servers.ts). None when omitted.
   resolveMcpServers?: (userId: string | null | undefined) => AgentMcpServer[];
+  // The skill folders of a member's OpenCode server (the agent manager's,
+  // so a run passes the same list as the member's agent sessions).
+  resolveOpenCodeSkillPaths?: (userId: string | null | undefined) => string[];
   // Owner lookup for env/identity (production: getUserByName).
   resolveUser: typeof defaultResolveUser;
   // The whole cron config/run persistence surface, injected as one unit.
@@ -983,7 +986,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
     userId: string | null | undefined,
   ): Pick<
     CreateSessionOptions,
-    "env" | "environmentKey" | "environmentRevision" | "mcpServers"
+    | "env"
+    | "environmentKey"
+    | "environmentRevision"
+    | "mcpServers"
+    | "skillPaths"
   > {
     const env = buildEnvForUserId(userId);
     const mcpServers = deps.resolveMcpServers?.(userId) ?? [];
@@ -993,6 +1000,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
       environmentKey: environmentSourceKeyForUserId(userId),
       environmentRevision: environmentSourceRevisionForUserId(userId),
       mcpServers,
+      ...(deps.resolveOpenCodeSkillPaths
+        ? { skillPaths: deps.resolveOpenCodeSkillPaths(userId) }
+        : {}),
     };
   }
 
@@ -2733,6 +2743,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
   limitRefusal?: CronjobManagerDeps["limitRefusal"];
+  resolveOpenCodeSkillPaths?: CronjobManagerDeps["resolveOpenCodeSkillPaths"];
 }): CronjobManager {
   return createCronjobManager({
     ...(overrides?.limitRefusal
@@ -2744,6 +2755,9 @@ export function createProductionCronjobManager(overrides?: {
     resolveEnvironmentRevision: defaultResolveEnvironmentRevision,
     resolveMcpServers: (userId) =>
       mcpServersForUserId(createMcpServerSources(), userId),
+    ...(overrides?.resolveOpenCodeSkillPaths
+      ? { resolveOpenCodeSkillPaths: overrides.resolveOpenCodeSkillPaths }
+      : {}),
     resolveUser: defaultResolveUser,
     persistence: cronPersistence,
     clock: { now: Date.now },

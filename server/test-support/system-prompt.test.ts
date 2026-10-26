@@ -21,6 +21,10 @@ import {
   AGENT_SENDER_PRIVILEGED,
   AGENT_SENDER_SAME_MANAGER,
 } from "../../shared/identity.ts";
+import {
+  OPENCODE_TURN_HANDLE_PLACEHOLDER,
+  openCodeAuthoritySocketPath,
+} from "../backends/opencode/office-proxy-shared.ts";
 
 function build(
   agentType: "claude" | "codex" | "opencode" = "codex",
@@ -382,5 +386,228 @@ describe("dynamic prompt layers", () => {
       "klingon" as SupportedLanguageCode,
     );
     expect(unknown).toBe(baseline);
+  });
+});
+
+// Task 30dd196e: an OpenCode agent has no ISOMUX_AGENT_TOKEN; it reaches the
+// office through the authority socket with its turn header. Every office curl
+// in the assembled prompt, including the text that members and agents write
+// (member special instructions, office, room, personal instructions, memory),
+// must arrive in that form, or the agent cannot run it.
+describe("OpenCode office call rewrite", () => {
+  const port = process.env.PORT || "4000";
+  const bearer = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  const proxy = `--unix-socket ${openCodeAuthoritySocketPath()} -H "X-Isomux-Turn: ${OPENCODE_TURN_HANDLE_PLACEHOLDER}"`;
+
+  function withText(
+    agentType: "claude" | "codex" | "opencode",
+    text: {
+      member?: string;
+      office?: string;
+      room?: string;
+      personal?: string;
+      memory?: string;
+    },
+  ) {
+    return buildSystemPrompt(
+      "A1",
+      "agent-1",
+      "Test Room",
+      "room-1",
+      text.office ?? null,
+      text.room ?? null,
+      text.personal ?? null,
+      "Nil",
+      text.member ?? null,
+      false,
+      text.memory ?? null,
+      agentType,
+      null,
+      true,
+    );
+  }
+
+  // One authenticated curl per member- or agent-written section, each to its
+  // own path so a line can be traced back to its section.
+  const sections = {
+    member: `curl -s localhost:${port}/api/from-member ${bearer}`,
+    office: `curl -s localhost:${port}/api/from-office ${bearer}`,
+    room: `curl -s "localhost:${port}/agents?back=1" ${bearer}`,
+    personal: `curl -s localhost:${port}/api/from-personal ${bearer}`,
+    memory: `- 2026-10-26: curl -s localhost:${port}/api/from-memory ${bearer}`,
+  };
+  const expected = {
+    member: `curl -s http://isomux/api/from-member ${proxy}`,
+    office: `curl -s http://isomux/api/from-office ${proxy}`,
+    room: `curl -s "http://isomux/agents?back=1" ${proxy}`,
+    personal: `curl -s http://isomux/api/from-personal ${proxy}`,
+    memory: `- 2026-10-26: curl -s http://isomux/api/from-memory ${proxy}`,
+  };
+
+  it("rewrites the office calls in every section that members and agents write", () => {
+    const prompt = withText("opencode", sections);
+    const lines = prompt.split("\n");
+    for (const key of Object.keys(sections) as (keyof typeof sections)[])
+      expect([key, lines.includes(expected[key])]).toEqual([key, true]);
+    // The base fetch command keeps its rewrite.
+    expect(prompt).toContain(
+      `curl -s http://isomux/api/agent-reference/<page> ${proxy}`,
+    );
+    expect(prompt).not.toContain("ISOMUX_AGENT_TOKEN");
+  });
+
+  it("maps every form of the office address to http://isomux and nothing else", () => {
+    const cases: [string, string][] = [
+      [
+        `curl -s http://localhost:${port}/a ${bearer}`,
+        `curl -s http://isomux/a ${proxy}`,
+      ],
+      [
+        `curl -s http://127.0.0.1:${port}/b ${bearer}`,
+        `curl -s http://isomux/b ${proxy}`,
+      ],
+      [
+        `curl -s "localhost:${port}/c?x=1" ${bearer}`,
+        `curl -s "http://isomux/c?x=1" ${proxy}`,
+      ],
+      [
+        `curl -s 127.0.0.1:${port}/d ${bearer}`,
+        `curl -s http://isomux/d ${proxy}`,
+      ],
+      [
+        `Office API calls go to localhost:${port}.`,
+        `Office API calls go to http://isomux.`,
+      ],
+      // Another port, or a host that only ends in "localhost", is not the
+      // office.
+      [`curl -s localhost:${port}1/e`, `curl -s localhost:${port}1/e`],
+      [
+        `curl -s http://xlocalhost:${port}/f`,
+        `curl -s http://xlocalhost:${port}/f`,
+      ],
+    ];
+    const lines = withText("opencode", {
+      room: cases.map(([input]) => input).join("\n"),
+    }).split("\n");
+    for (const [input, output] of cases)
+      expect([input, lines.includes(output)]).toEqual([input, true]);
+    expect(lines.join("\n")).not.toContain("http://http://");
+  });
+
+  // Outside a curl command, a link to a page is for a human, whose browser
+  // reaches localhost and not http://isomux (the receptionist's setup link).
+  it("rewrites office routes outside a curl command and leaves page links", () => {
+    const pages = [
+      `Open http://localhost:${port}/setup#key=abc to claim the office.`,
+      `Open http://127.0.0.1:${port}/setup#key=abc to claim the office.`,
+      `The office is at http://localhost:${port}/ in a browser.`,
+      `Sign in at localhost:${port}/signin first.`,
+    ];
+    const routes: [string, string][] = [
+      [
+        `GET localhost:${port}/api/x lists them.`,
+        `GET http://isomux/api/x lists them.`,
+      ],
+      [
+        `GET http://127.0.0.1:${port}/agents?back=1 lists them.`,
+        `GET http://isomux/agents?back=1 lists them.`,
+      ],
+      [
+        `Agents are at localhost:${port}/agents.`,
+        `Agents are at http://isomux/agents.`,
+      ],
+      // Inside a curl command, any path is an office call.
+      [`curl -s localhost:${port}/setup`, `curl -s http://isomux/setup`],
+    ];
+    // The continued line is in the command; the line after it is not.
+    const continued = [
+      `curl -s \\`,
+      `  localhost:${port}/setup`,
+      `See http://localhost:${port}/setup#key=abc.`,
+    ];
+    const lines = withText("opencode", {
+      room: [...pages, ...routes.map(([input]) => input), ...continued].join(
+        "\n",
+      ),
+    }).split("\n");
+    for (const page of pages)
+      expect([page, lines.includes(page)]).toEqual([page, true]);
+    for (const [input, output] of routes)
+      expect([input, lines.includes(output)]).toEqual([input, true]);
+    const at = lines.indexOf(`curl -s \\`);
+    expect(lines.slice(at, at + 3)).toEqual([
+      `curl -s \\`,
+      `  http://isomux/setup`,
+      `See http://localhost:${port}/setup#key=abc.`,
+    ]);
+  });
+
+  it("replaces each spelling of the bearer header with the proxy arguments", () => {
+    const headers = [
+      `-H 'Authorization: Bearer $ISOMUX_AGENT_TOKEN'`,
+      `-H "Authorization: Bearer \${ISOMUX_AGENT_TOKEN}"`,
+      `--header "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
+      `--header 'Authorization: Bearer \${ISOMUX_AGENT_TOKEN}'`,
+    ];
+    const lines = withText("opencode", {
+      room: headers
+        .map((h, i) => `curl -s localhost:${port}/api/h${i} ${h}`)
+        .join("\n"),
+    }).split("\n");
+    headers.forEach((h, i) =>
+      expect([
+        h,
+        lines.includes(`curl -s http://isomux/api/h${i} ${proxy}`),
+      ]).toEqual([h, true]),
+    );
+  });
+
+  it("rewrites a continued curl whose header sits on a later line", () => {
+    const room = [
+      `curl -s -X POST localhost:${port}/api/tasks \\`,
+      `  ${bearer} \\`,
+      `  -d '{}'`,
+    ].join("\n");
+    const prompt = withText("opencode", { room });
+    const lines = prompt.split("\n");
+    const at = lines.indexOf(`curl -s -X POST http://isomux/api/tasks \\`);
+    expect(lines.slice(at, at + 3)).toEqual([
+      `curl -s -X POST http://isomux/api/tasks \\`,
+      `  ${proxy} \\`,
+      `  -d '{}'`,
+    ]);
+    expect(prompt).not.toContain("ISOMUX_AGENT_TOKEN");
+  });
+
+  it("rewrites the header before the prose on one line", () => {
+    const room = `curl -s localhost:${port}/api/x ${bearer}  # $ISOMUX_AGENT_TOKEN is auto-injected`;
+    const line = withText("opencode", { room })
+      .split("\n")
+      .find((l) => l.startsWith(`curl -s http://isomux/api/x `));
+    expect(line).toBeDefined();
+    expect(line!.split(proxy)).toHaveLength(2);
+    expect(line).not.toContain("ISOMUX_AGENT_TOKEN");
+    expect(line).not.toContain("Authorization");
+  });
+
+  it("leaves the office calls in Claude and Codex prompts as written", () => {
+    for (const engine of ["claude", "codex"] as const) {
+      const prompt = withText(engine, sections);
+      const lines = prompt.split("\n");
+      for (const key of Object.keys(sections) as (keyof typeof sections)[])
+        expect([engine, key, lines.includes(sections[key])]).toEqual([
+          engine,
+          key,
+          true,
+        ]);
+      expect([engine, prompt.includes("http://isomux")]).toEqual([
+        engine,
+        false,
+      ]);
+      expect([engine, prompt.includes(openCodeAuthoritySocketPath())]).toEqual([
+        engine,
+        false,
+      ]);
+    }
   });
 });

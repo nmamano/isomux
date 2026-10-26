@@ -119,6 +119,24 @@ describe("bundled skills", () => {
       }).toEqual({ folder, name: folder, hasDescription: true });
     }
   });
+
+  // Task 30dd196e: OpenCode's own skill tool loads a bundled skill as it is,
+  // with no office rewrite, and an OpenCode agent has no agent token. A
+  // bundled skill names its office calls the engine-neutral way the reference
+  // pages do, and no fixed office port.
+  it("names no agent token variable and no fixed office address", () => {
+    const skillsDir = join(import.meta.dir, "..", "skills");
+    const folders = readdirSync(skillsDir).filter((name) =>
+      existsSync(join(skillsDir, name, "SKILL.md")),
+    );
+    expect(folders).toContain("isomux-peer-review");
+    const engineBound = folders.filter((folder) =>
+      /ISOMUX_AGENT_TOKEN|\b(?:localhost|127\.0\.0\.1):\d/.test(
+        readFileSync(join(skillsDir, folder, "SKILL.md"), "utf8"),
+      ),
+    );
+    expect(engineBound).toEqual([]);
+  });
 });
 
 describe("effective Claude home skill agreement", () => {

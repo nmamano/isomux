@@ -913,6 +913,8 @@ function createManagers(startOpts: StartServerOpts): void {
   );
   cronjobManager = createProductionCronjobManager({
     resolveBackend: startOpts.resolveBackend,
+    resolveOpenCodeSkillPaths: (userId) =>
+      agentManager.openCodeSkillPathsForUserId(userId),
     limitRefusal: (job) => {
       const maker = job.createdByAgentId
         ? ordinaryScheduleMaker(job.createdByAgentId)
@@ -2288,6 +2290,11 @@ async function listBackendModels(input: {
       environmentRevision: agentManager.environmentSourceRevisionForUserId(
         input.userId,
       ),
+      ...(input.agentType === "opencode"
+        ? {
+            skillPaths: agentManager.openCodeSkillPathsForUserId(input.userId),
+          }
+        : {}),
       includeHidden: input.includeHidden,
       signal: input.signal,
     });

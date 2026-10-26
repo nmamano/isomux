@@ -71,6 +71,9 @@ export interface CreateSessionOptions {
   // Their headers can carry a credential: a backend gives them to its engine
   // only through a channel that is neither argv nor the environment.
   mcpServers?: AgentMcpServer[];
+  // OpenCode: the skill folders its own skill tool reads (one list per
+  // member, see SessionEnvironmentOptions).
+  skillPaths?: string[];
   // The engine's native plan mode for the new session: true starts in it,
   // false leaves it, undefined keeps what a resumed session already has.
   // Only backends that declare `planMode` read it.
@@ -84,6 +87,9 @@ export interface SessionEnvironmentOptions {
   // OpenCode: the servers of the shared server's config file. Undefined keeps
   // the config the server has (callers that do not start an agent session).
   mcpServers?: AgentMcpServer[];
+  // OpenCode: the skill folders of the shared server's config. Undefined
+  // keeps the list the server has.
+  skillPaths?: string[];
 }
 
 export interface SessionAccessOptions extends SessionEnvironmentOptions {
@@ -543,6 +549,8 @@ export interface OneShotOptions {
   env?: { [key: string]: string | undefined };
   environmentKey?: string;
   environmentRevision?: string;
+  // OpenCode: see SessionEnvironmentOptions.
+  skillPaths?: string[];
 }
 
 export interface ListModelsOptions {
@@ -550,6 +558,8 @@ export interface ListModelsOptions {
   env?: { [key: string]: string | undefined };
   environmentKey?: string;
   environmentRevision?: string;
+  // OpenCode: see SessionEnvironmentOptions.
+  skillPaths?: string[];
   includeHidden?: boolean;
   // Abort stops the request and the process behind it; listModels rejects.
   signal?: AbortSignal;
