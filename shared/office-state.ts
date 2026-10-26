@@ -371,6 +371,9 @@ export class OfficeState {
       autoHandoff?: boolean;
       autoHandoffTokens?: number;
       limitResume?: boolean;
+      // With a modelFamily change: the office moved the agent to this free
+      // model (AgentInfo.officeFreeModel).
+      officeFreeModel?: string;
     },
   ): OfficeEvent[] {
     const agent = this.agents.get(agentId);
@@ -455,7 +458,10 @@ export class OfficeState {
       updated.limitResume = changes.limitResume;
     }
 
-    if (updated.modelFamily) Object.assign(updated, clearGoneModel(agent));
+    if (updated.modelFamily) {
+      Object.assign(updated, clearGoneModel(agent));
+      setOfficeFreeModel(agent, changes.officeFreeModel);
+    }
     if (Object.keys(updated).length === 0) return [];
     const events: OfficeEvent[] = [
       { type: "agent_updated", agentId, changes: updated },
@@ -473,7 +479,10 @@ export class OfficeState {
       (changes.agentType !== undefined &&
         changes.agentType !== agent.agentType);
     Object.assign(agent, changes);
-    if (modelChanged) changes = { ...changes, ...clearGoneModel(agent) };
+    if (modelChanged) {
+      changes = { ...changes, ...clearGoneModel(agent) };
+      if (!("officeFreeModel" in changes)) setOfficeFreeModel(agent, undefined);
+    }
     const events: OfficeEvent[] = [{ type: "agent_updated", agentId, changes }];
     this.emitEvents(events);
     return events;
@@ -1001,6 +1010,13 @@ export class OfficeState {
       ...this._recentCwds.filter((c) => c !== cwd),
     ].slice(0, 20);
   }
+}
+
+// Any other model change than the office's own is a member's choice, and the
+// office never moves that model again.
+function setOfficeFreeModel(agent: AgentInfo, model: string | undefined) {
+  if (model === undefined) delete agent.officeFreeModel;
+  else agent.officeFreeModel = model;
 }
 
 // A gone model names the model the agent ran, so another model clears it. The

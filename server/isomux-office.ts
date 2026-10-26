@@ -196,8 +196,12 @@ import {
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
+  firstAnsweringModel,
+  freeOpenCodeCandidates,
   resolveWelcomeOpenCodeModel,
   retryWelcomeOpenCodeModel,
+  type FreeModelProbeTiming,
+  type RefusedFreeModelReplacer,
   type WelcomeModelRetryTiming,
 } from "./welcome-opencode-model.ts";
 import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
@@ -850,6 +854,8 @@ function createManagers(startOpts: StartServerOpts): void {
   codexModelDiscoveryTimeoutMs =
     startOpts.codexModelDiscoveryTimeoutMs ?? CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
   welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
+  freeModelProbeTiming =
+    startOpts.freeModelProbeTiming ?? FREE_MODEL_PROBE_TIMING;
   storageRoots =
     startOpts.storageRoots ??
     (() => productionStorageRoots(startOpts.getBackupStatus));
@@ -1082,6 +1088,13 @@ const WELCOME_MODEL_TIMING: WelcomeModelTiming = {
   windowMs: 10 * 60_000,
 };
 let welcomeModelTiming = WELCOME_MODEL_TIMING;
+// The probe of a free model before the seed uses it, and in the search after
+// a seeded agent's model is refused. The claim's redirect waits for the seed.
+const FREE_MODEL_PROBE_TIMING: FreeModelProbeTiming = {
+  probeTimeoutMs: 15_000,
+  probeBudgetMs: 20_000,
+};
+let freeModelProbeTiming = FREE_MODEL_PROBE_TIMING;
 
 // The model for a new Codex agent or cron job whose request names none: the
 // default of the owner's discovered model list (codexDefaultModel), or
@@ -1176,6 +1189,33 @@ function startWelcomeDiscovery(userId: string): Promise<BackendModelWire[]> {
   });
 }
 
+// The seed of one owner checks the free models once for the Receptionist and
+// the Free Welcome Agent: while seedWelcomeAgentsForFirstOwner runs, the
+// owner has an entry here that keeps each check by its candidate list.
+const seedModelChecks = new Map<string, Map<string, Promise<string | null>>>();
+
+function checkFreeModels(
+  username: string,
+  userId: string,
+  candidates: string[],
+): Promise<string | null> {
+  const check = () =>
+    firstAnsweringModel(
+      candidates,
+      (model) => probeFreeModel(userId, model),
+      freeModelProbeTiming,
+    );
+  const kept = seedModelChecks.get(username);
+  if (!kept) return check();
+  const key = candidates.join("\n");
+  let result = kept.get(key);
+  if (!result) {
+    result = check();
+    kept.set(key, result);
+  }
+  return result;
+}
+
 async function welcomeOpenCodeModel(
   username: string,
 ): Promise<WelcomeModelChoice | null> {
@@ -1186,8 +1226,9 @@ async function welcomeOpenCodeModel(
     );
     return { model: OPENCODE_DEFAULT_MODEL, fromFallback: false };
   }
+  let listed: BackendModelWire[] = [];
   const result = await resolveWelcomeOpenCodeModel(
-    () => discoverWelcomeModels(user.id),
+    async () => (listed = await discoverWelcomeModels(user.id)),
     OPENCODE_DEFAULT_MODEL,
     welcomeModelTiming.discoveryTimeoutMs,
   );
@@ -1204,7 +1245,19 @@ async function welcomeOpenCodeModel(
     );
     return { model: OPENCODE_DEFAULT_MODEL, fromFallback: true };
   }
-  return { model: result.model, fromFallback: false };
+  // The provider can refuse a free model its catalog lists: check them in
+  // order. When none answers in the budget, the seed keeps the first, and a
+  // refused turn moves the agent later (switchRefusedFreeModel).
+  const answered = await checkFreeModels(
+    username,
+    user.id,
+    freeOpenCodeCandidates(listed, OPENCODE_DEFAULT_MODEL),
+  );
+  if (answered === null)
+    console.warn(
+      `[bootstrap] no free OpenCode model answered a check; seeding ${result.model}`,
+    );
+  return { model: answered ?? result.model, fromFallback: false };
 }
 
 // The fallback constant can be withdrawn by the provider before a release
@@ -1255,7 +1308,10 @@ function repickFallbackSeeds(userId: string, agentId: string): void {
         )
           continue;
         try {
-          await agentManager.editAgent(id, { modelFamily: result.model });
+          await agentManager.editAgent(id, {
+            modelFamily: result.model,
+            officeFreeModel: result.model,
+          });
         } catch (err) {
           console.warn(
             `[bootstrap] could not move ${agent.name} to ${result.model}:`,
@@ -1281,7 +1337,51 @@ function repickFallbackSeeds(userId: string, agentId: string): void {
   })();
 }
 
+// The search after the free model of an agent the office seeded is refused:
+// the owner's free models, without the refused one, and the first that
+// answers a probe.
+const replaceRefusedFreeModel: RefusedFreeModelReplacer = async (
+  agent,
+  refusedModel,
+) => {
+  if (!agent.userId) return null;
+  const userId = agent.userId;
+  // The agent is busy while this runs: a model list that does not come in
+  // the seed's discovery time ends the search, and today's error shows.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const listed = await Promise.race([
+    discoverWelcomeModels(userId),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("OpenCode model discovery timed out")),
+        welcomeModelTiming.discoveryTimeoutMs,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+  const candidates = freeOpenCodeCandidates(
+    listed,
+    OPENCODE_DEFAULT_MODEL,
+  ).filter((model) => model !== refusedModel);
+  return firstAnsweringModel(
+    candidates,
+    (model) => probeFreeModel(userId, model),
+    freeModelProbeTiming,
+  );
+};
+
+// One tiny real request: the provider can refuse a free model its catalog
+// still lists (task 0387b8de). Resolves when the model answered.
+async function probeFreeModel(userId: string, model: string): Promise<void> {
+  await agentManager.oneShotForUser(
+    userId,
+    "opencode",
+    model,
+    "Reply with the word OK.",
+  );
+}
+
 function stopFallbackRepick(): void {
+  agentManager.cancelFreeModelSearches();
   fallbackRepickGeneration++;
   welcomeDiscoveryInFlight.clear();
   fallbackRepickRunning = false;
@@ -1336,6 +1436,7 @@ async function ensureReceptionist(username: string): Promise<void> {
     );
     if (created) {
       agentManager.completeLobbySeed();
+      if (openCode) agentManager.setOfficeFreeModel(created.id, model);
       if (choice?.fromFallback && created.userId)
         repickFallbackSeeds(created.userId, created.id);
     } else {
@@ -1358,6 +1459,7 @@ async function ensureReceptionistAtBoot(): Promise<void> {
 }
 
 function registerBootHooks(): void {
+  agentManager.setRefusedFreeModelReplacer(replaceRefusedFreeModel);
   // Inject the room snapshot provider auth.ts uses when seeding a new
   // owner's allowedRooms at invite-acceptance time. The provider closes
   // over agentManager.getRooms() rather than auth.ts importing
@@ -1519,6 +1621,14 @@ function registerBootHooks(): void {
   // defensive in case a future call path fires it against an already-
   // populated office.
   seedWelcomeAgentsForFirstOwner = async (username) => {
+    seedModelChecks.set(username, new Map());
+    try {
+      await seedWelcomeAgents(username);
+    } finally {
+      seedModelChecks.delete(username);
+    }
+  };
+  const seedWelcomeAgents = async (username: string) => {
     const hadAgents = agentManager.getAllAgents().length > 0;
     await ensureReceptionist(username);
     // Branch on the pre-spawn snapshot so the lobby does not suppress welcome agents.
@@ -1555,6 +1665,8 @@ function registerBootHooks(): void {
         OPENCODE_WELCOME_OUTFIT,
         username,
       );
+      if (created)
+        agentManager.setOfficeFreeModel(created.id, openCodeModel.model);
       if (openCodeModel.fromFallback && created?.userId)
         repickFallbackSeeds(created.userId, created.id);
     }
@@ -9183,6 +9295,9 @@ export interface StartServerOpts {
   // Test seam for the seed's discovery timeout and the background retry after
   // a seed used the fallback model.
   welcomeModelTiming?: WelcomeModelTiming;
+  // Test seam for the timeout of one check of a free model, and the budget
+  // of a search over the candidates.
+  freeModelProbeTiming?: FreeModelProbeTiming;
   // Test seam for the Codex default-model discovery of a spawn or cron job
   // with no model. Production uses the same backend model-list path as the
   // picker. The resolver aborts `signal` at its timeout.

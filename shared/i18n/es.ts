@@ -2957,6 +2957,10 @@ Cosas que puedes hacer por él:
     "Este contenedor no puede ejecutar el sandbox de Codex, así que los comandos se ejecutan con acceso completo dentro del contenedor.",
   "systemEntries.providerRefused":
     'El proveedor `{provider}` rechazó la solicitud: "{message}"',
+  "systemEntries.freeModelSwitched":
+    "`{from}` no está disponible, así que este agente ahora usa `{to}`.",
+  "systemEntries.freeModelSwitchedResend":
+    "`{from}` no está disponible, así que este agente ahora usa `{to}` y vuelve a enviar el mensaje.",
   "systemEntries.openCodeFreeTierHint":
     "OpenCode también puede enviar esto cuando un servidor usa demasiado su nivel gratuito. Un modelo de pago u OpenCode Go lo evita.",
   "systemEntries.openCodeProviderRetry":

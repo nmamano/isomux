@@ -20,7 +20,7 @@
  * each call site.
  */
 
-import type { Attachment } from "../shared/types.ts";
+import type { Attachment, QueuedMessage } from "../shared/types.ts";
 import {
   BackendSignedOutError,
   SessionSwappedError,
@@ -55,6 +55,12 @@ export interface RunAgentTurnOpts {
    *  only when the command starts the message. No notice goes ahead of it;
    *  every armed notice waits for the next turn. */
   nativeCommand?: boolean;
+  /** The input as queue items, to send again on another free model if the
+   *  provider refuses an office-seeded free model (ManagedAgent.
+   *  freeModelResend). Unset: the turn is not sent again. */
+  resend?: QueuedMessage[];
+  /** This turn is that second send. */
+  modelRetry?: boolean;
 }
 
 // Dependency injection: agent-manager owns beginTurn and createTurnDeferred as
@@ -244,6 +250,8 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // await turn cancellable on session swap.
   const turn = deps.createTurnDeferred(managed);
   const ownPending = managed.sessionManager.pendingTurn;
+  managed.freeModelResend = opts.resend ?? null;
+  managed.freeModelRetryTurn = opts.modelRetry === true;
 
   let thrown: unknown = undefined;
 

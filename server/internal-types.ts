@@ -386,6 +386,12 @@ export interface ManagedAgent {
   // the queue, so the flush does not retry in a loop. The next message
   // releases it; a conversation change drops it and carries the queue.
   backendHold: symbol | null;
+  // The running turn's input, kept so the turn can be sent again on another
+  // free model after its model was refused (RunAgentTurnOpts.resend). Null
+  // when the turn has none, or once it emitted output or ran a tool.
+  freeModelResend: QueuedMessage[] | null;
+  // The running turn is such a resend: a second refusal is not retried.
+  freeModelRetryTurn: boolean;
   // Date.now() stamped when the current flush claimed flushInProgress. The
   // queue watchdog uses it to age an ACTIVE flush (an old queued item can
   // coexist with a fresh, healthy flush). Meaningless while !flushInProgress.

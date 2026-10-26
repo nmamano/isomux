@@ -1,11 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import {
+  firstAnsweringModel,
+  freeOpenCodeCandidates,
   resolveWelcomeOpenCodeModel,
   retryWelcomeOpenCodeModel,
   WELCOME_MODEL_RETRY_WINDOW_CLOSED,
   type WelcomeModelRetryClock,
 } from "./welcome-opencode-model.ts";
 import type { BackendModelWire } from "../shared/types.ts";
+import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
 
 describe("welcome OpenCode model resolution", () => {
   const preferred = "opencode/preferred-free";
@@ -193,5 +196,149 @@ describe("welcome OpenCode model retry", () => {
     );
     expect(result).toEqual({ kind: "no_free_model" });
     expect(calls).toBe(1);
+  });
+});
+
+// Task 0387b8de: the provider can refuse a free model its catalog still
+// lists, so the seed checks the candidates in order.
+describe("free OpenCode model candidates", () => {
+  const preferred = "opencode/preferred-free";
+  const free = (id: string, extra: Partial<BackendModelWire> = {}) => ({
+    id,
+    label: id,
+    isFree: true,
+    supportedEfforts: [],
+    ...extra,
+  });
+
+  it("puts the preferred id first, then the other free models of its provider in id order", () => {
+    const models: BackendModelWire[] = [
+      free("opencode/zeta-free"),
+      { id: "opencode/paid", label: "Paid", supportedEfforts: [] },
+      free("opencode/alpha-free"),
+      free("opencode/hidden-free", { hidden: true }),
+      free("opencode-go/sorts-first-free"),
+      free(preferred),
+      free("anthropic/other-free"),
+    ];
+    const candidates = freeOpenCodeCandidates(models, preferred);
+    expect(candidates).toEqual([
+      preferred,
+      "opencode/alpha-free",
+      "opencode/zeta-free",
+    ]);
+    // The picker and the templates keep their choice.
+    expect(candidates[0]).toBe(
+      preferredFreeOpenCodeModel(models, preferred)!.id,
+    );
+  });
+
+  it("starts at the first other free model when the preferred id is not listed, and is empty without one", () => {
+    const models = [free("opencode/b-free"), free("opencode/a-free")];
+    const candidates = freeOpenCodeCandidates(models, preferred);
+    expect(candidates).toEqual(["opencode/a-free", "opencode/b-free"]);
+    expect(candidates[0]).toBe(
+      preferredFreeOpenCodeModel(models, preferred)!.id,
+    );
+    expect(
+      freeOpenCodeCandidates([free("opencode-go/x-free")], preferred),
+    ).toEqual([]);
+  });
+});
+
+describe("the first free model that answers", () => {
+  const timing = { probeTimeoutMs: 100, probeBudgetMs: 250 };
+  // Time moves only when the code under test sleeps (a sleep is a probe's
+  // timeout), and a sleep settles after a macrotask, so a probe that settles
+  // at once always wins its race. A sleep that lost its race still moves the
+  // clock when it fires: no case here has enough fast refusals to reach the
+  // budget that way.
+  function fakeClock(): WelcomeModelRetryClock & { sleeps: number[] } {
+    let now = 0;
+    const sleeps: number[] = [];
+    return {
+      sleeps,
+      now: () => now,
+      sleep: (ms) =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            sleeps.push(ms);
+            now += ms;
+            resolve();
+          }, 0),
+        ),
+    };
+  }
+  // A probe script per model: it answers, refuses, or never settles.
+  function probes(script: Record<string, "answers" | "refuses" | "hangs">) {
+    const started: string[] = [];
+    let open = 0;
+    let maxOpen = 0;
+    const probe = async (model: string) => {
+      started.push(model);
+      maxOpen = Math.max(maxOpen, ++open);
+      try {
+        if (script[model] === "hangs") await new Promise(() => undefined);
+        if (script[model] === "refuses")
+          throw new Error("Model is unavailable");
+      } finally {
+        open--;
+      }
+    };
+    return { probe, started, maxOpen: () => maxOpen };
+  }
+
+  it("probes in order, one at a time, and returns the first that answers", async () => {
+    const p = probes({ a: "refuses", b: "answers", c: "answers" });
+    expect(
+      await firstAnsweringModel(["a", "b", "c"], p.probe, timing, fakeClock()),
+    ).toBe("b");
+    expect(p.started).toEqual(["a", "b"]);
+    expect(p.maxOpen()).toBe(1);
+  });
+
+  it("counts a probe that does not settle by its timeout as refused and goes on", async () => {
+    const p = probes({ a: "hangs", b: "answers" });
+    const clock = fakeClock();
+    expect(await firstAnsweringModel(["a", "b"], p.probe, timing, clock)).toBe(
+      "b",
+    );
+    expect(p.started).toEqual(["a", "b"]);
+    expect(clock.sleeps).toContain(timing.probeTimeoutMs);
+  });
+
+  it("starts no probe that the budget would cut, and returns null", async () => {
+    // Two timeouts fit in the budget; a third would start with 50 ms left.
+    const p = probes({ a: "hangs", b: "hangs", c: "answers" });
+    const clock = fakeClock();
+    expect(
+      await firstAnsweringModel(["a", "b", "c"], p.probe, timing, clock),
+    ).toBeNull();
+    expect(p.started).toEqual(["a", "b"]);
+    expect(clock.now()).toBeLessThanOrEqual(timing.probeBudgetMs);
+  });
+
+  it("returns null when every candidate refuses, or there is none", async () => {
+    const p = probes({ a: "refuses", b: "refuses" });
+    expect(
+      await firstAnsweringModel(["a", "b"], p.probe, timing, fakeClock()),
+    ).toBeNull();
+    expect(p.started).toEqual(["a", "b"]);
+    expect(
+      await firstAnsweringModel([], p.probe, timing, fakeClock()),
+    ).toBeNull();
+  });
+
+  it("counts a probe that throws before it returns a promise as refused", async () => {
+    const started: string[] = [];
+    const probe = (model: string): Promise<void> => {
+      started.push(model);
+      if (model === "a") throw new Error("no environment");
+      return Promise.resolve();
+    };
+    expect(
+      await firstAnsweringModel(["a", "b"], probe, timing, fakeClock()),
+    ).toBe("b");
+    expect(started).toEqual(["a", "b"]);
   });
 });

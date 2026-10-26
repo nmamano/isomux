@@ -272,6 +272,11 @@ export type NormalizedEvent =
       pickModel?: true;
       // The model the backend's model list no longer has.
       goneModel?: string;
+      // The provider will not serve this model now, but another model of
+      // the same provider can serve this turn: the model is gone from the
+      // list, refused, or "Model is unavailable". Not set for a provider
+      // that is not connected or a free usage limit.
+      modelUnavailable?: true;
     }
   | {
       kind: "provider_capacity_retry";

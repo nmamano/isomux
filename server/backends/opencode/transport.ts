@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   openCodeErrorMessage,
   openCodeProviderLine,
+  openCodeModelUnavailableRefusal,
   openCodeProviderRefusal,
   openCodeRetryMessage,
 } from "./errors.ts";
@@ -1853,6 +1854,7 @@ export class OpenCodeTransport {
               : openCodeModelUnavailableFailure(this.model),
           pickModel: true,
           ...(failure === "model_gone" ? { goneModel: this.model } : {}),
+          modelUnavailable: true,
         });
         return;
       }
@@ -1860,6 +1862,9 @@ export class OpenCodeTransport {
         kind: "turn_completed",
         status: "failed",
         error: refusal ?? openCodeErrorMessage(error),
+        ...(refusal !== null && openCodeModelUnavailableRefusal(error)
+          ? { modelUnavailable: true as const }
+          : {}),
       });
     };
     // The frames that came before the prompt answer, decided by its id.

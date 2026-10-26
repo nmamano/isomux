@@ -50,6 +50,16 @@ export function openCodeProviderRefusal(
   return openCodeProviderLine(provider, message);
 }
 
+// The provider will not serve this model now, though its catalog can still
+// list it: @opencode/cli 2.1.4 sent "Upstream request failed: Model is
+// unavailable." for a withdrawn free model (task 0387b8de). Another model of
+// the provider can serve the turn. Only for a refusal (openCodeProviderRefusal).
+export function openCodeModelUnavailableRefusal(
+  error: Readonly<SafeOpenCodeError>,
+): boolean {
+  return /\bmodel is unavailable\b/i.test(error.message ?? "");
+}
+
 // The provider's words as the member reads them. `message` is already
 // providerText output.
 export function openCodeProviderLine(

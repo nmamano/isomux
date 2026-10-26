@@ -1770,6 +1770,7 @@ describe("OpenCode 2 failures (T10)", () => {
       status: "failed",
       error: openCodeModelUnavailableFailure("provider/model"),
       pickModel: true,
+      modelUnavailable: true,
     });
   });
 
@@ -1789,6 +1790,7 @@ describe("OpenCode 2 failures (T10)", () => {
       status: "failed",
       pickModel: true,
       goneModel: "provider/model",
+      modelUnavailable: true,
     });
     expect(english(end!.error!)).toContain(
       english(openCodeModelGoneFailure("provider/model")),
@@ -1810,6 +1812,57 @@ describe("OpenCode 2 failures (T10)", () => {
     const { end } = await h.turn();
     expect(end).toMatchObject({ status: "failed", pickModel: true });
     expect(end?.goneModel).toBeUndefined();
+    // Another model of a provider that is not connected fixes nothing.
+    expect(end?.modelUnavailable).toBeUndefined();
+  });
+
+  // Task 0387b8de: the provider refuses one free model that its catalog
+  // still lists. Another model of the same provider can serve the turn; a
+  // free usage limit is per server and refuses every model alike.
+  describe("a model the provider will not serve now", () => {
+    const refused = (type: string, status: number, message: string) =>
+      setup({
+        fake: { turns: [failingTurn({ type, status, message })] },
+        transport: { model: "opencode/withdrawn-free" },
+      });
+
+    it("marks the provider's 'Model is unavailable' refusal, and still quotes it", async () => {
+      // The words @opencode/cli 2.1.4 sent for nemotron-3-ultra-free
+      // (2026-10-26), in another case too.
+      for (const message of [
+        "Upstream request failed: Model is unavailable.",
+        "model is UNAVAILABLE",
+      ]) {
+        const { end } = await refused(
+          "provider.invalid-request",
+          400,
+          message,
+        ).turn();
+        expect({
+          message,
+          status: end?.status,
+          flag: end?.modelUnavailable,
+        }).toEqual({ message, status: "failed", flag: true });
+        expect(english(end!.error!)).toContain(
+          english(providerRefusal("opencode", message)),
+        );
+      }
+    });
+
+    it("does not mark a free usage limit or another refusal", async () => {
+      for (const [type, status, message] of [
+        ["provider.free-limit", 429, "Free usage limit reached"],
+        ["provider.invalid-request", 400, "probe bad request 500 tokens"],
+        ["provider.rate-limit", 429, "Too many requests"],
+      ] as const) {
+        const { end } = await refused(type, status, message).turn();
+        expect({
+          type,
+          status: end?.status,
+          flag: end?.modelUnavailable,
+        }).toEqual({ type, status: "failed", flag: undefined });
+      }
+    });
   });
 
   it("waits for a provider list that is still empty instead of reading it as a provider that is not connected (R4)", async () => {

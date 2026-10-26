@@ -39,7 +39,12 @@ The first-owner claim snapshots whether agents already exist, creates the
 receptionist, and then seeds the three welcome agents only for a fresh office.
 No receptionist is created before an owner exists. The seed discovers the free
 OpenCode model with the same resolver as the Free Welcome Agent, and uses the
-preferred default when discovery cannot supply one. Permission mode is
+preferred default when discovery cannot supply one. The resolver checks the
+free models with one real request each and takes the first that answers; one
+check serves both seeds. Both agents carry `officeFreeModel`, so a turn the
+provider refuses ("Model is unavailable") moves them to another free model
+that answers and sends the message again, until a member picks a model.
+Permission mode is
 `bypassPermissions`, and cwd is `~`. OpenCode runs only on Linux and macOS, so
 on any other host the receptionist runs on Claude with the default Claude model,
 the same permission mode and cwd, and the seed skips the Free Welcome Agent.

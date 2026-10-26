@@ -392,6 +392,7 @@ import {
 } from "./edit-target.ts";
 import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
 import { createUserSendDedupe } from "./user-send-dedupe.ts";
+import type { RefusedFreeModelReplacer } from "./welcome-opencode-model.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
 // unit: createAgentManager(deps) owns its collaborators; the production wiring
@@ -1563,6 +1564,163 @@ export function createAgentManager(deps: ManagerDeps) {
     pagerStore = store;
   }
 
+  // Marks an OpenCode agent the office seeded on free model `model`
+  // (AgentInfo.officeFreeModel). Persisted.
+  function setOfficeFreeModel(agentId: string, model: string): void {
+    if (!agents.has(agentId)) return;
+    for (const event of officeState.updateAgent(agentId, {
+      officeFreeModel: model,
+    }))
+      emit(event);
+  }
+
+  // The search a refused office-seeded free model starts. isomux-office
+  // registers it at boot; without one, the agent keeps today's error.
+  let refusedFreeModelReplacer: RefusedFreeModelReplacer | null = null;
+  function setRefusedFreeModelReplacer(
+    replacer: RefusedFreeModelReplacer | null,
+  ): void {
+    refusedFreeModelReplacer = replacer;
+  }
+  // One search per owner and refused model: the Receptionist and the Free
+  // Welcome Agent of one owner share it.
+  const freeModelSearches = new Map<string, Promise<string | null>>();
+  // Bumped by cancelFreeModelSearches at shutdown, so a search that ends
+  // later changes nothing.
+  let freeModelGeneration = 0;
+  function cancelFreeModelSearches(): void {
+    freeModelGeneration++;
+    freeModelSearches.clear();
+  }
+
+  function searchFreeModel(
+    replacer: RefusedFreeModelReplacer,
+    info: Readonly<AgentInfo>,
+    refused: string,
+  ): Promise<string | null> {
+    const key = `${info.userId ?? ""}\u0000${refused}`;
+    const inFlight = freeModelSearches.get(key);
+    if (inFlight) return inFlight;
+    const search = (async () => replacer({ ...info }, refused))().finally(
+      () => {
+        if (freeModelSearches.get(key) === search)
+          freeModelSearches.delete(key);
+      },
+    );
+    freeModelSearches.set(key, search);
+    return search;
+  }
+
+  // The provider refused the free model the office seeded this agent on
+  // (task 0387b8de). While the search runs the agent stays busy with no turn,
+  // so a new message waits in the queue and Stop ends the search. On a model
+  // that answers, the agent moves to it and the refused turn's input goes
+  // again, once, ahead of the queue. `showFailure` writes today's error.
+  async function switchRefusedFreeModel(
+    agentId: string,
+    managed: ManagedAgent,
+    replacer: RefusedFreeModelReplacer,
+    resend: QueuedMessage[] | null,
+    showFailure: () => void,
+  ): Promise<void> {
+    const refused = managed.info.modelFamily;
+    const token = managed.sessionManager.turnCancelToken;
+    const generation = freeModelGeneration;
+    let next: string | null = null;
+    try {
+      next = await searchFreeModel(replacer, managed.info, refused);
+    } catch (err) {
+      console.warn(
+        `[opencode] no free model found for ${managed.info.name} after ${refused} was refused:`,
+        errMessage(err),
+      );
+    }
+    if (generation !== freeModelGeneration) return;
+    if (agents.get(agentId) !== managed) return;
+    const unchanged =
+      managed.sessionManager.turnCancelToken === token &&
+      managed.info.modelFamily === refused &&
+      managed.info.officeFreeModel === refused;
+    if (!unchanged || next === null || next === refused) {
+      // A Stop already ended the turn. A member's model change or /clear
+      // did not: the refused turn still failed.
+      const stillBusy =
+        (managed.info.state === "thinking" ||
+          managed.info.state === "tool_executing") &&
+        !managed.sessionManager.pendingTurn &&
+        !managed.flushInProgress;
+      if (unchanged || stillBusy) showFailure();
+      return;
+    }
+    // The message goes back at the head of the queue before the model
+    // change: the change ends the busy state, and that starts a flush, which
+    // must send it ahead of any message that came during the search.
+    let retry: QueuedMessage[] = [];
+    if (resend) {
+      for (const item of resend) {
+        const { steer: _steer, ...rest } = item;
+        retry.push({
+          ...rest,
+          id: generateQueuedId([...managed.messageQueue, ...retry]),
+          echoed: true,
+          modelRetry: true,
+          queuedAt: Date.now(),
+        });
+      }
+      managed.messageQueue.unshift(...retry);
+      try {
+        persistQueueStateThrow(agentId, managed);
+      } catch (err) {
+        managed.messageQueue.splice(0, retry.length);
+        retry = [];
+        console.error(
+          `Failed to persist the message sent again for ${agentId}:`,
+          errMessage(err),
+        );
+      }
+    }
+    try {
+      await editAgent(agentId, { modelFamily: next, officeFreeModel: next });
+    } catch (err) {
+      console.warn(
+        `[opencode] could not move ${managed.info.name} to ${next}:`,
+        errMessage(err),
+      );
+    }
+    if (generation !== freeModelGeneration) return;
+    if (agents.get(agentId) !== managed) return;
+    if (managed.info.modelFamily !== next) {
+      if (retry.length > 0) drainQueueItems(agentId, managed, new Set(retry));
+      showFailure();
+      return;
+    }
+    addLogEntry(
+      agentId,
+      "system",
+      msg(
+        retry.length > 0
+          ? "systemEntries.freeModelSwitchedResend"
+          : "systemEntries.freeModelSwitched",
+        { from: refused, to: next },
+      ),
+    );
+    if (retry.length === 0) {
+      showFailure();
+      return;
+    }
+    emitQueueUpdate(agentId, managed);
+    // The model change ended the busy state already when it restarted the
+    // session; otherwise this transition starts the flush.
+    if (isQueueIdleState(managed.info.state))
+      flushQueue(agentId).catch((err: unknown) => {
+        console.error(
+          `flushQueue (free model resend) failed for ${agentId}:`,
+          errMessage(err),
+        );
+      });
+    else updateState(agentId, "waiting_for_response");
+  }
+
   // Flag (model) or clear (null) the model this agent runs as gone from
   // OpenCode's list. It never changes the model: a member chose it. Each new
   // gone model on the agent that faces visitors (the lobby agent) pages its
@@ -1643,6 +1801,9 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoff?: boolean;
       autoHandoffTokens?: number;
       limitResume?: boolean;
+      // Internal callers only (the office's free-model switch and repick).
+      // A modelFamily change without it deletes the agent's officeFreeModel.
+      officeFreeModel?: string;
     },
     // Who made the edit, for the settings notice. An edit without one (an
     // internal caller) arms no notice.
@@ -1733,6 +1894,8 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.info.agentType,
         changes.modelFamily,
       );
+      if (changes.officeFreeModel)
+        validated.officeFreeModel = changes.officeFreeModel;
     }
     // Families limited in the agent owner's env; mode and effort are checked
     // against the post-update modelFamily.
@@ -1816,6 +1979,7 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoff: managed.info.autoHandoff,
       autoHandoffTokens: managed.info.autoHandoffTokens,
       limitResume: managed.info.limitResume,
+      officeFreeModel: managed.info.officeFreeModel,
     };
 
     // Funnel through OfficeState.editAgent - single source of truth for
@@ -2365,6 +2529,9 @@ export function createAgentManager(deps: ManagerDeps) {
       effort: a.info.effort,
       agentType: a.info.agentType,
       codexSandbox: a.info.codexSandbox,
+      ...(a.info.officeFreeModel
+        ? { officeFreeModel: a.info.officeFreeModel }
+        : {}),
       lastSessionId: a.sessionManager.sessionId,
       topic: a.info.topic,
       customInstructions: a.info.customInstructions,
@@ -2431,6 +2598,9 @@ export function createAgentManager(deps: ManagerDeps) {
         effort: a.info.effort,
         agentType: a.info.agentType,
         codexSandbox: a.info.codexSandbox,
+        ...(a.info.officeFreeModel
+          ? { officeFreeModel: a.info.officeFreeModel }
+          : {}),
         lastSessionId: a.sessionManager.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
@@ -2707,6 +2877,7 @@ export function createAgentManager(deps: ManagerDeps) {
       customInstructionsVersion: versionOf(p.customInstructions ?? ""),
       agentType,
       ...(codexSandbox ? { codexSandbox } : {}),
+      ...(p.officeFreeModel ? { officeFreeModel: p.officeFreeModel } : {}),
       capabilities: getBackend(agentType).capabilities,
       limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
       claudeFamilyModels: claudeFamilyModelsForUserId(userId),
@@ -2808,6 +2979,8 @@ export function createAgentManager(deps: ManagerDeps) {
       flushInProgress: false,
       queueHolds: new Set(),
       backendHold: null,
+      freeModelResend: null,
+      freeModelRetryTurn: false,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
       recentSteers: [],
@@ -4385,6 +4558,27 @@ export function createAgentManager(deps: ManagerDeps) {
     });
   }
 
+  // A one-shot prompt in a member's env, for an agent that does not exist
+  // yet: the office's check that a free OpenCode model answers.
+  function oneShotForUser(
+    userId: string,
+    agentType: AgentBackendType,
+    modelFamily: string,
+    prompt: string,
+  ): Promise<string> {
+    return getBackend(agentType).oneShotPrompt(prompt, {
+      modelFamily,
+      ...(agentType === "opencode"
+        ? {
+            env: buildOpenCodeLaunchEnvironmentForUserId(userId),
+            environmentKey: environmentSourceKeyForUserId(userId),
+            environmentRevision: environmentSourceRevisionForUserId(userId),
+            skillPaths: openCodeSkillPathsForUserId(userId),
+          }
+        : { env: buildEnvForUserId(userId) }),
+    });
+  }
+
   // Conversation summaries (internal-docs/conversation-summary-design.md):
   // a paragraph per session for log search, written by the topic's one-shot
   // model. The summarizer reads the session's own file, never logCache, which
@@ -5194,6 +5388,20 @@ export function createAgentManager(deps: ManagerDeps) {
       }
     }
 
+    // A turn that showed output or ran a tool is not sent again: a resend
+    // would run its tools twice.
+    if (
+      eventManaged?.freeModelResend &&
+      (ev.kind === "assistant_text" ||
+        ev.kind === "tool_call" ||
+        ev.kind === "tool_result" ||
+        ev.kind === "file_view" ||
+        ev.kind === "approval_request" ||
+        ev.kind === "input_request" ||
+        ev.kind === "steer_delivered")
+    )
+      eventManaged.freeModelResend = null;
+
     switch (ev.kind) {
       case "system_init": {
         const managed = agents.get(agentId);
@@ -5606,30 +5814,63 @@ export function createAgentManager(deps: ManagerDeps) {
             const silentAuthEnd = isAuthError && ev.error === undefined;
             // A usage-limit stop's notice already says why the turn ended.
             const silentEnd = silentAuthEnd || limitStopped;
-            if (!silentEnd) {
-              const meta = backendFailureMeta(failure);
-              addLogEntry(
+            const showFailure = () => {
+              if (!silentEnd) {
+                const meta = backendFailureMeta(failure);
+                addLogEntry(
+                  agentId,
+                  "error",
+                  failure.text,
+                  ev.pickModel ? { ...meta, pickModel: true } : meta,
+                );
+              }
+              if (ev.goneModel) setGoneModel(agentId, ev.goneModel);
+              // Arm the caller-catch echo suppressor (see ManagedAgent.
+              // lastBackendFailure): the turn rejection below wakes the owning
+              // caller, whose catch would otherwise repeat this same sentence.
+              if (managed && !silentEnd)
+                managed.sessionManager.lastBackendFailure = failure.id;
+              if (!isAuthError)
+                flushPendingFreshRecoveryNotice(agentId, managed);
+              // Auth-failed turns: leave the agent in waiting_for_response so
+              // the desk reads "member needs to sign in," not "agent crashed."
+              // Non-auth failures still flip to "error" so genuine failures
+              // surface.
+              updateState(
                 agentId,
-                "error",
-                failure.text,
-                ev.pickModel ? { ...meta, pickModel: true } : meta,
+                isAuthError ? "waiting_for_response" : "error",
               );
-            }
-            if (ev.goneModel) setGoneModel(agentId, ev.goneModel);
-            // Arm the caller-catch echo suppressor (see ManagedAgent.
-            // lastBackendFailure): the turn rejection below wakes the owning
-            // caller, whose catch would otherwise repeat this same sentence.
-            if (managed && !silentEnd)
-              managed.sessionManager.lastBackendFailure = failure.id;
-            if (!isAuthError) flushPendingFreshRecoveryNotice(agentId, managed);
-            // Auth-failed turns: leave the agent in waiting_for_response so the
-            // desk reads "member needs to sign in," not "agent crashed." Non-auth
-            // failures still flip to "error" so genuine failures surface.
-            updateState(
-              agentId,
-              isAuthError ? "waiting_for_response" : "error",
-            );
+            };
+            // An agent the office seeded on a free model moves to another
+            // free model when the provider refuses its model. A model a
+            // member chose never moves.
+            const replacer = refusedFreeModelReplacer;
+            if (
+              managed &&
+              replacer &&
+              ev.status === "failed" &&
+              ev.modelUnavailable === true &&
+              !isHotAbortDirty &&
+              !isAuthError &&
+              !limitStopped &&
+              !managed.freeModelRetryTurn &&
+              managed.info.agentType === "opencode" &&
+              managed.info.officeFreeModel !== undefined &&
+              managed.info.officeFreeModel === managed.info.modelFamily
+            )
+              void switchRefusedFreeModel(
+                agentId,
+                managed,
+                replacer,
+                managed.freeModelResend,
+                showFailure,
+              );
+            else showFailure();
           }
+        }
+        if (managed) {
+          managed.freeModelResend = null;
+          managed.freeModelRetryTurn = false;
         }
         // Resolve the per-turn deferred. Pre-refactor this lived in the consumer
         // and fired when the SDK's stream() returned at the result message.
@@ -7285,6 +7526,8 @@ export function createAgentManager(deps: ManagerDeps) {
       flushInProgress: false,
       queueHolds: new Set(),
       backendHold: null,
+      freeModelResend: null,
+      freeModelRetryTurn: false,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
       recentSteers: [],
@@ -8522,6 +8765,15 @@ export function createAgentManager(deps: ManagerDeps) {
       const firstNative = items.findIndex((m) => m.native);
       if (firstNative === 0) items = [items[0]];
       else if (firstNative > 0) items = items.slice(0, firstNative);
+      // The batch sent again on a new free model goes as a turn of its own:
+      // a message that came later does not join it.
+      const retryEnd = items.findIndex((m) => !m.modelRetry);
+      if (items[0].modelRetry) {
+        if (retryEnd > 0) items = items.slice(0, retryEnd);
+      } else {
+        const firstRetry = items.findIndex((m) => m.modelRetry);
+        if (firstRetry > 0) items = items.slice(0, firstRetry);
+      }
 
       // Member usage cap, decided per item. The claim is flushInProgress; the
       // token and session are captured before the provider read and checked
@@ -8617,6 +8869,8 @@ export function createAgentManager(deps: ManagerDeps) {
           // and webhooks are machine traffic and add nobody.
           memberIds: queueMemberIds(items),
           nativeCommand: native,
+          resend: items.map((m) => ({ ...m })),
+          modelRetry: items.some((m) => m.modelRetry),
           onSendAccepted: () => {
             // Send accepted by the backend. Finalize: write per-message log
             // entries (provenance) and remove the items from the live queue.
@@ -9948,6 +10202,17 @@ export function createAgentManager(deps: ManagerDeps) {
         usageCapped: directInputCapped(username),
         usageCapUsername: username,
         nativeCommand,
+        resend: [
+          {
+            id: "",
+            sender: { kind: "user", username, device },
+            text,
+            ...(nativeCommand ? { native: true } : {}),
+            ...(ask ? { ask } : {}),
+            attachments,
+            queuedAt: Date.now(),
+          },
+        ],
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw; it also
@@ -10513,6 +10778,9 @@ export function createAgentManager(deps: ManagerDeps) {
           effort: managed.info.effort,
           agentType: managed.info.agentType,
           codexSandbox: managed.info.codexSandbox,
+          ...(managed.info.officeFreeModel
+            ? { officeFreeModel: managed.info.officeFreeModel }
+            : {}),
           lastSessionId: managed.sessionManager.sessionId,
           topic: managed.info.topic,
           customInstructions: managed.info.customInstructions,
@@ -10771,6 +11039,9 @@ export function createAgentManager(deps: ManagerDeps) {
       effort: entry.effort,
       agentType: entry.agentType ?? "claude",
       codexSandbox: entry.codexSandbox,
+      ...(entry.officeFreeModel
+        ? { officeFreeModel: entry.officeFreeModel }
+        : {}),
       lastSessionId: resumeFromSession,
       topic: entry.topic ?? null,
       customInstructions: entry.customInstructions ?? null,
@@ -13013,6 +13284,10 @@ export function createAgentManager(deps: ManagerDeps) {
     addSystemNote,
     attachPagerStore,
     setGoneModel,
+    setOfficeFreeModel,
+    setRefusedFreeModelReplacer,
+    cancelFreeModelSearches,
+    oneShotForUser,
     addApiTokenOutbound,
     addAgentOutbound,
     cancelQueued,

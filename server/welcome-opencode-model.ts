@@ -1,5 +1,8 @@
-import type { BackendModelWire } from "../shared/types.ts";
-import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
+import type { AgentInfo, BackendModelWire } from "../shared/types.ts";
+import {
+  preferredFreeOpenCodeModel,
+  type OpenCodeFreeModelCandidate,
+} from "../shared/opencode-model.ts";
 
 export type WelcomeOpenCodeModelResult =
   | { kind: "selected"; model: string }
@@ -88,3 +91,60 @@ export async function retryWelcomeOpenCodeModel(
     await clock.sleep(timing.delayMs);
   }
 }
+
+export interface FreeModelProbeTiming {
+  // One probe that has not answered by then counts as refused.
+  probeTimeoutMs: number;
+  // The whole search. A probe starts only while at least probeTimeoutMs of
+  // the budget is left.
+  probeBudgetMs: number;
+}
+
+// The free models a welcome agent can run on, best first: the preferred id,
+// then the others of its provider in id order (preferredFreeOpenCodeModel
+// returns the first).
+export function freeOpenCodeCandidates(
+  models: readonly OpenCodeFreeModelCandidate[],
+  preferredId: string,
+): string[] {
+  const provider = preferredId.slice(0, preferredId.indexOf("/") + 1);
+  const free = models
+    .filter(
+      (model) =>
+        !model.hidden && model.isFree === true && model.id.startsWith(provider),
+    )
+    .map((model) => model.id)
+    .sort((a, b) => a.localeCompare(b));
+  return free.includes(preferredId)
+    ? [preferredId, ...free.filter((id) => id !== preferredId)]
+    : free;
+}
+
+// The first candidate that answers one probe, in order and one at a time, or
+// null when none answers within the budget. A probe that throws, rejects or
+// times out did not answer.
+export async function firstAnsweringModel(
+  candidates: readonly string[],
+  probe: (model: string) => Promise<void>,
+  timing: FreeModelProbeTiming,
+  clock: WelcomeModelRetryClock = realClock,
+): Promise<string | null> {
+  const deadline = clock.now() + timing.probeBudgetMs;
+  for (const model of candidates) {
+    if (deadline - clock.now() < timing.probeTimeoutMs) return null;
+    const timedOut = clock.sleep(timing.probeTimeoutMs).then(() => false);
+    const answered = (async () => {
+      await probe(model);
+      return true;
+    })().catch(() => false);
+    if (await Promise.race([answered, timedOut])) return model;
+  }
+  return null;
+}
+
+// Finds the free model a refused office-seeded agent moves to: one that
+// answers a probe, never refusedModel. Null when none answers.
+export type RefusedFreeModelReplacer = (
+  agent: AgentInfo,
+  refusedModel: string,
+) => Promise<string | null>;

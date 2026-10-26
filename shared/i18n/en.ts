@@ -2927,6 +2927,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "This container cannot run Codex's sandbox, so commands run with full access inside the container.",
   "systemEntries.providerRefused":
     'The provider `{provider}` refused the request: "{message}"',
+  "systemEntries.freeModelSwitched":
+    "`{from}` is unavailable, so this agent now uses `{to}`.",
+  "systemEntries.freeModelSwitchedResend":
+    "`{from}` is unavailable, so this agent now uses `{to}` and sends the message again.",
   "systemEntries.openCodeFreeTierHint":
     "OpenCode may also send this when a server uses too much of its free tier. A paid model or OpenCode Go avoids it.",
   "systemEntries.openCodeProviderRetry":

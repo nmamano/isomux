@@ -869,6 +869,9 @@ export interface PersistedAgent {
   agentType?: AgentInfo["agentType"];
   // Codex-only sandbox setting.
   codexSandbox?: AgentInfo["codexSandbox"];
+  // OpenCode only: AgentInfo.officeFreeModel. Absent on every agent the
+  // office did not seed on a free model.
+  officeFreeModel?: string;
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
@@ -1581,6 +1584,8 @@ export interface AgentHistoryEntry {
   effort?: EffortLevel;
   agentType?: AgentInfo["agentType"];
   codexSandbox?: AgentInfo["codexSandbox"];
+  // AgentInfo.officeFreeModel, so a revived agent keeps it.
+  officeFreeModel?: string;
   lastSessionId?: string | null;
   topic?: string | null;
   customInstructions?: string | null;

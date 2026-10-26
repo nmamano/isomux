@@ -327,7 +327,7 @@ export const DEFAULT_EFFORT: EffortLevel = "high";
 
 // Must name a free model the provider offers now: new offices fall back to it
 // when OpenCode discovery fails at boot.
-export const OPENCODE_DEFAULT_MODEL = "opencode/nemotron-3-ultra-free";
+export const OPENCODE_DEFAULT_MODEL = "opencode/mimo-v2.6-flash-free";
 
 // The fixed lobby room has one agent slot and is visible to every member.
 export const LOBBY_ROOM_ID = "lobby";
@@ -676,6 +676,10 @@ export interface QueuedMessage {
   // The wake isomux sends itself after a server restart cut the agent's turn
   // (server/restart-wake.ts). Same shape as limitResume.
   restartWake?: boolean;
+  // A message sent again after the provider refused the office-seeded free
+  // model it went to: the flush sends it on its own, and a second refusal is
+  // not retried.
+  modelRetry?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
 }
@@ -833,6 +837,10 @@ export interface AgentInfo {
   // the last check or a failed turn found it. Null once cleared (a model
   // change, or a check that lists it). Derived, never persisted.
   goneModel?: string | null;
+  // OpenCode only: the free model the office seeded this agent on, or later
+  // moved it to. While modelFamily equals it, a refused model moves the agent
+  // to another free model. A member's model change deletes it. Persisted.
+  officeFreeModel?: string;
   // The user who spawned this agent. `userId` is the stable identity
   // reference used for per-user env lookup (drives buildEnvFor at spawn /
   // resume / cronjob-fire time) and identifies the agent's manager - the

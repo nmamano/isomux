@@ -8,10 +8,11 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { FakeBackend } from "./fake-backend.ts";
 import { homedir } from "os";
 import { ISOMUX_KNOWLEDGE } from "../../api/chat.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import { LOBBY_ROOM } from "../../shared/types.ts";
+import { DEFAULT_AGENT_CAPABILITIES, LOBBY_ROOM } from "../../shared/types.ts";
 import {
   LOBBY_ROOM_ID,
   OPENCODE_DEFAULT_MODEL,
@@ -289,6 +290,18 @@ describe("receptionist profile and lobby", () => {
           .filter((a: AgentInfo) => a.agentType === "opencode")
           .map((a: AgentInfo) => a.modelFamily),
       ).toEqual([LIVE_FREE, LIVE_FREE]);
+      // The model the office moved them to stays the office's.
+      expect(
+        persisted
+          .filter((a: AgentInfo) => a.agentType === "opencode")
+          .map((a: AgentInfo) => a.officeFreeModel),
+      ).toEqual([LIVE_FREE, LIVE_FREE]);
+    });
+
+    it("marks the fallback model as the office's when the seed uses it", async () => {
+      const { srv } = await startWithFailingDiscovery();
+      expect(receptionistOf(srv).officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
     });
 
     it("leaves a member's model choice and agents it did not seed alone", async () => {
@@ -296,6 +309,8 @@ describe("receptionist profile and lobby", () => {
       await srv.agentManager.editAgent(freeWelcomeOf(srv).id, {
         modelFamily: "opencode/member-pick",
       });
+      // A member's model is the member's: the office mark goes with it.
+      expect(freeWelcomeOf(srv).officeFreeModel).toBeUndefined();
       const other = await srv.agentManager.spawn(
         "Other OpenCode",
         "~",
@@ -317,9 +332,13 @@ describe("receptionist profile and lobby", () => {
         "receptionist moved",
       );
       expect(freeWelcomeOf(srv).modelFamily).toBe("opencode/member-pick");
+      expect(freeWelcomeOf(srv).officeFreeModel).toBeUndefined();
       expect(srv.agentManager.getAgent(other!.id)?.modelFamily).toBe(
         OPENCODE_DEFAULT_MODEL,
       );
+      expect(
+        srv.agentManager.getAgent(other!.id)?.officeFreeModel,
+      ).toBeUndefined();
     });
 
     // Every request hangs until the test settles `release`.
@@ -404,6 +423,225 @@ describe("receptionist profile and lobby", () => {
       expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
       expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
       expect(discovery.calls).toBe(2);
+    });
+  });
+
+  // Task 0387b8de: the provider can refuse a free model that discovery still
+  // lists ("Model is unavailable"). The seed checks the model with one real
+  // request first, and an agent the office seeded moves to another free
+  // model when a turn is refused.
+  describe("a free model the provider refuses", () => {
+    const REFUSED_LISTED = "opencode/a-refused-free";
+    const ANSWERS = "opencode/b-answers-free";
+    const ALSO_ANSWERS = "opencode/c-answers-free";
+    const listed: BackendModelWire[] = [
+      OPENCODE_DEFAULT_MODEL,
+      ALSO_ANSWERS,
+      REFUSED_LISTED,
+      ANSWERS,
+    ].map((id) => ({ id, label: id, isFree: true, supportedEfforts: [] }));
+    const freeWelcomeOf = (srv: TestServer) =>
+      srv.agentManager
+        .getAllAgents()
+        .find((a) => a.name === "Free Welcome Agent") as AgentInfo;
+    const opencodeAgentsOnDisk = (srv: TestServer): AgentInfo[] =>
+      JSON.parse(readFileSync(join(srv.stateRoot, "agents.json"), "utf8"))
+        .flatMap((room: { agents: AgentInfo[] }) => room.agents)
+        .filter((a: AgentInfo) => a.agentType === "opencode");
+
+    // The backend's one-shot prompt is the check: it throws for a model in
+    // `refused`, never settles for one in `hangs`, and answers otherwise. A
+    // turn on a model in `turnRefused` ends as the OpenCode transport ends a
+    // "Model is unavailable" refusal.
+    function backend() {
+      const state = {
+        refused: new Set<string>(),
+        hangs: new Set<string>(),
+        turnRefused: new Set<string>(),
+        probed: [] as string[],
+      };
+      const fake = new FakeBackend({
+        // Only the checks call the one-shot prompt.
+        capabilities: { ...DEFAULT_AGENT_CAPABILITIES, topicGen: false },
+        oneShot: async (_prompt, opts) => {
+          state.probed.push(opts.modelFamily);
+          if (state.hangs.has(opts.modelFamily))
+            await new Promise(() => undefined);
+          if (state.refused.has(opts.modelFamily))
+            throw new Error("Upstream request failed: Model is unavailable.");
+          return "OK";
+        },
+        session: {
+          onSend: (_text, _attachments, session) => {
+            if (state.turnRefused.has(session.opts.modelFamily))
+              session.push({
+                kind: "turn_completed",
+                status: "failed",
+                error: "The provider `opencode` refused the request.",
+                pickModel: true,
+                modelUnavailable: true,
+              });
+            else session.completeTurn({ text: "Hello from the agent." });
+          },
+        },
+      });
+      return { fake, state };
+    }
+
+    it("checks the preferred model before the seed and seeds both agents on the first that answers", async () => {
+      const { fake, state } = backend();
+      state.refused.add(OPENCODE_DEFAULT_MODEL).add(REFUSED_LISTED);
+      let srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: { discoverWelcomeOpenCodeModels: async () => listed },
+      }));
+      await claimOwner(srv, "Morgan");
+      expect(receptionistOf(srv).modelFamily).toBe(ANSWERS);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(ANSWERS);
+      // The preferred id first, then id order; one check for both seeds.
+      expect(state.probed).toEqual([
+        OPENCODE_DEFAULT_MODEL,
+        REFUSED_LISTED,
+        ANSWERS,
+      ]);
+      expect(
+        opencodeAgentsOnDisk(srv).map((a) => [
+          a.modelFamily,
+          a.officeFreeModel,
+        ]),
+      ).toEqual([
+        [ANSWERS, ANSWERS],
+        [ANSWERS, ANSWERS],
+      ]);
+      // The other welcome agents run on no free model of the office.
+      const others = srv.agentManager
+        .getAllAgents()
+        .filter((a) => a.agentType !== "opencode");
+      expect(others).toHaveLength(2);
+      expect(others.filter((a) => a.officeFreeModel !== undefined)).toEqual([]);
+      srv = server = await srv.restart();
+      expect(freeWelcomeOf(srv).officeFreeModel).toBe(ANSWERS);
+      expect(receptionistOf(srv).officeFreeModel).toBe(ANSWERS);
+    });
+
+    it("seeds the preferred model when no candidate answers within the budget", async () => {
+      const { fake, state } = backend();
+      for (const model of listed) state.hangs.add(model.id);
+      const srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: {
+          discoverWelcomeOpenCodeModels: async () => listed,
+          freeModelProbeTiming: { probeTimeoutMs: 100, probeBudgetMs: 250 },
+        },
+      }));
+      await claimOwner(srv, "Morgan");
+      expect(state.probed.length).toBeGreaterThan(0);
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(receptionistOf(srv).officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
+    });
+
+    it("moves a seeded agent whose model is refused at turn time to a free model that answers, and sends the message again", async () => {
+      const { fake, state } = backend();
+      const srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: { discoverWelcomeOpenCodeModels: async () => listed },
+      }));
+      const cookie = await claimOwner(srv, "Morgan");
+      const agent = freeWelcomeOf(srv);
+      expect(agent.modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      // The provider withdraws the model after the seed checked it.
+      state.turnRefused.add(OPENCODE_DEFAULT_MODEL);
+      state.refused.add(OPENCODE_DEFAULT_MODEL).add(REFUSED_LISTED);
+      state.probed.length = 0;
+      const sent = await api(srv, "POST", `/api/agents/${agent.id}/messages`, {
+        rawSessionId: cookie,
+        body: { text: "First message" },
+      });
+      expect(sent.status).toBe(200);
+      await waitUntil(
+        () =>
+          srv.agentManager.getAgent(agent.id)?.modelFamily === ANSWERS &&
+          srv.agentManager.getAgent(agent.id)?.state === "waiting_for_response",
+        3000,
+        "agent moved and done",
+      );
+      // The search never checks the refused model, and takes the first in
+      // order that answers.
+      expect(state.probed).toEqual([REFUSED_LISTED, ANSWERS]);
+      // The same message reached the backend once on each model.
+      const sends = fake.sessions
+        .filter((s) => s.opts.agentId === agent.id)
+        .flatMap((s) =>
+          s.sent.map((m) => ({ model: s.opts.modelFamily, text: m.text })),
+        );
+      expect(sends.map((m) => m.model)).toEqual([
+        OPENCODE_DEFAULT_MODEL,
+        ANSWERS,
+      ]);
+      expect(sends[1].text).toBe(sends[0].text);
+      const logs = srv.agentManager.getAgentLogs(agent.id);
+      expect(logs.filter((e) => e.kind === "user_message")).toHaveLength(1);
+      expect(logs.filter((e) => e.kind === "error")).toEqual([]);
+      const switched = logs.filter(
+        (e) =>
+          e.kind === "system" &&
+          e.content.includes(OPENCODE_DEFAULT_MODEL) &&
+          e.content.includes(ANSWERS),
+      );
+      expect(switched).toHaveLength(1);
+      expect(logs.some((e) => e.kind === "text")).toBe(true);
+      const onDisk = opencodeAgentsOnDisk(srv).find((a) => a.id === agent.id)!;
+      expect([onDisk.modelFamily, onDisk.officeFreeModel]).toEqual([
+        ANSWERS,
+        ANSWERS,
+      ]);
+    });
+
+    // While the search runs the agent is busy with no turn: a model list
+    // that never comes must not keep it busy.
+    it("shows today's error when the model list does not come during the search", async () => {
+      const { fake, state } = backend();
+      const discovery = { hang: false };
+      const srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: {
+          discoverWelcomeOpenCodeModels: async () => {
+            if (discovery.hang) await new Promise(() => undefined);
+            return listed;
+          },
+          welcomeModelTiming: {
+            discoveryTimeoutMs: 200,
+            delayMs: 10,
+            windowMs: 60_000,
+          },
+        },
+      }));
+      const cookie = await claimOwner(srv, "Morgan");
+      const agent = freeWelcomeOf(srv);
+      expect(agent.officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
+      state.turnRefused.add(OPENCODE_DEFAULT_MODEL);
+      discovery.hang = true;
+      state.probed.length = 0;
+      const sent = await api(srv, "POST", `/api/agents/${agent.id}/messages`, {
+        rawSessionId: cookie,
+        body: { text: "First message" },
+      });
+      expect(sent.status).toBe(200);
+      await waitUntil(
+        () =>
+          srv.agentManager
+            .getAgentLogs(agent.id)
+            .some((e) => e.kind === "error"),
+        3000,
+        "today's error",
+      );
+      expect(srv.agentManager.getAgent(agent.id)?.state).toBe("error");
+      expect(srv.agentManager.getAgent(agent.id)?.modelFamily).toBe(
+        OPENCODE_DEFAULT_MODEL,
+      );
+      expect(state.probed).toEqual([]);
     });
   });
 
