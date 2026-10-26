@@ -131,8 +131,6 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 In **Integrations → Browser Use**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
 
-To update, download the ZIP again, extract it and copy its files into the folder you loaded. Then select **Reload** on Isomux Browser in `chrome://extensions`. Reload alone keeps the old files. Integrations → Browser Use and the extension popup show when an update is ready.
-
 Create a pairing code in Integrations → Browser Use. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browsers: one code per computer, and every paired browser stays paired. Name each browser when you create its code; Integrations → Browser Use lists them, and Unpair removes one. Agents use their manager's browsers. Another chat speaker does not change the browser owner.
 
 Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.

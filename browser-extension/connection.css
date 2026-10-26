@@ -88,8 +88,7 @@ button:focus-visible {
 #update a {
   color: #99b8ff;
 }
-#update-steps,
-#update-office {
+#update-steps {
   color: #bbc3d4;
 }
 [hidden] {

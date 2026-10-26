@@ -159,9 +159,6 @@ export function BrowserPane() {
               <li>{t("browser.offerHelp")}</li>
             </ol>
             <p style={{ ...hint, marginTop: 16, marginBottom: 0 }}>
-              {t("browser.updateHelp", { steps: t("browser.updateSteps") })}
-            </p>
-            <p style={{ ...hint, marginTop: 8, marginBottom: 0 }}>
               {t("browser.permission")}
             </p>
           </div>

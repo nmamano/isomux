@@ -52,7 +52,6 @@ const labels: Record<string, PlainMessageKey> = {
   "offline-help": "browser.offlineHelp",
   "update-ready": "browser.updateReady",
   "update-steps": "browser.updateSteps",
-  "update-office": "browser.updateOffice",
   "agent-label": "browser.agent",
   "allow-label": "browser.allow",
   "expiry-label": "browser.expiry",
