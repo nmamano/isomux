@@ -47,6 +47,10 @@ import {
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { inspectOpenCodeStoredSession } from "./storage.ts";
+import {
+  findOpenCodeSessionProfile,
+  moveOpenCodeSession,
+} from "./session-transfer.ts";
 import { getAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 
@@ -439,6 +443,22 @@ export function createOpenCodeBackend(
     },
     inspectStoredSession(sessionId, opts): StoredSessionState {
       return inspectOpenCodeStoredSession(sessionId, opts.environmentKey);
+    },
+    async recoverStoredSession(sessionId, opts): Promise<boolean> {
+      if (!opts.environmentKey) return false;
+      const fromProfileDir = findOpenCodeSessionProfile(
+        sessionId,
+        opts.environmentKey,
+      );
+      if (!fromProfileDir) return false;
+      return (
+        (await moveOpenCodeSession({
+          sessionId,
+          fromProfileDir,
+          target: supervisorFor(opts),
+          targetEnvironmentKey: opts.environmentKey,
+        })) === "moved"
+      );
     },
     checkSessionResumable(sessionId, opts): LogMessage | null {
       const state = inspectOpenCodeStoredSession(

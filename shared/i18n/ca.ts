@@ -2959,6 +2959,8 @@ Coses que pots fer per ell:
     "L'entrega del missatge s'ha encallat; s'està recuperant.",
   "systemEntries.freshSessionAfterRestoreFailure":
     "S'ha iniciat una sessió nova (l'anterior no s'ha pogut restaurar).",
+  "systemEntries.sessionNotResumable":
+    "S'ha iniciat una sessió nova (l'anterior ja no està desada).",
   "systemEntries.freshSessionBeforeFlush":
     "S'ha iniciat una sessió nova abans de buidar la cua de missatges.",
   "systemEntries.flushStartFailed":

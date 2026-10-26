@@ -2659,6 +2659,7 @@ App 的一些原则：
   "systemEntries.deliveryStalled": "消息传送停滞，正在恢复。",
   "systemEntries.freshSessionAfterRestoreFailure":
     "已开始新会话（无法恢复原会话）。",
+  "systemEntries.sessionNotResumable": "已开始新会话（原会话已不再保存）。",
   "systemEntries.freshSessionBeforeFlush": "已在发送队列消息之前开始新会话。",
   "systemEntries.flushStartFailed":
     "无法启动会话以发送队列消息：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",

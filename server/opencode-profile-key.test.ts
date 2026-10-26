@@ -1,18 +1,18 @@
-// The OpenCode profile key and the member's Isomux-held files (Lead ruling,
-// 2026-10-13): the key hashes the member's env, secrets and MCP servers files
-// when they exist, never an office store file, and two members with personal
-// MCP servers get two servers whose configs hold only their own servers and
-// the office ones.
+// The OpenCode profile key (task df0e7b51): it belongs to the owner, so no env,
+// secrets or MCP servers file that appears or goes moves it, and two members
+// never share a profile. Two members with personal MCP servers get two
+// servers whose configs hold only their own servers and the office ones.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync } from "fs";
 import { dirname, join } from "path";
 
 import { STATE_ROOT } from "./config.ts";
 import {
   environmentSourceKeyForUserId,
+  legacyEnvironmentSourceKeyForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
+import { migrateProfileKeysOnce } from "./opencode-profile-keys.ts";
 import { createMcpServerSources, mcpServersForUserId } from "./mcp-servers.ts";
 import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
 import { openCodeSupervisorForEnvironment } from "./backends/opencode/supervisor.ts";
@@ -33,6 +33,7 @@ afterEach(() => {
   removeStateDir(dirname(managedUserEnvPath("any")));
   removeStateDir(join(STATE_ROOT, "secrets"));
   removeStateDir(join(STATE_ROOT, "mcp-servers"));
+  removeStateDir(join(STATE_ROOT, "opencode", "profile-keys.json"));
 });
 
 function addServer(
@@ -50,55 +51,76 @@ function addServer(
 }
 
 describe("OpenCode profile key", () => {
-  it("changes once for each member file that appears, and never moves back", () => {
+  // The incident: the office env file went away, and every OpenCode agent
+  // moved to a new profile where its conversation was not.
+  it("never moves when an env, secrets or MCP servers file appears or goes, for a member or unowned agents", () => {
     const sources = createMcpServerSources();
-    const keys = [environmentSourceKeyForUserId("u1")];
+    const before = [
+      environmentSourceKeyForUserId("u1"),
+      environmentSourceKeyForUserId(null),
+    ];
+    const same = () =>
+      expect([
+        environmentSourceKeyForUserId("u1"),
+        environmentSourceKeyForUserId(null),
+      ]).toEqual(before);
+    writeManagedOfficeEnv({ SHARED: "1" });
+    same();
     writeManagedUserEnv("u1", { A: "1" });
-    keys.push(environmentSourceKeyForUserId("u1"));
+    same();
     sources.secrets.create(member("u1"), {
       name: "TOKEN",
       value: "fake-key-test-value",
       hosts: ["api.example.com"],
       form: { kind: "authorization" },
     });
-    keys.push(environmentSourceKeyForUserId("u1"));
     addServer(member("u1"), "docs");
-    keys.push(environmentSourceKeyForUserId("u1"));
-    expect(new Set(keys).size).toBe(4);
-
-    // Emptied lists keep their files, so the key stays.
-    sources.secrets.remove(member("u1"), "TOKEN");
-    sources.servers.remove(member("u1"), "docs");
-    expect(existsSync(join(STATE_ROOT, "secrets", "users", "u1.json"))).toBe(
-      true,
-    );
-    expect(
-      existsSync(join(STATE_ROOT, "mcp-servers", "users", "u1.json")),
-    ).toBe(true);
-    expect(environmentSourceKeyForUserId("u1")).toBe(keys[3]);
-  });
-
-  it("stays the same when an office secrets or MCP servers file appears", () => {
-    const before = environmentSourceKeyForUserId("u1");
-    const sources = createMcpServerSources();
     sources.secrets.create(office, {
-      name: "TOKEN",
+      name: "OFFICE_TOKEN",
       value: "fake-key-test-value",
       hosts: ["api.example.com"],
       form: { kind: "authorization" },
     });
     addServer(office, "shared");
-    expect(environmentSourceKeyForUserId("u1")).toBe(before);
-    expect(environmentSourceKeyForUserId(null)).toBe(
-      environmentSourceKeyForUserId("u2"),
-    );
+    same();
+    removeStateDir(managedOfficeEnvPath());
+    removeStateDir(managedUserEnvPath("u1"));
+    removeStateDir(join(STATE_ROOT, "secrets"));
+    removeStateDir(join(STATE_ROOT, "mcp-servers"));
+    same();
+  });
+
+  // The upgrade: the member stays on the profile the old rule gave them, also
+  // after the file set that rule hashed changes.
+  it("keeps a member on the legacy profile the migration adopted when their files change", () => {
+    writeManagedOfficeEnv({ SHARED: "1" });
+    writeManagedUserEnv("u1", { A: "1" });
+    const legacy = legacyEnvironmentSourceKeyForUserId("u1");
+    migrateProfileKeysOnce({
+      owners: [
+        {
+          userId: "u1",
+          agents: [
+            { agentId: "a1", agentType: "opencode", lastSessionId: "s1" },
+          ],
+        },
+      ],
+      legacyKey: legacyEnvironmentSourceKeyForUserId,
+      profileExists: (key) => key === legacy,
+    });
+    expect(environmentSourceKeyForUserId("u1")).toBe(legacy);
+    removeStateDir(managedOfficeEnvPath());
+    removeStateDir(managedUserEnvPath("u1"));
+    expect(legacyEnvironmentSourceKeyForUserId("u1")).not.toBe(legacy);
+    expect(environmentSourceKeyForUserId("u1")).toBe(legacy);
   });
 
   for (const withOfficeEnv of [false, true])
     it(`gives two members with personal MCP servers two profiles and their own servers (office env file: ${withOfficeEnv})`, () => {
       if (withOfficeEnv) writeManagedOfficeEnv({ SHARED: "1" });
-      // Before: neither has a file of their own, so they share a profile.
-      expect(environmentSourceKeyForUserId("u1")).toBe(
+      // Neither has a file of their own yet, and they still never share a
+      // profile.
+      expect(environmentSourceKeyForUserId("u1")).not.toBe(
         environmentSourceKeyForUserId("u2"),
       );
       addServer(office, "shared");

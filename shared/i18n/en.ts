@@ -2922,6 +2922,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.deliveryStalled": "Message delivery stalled; recovering.",
   "systemEntries.freshSessionAfterRestoreFailure":
     "Started a fresh session (previous one could not be restored).",
+  "systemEntries.sessionNotResumable":
+    "Started a fresh session (previous one is no longer stored).",
   "systemEntries.freshSessionBeforeFlush":
     "Started a fresh session before flushing queued messages.",
   "systemEntries.flushStartFailed":

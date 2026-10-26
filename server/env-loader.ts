@@ -27,6 +27,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { STATE_ROOT } from "./config.ts";
 import { MCP_SERVERS_DIR } from "./mcp-server-store.ts";
+import { profileKeyForOwner } from "./opencode-profile-keys.ts";
 import type { SecretEnvironment } from "./secret-proxy/runtime.ts";
 import {
   isPersonalProviderActive,
@@ -90,7 +91,8 @@ function resolveUserEnvSource(
 
 const SAFE_USER_ID = /^[A-Za-z0-9_-]+$/;
 
-// The member's secrets and MCP servers files that exist, for the profile key.
+// The member's secrets and MCP servers files that exist, for the legacy
+// profile key.
 function memberStoreFiles(userId: string | null | undefined): string[] {
   if (!userId || !SAFE_USER_ID.test(userId)) return [];
   return [
@@ -294,19 +296,23 @@ export function readOfficeEnvFile(): Record<string, string> {
   return officeEnvFile ? readEnvFile(officeEnvFile) : {};
 }
 
-// Stable identity for the intentional environment sources. Contents are not
-// identity: rotating a credential must replace the server without stranding
-// durable sessions in a new profile. Do not derive this from the merged
-// process environment; systemd values change on every isomux restart.
-//
-// The member's other Isomux-held source files join it when they exist: their
-// secrets and their MCP servers (integrations A2; Lead ruling, 2026-10-13).
-// Without them, two members with no env file would share one OpenCode server,
-// and one member's MCP servers would reach the other's agents. The stores
-// delete these files only when the member leaves the office, so the key never
-// moves back while they are a member. Office files do not join:
-// an office change revises the server's config, not its profile.
+// The identity of an owner's environment: the OpenCode profile (its server
+// and its conversations) and the provider caches are keyed on it. It belongs
+// to the owner, so no env, secrets or MCP servers file that appears or goes
+// moves it, and two members never share a profile
+// (server/opencode-profile-keys.ts, task df0e7b51). Contents are not identity
+// either: environmentSourceRevisionForUserId carries them.
 export function environmentSourceKeyForUserId(
+  userId: string | null | undefined,
+): string {
+  return profileKeyForOwner(userId);
+}
+
+// The key before task df0e7b51: it hashed which env files existed, so a file
+// that appeared or went moved the owner to another profile. Only the profile
+// key migration (server/opencode-profile-keys.ts) calls it, to find the
+// profile each owner had.
+export function legacyEnvironmentSourceKeyForUserId(
   userId: string | null | undefined,
 ): string {
   const userEnvFile = resolveUserEnvSource(userId);

@@ -8,7 +8,7 @@ import {
   buildEnvForUserId,
   buildOfficeEnv,
   envSourceForUserId,
-  environmentSourceKeyForUserId,
+  environmentSourceRevisionForUserId,
   readOfficeEnvFile,
 } from "./env-loader.ts";
 import {
@@ -155,9 +155,11 @@ export class ProviderAccountManager {
     private readonly createCodex: CreateCodexAccountClient = (env) =>
       new CodexAccountClient(env),
     private readonly loginTimeoutMs = LOGIN_TIMEOUT_MS,
+    // The cache key part for a member's environment: its revision, so a
+    // changed env file or secret reads the status again.
     private readonly environmentKeyForUser: (
       userId: string,
-    ) => string = environmentSourceKeyForUserId,
+    ) => string = environmentSourceRevisionForUserId,
     private readonly envForUser: (
       userId: string,
     ) => Record<string, string | undefined> | undefined = buildEnvForUserId,

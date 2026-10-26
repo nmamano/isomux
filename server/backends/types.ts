@@ -660,6 +660,13 @@ export interface Backend {
       environmentKey?: string;
     },
   ): string | LogMessage | null;
+  // A stored session missing from this environment's storage: look for it
+  // in the backend's other storage and bring it here. True when it is now
+  // stored here. Only an explicit resume of a session the agent owns calls it.
+  recoverStoredSession?(
+    sessionId: string,
+    opts: SessionEnvironmentOptions & { cwd: string },
+  ): Promise<boolean>;
 
   // Branch a conversation so that `targetMessageId` and everything after it
   // is replaced. The backend resolves predecessor / first-message semantics

@@ -2953,6 +2953,8 @@ Cosas que puedes hacer por él:
     "La entrega del mensaje se ha atascado; recuperando.",
   "systemEntries.freshSessionAfterRestoreFailure":
     "Se inició una sesión nueva (la anterior no se pudo restaurar).",
+  "systemEntries.sessionNotResumable":
+    "Se inició una sesión nueva (la anterior ya no está guardada).",
   "systemEntries.freshSessionBeforeFlush":
     "Se inició una sesión nueva antes de vaciar la cola de mensajes.",
   "systemEntries.flushStartFailed":

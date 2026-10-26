@@ -289,6 +289,7 @@ import type {
   SubscriptionUsage,
   SubscriptionUsageResult,
   LoginInstructions,
+  StoredSessionState,
 } from "./backends/types.ts";
 import type {
   EffectiveProviderAccountTarget,
@@ -309,8 +310,18 @@ import {
   claudeFamilyModelsForUserId,
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
+  legacyEnvironmentSourceKeyForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
+import {
+  completeProfileKeyMove,
+  migrateProfileKeysOnce,
+  readProfileKeyState,
+  type ProfileKeyMove,
+} from "./opencode-profile-keys.ts";
+import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
+import { moveOpenCodeSession } from "./backends/opencode/session-transfer.ts";
+import { openCodeSupervisorForEnvironment } from "./backends/opencode/supervisor.ts";
 import type { SecretSetChange } from "./secret-proxy/runtime.ts";
 
 import {
@@ -412,6 +423,10 @@ export interface ManagerDeps {
   // Production supplies the box provider homes. Tests omit this field so
   // fixtures never read the real member home.
   providerSkillSourceRoots?: { claude: string; codex: string };
+  // The total time the boot gives the pending OpenCode profile moves
+  // (server/opencode-profile-keys.ts). Defaults to 60 s; moves left when it
+  // expires stay pending for the next boot.
+  profileKeyMoveLimitMs?: number;
   // The roots /isomux-storage measures. Production supplies
   // productionStorageRoots. Tests omit this field: the state root alone is
   // measured, and no host backup or snapshot dir is read.
@@ -1948,7 +1963,7 @@ export function createAgentManager(deps: ManagerDeps) {
           ? null
           : pickAutoResumeSessionId(managed);
         if (managed.sessionManager.sessionId && !sessionId && !fixedCwdChange)
-          clearStaleAutoResumeState(agentId, managed);
+          dropUnresumableSession(agentId, managed);
         // The resumed conversation hears what changed on its next turn; a
         // fresh one has nothing the change could explain. Armed before the
         // swap: the swap flushes queued messages before it returns, and the
@@ -2564,6 +2579,8 @@ export function createAgentManager(deps: ManagerDeps) {
     // Silent restore policy: each backend classifies its own stored session;
     // this caller decides that only durable sessions auto-resume.
     let resumeSessionId: string | null = null;
+    // The stored state of a session this restore drops, for its note.
+    let droppedState: StoredSessionState | null = null;
     if (p.lastSessionId) {
       try {
         let restoreEnv = buildEnvForUserId(userId);
@@ -2581,15 +2598,16 @@ export function createAgentManager(deps: ManagerDeps) {
             CLAUDE_CONFIG_DIR: root,
           };
         }
-        if (
-          getBackend(agentType).inspectStoredSession(p.lastSessionId, {
+        const stored = getBackend(agentType).inspectStoredSession(
+          p.lastSessionId,
+          {
             cwd: restoredCwd,
             env: restoreEnv,
             environmentKey: environmentSourceKeyForUserId(userId),
-          }) === "durable"
-        ) {
-          resumeSessionId = p.lastSessionId;
-        }
+          },
+        );
+        if (stored === "durable") resumeSessionId = p.lastSessionId;
+        else droppedState = stored;
       } catch {
         // Preserve the previous indeterminate rule: let the backend attempt
         // the resume and surface a precise error instead of silently dropping.
@@ -2752,12 +2770,15 @@ export function createAgentManager(deps: ManagerDeps) {
       recentSteers: [],
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
-      // A never-started agent stays a blank conversation across a restart.
-      // Mark only that case fresh so its first wake stays silent. If a prior
-      // session id exists but the backend says it is no longer durable, keep
-      // the boot reason: that is real state loss and the recovery notice is
-      // useful even though resumeSessionId was cleared above.
-      dormantReason: opts.lazy ? (p.lastSessionId ? "boot" : "fresh") : null,
+      // A never-started agent stays a blank conversation across a restart,
+      // and so does one whose stored session this restore dropped: its note
+      // is already in the chat (noteUnresumableSession). Mark those fresh so
+      // the first wake adds no other notice.
+      dormantReason: opts.lazy
+        ? p.lastSessionId && !droppedState
+          ? "boot"
+          : "fresh"
+        : null,
     };
     // Re-seed the durable queue + dedupe window
     // persisted by the previous run so a restart doesn't drop queued messages
@@ -2776,6 +2797,8 @@ export function createAgentManager(deps: ManagerDeps) {
     // revoked when the agent leaves the map (kill, or the revive rollback). The
     // persisted privileged flag stamps the token's capability set.
     mintAgentToken(p.id, tokenUserIdFor(info), p.privileged ?? false);
+    if (p.lastSessionId && droppedState)
+      noteUnresumableSession(p.id, agentType, p.lastSessionId, droppedState);
 
     if (resumeSessionId) {
       const history = loadLogWithAncestors(p.id, resumeSessionId);
@@ -2895,6 +2918,62 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   // Restore agents from disk on startup. Creates sessions and loads log history.
+  // Boot step 2 of the OpenCode profile key migration
+  // (server/opencode-profile-keys.ts): the pending moves, one after the
+  // other, within one total limit. Each move that ends leaves the file, so a
+  // failed move does not run at every boot; moves the limit cut off stay for
+  // the next boot, and the boot goes on.
+  async function runPendingProfileKeyMoves(): Promise<void> {
+    let moves: ProfileKeyMove[];
+    try {
+      moves = readProfileKeyState()?.pendingMoves ?? [];
+    } catch (error) {
+      console.error(`[opencode] ${errMessage(error)}`);
+      return;
+    }
+    if (moves.length === 0) return;
+    const limitMs = deps.profileKeyMoveLimitMs ?? 60_000;
+    let expired = false;
+    const run = (async () => {
+      for (const move of moves) {
+        if (expired) return;
+        try {
+          await moveOpenCodeSession({
+            sessionId: move.sessionId,
+            fromProfileDir: openCodeProfilePaths(move.fromKey).profileDir,
+            target: openCodeSupervisorForEnvironment(
+              move.toKey,
+              buildOpenCodeLaunchEnvironmentForUserId(move.userId),
+              environmentSourceRevisionForUserId(move.userId),
+              agentMcpServers(move.userId),
+            ),
+            targetEnvironmentKey: move.toKey,
+          });
+          completeProfileKeyMove(move);
+        } catch (error) {
+          // The owner's environment did not load: the move stays pending.
+          console.error(
+            `[opencode] session ${move.sessionId} of agent ${move.agentId} was not moved: ${errMessage(error)}`,
+          );
+        }
+      }
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      run.then(() => "done" as const),
+      new Promise<"expired">((resolve) => {
+        timer = setTimeout(() => resolve("expired"), limitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (outcome === "expired") {
+      expired = true;
+      console.error(
+        `[opencode] the profile moves took over ${limitMs / 1000} s; the rest wait for the next boot`,
+      );
+    }
+  }
+
   async function restoreAgents() {
     // Clean up the pre-0.2.116 per-agent launcher scripts. Isomux now passes the
     // native Claude binary directly, so these are orphaned.
@@ -2904,6 +2983,10 @@ export function createAgentManager(deps: ManagerDeps) {
         force: true,
       });
     } catch {}
+
+    // Before any restore inspects a session: an agent's last session that
+    // the profile key migration moves must be in its new profile by then.
+    await runPendingProfileKeyMoves();
 
     // Rooms were seeded at module init from initialLoadedAgents - reuse
     // the cached value rather than re-running loadAgents() here. Reading
@@ -6194,7 +6277,7 @@ export function createAgentManager(deps: ManagerDeps) {
         try {
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
-            clearStaleAutoResumeState(agentId, managed);
+            dropUnresumableSession(agentId, managed);
           await managed.sessionManager.replaceWith(managed, sessionId);
           acted++;
         } catch (err) {
@@ -6237,7 +6320,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Same resume-or-fresh dance as abort's slow path.
         const sessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionManager.sessionId && !sessionId)
-          clearStaleAutoResumeState(agentId, managed);
+          dropUnresumableSession(agentId, managed);
         await managed.sessionManager.replaceWith(managed, sessionId);
         acted++;
       } catch (err) {
@@ -6578,7 +6661,7 @@ export function createAgentManager(deps: ManagerDeps) {
         scope.kind === "user"
           ? [scope.userId]
           : [null, ...listUsers().map((user) => user.id)];
-      // Members with the same key have the same env sources and settings.
+      // Each owner has a key of their own; the set only guards a repeat.
       const pushed = new Set<string>();
       for (const userId of userIds) {
         const key = environmentSourceKeyForUserId(userId);
@@ -6674,6 +6757,48 @@ export function createAgentManager(deps: ManagerDeps) {
     logCache.set(agentId, []);
     emit({ type: "clear_logs", agentId });
     return true;
+  }
+
+  // The auto-resume policy dropped a stored session: the server log says
+  // which and why, and when the conversation is gone the new one opens with a
+  // note. An empty one held nothing to lose, so it is only logged. Called at
+  // the drop, never in pickAutoResumeSessionId, which predicates also call.
+  function noteUnresumableSession(
+    agentId: string,
+    agentType: AgentInfo["agentType"],
+    sessionId: string,
+    state: StoredSessionState | "unknown",
+  ): void {
+    console.log(
+      `[resume] agent ${agentId}: stored ${agentType} session ${sessionId} is ${state}; starting a new conversation`,
+    );
+    if (state === "missing")
+      addLogEntry(agentId, "system", msg("systemEntries.sessionNotResumable"));
+  }
+
+  // clearStaleAutoResumeState for a session the auto-resume policy dropped,
+  // with its log line and note. The note comes after the clear, which empties
+  // the chat.
+  function dropUnresumableSession(
+    agentId: string,
+    managed: ManagedAgent,
+  ): boolean {
+    const sessionId = managed.sessionManager.sessionId;
+    if (!sessionId) return false;
+    let state: StoredSessionState | "unknown" = "unknown";
+    try {
+      state = getBackend(managed.info.agentType).inspectStoredSession(
+        sessionId,
+        {
+          cwd: managed.info.cwd,
+          env: buildSessionEnv(managed),
+          environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+        },
+      );
+    } catch {}
+    const cleared = clearStaleAutoResumeState(agentId, managed);
+    noteUnresumableSession(agentId, managed.info.agentType, sessionId, state);
+    return cleared;
   }
 
   // The auto-loaded memory scopes for one agent, in prompt order. Null when the
@@ -8185,8 +8310,11 @@ export function createAgentManager(deps: ManagerDeps) {
           const wasDormant = managed.info.dormant ?? false;
           const dormantReason = managed.dormantReason;
           const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionManager.sessionId && !sessionId)
-            clearStaleAutoResumeState(agentId, managed);
+          // A dropped session gets its own note (dropUnresumableSession).
+          const dropped =
+            managed.sessionManager.sessionId && !sessionId
+              ? dropUnresumableSession(agentId, managed)
+              : false;
           managed.sessionManager.installSession(
             managed,
             sessionId
@@ -8224,7 +8352,7 @@ export function createAgentManager(deps: ManagerDeps) {
               wakeText = wake.log;
             }
             addLogEntry(agentId, "system", wakeText);
-          } else if (!(wasDormant && dormantReason === "fresh")) {
+          } else if (!(wasDormant && dormantReason === "fresh") && !dropped) {
             addLogEntry(
               agentId,
               "system",
@@ -8646,7 +8774,7 @@ export function createAgentManager(deps: ManagerDeps) {
       const sessionId = pickAutoResumeSessionId(managed);
       const clearedStale =
         managed.sessionManager.sessionId && !sessionId
-          ? clearStaleAutoResumeState(agentId, managed)
+          ? dropUnresumableSession(agentId, managed)
           : false;
       // If we wiped logCache while echoEarly already added the user's
       // message to it, the message is now gone from UI/cache. Re-add it
@@ -8688,7 +8816,8 @@ export function createAgentManager(deps: ManagerDeps) {
           wakeText = wake.log;
         }
         addLogEntry(agentId, "system", wakeText);
-      } else if (!(wasDormant && dormantReason === "fresh")) {
+      } else if (!(wasDormant && dormantReason === "fresh") && !clearedStale) {
+        // A dropped session got its own note (dropUnresumableSession).
         managed.pendingFreshRecoveryNotice = true;
       }
       // State contract (review-pinned): a busy state here belongs to the
@@ -9394,7 +9523,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // confuse the user.
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
-            clearStaleAutoResumeState(agentId, managed);
+            dropUnresumableSession(agentId, managed);
           // Armed before the swap, as in editAgent; restored if it fails.
           const priorNotice = managed.settingsNotice;
           if (sessionId && username)
@@ -9486,7 +9615,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // for the rationale.
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
-            clearStaleAutoResumeState(agentId, managed);
+            dropUnresumableSession(agentId, managed);
           // Armed before the swap, as in editAgent; restored if it fails.
           const priorNotice = managed.settingsNotice;
           if (sessionId && username)
@@ -9956,7 +10085,7 @@ export function createAgentManager(deps: ManagerDeps) {
           try {
             const autoSessionId = pickAutoResumeSessionId(managed);
             if (managed.sessionManager.sessionId && !autoSessionId)
-              clearStaleAutoResumeState(agentId, managed);
+              dropUnresumableSession(agentId, managed);
             await managed.sessionManager.replaceWith(managed, autoSessionId);
           } catch (err) {
             addLogEntry(
@@ -10092,7 +10221,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // session-died events that leave sessionId stale.
         const autoSessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionManager.sessionId && !autoSessionId)
-          clearStaleAutoResumeState(agentId, managed);
+          dropUnresumableSession(agentId, managed);
         await managed.sessionManager.replaceWith(managed, autoSessionId);
         // If we got here via a hot-abort failure, processNormalizedEvent
         // flipped state to "error" - restore waiting_for_response so the
@@ -11616,6 +11745,55 @@ export function createAgentManager(deps: ManagerDeps) {
       emit(event);
   }
 
+  // An explicit resume of a session its backend no longer stores here: the
+  // backend may still hold it in other storage (an OpenCode profile the
+  // agent's owner used before task df0e7b51) and bring it back. Only a
+  // session the agent owns: the search reaches other members' storage, and
+  // the agent's own session list is the proof. Never throws; a session it
+  // cannot bring back fails the resume as before.
+  async function recoverOwnedSession(
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+  ): Promise<void> {
+    const backend = getBackend(managed.info.agentType);
+    if (!backend.recoverStoredSession) return;
+    try {
+      const owned =
+        sessionId === managed.sessionManager.sessionId ||
+        listAgentSessions(agentId).some(
+          (session) => session.sessionId === sessionId,
+        );
+      if (!owned) return;
+      const env = buildSessionEnv(managed, sessionId);
+      const environmentKey = environmentSourceKeyForUserId(managed.info.userId);
+      if (
+        backend.inspectStoredSession(sessionId, {
+          cwd: managed.info.cwd,
+          env,
+          environmentKey,
+        }) !== "missing"
+      )
+        return;
+      const recovered = await backend.recoverStoredSession(sessionId, {
+        cwd: managed.info.cwd,
+        env,
+        environmentKey,
+        environmentRevision: environmentSourceRevisionForUserId(
+          managed.info.userId,
+        ),
+        mcpServers: agentMcpServers(managed.info.userId),
+      });
+      console.log(
+        `[resume] agent ${agentId}: stored ${managed.info.agentType} session ${sessionId} is missing; ${recovered ? "brought it back from other storage" : "no other storage holds it"}`,
+      );
+    } catch (error) {
+      console.error(
+        `[resume] agent ${agentId}: could not look for session ${sessionId} in other storage: ${errMessage(error)}`,
+      );
+    }
+  }
+
   async function resume(agentId: string, sessionId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -11644,6 +11822,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // so the right backend is used (and rolled back below if the resume fails).
       const engine = applySessionEngineForResume(agentId, managed, sessionId);
       try {
+        await recoverOwnedSession(agentId, managed, sessionId);
         await managed.sessionManager.replaceWith(
           managed,
           sessionId,
@@ -12642,5 +12821,62 @@ export function createProductionAgentManager(overrides?: {
   // Production-only global registration (kept out of createAgentManager so DI
   // tests don't clobber this env-loader process-global).
   setOfficeEnvFileProvider(() => officeState.office.envFile);
+  // After the office env provider (the legacy key reads it) and before the
+  // cron scheduler or any session reads a key.
+  migrateOpenCodeProfileKeys(initialLoadedAgents);
   return manager;
+}
+
+// Boot step 1 of the OpenCode profile key migration
+// (server/opencode-profile-keys.ts): the first boot of this version pins each
+// owner (members in users order, then unowned agents) to the profile the old
+// key gave them, where that profile exists. Later boots read the pins.
+function migrateOpenCodeProfileKeys(
+  rooms: ReturnType<typeof loadAgents>,
+): void {
+  try {
+    // The owner as the restore resolves it (resolveAgentUserId).
+    const agents = rooms
+      .flatMap((room) => room.agents)
+      .map((agent) => ({
+        ...agent,
+        userId:
+          (typeof agent.userId === "string" && agent.userId) ||
+          (agent.manager ? getUserByName(agent.manager)?.id : undefined) ||
+          null,
+      }));
+    const owners: (string | null)[] = listUsers().map((user) => user.id);
+    for (const agent of agents)
+      if (agent.userId && !owners.includes(agent.userId))
+        owners.push(agent.userId);
+    owners.push(null);
+    migrateProfileKeysOnce({
+      owners: owners.map((userId) => ({
+        userId,
+        agents: agents
+          .filter((agent) => agent.userId === userId)
+          .map((agent) => ({
+            agentId: agent.id,
+            agentType: agent.agentType ?? "claude",
+            lastSessionId: agent.lastSessionId ?? null,
+          })),
+      })),
+      legacyKey: legacyEnvironmentSourceKeyForUserId,
+      profileExists: (key) => {
+        try {
+          statSync(openCodeProfilePaths(key).profileDir);
+          return true;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          // A denied stat is a profile that exists.
+          return code !== "ENOENT" && code !== "ENOTDIR";
+        }
+      },
+    });
+  } catch (error) {
+    // Nothing is written, so the next boot plans again.
+    console.error(
+      `[opencode] the profile key migration did not run: ${errMessage(error)}`,
+    );
+  }
 }

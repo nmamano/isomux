@@ -518,41 +518,69 @@ describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () =
     fake.lastSession?.close();
   });
 
-  it("a lost prior session still reports the fresh recovery after boot restore", async () => {
-    const fake = new FakeBackend({
-      storedSessionState: "missing",
-      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
-    });
-    const id = "agent-lost-session";
-    const mgr = createAgentManager({
-      resolveBackend: () => fake,
-      officeState: new OfficeState({ rooms: rooms("room-a") }),
-      initialRooms: [
-        {
-          id: "room-a",
-          name: "room-a",
-          prompt: null,
-          agents: [persistedAgent(id, "missing-session")],
-        },
-      ],
-    });
-    mgr.configureAgentTurnDeps();
+  // The entries in the agent's chat written from one catalog key.
+  const entriesWithKey = (
+    mgr: ReturnType<typeof createAgentManager>,
+    id: string,
+    key: string,
+  ) =>
+    mgr
+      .getAgentLogs(id)
+      .filter((entry) =>
+        (entry.message ?? []).some(
+          (part) => typeof part !== "string" && part.key === key,
+        ),
+      ).length;
 
-    await mgr.restoreAgents();
-    expect(mgr.getAgent(id)?.dormant).toBe(true);
-    expect(mgr._testDormantReason(id)).toBe("boot");
-    expect(mgr.getCurrentSessionId(id)).toBeNull();
+  // A boot drop notes itself (task df0e7b51): a missing session gets one note
+  // that it is no longer stored, an empty one none, and the first wake adds no
+  // generic fresh-session notice on top.
+  // MUTANTS: keep the "boot" reason for a dropped session (the wake then adds
+  // the generic notice too); note an empty session.
+  for (const state of ["missing", "empty"] as const)
+    it(`a ${state} prior session gets exactly its own boot note, and the wake adds none`, async () => {
+      const fake = new FakeBackend({
+        storedSessionState: state,
+        session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+      });
+      const id = `agent-${state}-session`;
+      const mgr = createAgentManager({
+        resolveBackend: () => fake,
+        officeState: new OfficeState({ rooms: rooms("room-a") }),
+        initialRooms: [
+          {
+            id: "room-a",
+            name: "room-a",
+            prompt: null,
+            agents: [persistedAgent(id, `${state}-session`)],
+          },
+        ],
+      });
+      mgr.configureAgentTurnDeps();
 
-    const sent = mgr.sendMessage(id, "hello", "tester");
-    await waitUntil(() => isLiveAndDemotable(mgr, id), "lost restore woke");
-    await sent;
-    expect(fake.createSessionCount).toBe(1);
-    expect(fake.resumeSessionCount).toBe(0);
-    expect(logText(mgr, id)).toContain(
-      "Started a fresh session (previous one could not be restored).",
-    );
-    fake.lastSession?.close();
-  });
+      await mgr.restoreAgents();
+      expect(mgr.getAgent(id)?.dormant).toBe(true);
+      expect(mgr._testDormantReason(id)).toBe("fresh");
+      expect(mgr.getCurrentSessionId(id)).toBeNull();
+
+      const sent = mgr.sendMessage(id, "hello", "tester");
+      await waitUntil(
+        () => isLiveAndDemotable(mgr, id),
+        `${state} restore woke`,
+      );
+      await sent;
+      expect(fake.createSessionCount).toBe(1);
+      expect(fake.resumeSessionCount).toBe(0);
+      expect(entriesWithKey(mgr, id, "systemEntries.sessionNotResumable")).toBe(
+        state === "missing" ? 1 : 0,
+      );
+      for (const generic of [
+        "systemEntries.freshSessionAfterRestoreFailure",
+        "systemEntries.freshSessionBeforeFlush",
+      ])
+        expect(entriesWithKey(mgr, id, generic), generic).toBe(0);
+      fake.lastSession?.close();
+    });
 
   it("lazy spawn holds NO subprocess; first message wakes a FRESH session, silently", async () => {
     wireClaudeConfigDir();

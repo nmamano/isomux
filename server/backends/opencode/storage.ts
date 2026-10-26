@@ -135,7 +135,17 @@ export function inspectOpenCodeStoredSession(
 ): StoredSessionState {
   if (!environmentKey)
     throw new Error("OpenCode session environment identity is required.");
-  const { profileDir } = openCodeProfilePaths(environmentKey);
+  return inspectOpenCodeProfileSession(
+    openCodeProfilePaths(environmentKey).profileDir,
+    sessionId,
+  );
+}
+
+// The same rule for a profile named by its directory.
+export function inspectOpenCodeProfileSession(
+  profileDir: string,
+  sessionId: string,
+): StoredSessionState {
   const v2 = openCodeDatabasePath(profileDir, "v2");
   if (!absent(`${v2}.ready`)) return inspectOpenCodeDatabase(v2, sessionId);
   return inspectOpenCodeDatabase(
@@ -147,7 +157,7 @@ export function inspectOpenCodeStoredSession(
 
 // Only a missing file is absent: a denied stat is for inspectOpenCodeDatabase
 // to report.
-function absent(path: string): boolean {
+export function absent(path: string): boolean {
   try {
     statSync(path);
     return false;
