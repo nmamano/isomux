@@ -2,8 +2,6 @@
 // the field rules that the UI, the routes and the secret proxy share. One
 // module, so that the proxy (B2) refuses exactly what the routes refuse.
 
-import { PUBLIC_TLDS } from "./public-tlds.ts";
-
 export type SecretForm =
   // The Authorization header in any scheme: Bearer, token, or the user or
   // password of Basic after decoding.
@@ -132,27 +130,6 @@ export function isValidSecretHost(host: string): boolean {
   if (labels.length < 2) return false;
   if (!labels.every((label) => LABEL.test(label))) return false;
   return !/^[0-9]+$/.test(labels[labels.length - 1]);
-}
-
-// True when the whole value is a public address, not a credential: a
-// hostname whose top-level name is a public suffix, an email address at one,
-// "@" and one (a Bluesky handle), or an http(s) origin with no path, query,
-// fragment or user. Log redaction and the proxy scrub skip such a value
-// (server/secret-proxy/scrub.ts).
-export function isPublicAddressValue(value: string): boolean {
-  const origin = /^https?:\/\/([^/:?#@]+)(?::[0-9]{1,5})?\/?$/.exec(value);
-  if (origin) return isPublicHost(origin[1]);
-  if (value.startsWith("@")) return isPublicHost(value.slice(1));
-  const email = /^[A-Za-z0-9._%+-]+@([^@]+)$/.exec(value);
-  if (email) return isPublicHost(email[1]);
-  return isPublicHost(value);
-}
-
-function isPublicHost(host: string): boolean {
-  return (
-    isValidSecretHost(host) &&
-    PUBLIC_TLDS.has(host.slice(host.lastIndexOf(".") + 1))
-  );
 }
 
 // The names the office sets itself in agent environments, now or in B2.

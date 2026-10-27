@@ -48,26 +48,6 @@ describe("scrubText", () => {
     }
   });
 
-  // Task d28140c9: every mask surface (log redaction, app logs, this scrub)
-  // takes its patterns from scrubPatterns, so one test here covers them all.
-  test("skips a value that is a public address in every form, and still scrubs a credential beside it", () => {
-    const domain = "game.example.com";
-    const email = "contact@example.org";
-    const tokenUrl = "https://hooks.example.com/services/abcdefghijkl";
-    const p = scrubPatterns([domain, email, tokenUrl, VALUE]);
-    const readable = [
-      `contact@${domain}`,
-      email,
-      encodeURIComponent(email),
-      Buffer.from(domain).toString("base64"),
-      Buffer.from(email).toString("base64"),
-    ];
-    for (const text of readable) expect(scrubText(text, p)).toBe(text);
-    expect(scrubText(`url ${tokenUrl} key ${VALUE}`, p)).toBe(
-      `url ${SCRUB_MARKER} key ${SCRUB_MARKER}`,
-    );
-  });
-
   test("leaves text without a value as it is", () => {
     expect(scrubText("nothing to see", patterns)).toBe("nothing to see");
     expect(scrubText("anything", [])).toBe("anything");

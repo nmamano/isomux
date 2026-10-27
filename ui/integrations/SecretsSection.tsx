@@ -13,7 +13,6 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import {
   isModelKeySecretName,
-  isPublicAddressValue,
   SECRET_PRESETS,
   type SecretForm,
 } from "../../shared/secret-hosts.ts";
@@ -618,10 +617,7 @@ function ReplaceValue({
   const [error, setError] = useState<string | null>(null);
   return (
     <Panel heading={heading} data-secret-replace-panel="">
-      <Field
-        label={t("integrations.secrets.value")}
-        hint={publicAddressHint(value, t)}
-      >
+      <Field label={t("integrations.secrets.value")}>
         <MaskedInput
           style={{ ...input, ...mono }}
           value={value}
@@ -653,21 +649,6 @@ function ReplaceValue({
         </p>
       )}
     </Panel>
-  );
-}
-
-// Chat and logs show a value that is a public address (a domain, an email,
-// an origin), so the value field says so. The check runs on the string the
-// save sends.
-function publicAddressHint(
-  value: string,
-  t: ReturnType<typeof useI18n>["t"],
-): React.ReactNode {
-  if (!isPublicAddressValue(value.trim())) return undefined;
-  return (
-    <span data-secret-public-address-hint>
-      {t("integrations.secrets.publicAddress")}
-    </span>
   );
 }
 
@@ -969,10 +950,7 @@ function AddSecret({
           />
         </Field>
       )}
-      <Field
-        label={t("integrations.secrets.value")}
-        hint={publicAddressHint(value, t)}
-      >
+      <Field label={t("integrations.secrets.value")}>
         <MaskedInput
           data-secret-value-input
           style={{ ...input, ...mono }}

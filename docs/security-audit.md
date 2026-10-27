@@ -285,7 +285,7 @@ Backups do not include the managed environment files, the secrets, the registere
 
 ### 8.3 Secret redaction in logs
 
-Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. A value that is only a public address is not masked: a domain with a public suffix, an email address or `@` at such a domain, or an `http(s)` URL with no path, query or user. The app logs route removes the same values from each line it returns, and the secret proxy from responses. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Live terminal output is not stored; the terminal read (section 6.5) masks it on each read. Terminal recordings are masked too (section 8.10).
+Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. The app logs route removes the same values from each line it returns. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Live terminal output is not stored; the terminal read (section 6.5) masks it on each read. Terminal recordings are masked too (section 8.10).
 
 ### 8.4 Telemetry
 

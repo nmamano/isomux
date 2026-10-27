@@ -69,7 +69,7 @@ A server-user process that the server starts and supervises (`server/secret-prox
 - For a listed host, the proxy ends TLS with an office-CA certificate and reads each request. It looks for a placeholder only in the header that the secret's form names. If the secret lists this host, it puts the value in and forwards. If the placeholder belongs to a secret that does not list this host, it answers 403 with the secret name and host. A placeholder sent to a tunneled host passes as a useless string.
 - It never swaps in a body, a query string or another header, and never on `TRACE` or `OPTIONS` (TRACE reflects the request; Omnigent).
 - It injects only when the `CONNECT` target, the TLS SNI and the `Host` header name the same listed host, and it never follows a redirect (appendix D).
-- It removes the exact value, and its Basic and URL encodings, from responses (a value that is a public address excepted, section 6), as the OpenCode broker does with the office token (server/backends/opencode/authority-broker.ts:376,385-403). This is a backstop, not a proof (section 2.5).
+- It removes the exact value, and its Basic and URL encodings, from responses, as the OpenCode broker does with the office token (server/backends/opencode/authority-broker.ts:376,385-403). This is a backstop, not a proof (section 2.5).
 - It logs each use (name, scope, host, method, path, time) in the office audit store.
 
 ### 2.3 The office CA, and what it costs
@@ -132,7 +132,7 @@ One sentence in the Secrets list, from B4: values stay out of agent environments
 
 ## 6. Redaction as a backstop
 
-- **Log redaction (994e004b, done)** masks key-shaped strings before a log entry is stored (server/log-redaction.ts:4-10). It stays: it still catches plain variables and values from outside the store. B2 adds exact-value masking of every secret, whatever its shape, except a value that is a public address (a domain with a public suffix, an email or `@` at one, an origin with no path, query or user; isPublicAddressValue in shared/secret-hosts.ts, task d28140c9). Such a value is no credential, and masking it made every chat line that names it unreadable.
+- **Log redaction (994e004b, done)** masks key-shaped strings before a log entry is stored (server/log-redaction.ts:4-10). It stays: it still catches plain variables and values from outside the store. B2 adds exact-value masking of every secret, whatever its shape.
 - **Tool-result censor (9371248b, open)** stays open with its scope unchanged. It would use the exact-value list too.
 - **The proxy** removes the exact value from responses (section 2.2). Codex shell snapshots then hold placeholders.
 

@@ -5,7 +5,6 @@ import {
   checkSecretHosts,
   checkSecretName,
   isNeverListed,
-  isPublicAddressValue,
   isValidSecretHost,
 } from "./secret-hosts.ts";
 
@@ -63,72 +62,6 @@ describe("host syntax", () => {
       "",
     ])
       expect(isValidSecretHost(host)).toBe(false);
-  });
-});
-
-// Task d28140c9: log masking and the proxy scrub skip a secret value that is
-// a public address. Everything else stays masked, a short or dotted password
-// above all.
-describe("isPublicAddressValue", () => {
-  it("is true for a whole domain, email, @domain handle or bare origin", () => {
-    for (const value of [
-      "example.com",
-      "foo.bsky.social",
-      "news.example.co.uk",
-      "my-app.dev",
-      "example.xn--p1ai",
-      "contact@example.com",
-      "First.Last+tag@mail.example.org",
-      "@example.com",
-      "@alice.bsky.social",
-      "https://example.com",
-      "https://example.com/",
-      "http://example.com:8080",
-      "https://api.example.com:443/",
-    ])
-      expect([value, isPublicAddressValue(value)]).toEqual([value, true]);
-  });
-
-  it("is false for a password, a credential in an address, or a local or IP host", () => {
-    for (const value of [
-      // Passwords, dotted ones too: the last label is no public suffix, or
-      // the case is not a hostname's.
-      "hunter2!",
-      "my.password",
-      "summer.vacation",
-      "abc.def",
-      "abc.def1",
-      "Summer.Love",
-      "Example.Com",
-      // A bare handle cannot be told from a password that starts with @.
-      "@Passw0rd",
-      "@dm1n_2024",
-      "@alice",
-      // A URL with a path, query, fragment or user part can carry a token.
-      "https://example.com/hooks/T0000/B0000/abcdefghijkl",
-      "https://example.com/?token=abcdefgh",
-      "https://example.com?token=abcdefgh",
-      "https://example.com#access_token=abcdefgh",
-      "https://user:pass@example.com",
-      "https://token@example.com",
-      "user:pass@example.com",
-      "p@ss@example.com",
-      "ftp://example.com",
-      "example.com/path",
-      "example.com:8080",
-      // Not a public host.
-      "localhost",
-      "contact@localhost",
-      "foo.localhost",
-      "abc.onion",
-      "1.0.0.127.in-addr.arpa",
-      "10.0.0.1",
-      "https://127.0.0.1",
-      "example.com.",
-      "-example.com",
-      "",
-    ])
-      expect([value, isPublicAddressValue(value)]).toEqual([value, false]);
   });
 });
 
