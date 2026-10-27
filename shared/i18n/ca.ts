@@ -743,6 +743,8 @@ Coses que pots fer per ell:
   "settings.storage.backupFolderHint":
     "Deixa-la buida per fer servir la carpeta predeterminada.",
   "settings.storage.backupFolderFromEnv": "ISOMUX_BACKUP_DIR fixa la carpeta.",
+  "settings.storage.changeBackupSettings":
+    "Canvia la configuració de les còpies de seguretat",
   "settings.storage.backupSaveFailed":
     "No s'ha pogut desar la configuració de les còpies de seguretat.",
   "settings.storage.compressSection": "Comprimir converses antigues",

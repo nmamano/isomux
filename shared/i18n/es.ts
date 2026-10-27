@@ -747,6 +747,8 @@ Cosas que puedes hacer por él:
   "settings.storage.backupFolderHint":
     "Déjala vacía para usar la carpeta predeterminada.",
   "settings.storage.backupFolderFromEnv": "ISOMUX_BACKUP_DIR fija la carpeta.",
+  "settings.storage.changeBackupSettings":
+    "Cambiar la configuración de las copias de seguridad",
   "settings.storage.backupSaveFailed":
     "No se pudo guardar la configuración de las copias de seguridad.",
   "settings.storage.compressSection": "Comprimir conversaciones antiguas",

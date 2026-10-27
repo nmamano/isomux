@@ -677,6 +677,7 @@ App 的一些原则：
   "settings.storage.backupFolder": "文件夹",
   "settings.storage.backupFolderHint": "留空则使用默认文件夹。",
   "settings.storage.backupFolderFromEnv": "文件夹由 ISOMUX_BACKUP_DIR 设定。",
+  "settings.storage.changeBackupSettings": "更改备份设置",
   "settings.storage.backupSaveFailed": "无法保存备份设置。",
   "settings.storage.compressSection": "压缩旧对话",
   "settings.storage.compressHint": "旧对话占用更少空间，读取方式不变。",

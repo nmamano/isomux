@@ -70,6 +70,7 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
   disabledLook,
+  filledSecondaryBtn,
 } from "./dialog-styles.ts";
 
 // The category's words, by wire id. Own-property lookup like every other key
@@ -631,23 +632,14 @@ function BackupBlock({
     return (
       <>
         <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
-        <p style={{ fontSize: 11, color: "var(--text-ghost)", margin: 0 }}>
-          {t("settings.storage.backupUnavailable")}
-        </p>
+        <p style={backupText}>{t("settings.storage.backupUnavailable")}</p>
       </>
     );
   }
   return (
     <>
       <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
-      <p
-        style={{
-          fontSize: 11,
-          color: "var(--text-secondary)",
-          margin: 0,
-          lineHeight: 1.5,
-        }}
-      >
+      <p style={backupText}>
         {backup.lastRunAt === null ? (
           t("settings.storage.noBackupYet")
         ) : backup.ok ? (
@@ -665,37 +657,26 @@ function BackupBlock({
                   when: age(backup.lastRunAt),
                 })}
           </span>
-        )}{" "}
-        <span style={{ color: "var(--text-ghost)" }}>
-          {rich("settings.storage.backupKeeping", {
-            retention: backup.retention,
-            destDir: backup.destDir,
-            code: inCode,
-          })}{" "}
-          {tn("settings.storage.backupEvery", backup.intervalHours)}
-        </span>{" "}
-        {!editing && (
-          <button
-            onClick={() => setEditing(true)}
-            style={{
-              ...dialogCancelBtn,
-              padding: "1px 8px",
-              fontSize: 11,
-            }}
-          >
-            {t("common.edit")}
-          </button>
         )}
       </p>
-      {oldBackupsDir && (
-        <p
-          style={{
-            fontSize: 11,
-            color: "var(--text-secondary)",
-            margin: "6px 0 0",
-            lineHeight: 1.5,
-          }}
+      <p style={{ ...backupText, marginTop: 4 }}>
+        {rich("settings.storage.backupKeeping", {
+          retention: backup.retention,
+          destDir: backup.destDir,
+          code: inCode,
+        })}{" "}
+        {tn("settings.storage.backupEvery", backup.intervalHours)}
+      </p>
+      {!editing && (
+        <button
+          onClick={() => setEditing(true)}
+          style={{ ...filledSecondaryBtn, marginTop: 10, width: "100%" }}
         >
+          {t("settings.storage.changeBackupSettings")}
+        </button>
+      )}
+      {oldBackupsDir && (
+        <p style={{ ...backupText, marginTop: 6 }}>
           {rich("settings.storage.oldBackupsStay", {
             dir: oldBackupsDir,
             code: inCode,
@@ -1188,6 +1169,14 @@ function ErrorLine({ children }: { children: React.ReactNode }) {
   );
 }
 
+// The backup summary is read on a phone to decide whether to change it, so it
+// stays at the 12 px body size and is never faded.
+const backupText: React.CSSProperties = {
+  fontSize: 12,
+  color: "var(--text-secondary)",
+  margin: 0,
+  lineHeight: 1.5,
+};
 const cell: React.CSSProperties = {
   padding: "3px 0",
   color: "var(--text-secondary)",
