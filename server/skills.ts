@@ -1,4 +1,5 @@
 import type { SkillInfo } from "../shared/types.ts";
+import type { SkillEngine } from "../shared/contract-shapes.ts";
 import type { CommandRow, EnginePlugin } from "./backends/types.ts";
 import { isAbsolute, join } from "path";
 import { homedir } from "os";
@@ -46,7 +47,7 @@ function unquoteScalar(raw: string): string {
   return value;
 }
 
-function extractSkillDescription(filePath: string): string | undefined {
+export function extractSkillDescription(filePath: string): string | undefined {
   try {
     const content = readFileSync(filePath, "utf-8");
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
@@ -100,7 +101,8 @@ function toSkillInfo(skill: LocatedSkill): SkillInfo {
   return info;
 }
 
-// A link a session start made: the bundled skill folder of the same name.
+// A link an older session start made: the bundled skill folder of the same
+// name.
 function isBundledSkillLink(dir: string, name: string): boolean {
   try {
     return (
@@ -133,7 +135,7 @@ function scanSkillsDir(
       if (isDirectory) {
         const skillPath = join(dir, entry.name, "SKILL.md");
         if (!existsSync(skillPath)) continue;
-        // A session start links the bundled skills into the provider homes;
+        // Older session starts linked the bundled skills into the provider homes;
         // such a link is the bundled skill, listed once with its own origin.
         if (origin === "user" && isBundledSkillLink(dir, entry.name)) continue;
         const description = extractSkillDescription(skillPath);
@@ -177,9 +179,9 @@ function scanCommandsDir(
   } catch {}
 }
 
-// The folders the user skills come from, in priority order. A session start
-// reads the same list: a member skill in any of them keeps its name from the
-// bundled skill links (provider-skill-links.ts exposeBundledSkills).
+// The folders the user skills come from, in priority order. The member skill
+// folder reads the same list (member-skill-folder.ts), so the engine's own
+// tool gets what the menu lists.
 export function userSkillFolders(
   roots: UserSkillRoot[] | string,
   includeCommands = true,
@@ -260,21 +262,50 @@ export function discoverBundledSkills(): SkillInfo[] {
   return locateBundledSkills().map(toSkillInfo);
 }
 
-// Also scan project-level skills for a given cwd. Same priority rationale as
-// discoverUserSkills: backend-agnostic dirs (.isomux, .agents) first, then
-// Claude-specific (.claude). All are scanned so existing project setups
-// continue to work.
-export function locateProjectSkills(cwd: string): LocatedSkill[] {
+// The project folders an engine reads by itself in its working folder, in
+// menu priority order (Codex also reads .agents/skills up to the repository
+// root; the menu reads the working folder only). The Sk menu lists only
+// these, so a project skill in another engine's folder is not offered to an
+// agent whose tool cannot load it.
+function projectSkillFolders(
+  cwd: string,
+  engine: SkillEngine,
+): { dir: string; commands?: true }[] {
+  const at = (...parts: string[]) => join(cwd, ...parts);
+  switch (engine) {
+    case "claude":
+      return [
+        { dir: at(".claude", "skills") },
+        { dir: at(".claude", "commands"), commands: true },
+      ];
+    case "codex":
+      return [{ dir: at(".agents", "skills") }];
+    case "opencode":
+      return [
+        { dir: at(".opencode", "skills") },
+        { dir: at(".opencode", "skill") },
+        { dir: at(".agents", "skills") },
+        { dir: at(".claude", "skills") },
+      ];
+  }
+}
+
+export function locateProjectSkills(
+  cwd: string,
+  engine: SkillEngine,
+): LocatedSkill[] {
   const skills: LocatedSkill[] = [];
-  scanSkillsDir(join(cwd, ".isomux", "skills"), "project", skills);
-  scanSkillsDir(join(cwd, ".agents", "skills"), "project", skills);
-  scanSkillsDir(join(cwd, ".claude", "skills"), "project", skills);
-  scanCommandsDir(join(cwd, ".claude", "commands"), "project", skills);
+  for (const folder of projectSkillFolders(cwd, engine))
+    if (folder.commands) scanCommandsDir(folder.dir, "project", skills);
+    else scanSkillsDir(folder.dir, "project", skills);
   return skills;
 }
 
-export function discoverProjectSkills(cwd: string): SkillInfo[] {
-  return locateProjectSkills(cwd).map(toSkillInfo);
+export function discoverProjectSkills(
+  cwd: string,
+  engine: SkillEngine,
+): SkillInfo[] {
+  return locateProjectSkills(cwd, engine).map(toSkillInfo);
 }
 
 // Every installed plugin's install folder, whether or not it has a skill a
@@ -538,12 +569,13 @@ function resolvePluginSkillPrompt(
 }
 
 // Resolve a skill name to its prompt text. This uses the same ordered user
-// roots as discovery, then project-local and bundled skills. The first match
+// roots as discovery, then the engine's project folders and bundled skills. The first match
 // wins in both paths; plugin-namespaced skills are resolved separately.
 // Plugin-namespaced skills ("pluginName:skillName") short-circuit above the list.
 export function resolveSkillPrompt(
   name: string,
   cwd: string,
+  engine: SkillEngine,
   roots: UserSkillRoot[] | string = [
     { root: join(homedir(), ".claude"), includeCommands: true },
   ],
@@ -556,6 +588,8 @@ export function resolveSkillPrompt(
   const claudeConfigDir =
     pluginRoot ?? normalizedRoots[0]?.root ?? join(homedir(), ".claude");
   if (name.includes(":")) {
+    // Only Claude loads plugin skills, so only a Claude agent lists them.
+    if (engine !== "claude") return null;
     const [pluginName, skillName] = name.split(":", 2);
     return resolvePluginSkillPrompt(
       pluginName,
@@ -574,10 +608,11 @@ export function resolveSkillPrompt(
         ? [join(source.root, "commands", `${name}.md`)]
         : []),
     ]),
-    join(cwd, ".isomux", "skills", name, "SKILL.md"),
-    join(cwd, ".agents", "skills", name, "SKILL.md"),
-    join(cwd, ".claude", "skills", name, "SKILL.md"),
-    join(cwd, ".claude", "commands", `${name}.md`),
+    ...projectSkillFolders(cwd, engine).map((folder) =>
+      folder.commands
+        ? join(folder.dir, `${name}.md`)
+        : join(folder.dir, name, "SKILL.md"),
+    ),
     join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
   ];
   for (const path of candidates) {
@@ -599,9 +634,9 @@ export function resolveSkillPrompt(
     } catch {}
   }
 
-  // Account-synced skills, last as in the menu. A live process's rows replace
-  // this read: its skills run in the process.
-  if (!reportedSkills) {
+  // Account-synced skills, last as in the menu, and Claude's only. A live
+  // process's rows replace this read: its skills run in the process.
+  if (!reportedSkills && engine === "claude") {
     const synced = locateSyncedSkills(claudeConfigDir).find(
       (skill) => skill.name === name,
     );

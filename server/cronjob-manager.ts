@@ -212,7 +212,16 @@ export interface CronjobManagerDeps {
   resolveMcpServers?: (userId: string | null | undefined) => AgentMcpServer[];
   // The skill folders of a member's OpenCode server (the agent manager's,
   // so a run passes the same list as the member's agent sessions).
-  resolveOpenCodeSkillPaths?: (userId: string | null | undefined) => string[];
+  // Undefined keeps the list the server has.
+  resolveOpenCodeSkillPaths?: (
+    userId: string | null | undefined,
+  ) => string[] | undefined;
+  // The member skill folder a Claude or Codex run gets (the agent manager's,
+  // built now). Null: none (split mode, or the build failed).
+  resolveSkillFolder?: (
+    agentType: "claude" | "codex",
+    userId: string | null | undefined,
+  ) => string | null;
   // The launch env and environment revision of a member's OpenCode server
   // (the agent manager's, so a run starts the server as the member's agents
   // do). Omitted: the member's env and environment revision.
@@ -998,10 +1007,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
     | "environmentRevision"
     | "mcpServers"
     | "skillPaths"
+    | "skillFolder"
   > {
     const env = buildEnvForUserId(userId);
     const mcpServers = deps.resolveMcpServers?.(userId) ?? [];
-    if (agentType !== "opencode") return { env, mcpServers };
+    if (agentType !== "opencode") {
+      const skillFolder = deps.resolveSkillFolder?.(agentType, userId);
+      return { env, mcpServers, ...(skillFolder ? { skillFolder } : {}) };
+    }
     // One OpenCode server serves all of a member's OpenCode work, so a run
     // starts it with the key the member's agents use (on a provider fallback,
     // the office key).
@@ -1013,10 +1026,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
         ? launch.environmentRevision
         : environmentSourceRevisionForUserId(userId),
       mcpServers,
-      ...(deps.resolveOpenCodeSkillPaths
-        ? { skillPaths: deps.resolveOpenCodeSkillPaths(userId) }
-        : {}),
+      ...openCodeSkillPaths(userId),
     };
+  }
+
+  function openCodeSkillPaths(userId: string | null | undefined): {
+    skillPaths?: string[];
+  } {
+    const skillPaths = deps.resolveOpenCodeSkillPaths?.(userId);
+    return skillPaths ? { skillPaths } : {};
   }
 
   function pinRunEnvironment(
@@ -2757,6 +2775,7 @@ export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
   limitRefusal?: CronjobManagerDeps["limitRefusal"];
   resolveOpenCodeSkillPaths?: CronjobManagerDeps["resolveOpenCodeSkillPaths"];
+  resolveSkillFolder?: CronjobManagerDeps["resolveSkillFolder"];
   resolveOpenCodeLaunch?: CronjobManagerDeps["resolveOpenCodeLaunch"];
 }): CronjobManager {
   return createCronjobManager({
@@ -2771,6 +2790,9 @@ export function createProductionCronjobManager(overrides?: {
       mcpServersForUserId(createMcpServerSources(), userId),
     ...(overrides?.resolveOpenCodeSkillPaths
       ? { resolveOpenCodeSkillPaths: overrides.resolveOpenCodeSkillPaths }
+      : {}),
+    ...(overrides?.resolveSkillFolder
+      ? { resolveSkillFolder: overrides.resolveSkillFolder }
       : {}),
     ...(overrides?.resolveOpenCodeLaunch
       ? { resolveOpenCodeLaunch: overrides.resolveOpenCodeLaunch }

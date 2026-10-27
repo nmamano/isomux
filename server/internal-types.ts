@@ -83,6 +83,11 @@ export interface ManagedAgent {
   readonly sessionManager: SessionManager<ManagedAgent>;
   // Root captured from the actual Claude launch, before system_init assigns an id.
   launchedClaudeConfigDir?: string;
+  // The member skill folder the current Claude or Codex session was given
+  // (server/member-skill-folder.ts), and the env it was built from: a menu
+  // refresh rebuilds that same folder.
+  launchedSkillFolder?: string;
+  launchedSkillEnv?: { [key: string]: string | undefined };
   // True when that launch selected Bedrock or Vertex: the session has no
   // claude.ai login, so its init must not overwrite the sign-in's connectors.
   launchedClaudeCloud?: boolean;

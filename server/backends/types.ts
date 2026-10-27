@@ -75,6 +75,10 @@ export interface CreateSessionOptions {
   // OpenCode: the skill folders its own skill tool reads (one list per
   // member, see SessionEnvironmentOptions).
   skillPaths?: string[];
+  // Claude and Codex: the member skill folder (server/member-skill-folder.ts)
+  // the engine's own skill tool reads besides its own folders. Claude gets it
+  // as an additional directory, Codex as a skills extra root.
+  skillFolder?: string;
   // The engine's native plan mode for the new session: true starts in it,
   // false leaves it, undefined keeps what a resumed session already has.
   // Only backends that declare `planMode` read it.
@@ -535,6 +539,10 @@ export interface BackendSession {
   // Turn the engine's native plan mode on or off. Present only on sessions
   // of backends that declare `planMode`.
   setPlanMode?(on: boolean): Promise<void>;
+
+  // Make the engine read its skill folders again after the member skill
+  // folder changed (Codex: skills/extraRoots/set). Never rejects.
+  reloadSkills?(): Promise<void>;
 
   // Load the engine's plugins again inside the running process, keeping the
   // conversation. Claude only.

@@ -160,16 +160,34 @@ in code (`server/backends/claude.ts:1344`), so the home move does not remove
 them. Codex writes its safety-hook config in
 `server/backends/codex/safety-hook-install.ts:227,377`.
 
-**Isomux's loader after the personal-skill continuity change:**
+**Isomux's loader after the member skill folders (task b1d7ef93):**
 `server/skills.ts` scans STATE_ROOT skills first. A personal Claude root is
 followed by the box `~/.claude`; a personal Codex root is followed by the box
-`~/.codex`, then the Claude roots that agent already received. Office and
-explicit roots do not gain a box-home fallback. The same ordered root list
-feeds menu discovery and prompt resolution. Personal sessions also maintain
-per-entry links for native provider discovery; personal entries win and stale
-box-home links are removed. Project and bundled precedence remains unchanged.
-Plugin discovery still reads its former single Claude root. The loader does not
-walk repository parents or add home `.agents/skills`.
+`~/.codex`. The engine's own roots come first, then `$HOME/.agents/skills`,
+then the other engine's roots. Office and explicit roots do not gain a
+box-home fallback. The same ordered root list feeds menu discovery, prompt
+resolution and the member skill folder. Project skills come only from the
+folders the agent's engine reads in its working folder (Claude
+`.claude/skills` and `.claude/commands`; Codex `.agents/skills`; OpenCode
+`.opencode/skills`, `.opencode/skill`, `.agents/skills`, `.claude/skills`), so
+a project's `.isomux/skills` is listed nowhere. Plugin skills are listed and
+run on Claude agents only.
+
+The engine's own skill tool gets the rest through a member skill folder
+(`server/member-skill-folder.ts`), one per member, engine and provider root,
+under `<state>/member-skills/`: links to the menu's user skills and the
+bundled skills, minus every name the engine reads by itself, and for Codex
+and OpenCode a generated SKILL.md per Claude command. Claude gets it as an
+additional directory, Codex as a skills extra root (set again at each menu
+refresh), OpenCode as its skill paths. No member's skill reaches another
+member's agent, and isomux writes into no provider home; a one-time boot
+cleanup removed the links older session starts wrote there. Known gaps: the
+folder is per member, not per working folder, so a project skill whose name
+is also in the folder shows twice to Codex, which keeps duplicates (also for
+`<cwd>`..`<git root>/.agents/skills` and `/etc/codex/skills`); for a name the
+engine reads by itself, its own copy wins even where the menu ranks another
+root higher; Claude sees the folder as one more working directory. Split
+mode builds no folder.
 
 Recommend one ordered list for menu, execution and native skill exposure:
 keep existing precedence; include office/effective-root skills, then named

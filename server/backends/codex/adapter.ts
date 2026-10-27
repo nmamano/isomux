@@ -982,6 +982,9 @@ export interface CodexSessionInitOpts {
   resumeThreadId?: string;
   // Remote MCP servers for the thread config (codexThreadConfig).
   mcpServers?: AgentMcpServer[];
+  // The member skill folder's skills dir (server/member-skill-folder.ts),
+  // set as Codex's skills extra root before the thread starts or resumes.
+  skillFolder?: string;
   // Codex's native plan collaboration mode: true sets it, false clears it,
   // undefined keeps what a resumed thread has.
   planMode?: boolean;
@@ -1263,6 +1266,7 @@ export class CodexSession implements BackendSession {
         },
       };
       await this.client.initialize(initParams);
+      await this.setSkillRoots();
 
       const sandboxChoice = await effectiveCodexSandbox(
         this.opts.sandbox ?? CODEX_DEFAULT_SANDBOX,
@@ -1373,6 +1377,33 @@ export class CodexSession implements BackendSession {
         },
       },
     });
+  }
+
+  // Codex reads the member skill folder as a skills extra root. Setting it
+  // again also drops Codex's cached skill list, so a reload picks up a
+  // changed folder. A Codex without the method (or any refusal) is logged
+  // once per session and never blocks the thread.
+  private skillRootsRefusalLogged = false;
+  private async setSkillRoots(): Promise<void> {
+    const folder = this.opts.skillFolder;
+    if (!folder) return;
+    try {
+      await this.client.request("skills/extraRoots/set", {
+        extraRoots: [folder],
+      });
+    } catch (err) {
+      if (this.skillRootsRefusalLogged) return;
+      this.skillRootsRefusalLogged = true;
+      console.error(
+        `[codex] ${this.opts.agentId}: skills/extraRoots/set failed, the agent's own skill tool misses the member skill folder: ${errMessage(err)}`,
+      );
+    }
+  }
+
+  async reloadSkills(): Promise<void> {
+    await this.bootstrapPromise;
+    if (this.closed) return;
+    await this.setSkillRoots();
   }
 
   async setPlanMode(on: boolean): Promise<void> {
@@ -3730,6 +3761,7 @@ export const codexBackend: Backend = {
       sandbox: opts.sandbox,
       env: opts.env,
       mcpServers: opts.mcpServers,
+      skillFolder: opts.skillFolder,
       planMode: opts.planMode,
     });
   },
@@ -3746,6 +3778,7 @@ export const codexBackend: Backend = {
       env: opts.env,
       resumeThreadId: sessionId,
       mcpServers: opts.mcpServers,
+      skillFolder: opts.skillFolder,
       planMode: opts.planMode,
     });
   },

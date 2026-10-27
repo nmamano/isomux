@@ -362,6 +362,32 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     expect(asked.every((id) => id === job.userId)).toBe(true);
   });
 
+  it("gives a Claude or Codex run its member's skill folder for its engine", async () => {
+    for (const agentType of ["claude", "codex"] as const) {
+      const fake = new FakeBackend({
+        session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
+      });
+      const mgr = createCronjobManager(
+        baseDeps({
+          resolveBackend: () => fake,
+          resolveSkillFolder: (engine, userId) =>
+            `/folders/${engine}/${userId}`,
+        }),
+      );
+      const job = mgr.addCronjob({
+        ...intervalInput(`SkillFolder${agentType}`),
+        agentType,
+      });
+      mgr.runCronjobNow(job.id, "Nil");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect([agentType, fake.lastSession?.opts.skillFolder]).toEqual([
+        agentType,
+        `/folders/${agentType}/${job.userId}`,
+      ]);
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
   it("runs OpenCode with its unattended profile and no office bearer", async () => {
     const fake = new FakeBackend({
       session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },

@@ -167,7 +167,7 @@ import {
   SUMMARY_ROLLING_EVERY,
   createSessionSummarizer,
 } from "./session-summary.ts";
-import { rmSync, statSync, readFileSync } from "fs";
+import { existsSync, rmSync, statSync, readFileSync } from "fs";
 import {
   resolveCwd,
   validateCwd,
@@ -212,10 +212,13 @@ import {
 } from "./skills.ts";
 import {
   agentUserSkillRoots,
-  exposeBundledSkills,
-  exposePersonalProviderSkills,
   officeClaudeSourceRoot,
 } from "./provider-skill-links.ts";
+import {
+  buildMemberSkillFolder,
+  engineNativeSkillDirs,
+  memberSkillFolderPath,
+} from "./member-skill-folder.ts";
 import { SKILL_ENGINES, type SkillEngineContext } from "./skill-catalog.ts";
 import {
   buildUsageReportData,
@@ -357,6 +360,7 @@ import {
   type ProfileKeyMove,
 } from "./opencode-profile-keys.ts";
 import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
+import { openCodeUserConfigDir } from "./backends/opencode/config-layers.ts";
 import { moveOpenCodeSession } from "./backends/opencode/session-transfer.ts";
 import { openCodeSupervisorForEnvironment } from "./backends/opencode/supervisor.ts";
 import type { SecretSetChange } from "./secret-proxy/runtime.ts";
@@ -462,9 +466,8 @@ export interface ManagerDeps {
   // Production supplies the box provider homes. Tests omit this field so
   // fixtures never read the real member home.
   providerSkillSourceRoots?: { claude: string; codex: string };
-  // Production supplies BUNDLED_SKILLS_DIR. A session start links its skills
-  // into the agent's Claude or Codex skills folder. Tests omit this field so
-  // fixtures never write links into the real member home.
+  // The bundled skills the member skill folders link (default
+  // BUNDLED_SKILLS_DIR).
   bundledSkillsDir?: string;
   // The total time the boot gives the pending OpenCode profile moves
   // (server/opencode-profile-keys.ts). Defaults to 60 s; moves left when it
@@ -2951,17 +2954,23 @@ export function createAgentManager(deps: ManagerDeps) {
       slashCommands: autocompleteCommands(info.agentType),
       skills: deduplicateSkills([
         ...discoverUserSkills(discoverySkillRoots),
-        ...discoverProjectSkills(p.cwd),
-        ...discoverPluginSkills(
-          discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-          p.cwd,
-        ),
+        ...discoverProjectSkills(p.cwd, info.agentType),
+        // Only Claude loads plugin skills.
+        ...(info.agentType === "claude"
+          ? discoverPluginSkills(
+              discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+              p.cwd,
+            )
+          : []),
         ...discoverBundledSkills(),
-        ...discoverSyncedSkills(
-          discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-          null,
-          new Set(),
-        ),
+        // Account-synced skills are Claude's too.
+        ...(info.agentType === "claude"
+          ? discoverSyncedSkills(
+              discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+              null,
+              new Set(),
+            )
+          : []),
       ]),
       sdkReportedCommands: [],
       reportedPlugins: null,
@@ -7314,14 +7323,89 @@ export function createAgentManager(deps: ManagerDeps) {
     );
   }
 
-  // The skill folders OpenCode's own skill tool reads: the user roots and
-  // the bundled skills of the Sk menu. One OpenCode server serves all of a
-  // member's OpenCode work, so only the member's inputs go in, and every path
-  // that can start that server passes them: a server started without them is
-  // replaced at the next agent session.
+  // The member skill folder of one engine and provider root
+  // (server/member-skill-folder.ts), built or updated now: the skills of the
+  // Sk menu's user folders and the bundled skills that the engine does not
+  // read by itself. Null in split mode (the box roots would be the server's
+  // home, not the agent user's) and after a failure, which never blocks a
+  // session start. `built` shares one build per folder across a refresh pass.
+  function memberSkillFolderFor(
+    info: Pick<AgentInfo, "agentType" | "userId">,
+    env: { [key: string]: string | undefined } | undefined,
+    built?: Map<string, string | null>,
+  ): string | null {
+    const host = getAgentHost();
+    if (host.kind === "runner") return null;
+    try {
+      const engine = info.agentType;
+      // The env and HOME the engine process gets. One OpenCode server serves
+      // all of a member's OpenCode work: it runs in the member's profile
+      // (HOME and XDG folders there, OPENCODE_CONFIG_DIR the member's own
+      // config folder) and gets none of the member's OPENCODE_* flags
+      // (openCodeServerEnvironment).
+      let processEnv = env;
+      let home = (env ?? host.baseEnv()).HOME || homedir();
+      let providerRoot: string;
+      if (engine === "opencode") {
+        const launchEnv =
+          buildOpenCodeLaunchEnvironmentForUserId(info.userId) ??
+          host.baseEnv();
+        const profile = openCodeProfilePaths(
+          environmentSourceKeyForUserId(info.userId),
+        );
+        const userConfigDir = openCodeUserConfigDir(launchEnv);
+        home = profile.home;
+        providerRoot = profile.profileDir;
+        processEnv = {
+          XDG_CONFIG_HOME: profile.configHome,
+          ...(existsSync(userConfigDir)
+            ? { OPENCODE_CONFIG_DIR: userConfigDir }
+            : {}),
+        };
+      } else
+        providerRoot =
+          engine === "claude"
+            ? env?.CLAUDE_CONFIG_DIR ||
+              deps.providerSkillSourceRoots?.claude ||
+              join(homedir(), ".claude")
+            : env?.CODEX_HOME || ISOMUX_CODEX_HOME;
+      const folder = memberSkillFolderPath(info.userId, engine, providerRoot);
+      const done = built?.get(folder);
+      if (done !== undefined) return done;
+      const nativeDirs = engineNativeSkillDirs(
+        engine,
+        engine === "claude"
+          ? { ...processEnv, CLAUDE_CONFIG_DIR: providerRoot }
+          : processEnv,
+        home,
+      );
+      const given = buildMemberSkillFolder({
+        engine,
+        folder,
+        userFolders: userSkillFolders(userSkillRootsForInfo(info, env)),
+        bundledDir: deps.bundledSkillsDir ?? BUNDLED_SKILLS_DIR,
+        nativeDirs,
+      });
+      built?.set(folder, given);
+      return given;
+    } catch (err) {
+      console.error(
+        `[skills] no member skill folder for a ${info.agentType} agent of ${info.userId ?? "the office"}:`,
+        errMessage(err),
+      );
+      return null;
+    }
+  }
+
+  // The skill folders OpenCode's own skill tool reads: the member's skill
+  // folder. One OpenCode server serves all of a member's OpenCode work, so
+  // only the member's inputs go in, and every path that can start that
+  // server passes them: a server started without them is replaced at the
+  // next agent session. Undefined in split mode.
   function openCodeSkillPathsForUserId(
     userId: string | null | undefined,
-  ): string[] {
+    built?: Map<string, string | null>,
+  ): string[] | undefined {
     userId ??= null;
     let env: { [key: string]: string | undefined } | undefined;
     try {
@@ -7329,21 +7413,35 @@ export function createAgentManager(deps: ManagerDeps) {
     } catch {
       env = undefined;
     }
-    return [
-      ...userSkillRootsForInfo({ agentType: "opencode", userId }, env).map(
-        (source) => join(source.root, "skills"),
-      ),
-      BUNDLED_SKILLS_DIR,
-    ];
+    const folder = memberSkillFolderFor(
+      { agentType: "opencode", userId },
+      env,
+      built,
+    );
+    return folder ? [folder] : undefined;
+  }
+
+  // A scheduled run's member skill folder: the member's env, as the run's.
+  function skillFolderForUserId(
+    agentType: "claude" | "codex",
+    userId: string | null | undefined,
+  ): string | null {
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(userId ?? null);
+    } catch {
+      return null;
+    }
+    return memberSkillFolderFor({ agentType, userId: userId ?? null }, env);
   }
 
   function openCodeSkillInput(
     agentType: AgentBackendType,
     userId: string | null | undefined,
   ): { skillPaths?: string[] } {
-    return agentType === "opencode"
-      ? { skillPaths: openCodeSkillPathsForUserId(userId) }
-      : {};
+    if (agentType !== "opencode") return {};
+    const skillPaths = openCodeSkillPathsForUserId(userId);
+    return skillPaths ? { skillPaths } : {};
   }
 
   function userSkillRootsFor(managed: ManagedAgent): UserSkillRoot[] {
@@ -7356,12 +7454,15 @@ export function createAgentManager(deps: ManagerDeps) {
     const claudeConfigDir = claudeConfigDirFor(managed);
     const found = [
       ...discoverUserSkills(userSkillRootsFor(managed)),
-      ...discoverProjectSkills(managed.info.cwd),
-      ...discoverPluginSkills(
-        claudeConfigDir,
-        managed.info.cwd,
-        managed.reportedPlugins,
-      ),
+      ...discoverProjectSkills(managed.info.cwd, managed.info.agentType),
+      // Only Claude loads plugin skills.
+      ...(managed.info.agentType === "claude"
+        ? discoverPluginSkills(
+            claudeConfigDir,
+            managed.info.cwd,
+            managed.reportedPlugins,
+          )
+        : []),
       ...discoverBundledSkills(),
     ];
     const listed = new Set([
@@ -7370,7 +7471,10 @@ export function createAgentManager(deps: ManagerDeps) {
     ]);
     return deduplicateSkills([
       ...found,
-      ...discoverSyncedSkills(claudeConfigDir, managed.reportedSkills, listed),
+      // Account-synced skills are Claude's too.
+      ...(managed.info.agentType === "claude"
+        ? discoverSyncedSkills(claudeConfigDir, managed.reportedSkills, listed)
+        : []),
     ]);
   }
 
@@ -7396,10 +7500,40 @@ export function createAgentManager(deps: ManagerDeps) {
       });
   }
 
-  // The agent's Sk menu, discovered again now and sent to clients.
-  function refreshSkillMenu(agentId: string): void {
+  // The live session's member skill folder, built again from the env its
+  // session started with, so a skill added since reaches the engine's own
+  // tool; Codex then reads its skill folders again. A dormant agent gets its
+  // folder at its next session start.
+  function refreshSkillFolder(
+    managed: ManagedAgent,
+    built: Map<string, string | null>,
+  ): void {
+    const session = managed.sessionManager.session;
+    if (!session) return;
+    if (managed.info.agentType === "opencode") {
+      openCodeSkillPathsForUserId(managed.info.userId, built);
+      return;
+    }
+    if (!managed.launchedSkillFolder) return;
+    memberSkillFolderFor(managed.info, managed.launchedSkillEnv, built);
+    void session.reloadSkills?.().catch((err: unknown) => {
+      console.error(
+        `[skills] reloadSkills failed for ${managed.info.id}:`,
+        errMessage(err),
+      );
+    });
+  }
+
+  // The agent's Sk menu, discovered again now and sent to clients, and its
+  // member skill folder brought up to date. `built` shares one folder build
+  // across a refresh of many agents.
+  function refreshSkillMenu(
+    agentId: string,
+    built: Map<string, string | null> = new Map(),
+  ): void {
     const managed = agents.get(agentId);
     if (!managed) return;
+    refreshSkillFolder(managed, built);
     let skills: SkillInfo[];
     try {
       skills = discoverSkillsFor(managed);
@@ -7418,7 +7552,8 @@ export function createAgentManager(deps: ManagerDeps) {
   // A skill created, saved or deleted on the skills page reaches every agent's Sk menu
   // now instead of at the agent's next session start.
   function refreshSkillMenus(): void {
-    for (const agentId of agents.keys()) refreshSkillMenu(agentId);
+    const built = new Map<string, string | null>();
+    for (const agentId of agents.keys()) refreshSkillMenu(agentId, built);
   }
 
   // What the skills page needs to list what agents run, per engine: the user
@@ -7740,50 +7875,14 @@ export function createAgentManager(deps: ManagerDeps) {
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
     const env = buildSessionEnv(managed, resumeSessionId ?? null);
-    const provider =
-      managed.info.agentType === "codex"
-        ? "codex"
-        : managed.info.agentType === "claude"
-          ? "claude"
-          : null;
-    const effectiveRoot =
-      provider === "codex"
-        ? env?.CODEX_HOME || join(homedir(), ".codex")
-        : env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    if (provider) {
-      const sourceRoot =
-        deps.providerSkillSourceRoots?.[provider] ?? effectiveRoot;
-      // The bundled skills go into the skills folder the engine reads: Codex
-      // without CODEX_HOME runs on the office's own Codex home
-      // (withIsomuxCodexHome). Claude's box-root fallback comes from deps,
-      // never homedir(), so a test without a provider home in its env writes
-      // no link into the real one.
-      const linkRoot =
-        provider === "codex"
-          ? env?.CODEX_HOME || ISOMUX_CODEX_HOME
-          : env?.CLAUDE_CONFIG_DIR || deps.providerSkillSourceRoots?.claude;
-      // A member skill in any user folder of the agent's Sk menu keeps its
-      // name, so the engine's own tool and the menu agree.
-      if (deps.bundledSkillsDir && linkRoot) {
-        exposeBundledSkills(
-          join(linkRoot, "skills"),
-          userSkillFolders(userSkillRootsForInfo(managed.info, env)).map(
-            (folder) => folder.skills,
-          ),
-          deps.bundledSkillsDir,
-        );
-      }
-      if (managed.info.userId) {
-        exposePersonalProviderSkills(
-          provider,
-          managed.info.userId,
-          effectiveRoot,
-          sourceRoot,
-          undefined,
-          deps.bundledSkillsDir,
-        );
-      }
-    }
+    // The member skill folder for Claude and Codex (OpenCode gets its own
+    // through openCodeSkillInput).
+    const skillFolder =
+      managed.info.agentType === "opencode"
+        ? null
+        : memberSkillFolderFor(managed.info, env);
+    managed.launchedSkillFolder = skillFolder ?? undefined;
+    managed.launchedSkillEnv = env;
     if (resumeSessionId) {
       const resumeError = getBackend(
         managed.info.agentType,
@@ -7845,6 +7944,7 @@ export function createAgentManager(deps: ManagerDeps) {
       environmentRevision: sessionEnvironmentRevision(managed),
       mcpServers: agentMcpServers(managed.info.userId),
       ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
+      ...(skillFolder ? { skillFolder } : {}),
     };
     const backend = getBackend(managed.info.agentType);
     // Plan mode is session state the engine may not keep (a resumed Claude
@@ -7982,19 +8082,25 @@ export function createAgentManager(deps: ManagerDeps) {
       slashCommands: autocompleteCommands(info.agentType),
       skills: deduplicateSkills([
         ...discoverUserSkills(initialSkillRoots),
-        ...discoverProjectSkills(resolvedCwd),
-        ...discoverPluginSkills(
-          buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
-            join(homedir(), ".claude"),
-          resolvedCwd,
-        ),
+        ...discoverProjectSkills(resolvedCwd, info.agentType),
+        // Only Claude loads plugin skills.
+        ...(info.agentType === "claude"
+          ? discoverPluginSkills(
+              buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
+                join(homedir(), ".claude"),
+              resolvedCwd,
+            )
+          : []),
         ...discoverBundledSkills(),
-        ...discoverSyncedSkills(
-          buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
-            join(homedir(), ".claude"),
-          null,
-          new Set(),
-        ),
+        // Account-synced skills are Claude's too.
+        ...(info.agentType === "claude"
+          ? discoverSyncedSkills(
+              buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
+                join(homedir(), ".claude"),
+              null,
+              new Set(),
+            )
+          : []),
       ]),
       sdkReportedCommands: [],
       reportedPlugins: null,
@@ -13902,6 +14008,7 @@ export function createAgentManager(deps: ManagerDeps) {
     buildOpenCodeLaunchEnvironmentForUserId,
     openCodeEnvironmentRevisionForUserId,
     openCodeSkillPathsForUserId,
+    skillFolderForUserId,
     pushOpenCodeSettings,
     environmentSourceKeyForUserId,
     environmentSourceRevisionForUserId,

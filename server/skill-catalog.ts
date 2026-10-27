@@ -113,12 +113,14 @@ function engineCatalog(
   counts: Record<string, number>,
 ): SkillCatalogEntry[] {
   const user = locateUserSkills(context.userRoots).filter(canRunAs);
-  const plugin = locatePluginSkills(context.pluginRoot);
+  // Only Claude loads plugin skills.
+  const plugin =
+    context.engine === "claude" ? locatePluginSkills(context.pluginRoot) : [];
   const bundled = locateBundledSkills();
   const cwds = [...new Set(context.cwds.map((cwd) => resolve(cwd)))].sort();
   const projects = cwds.map((cwd) => ({
     cwd,
-    skills: locateProjectSkills(cwd).filter(canRunAs),
+    skills: locateProjectSkills(cwd, context.engine).filter(canRunAs),
   }));
 
   // Built-in and plugin files are read-only by where the file really is, so a

@@ -1542,6 +1542,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     const skillPrompt = resolveSkillPrompt(
       cmd,
       managed.info.cwd,
+      managed.info.agentType,
       deps.userSkillRootsFor(managed),
       true,
       deps.claudeConfigDirFor(managed),

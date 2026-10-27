@@ -91,6 +91,9 @@ export interface FakeSessionConfig {
   // whose stream never terminates after close (the bounded-drain scenarios);
   // releasable so swap-race tests can unblock the drain mid-test.
   hangOnClose?: boolean;
+  // When set, the session implements BackendSession.reloadSkills() (like
+  // Codex): each call counts in reloadSkillsCount and runs this hook first.
+  onReloadSkills?: (session: FakeSession) => void;
 }
 
 // A scriptable BackendSession. Construct via FakeBackend.createSession /
@@ -115,6 +118,9 @@ export class FakeSession implements BackendSession {
   // Present only when FakeSessionConfig.steerPush is set: the orchestrator
   // tells push sessions apart by this method.
   steer?: (text: string, steerId: string) => Promise<boolean>;
+  // Present only when FakeSessionConfig.onReloadSkills is set.
+  reloadSkills?: () => Promise<void>;
+  reloadSkillsCount = 0;
 
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
@@ -155,6 +161,13 @@ export class FakeSession implements BackendSession {
           this.steerCalls.push({ text, steerId, resolve });
           if (answer !== undefined) resolve(answer);
         });
+    }
+    const onReloadSkills = cfg.onReloadSkills;
+    if (onReloadSkills) {
+      this.reloadSkills = async () => {
+        onReloadSkills(this);
+        this.reloadSkillsCount++;
+      };
     }
     if (cfg.autoSystemInit ?? true) {
       this.push({

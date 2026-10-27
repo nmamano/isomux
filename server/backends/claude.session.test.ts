@@ -1191,6 +1191,31 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
     assertTypedShape(fake.resumeCalls[0].opts);
   });
 
+  // Task b1d7ef93: the member skill folder reaches Claude as an additional
+  // directory. Claude reads <dir>/.claude/skills and .claude/commands of an
+  // additional directory through its "project" setting source, so the
+  // session must keep that source.
+  it("hands the member skill folder to Claude as an additional directory, on create and resume, with the project setting source kept", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    const skillFolder = "/state/member-skills/0a0b0c0d/claude/1234abcd";
+    backend.createSession({ ...createOpts, skillFolder });
+    backend.resumeSession("s-43", { ...createOpts, skillFolder });
+    backend.createSession(createOpts);
+    const [created, resumed, plain] = [
+      fake.createCalls[0].opts,
+      fake.resumeCalls[0].opts,
+      fake.createCalls[1].opts,
+    ].map((opts) => sessionOptsToV1(opts));
+    for (const opts of [created, resumed]) {
+      expect(opts.additionalDirectories).toEqual([skillFolder]);
+      // Unset is the SDK default, which includes "project".
+      if (opts.settingSources !== undefined)
+        expect(opts.settingSources).toContain("project");
+    }
+    expect(plain.additionalDirectories ?? []).toEqual([]);
+  });
+
   it("opts bypass mode into the SDK and keeps dangerous commands denied by hooks", async () => {
     const fake = new FakeSdkClient();
     const backend = createClaudeBackend(fake);

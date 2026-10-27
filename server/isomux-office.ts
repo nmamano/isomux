@@ -473,6 +473,15 @@ import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
+  cleanupLegacySkillLinks,
+  removeMemberSkillFolders,
+  sweepMemberSkillFolders,
+} from "./member-skill-folder.ts";
+import { officeClaudeSourceRoot } from "./provider-skill-links.ts";
+import { personalProviderHome } from "./provider-homes.ts";
+import { BUNDLED_SKILLS_DIR } from "./skills.ts";
+import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
+import {
   managedEnvValuesDiffer,
   managedOfficeEnvExists,
   managedUserEnvExists,
@@ -930,6 +939,8 @@ function createManagers(startOpts: StartServerOpts): void {
     resolveBackend: startOpts.resolveBackend,
     resolveOpenCodeSkillPaths: (userId) =>
       agentManager.openCodeSkillPathsForUserId(userId),
+    resolveSkillFolder: (agentType, userId) =>
+      agentManager.skillFolderForUserId(agentType, userId),
     resolveOpenCodeLaunch: (userId) => ({
       env: agentManager.buildOpenCodeLaunchEnvironmentForUserId(userId),
       environmentRevision:
@@ -2638,6 +2649,37 @@ function accessibleRoomIdsFor(
     return new Set(agentManager.getOrdinaryRooms().map((r) => r.id));
   }
   return new Set(allowedRoomsOverride ?? user.allowedRooms);
+}
+
+// Boot: the skill folders of members that are gone go, and (once) the links
+// that session starts before the member skill folders wrote into provider
+// homes. Never blocks the boot.
+function settleMemberSkillFolders(): void {
+  try {
+    const userIds = listUsers().map((user) => user.id);
+    sweepMemberSkillFolders(userIds);
+    cleanupLegacySkillLinks({
+      codexHome: ISOMUX_CODEX_HOME,
+      boxClaudeRoot: officeClaudeSourceRoot(),
+      personalHomes: userIds.flatMap((id) =>
+        (["claude", "codex"] as const).map((provider) => ({
+          provider,
+          root: personalProviderHome(id, provider),
+        })),
+      ),
+      sourceRoots: {
+        claude: officeClaudeSourceRoot(),
+        codex: join(homedir(), ".codex"),
+      },
+      bundledDir: BUNDLED_SKILLS_DIR,
+      marker: join(STATE_ROOT, "member-skills", ".legacy-cleaned"),
+    });
+  } catch (err) {
+    console.error(
+      "[skills] member skill folder upkeep failed:",
+      errMessage(err),
+    );
+  }
 }
 
 // One-time owner-access migration to the rule-based model.
@@ -5299,6 +5341,7 @@ function buildExecutorDeps(
           dropOAuthTokensOfScope({ kind: "user", userId: target.id });
           removeManagedUserEnv(target.id);
           webPushStore.removeMember(target.id);
+          removeMemberSkillFolders(target.id);
         }
         // The lockout checks again, in one auth mutex link with the removal.
         // A refusal here leaves the member with the steps above done, like
@@ -9523,6 +9566,7 @@ export async function startServer(
   // (lazy load) ready. Fresh-install owners are created later via /auth/claim
   // and seeded grants=[] directly (auth.ts), so this is a no-op for them.
   migrateOwnersToRuleBasedAccess();
+  settleMemberSkillFolders();
   // After the managers (the supervisor is assigned in createManagers) and
   // before the listener: an app's token should be settled before anything can
   // present one.

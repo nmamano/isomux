@@ -77,6 +77,11 @@ export interface SdkSessionOptions {
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
   disallowedTools?: string[];
   canUseTool?: CanUseTool;
+  // The member skill folder (server/member-skill-folder.ts). Claude reads
+  // .claude/skills and .claude/commands of an additional directory through
+  // its "project" setting source, which the session leaves on (settingSources
+  // unset).
+  additionalDirectories?: string[];
 }
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 
@@ -2056,6 +2061,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // clarifying questions in plain chat instead.
     disallowedTools: ["AskUserQuestion"],
   };
+  if (opts.skillFolder) sdkOpts.additionalDirectories = [opts.skillFolder];
   if (opts.env || isClaudeCloudSelected(env)) sdkOpts.env = env;
   return sdkOpts;
 }

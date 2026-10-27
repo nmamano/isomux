@@ -1,20 +1,19 @@
 // Task 30dd196e: an OpenCode agent gets the office's skills on both paths.
-// Its own skill tool loads them from the folders the session names (the
-// user skill roots the Sk menu uses, and the bundled skills), and a skill a
+// Its own skill tool loads them from the member's skill folder the session
+// names (the Sk menu's user skills and the bundled skills), and a skill a
 // member runs as /<name> reaches it with its office calls in the form an
 // OpenCode agent can run: no ISOMUX_AGENT_TOKEN, the authority socket and the
 // turn header instead.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { BUNDLED_SKILLS_DIR } from "../skills.ts";
-import { personalProviderHome } from "../provider-homes.ts";
 import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
@@ -28,6 +27,11 @@ const MEMBER_ID = "01a19e7b";
 // them and not the provider homes of the process that runs the test.
 const restoreProvider: (() => void)[] = [];
 afterEach(() => restoreProvider.splice(0).forEach((restore) => restore()));
+const savedHome = process.env.HOME;
+afterEach(() => {
+  if (savedHome === undefined) delete process.env.HOME;
+  else process.env.HOME = savedHome;
+});
 
 function rooms(id: string): RoomWire[] {
   return [{ id, name: id, prompt: null, canCloseWhenEmpty: false }];
@@ -43,6 +47,9 @@ function setup(tag: string) {
       },
     },
   });
+  // OpenCode reads ~/.claude/skills itself: a HOME of the test's own.
+  process.env.HOME = join(STATE_ROOT, `skills-${tag}-home`);
+  mkdirSync(process.env.HOME, { recursive: true });
   const boxClaude = join(STATE_ROOT, `skills-${tag}-claude`);
   const boxCodex = join(STATE_ROOT, `skills-${tag}-codex`);
   const skill = join(boxClaude, "skills", "office-call");
@@ -70,6 +77,7 @@ function setup(tag: string) {
     officeState: new OfficeState({ rooms: rooms(room) }),
     initialRooms: [],
     providerSkillSourceRoots: { claude: boxClaude, codex: boxCodex },
+    bundledSkillsDir: BUNDLED_SKILLS_DIR,
   });
   mgr.configureAgentTurnDeps();
   const spawn = async (name: string, agentType: "claude" | "opencode") =>
@@ -119,21 +127,22 @@ function setup(tag: string) {
 }
 
 describe("OpenCode skills", () => {
-  it("names the user skill roots and the bundled skills for an OpenCode session, the same for each agent of one manager, and none for Claude", async () => {
+  it("names the member's skill folder for an OpenCode session, the same for each agent of one manager, and none for Claude", async () => {
     const h = setup("roots");
     const first = await h.spawn("OpenCode one", "opencode");
     const second = await h.spawn("OpenCode two", "opencode");
     const claude = await h.spawn("Claude one", "claude");
     const paths = (await h.session(first.id, "hello")).opts.skillPaths;
-    expect(paths).toBeDefined();
-    for (const dir of [
-      join(personalProviderHome(MEMBER_ID, "claude"), "skills"),
-      join(h.boxClaude, "skills"),
-      join(personalProviderHome(MEMBER_ID, "codex"), "skills"),
-      join(h.boxCodex, "skills"),
-      BUNDLED_SKILLS_DIR,
-    ])
-      expect([dir, paths!.includes(dir)]).toEqual([dir, true]);
+    expect(paths).toHaveLength(1);
+    expect(
+      resolve(paths![0]).startsWith(
+        resolve(STATE_ROOT, "member-skills", MEMBER_ID, "opencode"),
+      ),
+    ).toBe(true);
+    // The folder holds the box Claude skill and the bundled skills.
+    const listed = readdirSync(paths![0]);
+    for (const name of ["office-call", "wrap-session"])
+      expect([name, listed.includes(name)]).toEqual([name, true]);
     // One OpenCode server serves every agent of a manager: a list that
     // differs per agent would replace that server at each session start.
     expect((await h.session(second.id, "hello")).opts.skillPaths).toEqual(

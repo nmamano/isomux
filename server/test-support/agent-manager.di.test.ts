@@ -40,6 +40,7 @@ import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { join } from "node:path";
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -280,15 +281,24 @@ describe("AgentManager DI (temp-state isolated)", () => {
       expect(fake.lastSession?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
         personalProviderHome("01a19e7b", "claude"),
       );
+      // The box skill reaches the agent through its member skill folder
+      // (task b1d7ef93), not a link in the personal home.
+      const folder = fake.lastSession?.opts.skillFolder;
+      expect(typeof folder).toBe("string");
       expect(
         lstatSync(
+          join(folder!, ".claude", "skills", "fixture-skill"),
+        ).isSymbolicLink(),
+      ).toBe(true);
+      expect(
+        existsSync(
           join(
             personalProviderHome("01a19e7b", "claude"),
             "skills",
             "fixture-skill",
           ),
-        ).isSymbolicLink(),
-      ).toBe(true);
+        ),
+      ).toBe(false);
     } finally {
       setPersonalProviderActiveProvider(previousProvider);
     }

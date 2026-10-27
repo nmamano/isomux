@@ -150,6 +150,13 @@ function claudeHome() {
   return { cfg, install, live, later };
 }
 
+// A user skill in the Claude config folder, which every engine's menu lists.
+function userSkill(cfg: string, name: string): void {
+  const dir = join(cfg, "skills", name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "SKILL.md"), `---\ndescription: ${name}\n---\n`);
+}
+
 // Account-synced skills on disk, one bucket, each with a SKILL.md whose
 // description is its name.
 function syncSkills(cfg: string, names: string[]): void {
@@ -475,8 +482,12 @@ describe("/reload-plugins without a live Claude session", () => {
     it(`rebuilds the ${engine} agent's menu from the disk`, async () => {
       const home = claudeHome();
       const agent = await agentOn(engine, `user-reload-asleep-${engine}`);
-      expect(agent.lastMenu()).toEqual(["disk:s-disk"]);
+      // Only Claude lists plugin skills (task b1d7ef93).
+      const plugins = (list: string[]) => (engine === "claude" ? list : []);
+      expect(agent.lastMenu()).toEqual(plugins(["disk:s-disk"]));
       home.install("added");
+      userSkill(home.cfg, "added-skill");
+      expect(agent.skillsNamed(["added-skill"])).toEqual([]);
       const lines = await agent.run();
       expect(agent.backend.sessionReloads).toBe(0);
       expect(agent.backend.reloads).toEqual([]);
@@ -485,7 +496,10 @@ describe("/reload-plugins without a live Claude session", () => {
         "system",
       ]);
       expect(lines[1].content).toBe(t(reply));
-      expect(agent.lastMenu()).toEqual(["added:s-added", "disk:s-disk"]);
+      expect(agent.lastMenu()).toEqual(
+        plugins(["added:s-added", "disk:s-disk"]),
+      );
+      expect(agent.skillsNamed(["added-skill"])).toEqual(["added-skill"]);
     });
   }
 });
@@ -520,6 +534,8 @@ describe("/reload-plugins on OpenCode", () => {
       if (outcome === "reloaded") {
         // The menu is rebuilt with the reload.
         home.install("added");
+        userSkill(home.cfg, "added-skill");
+        expect(agent.skillsNamed(["added-skill"])).toEqual([]);
       }
     }
     removeManagedUserEnv(userId);
@@ -531,7 +547,9 @@ describe("/reload-plugins on OpenCode", () => {
     expect(new Set(replies).size).toBe(3);
     // The failure line carries the engine's error, so it is not a refusal.
     expect(replies[2]).toContain("reload-failure-canary");
-    expect(agent.lastMenu()).toEqual(["added:s-added", "disk:s-disk"]);
+    // Only Claude lists plugin skills (task b1d7ef93).
+    expect(agent.lastMenu()).toEqual([]);
+    expect(agent.skillsNamed(["added-skill"])).toEqual(["added-skill"]);
   });
 });
 

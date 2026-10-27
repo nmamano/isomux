@@ -93,6 +93,55 @@ describe("skill catalog", () => {
     expect(builtIn?.editable).toBe(false);
   });
 
+  // Task b1d7ef93: an engine tab lists what that engine's agents load: the
+  // engine's own project folders, and plugin skills on Claude only.
+  it("lists each engine's own project folders, and plugin skills on the Claude tab only", () => {
+    const project = tmp("engines-project");
+    for (const dir of [".claude", ".agents", ".opencode", ".isomux"])
+      skill(join(project, dir), `in${dir.replace(".", "-")}`);
+    const plugins = tmp("engines-plugins");
+    const install = tmp("engines-install");
+    skill(install, "do-work");
+    mkdirSync(join(plugins, "plugins"), { recursive: true });
+    writeFileSync(
+      join(plugins, "plugins", "installed_plugins.json"),
+      JSON.stringify({
+        plugins: { "helper@test": [{ installPath: install }] },
+      }),
+    );
+    writeFileSync(
+      join(plugins, "settings.json"),
+      JSON.stringify({ enabledPlugins: { "helper@test": true } }),
+    );
+    const catalog = buildSkillCatalog(
+      (["claude", "codex", "opencode"] as const).map((engine) => ({
+        ...context({
+          userRoots: [tmp(`engines-user-${engine}`)],
+          cwds: [project],
+        }),
+        engine,
+        pluginRoot: plugins,
+      })),
+      {},
+      "/new",
+      "/home",
+    );
+    const listed = Object.fromEntries(
+      catalog.engines.map(({ engine, skills }) => [
+        engine,
+        skills
+          .filter((s) => s.source === "project" || s.source === "plugin")
+          .map((s) => s.name)
+          .sort(),
+      ]),
+    );
+    expect(listed).toEqual({
+      claude: ["helper:do-work", "in-claude"],
+      codex: ["in-agents"],
+      opencode: ["in-agents", "in-claude", "in-opencode"],
+    });
+  });
+
   it("marks a skill shadowed when an earlier one with its name always wins", () => {
     const first = tmp("first");
     const second = tmp("second");
@@ -104,9 +153,9 @@ describe("skill catalog", () => {
     expect(same[0].shadowedBy).toBeUndefined();
     expect(same[1].shadowedBy).toBe(winner);
     // The resolver agrees: the first root's file runs.
-    expect(resolveSkillPrompt("same", tmp("cwd"), roots(first, second))).toBe(
-      "first body",
-    );
+    expect(
+      resolveSkillPrompt("same", tmp("cwd"), "claude", roots(first, second)),
+    ).toBe("first body");
   });
 
   it("does not shadow a built-in for every agent when one project overrides it", () => {
@@ -137,27 +186,29 @@ describe("skill catalog", () => {
   });
 
   it("keeps a linked file running when another project runs it", () => {
-    // Project A overrides its .claude skill with an .isomux one; project B
-    // links A's .claude skill and has no override, so B runs it.
+    // On OpenCode, project A overrides its .claude skill with an .opencode
+    // one; project B links A's .claude skill and has no override, so B runs it.
     const a = tmp("a");
     const b = tmp("b");
-    skill(join(a, ".isomux"), "shared", "a override");
+    skill(join(a, ".opencode"), "shared", "a override");
     const linked = skill(join(a, ".claude"), "shared", "linked body");
     mkdirSync(join(b, ".claude", "skills"), { recursive: true });
     symlinkSync(
       join(a, ".claude", "skills", "shared"),
       join(b, ".claude", "skills", "shared"),
     );
-    const list = entries(context({ userRoots: [tmp("user")], cwds: [a, b] }));
+    const list = entries(
+      context({ engine: "opencode", userRoots: [tmp("user")], cwds: [a, b] }),
+    );
     const entry = list.find((s) => s.name === "shared" && s.path === linked);
     expect(entry).toBeDefined();
     expect(entry?.shadowedBy).toBeUndefined();
-    expect(resolveSkillPrompt("shared", b, roots(tmp("user")))).toBe(
-      "linked body",
-    );
-    expect(resolveSkillPrompt("shared", a, roots(tmp("user")))).toBe(
-      "a override",
-    );
+    expect(
+      resolveSkillPrompt("shared", b, "opencode", roots(tmp("user"))),
+    ).toBe("linked body");
+    expect(
+      resolveSkillPrompt("shared", a, "opencode", roots(tmp("user"))),
+    ).toBe("a override");
   });
 
   it("lists a colon name only as the plugin skill the resolver runs", () => {
@@ -184,7 +235,14 @@ describe("skill catalog", () => {
     expect(probes[0]).toMatchObject({ source: "plugin", editable: false });
     expect(probes[0].shadowedBy).toBeUndefined();
     expect(
-      resolveSkillPrompt("p:probe", tmp("cwd"), roots(user), true, claudeHome),
+      resolveSkillPrompt(
+        "p:probe",
+        tmp("cwd"),
+        "claude",
+        roots(user),
+        true,
+        claudeHome,
+      ),
     ).toBe("plugin body");
   });
 
@@ -199,7 +257,7 @@ describe("skill catalog", () => {
       const boxCommand = join(box, "commands", "cmd.md");
       mkdirSync(dirname(boxCommand), { recursive: true });
       writeFileSync(boxCommand, "command body\n");
-      // exposePersonalProviderSkills writes absolute targets; a relative one
+      // The links old session starts wrote are absolute; a relative one
       // resolves against the link's own folder.
       const link = (target: string, at: string) => {
         mkdirSync(dirname(at), { recursive: true });
@@ -357,9 +415,9 @@ describe("skill create", () => {
       name: "triage-bugs",
       description,
     });
-    expect(resolveSkillPrompt("triage-bugs", tmp("cwd"), roots(home))).toBe(
-      "File one task per bug.",
-    );
+    expect(
+      resolveSkillPrompt("triage-bugs", tmp("cwd"), "claude", roots(home)),
+    ).toBe("File one task per bug.");
   });
 
   it("rejects bad names and descriptions, and an existing folder", () => {

@@ -18,7 +18,7 @@ import {
   MCP_SECRET_VALUE,
   placeholderMcpServers,
 } from "../../test-support/mcp-placeholder-fixture.ts";
-import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
@@ -59,7 +59,7 @@ import type {
 } from "./client.ts";
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
-import type { NormalizedEvent } from "../types.ts";
+import type { BackendSession, NormalizedEvent } from "../types.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { CodexSafetyPreflightResult } from "./safety-hook-install.ts";
 import {
@@ -93,6 +93,9 @@ class FakeCodexTransport implements CodexTransport {
   settingsUpdateError: Error | null = null;
   // When set, request("turn/steer") rejects with it (codex refuses the steer).
   turnSteerError: Error | null = null;
+  // When set, request("skills/extraRoots/set") rejects with it (a Codex
+  // without the method).
+  extraRootsError: Error | null = null;
   // account/rateLimits/read: resolves with this payload, or rejects when the
   // error is set (unauthenticated / API-key-only logins).
   rateLimitsReadResponse: unknown = null;
@@ -155,6 +158,8 @@ class FakeCodexTransport implements CodexTransport {
       return Promise.reject(this.settingsUpdateError);
     if (method === "turn/steer" && this.turnSteerError)
       return Promise.reject(this.turnSteerError);
+    if (method === "skills/extraRoots/set" && this.extraRootsError)
+      return Promise.reject(this.extraRootsError);
     if (method === "turn/start" && this.holdTurnStart) {
       this.turnStartPending = true;
       return new Promise<T>((resolve) => {
@@ -537,6 +542,72 @@ describe("CodexSession bootstrap", () => {
 // key in Codex 0.164: only a turn-level sandboxPolicy turns it on, and a
 // thread/resume resets the thread to the plain mode, so every turn/start of a
 // read-only session carries it.
+
+// Task b1d7ef93: the member skill folder reaches Codex as a skills extra root,
+// set before the thread starts or resumes, and again at each reloadSkills
+// (which also makes Codex drop its cached skill list).
+describe("Codex member skill folder", () => {
+  const skillFolder = "/state/member-skills/0a0b0c0d/codex/1234abcd/skills";
+  const extraRoots = (fake: FakeCodexTransport) =>
+    fake.requests.filter((r) => r.method === "skills/extraRoots/set");
+
+  for (const resume of [false, true]) {
+    it(`sets the folder as the extra root before thread/${resume ? "resume" : "start"}`, async () => {
+      const fake = new FakeCodexTransport();
+      await bootstrapped(fake, {
+        skillFolder,
+        ...(resume ? { resumeThreadId: FIXTURE_THREAD_ID } : {}),
+      });
+      expect(fake.requests.slice(0, 2).map((r) => r.method)).toEqual([
+        "skills/extraRoots/set",
+        resume ? "thread/resume" : "thread/start",
+      ]);
+      expect(fake.requests[0].params).toEqual({ extraRoots: [skillFolder] });
+    });
+  }
+
+  it("sends the same extra root again at reloadSkills, and nothing without a folder", async () => {
+    const { session, fake } = await bootstrapped(undefined, { skillFolder });
+    const backendSession: BackendSession = session;
+    expect(typeof backendSession.reloadSkills).toBe("function");
+    await backendSession.reloadSkills!();
+    expect(extraRoots(fake).map((r) => r.params)).toEqual([
+      { extraRoots: [skillFolder] },
+      { extraRoots: [skillFolder] },
+    ]);
+
+    const plain = await bootstrapped();
+    await (plain.session as BackendSession).reloadSkills?.();
+    expect(extraRoots(plain.fake)).toEqual([]);
+  });
+
+  it("starts the thread when Codex refuses the extra root, logs it once, and a reload never rejects", async () => {
+    const fake = new FakeCodexTransport();
+    fake.extraRootsError = new Error("Method not found");
+    const logs: unknown[][] = [];
+    const error = spyOn(console, "error").mockImplementation((...args) => {
+      logs.push(args);
+    });
+    const warn = spyOn(console, "warn").mockImplementation((...args) => {
+      logs.push(args);
+    });
+    try {
+      const { session } = await bootstrapped(fake, { skillFolder });
+      expect(fake.requests.map((r) => r.method)).toContain("thread/start");
+      // The bootstrap's request settles before the first log check.
+      await Promise.resolve();
+      expect(logs.length).toBeGreaterThan(0);
+      const afterStart = logs.length;
+      await (session as BackendSession).reloadSkills!();
+      await (session as BackendSession).reloadSkills!();
+      expect(extraRoots(fake)).toHaveLength(3);
+      expect(logs.length).toBe(afterStart);
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  });
+});
 describe("CodexSession sandbox network", () => {
   const READ_ONLY_WITH_NETWORK = { type: "readOnly", networkAccess: true };
 

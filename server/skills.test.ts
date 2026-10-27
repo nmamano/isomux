@@ -1,19 +1,16 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   existsSync,
-  lstatSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
   rmSync,
   readFileSync,
-  readlinkSync,
-  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   BUNDLED_SKILLS_DIR,
   discoverPluginSkills,
@@ -27,8 +24,6 @@ import {
 import type { CommandRow, EnginePlugin } from "./backends/types.ts";
 import {
   agentUserSkillRoots,
-  exposeBundledSkills,
-  exposePersonalProviderSkills,
   providerUserSkillRoots,
 } from "./provider-skill-links.ts";
 
@@ -77,7 +72,7 @@ describe("bundled skills", () => {
     const body = text.split("---").slice(2).join("---").trim();
     expect(body.length).toBeGreaterThan(0);
     expect(
-      resolveSkillPrompt("wrap-session", root("cwd"), [
+      resolveSkillPrompt("wrap-session", root("cwd"), "claude", [
         { root: emptyUserRoot, includeCommands: true },
       ]),
     ).toContain(body);
@@ -143,104 +138,49 @@ describe("bundled skills", () => {
 });
 
 describe("effective Claude home skill agreement", () => {
-  it("exposes external Claude skills in a personal home and keeps personal clashes", () => {
+  it("lists the box Claude skills and commands after a personal home's own, which win a clash", () => {
     const external = root("external-claude-home");
     const personal = root("personal-claude-home");
     skill(external, "external-only", "external prompt");
     command(external, "external-command", "external command prompt");
     skill(external, "clash", "external clash prompt");
-    const userId = "fixture-user";
     skill(personal, "clash", "personal clash prompt");
-    exposePersonalProviderSkills(
-      "claude",
-      userId,
-      personal,
-      external,
-      personal,
-    );
 
     const orderedRoots = providerUserSkillRoots(
       "claude",
-      userId,
+      "fixture-user",
       personal,
       external,
       personal,
     );
     const listed = discoverUserSkills(orderedRoots).map((item) => item.name);
-    expect(
-      lstatSync(join(personal, "skills", "external-only")).isSymbolicLink(),
-    ).toBe(true);
-    expect(
-      lstatSync(
-        join(personal, "commands", "external-command.md"),
-      ).isSymbolicLink(),
-    ).toBe(true);
     expect(listed).toContain("external-only");
     expect(listed).toContain("external-command");
-    expect(resolveSkillPrompt("external-only", root("cwd"), orderedRoots)).toBe(
-      "external prompt",
-    );
     expect(
-      resolveSkillPrompt("external-command", root("cwd"), orderedRoots),
+      resolveSkillPrompt("external-only", root("cwd"), "claude", orderedRoots),
+    ).toBe("external prompt");
+    expect(
+      resolveSkillPrompt(
+        "external-command",
+        root("cwd"),
+        "claude",
+        orderedRoots,
+      ),
     ).toBe("external command prompt");
-    expect(resolveSkillPrompt("clash", root("cwd"), orderedRoots)).toBe(
-      "personal clash prompt",
-    );
-
-    rmSync(join(external, "skills", "external-only"), {
-      recursive: true,
-      force: true,
-    });
-    const outside = root("outside-skill");
-    skill(outside, "kept-link-target", "outside prompt");
-    symlinkSync(
-      join(outside, "skills", "kept-link-target"),
-      join(personal, "skills", "outside-link"),
-      "dir",
-    );
-    exposePersonalProviderSkills(
-      "claude",
-      userId,
-      personal,
-      external,
-      personal,
-    );
-    expect(existsSync(join(personal, "skills", "external-only"))).toBe(false);
-    expect(existsSync(join(personal, "skills", "outside-link"))).toBe(true);
-    expect(resolveSkillPrompt("clash", root("cwd"), orderedRoots)).toBe(
-      "personal clash prompt",
-    );
-
-    skill(external, "cross-box", "current box prompt");
-    symlinkSync(
-      "/home/oldbox/.claude/skills/cross-box",
-      join(personal, "skills", "cross-box"),
-      "dir",
-    );
-    exposePersonalProviderSkills(
-      "claude",
-      userId,
-      personal,
-      external,
-      personal,
-    );
-    expect(readlinkSync(join(personal, "skills", "cross-box"))).toBe(
-      join(external, "skills", "cross-box"),
-    );
+    expect(
+      resolveSkillPrompt("clash", root("cwd"), "claude", orderedRoots),
+    ).toBe("personal clash prompt");
   });
 
-  it("exposes external Codex skills without Claude commands", () => {
+  it("lists the box Codex skills after a personal Codex home's, without Claude commands", () => {
     const external = root("external-codex-home");
     const personal = root("personal-codex-home");
     skill(external, "codex-only", "codex prompt");
     command(external, "claude-command", "must stay hidden");
 
-    const userId = "fixture-codex-user";
-    exposePersonalProviderSkills("codex", userId, personal, external, personal);
-
     const orderedRoots = providerUserSkillRoots(
       "codex",
-      userId,
+      "fixture-codex-user",
       personal,
       external,
       personal,
@@ -248,71 +188,34 @@ describe("effective Claude home skill agreement", () => {
     const listed = discoverUserSkills(orderedRoots).map((item) => item.name);
     expect(listed).toContain("codex-only");
     expect(listed).not.toContain("claude-command");
-    expect(resolveSkillPrompt("codex-only", root("cwd"), orderedRoots)).toBe(
-      "codex prompt",
-    );
+    expect(
+      resolveSkillPrompt("codex-only", root("cwd"), "claude", orderedRoots),
+    ).toBe("codex prompt");
   });
 
-  it("does not expose box skills to an office or explicit root", () => {
+  it("does not add the box root to an office or explicit root", () => {
     const external = root("external-home");
     const selected = root("explicit-home");
-    skill(external, "must-not-leak", "private prompt");
-
     const expectedPersonal = root("expected-personal");
-    exposePersonalProviderSkills(
-      "claude",
-      "fixture-user",
-      selected,
-      external,
-      expectedPersonal,
-    );
-
-    expect(
-      providerUserSkillRoots(
-        "claude",
-        "fixture-user",
-        selected,
-        external,
-        expectedPersonal,
-      ),
-    ).toEqual([{ root: selected, includeCommands: true }]);
-    expect(existsSync(join(selected, "skills", "must-not-leak"))).toBe(false);
-    expect(existsSync(join(expectedPersonal, "skills", "must-not-leak"))).toBe(
-      false,
-    );
-
-    const selectedCodex = root("explicit-codex-home");
-    const expectedPersonalCodex = root("expected-personal-codex");
-    exposePersonalProviderSkills(
-      "codex",
-      "fixture-user",
-      selectedCodex,
-      external,
-      expectedPersonalCodex,
-    );
-    expect(
-      providerUserSkillRoots(
-        "codex",
-        "fixture-user",
-        selectedCodex,
-        external,
-        expectedPersonalCodex,
-      ),
-    ).toEqual([{ root: selectedCodex, includeCommands: false }]);
-    expect(existsSync(join(selectedCodex, "skills", "must-not-leak"))).toBe(
-      false,
-    );
-    expect(
-      existsSync(join(expectedPersonalCodex, "skills", "must-not-leak")),
-    ).toBe(false);
+    for (const provider of ["claude", "codex"] as const)
+      expect(
+        providerUserSkillRoots(
+          provider,
+          "fixture-user",
+          selected,
+          external,
+          expectedPersonal,
+        ),
+      ).toEqual([{ root: selected, includeCommands: provider === "claude" }]);
   });
 
-  it("keeps Codex roots ahead of its existing Claude roots", () => {
+  it("keeps Codex roots, then ~/.agents, ahead of its existing Claude roots", () => {
     const personalCodex = root("personal-codex");
     const boxCodex = root("box-codex");
     const personalClaude = root("personal-claude");
     const boxClaude = root("box-claude");
     const userId = "ordered-user";
+    const home = root("ordered-home");
 
     const listed = agentUserSkillRoots(
       "codex",
@@ -320,6 +223,7 @@ describe("effective Claude home skill agreement", () => {
       {
         CODEX_HOME: personalCodex,
         CLAUDE_CONFIG_DIR: personalClaude,
+        HOME: home,
       },
       boxClaude,
       boxCodex,
@@ -330,22 +234,24 @@ describe("effective Claude home skill agreement", () => {
     expect(listed).toEqual([
       { root: personalCodex, includeCommands: false },
       { root: boxCodex, includeCommands: false },
+      { root: join(home, ".agents"), includeCommands: false },
       { root: personalClaude, includeCommands: true },
       { root: boxClaude, includeCommands: true },
     ]);
   });
 
-  it("gives OpenCode the ordered Claude roots, then the Codex sources", () => {
+  it("gives OpenCode the ordered Claude roots, then ~/.agents, then the Codex sources", () => {
     const personalClaude = root("opencode-personal-claude");
     const boxClaude = root("opencode-box-claude");
     const personalCodex = root("opencode-personal-codex");
     const boxCodex = root("opencode-box-codex");
+    const home = root("opencode-home");
 
     expect(
       agentUserSkillRoots(
         "opencode",
         "opencode-user",
-        { CLAUDE_CONFIG_DIR: personalClaude },
+        { CLAUDE_CONFIG_DIR: personalClaude, HOME: home },
         boxClaude,
         boxCodex,
         personalClaude,
@@ -354,6 +260,7 @@ describe("effective Claude home skill agreement", () => {
     ).toEqual([
       { root: personalClaude, includeCommands: true },
       { root: boxClaude, includeCommands: true },
+      { root: join(home, ".agents"), includeCommands: false },
       { root: personalCodex, includeCommands: false },
       { root: boxCodex, includeCommands: false },
     ]);
@@ -379,12 +286,12 @@ describe("effective Claude home skill agreement", () => {
 
     const listed = discoverUserSkills(scanned).map((item) => item.name);
     expect(listed).toEqual(["linked-skill", "linked-command"]);
-    expect(resolveSkillPrompt("linked-skill", root("cwd"), scanned)).toBe(
-      "linked skill prompt",
-    );
-    expect(resolveSkillPrompt("linked-command", root("cwd"), scanned)).toBe(
-      "linked command prompt",
-    );
+    expect(
+      resolveSkillPrompt("linked-skill", root("cwd"), "claude", scanned),
+    ).toBe("linked skill prompt");
+    expect(
+      resolveSkillPrompt("linked-command", root("cwd"), "claude", scanned),
+    ).toBe("linked command prompt");
   });
 
   it("lists and executes user skills and commands from the same home", () => {
@@ -394,12 +301,12 @@ describe("effective Claude home skill agreement", () => {
     const listed = discoverUserSkills(home).map((item) => item.name);
     expect(listed).toContain("personal-skill");
     expect(listed).toContain("personal-command");
-    expect(resolveSkillPrompt("personal-skill", root("cwd"), home)).toBe(
-      "personal skill prompt",
-    );
-    expect(resolveSkillPrompt("personal-command", root("cwd"), home)).toBe(
-      "personal command prompt",
-    );
+    expect(
+      resolveSkillPrompt("personal-skill", root("cwd"), "claude", home),
+    ).toBe("personal skill prompt");
+    expect(
+      resolveSkillPrompt("personal-command", root("cwd"), "claude", home),
+    ).toBe("personal command prompt");
   });
 
   it("does not list skill-root infrastructure without a SKILL.md", () => {
@@ -409,7 +316,9 @@ describe("effective Claude home skill agreement", () => {
     });
 
     expect(discoverUserSkills(home)).toEqual([]);
-    expect(resolveSkillPrompt(".system", root("cwd"), home)).toBeNull();
+    expect(
+      resolveSkillPrompt(".system", root("cwd"), "claude", home),
+    ).toBeNull();
   });
 
   it("lists and executes plugin skills and commands from the same home", () => {
@@ -433,12 +342,12 @@ describe("effective Claude home skill agreement", () => {
     const listed = discoverPluginSkills(home).map((item) => item.name);
     expect(listed).toContain("helper:do-work");
     expect(listed).toContain("helper:legacy");
-    expect(resolveSkillPrompt("helper:do-work", root("cwd"), home)).toBe(
-      "plugin skill prompt",
-    );
-    expect(resolveSkillPrompt("helper:legacy", root("cwd"), home)).toBe(
-      "plugin command prompt",
-    );
+    expect(
+      resolveSkillPrompt("helper:do-work", root("cwd"), "claude", home),
+    ).toBe("plugin skill prompt");
+    expect(
+      resolveSkillPrompt("helper:legacy", root("cwd"), "claude", home),
+    ).toBe("plugin command prompt");
   });
 
   it("keeps project skills and commands rooted at cwd", () => {
@@ -447,13 +356,15 @@ describe("effective Claude home skill agreement", () => {
     const projectClaude = join(cwd, ".claude");
     skill(projectClaude, "project-skill", "project skill prompt");
     command(projectClaude, "project-command", "project command prompt");
-    const listed = discoverProjectSkills(cwd).map((item) => item.name);
+    const listed = discoverProjectSkills(cwd, "claude").map(
+      (item) => item.name,
+    );
     expect(listed).toContain("project-skill");
     expect(listed).toContain("project-command");
-    expect(resolveSkillPrompt("project-skill", cwd, home)).toBe(
+    expect(resolveSkillPrompt("project-skill", cwd, "claude", home)).toBe(
       "project skill prompt",
     );
-    expect(resolveSkillPrompt("project-command", cwd, home)).toBe(
+    expect(resolveSkillPrompt("project-command", cwd, "claude", home)).toBe(
       "project command prompt",
     );
   });
@@ -491,7 +402,7 @@ describe("plugin list", () => {
     home: string,
     cwd: string,
     reported?: EnginePlugin[],
-  ) => resolveSkillPrompt(name, cwd, home, true, undefined, reported);
+  ) => resolveSkillPrompt(name, cwd, "claude", home, true, undefined, reported);
 
   it("without a live list, shows and runs a plugin only when the winning settings layer enables it", () => {
     const home = root("plugin-settings-home");
@@ -605,6 +516,7 @@ describe("synced skills", () => {
     const ran = resolveSkillPrompt(
       "docx",
       cwd,
+      "claude",
       home,
       true,
       undefined,
@@ -613,7 +525,16 @@ describe("synced skills", () => {
     );
     expect(ran === null ? null : `${ran} description`).toBe(docx.description!);
     expect(
-      resolveSkillPrompt("pdf", cwd, home, true, undefined, null, null),
+      resolveSkillPrompt(
+        "pdf",
+        cwd,
+        "claude",
+        home,
+        true,
+        undefined,
+        null,
+        null,
+      ),
     ).toBe("pdf body");
     // The user's own skill of the same name wins the lookup.
     const user = root("synced-user");
@@ -622,6 +543,7 @@ describe("synced skills", () => {
       resolveSkillPrompt(
         "pdf",
         cwd,
+        "claude",
         [{ root: user, includeCommands: true }],
         true,
         home,
@@ -667,10 +589,28 @@ describe("synced skills", () => {
     // The folder is not read: "pdf" is on disk but not in the rows, and a
     // synced name does not resolve to its folder's text.
     expect(
-      resolveSkillPrompt("pdf", cwd, home, true, undefined, null, rows),
+      resolveSkillPrompt(
+        "pdf",
+        cwd,
+        "claude",
+        home,
+        true,
+        undefined,
+        null,
+        rows,
+      ),
     ).toBeNull();
     expect(
-      resolveSkillPrompt("docx", cwd, home, true, undefined, null, rows),
+      resolveSkillPrompt(
+        "docx",
+        cwd,
+        "claude",
+        home,
+        true,
+        undefined,
+        null,
+        rows,
+      ),
     ).toBeNull();
     // An empty row list is a list.
     expect(discoverSyncedSkills(home, [], new Set())).toEqual([]);
@@ -680,187 +620,7 @@ describe("synced skills", () => {
 // Task e832fc7c: a Claude or Codex agent's own skill tool reads only its
 // provider home's skills folder, so the bundled skills are linked there. A
 // link is isomux's when its target (read one level) is in the bundled folder.
-describe("bundled skill links", () => {
-  // Where a link points, read one level: a dangling link has no real path.
-  const target = (link: string) => resolve(dirname(link), readlinkSync(link));
-  const isLink = (path: string) => {
-    try {
-      return lstatSync(path).isSymbolicLink();
-    } catch {
-      return false;
-    }
-  };
-  // The non-dot names in a skills folder, sorted.
-  const names = (dir: string) =>
-    readdirSync(dir)
-      .filter((name) => !name.startsWith("."))
-      .sort();
-  function bundledFixture(...skills: string[]): string {
-    const dir = root("bundled");
-    for (const name of skills) {
-      mkdirSync(join(dir, name));
-      writeFileSync(join(dir, name, "SKILL.md"), `bundled ${name}`);
-    }
-    return dir;
-  }
-
-  it("links each bundled skill folder into a new skills folder, and only the folders", () => {
-    const bundled = bundledFixture("wrap-session", "grill-me");
-    writeFileSync(join(bundled, "README.md"), "not a skill");
-    mkdirSync(join(bundled, ".cache"));
-    const skills = join(root("home"), "skills");
-
-    exposeBundledSkills(skills, [], bundled);
-
-    expect(names(skills)).toEqual(["grill-me", "wrap-session"]);
-    expect(existsSync(join(skills, ".cache"))).toBe(false);
-    for (const name of ["grill-me", "wrap-session"]) {
-      const link = join(skills, name);
-      expect([name, isLink(link), target(link)]).toEqual([
-        name,
-        true,
-        join(bundled, name),
-      ]);
-      expect(readFileSync(join(link, "SKILL.md"), "utf8")).toBe(
-        `bundled ${name}`,
-      );
-    }
-  });
-
-  it("follows an update: a removed or renamed skill's link goes, a new name comes, a kept link is not replaced", () => {
-    const bundled = bundledFixture("kept", "removed", "old-name");
-    const skills = join(root("home"), "skills");
-    exposeBundledSkills(skills, [], bundled);
-    expect(names(skills)).toEqual(["kept", "old-name", "removed"]);
-    const keptInode = lstatSync(join(skills, "kept")).ino;
-
-    rmSync(join(bundled, "removed"), { recursive: true });
-    renameSync(join(bundled, "old-name"), join(bundled, "new-name"));
-    exposeBundledSkills(skills, [], bundled);
-
-    expect(names(skills)).toEqual(["kept", "new-name"]);
-    expect(target(join(skills, "new-name"))).toBe(join(bundled, "new-name"));
-    // Agents of one home start at different times: a link that stays right
-    // is never removed and made again under a running agent.
-    expect(lstatSync(join(skills, "kept")).ino).toBe(keptInode);
-    exposeBundledSkills(skills, [], bundled);
-    expect(names(skills)).toEqual(["kept", "new-name"]);
-    expect(lstatSync(join(skills, "kept")).ino).toBe(keptInode);
-  });
-
-  it("removes a link of its own that no longer has a target, though the bundled skill still has that name as a file", () => {
-    const bundled = bundledFixture("wrap-session", "gone");
-    const skills = join(root("home"), "skills");
-    exposeBundledSkills(skills, [], bundled);
-    // An update replaces the folder with a file: the name is no skill now.
-    rmSync(join(bundled, "gone"), { recursive: true });
-    writeFileSync(join(bundled, "gone"), "a file now");
-    exposeBundledSkills(skills, [], bundled);
-    expect(names(skills)).toEqual(["wrap-session"]);
-  });
-
-  it("never changes an entry that is not its own, except a dead link that holds a bundled name", () => {
-    const bundled = bundledFixture(
-      "wrap-session",
-      "grill-me",
-      "loose-ends",
-      "figure-it-out",
-    );
-    const home = root("home");
-    const skills = join(home, "skills");
-    // The member's own folder with a bundled name.
-    skill(home, "wrap-session", "member wrap prompt");
-    // The member's link to their own folder elsewhere, with a bundled name.
-    const elsewhere = root("elsewhere");
-    skill(elsewhere, "grill-me", "member grill prompt");
-    symlinkSync(
-      join(elsewhere, "skills", "grill-me"),
-      join(skills, "grill-me"),
-    );
-    // A plain file with a bundled name.
-    writeFileSync(join(skills, "loose-ends"), "member file");
-    // A dead link with another name (Claude and Codex skip it).
-    symlinkSync("/nonexistent/old-tool/skills/other", join(skills, "other"));
-    // A dead link with a bundled name: an earlier isomux checkout that moved.
-    symlinkSync(
-      "/nonexistent/old-checkout/skills/figure-it-out",
-      join(skills, "figure-it-out"),
-    );
-    // Codex keeps its own skills in a dot folder.
-    mkdirSync(join(skills, ".system"));
-    // The member's link to a bundled skill under another name.
-    symlinkSync(join(bundled, "wrap-session"), join(skills, "my-wrap"));
-
-    exposeBundledSkills(skills, [], bundled);
-
-    expect(isLink(join(skills, "wrap-session"))).toBe(false);
-    expect(
-      readFileSync(join(skills, "wrap-session", "SKILL.md"), "utf8"),
-    ).toContain("member wrap prompt");
-    expect(target(join(skills, "grill-me"))).toBe(
-      join(elsewhere, "skills", "grill-me"),
-    );
-    expect(isLink(join(skills, "loose-ends"))).toBe(false);
-    expect(readFileSync(join(skills, "loose-ends"), "utf8")).toBe(
-      "member file",
-    );
-    expect(readlinkSync(join(skills, "other"))).toBe(
-      "/nonexistent/old-tool/skills/other",
-    );
-    expect(target(join(skills, "figure-it-out"))).toBe(
-      join(bundled, "figure-it-out"),
-    );
-    expect(readdirSync(join(skills, ".system"))).toEqual([]);
-    expect(target(join(skills, "my-wrap"))).toBe(join(bundled, "wrap-session"));
-  });
-
-  it("leaves a name to the member's source skill folder, linked or not, and takes back a name its own link holds", () => {
-    const bundled = bundledFixture(
-      "wrap-session",
-      "grill-me",
-      "loose-ends",
-      "figure-it-out",
-    );
-    const source = root("box-home");
-    const skills = join(root("personal-home"), "skills");
-    // Earlier starts linked every bundled skill into the personal home.
-    exposeBundledSkills(skills, [join(source, "skills")], bundled);
-    expect(names(skills)).toEqual([
-      "figure-it-out",
-      "grill-me",
-      "loose-ends",
-      "wrap-session",
-    ]);
-
-    // Then the member adds their own wrap-session to the box home, and links
-    // their grill-me folder from elsewhere.
-    skill(source, "wrap-session", "member wrap prompt");
-    const elsewhere = root("elsewhere");
-    skill(elsewhere, "grill-me", "member grill prompt");
-    symlinkSync(
-      join(elsewhere, "skills", "grill-me"),
-      join(source, "skills", "grill-me"),
-    );
-    // A box-home agent's own link is no member skill.
-    symlinkSync(
-      join(bundled, "loose-ends"),
-      join(source, "skills", "loose-ends"),
-    );
-    // A plain file is no skill folder.
-    writeFileSync(join(source, "skills", "figure-it-out"), "a file");
-
-    exposeBundledSkills(skills, [join(source, "skills")], bundled);
-
-    // The member pass that follows links the member's two.
-    expect(names(skills)).toEqual(["figure-it-out", "loose-ends"]);
-    expect(target(join(skills, "loose-ends"))).toBe(
-      join(bundled, "loose-ends"),
-    );
-    expect(target(join(skills, "figure-it-out"))).toBe(
-      join(bundled, "figure-it-out"),
-    );
-  });
-
+describe("an old bundled-skill link in a user folder", () => {
   it("lists a bundled skill linked into a user folder once, as built in, and a member's link under another name as theirs", () => {
     const user = root("user-home");
     mkdirSync(join(user, "skills"));
