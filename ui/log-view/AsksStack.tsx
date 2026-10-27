@@ -1,4 +1,5 @@
-// The agent's open asks for this member, stacked above the chat input
+// The agent's open asks for this member, less those answered on the Inbox
+// (openAsks), stacked above the chat input
 // (internal-docs/asks-design.md), one AskCard each. The stack scrolls past a
 // maximum height and collapses to one bar: open by default on a desktop,
 // collapsed on a phone.
@@ -6,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
-import { asksFor } from "../asks-sync.ts";
+import { asksFor, openAsks } from "../asks-sync.ts";
 import { AskCard } from "./AskCard.tsx";
 
 // The stack's height before it scrolls: about two and a half cards on a
@@ -64,8 +65,8 @@ export function AsksStack({
   isMobile: boolean;
 }) {
   const { t } = useI18n();
-  const { asks } = useAppState();
-  const entries = asksFor(asks, agentId);
+  const { asks, answeredAsks } = useAppState();
+  const entries = asksFor(openAsks(asks, answeredAsks), agentId);
   const [collapsed, setCollapsed] = useState(isMobile);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Fade the bottom edge while more cards wait below it.

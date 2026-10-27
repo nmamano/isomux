@@ -2,8 +2,9 @@
 // grouped by agent, the longest wait first. Each ask is the AskCard the chat's
 // stack draws, so its answers work the same here, except that an answer waits
 // ASK_UNDO_MS for an Undo before it is sent; the agent's name opens its chat.
-// The list is the store's asks slice (ui/asks-sync.ts). InboxView draws the
-// header and the tabs around it.
+// The list is the store's asks slice (ui/asks-sync.ts), less the answers being
+// sent: an answer in its Undo time stays as its Undo line, and goes when it
+// is sent. InboxView draws the header and the tabs around it.
 
 import { useMemo } from "react";
 import { useAppState } from "../store.tsx";
@@ -47,9 +48,16 @@ export function AsksView({
 }: {
   onFocusAgent: (agentId: string) => void;
 }) {
-  const { asks, agents, rooms, isMobile } = useAppState();
+  const { asks, answeredAsks, agents, rooms, isMobile } = useAppState();
   const { t } = useI18n();
-  const groups = useMemo(() => askGroups(asks, agents), [asks, agents]);
+  const groups = useMemo(
+    () =>
+      askGroups(
+        asks.filter((e) => answeredAsks.get(e.id) !== "sending"),
+        agents,
+      ),
+    [asks, answeredAsks, agents],
+  );
   const roomNameById = useMemo(
     () => new Map(rooms.map((r) => [r.id, r.name])),
     [rooms],

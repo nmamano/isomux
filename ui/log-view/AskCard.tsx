@@ -24,9 +24,13 @@
 //
 // With `undoMs` (the Inbox), an answer is held that long first: the card turns
 // into a line with what was chosen and Undo, which brings the card back with
-// the draft. A held answer is sent at once when the card unmounts (the member
-// leaves the Inbox) and when the page is hidden or closes, with keepalive so the
-// request outlives the page. A send that fails shows the card with the error.
+// the draft. While held and while sent, the ask is answered in the store
+// (answeredAsks), so the counts, the desk dots and the chat's ask stack leave
+// it out at once; once sent, the Inbox drops the line too. A held answer is
+// sent at once when the card unmounts (the member leaves the Inbox) and when
+// the page is hidden or closes, with keepalive so the request outlives the
+// page. A send that fails brings the ask back everywhere, with the error
+// (askErrors, kept in the store so it outlives this card).
 
 import {
   useContext,
@@ -218,7 +222,7 @@ function ReplyAskCard({
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
-  const { askDrafts, agents } = useAppState();
+  const { askDrafts, askErrors, agents } = useAppState();
   const draft = askDrafts.get(entry.id);
   const untouched = draft === undefined;
   const fallback = replyDefault(entry, t("asks.replyDefault"));
@@ -231,7 +235,7 @@ function ReplyAskCard({
   // Set by an option tap; the next commit focuses the field. No deps: a tap
   // on the option the field already holds leaves the draft the same.
   const pendingFocus = useRef(false);
-  const [error, setError] = useState<string | null>(null);
+  const error = askErrors.get(entry.id);
   // The held answer: the ref for the timer and the page events, the state to
   // draw the line.
   const heldRef = useRef<HeldAnswer | null>(null);
@@ -304,11 +308,11 @@ function ReplyAskCard({
     } catch (err) {
       sending.current = false;
       setBusy(false);
-      setError(
-        t("asks.answerFailed", {
-          error: err instanceof ApiError ? err.message : String(err),
-        }),
-      );
+      dispatch({
+        type: "ask_answer_failed",
+        id: entry.id,
+        error: err instanceof ApiError ? err.message : String(err),
+      });
     }
   }
 
@@ -316,7 +320,7 @@ function ReplyAskCard({
     if (sending.current) return;
     if (kind === "reply" && reply.trim() === "") return;
     sending.current = true;
-    setError(null);
+    dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
     const reason = kind === "reply" ? null : dismissReason();
     const body: AnswerBody =
@@ -339,16 +343,17 @@ function ReplyAskCard({
     };
     heldRef.current = pending;
     setHeld(pending);
+    dispatch({ type: "ask_answered", id: entry.id, phase: "undo" });
   }
 
-  // Sends the held answer now, at most once; the card shows again, busy.
+  // Sends the held answer now, at most once. The Inbox drops the card as the
+  // ask turns "sending", so the line goes straight to nothing.
   function flush(keepalive: boolean) {
     const pending = heldRef.current;
     if (!pending) return;
     heldRef.current = null;
     clearTimeout(pending.timer);
-    setHeld(null);
-    setBusy(true);
+    dispatch({ type: "ask_answered", id: entry.id, phase: "sending" });
     void send(pending.kind, pending.body, keepalive);
   }
 
@@ -360,6 +365,7 @@ function ReplyAskCard({
     sending.current = false;
     pendingFocus.current = true;
     setHeld(null);
+    dispatch({ type: "ask_undone", id: entry.id });
   }
 
   // The page events and the unmount reach the latest flush.
@@ -683,7 +689,7 @@ function ReplyAskCard({
             fontSize: isMobile ? 12 : 11,
           }}
         >
-          {error}
+          {t("asks.answerFailed", { error })}
         </div>
       )}
     </div>

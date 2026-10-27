@@ -96,7 +96,7 @@ import { Vignette } from "./Vignette.tsx";
 import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
-import { askCounts } from "../asks-sync.ts";
+import { askCounts, openAsks } from "../asks-sync.ts";
 import {
   OfficeInstallNotice,
   useInstallMode,
@@ -269,9 +269,13 @@ export function OfficeView({
     sessionContext,
     lobbyOpen,
     asks,
+    answeredAsks,
     membersChat,
   } = useAppState();
-  const askCountByAgent = useMemo(() => askCounts(asks), [asks]);
+  const askCountByAgent = useMemo(
+    () => askCounts(openAsks(asks, answeredAsks)),
+    [asks, answeredAsks],
+  );
   const inbox = useInboxCounts();
   const inboxOpen = inbox.pages + inbox.asks;
   const [newRoomOpen, setNewRoomOpen] = useState(false);

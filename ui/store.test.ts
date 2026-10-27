@@ -1592,6 +1592,113 @@ describe("reducer: ask reply drafts", () => {
   });
 });
 
+// An answer given on the Inbox leaves every count at once (answeredAsks), and
+// a failed send keeps its error in the store so it outlives the card
+// (askErrors; task ab332fb2). Both go with the ask.
+describe("reducer: Inbox answers and send errors", () => {
+  const ask = (id: string): AskEntry => ({
+    id,
+    agentId: "a1",
+    memberUserId: "u1",
+    prompt: `${id}?`,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const open = (): AppState => ({
+    ...initialState,
+    asks: [ask("k1"), ask("k2"), ask("k3")],
+  });
+
+  it("moves an answer from undo to sending, and back to open on undo or on a failed send", () => {
+    let s = reducer(open(), { type: "ask_answered", id: "k1", phase: "undo" });
+    s = reducer(s, { type: "ask_answered", id: "k2", phase: "undo" });
+    expect([...s.answeredAsks]).toEqual([
+      ["k1", "undo"],
+      ["k2", "undo"],
+    ]);
+    s = reducer(s, { type: "ask_undone", id: "k2" });
+    s = reducer(s, { type: "ask_answered", id: "k1", phase: "sending" });
+    expect([...s.answeredAsks]).toEqual([["k1", "sending"]]);
+    s = reducer(s, { type: "ask_answer_failed", id: "k1", error: "ask_busy" });
+    expect([...s.answeredAsks]).toEqual([]);
+    expect([...s.askErrors]).toEqual([["k1", "ask_busy"]]);
+    // The ask itself never left the slice.
+    expect(s.asks.map((e) => e.id)).toEqual(["k1", "k2", "k3"]);
+  });
+
+  it("clears an ask's error when a new answer starts, on either path", () => {
+    const failed = (): AppState => ({
+      ...open(),
+      askErrors: new Map([
+        ["k1", "ask_busy"],
+        ["k2", "offline"],
+      ]),
+    });
+    // The chat stack sends at once and does not hide the ask.
+    const started = reducer(failed(), { type: "ask_answer_started", id: "k1" });
+    expect([...started.askErrors]).toEqual([["k2", "offline"]]);
+    expect([...started.answeredAsks]).toEqual([]);
+    const held = reducer(failed(), {
+      type: "ask_answered",
+      id: "k1",
+      phase: "undo",
+    });
+    expect([...held.askErrors]).toEqual([["k2", "offline"]]);
+    expect([...held.answeredAsks]).toEqual([["k1", "undo"]]);
+  });
+
+  it("drops both for a closed ask, and for asks a fresh list no longer holds", () => {
+    const busy = (): AppState => ({
+      ...open(),
+      answeredAsks: new Map([
+        ["k1", "sending"],
+        ["k2", "undo"],
+      ]),
+      askErrors: new Map([
+        ["k1", "ask_busy"],
+        ["k3", "offline"],
+      ]),
+    });
+    const closed = reducer(busy(), { type: "ask_removed", id: "k1" });
+    expect([...closed.answeredAsks]).toEqual([["k2", "undo"]]);
+    expect([...closed.askErrors]).toEqual([["k3", "offline"]]);
+    const base = busy();
+    const fresh = reducer(base, {
+      type: "asks_loaded",
+      entries: [ask("k2")],
+      revision: base.asksRevision,
+    });
+    expect([...fresh.answeredAsks]).toEqual([["k2", "undo"]]);
+    expect([...fresh.askErrors]).toEqual([]);
+  });
+
+  // The agent or another device closed the ask while this tab held an
+  // answer; the card's flush then fails against an ask that is gone.
+  it("records nothing for an ask the slice no longer holds", () => {
+    const gone = reducer(open(), { type: "ask_removed", id: "k1" });
+    let late = reducer(gone, {
+      type: "ask_answered",
+      id: "k1",
+      phase: "sending",
+    });
+    late = reducer(late, {
+      type: "ask_answer_failed",
+      id: "k1",
+      error: "not_found",
+    });
+    // The same two actions for an ask still open are recorded.
+    late = reducer(late, { type: "ask_answered", id: "k2", phase: "sending" });
+    expect([...late.answeredAsks]).toEqual([["k2", "sending"]]);
+    late = reducer(late, {
+      type: "ask_answer_failed",
+      id: "k2",
+      error: "offline",
+    });
+    expect([...late.answeredAsks]).toEqual([]);
+    expect([...late.askErrors]).toEqual([["k2", "offline"]]);
+  });
+});
+
 // Unread badge and turn-end sound (task 10d7ead6, Nil 2026-10-23): only for a
 // turn this member started, from any device. Another member's turn, an
 // agent's, an app's or a schedule's turn sets neither. The per-room sound

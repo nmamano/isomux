@@ -257,6 +257,54 @@ for (const [kind, text] of [
   });
 }
 
+// At the end of the Undo time the line goes straight to nothing: the card is
+// never drawn again while the answer is in flight (task ab332fb2). The POST
+// is held open, so a card that waits for the server's answer stays in view.
+it("goes from the Undo line to nothing when the answer is sent, with the POST still in flight", async () => {
+  jest.useFakeTimers();
+  let settle!: () => void;
+  answer = () =>
+    new Promise<undefined>((resolve) => {
+      settle = () => resolve(undefined);
+    });
+  const { view, latest } = mount([
+    ask("flash", "a1", 30),
+    ask("stay", "a2", 5),
+  ]);
+  await answerAsk(view, "flash", "reply", "go");
+  expect(pendingOf(view, "flash")).toBe("reply");
+  // Every node added from here on: a card drawn and gone again inside one
+  // batch is caught too.
+  const drawn: string[] = [];
+  const note = (records: MutationRecord[]) => {
+    for (const r of records)
+      for (const n of r.addedNodes) {
+        if (!(n instanceof HTMLElement)) continue;
+        const inCard =
+          n.closest('[data-ask="flash"]') ??
+          n.querySelector('[data-ask="flash"]');
+        if (inCard && (n.matches("form, form *") || n.querySelector("form")))
+          drawn.push(n.tagName);
+      }
+  };
+  const observer = new MutationObserver(note);
+  observer.observe(view.container, { childList: true, subtree: true });
+  await advance(ASK_UNDO_MS);
+  note(observer.takeRecords());
+  observer.disconnect();
+  expect(posts).toEqual(["/api/asks/flash/reply"]);
+  // Still in flight: the ask is in the slice, and the page shows nothing of it.
+  expect(latest.state.asks.map((e) => e.id)).toContain("flash");
+  expect(drawn).toEqual([]);
+  expect(cardEl(view, "flash")).toBeNull();
+  expect(groupIds(view)).toEqual(["a2"]);
+  await act(async () => settle());
+  await act(async () => {});
+  expect(latest.state.asks.map((e) => e.id)).toEqual(["stay"]);
+  expect(cardEl(view, "flash")).toBeNull();
+  expect(posts).toHaveLength(1);
+});
+
 it("brings the card back on Undo, with the draft and focus in its field, and a new answer runs on its own timer", async () => {
   jest.useFakeTimers();
   const half = Math.floor(ASK_UNDO_MS / 2);

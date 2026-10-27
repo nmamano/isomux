@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { useAppState } from "./store.tsx";
 import { openPagesFor } from "./pager-sync.ts";
-import { visibleAsks } from "./asks-sync.ts";
+import { openAsks, visibleAsks } from "./asks-sync.ts";
 import type { AskMemberWire, PagerEntry } from "../shared/types.ts";
 
 /** An Inbox tab is the page it shows. */
@@ -16,16 +16,20 @@ export interface InboxCounts {
   asks: number;
 }
 
-/** The open items per tab. The bar's badge is their sum. */
+/**
+ * The open items per tab. The bar's badge is their sum. An ask answered on
+ * the Inbox (`answered`) no longer counts.
+ */
 export function inboxCounts(
   pager: readonly PagerEntry[],
   asks: readonly AskMemberWire[],
   agents: readonly { id: string }[],
   userId: string | null,
+  answered: ReadonlyMap<string, unknown>,
 ): InboxCounts {
   return {
     pages: openPagesFor(pager, userId),
-    asks: visibleAsks(asks, agents).length,
+    asks: openAsks(visibleAsks(asks, agents), answered).length,
   };
 }
 
@@ -35,10 +39,10 @@ export function inboxTabFor(counts: InboxCounts): InboxTab {
 }
 
 export function useInboxCounts(): InboxCounts {
-  const { pager, asks, agents, sessionContext } = useAppState();
+  const { pager, asks, agents, sessionContext, answeredAsks } = useAppState();
   const userId = sessionContext?.userId ?? null;
   return useMemo(
-    () => inboxCounts(pager, asks, agents, userId),
-    [pager, asks, agents, userId],
+    () => inboxCounts(pager, asks, agents, userId, answeredAsks),
+    [pager, asks, agents, userId, answeredAsks],
   );
 }

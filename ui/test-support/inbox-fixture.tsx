@@ -81,13 +81,21 @@ export function setPages(next: PagerEntry[]) {
 export function setAsks(next: AskEntry[]) {
   asks = next;
 }
+// The answer to an ask's POST (reply, dismiss, file as a task); {} at once
+// unless a test sets its own.
+let answerPost: (path: string) => Promise<unknown> = async () => ({});
+export function setAnswerPost(next: (path: string) => Promise<unknown>) {
+  answerPost = next;
+}
 // App's pushes, spied afresh for each test.
 let pushState: ReturnType<typeof spyOn<History, "pushState">> | null = null;
 export const pushCount = () => pushState?.mock.calls.length ?? 0;
 
 export function setUpInboxTests() {
-  setApiShim(async (_method, path) => {
+  setApiShim(async (method, path) => {
     if (path === "/api/asks") return asks;
+    if (method === "POST" && path.startsWith("/api/asks/"))
+      return answerPost(path);
     if (path.startsWith("/api/members-chat"))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     if (path.startsWith("/api/pager")) return pages;
@@ -112,6 +120,7 @@ export function setUpInboxTests() {
   beforeEach(() => {
     pages = [];
     asks = ASKS;
+    answerPost = async () => ({});
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
     pushState = spyOn(window.history, "pushState");

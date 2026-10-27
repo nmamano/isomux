@@ -251,6 +251,15 @@ export interface AppState {
   // GET /api/asks on every hydrationEpoch; ask_upserted and
   // ask_removed keep it live. App-level: the desk dots read it.
   asks: AskMemberWire[];
+  // askId → where an answer the member gave on the Inbox stands: "undo" while
+  // its Undo line shows, "sending" once it is sent. Every count, dot and the
+  // chat's ask stack leave these asks out (openAsks); the Inbox keeps an
+  // "undo" one as its Undo line. Per tab: another device counts the ask until
+  // ask_removed.
+  answeredAsks: Map<string, "undo" | "sending">;
+  // askId → the raw message of the last answer that failed to send. The card
+  // draws it (translated at render), so it outlives the card that sent it.
+  askErrors: Map<string, string>;
   // Bumped by every delta; a snapshot issued before one is refused and read
   // again, as for the pager.
   asksRevision: number;
@@ -509,6 +518,16 @@ type Action =
   | { type: "asks_loaded"; entries: AskMemberWire[]; revision: number }
   | { type: "ask_upserted"; entry: AskMemberWire }
   | { type: "ask_removed"; id: string }
+  // The ask's answer starts: clears its error. The chat stack, which sends at
+  // once, dispatches only this one.
+  | { type: "ask_answer_started"; id: string }
+  // An Inbox answer enters its Undo time or is sent. No-op for an ask not in
+  // the slice.
+  | { type: "ask_answered"; id: string; phase: "undo" | "sending" }
+  | { type: "ask_undone"; id: string }
+  // A send failed: the ask is open again, with the raw error. No-op for an ask
+  // not in the slice.
+  | { type: "ask_answer_failed"; id: string; error: string }
   // CLIENT-LOCAL (not a ServerMessage): the webhook list fetch. Refused, like
   // apps_loaded, when a delta landed while it was in flight.
   | { type: "webhooks_loaded"; webhooks: WebhookWire[]; revision: number }
@@ -572,24 +591,21 @@ type Action =
     }
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
-// A reply draft lives until its ask closes.
-function withoutAskDraft(
-  drafts: Map<string, string>,
-  askId: string,
-): Map<string, string> {
-  if (!drafts.has(askId)) return drafts;
-  const next = new Map(drafts);
+// A reply draft, an Inbox answer and a send error live until their ask closes.
+function without<V>(byAsk: Map<string, V>, askId: string): Map<string, V> {
+  if (!byAsk.has(askId)) return byAsk;
+  const next = new Map(byAsk);
   next.delete(askId);
   return next;
 }
 
-function keepAskDrafts(
-  drafts: Map<string, string>,
+function keepOpenAsks<V>(
+  byAsk: Map<string, V>,
   open: readonly AskMemberWire[],
-): Map<string, string> {
+): Map<string, V> {
   const ids = new Set(open.map((e) => e.id));
-  if ([...drafts.keys()].every((id) => ids.has(id))) return drafts;
-  return new Map([...drafts].filter(([id]) => ids.has(id)));
+  if ([...byAsk.keys()].every((id) => ids.has(id))) return byAsk;
+  return new Map([...byAsk].filter(([id]) => ids.has(id)));
 }
 
 // Keep at most pagerResolvedAllowance resolved pages: drop the oldest in
@@ -1452,7 +1468,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         asks: action.entries,
-        askDrafts: keepAskDrafts(state.askDrafts, action.entries),
+        askDrafts: keepOpenAsks(state.askDrafts, action.entries),
+        answeredAsks: keepOpenAsks(state.answeredAsks, action.entries),
+        askErrors: keepOpenAsks(state.askErrors, action.entries),
       };
     case "ask_upserted": {
       const idx = state.asks.findIndex((e) => e.id === action.entry.id);
@@ -1471,9 +1489,35 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         asks: state.asks.filter((e) => e.id !== action.id),
-        askDrafts: withoutAskDraft(state.askDrafts, action.id),
+        askDrafts: without(state.askDrafts, action.id),
+        answeredAsks: without(state.answeredAsks, action.id),
+        askErrors: without(state.askErrors, action.id),
         asksRevision: state.asksRevision + 1,
       };
+    case "ask_answer_started":
+      return { ...state, askErrors: without(state.askErrors, action.id) };
+    case "ask_answered": {
+      if (!state.asks.some((e) => e.id === action.id)) return state;
+      const answeredAsks = new Map(state.answeredAsks);
+      answeredAsks.set(action.id, action.phase);
+      return {
+        ...state,
+        answeredAsks,
+        askErrors: without(state.askErrors, action.id),
+      };
+    }
+    case "ask_undone":
+      return { ...state, answeredAsks: without(state.answeredAsks, action.id) };
+    case "ask_answer_failed": {
+      if (!state.asks.some((e) => e.id === action.id)) return state;
+      const askErrors = new Map(state.askErrors);
+      askErrors.set(action.id, action.error);
+      return {
+        ...state,
+        answeredAsks: without(state.answeredAsks, action.id),
+        askErrors,
+      };
+    }
     case "webhooks_loaded":
       if (action.revision !== state.webhooksRevision) {
         return { ...state, webhooksLoaded: true };
@@ -1841,6 +1885,8 @@ export const initialState: AppState = {
   pagerResolvedMore: false,
   pagerTrimSeq: 0,
   asks: [],
+  answeredAsks: new Map(),
+  askErrors: new Map(),
   asksRevision: 0,
   asksFetchSeq: 0,
   webhooks: [],

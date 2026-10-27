@@ -67,3 +67,15 @@ export function visibleAsks(
   const ids = new Set(agents.map((a) => a.id));
   return entries.filter((e) => ids.has(e.agentId));
 }
+
+/**
+ * The asks the member still has to answer: those without an answer on the
+ * Inbox (answeredAsks, in either phase). The counts, the desk dots and the
+ * chat's ask stack read this.
+ */
+export function openAsks(
+  entries: readonly AskMemberWire[],
+  answered: ReadonlyMap<string, unknown>,
+): AskMemberWire[] {
+  return entries.filter((e) => !answered.has(e.id));
+}
