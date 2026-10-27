@@ -34,6 +34,10 @@ Debug agent issues by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.json
 
 Look at UI changes instead of assuming them. A box set up by `deploy/install.sh` normally has headless Google Chrome at `/usr/bin/google-chrome` (the installer warns and carries on when it cannot install one). Server Chrome supports `preview-url` cards through `server/preview-capture.ts`; Playwright launched by hand can also use that executable for local fixtures without a browser download. The interactive `browser` affordance uses the manager's paired desktop Chrome and an explicitly offered tab through `server/browser-extension-session.ts`. It does not launch a server browser or read saved server login profiles.
 
+## Engines
+
+Claude Code, Codex and OpenCode agents are all first class. A change to a surface an agent uses (system prompt, skills, environment, office routes, session lifecycle) names in its hand-off the engines it was checked on, and the reviewer checks that line. `bun run test:conformance` runs office work on each engine.
+
 ## Formatting and linting
 
 Run prettier ONLY AFTER final human approval for commit. Do NOT format changes before human review. In particular, only run `prettier --write` after final approval; it changes files in disk which corrupts agent context and triggers file re-reads.

@@ -1,0 +1,27 @@
+[
+  {
+    "id": "log-1793040635208-zdao",
+    "agentId": "agent-1793040614930-w0og",
+    "timestamp": 1793040635209,
+    "kind": "tool_call",
+    "content": "Skill",
+    "metadata": {
+      "toolId": "toolu_01BinPqxdN8PvNYGnHFNhPLQ",
+      "input": {
+        "skill": "wrap-session"
+      }
+    }
+  },
+  {
+    "id": "log-1793040635234-omgc",
+    "agentId": "agent-1793040614930-w0og",
+    "timestamp": 1793040635234,
+    "kind": "tool_result",
+    "content": "<tool_use_error>Unknown skill: wrap-session</tool_use_error>",
+    "metadata": {
+      "toolUseId": "toolu_01BinPqxdN8PvNYGnHFNhPLQ",
+      "duration_ms": 26,
+      "isError": true
+    }
+  }
+]

@@ -1,0 +1,106 @@
+[
+  {
+    "id": "log-1793040947201-e1ub",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040947201,
+    "kind": "user_message",
+    "content": "office check 1173",
+    "metadata": {}
+  },
+  {
+    "id": "log-1793040953719-y8ds",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040953719,
+    "kind": "tool_call",
+    "content": "shell",
+    "metadata": {
+      "toolId": "msg_17991a71c001dZ4Fimk8I3w2X3:chatcmpl-tool-85704aeae4dde35c",
+      "input": {
+        "command": "curl -s -X POST localhost:36647/api/tasks -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: application/json' -d '{\"title\":\"CF-office-db58a5 1173\"}'"
+      }
+    }
+  },
+  {
+    "id": "log-1793040953880-4mzn",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040953880,
+    "kind": "tool_result",
+    "content": "{\"error\":{\"code\":\"unauthenticated\",\"message\":\"unauthenticated\"}}",
+    "metadata": {
+      "toolUseId": "msg_17991a71c001dZ4Fimk8I3w2X3:chatcmpl-tool-85704aeae4dde35c",
+      "duration_ms": 214
+    }
+  },
+  {
+    "id": "log-1793040955577-5qj6",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040955577,
+    "kind": "tool_call",
+    "content": "shell",
+    "metadata": {
+      "toolId": "msg_17991b245001BT3nQispYfSPXR:chatcmpl-tool-8ae48a1374089094",
+      "input": {
+        "command": "echo \"token set: ${ISOMUX_AGENT_TOKEN:+yes}\""
+      }
+    }
+  },
+  {
+    "id": "log-1793040955605-zo48",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040955605,
+    "kind": "tool_result",
+    "content": "token set: \n",
+    "metadata": {
+      "toolUseId": "msg_17991b245001BT3nQispYfSPXR:chatcmpl-tool-8ae48a1374089094",
+      "duration_ms": 72
+    }
+  },
+  {
+    "id": "log-1793040957514-yen1",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040957514,
+    "kind": "tool_call",
+    "content": "shell",
+    "metadata": {
+      "toolId": "msg_17991b8fd001FcY71DhnoNppdy:chatcmpl-tool-bfb5a7e27de713e2",
+      "input": {
+        "command": "env | grep -i isomux"
+      }
+    }
+  },
+  {
+    "id": "log-1793040957565-mmz1",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040957565,
+    "kind": "tool_result",
+    "content": "ISOMUX_BACKUP_DIR=/tmp/isomux-conformance-run/backups\nISOMUX_HOME=/tmp/isomux-conformance-run/state\nPATH=/home/user/nil/isomux/node_modules/.bin:/home/user/nil/",
+    "metadata": {
+      "toolUseId": "msg_17991b8fd001FcY71DhnoNppdy:chatcmpl-tool-bfb5a7e27de713e2",
+      "duration_ms": 74
+    }
+  },
+  {
+    "id": "log-1793040962526-nry0",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040962526,
+    "kind": "tool_call",
+    "content": "shell",
+    "metadata": {
+      "toolId": "msg_17991c0a2001wv0ttfJdjSgDpv:chatcmpl-tool-ba0eba7ed38bd068",
+      "input": {
+        "command": "curl -s -X POST http://isomux/api/tasks --unix-socket /tmp/isomux-conformance-run/state/opencode/authority/authority.sock -H \"X-Isomux-Turn: <turn>\" -H 'Content-Type: application/json' -d '{\"title\":\"CF-office-db58a5 1173\"}'"
+      }
+    }
+  },
+  {
+    "id": "log-1793040962611-mf8q",
+    "agentId": "agent-1793040947155-tr46",
+    "timestamp": 1793040962611,
+    "kind": "tool_result",
+    "content": "{\"id\":\"c439a83b\",\"title\":\"CF-office-db58a5 1173\",\"status\":\"open\",\"createdBy\":\"Conformance opencode\",\"createdByAgentId\":\"agent-1793040947155-tr46\",\"username\":\"Co",
+    "metadata": {
+      "toolUseId": "msg_17991c0a2001wv0ttfJdjSgDpv:chatcmpl-tool-ba0eba7ed38bd068",
+      "duration_ms": 103
+    }
+  }
+]

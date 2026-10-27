@@ -1,0 +1,28 @@
+[
+  {
+    "id": "log-1791668841266-6xab",
+    "agentId": "agent-1774696998326-2e6u",
+    "timestamp": 1791668841266,
+    "kind": "tool_call",
+    "content": "Bash",
+    "metadata": {
+      "toolId": "exec-5f1cedad-d11f-4204-abc1-49442a6ab41f",
+      "input": {
+        "command": "/bin/bash -lc 'git status --short; git rev-parse HEAD; cat skills/wrap-session/SKILL.md; ls /tmp/b1018-review; tail -n 8 /tmp/b1018-review/tests.log'",
+        "cwd": "/home/user/src/isomux-worktrees/b1018-install"
+      }
+    }
+  },
+  {
+    "id": "log-1791668841266-3u8i",
+    "agentId": "agent-1774696998326-2e6u",
+    "timestamp": 1791668841266,
+    "kind": "tool_result",
+    "content": "30cace7d42916e1e8219fae3d2490c052d3ae57e\n---\nname: wrap-session\ndescription: Check for loose ends an",
+    "metadata": {
+      "toolUseId": "exec-5f1cedad-d11f-4204-abc1-49442a6ab41f",
+      "duration_ms": 0,
+      "isError": false
+    }
+  }
+]

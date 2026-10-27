@@ -1,0 +1,28 @@
+[
+  {
+    "id": "log-1793036096517-rmz8",
+    "agentId": "agent-1774696998326-2e6u",
+    "timestamp": 1793036096517,
+    "kind": "tool_call",
+    "content": "Skill",
+    "metadata": {
+      "toolId": "toolu_01VdUfrBhnfB3qBUTkFM16kq",
+      "input": {
+        "skill": "isomux-loop-worker",
+        "args": "aecb7a5e"
+      }
+    }
+  },
+  {
+    "id": "log-1793036096638-qd3x",
+    "agentId": "agent-1774696998326-2e6u",
+    "timestamp": 1793036096638,
+    "kind": "tool_result",
+    "content": "Launching skill: isomux-loop-worker",
+    "metadata": {
+      "toolUseId": "toolu_01VdUfrBhnfB3qBUTkFM16kq",
+      "duration_ms": 121,
+      "isError": false
+    }
+  }
+]

@@ -97,7 +97,7 @@ Follow-ups: one task must not spawn many. A small fix in the task's area (a stal
 
 Isomux Main runs `ci:remote` on Nil's desktop for every merge, about 5 minutes per run (2026-10-07). When the desktop cannot run it, `ci:remote` falls back to a local `bun run ci` (about 17 minutes) and merges slow down.
 
-The cronjob "Isomux nightly live tests" runs `test:live`, `test:opencode` and `test:systemd` on main every night at 03:00 PT. An environment variable turns these suites on. CI runs only `test:opencode:ci`, the part of `test:opencode` that takes about 2 minutes.
+The cronjob "Isomux nightly live tests" runs `test:live`, `test:opencode`, `test:systemd` and `test:conformance` on main every night at 03:00 PT. An environment variable turns these suites on. CI runs only `test:opencode:ci`, the part of `test:opencode` that takes about 2 minutes.
 
 ## Restarts
 

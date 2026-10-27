@@ -1,0 +1,26 @@
+[
+  {
+    "id": "log-1793040653136-wtki",
+    "agentId": "agent-1793040614949-zh0n",
+    "timestamp": 1793040653136,
+    "kind": "tool_call",
+    "content": "skill",
+    "metadata": {
+      "toolId": "msg_1798d179f0015xNONZrbNNARWz:chatcmpl-tool-b15f4547483642ad",
+      "input": {
+        "id": "wrap-session"
+      }
+    }
+  },
+  {
+    "id": "log-1793040653141-2q1q",
+    "agentId": "agent-1793040614949-zh0n",
+    "timestamp": 1793040653141,
+    "kind": "tool_result",
+    "content": "<skill_content name=\"wrap-session\">\n# Skill: wrap-session\n\n# Wrap Session\n\nReview the conversation a",
+    "metadata": {
+      "toolUseId": "msg_1798d179f0015xNONZrbNNARWz:chatcmpl-tool-b15f4547483642ad",
+      "duration_ms": 89
+    }
+  }
+]

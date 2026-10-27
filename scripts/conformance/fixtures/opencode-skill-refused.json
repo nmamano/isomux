@@ -1,0 +1,27 @@
+[
+  {
+    "id": "log-1793033825741-01r9",
+    "agentId": "agent-1779193515618-0wxo",
+    "timestamp": 1793033825741,
+    "kind": "tool_call",
+    "content": "skill",
+    "metadata": {
+      "toolId": "msg_17924dfa0001Bey9BUrHlWasJd:call_fd816c9c307e44bf95d1c0bd",
+      "input": {
+        "id": "wrap-session"
+      }
+    }
+  },
+  {
+    "id": "log-1793033825743-jskb",
+    "agentId": "agent-1779193515618-0wxo",
+    "timestamp": 1793033825743,
+    "kind": "tool_result",
+    "content": "Unable to load skill wrap-session",
+    "metadata": {
+      "toolUseId": "msg_17924dfa0001Bey9BUrHlWasJd:call_fd816c9c307e44bf95d1c0bd",
+      "duration_ms": 8,
+      "isError": true
+    }
+  }
+]
