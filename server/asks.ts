@@ -237,20 +237,34 @@ export function askReadFileOpenTo(
   );
 }
 
-// The prompt as the agent sent it, or the reason it is refused.
-export function checkPrompt(
+// The prompt as the agent sent it, or the reason it is refused. `field` is
+// the body field it came from, for the message.
+function checkPrompt(
   text: unknown,
+  field: "text" | "prompt" = "text",
 ): { ok: true; prompt: string } | { ok: false; message: string } {
   if (typeof text !== "string")
-    return { ok: false, message: "text is required" };
+    return { ok: false, message: `${field} is required` };
   if (text.trim().length === 0)
-    return { ok: false, message: "text must not be empty" };
+    return { ok: false, message: `${field} must not be empty` };
   if (text.length > ASK_PROMPT_MAX)
     return {
       ok: false,
-      message: `text must be at most ${ASK_PROMPT_MAX} characters`,
+      message: `${field} must be at most ${ASK_PROMPT_MAX} characters`,
     };
   return { ok: true, prompt: text };
+}
+
+// The prompt of a JSON or plain-text body: `text`, or its alias `prompt`.
+// Both sent is refused, whatever the values.
+export function checkPromptField(
+  body: Record<string, unknown>,
+): { ok: true; prompt: string } | { ok: false; message: string } {
+  if (body.text !== undefined && body.prompt !== undefined)
+    return { ok: false, message: "send text or prompt, not both" };
+  return body.prompt !== undefined
+    ? checkPrompt(body.prompt, "prompt")
+    : checkPrompt(body.text);
 }
 
 // The options as they are stored (each trimmed), or the reason they are

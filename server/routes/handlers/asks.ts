@@ -54,7 +54,7 @@ import {
   type AskAffordances,
   checkOptions,
   checkRecommended,
-  checkPrompt,
+  checkPromptField,
   type AskAudienceDeps,
   type AskStore,
 } from "../../asks.ts";
@@ -488,7 +488,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   return {
     "agents.createAsk": guarded((ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
-      const checked = checkPrompt(body.text);
+      const checked = checkPromptField(body);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
       if (body.member !== undefined && typeof body.member !== "string")
         return fail(422, "invalid_request", "member must be a username");
@@ -563,7 +563,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
     "agents.editAsk": guarded((ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
-      const checked = checkPrompt(body.text);
+      const checked = checkPromptField(body);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
       // Absent keeps the link and "" removes it.
       if (body.link !== undefined && body.link !== "" && !askLinkFor(body.link))

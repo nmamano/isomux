@@ -263,6 +263,110 @@ describe("the agent's own list", () => {
   });
 });
 
+// The ask returns its text as `prompt`, so a JSON body takes `prompt` as an
+// alias of `text`, with the same rules (task 26e78c4c).
+describe("the fields of a JSON body", () => {
+  const prompts = async (w: Awaited<ReturnType<typeof world>>) =>
+    (
+      (
+        await call(
+          w.srv,
+          "GET",
+          `/api/agents/${w.asker.id}/asks`,
+          w.as(w.asker.id),
+        )
+      ).body as AskEntry[]
+    ).map((e) => e.prompt);
+
+  it("takes prompt in place of text on create and on edit", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const created = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { prompt: "Pull the spend breakdown?" },
+    });
+    expect(created.status).toBe(201);
+    const id = (created.body as AskEntry).id;
+    expect((created.body as AskEntry).prompt).toBe("Pull the spend breakdown?");
+    const edited = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+      { json: { prompt: "Pull it per agent?" } },
+    );
+    expect(edited.status).toBe(200);
+    expect(await prompts(w)).toEqual(["Pull it per agent?"]);
+  });
+
+  it("refuses text and prompt together, also when they are equal, and changes nothing", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const both = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Same?", prompt: "Same?" },
+    });
+    expect([both.status, both.code]).toEqual([400, "invalid_text"]);
+    expect(await prompts(w)).toEqual([]);
+
+    const created = await open(w, "Keep me?");
+    const edit = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${created.id}`,
+      w.as(w.asker.id),
+      { json: { text: "New text?", prompt: "New prompt?" } },
+    );
+    expect([edit.status, edit.code]).toEqual([400, "invalid_text"]);
+    expect(await prompts(w)).toEqual(["Keep me?"]);
+  });
+
+  it("refuses an empty prompt as it refuses an empty text", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const empty = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { prompt: "  " },
+    });
+    expect([empty.status, empty.code]).toEqual([400, "invalid_text"]);
+    expect(await prompts(w)).toEqual([]);
+
+    const created = await open(w, "Keep me?");
+    const edit = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${created.id}`,
+      w.as(w.asker.id),
+      { json: { prompt: "" } },
+    );
+    expect([edit.status, edit.code]).toEqual([400, "invalid_text"]);
+    expect(await prompts(w)).toEqual(["Keep me?"]);
+  });
+
+  it("takes member in the body; member in the query needs the text/plain form", async () => {
+    const w = await world();
+    const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
+    const base = `/api/agents/${w.asker.id}/asks`;
+
+    // A query option is never merged with a JSON body, so the second
+    // precedence rule a merge would need does not exist.
+    const query = await call(
+      w.srv,
+      "POST",
+      `${base}?member=${pat.username}`,
+      w.as(w.asker.id),
+      { json: { text: "For Pat?" } },
+    );
+    expect([query.status, query.code]).toEqual([422, "invalid_request"]);
+    expect(await prompts(w)).toEqual([]);
+
+    const created = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "For Pat?", member: pat.username },
+    });
+    expect(created.status).toBe(201);
+    expect((created.body as AskEntry).memberUserId).toBe(patId);
+  });
+});
+
 describe("a link to an office page", () => {
   // The stored entry, as the next boot reads it.
   const stored = (w: Awaited<ReturnType<typeof world>>, id: string) =>

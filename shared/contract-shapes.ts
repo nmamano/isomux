@@ -782,7 +782,10 @@ export interface ApiTokenInboxSendReq {
 // create and edit and the answer on reply, so each route also takes the
 // text/plain form.
 export interface AskCreateReq {
-  text: string;
+  // Exactly one of text and prompt; prompt is an alias, since the ask names
+  // the field prompt.
+  text?: string;
+  prompt?: string;
   // A member's username. Absent means the agent's manager.
   member?: string;
   // One of OFFICE_LINK_PATHS (shared/office-links.ts).
@@ -798,7 +801,10 @@ export interface AskCreateReq {
   readFiles?: string[];
 }
 export interface AskEditReq {
-  text: string;
+  // Exactly one of text and prompt; prompt is an alias, since the ask names
+  // the field prompt.
+  text?: string;
+  prompt?: string;
   // Absent keeps the ask's link; "" removes it.
   link?: string;
   // Absent keeps the ask's options; [] removes them.
