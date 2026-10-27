@@ -87,12 +87,108 @@ async function offer(
   await Promise.resolve();
   return assignment;
 }
-async function create(h: Awaited<ReturnType<typeof harness>>) {
-  await h.agent.receive({
-    id: 1,
-    method: "Target.setAutoAttach",
-    params: { autoAttach: true },
+// The tab's Page.getFrameTree command that the bridge sends, once it is sent.
+async function frameTreeCommand(extension: Fields[], from = 0) {
+  for (let i = 0; i < 50; i++) {
+    const sent = extension
+      .slice(from)
+      .find(
+        (m) =>
+          m.kind === "command" &&
+          m.method === "cdp" &&
+          fields(m.params).method === "Page.getFrameTree",
+      );
+    if (sent) return sent;
+    await Promise.resolve();
+  }
+  throw new Error("Page.getFrameTree did not reach the extension");
+}
+// Chrome's frame tree of the tab: its main frame id, or an error.
+function answerFrameTree(
+  connection: import("./browser-extension-bridge").ExtensionConnection,
+  command: Fields,
+  mainFrame: string | { error: string },
+  url = "https://example.com/",
+) {
+  connection.receive({
+    kind: "result",
+    generation: connection.generation,
+    id: command.id,
+    ...(typeof mainFrame === "string"
+      ? {
+          result: {
+            frameTree: {
+              frame: {
+                id: mainFrame,
+                loaderId: "loader",
+                url,
+                securityOrigin: new URL(url).origin,
+                mimeType: "text/html",
+              },
+            },
+          },
+        }
+      : { error: { code: -32000, message: mainFrame.error } }),
   });
+}
+// Playwright's first command on the browser session. Chrome announces the
+// tab only once the bridge has its main frame id, which this answers. The
+// main frame id of a tab Chrome did not activate from a prerender is its
+// target id.
+async function autoAttachBrowser(
+  connection: import("./browser-extension-bridge").ExtensionConnection,
+  extension: Fields[],
+  agent: { receive(message: unknown): Promise<void> },
+  mainFrame: string | { error: string },
+  id = 1,
+  url?: string,
+) {
+  const from = extension.length;
+  let settled = false;
+  const work = agent
+    .receive({
+      id,
+      method: "Target.setAutoAttach",
+      params: { autoAttach: true },
+    })
+    .finally(() => {
+      settled = true;
+    });
+  for (let i = 0; i < 50 && !settled; i++) {
+    const sent = extension
+      .slice(from)
+      .find(
+        (m) =>
+          m.kind === "command" &&
+          m.method === "cdp" &&
+          fields(m.params).method === "Page.getFrameTree",
+      );
+    if (sent) {
+      answerFrameTree(connection, sent, mainFrame, url);
+      break;
+    }
+    await Promise.resolve();
+  }
+  await work;
+}
+// The CDP commands sent for a client's actions: all but the frame tree that
+// the bridge reads when a client connects.
+function actionCommands(extension: Fields[]) {
+  return extension.filter(
+    (m) =>
+      m.method === "cdp" && fields(m.params).method !== "Page.getFrameTree",
+  );
+}
+async function create(
+  h: Awaited<ReturnType<typeof harness>>,
+  mainFrame: string | { error: string } = "owned",
+) {
+  await autoAttachBrowser(
+    h.connection,
+    h.extension.messages,
+    h.agent,
+    mainFrame,
+  );
   const attached = h.client.messages.find(
     (msg) => msg.method === "Target.attachedToTarget",
   )!;
@@ -244,9 +340,7 @@ describe("browser extension isolation", () => {
         params: { frameId: "child" },
       });
       expect(h.client.closed).toBe(true);
-      expect(
-        h.extension.messages.filter((m) => m.method === "cdp"),
-      ).toHaveLength(2);
+      expect(actionCommands(h.extension.messages)).toHaveLength(2);
     } finally {
       h.connection.close();
     }
@@ -588,15 +682,17 @@ function expiryHarness() {
     });
     return assignment;
   };
+  let target = "";
   const accept = async () => {
     const attach = extension.messages.findLast((m) => m.method === "attach")!;
+    target = crypto.randomUUID();
     connection.receive({
       kind: "result",
       generation: connection.generation,
       id: attach.id,
       result: {
         targetInfo: {
-          targetId: crypto.randomUUID(),
+          targetId: target,
           type: "page",
           url: "https://example.com/",
         },
@@ -611,6 +707,7 @@ function expiryHarness() {
     timers,
     start,
     accept,
+    target: () => target,
     now: () => now,
     advance: (ms: number, fire = true) => {
       now += ms;
@@ -665,11 +762,13 @@ test("actions do not extend a grant; deadline interrupts held commands without r
     const ack = await h.accept();
     const client = peer();
     const agent = h.connection.assign("agent", client);
-    await agent.receive({
-      id: 1,
-      method: "Target.setAutoAttach",
-      params: { autoAttach: true },
-    });
+    await autoAttachBrowser(
+      h.connection,
+      h.extension.messages,
+      agent,
+      h.target(),
+      1,
+    );
     const sessionId = fields(
       client.messages.find((m) => m.method === "Target.attachedToTarget")!
         .params,
@@ -705,9 +804,7 @@ test("actions do not extend a grant; deadline interrupts held commands without r
       result: {},
     });
     expect(h.connection.offered("agent")).toBe(replacement);
-    expect(h.extension.messages.filter((m) => m.method === "cdp")).toHaveLength(
-      1,
-    );
+    expect(actionCommands(h.extension.messages)).toHaveLength(1);
   } finally {
     h.connection.close();
   }
@@ -766,11 +863,13 @@ test("a result arriving after expiry releases only its grant when the timer is d
     await h.accept();
     const client = peer();
     const agent = h.connection.assign("agent", client);
-    await agent.receive({
-      id: 1,
-      method: "Target.setAutoAttach",
-      params: { autoAttach: true },
-    });
+    await autoAttachBrowser(
+      h.connection,
+      h.extension.messages,
+      agent,
+      h.target(),
+      1,
+    );
     const sessionId = fields(
       client.messages.find((m) => m.method === "Target.attachedToTarget")!
         .params,
@@ -853,9 +952,7 @@ test("timed-out CDP keeps a settlement tombstone and the offered grant", async (
     await drained;
     expect(h.connection.pendingCount(assignment)).toBe(0);
     expect(h.client.messages.filter((m) => m.id === 9)).toHaveLength(replies);
-    expect(h.extension.messages.filter((m) => m.method === "cdp")).toHaveLength(
-      1,
-    );
+    expect(actionCommands(h.extension.messages)).toHaveLength(1);
   } finally {
     spy.mockRestore();
     h.connection.close();
@@ -926,11 +1023,13 @@ test("retired client cannot release a replacement client or deliver its old repl
     await action;
     expect(nextPeer.messages.some((m) => m.id === 9)).toBe(false);
     h.agent.close();
-    await next.receive({
-      id: 10,
-      method: "Target.setAutoAttach",
-      params: { autoAttach: true },
-    });
+    await autoAttachBrowser(
+      h.connection,
+      h.extension.messages,
+      next,
+      "owned",
+      10,
+    );
     expect(
       nextPeer.messages.some((m) => m.method === "Target.attachedToTarget"),
     ).toBe(true);
@@ -1084,7 +1183,7 @@ test("All client epochs bind each command to its actor and ignore retired peer t
     const a = peer(),
       b = peer();
     const old = c.assign("a", a, true);
-    await old.receive({ id: 1, method: "Target.setAutoAttach", params: {} });
+    await autoAttachBrowser(c, wire.messages, old, "root");
     const sessionId = fields(
       a.messages.find((m) => m.method === "Target.attachedToTarget")!.params,
     ).sessionId;
@@ -1111,11 +1210,7 @@ test("All client epochs bind each command to its actor and ignore retired peer t
     expect(c.offered("b")).toBe(id);
     old.close();
     const current = c.assign("b", b, true);
-    await current.receive({
-      id: 3,
-      method: "Target.setAutoAttach",
-      params: {},
-    });
+    await autoAttachBrowser(c, wire.messages, current, "root", 3);
     const count = wire.messages.length,
       responses = b.messages.length;
     checks.length = 0;
@@ -1164,7 +1259,7 @@ test("All client epochs bind each command to its actor and ignore retired peer t
     await next;
     expect(checks).toEqual(["b", "b"]);
     expect(b.messages.at(-1)).toMatchObject({ id: 5, result: {} });
-    expect(wire.messages.filter((m) => m.method === "cdp")).toHaveLength(2);
+    expect(actionCommands(wire.messages)).toHaveLength(2);
   } finally {
     c.close();
   }
@@ -1742,6 +1837,7 @@ describe("office gate", () => {
       offerUrl?: string;
       offices?: () => string[];
       retainGrant?: boolean;
+      mainFrame?: string | { error: string };
     } = {},
   ) {
     const extension = peer();
@@ -1772,18 +1868,24 @@ describe("office gate", () => {
       agent: undefined as unknown as ReturnType<typeof connection.assign>,
       sessionId: "",
       ids: 100,
+      mainFrame: opts.mainFrame ?? "owned",
+      url: opts.offerUrl ?? `${SITE}/start`,
     };
     await attach(h, opts.retainGrant ?? false);
     return h;
   }
-  async function attach(h: Gate, retainGrant: boolean) {
+  // url is the page the tab shows now, as Chrome's frame tree reports it.
+  async function attach(h: Gate, retainGrant: boolean, url = h.url) {
     h.client = peer();
     h.agent = h.connection.assign("agent", h.client, retainGrant);
-    await h.agent.receive({
-      id: 1,
-      method: "Target.setAutoAttach",
-      params: { autoAttach: true },
-    });
+    await autoAttachBrowser(
+      h.connection,
+      h.extension.messages,
+      h.agent,
+      h.mainFrame,
+      1,
+      url,
+    );
     h.sessionId = fields(
       h.client.messages.find((m) => m.method === "Target.attachedToTarget")!
         .params,
@@ -1993,6 +2095,89 @@ describe("office gate", () => {
     }
   });
 
+  // A tab Chrome activated from a prerender (task 69602671): its main
+  // documents carry the main frame id, not the target id.
+  test("on a tab whose main frame id moved, a main document toward an office closes the gate", async () => {
+    const MOVED = "main-frame";
+    // Learned from the frame tree when a client connects.
+    const h = await gateHarness({ mainFrame: MOVED, retainGrant: true });
+    try {
+      event(h, request(`${OFFICE}/settings`, { frameId: MOVED }));
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      event(h, commit(`${SITE}/next`, MOVED));
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      event(h, response(`${OFFICE}/`, {}, { frameId: MOVED }));
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      // A closed gate does not keep the next client from the id, and the
+      // bridge's own look at the frame tree is no refused command.
+      const refusals = h.connection.officeRefusals(h.assignment);
+      h.agent.close();
+      await attach(h, true, `${OFFICE}/`);
+      expect(h.connection.officeRefusals(h.assignment)).toBe(refusals);
+      expect(
+        fields(
+          fields(
+            h.client.messages.find(
+              (m) => m.method === "Target.attachedToTarget",
+            )!.params,
+          ).targetInfo,
+        ).targetId,
+      ).toBe(MOVED);
+    } finally {
+      h.connection.close();
+    }
+    // Learned from the main frame's commit on the tab, while no client is
+    // connected and the frame tree fails. A child frame's commit and a
+    // popup's main frame commit do not change it.
+    const g = await gateHarness({
+      mainFrame: { error: "No frame tree" },
+      retainGrant: true,
+    });
+    try {
+      g.agent.close();
+      event(g, commit(`${SITE}/moved`, MOVED));
+      event(g, [
+        "Page.frameNavigated",
+        {
+          frame: {
+            id: "child-frame",
+            parentId: MOVED,
+            loaderId: "child-loader",
+            url: `${SITE}/child`,
+            securityOrigin: SITE,
+            mimeType: "text/html",
+          },
+          type: "Navigation",
+        },
+      ]);
+      event(g, [
+        "popup",
+        {
+          sessionId: "popup-session",
+          targetInfo: {
+            type: "page",
+            targetId: "popup",
+            openerId: "owned",
+            url: `${SITE}/popup`,
+          },
+        },
+      ]);
+      event(g, commit(`${SITE}/popup`, "popup-frame"), "popup-session");
+      // officeGated reads the leaf page: with the popup gone, the tab.
+      event(g, ["popupDetached", { sessionId: "popup-session" }]);
+      event(g, request(`${OFFICE}/`, { frameId: MOVED }));
+      expect(g.connection.officeGated(g.assignment)).toBe(true);
+      await attach(g, true, `${OFFICE}/`);
+      expect(
+        g.client.messages
+          .filter((m) => m.method === "Target.attachedToTarget")
+          .map((m) => fields(fields(m.params).targetInfo).targetId),
+      ).toStrictEqual([MOVED]);
+    } finally {
+      g.connection.close();
+    }
+  });
+
   test("a navigation to a known office is refused at the bridge with the gate open", async () => {
     const h = await gateHarness();
     try {
@@ -2108,11 +2293,14 @@ describe("office gate", () => {
       await offer(second, other.messages, "agent-2", "second-tab", `${SITE}/b`);
       const client = peer();
       const agent = second.assign("agent-2", client);
-      await agent.receive({
-        id: 1,
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true },
-      });
+      await autoAttachBrowser(
+        second,
+        other.messages,
+        agent,
+        "second-tab",
+        1,
+        `${SITE}/b`,
+      );
       const sessionId = fields(
         client.messages.find((m) => m.method === "Target.attachedToTarget")!
           .params,
@@ -2356,7 +2544,7 @@ describe("office gate", () => {
       event(h, ["recovering", {}]);
       event(h, ["recovered", {}]);
       expect(h.client.closed).toBe(true);
-      await attach(h, true);
+      await attach(h, true, `${OFFICE}/`);
       expect(h.connection.offerOrigin(h.assignment)).toBe(SITE);
       expect(h.connection.officeGated(h.assignment)).toBe(true);
       expect(await read(h)).toEqual(refused);
@@ -2753,11 +2941,13 @@ describe("child frames across clients", () => {
 
       const nextPeer = peer();
       const next = h.connection.assign("agent", nextPeer, true);
-      await next.receive({
-        id: 1,
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true },
-      });
+      await autoAttachBrowser(
+        h.connection,
+        h.extension.messages,
+        next,
+        "owned",
+        1,
+      );
       expect(
         nextPeer.messages.some((m) => m.method === "Target.attachedToTarget"),
       ).toBe(true);
@@ -2885,11 +3075,13 @@ describe("child frames across clients", () => {
       expect(h.client.messages).toHaveLength(oldMessages);
       expect(next.messages).toEqual([]);
       expect(h.connection.pendingCount(assignment)).toBe(0);
-      await nextAgent.receive({
-        id: 1,
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true },
-      });
+      await autoAttachBrowser(
+        h.connection,
+        h.extension.messages,
+        nextAgent,
+        "owned",
+        1,
+      );
       const attached = next.messages.find(
         (m) => m.method === "Target.attachedToTarget",
       )!;
@@ -3361,11 +3553,13 @@ describe("open dialogs", () => {
       h.agent.close();
       opening(h, "beforeunload", "Unsaved draft");
       const next = h.connection.assign("agent", peer(), true);
-      await next.receive({
-        id: 1,
-        method: "Target.setAutoAttach",
-        params: { autoAttach: true },
-      });
+      await autoAttachBrowser(
+        h.connection,
+        h.extension.messages,
+        next,
+        "owned",
+        1,
+      );
       for (let i = 0; i < 20; i++) await Promise.resolve();
       expect(answers(h)).toEqual([]);
       expect(h.connection.openDialogs(assignment)).toEqual([
@@ -3564,8 +3758,43 @@ describe("script contexts on the retire line", () => {
         isolatedWorld: "error",
         utilityContext: false,
         mainContext: true,
+        mainFrameMoved: false,
       });
       expect(JSON.stringify(line)).not.toContain(WORLD);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+    }
+  });
+
+  // A tab Chrome activated from a prerender (task 69602671): the main
+  // frame's worlds carry the main frame id, not the target id.
+  test("on a tab whose main frame id moved, its worlds count and the line says it moved", async () => {
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h, "main-frame");
+      await command(
+        h,
+        h.agent,
+        sessionId,
+        "Page.createIsolatedWorld",
+        { frameId: "main-frame", worldName: WORLD, grantUniveralAccess: true },
+        { result: { executionContextId: 3 } },
+      );
+      context(h, 2, "main-frame");
+      context(h, 3, "main-frame", WORLD);
+      h.connection.retireClient(assignment, "page_unanswered");
+      const [line] = retireLines(info);
+      expect(line).toMatchObject({
+        isolatedWorld: "ok",
+        utilityContext: true,
+        mainContext: true,
+        mainFrameMoved: true,
+      });
+      // No frame or target id on the line.
+      expect(JSON.stringify(line)).not.toContain("main-frame");
+      expect(JSON.stringify(line)).not.toContain("owned");
     } finally {
       h.connection.close();
       info.mockRestore();
@@ -3625,6 +3854,214 @@ describe("script contexts on the retire line", () => {
     } finally {
       h.connection.close();
       info.mockRestore();
+    }
+  });
+});
+
+// After Chrome activates a prerendered page in a tab, the tab's main frame id
+// is no longer its target id. Playwright keys the page by the target id the
+// bridge announces and looks its main frame up by that id, so the bridge
+// announces the main frame id (task 69602671; microsoft/playwright#41397).
+describe("a tab whose main frame id is not its target id", () => {
+  type H = Awaited<ReturnType<typeof harness>>;
+  const MOVED = "main-frame";
+  const popup = (h: H, sessionId: string, targetId: string, openerId: string) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method: "popup",
+      params: {
+        sessionId,
+        targetInfo: {
+          type: "page",
+          targetId,
+          openerId,
+          url: "https://example.com/" + targetId,
+        },
+      },
+    });
+  // Each target the client was told about, as [targetId, openerId].
+  const attaches = (client: { messages: Fields[] }) =>
+    client.messages
+      .filter((m) => m.method === "Target.attachedToTarget")
+      .map((m) => {
+        const info = fields(fields(m.params).targetInfo);
+        return [info.targetId, info.openerId];
+      });
+  const answer = (client: { messages: Fields[] }, id: number) =>
+    client.messages.find((m) => m.id === id)!;
+
+  test("the client knows the tab and its popups' opener by the main frame id", async () => {
+    const h = await harness();
+    try {
+      const { sessionId } = await create(h, MOVED);
+      expect(attaches(h.client)).toEqual([[MOVED, undefined]]);
+      await h.agent.receive({ id: 2, method: "Target.getTargets" });
+      expect(
+        fields(answer(h.client, 2).result).targetInfos as Fields[],
+      ).toEqual([
+        { targetId: MOVED, type: "page", url: "https://example.com/" },
+      ]);
+      // getTargetInfo on the browser and on the tab session takes and gives
+      // the id the client knows, never Chrome's target id.
+      await h.agent.receive({
+        id: 3,
+        method: "Target.getTargetInfo",
+        params: { targetId: MOVED },
+      });
+      expect(
+        fields(fields(answer(h.client, 3).result).targetInfo).targetId,
+      ).toBe(MOVED);
+      await h.agent.receive({
+        id: 4,
+        method: "Target.getTargetInfo",
+        params: { targetId: "owned" },
+      });
+      expect(answer(h.client, 4)).toHaveProperty("error");
+      await h.agent.receive({
+        id: 5,
+        sessionId,
+        method: "Target.getTargetInfo",
+        params: { targetId: MOVED },
+      });
+      expect(
+        fields(fields(answer(h.client, 5).result).targetInfo).targetId,
+      ).toBe(MOVED);
+      await h.agent.receive({
+        id: 6,
+        sessionId,
+        method: "Target.getTargetInfo",
+        params: { targetId: "owned" },
+      });
+      expect(answer(h.client, 6)).toHaveProperty("error");
+      // Chrome names the tab as opener by its target id; the client gets the
+      // id it knows. A popup's popup keeps its opener's own id.
+      popup(h, "popup-session", "popup", "owned");
+      popup(h, "popup-2-session", "popup-2", "popup");
+      expect(h.extension.closed).toBe(false);
+      expect(attaches(h.client)).toEqual([
+        [MOVED, undefined],
+        ["popup", MOVED],
+        ["popup-2", "popup"],
+      ]);
+      await h.agent.receive({ id: 7, method: "Target.getTargets" });
+      expect(
+        (fields(answer(h.client, 7).result).targetInfos as Fields[]).map(
+          (t) => [t.targetId, t.openerId],
+        ),
+      ).toEqual([
+        [MOVED, undefined],
+        ["popup", MOVED],
+        ["popup-2", "popup"],
+      ]);
+      await h.agent.receive({
+        id: 8,
+        sessionId: "popup-session",
+        method: "Target.getTargetInfo",
+        params: {},
+      });
+      const info = fields(fields(answer(h.client, 8).result).targetInfo);
+      expect([info.targetId, info.openerId]).toEqual(["popup", MOVED]);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("the tab is announced once its main frame id is known, and a popup that opens meanwhile reaches the client once, after the tab", async () => {
+    const h = await harness();
+    try {
+      const first = h.agent.receive({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      const tree = await frameTreeCommand(h.extension.messages);
+      // The tab's own session.
+      expect(fields(tree.params).sessionId).toBeUndefined();
+      const second = h.agent.receive({
+        id: 2,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      popup(h, "popup-session", "popup", "owned");
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      // No announce and no result before the id is known.
+      expect(h.client.messages).toEqual([]);
+      answerFrameTree(h.connection, tree, MOVED);
+      await Promise.all([first, second]);
+      // One frame tree for both commands.
+      expect(
+        h.extension.messages.filter(
+          (m) =>
+            m.method === "cdp" &&
+            fields(m.params).method === "Page.getFrameTree",
+        ),
+      ).toHaveLength(1);
+      expect(attaches(h.client)).toEqual([
+        [MOVED, undefined],
+        ["popup", MOVED],
+      ]);
+      // Both results come after the announce, as Chrome sends them.
+      const order = h.client.messages.map((m) =>
+        m.method === "Target.attachedToTarget" ? "attach" : m.id,
+      );
+      expect(order.slice(0, 2)).toEqual(["attach", "attach"]);
+      expect(order.slice(2).sort()).toEqual([1, 2]);
+      expect(answer(h.client, 1)).not.toHaveProperty("error");
+      expect(answer(h.client, 2)).not.toHaveProperty("error");
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a client that goes during the announce is told nothing, and the next client gets the tab", async () => {
+    const h = await harness(true);
+    try {
+      const work = h.agent.receive({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      const tree = await frameTreeCommand(h.extension.messages);
+      h.agent.close();
+      answerFrameTree(h.connection, tree, MOVED);
+      await work;
+      expect(attaches(h.client)).toEqual([]);
+      const next = peer();
+      const agent = h.connection.assign("agent", next, true);
+      await autoAttachBrowser(h.connection, h.extension.messages, agent, MOVED);
+      expect(attaches(next)).toEqual([[MOVED, undefined]]);
+      // The other order: the office retires a client whose announce waits,
+      // and the next client connects before the frame tree's rejection
+      // settles. The stale announce reaches nobody, and the next client gets
+      // its own.
+      const assignment = h.connection.offered("agent")!;
+      h.connection.retireClient(assignment, "page_unanswered");
+      const third = peer();
+      const thirdAgent = h.connection.assign("agent", third, true);
+      const from = h.extension.messages.length;
+      const waiting = thirdAgent.receive({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      await frameTreeCommand(h.extension.messages, from);
+      h.connection.retireClient(assignment, "page_unanswered");
+      const fourth = peer();
+      const fourthAgent = h.connection.assign("agent", fourth, true);
+      await waiting;
+      expect(attaches(third)).toEqual([]);
+      expect(attaches(fourth)).toEqual([]);
+      await autoAttachBrowser(
+        h.connection,
+        h.extension.messages,
+        fourthAgent,
+        MOVED,
+      );
+      expect(attaches(fourth)).toStrictEqual([[MOVED, undefined]]);
+    } finally {
+      h.connection.close();
     }
   });
 });

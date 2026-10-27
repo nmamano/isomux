@@ -166,6 +166,9 @@ for (const phase of [
           method: "Target.setAutoAttach",
           params: { autoAttach: true },
         });
+        // The bridge announces the tab once it has the main frame id.
+        for (let i = 0; i < 50 && sessionId === undefined; i++)
+          await Promise.resolve();
         expect(sessionId).toBeString();
         return Object.assign(new EventEmitter(), {
           contexts: () => [context],
@@ -1139,8 +1142,26 @@ async function timeoutSessionFixture(
   const messages: Record<string, unknown>[] = [];
   const connection = service.bridge.connect(credential, {
     send: (m) => {
-      messages.push(m);
       const sent = m.params as { method?: string } | undefined;
+      // The tab's frame tree, which the bridge reads when a client connects,
+      // is answered at once and kept out of messages: the tests count and
+      // hold the commands of actions.
+      if (sent?.method === "Page.getFrameTree") {
+        queueMicrotask(() =>
+          connection.receive({
+            kind: "result",
+            generation: connection.generation,
+            id: m.id,
+            result: {
+              frameTree: {
+                frame: { id: "owned", url: "https://example.com/" },
+              },
+            },
+          }),
+        );
+        return;
+      }
+      messages.push(m);
       if (sent?.method === "Page.handleJavaScriptDialog")
         queueMicrotask(() =>
           connection.receive({
@@ -1227,6 +1248,9 @@ async function timeoutSessionFixture(
         params: { autoAttach: true },
       });
       await Promise.resolve();
+      // The bridge announces the tab once it has the main frame id.
+      for (let i = 0; i < 50 && sessionId === undefined; i++)
+        await Promise.resolve();
       const timeout = async () => {
         if (opts.failWith) throw opts.failWith;
         if (held === "hang") return new Promise<never>(() => {});
@@ -1888,6 +1912,9 @@ test("Playwright initialization timeout retains the offer while outstanding init
         method: "Target.setAutoAttach",
         params: { autoAttach: true },
       });
+      // The bridge announces the tab once it has the main frame id.
+      for (let i = 0; i < 50 && sessionId === undefined; i++)
+        await Promise.resolve();
       expect(sessionId).toBeString();
       transport.send({
         id: 2,
@@ -1906,6 +1933,26 @@ test("Playwright initialization timeout retains the offer while outstanding init
     const connection = service.bridge.connect(credential, {
       send: (m) => {
         messages.push(m);
+        // The tab's frame tree, which the bridge reads before it announces
+        // the tab, is answered; every later command hangs.
+        if (
+          (m.params as { method?: string } | undefined)?.method ===
+          "Page.getFrameTree"
+        ) {
+          queueMicrotask(() =>
+            connection.receive({
+              kind: "result",
+              generation: connection.generation,
+              id: m.id,
+              result: {
+                frameTree: {
+                  frame: { id: "owned", url: "https://example.com/" },
+                },
+              },
+            }),
+          );
+          return;
+        }
         if (m.method === "cdp") {
           expect(connection.pendingCount(grant)).toBeGreaterThan(0);
           dispatched.resolve();

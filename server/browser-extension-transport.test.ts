@@ -7,7 +7,10 @@ import {
 import { browserExtensionTransport } from "./browser-extension-transport";
 import { fields, type Fields } from "../shared/browser-extension-protocol";
 
-async function offered() {
+// mainFrame is the tab's main frame id in Chrome's frame tree. It differs
+// from the target id after Chrome activates a prerendered page in the tab. A
+// popup's main frame id is its target id.
+async function offered(mainFrame = "owned") {
   const bridge = new BrowserExtensionBridge({
     memberForCredentialHash: () => "member",
     mayUse: () => true,
@@ -32,9 +35,15 @@ async function offered() {
             ? {
                 frameTree: {
                   frame: {
-                    id: "owned",
+                    id:
+                      params.sessionId === "popup-session"
+                        ? "popup"
+                        : mainFrame,
                     loaderId: "loader",
-                    url: "https://example.com/",
+                    url:
+                      params.sessionId === "popup-session"
+                        ? "https://example.com/popup"
+                        : "https://example.com/",
                     securityOrigin: "https://example.com",
                     mimeType: "text/html",
                   },
@@ -121,4 +130,42 @@ test("the transport counts every Input command that it sends", async () => {
   expect(transport.mouseReleases).toBe(1);
   await browser.close();
   h.connection.close();
+}, 3000);
+
+// A tab Chrome activated from a prerender (task 69602671,
+// microsoft/playwright#41397): Playwright found no page for the main frame, so
+// the page never committed and every read waited.
+test("Playwright initializes a tab whose main frame id is not its target id, and finds its popup's opener", async () => {
+  const h = await offered("main-frame");
+  const browser = await chromium.connectOverCDP(
+    browserExtensionTransport(h.connection, "agent"),
+    { noDefaults: true, timeout: 1000 },
+  );
+  try {
+    const [page] = browser.contexts()[0].pages();
+    expect(page.url()).toBe("https://example.com/");
+    const popup = page.waitForEvent("popup", { timeout: 1000 });
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method: "popup",
+      params: {
+        sessionId: "popup-session",
+        targetInfo: {
+          type: "page",
+          browserContextId: "context",
+          targetId: "popup",
+          openerId: "owned",
+          url: "https://example.com/popup",
+        },
+      },
+    });
+    const opened = await popup;
+    expect(opened.url()).toBe("https://example.com/popup");
+    expect(await opened.opener()).toBe(page);
+  } finally {
+    await browser.close();
+    h.connection.close();
+  }
 }, 3000);

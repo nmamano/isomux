@@ -11,7 +11,10 @@ import type { ExtensionBrowserSessions } from "./browser-extension-session";
 import type { BrowserResult } from "./browser-actions";
 import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
 import type { Dialog, Page } from "playwright-core";
-import { ATTACH_ANSWER_MS } from "../shared/browser-extension-protocol";
+import {
+  ATTACH_ANSWER_MS,
+  type Fields,
+} from "../shared/browser-extension-protocol";
 import { translatorFor } from "../shared/i18n/translate";
 import { writeFileSync } from "node:fs";
 
@@ -34,6 +37,11 @@ async function withOfferedTab(
     page: Page;
     popup: Awaited<ReturnType<typeof openExtensionActionPopup>>;
   }) => Promise<void>,
+  // The site path of a page that Chrome prerenders and then activates in
+  // the offered tab, as the omnibox or a speculation rule does. No CDP
+  // client is attached to the tab until after the activation: an attached
+  // one turns prerendering off.
+  prerendered?: { start: string; activated: string },
 ) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-interactions-"));
   const fixture = browserExtensionFixture();
@@ -52,8 +60,8 @@ async function withOfferedTab(
   try {
     await buildBrowserExtension(join(dir, "extension"));
     raw = await launchRawExtensionChrome(dir);
-    const setup = raw.browser.contexts()[0];
-    const admin = await raw.browser.newBrowserCDPSession();
+    let setup = raw.browser.contexts()[0];
+    let admin = await raw.browser.newBrowserCDPSession();
     const { id } = await admin.send("Extensions.loadUnpacked", {
       path: join(dir, "extension"),
     });
@@ -82,13 +90,30 @@ async function withOfferedTab(
         throw new Error("Fixture connection did not settle");
       await Bun.sleep(20);
     }
-    const offered = await setup.newPage();
-    await offered.goto(server.url.href);
-    await offered.bringToFront();
-    const offeredCDP = await setup.newCDPSession(offered);
-    const target = (await offeredCDP.send("Target.getTargetInfo")).targetInfo
-      .targetId;
-    await offeredCDP.detach();
+    let offered: Page;
+    let target: string;
+    if (prerendered) {
+      await raw.browser.close();
+      target = await prerenderedTab(
+        raw.endpoint,
+        server.url.origin + prerendered.start,
+        server.url.origin + prerendered.activated,
+      );
+      const browser = await raw.reconnect();
+      setup = browser.contexts()[0];
+      admin = await browser.newBrowserCDPSession();
+      await admin.send("Target.activateTarget", { targetId: target });
+      // Playwright's own client cannot read this page either (#41397).
+      offered = setup.pages().find((p) => !p.url().startsWith("chrome"))!;
+    } else {
+      offered = await setup.newPage();
+      await offered.goto(server.url.href);
+      await offered.bringToFront();
+      const offeredCDP = await setup.newCDPSession(offered);
+      target = (await offeredCDP.send("Target.getTargetInfo")).targetInfo
+        .targetId;
+      await offeredCDP.detach();
+    }
     const popup = await openExtensionActionPopup(admin, id, target, setup);
     await popup.waitFor('!document.querySelector("#allow").disabled');
     await beforeOffer?.({ page: offered, popup });
@@ -184,6 +209,101 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
 
 const html = (body: string) =>
   new Response(body, { headers: { "Content-Type": "text/html" } });
+
+// Task 69602671: every read on a LinkedIn tab failed with page_unanswered.
+// Chrome had activated a prerendered page in the tab before the offer, so the
+// tab's main frame id was not its target id, and Playwright never saw the
+// main frame commit (microsoft/playwright#41397).
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a tab Chrome activated from a prerender before the offer answers every read",
+  async () => {
+    await withOfferedTab(
+      (url) =>
+        url.pathname === "/activated"
+          ? html(
+              `<!doctype html><title>Activated</title><p id="text">from the prerender</p>`,
+            )
+          : html(
+              `<!doctype html><title>Start</title><script type="speculationrules">{"prerender":[{"source":"list","urls":["/activated"],"eagerness":"immediate"}]}</script><script>setTimeout(() => { location.href = "/activated"; }, 2000)</script>`,
+            ),
+      async ({ act }) => {
+        const { ok, read } = expectations(act);
+        expect(await read("#text")).toBe("from the prerender");
+        expect(ok(await act({ action: "snapshot" })).snapshot).toContain(
+          "from the prerender",
+        );
+        const shot = ok(await act({ action: "screenshot" }));
+        // The PNG signature.
+        expect(shot.png!.subarray(1, 4).toString()).toBe("PNG");
+      },
+      DEADLINE_MS,
+      undefined,
+      { start: "/start", activated: "/activated" },
+    );
+  },
+  60_000,
+);
+
+// Opens start in a new tab through a browser CDP client that attaches to no
+// page, waits until Chrome has activated the prerendered page at activated in
+// it, and returns the tab's target id. Throws unless the tab's main frame id
+// differs from its target id, the condition of task 69602671.
+async function prerenderedTab(
+  endpoint: string,
+  start: string,
+  activated: string,
+): Promise<string> {
+  const socket = new WebSocket(endpoint);
+  await new Promise<void>((resolve, reject) => {
+    socket.onopen = () => resolve();
+    socket.onerror = () => reject(new Error("Prerender CDP socket failed"));
+  });
+  let next = 0;
+  const waiting = new Map<number, (message: Fields) => void>();
+  socket.onmessage = (event) => {
+    const message = JSON.parse(String(event.data)) as Fields;
+    if (typeof message.id === "number") waiting.get(message.id)?.(message);
+  };
+  const send = (method: string, params: Fields = {}, sessionId?: string) =>
+    new Promise<Fields>((resolve, reject) => {
+      const id = ++next;
+      waiting.set(id, (message) =>
+        message.error
+          ? reject(new Error(`${method}: ${JSON.stringify(message.error)}`))
+          : resolve(message.result as Fields),
+      );
+      socket.send(JSON.stringify({ id, method, params, sessionId }));
+    });
+  try {
+    const { targetId } = (await send("Target.createTarget", {
+      url: start,
+    })) as { targetId: string };
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const { targetInfos } = (await send("Target.getTargets")) as {
+        targetInfos: { targetId: string; url: string }[];
+      };
+      if (targetInfos.find((t) => t.targetId === targetId)?.url === activated)
+        break;
+      if (Date.now() >= deadline)
+        throw new Error("The tab did not reach the activated page");
+      await Bun.sleep(100);
+    }
+    const { sessionId } = (await send("Target.attachToTarget", {
+      targetId,
+      flatten: true,
+    })) as { sessionId: string };
+    const { frameTree } = (await send("Page.getFrameTree", {}, sessionId)) as {
+      frameTree: { frame: { id: string } };
+    };
+    await send("Target.detachFromTarget", { sessionId });
+    if (frameTree.frame.id === targetId)
+      throw new Error("Chrome did not activate a prerendered page in the tab");
+    return targetId;
+  } finally {
+    socket.close();
+  }
+}
 
 type Timed = { result: BrowserResult; elapsed: number };
 const DEADLINE_MS = 5000;

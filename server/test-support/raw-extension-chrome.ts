@@ -48,34 +48,18 @@ export async function launchRawExtensionChrome(dir: string) {
       profile: join(dir, "profile"),
       cdpPort: Number(new URL(endpoint).port),
     });
-    const socket = new WebSocket(endpoint);
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("Isolated CDP socket did not open")),
-        5000,
-      );
-      socket.onopen = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      socket.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error("Isolated CDP socket failed"));
-      };
-    });
-    const adminTransport: ConnectOverCDPTransport = {
-      send: (message) => socket.send(JSON.stringify(message)),
-      close: () => socket.close(),
-    };
-    socket.onmessage = (event) =>
-      adminTransport.onmessage?.(JSON.parse(String(event.data)));
-    socket.onclose = () => adminTransport.onclose?.();
-    const browser = await chromium.connectOverCDP(adminTransport, {
-      noDefaults: true,
-      timeout: 5000,
-    });
+    let browser = await connectRaw(endpoint);
     return {
-      browser,
+      get browser() {
+        return browser;
+      },
+      // The browser endpoint, for a client that attaches to no page.
+      endpoint,
+      // A new setup client, after the last one closed. Chrome keeps running.
+      async reconnect() {
+        browser = await connectRaw(endpoint);
+        return browser;
+      },
       async close() {
         await browser.close();
         chrome?.kill();
@@ -87,4 +71,33 @@ export async function launchRawExtensionChrome(dir: string) {
     if (chrome) await chrome.exited;
     throw error;
   }
+}
+
+async function connectRaw(endpoint: string) {
+  const socket = new WebSocket(endpoint);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Isolated CDP socket did not open")),
+      5000,
+    );
+    socket.onopen = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    socket.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("Isolated CDP socket failed"));
+    };
+  });
+  const adminTransport: ConnectOverCDPTransport = {
+    send: (message) => socket.send(JSON.stringify(message)),
+    close: () => socket.close(),
+  };
+  socket.onmessage = (event) =>
+    adminTransport.onmessage?.(JSON.parse(String(event.data)));
+  socket.onclose = () => adminTransport.onclose?.();
+  return chromium.connectOverCDP(adminTransport, {
+    noDefaults: true,
+    timeout: 5000,
+  });
 }

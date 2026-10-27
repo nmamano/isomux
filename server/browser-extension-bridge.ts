@@ -88,6 +88,11 @@ type Assignment = {
   // Clients retired so far; work of a retired client sends nothing new.
   retirements: number;
   target?: Fields;
+  // The tab's main frame id. After Chrome activates a prerendered page in the
+  // tab, it is not the tab's target id, and Playwright, which finds the main
+  // frame by the page's target id, never sets the page up
+  // (microsoft/playwright#41397). The client knows the tab by this id.
+  pageId?: string;
   children: Map<string, ChildFrame>;
   popups: Map<string, Fields>;
   leafTargetId?: string;
@@ -99,6 +104,8 @@ type Assignment = {
   officeRefusals: number;
   creating: boolean;
   connected: boolean;
+  // The current client's announce of the tab: in flight, then done.
+  announcing?: Promise<void>;
   announced: boolean;
   // Sessions whose Target.setAutoAttach the current client got a result for.
   autoAttached: Set<string>;
@@ -407,6 +414,50 @@ export class ExtensionConnection {
     }
   }
 
+  private pageId(a: Assignment): string | undefined {
+    return a.pageId ?? (a.target?.targetId as string | undefined);
+  }
+
+  // A target as the client knows it: the tab by its main frame id, and a
+  // popup the tab opened with that id as its opener.
+  private clientTarget(a: Assignment, info: Fields): Fields {
+    if (info === a.target) return { ...info, targetId: this.pageId(a) };
+    if (a.target && info.openerId === a.target.targetId)
+      return { ...info, openerId: this.pageId(a) };
+    return info;
+  }
+
+  private announcePage(a: Assignment, sessionId: string, info: Fields): void {
+    a.peer.send({
+      method: "Target.attachedToTarget",
+      params: {
+        sessionId,
+        targetInfo: { ...this.clientTarget(a, info), attached: true },
+        waitingForDebugger: false,
+      },
+    });
+  }
+
+  // The client's first look: the tab under its main frame id, then its
+  // popups. The frame tree is the bridge's own command, outside the office
+  // gate; a failed one keeps the id known so far.
+  private async announceTab(a: Assignment): Promise<void> {
+    const peer = a.peer;
+    try {
+      const result = await this.request(a, "cdp", {
+        method: "Page.getFrameTree",
+        params: {},
+      });
+      const id = fields(fields(result.frameTree).frame).id;
+      if (typeof id === "string") a.pageId = id;
+    } catch {}
+    if (a.peer !== peer || !a.connected || a.closed || !a.target) return;
+    a.announced = true;
+    this.announcePage(a, a.session, a.target);
+    for (const [sessionId, target] of a.popups)
+      this.announcePage(a, sessionId, target);
+  }
+
   // The frames under a session the client now auto-attaches that it has not
   // seen: earlier frames, and attaches held until now.
   private announceChildren(a: Assignment, parent: string): void {
@@ -451,7 +502,7 @@ export class ExtensionConnection {
     const page = a.pages.get(key);
     if (!page) return;
     const targetId =
-      key === a.session ? a.target?.targetId : a.popups.get(key)?.targetId;
+      key === a.session ? this.pageId(a) : a.popups.get(key)?.targetId;
     const mainDocument =
       params.type === "Document" && params.frameId === targetId;
     if (method === "Network.requestWillBeSent" && mainDocument) {
@@ -465,6 +516,8 @@ export class ExtensionConnection {
     } else if (method === "Page.frameNavigated") {
       const frame = params.frame as Fields | undefined;
       if (!frame || frame.parentId !== undefined) return;
+      if (key === a.session && typeof frame.id === "string")
+        a.pageId = frame.id;
       if (typeof frame.url !== "string") return;
       page.url = frame.url;
       if (this.officeRefused(a, frame.url)) this.closeGate(a, key);
@@ -533,6 +586,7 @@ export class ExtensionConnection {
     this.check(assignment);
     assignment.peer = peer;
     assignment.connected = true;
+    assignment.announcing = undefined;
     assignment.announced = false;
     assignment.autoAttached = new Set();
     assignment.world = { isolated: "none" };
@@ -576,6 +630,7 @@ export class ExtensionConnection {
           isolatedWorld: a.world.isolated,
           utilityContext: a.world.utility !== undefined,
           mainContext: a.world.main !== undefined,
+          mainFrameMoved: this.pageId(a) !== a.target?.targetId,
         }),
     );
     for (const [id, pending] of dropped) {
@@ -637,7 +692,7 @@ export class ExtensionConnection {
     if (method !== "Runtime.executionContextCreated") return;
     const context = params.context as Fields | undefined;
     const aux = context?.auxData as Fields | undefined;
-    if (typeof context?.id !== "number" || aux?.frameId !== a.target?.targetId)
+    if (typeof context?.id !== "number" || aux?.frameId !== this.pageId(a))
       return;
     if (aux?.isDefault === true) world.main = context.id;
     else if (world.name !== undefined && context.name === world.name)
@@ -1246,14 +1301,9 @@ export class ExtensionConnection {
         });
         if (typeof target.url === "string" && this.officeRefused(a, target.url))
           this.closeGate(a, params.sessionId);
-        a.peer.send({
-          method: "Target.attachedToTarget",
-          params: {
-            sessionId: params.sessionId,
-            targetInfo: { ...target, attached: true },
-            waitingForDebugger: false,
-          },
-        });
+        // Until the client knows the tab, the announce sends the popup after
+        // it.
+        if (a.announced) this.announcePage(a, params.sessionId, target);
         return;
       }
       if (msg.method === "popupDetached") {
@@ -1406,38 +1456,26 @@ export class ExtensionConnection {
             revision: "",
           };
         case "Target.setAutoAttach":
-          if (a.target && !a.announced) {
-            a.announced = true;
-            a.peer.send({
-              method: "Target.attachedToTarget",
-              params: {
-                sessionId: a.session,
-                targetInfo: { ...a.target, attached: true },
-                waitingForDebugger: false,
-              },
-            });
-            for (const [sessionId, target] of a.popups)
-              a.peer.send({
-                method: "Target.attachedToTarget",
-                params: {
-                  sessionId,
-                  targetInfo: { ...target, attached: true },
-                  waitingForDebugger: false,
-                },
-              });
-          }
+          // Chrome answers after its attach events, so the result waits for
+          // the announce.
+          if (a.target && !a.announced)
+            await (a.announcing ??= this.announceTab(a));
           return {};
         case "Target.getTargets":
           return {
-            targetInfos: a.target ? [a.target, ...a.popups.values()] : [],
+            targetInfos: a.target
+              ? [a.target, ...a.popups.values()].map((info) =>
+                  this.clientTarget(a, info),
+                )
+              : [],
           };
         case "Target.getTargetInfo":
           if (
             params.targetId !== undefined &&
-            params.targetId !== a.target?.targetId
+            params.targetId !== this.pageId(a)
           )
             throw new Error("Unknown target");
-          return a.target ? { targetInfo: a.target } : {};
+          return a.target ? { targetInfo: this.clientTarget(a, a.target) } : {};
         default:
           throw new Error("Unsupported browser command");
       }
@@ -1451,13 +1489,13 @@ export class ExtensionConnection {
     )
       throw new Error("Unknown session");
     if (method === "Target.getTargetInfo") {
+      const info = a.popups.get(sessionId) ?? a.target;
       if (
         params.targetId !== undefined &&
-        params.targetId !==
-          (a.popups.get(sessionId)?.targetId ?? a.target.targetId)
+        params.targetId !== this.clientTarget(a, info).targetId
       )
         throw new Error("Unknown target");
-      return { targetInfo: a.popups.get(sessionId) ?? a.target };
+      return { targetInfo: this.clientTarget(a, info) };
     }
     if (!pageCommandAllowed(method, params))
       throw new Error("Unsupported page command");
@@ -1470,7 +1508,7 @@ export class ExtensionConnection {
     if (
       method === "Page.createIsolatedWorld" &&
       sessionId === a.session &&
-      params.frameId === a.target.targetId
+      params.frameId === this.pageId(a)
     ) {
       const world = a.world;
       if (typeof params.worldName === "string") world.name = params.worldName;
