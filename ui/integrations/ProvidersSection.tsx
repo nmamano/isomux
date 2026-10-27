@@ -24,7 +24,6 @@ import { useI18n } from "../i18n.tsx";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { ProviderMark } from "../components/ProviderMark.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
-import { ProviderFallbackCard } from "../components/ProviderFallbackCard.tsx";
 import { Reserved } from "../components/Reserved.tsx";
 import {
   Btn,
@@ -198,10 +197,7 @@ export function ProvidersSection({
         onVariables={onVariables}
       />
       {target.kind === "office" && role === "owner" && (
-        <>
-          <MemberUsageCard style={flat} />
-          <ProviderFallbackCard style={flat} />
-        </>
+        <MemberUsageCard style={flat} />
       )}
     </>
   );

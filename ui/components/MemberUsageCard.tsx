@@ -26,15 +26,18 @@ import {
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 
-// The member usage cap, on the Integrations page's Model providers tab beside
-// the office sign-ins it limits. It shares the office settings blob (and its
-// version) with the Office pane's name, so the PUT omits the name, which the
-// server keeps. Owners only; a server from before the switch omits it, and
-// then the card does not render.
+// The owner's switches for the office sign-ins, on the Integrations page's
+// Model providers tab beside them: the member usage cap, and the fallback to
+// the office sign-in (server/provider-fallback.ts). One Save writes both. The
+// card shares the office settings blob (and its version) with the Office
+// pane's name and the Audit pane's Record terminals, so the PUT omits those,
+// which the server keeps. Owners only; a server from before the usage cap
+// omits it, and then the card does not render. A server from before the
+// fallback omits that, and then its switch does not render.
 //
-// While the settings load, the switch is neither on nor off, the card says it
-// loads, and it holds the space of the share row and status lines it showed
-// last on this device. The status lines have their own route, read per
+// While the settings load, the switches are neither on nor off, the card says
+// it loads, and it holds the space of the share row and status lines it
+// showed last on this device. The status lines have their own route, read per
 // provider once the settings say the cap is on: a provider read can take
 // seconds, and each line shows that it loads until its own answer comes.
 export function MemberUsageCard({
@@ -48,6 +51,7 @@ export function MemberUsageCard({
   const [settings, setSettings] = useState<OfficeSettingsRes | null>(null);
   const [usageCap, setUsageCap] = useState(false);
   const [usageShare, setUsageShare] = useState(DEFAULT_MEMBER_SHARE);
+  const [fallback, setFallback] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +65,7 @@ export function MemberUsageCard({
     setSettings(next);
     setUsageCap(next.memberUsageCap ?? false);
     setUsageShare(next.memberUsageShare ?? DEFAULT_MEMBER_SHARE);
+    setFallback(next.providerFallback ?? false);
     if (next.memberUsageCap === undefined) return;
     const share = next.memberUsageCap && next.memberUsageShare !== undefined;
     if (next.memberUsageCap) readStatus(share);
@@ -126,7 +131,12 @@ export function MemberUsageCard({
   const baselineCap = settings?.memberUsageCap ?? false;
   const baselineShare = settings?.memberUsageShare ?? DEFAULT_MEMBER_SHARE;
   const shareKnown = settings?.memberUsageShare !== undefined;
-  const dirty = usageCap !== baselineCap || usageShare !== baselineShare;
+  const baselineFallback = settings?.providerFallback ?? false;
+  const fallbackKnown = settings?.providerFallback !== undefined;
+  const dirty =
+    usageCap !== baselineCap ||
+    usageShare !== baselineShare ||
+    fallback !== baselineFallback;
 
   const shareRow = (
     <label
@@ -166,8 +176,8 @@ export function MemberUsageCard({
     setSaving(true);
     setError(null);
     try {
-      // The version of a fresh read: the fallback card beside this one
-      // writes the same settings, and the PUT carries only these fields.
+      // The version of a fresh read: the Office and Audit panes write the
+      // same settings, and the PUT carries only these fields.
       const { version } = await apiFetch<OfficeSettingsRes>(
         "GET",
         "/api/office/settings",
@@ -176,6 +186,7 @@ export function MemberUsageCard({
         version,
         memberUsageCap: usageCap,
         ...(shareKnown ? { memberUsageShare: usageShare } : {}),
+        ...(fallbackKnown ? { providerFallback: fallback } : {}),
       };
       await apiFetch<void>("PUT", "/api/office/settings", body);
       setSavedAt(Date.now());
@@ -203,15 +214,7 @@ export function MemberUsageCard({
       aria-busy={loading}
       style={{ ...cardStyle, marginTop: 14, ...style }}
     >
-      <label
-        style={{
-          display: "flex",
-          gap: 6,
-          fontSize: 12,
-          fontWeight: 650,
-          color: "var(--text-primary)",
-        }}
-      >
+      <label style={switchLabelStyle}>
         <input
           type="checkbox"
           // Unknown until the settings arrive: never a real "off".
@@ -224,16 +227,7 @@ export function MemberUsageCard({
         />
         <span>{t("settings.office.memberUsageCap")}</span>
       </label>
-      <p
-        style={{
-          fontSize: 10,
-          color: "var(--text-ghost)",
-          margin: "3px 0 0",
-          lineHeight: 1.4,
-        }}
-      >
-        {t("settings.office.memberUsageCapHint")}
-      </p>
+      <p style={switchHintStyle}>{t("settings.office.memberUsageCapHint")}</p>
       {loading && (
         <p role="status" style={{ ...statusLineStyle, color: mutedText }}>
           {t("common.loading")}
@@ -280,6 +274,27 @@ export function MemberUsageCard({
             </p>
           );
         })}
+      {/* A new block after the Pace lines, above the Save row that writes it. */}
+      {(loading || fallbackKnown) && (
+        <div data-provider-fallback style={{ marginTop: 12 }}>
+          <label style={switchLabelStyle}>
+            <input
+              type="checkbox"
+              // Unknown until the settings arrive: never a real "off".
+              ref={(box) => {
+                if (box) box.indeterminate = loading;
+              }}
+              disabled={loading}
+              checked={fallback}
+              onChange={(e) => setFallback(e.target.checked)}
+            />
+            <span>{t("settings.office.providerFallback")}</span>
+          </label>
+          <p style={switchHintStyle}>
+            {t("settings.office.providerFallbackHint")}
+          </p>
+        </div>
+      )}
       {error && (
         <p
           role="alert"
@@ -300,6 +315,7 @@ export function MemberUsageCard({
           onClick={() => {
             setUsageCap(baselineCap);
             setUsageShare(baselineShare);
+            setFallback(baselineFallback);
             setError(null);
           }}
           style={dialogCancelBtn}
@@ -327,6 +343,19 @@ export function MemberUsageCard({
 }
 
 const statusLineStyle: CSSProperties = { fontSize: 10, margin: "3px 0 0" };
+const switchLabelStyle: CSSProperties = {
+  display: "flex",
+  gap: 6,
+  fontSize: 12,
+  fontWeight: 650,
+  color: "var(--text-primary)",
+};
+const switchHintStyle: CSSProperties = {
+  fontSize: 10,
+  color: "var(--text-ghost)",
+  margin: "3px 0 0",
+  lineHeight: 1.4,
+};
 const mutedText = "var(--text-muted)";
 
 // The status lines in the order they show.

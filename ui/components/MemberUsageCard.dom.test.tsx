@@ -33,6 +33,17 @@ function deferred<T>() {
 
 const NEVER = new Promise<never>(() => {});
 
+// The two switches of the card: Pace member usage, and the fallback to the
+// office sign-in (task 2008c993), which shows only when the server knows it.
+const paceBox = (view: ReturnType<typeof render>) =>
+  view.getByRole("checkbox", {
+    name: t("settings.office.memberUsageCap"),
+  }) as HTMLInputElement;
+const fallbackBox = (view: { container: HTMLElement }) =>
+  view.container.querySelector<HTMLInputElement>(
+    "[data-provider-fallback] input[type=checkbox]",
+  );
+
 const slots = (view: { container: HTMLElement }) =>
   [...view.container.querySelectorAll("[data-usage-provider]")].map((slot) => ({
     provider: slot.getAttribute("data-usage-provider"),
@@ -157,13 +168,22 @@ it("reserves the card frame, with the switch neither on nor off and writes disab
   const view = render(onLanguage(null, createElement(MemberUsageCard)));
   const frame = view.container.querySelector('section[aria-busy="true"]');
   expect(frame?.tagName).toBe("SECTION");
-  const box = view.getByRole("checkbox") as HTMLInputElement;
+  const box = paceBox(view);
   expect(box.disabled).toBe(true);
   expect(box.indeterminate).toBe(true);
+  // The fallback switch is unknown too: never a real "off".
+  const fallback = fallbackBox(view)!;
+  expect(fallback.disabled).toBe(true);
+  expect(fallback.indeterminate).toBe(true);
   const buttons = view.getAllByRole("button") as HTMLButtonElement[];
   expect(buttons.every((button) => button.disabled)).toBe(true);
   await act(async () =>
-    resolve({ version: "1", memberUsageCap: true, memberUsageShare: 80 }),
+    resolve({
+      version: "1",
+      memberUsageCap: true,
+      memberUsageShare: 80,
+      providerFallback: true,
+    }),
   );
   expect(
     view.container.querySelector('section[aria-busy="false"]')?.tagName,
@@ -171,6 +191,9 @@ it("reserves the card frame, with the switch neither on nor off and writes disab
   expect(box.disabled).toBe(false);
   expect(box.indeterminate).toBe(false);
   expect(box.checked).toBe(true);
+  expect(fallbackBox(view)?.disabled).toBe(false);
+  expect(fallbackBox(view)?.indeterminate).toBe(false);
+  expect(fallbackBox(view)?.checked).toBe(true);
   view.unmount();
 });
 
@@ -446,5 +469,127 @@ it("reads the lines again after a save, and an answer from before the save canno
     { provider: "claude", loading: false },
     { provider: "codex", loading: true },
   ]);
+  view.unmount();
+});
+
+// Task 573b071f: the fallback switch is part of the card's form, above its
+// Cancel/Save row, and saves with it like every other switch above a Save
+// row. The settings blob has other writers (the Office pane's name, the
+// Audit pane's Record terminals), and Save writes with the version of a
+// fresh read.
+function fallbackOffice(providerFallback: boolean) {
+  const stored: Record<string, unknown> = {
+    memberUsageCap: false,
+    memberUsageShare: 80,
+    providerFallback,
+  };
+  const office = {
+    stored,
+    version: 1,
+    writes: [] as Record<string, unknown>[],
+  };
+  setApiShim(async (method, path, body) => {
+    if (statusProvider(method, path)) return { memberUsageStatus: [] };
+    if (path !== "/api/office/settings")
+      throw new Error(`no shim for ${method} ${path}`);
+    if (method === "GET")
+      return {
+        name: "Office name",
+        version: String(office.version),
+        ...stored,
+      };
+    const b = body as Record<string, unknown>;
+    if (b.version !== String(office.version))
+      throw new ApiError(409, "version_conflict", "Settings changed");
+    office.writes.push(b);
+    for (const key of Object.keys(stored))
+      if (b[key] !== undefined) stored[key] = b[key];
+    office.version++;
+    return undefined;
+  });
+  return office;
+}
+
+it("keeps a fallback change until Save, above the Save row, and Save writes it with the pace fields in one PUT", async () => {
+  const office = fallbackOffice(false);
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
+  await act(async () => {});
+  const save = view.getByRole("button", { name: t("common.save") });
+  const box = fallbackBox(view)!;
+  expect(box.checked).toBe(false);
+  expect(
+    box.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+
+  await act(async () => fireEvent.click(box));
+  expect(box.checked).toBe(true);
+  expect(office.writes).toEqual([]);
+
+  await act(async () => fireEvent.click(save));
+  expect(office.writes).toEqual([
+    {
+      version: "1",
+      memberUsageCap: false,
+      memberUsageShare: 80,
+      providerFallback: true,
+    },
+  ]);
+  expect(office.stored.providerFallback).toBe(true);
+  expect(fallbackBox(view)?.checked).toBe(true);
+  expect(view.queryByRole("alert")).toBeNull();
+  view.unmount();
+});
+
+it("puts the fallback switch back on Cancel without a write", async () => {
+  const office = fallbackOffice(true);
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
+  await act(async () => {});
+  const cancel = view.getByRole("button", {
+    name: t("common.cancel"),
+  }) as HTMLButtonElement;
+  expect(cancel.disabled).toBe(true);
+  await act(async () => fireEvent.click(fallbackBox(view)!));
+  expect(fallbackBox(view)?.checked).toBe(false);
+  // A fallback change alone is a change to the form.
+  expect(cancel.disabled).toBe(false);
+  await act(async () => fireEvent.click(cancel));
+  expect(fallbackBox(view)?.checked).toBe(true);
+  expect(cancel.disabled).toBe(true);
+  expect(office.writes).toEqual([]);
+  view.unmount();
+});
+
+it("saves after another pane wrote the settings since they loaded", async () => {
+  const office = fallbackOffice(false);
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
+  await act(async () => {});
+  // Record terminals in the Audit pane: a field this card does not show.
+  office.version++;
+  await act(async () => fireEvent.click(fallbackBox(view)!));
+  await act(async () =>
+    fireEvent.click(view.getByRole("button", { name: t("common.save") })),
+  );
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(office.writes).toEqual([
+    {
+      version: "2",
+      memberUsageCap: false,
+      memberUsageShare: 80,
+      providerFallback: true,
+    },
+  ]);
+  view.unmount();
+});
+
+it("shows the card without the fallback switch for a server without the setting", async () => {
+  setApiShim(async () => ({
+    version: "1",
+    memberUsageCap: false,
+    memberUsageShare: 80,
+  }));
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
+  await act(async () => {});
+  expect(paceBox(view).disabled).toBe(false);
+  expect(fallbackBox(view)).toBeNull();
   view.unmount();
 });
