@@ -1,7 +1,7 @@
 import { scrubPatterns, scrubSpans, scrubText } from "./secret-proxy/scrub.ts";
 
 // Every current secret value, in raw, URL-encoded and base64 form, whatever
-// its shape (secrets design, section 6). The secrets runtime sets them on
+// its shape, except a public address (secrets design, section 6). The secrets runtime sets them on
 // every change. Values shorter than MIN_SCRUB_LENGTH are left out, as in the
 // proxy's scrub: a short pattern would rewrite ordinary log text. That is
 // safe because agents never get a value; a value reaches a log only if a

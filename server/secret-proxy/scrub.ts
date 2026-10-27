@@ -4,7 +4,10 @@
 // that reflects a value in another encoding (hex, for one) still returns it
 // (section 2.5).
 
-import { SECRET_MIN_VALUE_LENGTH } from "../../shared/secret-hosts.ts";
+import {
+  isPublicAddressValue,
+  SECRET_MIN_VALUE_LENGTH,
+} from "../../shared/secret-hosts.ts";
 
 export const SCRUB_MARKER = "ISOMUX-REDACTED";
 
@@ -34,11 +37,13 @@ function base64Cores(value: Buffer): string[] {
 }
 
 // The strings to remove for a set of values, longest first so that a longer
-// form is replaced before a shorter one inside it.
+// form is replaced before a shorter one inside it. A value that is a public
+// address (a domain, an email, an origin) is no credential: masking it only
+// makes chat and responses unreadable, so it is kept (task d28140c9).
 export function scrubPatterns(values: Iterable<string>): string[] {
   const patterns = new Set<string>();
   for (const value of values) {
-    if (!value) continue;
+    if (!value || isPublicAddressValue(value)) continue;
     patterns.add(value);
     patterns.add(encodeURIComponent(value));
     for (const core of base64Cores(Buffer.from(value, "latin1")))

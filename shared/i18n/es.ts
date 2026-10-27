@@ -1186,6 +1186,8 @@ Cosas que puedes hacer por él:
   "integrations.secrets.value": "Clave o token",
   "integrations.secrets.valuePlaceholder": "Pégalo aquí",
   "integrations.secrets.newValuePlaceholder": "Pega el valor nuevo",
+  "integrations.secrets.publicAddress":
+    "El chat no oculta una dirección pública.",
   "integrations.secrets.nameHint":
     "Los agentes ven este nombre, por ejemplo MY_API_KEY.",
   "integrations.secrets.addresses": "Direcciones que pueden recibirlo",

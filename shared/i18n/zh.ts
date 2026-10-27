@@ -1070,6 +1070,7 @@ App 的一些原则：
   "integrations.secrets.value": "密钥或令牌",
   "integrations.secrets.valuePlaceholder": "粘贴到这里",
   "integrations.secrets.newValuePlaceholder": "粘贴新值",
+  "integrations.secrets.publicAddress": "聊天不会隐藏公开地址。",
   "integrations.secrets.nameHint": "智能体看到的名称，例如 MY_API_KEY。",
   "integrations.secrets.addresses": "可以接收它的地址",
   "integrations.secrets.addressesHint":

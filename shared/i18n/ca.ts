@@ -1190,6 +1190,7 @@ Coses que pots fer per ell:
   "integrations.secrets.value": "Clau o token",
   "integrations.secrets.valuePlaceholder": "Enganxa'l aquí",
   "integrations.secrets.newValuePlaceholder": "Enganxa el valor nou",
+  "integrations.secrets.publicAddress": "El xat no amaga una adreça pública.",
   "integrations.secrets.nameHint":
     "Els agents veuen aquest nom, per exemple MY_API_KEY.",
   "integrations.secrets.addresses": "Adreces que el poden rebre",

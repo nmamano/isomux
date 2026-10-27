@@ -411,6 +411,51 @@ it("has a Test only for a secret whose hosts have an identity check", async () =
   ).not.toBeNull();
 });
 
+// Task d28140c9: chat and logs do not mask a value that is a public address,
+// and the value field says so while such a value is typed. Presence, not
+// wording.
+function publicAddressHint(view: ReturnType<typeof render>): boolean {
+  const el = view.container.querySelector("[data-secret-public-address-hint]");
+  if (el) expect(el.textContent.trim()).not.toBe("");
+  return el !== null;
+}
+
+async function typeValue(view: ReturnType<typeof render>, value: string) {
+  await act(async () => {
+    fireEvent.change(valueInput(view)!, { target: { value } });
+  });
+}
+
+it("says a typed public address stays readable, in the new-secret form and in Replace value", async () => {
+  fake.scope("alice").secrets.push({
+    name: "MY_HANDLE",
+    hosts: ["api.example.com"],
+    form: { kind: "authorization" },
+    createdAt: 1,
+    valueSetAt: 1,
+    updatedAt: 1,
+    note: null,
+    apps: [],
+    value: FAKE,
+  });
+  const view = await mount();
+  await click(view.container.querySelector("[data-integrations-add]"));
+  expect(publicAddressHint(view)).toBe(false);
+  await typeValue(view, "game.example.com");
+  expect(publicAddressHint(view)).toBe(true);
+  await typeValue(view, FAKE);
+  expect(publicAddressHint(view)).toBe(false);
+  await click(view.getByRole("button", { name: t("common.cancel") }));
+
+  const row = view.container.querySelector('[data-secret-name="MY_HANDLE"]')!;
+  await click(row.querySelector("[data-secret-replace]"));
+  expect(publicAddressHint(view)).toBe(false);
+  await typeValue(view, "contact@example.com");
+  expect(publicAddressHint(view)).toBe(true);
+  await typeValue(view, "https://example.com/hooks/abcdefghijkl");
+  expect(publicAddressHint(view)).toBe(false);
+});
+
 it("shows the load failure, not a crash, when a server answers with another shape", async () => {
   setApiShim(async () => ({ unexpected: true }));
   const view = await mount();

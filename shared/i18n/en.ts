@@ -1173,6 +1173,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.secrets.value": "Key or token",
   "integrations.secrets.valuePlaceholder": "Paste it here",
   "integrations.secrets.newValuePlaceholder": "Paste the new value",
+  "integrations.secrets.publicAddress": "Chat does not mask a public address.",
   "integrations.secrets.nameHint":
     "Agents see this name, for example MY_API_KEY.",
   "integrations.secrets.addresses": "Addresses that may receive it",
