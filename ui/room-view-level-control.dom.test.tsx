@@ -1,7 +1,8 @@
 // The five-step view level control (task 611c968e): one radio group, the
-// steps up to the chosen one filled, keys that move one level at a time.
-// Both surfaces mount it, so its keyboard and disabled state are owned here;
-// the surfaces' tests own what a pick saves.
+// steps up to the chosen one filled, keys that move one level at a time,
+// every step named under its bar (task 16444e9c). Both surfaces mount it, so
+// its keyboard and disabled state are owned here; the surfaces' tests own
+// what a pick saves. The legend that explains the levels is owned here too.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -10,8 +11,12 @@ setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement, useState } = await import("react");
-const { RoomViewLevelControl } =
+const { RoomViewLevelControl, RoomViewLevelLegend } =
   await import("./components/RoomViewLevelControl.tsx");
+const { expectEveryStepNamed, expectLegend } =
+  await import("./test-support/view-level-dom.ts");
+const { en } = await import("../shared/i18n/en.ts");
+const { es } = await import("../shared/i18n/es.ts");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { ROOM_VIEW_LEVELS } = await import("../shared/room-view-level.ts");
 type Level = (typeof ROOM_VIEW_LEVELS)[number];
@@ -19,10 +24,7 @@ type Level = (typeof ROOM_VIEW_LEVELS)[number];
 // A parent that keeps the level, as both surfaces do, and logs each change.
 function mount(
   start: Level,
-  {
-    size = "pane",
-    disabled = false,
-  }: { size?: "pane" | "row"; disabled?: boolean } = {},
+  { disabled = false }: { disabled?: boolean } = {},
 ) {
   const changes: Level[] = [];
   function Parent() {
@@ -34,7 +36,6 @@ function mount(
         setLevel(l);
       },
       roomName: "Ward",
-      size,
       disabled,
     });
   }
@@ -63,21 +64,25 @@ function mount(
 }
 
 describe("RoomViewLevelControl", () => {
-  for (const size of ["pane", "row"] as const) {
-    it(`${size}: five steps in order, the chosen one checked, it and the ones below it filled, the group named after the room`, () => {
-      const c = mount("notify", { size });
-      expect(c.steps().map((s) => s.dataset.viewLevel)).toEqual([
-        ...ROOM_VIEW_LEVELS,
-      ]);
-      expect(c.group().dataset.viewLevel).toBe("notify");
-      expect(c.checked()).toEqual(["notify"]);
-      expect(c.filled()).toEqual(["hidden", "tucked", "shown", "notify"]);
-      expect(c.group().getAttribute("aria-label")).toContain("Ward");
-      // One tab stop: the checked step.
-      expect(c.steps().map((s) => s.tabIndex)).toEqual([-1, -1, -1, 0, -1]);
-      c.view.unmount();
-    });
-  }
+  it("five steps in order, the chosen one checked, it and the ones below it filled, the group named after the room", () => {
+    const c = mount("notify");
+    expect(c.steps().map((s) => s.dataset.viewLevel)).toEqual([
+      ...ROOM_VIEW_LEVELS,
+    ]);
+    expect(c.group().dataset.viewLevel).toBe("notify");
+    expect(c.checked()).toEqual(["notify"]);
+    expect(c.filled()).toEqual(["hidden", "tucked", "shown", "notify"]);
+    expect(c.group().getAttribute("aria-label")).toContain("Ward");
+    // One tab stop: the checked step.
+    expect(c.steps().map((s) => s.tabIndex)).toEqual([-1, -1, -1, 0, -1]);
+    c.view.unmount();
+  });
+
+  it("every step shows its own name under its bar, and the control shows no other text", () => {
+    const c = mount("tucked");
+    expectEveryStepNamed(c.group());
+    c.view.unmount();
+  });
 
   it("a click picks that level", async () => {
     const c = mount("shown");
@@ -134,4 +139,28 @@ describe("RoomViewLevelControl", () => {
     expect(c.checked()).toEqual(["shown"]);
     c.view.unmount();
   });
+});
+
+describe("RoomViewLevelLegend", () => {
+  // A level's name in a catalog: the control's step names come from the same
+  // keys.
+  const nameIn = (catalog: object) => (l: string) =>
+    (catalog as Record<string, string>)[`settings.room.viewLevel.${l}`];
+
+  for (const [language, catalog] of [
+    [null, en],
+    ["es", es],
+  ] as const) {
+    it(`${language ?? "en"}: one row per level, in order, each the level's name highlighted and then what it means`, () => {
+      const view = render(
+        onLanguage(language, createElement(RoomViewLevelLegend)),
+      );
+      expectLegend(
+        view.container.querySelector<HTMLElement>("[data-room-view-legend]"),
+        ROOM_VIEW_LEVELS,
+        nameIn(catalog),
+      );
+      view.unmount();
+    });
+  }
 });

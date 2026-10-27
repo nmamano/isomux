@@ -439,8 +439,6 @@ App 的一些原则：
   "settings.profile.displayName": "显示名称",
   "settings.profile.accessHint":
     "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",
-  "settings.profile.viewHint":
-    "收起：不在标签栏上，位于“收起的房间”中。通知：房间中的智能体回复你的消息时播放声音。推送：另外向你的设备发送通知。",
   "settings.profile.roomColumn": "房间",
   "settings.profile.accessColumn": "访问权限",
   "settings.profile.accessTo": "{room} 的访问权限",
@@ -522,13 +520,20 @@ App 的一些原则：
   "settings.room.conflict":
     "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.room.deleteEmpty": "删除空房间",
-  "settings.room.yourView": "你的视图",
+  "settings.room.yourView": "你的可见性和提醒",
   "settings.room.viewLevel.hidden": "隐藏",
   "settings.room.viewLevel.tucked": "收起",
   "settings.room.viewLevel.shown": "显示",
-  "settings.room.viewLevel.notify": "通知",
+  "settings.room.viewLevel.notify": "声音",
   "settings.room.viewLevel.push": "推送",
-  "settings.room.viewLevelFor": "你对 {room} 的视图",
+  "settings.room.viewLevelFor": "你对 {room} 的可见性和提醒",
+  "settings.room.viewLevelInfo.hidden": "不在标签栏上，也不在其菜单中。",
+  "settings.room.viewLevelInfo.tucked": "在标签栏末尾的菜单中。",
+  "settings.room.viewLevelInfo.shown": "在标签栏上。",
+  "settings.room.viewLevelInfo.notify":
+    "另外，Isomux 在后台时，房间中的智能体回复你会播放声音。",
+  "settings.room.viewLevelInfo.push":
+    "另外，房间中的智能体回复你时，向你的设备发送通知。在“集成 → 呼叫”中为每台设备开启。",
   "settings.theme.intro":
     "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
   "settings.device.intro":

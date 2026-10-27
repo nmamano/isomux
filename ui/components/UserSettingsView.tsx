@@ -86,7 +86,10 @@ import {
   withRoomViewLevel,
   type RoomViewLevel,
 } from "../../shared/room-view-level.ts";
-import { RoomViewLevelControl } from "./RoomViewLevelControl.tsx";
+import {
+  RoomViewLevelControl,
+  RoomViewLevelLegend,
+} from "./RoomViewLevelControl.tsx";
 import { forgetThisDevice } from "../push-subscription.ts";
 import {
   getSettingsGroupsOpen,
@@ -1045,6 +1048,8 @@ const NO_ROOM_IDS: string[] = [];
 // checkbox column has its full width when there is room and narrows to its
 // header on a narrow screen; the room name keeps at least ROOM_NAME_MIN_PX.
 const ROOM_NAME_MIN_PX = 88;
+// Fits the view control's five step names side by side.
+const VIEW_COLUMN_PX = 230;
 function roomTableColumns(columnWidths: number[]): string {
   return [
     "12px",
@@ -1272,7 +1277,7 @@ function UserEditPanel({
       ? user.allowedRooms
       : allowedSetting;
   // A MEMBER's projected `rooms` exclude the rooms they've hidden, so the
-  // Your view column could never offer re-showing one. GET /api/me/rooms
+  // view column could never offer re-showing one. GET /api/me/rooms
   // returns id+name for every ACCESSIBLE room (hidden included) - fetched for
   // member self-edit and REFETCHED whenever their access set changes (an
   // owner granting/revoking a room while this panel is mounted lands as a
@@ -1745,19 +1750,19 @@ function UserEditPanel({
 
         {/* Rooms: ONE table for the per-room settings - Access, and within
             it one view level per room (Hidden < Tucked < Shown <
-            Notifications < Push). Access is owner-managed on member targets;
-            Your view is a SELF-only pref (owner-editing-member: Access only;
-            self-edit: Your view). A member
-            viewer only ever mounts this panel for themselves (canEdit), so
-            !isOwner ⇒ isMe. */}
+            Sound < Push). Access is owner-managed on member targets; the
+            view column is a SELF-only pref (owner-editing-member: Access
+            only; self-edit: the view column). A member viewer only ever
+            mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
         {(isOwner && (!ownerTarget || isMe)) || (!isOwner && isMe) ? (
           <>
             <h5 style={sectionTitleStyle}>{t("common.rooms")}</h5>
-            <p style={sectionHintStyle}>
-              {isOwner && !ownerTarget && t("settings.profile.accessHint")}
-              {isOwner && !ownerTarget && isMe && " "}
-              {isMe && t("settings.profile.viewHint")}
-            </p>
+            {isOwner && !ownerTarget && (
+              <p style={sectionHintStyle}>{t("settings.profile.accessHint")}</p>
+            )}
+            {isMe && (
+              <RoomViewLevelLegend style={{ marginTop: 8, fontSize: 12 }} />
+            )}
             <div
               style={{
                 border: "1px solid var(--border)",
@@ -1768,7 +1773,8 @@ function UserEditPanel({
                 display: "grid",
                 gridTemplateColumns: roomTableColumns([
                   ...(isOwner && !ownerTarget ? [80] : []),
-                  ...(isMe ? [150] : []),
+                  // On a phone the view control has a row of its own.
+                  ...(isMe && !isMobile ? [VIEW_COLUMN_PX] : []),
                 ]),
                 alignItems: "center",
               }}
@@ -1790,7 +1796,16 @@ function UserEditPanel({
                   </span>
                 )}
                 {isMe && (
-                  <span style={{ ...roomColumnHeader, textAlign: "left" }}>
+                  <span
+                    style={{
+                      ...roomColumnHeader,
+                      textAlign: "left",
+                      ...(isMobile && {
+                        gridColumn: "2 / -2",
+                        padding: "0 0 6px",
+                      }),
+                    }}
+                  >
                     {t("settings.room.yourView")}
                   </span>
                 )}
@@ -1874,9 +1889,10 @@ function UserEditPanel({
                       {isMe && (
                         <span
                           style={{
-                            padding: "4px 2px",
+                            padding: isMobile ? "0 0 8px" : "4px 2px",
                             display: "flex",
                             minWidth: 0,
+                            gridColumn: isMobile ? "2 / -2" : undefined,
                           }}
                         >
                           <RoomViewLevelControl
@@ -1888,7 +1904,6 @@ function UserEditPanel({
                               setRoomLevel(r.id, l);
                             }}
                             roomName={r.name}
-                            size="row"
                             disabled={!hasAccess}
                           />
                         </span>

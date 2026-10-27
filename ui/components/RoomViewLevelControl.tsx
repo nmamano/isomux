@@ -15,28 +15,25 @@ const LEVEL_NAME: Record<RoomViewLevel, PlainMessageKey> = {
 };
 
 // The tallest bar; each step down is 3 px shorter.
-const BAR_MAX = { pane: 18, row: 16 } as const;
+const BAR_MAX = 18;
 
 // One room's view level as a five-step bar: the steps up to the chosen one
-// are filled, so the order reads at a glance. "pane" names every step under
-// it; "row" fits a Settings > Rooms table cell and names only the chosen one.
+// are filled, so the order reads at a glance, and every step shows its name.
+// The room settings pane and the Settings > Rooms table draw the same one.
 export function RoomViewLevelControl({
   level,
   onChange,
   roomName,
-  size,
   disabled = false,
 }: {
   level: RoomViewLevel;
   onChange: (level: RoomViewLevel) => void;
   roomName: string;
-  size: "pane" | "row";
   disabled?: boolean;
 }): React.ReactElement {
   const { t } = useI18n();
   const groupRef = useRef<HTMLDivElement>(null);
   const rank = ROOM_VIEW_LEVELS.indexOf(level);
-  const pane = size === "pane";
 
   function pick(next: RoomViewLevel) {
     if (disabled || next === level) return;
@@ -71,113 +68,128 @@ export function RoomViewLevelControl({
       onKeyDown={onKeyDown}
       style={{
         display: "flex",
-        alignItems: pane ? "stretch" : "center",
-        gap: pane ? 4 : 8,
-        marginTop: pane ? 10 : 0,
+        gap: 4,
+        flex: 1,
         opacity: disabled ? 0.35 : 1,
         minWidth: 0,
-        maxWidth: pane ? 480 : undefined,
+        maxWidth: 480,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          gap: pane ? 4 : 0,
-          flex: pane ? 1 : "none",
-          minWidth: 0,
-        }}
-      >
-        {ROOM_VIEW_LEVELS.map((l, i) => {
-          const checked = l === level;
-          const filled = i <= rank;
-          return (
-            <button
-              key={l}
-              type="button"
-              role="radio"
-              aria-checked={checked}
-              aria-label={t(LEVEL_NAME[l])}
-              data-view-level={l}
-              data-filled={filled ? "true" : "false"}
-              tabIndex={checked ? 0 : -1}
-              disabled={disabled}
-              onClick={() => pick(l)}
+      {ROOM_VIEW_LEVELS.map((l, i) => {
+        const checked = l === level;
+        const filled = i <= rank;
+        return (
+          <button
+            key={l}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            aria-label={t(LEVEL_NAME[l])}
+            data-view-level={l}
+            data-filled={filled ? "true" : "false"}
+            tabIndex={checked ? 0 : -1}
+            disabled={disabled}
+            onClick={() => pick(l)}
+            style={{
+              // A step is as wide as its name and shares the rest, so a
+              // long name never breaks.
+              flex: "1 1 auto",
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "stretch",
+              justifyContent: "flex-start",
+              gap: 4,
+              padding: "2px 0",
+              border: "none",
+              background: "transparent",
+              cursor: disabled ? "default" : "pointer",
+            }}
+          >
+            {/* The bars grow step by step, so the order shows without the
+                names. They stand on one baseline. */}
+            <span
+              aria-hidden
               style={{
-                // A step is as wide as its name and shares the rest, so a
-                // long name never breaks.
-                flex: pane ? "1 1 auto" : "none",
-                minWidth: 0,
                 display: "flex",
-                flexDirection: "column",
-                alignItems: "stretch",
-                justifyContent: "flex-start",
-                gap: 4,
-                // A row step is a touch target of 18 x 24 px.
-                padding: pane ? "2px 0" : "4px 3px",
-                border: "none",
-                background: "transparent",
-                cursor: disabled ? "default" : "pointer",
+                alignItems: "flex-end",
+                height: BAR_MAX,
               }}
             >
-              {/* The bars grow step by step, so the order shows without the
-                  names. They stand on one baseline. */}
               <span
-                aria-hidden
                 style={{
-                  display: "flex",
-                  alignItems: "flex-end",
-                  height: BAR_MAX[size],
+                  display: "block",
+                  width: "100%",
+                  height: BAR_MAX - (ROOM_VIEW_LEVELS.length - 1 - i) * 3,
+                  borderRadius: 2,
+                  background: filled ? "var(--accent)" : "var(--text-ghost)",
+                  opacity: filled ? 1 : 0.3,
+                  boxShadow: checked
+                    ? "0 0 0 1.5px var(--text-primary)"
+                    : undefined,
                 }}
-              >
-                <span
-                  style={{
-                    display: "block",
-                    width: pane ? "100%" : 12,
-                    height:
-                      BAR_MAX[size] - (ROOM_VIEW_LEVELS.length - 1 - i) * 3,
-                    borderRadius: 2,
-                    background: filled ? "var(--accent)" : "var(--text-ghost)",
-                    opacity: filled ? 1 : 0.3,
-                    boxShadow: checked
-                      ? "0 0 0 1.5px var(--text-primary)"
-                      : undefined,
-                  }}
-                />
-              </span>
-              {pane && (
-                <span
-                  aria-hidden
-                  style={{
-                    fontSize: 10,
-                    lineHeight: 1.2,
-                    textAlign: "center",
-                    whiteSpace: "nowrap",
-                    color: checked ? "var(--accent-text)" : "var(--text-muted)",
-                    fontWeight: checked ? 600 : 400,
-                  }}
-                >
-                  {t(LEVEL_NAME[l])}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      {!pane && (
-        <span
-          aria-hidden
-          style={{
-            fontSize: 11,
-            color: "var(--text-muted)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            minWidth: 0,
-          }}
-        >
-          {t(LEVEL_NAME[level])}
-        </span>
-      )}
+              />
+            </span>
+            <span
+              aria-hidden
+              style={{
+                fontSize: 10,
+                lineHeight: 1.2,
+                textAlign: "center",
+                whiteSpace: "nowrap",
+                color: checked ? "var(--accent-text)" : "var(--text-muted)",
+                fontWeight: checked ? 600 : 400,
+              }}
+            >
+              {t(LEVEL_NAME[l])}
+            </span>
+          </button>
+        );
+      })}
     </div>
+  );
+}
+
+const LEVEL_MEANING: Record<RoomViewLevel, PlainMessageKey> = {
+  hidden: "settings.room.viewLevelInfo.hidden",
+  tucked: "settings.room.viewLevelInfo.tucked",
+  shown: "settings.room.viewLevelInfo.shown",
+  notify: "settings.room.viewLevelInfo.notify",
+  push: "settings.room.viewLevelInfo.push",
+};
+
+// What each level means, under the names the control's steps show.
+export function RoomViewLevelLegend({
+  style,
+}: {
+  style?: React.CSSProperties;
+}): React.ReactElement {
+  const { t } = useI18n();
+  return (
+    <ul
+      data-room-view-legend
+      style={{
+        listStyle: "none",
+        margin: 0,
+        padding: 0,
+        // Names in one column, meanings in the next.
+        display: "grid",
+        gridTemplateColumns: "max-content 1fr",
+        gap: "3px 10px",
+        fontSize: 11,
+        lineHeight: 1.45,
+        color: "var(--text-muted)",
+        ...style,
+      }}
+    >
+      {ROOM_VIEW_LEVELS.map((l) => (
+        <li key={l} data-view-level={l} style={{ display: "contents" }}>
+          <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+            {t(LEVEL_NAME[l])}
+          </strong>
+          <span>{t(LEVEL_MEANING[l])}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

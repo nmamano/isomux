@@ -16,6 +16,9 @@ const { onLanguage, selfUserRecord } =
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
 const { en } = await import("../shared/i18n/en.ts");
+const { expectEveryStepNamed, expectLegend } =
+  await import("./test-support/view-level-dom.ts");
+const { ROOM_VIEW_LEVELS } = await import("../shared/room-view-level.ts");
 
 const rooms = ["r1", "r2"].map((id) => ({
   id,
@@ -46,24 +49,41 @@ type Over = {
 type Room = (typeof rooms)[number] & { type?: "lobby" };
 type StoreRooms = { rooms?: Room[]; allRooms?: Room[] };
 
-const page = (over: Over, store: StoreRooms = {}) =>
+// A member in the roster, for the owner editing someone else.
+const MEMBER = {
+  ...selfUserRecord(null),
+  id: "u2",
+  name: "Bru",
+  role: "member" as const,
+  allowedRooms: ["r1"],
+};
+
+const page = (over: Over, store: StoreRooms = {}, initialUserId?: string) =>
   onLanguage(
     null,
     createElement(UserSettingsView, {
       onSwitchUser: () => {},
       onClose: () => {},
+      initialUserId,
     }),
     {
       rooms,
       hasReceivedInitialState: true,
-      users: new Map([["tester", { ...selfUserRecord(null), ...over }]]),
+      users: new Map([
+        ["tester", { ...selfUserRecord(null), ...over }],
+        ["bru", MEMBER],
+      ]),
       ...store,
     },
   );
 
 // Mount, then let the mount-time reads (memory) settle inside act.
-async function mount(over: Over, store: StoreRooms = {}) {
-  const view = render(page(over, store));
+async function mount(
+  over: Over,
+  store: StoreRooms = {},
+  initialUserId?: string,
+) {
+  const view = render(page(over, store, initialUserId));
   await act(async () => {});
   return view;
 }
@@ -202,6 +222,36 @@ describe("Your view column", () => {
       )
       .filter((id) => id !== undefined);
     expect(rowOrder).toStrictEqual(["r3", "r1", "r2"]);
+    view.unmount();
+  });
+
+  it("every row's control names all five steps, and a legend over the table explains each level under the steps' names", async () => {
+    const view = await mount({ notifRooms: ["r1"] });
+    expect(groups(view)).toHaveLength(2);
+    for (const g of groups(view)) expectEveryStepNamed(g);
+    // The legend names a level as the control does.
+    const stepName = (l: string) =>
+      groupFor(view, "r1")
+        .querySelector(`[role="radio"][data-view-level="${l}"]`)!
+        .getAttribute("aria-label")!;
+    const legends = view.container.querySelectorAll<HTMLElement>(
+      "[data-room-view-legend]",
+    );
+    expect(legends).toHaveLength(1);
+    expectLegend(legends[0], ROOM_VIEW_LEVELS, stepName);
+    view.unmount();
+  });
+
+  it("an owner editing a member sees the Rooms table with no view column and no legend: the view is the member's own", async () => {
+    const view = await mount({}, {}, "u2");
+    // The member's page is open: its Rooms table has an Access box per
+    // room, which the owner's own page does not.
+    const accessBoxes = view
+      .getAllByRole("checkbox")
+      .filter((b) => /Room r[12]/.test(b.getAttribute("aria-label") ?? ""));
+    expect(accessBoxes).toHaveLength(2);
+    expect(groups(view)).toHaveLength(0);
+    expect(view.container.querySelector("[data-room-view-legend]")).toBeNull();
     view.unmount();
   });
 });

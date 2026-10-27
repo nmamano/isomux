@@ -460,8 +460,6 @@ Cosas que puedes hacer por él:
   "settings.profile.displayName": "Nombre visible",
   "settings.profile.accessHint":
     "Acceso: salas que este miembro puede ver y en las que puede actuar (lo gestiona el propietario de la oficina).",
-  "settings.profile.viewHint":
-    "Recogida: fuera de la barra de pestañas, en Salas recogidas. Notificaciones: un sonido cuando un agente de la sala responde a tu mensaje. Push: además, una notificación en tus dispositivos.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Acceso",
   "settings.profile.accessTo": "Acceso a {room}",
@@ -556,13 +554,22 @@ Cosas que puedes hacer por él:
   "settings.room.conflict":
     "Los ajustes de la sala cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.room.deleteEmpty": "Eliminar la sala vacía",
-  "settings.room.yourView": "Tu vista",
+  "settings.room.yourView": "Tu visibilidad y notificaciones",
   "settings.room.viewLevel.hidden": "Oculta",
   "settings.room.viewLevel.tucked": "Recogida",
   "settings.room.viewLevel.shown": "Mostrada",
-  "settings.room.viewLevel.notify": "Notificaciones",
+  "settings.room.viewLevel.notify": "Sonido",
   "settings.room.viewLevel.push": "Push",
-  "settings.room.viewLevelFor": "Tu vista de {room}",
+  "settings.room.viewLevelFor": "Tu visibilidad y notificaciones de {room}",
+  "settings.room.viewLevelInfo.hidden":
+    "No está en la barra de pestañas ni en su menú.",
+  "settings.room.viewLevelInfo.tucked":
+    "En el menú al final de la barra de pestañas.",
+  "settings.room.viewLevelInfo.shown": "En la barra de pestañas.",
+  "settings.room.viewLevelInfo.notify":
+    "También un sonido cuando un agente de la sala te responde mientras Isomux está en segundo plano.",
+  "settings.room.viewLevelInfo.push":
+    "También una notificación en tus dispositivos cuando un agente de la sala te responde. Actívala en cada dispositivo en Integraciones → Avisos.",
 
   "settings.theme.intro":
     "Se guarda en este navegador. También puedes hacer clic en la ventana de la oficina para recorrer los temas sin abrir esta página.",

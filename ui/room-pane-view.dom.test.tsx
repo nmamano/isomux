@@ -7,11 +7,17 @@
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import type { View } from "./test-support/room-view-harness.ts";
 
 setUpDomTestFile();
 const { setApiShim } = await import("./api.ts");
 const h = await import("./test-support/room-view-harness.ts");
 const { level, pick, save, mount, viewWrites } = h;
+const { expectEveryStepNamed, expectLegend } =
+  await import("./test-support/view-level-dom.ts");
+const { ROOM_VIEW_LEVELS } = await import("../shared/room-view-level.ts");
+const legendOf = (view: View) =>
+  view.container.querySelector<HTMLElement>("[data-room-view-legend]");
 
 h.installApiShim();
 afterAll(() => setApiShim(null));
@@ -23,6 +29,7 @@ it("shows no view control for the lobby", async () => {
     { rooms: [h.LOBBY, h.WARD], roomId: "lobby" },
   );
   expect(level(view)).toBeNull();
+  expect(legendOf(view)).toBeNull();
   view.unmount();
 });
 
@@ -43,4 +50,23 @@ it("reads the level from the viewer's record, writes nothing while untouched or 
   const old = await mount({ tucked: ["ward"], notifRooms: ["ward"] });
   expect(level(old.view)).toBe("tucked");
   old.view.unmount();
+});
+
+it("names all five steps of the control, the same control as the Settings > Rooms table, and explains each level under it", async () => {
+  const { view } = await mount({});
+  const group = view.container.querySelector<HTMLElement>(
+    '[role="radiogroup"][data-view-level]',
+  )!;
+  expectEveryStepNamed(group);
+  const stepName = (l: string) =>
+    group
+      .querySelector(`[role="radio"][data-view-level="${l}"]`)!
+      .getAttribute("aria-label")!;
+  const legend = legendOf(view)!;
+  expectLegend(legend, ROOM_VIEW_LEVELS, stepName);
+  // Under the control.
+  expect(
+    group.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  view.unmount();
 });

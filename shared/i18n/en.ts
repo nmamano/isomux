@@ -474,8 +474,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.displayName": "Display Name",
   "settings.profile.accessHint":
     "Access: rooms this member can see and act in (office-owner managed).",
-  "settings.profile.viewHint":
-    "Tucked: off the tab bar, under Tucked rooms. Notifications: a sound when an agent in the room answers your message. Push: also a notification on your devices.",
   "settings.profile.roomColumn": "Room",
   "settings.profile.accessColumn": "Access",
   "settings.profile.accessTo": "Access to {room}",
@@ -565,13 +563,21 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.conflict":
     "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.room.deleteEmpty": "Delete empty room",
-  "settings.room.yourView": "Your view",
+  "settings.room.yourView": "Your visibility and alerts",
   "settings.room.viewLevel.hidden": "Hidden",
   "settings.room.viewLevel.tucked": "Tucked",
   "settings.room.viewLevel.shown": "Shown",
-  "settings.room.viewLevel.notify": "Notifications",
+  "settings.room.viewLevel.notify": "Sound",
   "settings.room.viewLevel.push": "Push",
-  "settings.room.viewLevelFor": "Your view of {room}",
+  "settings.room.viewLevelFor": "Your visibility and alerts for {room}",
+  "settings.room.viewLevelInfo.hidden": "Not on your tab bar or in its menu.",
+  "settings.room.viewLevelInfo.tucked":
+    "In the menu at the end of the tab bar.",
+  "settings.room.viewLevelInfo.shown": "On the tab bar.",
+  "settings.room.viewLevelInfo.notify":
+    "Also a sound when an agent in the room answers you while Isomux is in the background.",
+  "settings.room.viewLevelInfo.push":
+    "Also a notification on your devices when an agent in the room answers you. Turn it on for each device in Integrations → Pager.",
 
   "settings.theme.intro":
     "Stored in this browser. You can also click the office window to walk through the themes without opening this page.",

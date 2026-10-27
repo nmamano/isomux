@@ -460,8 +460,6 @@ Coses que pots fer per ell:
   "settings.profile.displayName": "Nom visible",
   "settings.profile.accessHint":
     "Accés: sales que aquest membre pot veure i on pot actuar (ho gestiona el propietari de l'oficina).",
-  "settings.profile.viewHint":
-    "Recollida: fora de la barra de pestanyes, a Sales recollides. Notificacions: un so quan un agent de la sala respon al teu missatge. Push: a més, una notificació als teus dispositius.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Accés",
   "settings.profile.accessTo": "Accés a {room}",
@@ -556,13 +554,22 @@ Coses que pots fer per ell:
   "settings.room.conflict":
     "La configuració de la sala ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
   "settings.room.deleteEmpty": "Elimina la sala buida",
-  "settings.room.yourView": "La teva vista",
+  "settings.room.yourView": "La teva visibilitat i notificacions",
   "settings.room.viewLevel.hidden": "Amagada",
   "settings.room.viewLevel.tucked": "Recollida",
   "settings.room.viewLevel.shown": "Mostrada",
-  "settings.room.viewLevel.notify": "Notificacions",
+  "settings.room.viewLevel.notify": "So",
   "settings.room.viewLevel.push": "Push",
-  "settings.room.viewLevelFor": "La teva vista de {room}",
+  "settings.room.viewLevelFor": "La teva visibilitat i notificacions de {room}",
+  "settings.room.viewLevelInfo.hidden":
+    "No és a la barra de pestanyes ni al seu menú.",
+  "settings.room.viewLevelInfo.tucked":
+    "Al menú del final de la barra de pestanyes.",
+  "settings.room.viewLevelInfo.shown": "A la barra de pestanyes.",
+  "settings.room.viewLevelInfo.notify":
+    "També un so quan un agent de la sala et respon mentre Isomux és en segon pla.",
+  "settings.room.viewLevelInfo.push":
+    "També una notificació als teus dispositius quan un agent de la sala et respon. Activa-la a cada dispositiu a Integracions → Avisos.",
 
   "settings.theme.intro":
     "Es desa en aquest navegador. També pots fer clic a la finestra de l'oficina per recórrer els temes sense obrir aquesta pàgina.",

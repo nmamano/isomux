@@ -31,7 +31,10 @@ import {
   withRoomViewLevel,
   type RoomViewLevel,
 } from "../../shared/room-view-level.ts";
-import { RoomViewLevelControl } from "./RoomViewLevelControl.tsx";
+import {
+  RoomViewLevelControl,
+  RoomViewLevelLegend,
+} from "./RoomViewLevelControl.tsx";
 import {
   UnsavedChangesPrompt,
   useUnsavedChangesPrompt,
@@ -549,12 +552,14 @@ export function RoomPane({
             >
               {t("settings.room.yourView")}
             </h4>
-            <RoomViewLevelControl
-              level={view}
-              onChange={setView}
-              roomName={room.name}
-              size="pane"
-            />
+            <div style={{ display: "flex", marginTop: 10 }}>
+              <RoomViewLevelControl
+                level={view}
+                onChange={setView}
+                roomName={room.name}
+              />
+            </div>
+            <RoomViewLevelLegend style={{ marginTop: 10 }} />
           </>
         )}
 
