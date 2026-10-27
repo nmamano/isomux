@@ -7,6 +7,18 @@ export function selectorSyntaxFailure(
 ): BrowserFailure | undefined {
   if (!(error instanceof Error) || error.name === "TimeoutError") return;
   const first = error.message.split("\n", 1)[0];
+  // Only the count: the locator and the matched elements are page data.
+  const strict =
+    /^(?:[\w.]+: )?Error: strict mode violation: .* resolved to (\d+) elements:/.exec(
+      first,
+    );
+  if (strict)
+    return {
+      ok: false,
+      status: 400,
+      code: "invalid_request",
+      error: `The selector matched ${strict[1]} elements. Make it match one element, for example by adding >> nth=0.`,
+    };
   const parsed =
     /^(?:(?:page|locator)\.)?(?:click|fill|press|setInputFiles|innerText|ariaSnapshot): (.*)$/.exec(
       first,

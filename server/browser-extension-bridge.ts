@@ -102,6 +102,14 @@ type Assignment = {
   announced: boolean;
   // Sessions whose Target.setAutoAttach the current client got a result for.
   autoAttached: Set<string>;
+  // Open JavaScript dialogs by page or frame session. One that no client
+  // answered blocks every command on its page.
+  dialogs: Map<string, { type: string; message: string }>;
+  // Dismissals sent as the current client connected, until the session reads
+  // them.
+  dismissed: Promise<{ type: string; message: string } | undefined>[];
+  // The script contexts the current client got for the tab's main frame.
+  world: ScriptWorld;
   closed: boolean;
   recovery?: {
     done: Promise<void>;
@@ -120,6 +128,16 @@ type ChildFrame = {
   parent: string;
   waiting: boolean;
   deliveredTo?: BridgePeer;
+};
+
+// Playwright reads a title in its own isolated world, and it ignores a
+// failed Page.createIsolatedWorld: then the read waits with no command in
+// flight. Context ids and the world name stay out of every log.
+type ScriptWorld = {
+  isolated: "none" | "ok" | "error";
+  name?: string;
+  utility?: number;
+  main?: number;
 };
 
 type BrowserTab = {
@@ -520,6 +538,8 @@ export class ExtensionConnection {
     assignment.connected = true;
     assignment.announced = false;
     assignment.autoAttached = new Set();
+    assignment.world = { isolated: "none" };
+    this.dismissDialogs(assignment);
     return {
       receive: (message) =>
         assignment.peer === peer && assignment.connected
@@ -557,6 +577,9 @@ export class ExtensionConnection {
             method: p.method,
             session: p.session,
           })),
+          isolatedWorld: a.world.isolated,
+          utilityContext: a.world.utility !== undefined,
+          mainContext: a.world.main !== undefined,
         }),
     );
     for (const [id, pending] of dropped) {
@@ -575,6 +598,88 @@ export class ExtensionConnection {
     a.retirements++;
     for (const key of a.children.keys()) this.resumeChild(a, key);
     peer.close();
+  }
+
+  /** The dialogs dismissed as the grant's current client connected, each
+   * undefined when Chrome had none open by then. Read once. */
+  takeDismissedDialogs(
+    grant: string,
+  ): Promise<{ type: string; message: string } | undefined>[] {
+    const a = this.assignments.get(grant);
+    if (!a) return [];
+    const dismissed = a.dismissed;
+    a.dismissed = [];
+    return dismissed;
+  }
+
+  // A dialog still open as a client connects opened with no client to answer
+  // it, or its client retired first. Only the debugger session that saw it
+  // open can answer it, and the extension keeps that one session per tab.
+  // Every type is dismissed: no agent action caused a beforeunload here, and
+  // accepting it would navigate the member's tab away. Sent before any
+  // command of the new client.
+  private dismissDialogs(a: Assignment): void {
+    a.dismissed = [];
+    for (const [key, dialog] of a.dialogs) {
+      a.dialogs.delete(key);
+      let answer: Promise<Fields>;
+      try {
+        answer = this.request(a, "cdp", {
+          method: "Page.handleJavaScriptDialog",
+          params: { accept: false },
+          ...(key === a.session ? {} : { sessionId: key }),
+        });
+      } catch {
+        return;
+      }
+      a.dismissed.push(
+        answer.then(
+          () => dialog,
+          () => undefined,
+        ),
+      );
+    }
+  }
+
+  // Dialogs and the main frame's script contexts, from the page's own events.
+  private pageEvent(
+    a: Assignment,
+    method: string,
+    params: Fields,
+    key: string,
+  ): void {
+    if (method === "Page.javascriptDialogOpening") {
+      a.dialogs.set(key, {
+        type: typeof params.type === "string" ? params.type : "alert",
+        message: typeof params.message === "string" ? params.message : "",
+      });
+      return;
+    }
+    if (method === "Page.javascriptDialogClosed") {
+      a.dialogs.delete(key);
+      return;
+    }
+    if (key !== a.session) return;
+    const world = a.world;
+    if (method === "Runtime.executionContextsCleared") {
+      world.main = undefined;
+      world.utility = undefined;
+      return;
+    }
+    if (method === "Runtime.executionContextDestroyed") {
+      const id = params.executionContextId;
+      if (id === world.main) world.main = undefined;
+      if (id === world.utility) world.utility = undefined;
+      return;
+    }
+    if (method !== "Runtime.executionContextCreated") return;
+    const context = params.context as Fields | undefined;
+    const aux = context?.auxData as Fields | undefined;
+    if (typeof context?.id !== "number" || aux?.frameId !== a.target?.targetId)
+      return;
+    if (aux?.isDefault === true) world.main = context.id;
+    else if (world.name !== undefined && context.name === world.name)
+      world.utility = context.id;
   }
 
   isRecovering(grant: string): boolean {
@@ -744,6 +849,9 @@ export class ExtensionConnection {
       connected: false,
       announced: false,
       autoAttached: new Set(),
+      dialogs: new Map(),
+      dismissed: [],
+      world: { isolated: "none" },
       closed: false,
     };
     this.assignments.set(id, a);
@@ -1121,6 +1229,9 @@ export class ExtensionConnection {
         a.connected = false;
         a.children.clear();
         a.childPages.clear();
+        // The reattached debugger is a new session, which cannot answer a
+        // dialog the old one saw.
+        a.dialogs.clear();
         for (const [id, pending] of this.pending) {
           if (pending.assignment !== a.id) continue;
           clearTimeout(pending.timer);
@@ -1191,6 +1302,7 @@ export class ExtensionConnection {
         if (!popup) return;
         a.popups.delete(params.sessionId);
         a.pages.delete(params.sessionId);
+        a.dialogs.delete(params.sessionId);
         this.endLeaves(a, params.sessionId);
         for (const [child, page] of a.childPages)
           if (page === params.sessionId) a.childPages.delete(child);
@@ -1207,6 +1319,7 @@ export class ExtensionConnection {
         typeof msg.sessionId === "string" ? msg.sessionId : undefined;
       if (child && !a.children.has(child) && !a.popups.has(child)) return;
       const params = fields(msg.params);
+      this.pageEvent(a, msg.method, params, child ?? a.session);
       // The page this session belongs to: the tab, a popup, or, for an
       // iframe session, the page that holds it.
       const page =
@@ -1258,6 +1371,7 @@ export class ExtensionConnection {
         if (!frame) return;
         a.children.delete(params.sessionId);
         a.childPages.delete(params.sessionId);
+        a.dialogs.delete(params.sessionId);
         if (frame.deliveredTo !== a.peer) return;
       } else if (msg.method.startsWith("Target.")) return;
       a.peer.send({
@@ -1391,6 +1505,26 @@ export class ExtensionConnection {
     if (method === "Runtime.runIfWaitingForDebugger") {
       const child = a.children.get(sessionId);
       if (child) child.waiting = false;
+    }
+    if (
+      method === "Page.createIsolatedWorld" &&
+      sessionId === a.session &&
+      params.frameId === a.target.targetId
+    ) {
+      const world = a.world;
+      if (typeof params.worldName === "string") world.name = params.worldName;
+      try {
+        const result = await this.request(a, "cdp", {
+          method,
+          params,
+          sessionId: target,
+        });
+        world.isolated = "ok";
+        return result;
+      } catch (error) {
+        world.isolated = "error";
+        throw error;
+      }
     }
     if (method === "Target.setAutoAttach") {
       const peer = a.peer;

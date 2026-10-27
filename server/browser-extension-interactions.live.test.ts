@@ -954,3 +954,79 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   },
   60_000,
 );
+
+// Task 6950c897: a dialog that opened while no agent client was connected
+// blocked every command of the next client until the fence ceiling.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "an alert that opens while no agent client is connected is dismissed and reported at the next action",
+  async () => {
+    await withOfferedTab(
+      () =>
+        html(
+          `<!doctype html><title>Later</title><button id="later">later</button><script>document.getElementById("later").onclick = () => setTimeout(() => alert("late alert"), 1000)</script>`,
+        ),
+      async ({ act, closeSetup, stopClient }) => {
+        const { ok } = expectations(act);
+        const events: { method: string; at: number }[] = [];
+        const prototype = ExtensionConnection.prototype as unknown as {
+          receive: (message: unknown) => void;
+        };
+        const original = prototype.receive;
+        const receive = spyOn(prototype, "receive").mockImplementation(
+          function (this: unknown, message: unknown) {
+            const method = (message as { method?: unknown }).method;
+            if (method === "Page.javascriptDialogOpening")
+              events.push({ method, at: performance.now() });
+            return original.call(this, message);
+          },
+        );
+        try {
+          // The setup client would answer the dialog itself.
+          await closeSetup();
+          ok(await act({ action: "click", selector: "#later" }));
+          stopClient();
+          const stopped = performance.now();
+          const deadline = Date.now() + 5000;
+          while (!events.length && Date.now() < deadline) await Bun.sleep(50);
+          // The alert opened after the client ended.
+          expect(events).toHaveLength(1);
+          expect(events[0].at).toBeGreaterThan(stopped);
+          const { result, elapsed } = await act({ action: "text" });
+          expect(result).toMatchObject({ ok: true, title: "Later" });
+          expect(elapsed).toBeLessThan(DEADLINE_MS);
+          expect(
+            (result as Extract<BrowserResult, { ok: true }>).dialogs,
+          ).toEqual([
+            { type: "alert", message: "late alert", accepted: false },
+          ]);
+          // The page answers again.
+          expect(ok(await act({ action: "text" })).dialogs).toBeUndefined();
+        } finally {
+          receive.mockRestore();
+        }
+      },
+    );
+  },
+  60_000,
+);
+
+// Task 6950c897: facebook.com has a head title and SVG titles.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a selector that matches several elements fails with the count",
+  async () => {
+    await withOfferedTab(
+      () =>
+        html(
+          `<!doctype html><title>Head</title><svg><title>One</title></svg><svg><title>Two</title></svg>`,
+        ),
+      async ({ act }) => {
+        const { failed } = expectations(act);
+        const result = failed(await act({ action: "text", selector: "title" }));
+        expect(result.code).toBe("invalid_request");
+        expect(result.error).toContain("3");
+        expect(result.error).not.toContain("Head");
+      },
+    );
+  },
+  60_000,
+);

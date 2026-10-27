@@ -3282,3 +3282,350 @@ describe("offer resume after a restart", () => {
     }
   });
 });
+
+// Task 6950c897: a JavaScript dialog blocks every command on its page. One
+// left open with no client to answer it wedged the next client's connect.
+describe("dialogs that no client answered", () => {
+  type H = Awaited<ReturnType<typeof harness>>;
+  const cdp = (h: H, from = 0) =>
+    h.extension.messages
+      .slice(from)
+      .filter((m) => m.method === "cdp")
+      .map((m): Fields => ({ ...fields(m.params), id: m.id }));
+  const answers = (h: H, from = 0) =>
+    cdp(h, from).filter((c) => c.method === "Page.handleJavaScriptDialog");
+  const event = (h: H, method: string, params: Fields, sessionId?: string) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method,
+      params,
+      ...(sessionId ? { sessionId } : {}),
+    });
+  const opening = (h: H, type: string, sessionId?: string) =>
+    event(
+      h,
+      "Page.javascriptDialogOpening",
+      {
+        url: "https://example.com/",
+        message: "Unsaved draft",
+        type,
+        hasBrowserHandler: true,
+        defaultPrompt: "",
+      },
+      sessionId,
+    );
+
+  test("an open dialog is answered as the next client connects, before any of its commands", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId } = await create(h);
+      h.agent.close();
+      opening(h, "beforeunload");
+      // Nobody acts on the tab: the member may be reading it.
+      expect(answers(h)).toEqual([]);
+      const from = h.extension.messages.length;
+      const next = peer();
+      const agent = h.connection.assign("agent", next, true);
+      const work = agent.receive({
+        id: 1,
+        sessionId,
+        method: "Runtime.evaluate",
+        params: { expression: "1" },
+      });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      const sent = cdp(h, from);
+      expect(sent[0]).toMatchObject({
+        method: "Page.handleJavaScriptDialog",
+        params: { accept: false },
+      });
+      // On the tab's own session.
+      expect(sent[0].sessionId).toBeUndefined();
+      expect(answers(h)).toHaveLength(1);
+      h.connection.receive({
+        kind: "result",
+        generation: h.connection.generation,
+        id: sent[0].id,
+        result: {},
+      });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      const evaluate = cdp(h, from).find(
+        (c) => c.method === "Runtime.evaluate",
+      );
+      expect(evaluate).toBeDefined();
+      h.connection.receive({
+        kind: "result",
+        generation: h.connection.generation,
+        id: evaluate!.id,
+        result: { result: { type: "number", value: 1 } },
+      });
+      await work;
+      expect(next.messages.at(-1)!.result).toEqual({
+        result: { type: "number", value: 1 },
+      });
+      // Answered once: a later client finds nothing open.
+      agent.close();
+      h.connection.assign("agent", peer(), true);
+      expect(answers(h)).toHaveLength(1);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("with a client attached the client answers; a dialog its retired client left open is answered for the next client", async () => {
+    const h = await harness(true);
+    try {
+      const { assignment } = await create(h);
+      opening(h, "alert");
+      // The attached client gets the event and answers it itself.
+      expect(
+        h.client.messages.some(
+          (m) => m.method === "Page.javascriptDialogOpening",
+        ),
+      ).toBe(true);
+      expect(answers(h)).toEqual([]);
+      event(h, "Page.javascriptDialogClosed", { result: false, userInput: "" });
+      h.connection.retireClient(assignment, "stalled_wait");
+      h.connection.assign("agent", peer(), true).close();
+      expect(answers(h)).toEqual([]);
+
+      // A client that retires before its answer lands leaves it open.
+      h.connection.assign("agent", peer(), true);
+      opening(h, "confirm");
+      expect(answers(h)).toEqual([]);
+      h.connection.retireClient(assignment, "stalled_wait");
+      h.connection.assign("agent", peer(), true);
+      expect(answers(h)).toHaveLength(1);
+      expect(answers(h)[0]).toMatchObject({ params: { accept: false } });
+      expect(answers(h)[0].sessionId).toBeUndefined();
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a dialog left open in a popup is answered on the popup's session", async () => {
+    const h = await harness(true);
+    try {
+      const { assignment } = await create(h);
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        assignment,
+        method: "popup",
+        params: {
+          sessionId: "popup-session",
+          targetInfo: {
+            targetId: "popup-target",
+            type: "page",
+            openerId: "owned",
+            url: "https://example.com/popup",
+          },
+        },
+      });
+      h.agent.close();
+      opening(h, "alert", "popup-session");
+      h.connection.assign("agent", peer(), true);
+      expect(answers(h)).toHaveLength(1);
+      expect(answers(h)[0]).toMatchObject({
+        sessionId: "popup-session",
+        params: { accept: false },
+      });
+    } finally {
+      h.connection.close();
+    }
+  });
+  test("a dialog whose session is gone is not answered: a closed popup, or a debugger that reattached", async () => {
+    const h = await harness(true);
+    try {
+      const { assignment } = await create(h);
+      const lifecycle = (method: string, params: Fields = {}) =>
+        h.connection.receive({
+          kind: "event",
+          generation: h.connection.generation,
+          assignment,
+          method,
+          params,
+        });
+      lifecycle("popup", {
+        sessionId: "popup-session",
+        targetInfo: {
+          targetId: "popup-target",
+          type: "page",
+          openerId: "owned",
+          url: "https://example.com/popup",
+        },
+      });
+      h.agent.close();
+      opening(h, "alert", "popup-session");
+      lifecycle("popupDetached", { sessionId: "popup-session" });
+      h.connection.assign("agent", peer(), true).close();
+      expect(answers(h)).toEqual([]);
+      // Only the debugger session that saw a dialog open can answer it.
+      opening(h, "alert");
+      lifecycle("recovering");
+      lifecycle("recovered");
+      h.connection.assign("agent", peer(), true);
+      expect(answers(h)).toEqual([]);
+    } finally {
+      h.connection.close();
+    }
+  });
+});
+
+// Task 6950c897: Playwright reads a title in its own isolated world, and it
+// drops a failed Page.createIsolatedWorld. The retire line tells which
+// script contexts the client got for the tab's main frame (frame id = the
+// tab's target id).
+describe("script contexts on the retire line", () => {
+  type H = Awaited<ReturnType<typeof harness>>;
+  const PREFIX = "[browser-extension] ";
+  const retireLines = (info: { mock: { calls: unknown[][] } }) =>
+    info.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith(PREFIX))
+      .map((line) => JSON.parse(line.slice(PREFIX.length)) as Fields)
+      .filter((l) => l.reason === "client_retired");
+  const command = async (
+    h: H,
+    agent: H["agent"],
+    sessionId: unknown,
+    method: string,
+    params: Fields,
+    answer: { result: Fields } | { error: Fields },
+  ) => {
+    const work = agent.receive({ id: 9, sessionId, method, params });
+    let sent: Fields | undefined;
+    for (let i = 0; i < 20 && !sent; i++) {
+      sent = h.extension.messages.find(
+        (m) =>
+          m.method === "cdp" &&
+          fields(m.params).method === method &&
+          JSON.stringify(fields(m.params).params) === JSON.stringify(params),
+      );
+      if (!sent) await Promise.resolve();
+    }
+    h.connection.receive({
+      kind: "result",
+      generation: h.connection.generation,
+      id: sent!.id,
+      ...answer,
+    });
+    await work;
+  };
+  const context = (h: H, id: number, frameId: string, name = "") =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method: "Runtime.executionContextCreated",
+      params: {
+        context: {
+          id,
+          origin: "https://example.com",
+          name,
+          uniqueId: `u${id}`,
+          auxData: {
+            isDefault: name === "",
+            type: name ? "isolated" : "default",
+            frameId,
+          },
+        },
+      },
+    });
+  const WORLD = "__playwright_utility_world_fixture";
+
+  test("a failed isolated world for the main frame is logged; a child frame's world does not count", async () => {
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h);
+      await command(
+        h,
+        h.agent,
+        sessionId,
+        "Page.createIsolatedWorld",
+        { frameId: "owned", worldName: WORLD, grantUniveralAccess: true },
+        { error: { code: -32000, message: "Could not create isolated world" } },
+      );
+      await command(
+        h,
+        h.agent,
+        sessionId,
+        "Page.createIsolatedWorld",
+        { frameId: "child-frame", worldName: WORLD, grantUniveralAccess: true },
+        { result: { executionContextId: 8 } },
+      );
+      context(h, 7, "owned");
+      context(h, 8, "child-frame", WORLD);
+      h.connection.retireClient(assignment, "page_unanswered");
+      const [line] = retireLines(info);
+      expect(line).toMatchObject({
+        cause: "page_unanswered",
+        isolatedWorld: "error",
+        utilityContext: false,
+        mainContext: true,
+      });
+      expect(JSON.stringify(line)).not.toContain(WORLD);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+    }
+  });
+
+  test("the contexts are per client and a cleared page drops them", async () => {
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h);
+      await command(
+        h,
+        h.agent,
+        sessionId,
+        "Page.createIsolatedWorld",
+        { frameId: "owned", worldName: WORLD, grantUniveralAccess: true },
+        { result: { executionContextId: 3 } },
+      );
+      context(h, 2, "owned");
+      context(h, 3, "owned", WORLD);
+      h.connection.retireClient(assignment, "page_unanswered");
+      // A second client that got nothing yet.
+      h.connection.assign("agent", peer(), true);
+      h.connection.retireClient(assignment, "page_unanswered");
+      // A third whose page cleared its contexts.
+      const third = h.connection.assign("agent", peer(), true);
+      await command(
+        h,
+        third,
+        sessionId,
+        "Page.createIsolatedWorld",
+        { frameId: "owned", worldName: WORLD + "3", grantUniveralAccess: true },
+        { result: { executionContextId: 5 } },
+      );
+      context(h, 4, "owned");
+      context(h, 5, "owned", WORLD + "3");
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        assignment,
+        method: "Runtime.executionContextsCleared",
+        params: {},
+      });
+      h.connection.retireClient(assignment, "page_unanswered");
+      expect(
+        retireLines(info).map((l) => [
+          l.isolatedWorld,
+          l.utilityContext,
+          l.mainContext,
+        ]),
+      ).toEqual([
+        ["ok", true, true],
+        ["none", false, false],
+        ["ok", false, false],
+      ]);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+    }
+  });
+});

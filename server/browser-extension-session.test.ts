@@ -1095,7 +1095,11 @@ test("agents learn which of their manager's browsers is out of date", async () =
 
 // "hang": the action never settles, even when its client closes (a wait that
 // nothing bounds). hangTitle: the first client's title read never answers.
-// hangClose: the first client's close never returns.
+// hangClose: the first client's close never returns. titlePending: the
+// hanging title read has a CDP command in flight. pageAnswer and deadline
+// replace the office bounds. gotoOk: the goto loads. failWith: the error that
+// goto and fill throw. dialogAnswer: Chrome's answer to the office's
+// Page.handleJavaScriptDialog.
 async function timeoutSessionFixture(
   held: boolean | "watchdog" | "navigation" | "hang" = false,
   all = false,
@@ -1104,6 +1108,12 @@ async function timeoutSessionFixture(
     fenceCeiling?: number;
     hangTitle?: boolean;
     hangClose?: boolean;
+    titlePending?: boolean;
+    pageAnswer?: number;
+    deadline?: number;
+    gotoOk?: boolean;
+    failWith?: Error;
+    dialogAnswer?: "ok" | "error";
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "browser-timeout-"));
@@ -1120,8 +1130,9 @@ async function timeoutSessionFixture(
     service,
     () => "member",
     access,
-    () => 20,
+    () => opts.deadline ?? 20,
     opts.fenceCeiling === undefined ? undefined : () => opts.fenceCeiling!,
+    opts.pageAnswer === undefined ? undefined : () => opts.pageAnswer!,
   );
   const { code } = store.pair("member");
   const { credential } = store.redeem(code, origin, () => true);
@@ -1129,6 +1140,18 @@ async function timeoutSessionFixture(
   const connection = service.bridge.connect(credential, {
     send: (m) => {
       messages.push(m);
+      const sent = m.params as { method?: string } | undefined;
+      if (sent?.method === "Page.handleJavaScriptDialog")
+        queueMicrotask(() =>
+          connection.receive({
+            kind: "result",
+            generation: connection.generation,
+            id: m.id,
+            ...(opts.dialogAnswer === "error"
+              ? { error: { code: -32602, message: "No dialog is showing" } }
+              : { result: {} }),
+          }),
+        );
       if (
         (m.params as { method?: string } | undefined)?.method ===
         "Page.stopLoading"
@@ -1175,7 +1198,12 @@ async function timeoutSessionFixture(
     pageClosed = false;
   // A hang that only a ceiling or a fresh client ends lets the next action run
   // before the old one settles.
-  let settled = held === "hang" || !!opts.hangTitle || !!opts.hangClose;
+  // A dialog fixture holds no work.
+  let settled =
+    held === "hang" ||
+    !!opts.hangTitle ||
+    !!opts.hangClose ||
+    opts.dialogAnswer !== undefined;
   let clients = 0;
   let transport!: import("playwright-core").ConnectOverCDPTransport;
   let sessionId: unknown;
@@ -1198,6 +1226,7 @@ async function timeoutSessionFixture(
       });
       await Promise.resolve();
       const timeout = async () => {
+        if (opts.failWith) throw opts.failWith;
         if (held === "hang") return new Promise<never>(() => {});
         if (held === true || held === "navigation")
           transport.send({
@@ -1235,13 +1264,21 @@ async function timeoutSessionFixture(
         },
         isClosed: () => pageClosed,
         url: () => "https://example.com/",
-        title: () =>
-          opts.hangTitle && client === 1
-            ? new Promise<string>(() => {})
-            : Promise.resolve("Fixture"),
+        title: () => {
+          if (!opts.hangTitle || client !== 1)
+            return Promise.resolve("Fixture");
+          if (opts.titlePending)
+            transport.send({
+              id: 44,
+              method: "Runtime.evaluate",
+              sessionId: sessionId as string,
+              params: { expression: "document.title" },
+            });
+          return new Promise<string>(() => {});
+        },
         mainFrame: () => mainFrame,
         fill: timeout,
-        goto: timeout,
+        goto: opts.gotoOk ? async () => null : timeout,
         click: async () => {
           calls++;
           expect(settled).toBe(true);
@@ -1438,11 +1475,18 @@ test("watchdog response waits for old operation settlement without releasing the
 
 // Task f499efba, hold A: a Playwright wait with no timeout of its own (a
 // title or a Locator.count) left the fence on until the member's toggle.
-test("a title read that never answers ends as a timeout and the next action gets a fresh client", async () => {
-  const h = await timeoutSessionFixture(false, false, 0, { hangTitle: true });
+// After an input the new document can still be on its way, so its title read
+// keeps the deadline (task 6950c897).
+test("a title read that never answers after a click ends as a timeout and the next action gets a fresh client", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    hangTitle: true,
+    pageAnswer: 1,
+  });
   const diagnostics = spyOn(console, "info").mockImplementation(() => {});
   try {
-    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+    expect(
+      await h.sessions.run("agent", { action: "click", selector: "button" }),
+    ).toMatchObject({
       code: "action_timeout",
       error: TIMED_OUT_ERROR,
     });
@@ -1476,6 +1520,225 @@ const diagnosticsOf = (info: { mock: { calls: unknown[][] } }) =>
           unknown
         >,
     );
+
+// The failure that an unclassified error gives, read from the office itself
+// so that no test matches its copy.
+async function genericFailure() {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    failWith: new Error("fixture failure"),
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const result = await h.sessions.run("agent", {
+      action: "fill",
+      selector: "#fixture",
+      text: "fixture",
+    });
+    expect(result).toMatchObject({ ok: false, code: "action_failed" });
+    return (result as { error: string }).error;
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+}
+
+// Task 6950c897: on a logged-in facebook.com tab every read stalled in the
+// title read with no CDP command in flight (Playwright never got a script
+// context) and timed out after 30 s with no reason.
+for (const body of [
+  { action: "text" },
+  { action: "snapshot" },
+  { action: "screenshot" },
+  { action: "goto", url: "https://example.com/next" },
+] as const)
+  test(`a ${body.action} whose page gives no answer fails at the page-answer bound with a reason, and the next action gets a fresh client`, async () => {
+    const generic = await genericFailure();
+    const h = await timeoutSessionFixture(false, false, 0, {
+      hangTitle: true,
+      pageAnswer: 50,
+      deadline: 4000,
+      gotoOk: true,
+    });
+    const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const started = performance.now();
+      const result = await h.sessions.run("agent", body);
+      const elapsed = performance.now() - started;
+      // The fast path is for a wait with nothing in flight.
+      expect(h.connection.pendingCount(h.grant)).toBe(0);
+      expect(result).toMatchObject({ ok: false, code: "action_failed" });
+      const reason = (result as { error: string }).error;
+      expect(reason.length).toBeGreaterThan(0);
+      expect(reason).not.toBe(generic);
+      // Well before the 4 s deadline.
+      expect(elapsed).toBeLessThan(2000);
+      // Not fenced: the next action runs at once on a fresh client.
+      expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+        ok: true,
+        title: "Fixture",
+        text: "fixture",
+      });
+      expect(h.connect).toHaveBeenCalledTimes(2);
+      expect(h.connection.offered("agent")).toBe(h.grant);
+      const logs = diagnosticsOf(diagnostics);
+      expect(
+        logs.filter(
+          (l) => l.reason === "client_retired" && l.cause === "page_unanswered",
+        ),
+      ).toHaveLength(1);
+      const reasons = logs.map((l) => l.reason);
+      for (const fence of ["not_sent", "fence_ceiling", "watchdog_timeout"])
+        expect(reasons).not.toContain(fence);
+    } finally {
+      diagnostics.mockRestore();
+      h.stop();
+    }
+  }, 15_000);
+
+test("a read whose title wait has a command in flight keeps the deadline", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    hangTitle: true,
+    titlePending: true,
+    pageAnswer: 50,
+    deadline: 600,
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const started = performance.now();
+    const result = await h.sessions.run("agent", { action: "text" });
+    const elapsed = performance.now() - started;
+    expect(result).toMatchObject({ ok: false, code: "action_timeout" });
+    // The title wait had a command in flight.
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    expect(elapsed).toBeGreaterThanOrEqual(550);
+    expect(
+      diagnosticsOf(diagnostics).filter((l) => l.cause === "page_unanswered"),
+    ).toHaveLength(0);
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+}, 10_000);
+
+test("a goto that fails with a network error names the error code and not the URL", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    failWith: new Error(
+      'page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/private-sentinel\nCall log:\n  - navigating to "https://example.com/private-sentinel", waiting until "load"',
+    ),
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const result = await h.sessions.run("agent", {
+      action: "goto",
+      url: "https://example.com/private-sentinel",
+    });
+    expect(result).toMatchObject({ ok: false, code: "action_failed" });
+    expect((result as { error: string }).error).toContain(
+      "net::ERR_NAME_NOT_RESOLVED",
+    );
+    expect(JSON.stringify(result)).not.toContain("private-sentinel");
+    expect(diagnostics.mock.calls.flat().join(" ")).not.toContain(
+      "private-sentinel",
+    );
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+});
+
+test("an unclassified failure is logged by name and class, never by its message", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    failWith: new Error("private-sentinel page text"),
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    expect(
+      await h.sessions.run("agent", {
+        action: "fill",
+        selector: "#fixture",
+        text: "fixture",
+      }),
+    ).toMatchObject({ ok: false, code: "action_failed" });
+    const lines = diagnosticsOf(diagnostics).filter(
+      (l) => l.reason === "action_failed",
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ action: "fill", errorName: "Error" });
+    expect(typeof lines[0].errorClass).toBe("string");
+    expect(diagnostics.mock.calls.flat().join(" ")).not.toContain(
+      "private-sentinel",
+    );
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+});
+
+// Task 6950c897: a dialog that opened while no client was attached blocks
+// every command of the next client. The office answers it as that client
+// connects and reports it to the agent.
+for (const c of [
+  { type: "alert", answer: "ok", closed: false, reported: true },
+  { type: "beforeunload", answer: "ok", closed: false, reported: true },
+  { type: "alert", answer: "error", closed: false, reported: false },
+  { type: "alert", answer: "ok", closed: true, reported: false },
+] as const)
+  test(`a ${c.type} left open with no client (answer ${c.answer}, closed ${c.closed}) is dismissed as the next client connects`, async () => {
+    const h = await timeoutSessionFixture(false, false, 0, {
+      dialogAnswer: c.answer,
+    });
+    const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const event = (method: string, params: Record<string, unknown>) =>
+        h.connection.receive({
+          kind: "event",
+          generation: h.connection.generation,
+          assignment: h.grant,
+          method,
+          params,
+        });
+      event("Page.javascriptDialogOpening", {
+        url: "https://example.com/",
+        message: "Unsaved draft",
+        type: c.type,
+        hasBrowserHandler: true,
+        defaultPrompt: "",
+      });
+      if (c.closed)
+        event("Page.javascriptDialogClosed", { result: true, userInput: "" });
+      const answers = () =>
+        h.messages.filter(
+          (m) =>
+            (m.params as { method?: string } | undefined)?.method ===
+            "Page.handleJavaScriptDialog",
+        );
+      // Not answered while nobody acts on the tab.
+      expect(answers()).toHaveLength(0);
+      const result = await h.sessions.run("agent", { action: "text" });
+      expect(result).toMatchObject({ ok: true, text: "fixture" });
+      if (c.closed) expect(answers()).toHaveLength(0);
+      else {
+        expect(answers()).toHaveLength(1);
+        // On the tab itself, and dismissed: no agent caused a beforeunload.
+        expect(answers()[0].params).toEqual({
+          method: "Page.handleJavaScriptDialog",
+          params: { accept: false },
+        });
+      }
+      const dialogs = (result as { dialogs?: unknown[] }).dialogs ?? [];
+      expect(dialogs).toEqual(
+        c.reported
+          ? [{ type: c.type, message: "Unsaved draft", accepted: false }]
+          : [],
+      );
+      expect(diagnostics.mock.calls.flat().join(" ")).not.toContain(
+        "Unsaved draft",
+      );
+    } finally {
+      diagnostics.mockRestore();
+      h.stop();
+    }
+  });
 
 test("an action that never settles fences its grant until the ceiling, then a fresh client runs the next action", async () => {
   // The stuck client's close also waits on Chrome: only the bridge's retire

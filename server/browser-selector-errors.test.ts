@@ -49,3 +49,36 @@ test("non-parser failures keep their existing classification", () => {
   ])
     expect(selectorSyntaxFailure(error)).toBeUndefined();
 });
+
+// Task 6950c897: text with selector "title" on facebook.com matched the head
+// title and two SVG titles, and the agent got only a generic failure.
+test("a selector that matches several elements names the count and no page text", () => {
+  const privateText = "private-draft-sentinel";
+  const strict = (prefix: string, count: number) =>
+    selectorSyntaxFailure(
+      new Error(
+        `${prefix}: Error: strict mode violation: locator('${privateText}') resolved to ${count} elements:\n    1) <title>${privateText}</title> aka getByText('${privateText}')`,
+      ),
+    );
+  const seven = strict("locator.innerText", 7);
+  const twelve = strict("page.click", 12);
+  for (const [result, count] of [
+    [seven, "7"],
+    [twelve, "12"],
+  ] as const) {
+    expect(result).toMatchObject({
+      ok: false,
+      status: 400,
+      code: "invalid_request",
+    });
+    expect(result?.error).toContain(count);
+    expect(JSON.stringify(result)).not.toContain(privateText);
+  }
+  // The guidance differs from the parser hints.
+  const syntax = selectorSyntaxFailure(
+    new Error(
+      'locator.innerText: Unexpected token "[" while parsing css selector "["',
+    ),
+  );
+  expect(seven?.error).not.toBe(syntax?.error);
+});

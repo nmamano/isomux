@@ -99,6 +99,28 @@ const stillSettlingResult = () =>
 export const NOT_SENT_ERROR =
   "This browser action was not sent: the previous action is still settling, and only its outcome is unknown. Control remains on. Inspect the page after it settles before retrying.";
 const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
+// How long a read, or a goto that loaded, waits for the page's title with no
+// command in flight. Then the page gave Playwright no script context, which
+// a longer wait does not change (task 6950c897).
+export const PAGE_ANSWER_MS = 5000;
+const PAGE_UNANSWERED_ERROR = `The page did not answer within ${PAGE_ANSWER_MS / 1000} s. Control remains on. It may still be loading: try once more. If it fails again, use another tab.`;
+class PageUnansweredError extends Error {}
+// The first line of an error, sorted into a class for the log. The message
+// itself can carry page data and never reaches a log.
+const ERROR_CLASSES: [RegExp, string][] = [
+  [/strict mode violation/, "strict"],
+  [/\bnet::ERR_/, "net"],
+  [/interrupted by another navigation/, "navigation_interrupted"],
+  [/[Ff]rame (?:was|has been) detached/, "frame_detached"],
+  [/has been closed|Target closed/, "closed"],
+  [/Offer a tab with Allow agent control/, "not_assigned"],
+  [/Protocol error/, "protocol"],
+];
+const errorClass = (error: unknown): string => {
+  const first =
+    error instanceof Error ? error.message.split("\n", 1)[0] : String(error);
+  return ERROR_CLASSES.find(([pattern]) => pattern.test(first))?.[1] ?? "other";
+};
 // An out-of-date extension may not offer its tabs again after a restart, so
 // this replaces the promise that offers come back.
 const outdatedNote = (names: string[]) =>
@@ -195,6 +217,7 @@ export class ExtensionBrowserSessions {
     private mayUse: (member: string, agent: string) => boolean,
     private actionDeadline: () => number = () => BROWSER_ACTION_DEADLINE_MS,
     private fenceCeiling: () => number = () => FENCE_CEILING_MS,
+    private pageAnswer: () => number = () => PAGE_ANSWER_MS,
   ) {}
   private end(key: string): void {
     const session = this.sessions.get(key);
@@ -535,6 +558,18 @@ export class ExtensionBrowserSessions {
       };
       session.dialogs = dialogs;
       policy = { session, dialogs };
+      // Dialogs the office dismissed as this client connected.
+      for (const dismissed of connection.takeDismissedDialogs(grant))
+        dialogs.answers.push(
+          dismissed.then((dialog) => {
+            if (dialog)
+              dialogs.records.push({
+                type: dialog.type,
+                message: dialog.message.slice(0, MAX_DIALOG_MESSAGE),
+                accepted: false,
+              });
+          }),
+        );
       const timeout = actionMs;
       const page = session.page;
       const closedTarget = (error: unknown) =>
@@ -806,6 +841,35 @@ export class ExtensionBrowserSessions {
           break;
       }
       if (timedOut) return timedOutResult();
+      // A read, or a goto that loaded, waits at most pageAnswer for a title
+      // with no command in flight. After an input the new document can still
+      // be on its way, so the title read keeps the deadline.
+      const answerBound =
+        params.action === "text" ||
+        params.action === "snapshot" ||
+        params.action === "screenshot" ||
+        params.action === "goto";
+      const readTitle = async (page: Page) => {
+        const read = page.title();
+        if (answerBound) {
+          const bound = Math.min(
+            this.pageAnswer(),
+            deadline - performance.now(),
+          );
+          try {
+            return await withinDeadline(read, bound);
+          } catch (error) {
+            if (
+              !(error instanceof StalledWaitError) ||
+              performance.now() >= deadline
+            )
+              throw error;
+            if (!connection.pendingCount(grant))
+              throw new PageUnansweredError();
+          }
+        }
+        return withinDeadline(read, deadline - performance.now());
+      };
       let current: Page;
       let title: string;
       let metadataRetry = false;
@@ -819,10 +883,7 @@ export class ExtensionBrowserSessions {
         if (current.isClosed()) throw new Error("Selected browser page closed");
         try {
           // title() has no timeout of its own.
-          title = await withinDeadline(
-            current.title(),
-            deadline - performance.now(),
-          );
+          title = await readTitle(current);
         } catch (error) {
           if (
             !closedTarget(error) ||
@@ -993,6 +1054,12 @@ export class ExtensionBrowserSessions {
       } catch (error) {
         if (!valid()) return ended();
         if (debuggerDetached) return detachedResult();
+        // Nothing is in flight, so nothing needs a fence: the client goes
+        // now and the next action gets a fresh one.
+        if (error instanceof PageUnansweredError) {
+          this.retire(key, connection, grant, "page_unanswered");
+          return failure("action_failed", PAGE_UNANSWERED_ERROR);
+        }
         if (error instanceof StalledWaitError)
           return await settleTimeout("operation_timeout", "stalled_wait");
         if (
@@ -1013,6 +1080,21 @@ export class ExtensionBrowserSessions {
           ? selectorSyntaxFailure(error)
           : undefined;
         if (syntax) return syntax;
+        const net =
+          params.action === "goto" && error instanceof Error
+            ? /\bnet::ERR_[A-Z0-9_]+/.exec(error.message.split("\n", 1)[0])
+            : null;
+        if (net)
+          return failure("action_failed", `The page did not load (${net[0]}).`);
+        console.info(
+          "[browser-extension] " +
+            JSON.stringify({
+              reason: "action_failed",
+              action: params.action,
+              errorName: error instanceof Error ? error.name : typeof error,
+              errorClass: errorClass(error),
+            }),
+        );
         return failure("action_failed", "The Chrome browser action failed");
       }
     };
