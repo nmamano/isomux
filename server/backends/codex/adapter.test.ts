@@ -38,6 +38,7 @@ import {
   codexThreadConfig,
   codexUsageLimitResetMs,
   codexProviderRefusal,
+  CODEX_BACKGROUND_POLL_MS,
   CODEX_LIMIT_RESET_READ_MS,
   CODEX_TURN_ERROR_WATCHDOG_MS,
   CodexSession,
@@ -4766,5 +4767,246 @@ describe("CodexSession steer (turn/steer)", () => {
     // The next event is the turn's end: nothing for the foreign messages
     // before it, and no second steer_delivered.
     expectKind(await nextEvent(it, "turn_completed"), "turn_completed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Background work (task daa9dbef): running child threads, and the background
+// terminals a list call reports after a turn, polled while any run.
+// ---------------------------------------------------------------------------
+describe("CodexSession background work", () => {
+  type Answer =
+    | { data: { command: string; processId: string }[]; nextCursor?: string }
+    | Error
+    | "hold";
+  // The list call answers from `answers` in order (empty when none is left);
+  // "hold" parks the call until release().
+  class TerminalsTransport extends FakeCodexTransport {
+    answers: Answer[] = [];
+    private gate: ((value: unknown) => void) | null = null;
+    override request<T = unknown>(
+      method: string,
+      params?: unknown,
+    ): Promise<T> {
+      if (method !== "thread/backgroundTerminals/list")
+        return super.request<T>(method, params);
+      this.requests.push({ method, params });
+      const answer = this.answers.shift() ?? { data: [] };
+      if (answer === "hold")
+        return new Promise<T>((resolve) => {
+          this.gate = resolve as (value: unknown) => void;
+        });
+      if (answer instanceof Error) return Promise.reject(answer);
+      return Promise.resolve({
+        data: answer.data.map((t) => ({
+          itemId: `item-${t.processId}`,
+          processId: t.processId,
+          command: t.command,
+          cwd: "/work",
+          osPid: null,
+          cpuPercent: null,
+          rssKb: null,
+        })),
+        nextCursor: answer.nextCursor ?? null,
+      } as T);
+    }
+    release(data: { command: string; processId: string }[]): void {
+      const gate = this.gate;
+      this.gate = null;
+      gate?.({
+        data: data.map((t) => ({
+          itemId: `item-${t.processId}`,
+          processId: t.processId,
+          command: t.command,
+          cwd: "/work",
+          osPid: null,
+          cpuPercent: null,
+          rssKb: null,
+        })),
+        nextCursor: null,
+      });
+    }
+    listCalls(): { method: string; params?: unknown }[] {
+      return this.requests.filter(
+        (r) => r.method === "thread/backgroundTerminals/list",
+      );
+    }
+  }
+
+  const labels = (ev: NormalizedEvent) =>
+    expectKind(ev, "background_tasks")
+      .tasks.map((t) => `${t.kind}:${t.label}`)
+      .sort();
+  // Lets a list call's answer and what the session does with it settle.
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const livePolls = (clock: ReturnType<typeof retryClock>) =>
+    clock.pending.filter((p) => !p.cancelled);
+  const DEV = { command: "npm run dev\n  --port 3000", processId: "p1" };
+  const WATCH = { command: "tsc --watch", processId: "p2" };
+  const TAIL = { command: "tail -f log", processId: "p3" };
+
+  async function spawnChildren(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+    children: string[],
+  ) {
+    fireItem(fake, {
+      type: "collabAgentToolCall",
+      id: "collab-bg",
+      tool: "spawnAgent",
+      status: "completed",
+      senderThreadId: FIXTURE_THREAD_ID,
+      receiverThreadIds: children,
+      prompt: "Investigate the flaky test",
+      model: null,
+      agentsStates: {},
+    });
+    expectKind(await nextEvent(it, "collab tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "collab tool_result"), "tool_result");
+  }
+  const status = (
+    fake: FakeCodexTransport,
+    threadId: string,
+    type: "active" | "idle" | "systemError" | "notLoaded",
+  ) =>
+    fake.fireNotification("thread/status/changed", {
+      threadId,
+      status: type === "active" ? { type, activeFlags: [] } : { type },
+    });
+
+  it("counts a known child thread while it is active, and drops it when it goes idle or closes", async () => {
+    const { fake, it } = await bootstrapped();
+    await spawnChildren(fake, it, ["child-1", "child-2"]);
+
+    // A thread this session did not spawn is not its work.
+    status(fake, "stranger", "active");
+    status(fake, "child-1", "active");
+    expect(labels(await nextEvent(it, "child-1 runs"))).toEqual([
+      "agent:Investigate the flaky test",
+    ]);
+    // The same status again changes nothing; the next event is child-2.
+    status(fake, "child-1", "active");
+    status(fake, "child-2", "active");
+    const both = expectKind(
+      await nextEvent(it, "both run"),
+      "background_tasks",
+    );
+    expect(both.tasks).toHaveLength(2);
+    expect(new Set(both.tasks.map((t) => t.id)).size).toBe(2);
+
+    status(fake, "child-1", "idle");
+    expect(
+      expectKind(await nextEvent(it, "child-1 idle"), "background_tasks").tasks,
+    ).toHaveLength(1);
+    fake.fireNotification("thread/closed", { threadId: "child-2" });
+    expect(
+      expectKind(await nextEvent(it, "child-2 closed"), "background_tasks")
+        .tasks,
+    ).toEqual([]);
+  });
+
+  it("lists the background terminals when a turn ends, polls while any run, and stops when none does", async () => {
+    const clock = retryClock("poll");
+    const fake = new TerminalsTransport();
+    const { it } = await bootstrapped(fake, {
+      scheduleBackgroundPoll: (delayMs, run) =>
+        clock.scheduleRetry(delayMs, run),
+    });
+    await spawnChildren(fake, it, ["child-1"]);
+    status(fake, "child-1", "active");
+    expectKind(await nextEvent(it, "child runs"), "background_tasks");
+
+    // Two pages, then the list joins the running child.
+    fake.answers.push({ data: [DEV], nextCursor: "c2" }, { data: [WATCH] });
+    fake.fireNotification("turn/completed", { turn: { status: "completed" } });
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+    expect(labels(await nextEvent(it, "terminals"))).toEqual([
+      "agent:Investigate the flaky test",
+      "command:npm run dev --port 3000",
+      "command:tsc --watch",
+    ]);
+    expect(fake.listCalls().map((c) => c.params)).toEqual([
+      expect.objectContaining({ threadId: FIXTURE_THREAD_ID }),
+      expect.objectContaining({ threadId: FIXTURE_THREAD_ID, cursor: "c2" }),
+    ]);
+    expect(livePolls(clock).map((p) => p.delayMs)).toEqual([
+      CODEX_BACKGROUND_POLL_MS,
+    ]);
+
+    // A poll with the same list sends nothing; the next one that changes it
+    // does.
+    fake.answers.push({ data: [DEV, WATCH] }, { data: [WATCH] });
+    await clock.runNext();
+    await tick();
+    expect(livePolls(clock)).toHaveLength(1);
+    await clock.runNext();
+    expect(labels(await nextEvent(it, "one terminal"))).toEqual([
+      "agent:Investigate the flaky test",
+      "command:tsc --watch",
+    ]);
+
+    // No terminal left: the poll stops.
+    fake.answers.push({ data: [] });
+    await clock.runNext();
+    expect(labels(await nextEvent(it, "no terminal"))).toEqual([
+      "agent:Investigate the flaky test",
+    ]);
+    await tick();
+    expect(livePolls(clock)).toEqual([]);
+  });
+
+  it("keeps the last list when a list call fails, never overlaps two calls, and sends nothing after close", async () => {
+    const clock = retryClock("poll");
+    const fake = new TerminalsTransport();
+    const { session, it } = await bootstrapped(fake, {
+      scheduleBackgroundPoll: (delayMs, run) =>
+        clock.scheduleRetry(delayMs, run),
+    });
+    fake.answers.push({ data: [DEV] });
+    fake.fireNotification("turn/completed", { turn: { status: "completed" } });
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+    expect(labels(await nextEvent(it, "dev"))).toEqual([
+      "command:npm run dev --port 3000",
+    ]);
+
+    // A failed call keeps the list and the poll; the next answer is compared
+    // with the kept list.
+    fake.answers.push(new Error("list failed"), { data: [DEV, WATCH] });
+    await clock.runNext();
+    await tick();
+    expect(livePolls(clock)).toHaveLength(1);
+    await clock.runNext();
+    expect(labels(await nextEvent(it, "after the failure"))).toEqual([
+      "command:npm run dev --port 3000",
+      "command:tsc --watch",
+    ]);
+
+    // A call in flight: a due poll does not start a second one.
+    fake.answers.push("hold");
+    await clock.runNext();
+    await tick();
+    const calls = fake.listCalls().length;
+    if (livePolls(clock).length > 0) await clock.runNext();
+    await tick();
+    expect(fake.listCalls().length).toBe(calls);
+
+    // Closed while the call is out: its late answer sends nothing.
+    session.close();
+    fake.release([TAIL]);
+    await tick();
+    const rest: NormalizedEvent[] = [];
+    for (;;) {
+      const r = await it.next();
+      if (r.done) break;
+      rest.push(r.value);
+    }
+    expect(
+      rest.filter(
+        (ev) =>
+          ev.kind === "background_tasks" &&
+          ev.tasks.some((t) => t.label === TAIL.command),
+      ),
+    ).toEqual([]);
+    expect(livePolls(clock)).toEqual([]);
   });
 });

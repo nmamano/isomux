@@ -266,8 +266,13 @@ describe("SessionManager consumer: stream end", () => {
     expect(sm.consumerPromise).toBeNull();
     expect(h.dormantReason).toBe("stream-ended");
     expect(sm.turnCancelToken).toBe(tokenBefore + 1);
+    // The background work died with the process (task daa9dbef).
     expect(events).toEqual([
-      { type: "agent_updated", agentId: "a1", changes: { dormant: true } },
+      {
+        type: "agent_updated",
+        agentId: "a1",
+        changes: { dormant: true, backgroundTasks: null },
+      },
     ]);
     expect(logged).toEqual([
       {
@@ -350,6 +355,64 @@ function flagChanges(events: AgentEvent[]): string[] {
   }
   return out;
 }
+
+// Background work (task daa9dbef) lives with the session's process: every way
+// the session ends clears it, and its event is never dropped as part of a
+// cancelled turn.
+describe("SessionManager background work", () => {
+  const TASKS = [{ id: "b1", kind: "command" as const, label: "npm run dev" }];
+  const cleared = (events: AgentEvent[]) =>
+    events.filter(
+      (e) =>
+        e.type === "agent_updated" &&
+        "backgroundTasks" in e.changes &&
+        e.changes.backgroundTasks === null,
+    ).length;
+
+  it("passes a background_tasks event through the hot-abort window", async () => {
+    const { deps, processed, whenProcessed } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host({ info: { state: "thinking", dormant: false } });
+    const session = fakeSession();
+    sm.installSession(h, session);
+    sm.aborting = true;
+    session.push({ kind: "assistant_text", text: "cancelled output" });
+    session.push({ kind: "background_tasks", tasks: TASKS });
+    session.push({ kind: "turn_completed", status: "interrupted" });
+    await Promise.race([
+      whenProcessed(2),
+      new Promise((resolve) => setTimeout(resolve, 500)),
+    ]);
+    expect(processed).toEqual([
+      { kind: "background_tasks", tasks: TASKS },
+      { kind: "turn_completed", status: "interrupted" },
+    ]);
+    session.close();
+  });
+
+  it("clears it when the session is replaced", async () => {
+    const { deps, events, created } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host();
+    sm.installSession(h, fakeSession());
+    expect(cleared(events)).toBe(0);
+    await sm.replaceWith(h, "resume-1");
+    expect(cleared(events)).toBe(1);
+    created[0].close();
+  });
+
+  it("clears it when the stream fails", async () => {
+    const { deps, events } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host({ info: { state: "waiting_for_response", dormant: false } });
+    const session = fakeSession();
+    sm.installSession(h, session);
+    const consumer = consumerOf(sm);
+    session.failStream(new Error("ECONNRESET"));
+    await consumer;
+    expect(cleared(events)).toBe(1);
+  });
+});
 
 describe("SessionManager.replaceWith", () => {
   it("creates the replacement before closing the old session, exactly once with the given id, then drains and installs it", async () => {

@@ -80,7 +80,7 @@ export interface SdkSessionOptions {
 }
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 
-import type { Attachment } from "../../shared/types.ts";
+import type { Attachment, BackgroundTask } from "../../shared/types.ts";
 import { errMessage } from "../../shared/errors.ts";
 import { permissionInputSummary } from "../permission-audit.ts";
 import {
@@ -143,6 +143,7 @@ import {
 } from "./provider-text.ts";
 import { authSignal } from "./auth-signal.ts";
 import { claudeStopFamily } from "../provider-fallback.ts";
+import { sanitizeTaskLabel } from "./task-label.ts";
 
 // The terminal sign-in and sign-out run `claude` when the member has it on
 // PATH, and otherwise the binary bundled with the Agent SDK, so they never
@@ -971,6 +972,7 @@ export class ClaudeSession implements BackendSession {
   // Per-session by construction: dies with the session, so tracked-task state
   // can never go stale across resume/swap (each new session gets a fresh one).
   private readonly taskTracker = new TaskBreadcrumbTracker();
+  private readonly backgroundLevel = new ClaudeBackgroundTaskLevel();
   private readonly usageLimitTracker = new ClaudeUsageLimitTracker();
   // The translated CLI limit sentence, held until the turn's result says
   // whether a usage-limit stop replaces it.
@@ -1106,6 +1108,7 @@ export class ClaudeSession implements BackendSession {
         for (const ev of this.taskTracker.observe(msg)) {
           this.enqueue(ev);
         }
+        for (const ev of this.backgroundLevel.observe(msg)) this.enqueue(ev);
       }
     } catch (err) {
       this.flushHeldLimitEvents();
@@ -1685,19 +1688,8 @@ export function* translateSDKMessage(
 // the isomux transcript - the agent appeared to start talking spontaneously.
 // These breadcrumbs give the member the visible trigger.
 
-const TASK_LABEL_MAX = 200;
 const TRACKED_TASKS_MAX = 200;
 const BG_TOOL_IDS_MAX = 500;
-
-// Collapse to one line and cap length: breadcrumbs must stay unobtrusive and
-// task descriptions/summaries are model- or user-authored free text. Also
-// reused by the permission_denied translation above for the same reason.
-export function sanitizeTaskLabel(text: string): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  return oneLine.length > TASK_LABEL_MAX
-    ? `${oneLine.slice(0, TASK_LABEL_MAX - 1)}…`
-    : oneLine;
-}
 
 interface TrackedTask {
   desc: string;
@@ -1767,6 +1759,46 @@ class ClaudeUsageLimitTracker {
         ...(family ? { family } : {}),
       },
     ];
+  }
+}
+
+// The live background work of one CLI process, from the SDK's
+// system/background_tasks_changed level signal (REPLACE semantics). One
+// instance per session: the level is per process and nothing is sent at
+// startup, so a new process starts empty.
+export class ClaudeBackgroundTaskLevel {
+  private sent = "[]";
+
+  observe(msg: SDKMessage): NormalizedEvent[] {
+    if (msg.type !== "system" || msg.subtype !== "background_tasks_changed")
+      return [];
+    const tasks: BackgroundTask[] = msg.tasks
+      .filter((t) => t.ambient !== true)
+      .map((t) => ({
+        id: t.task_id,
+        kind: backgroundTaskKind(t.task_type),
+        label: sanitizeTaskLabel(t.description || t.task_id),
+      }));
+    const key = JSON.stringify(tasks);
+    if (key === this.sent) return [];
+    this.sent = key;
+    return [{ kind: "background_tasks", tasks }];
+  }
+}
+
+// Task types of the bundled CLI: local_agent, remote_agent,
+// in_process_teammate, local_workflow, local_bash, monitor_*, mcp_task,
+// dream. An unknown type reads as a command.
+function backgroundTaskKind(taskType: string): BackgroundTask["kind"] {
+  switch (taskType) {
+    case "local_agent":
+    case "remote_agent":
+    case "in_process_teammate":
+      return "agent";
+    case "local_workflow":
+      return "workflow";
+    default:
+      return "command";
   }
 }
 

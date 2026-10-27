@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { SceneBackgroundMark } from "../components/BackgroundWork.tsx";
 import type { AgentState, AgentOutfit } from "../../shared/types.ts";
 
 import { costumeOf } from "../../shared/outfit-options.ts";
@@ -515,6 +516,7 @@ export function Character({
   height = CHARACTER_GEOMETRY.height,
   sweating = false,
   headCrop,
+  backgroundCount = 0,
 }: {
   state: AgentState;
   outfit: AgentOutfit;
@@ -526,6 +528,9 @@ export function Character({
   /** Only read while the agent is mid-turn: the caller decides when a
    *  working stretch has run long enough. */
   sweating?: boolean;
+  /** Background work the session runs: in the idle pose a ring replaces the
+   *  zZ, in the waiting pose it sits beside the raised hand. */
+  backgroundCount?: number;
 }) {
   const skin = outfit.skin ?? "#FFD5B8";
   const costume = costumeOf(outfit.costume);
@@ -608,6 +613,15 @@ export function Character({
       </>
     );
     if (portrait) return wrap(figure);
+    // Background work still runs: the ring with its count takes the zZ's
+    // place, so the desk does not say that nothing runs.
+    if (backgroundCount > 0)
+      return wrap(
+        <>
+          {figure}
+          <SceneBackgroundMark count={backgroundCount} />
+        </>,
+      );
     return wrap(
       <>
         {figure}
@@ -827,6 +841,11 @@ export function Character({
           fill="#444"
           rx={2}
         />
+        {/* Background work still runs: the ring, above and to the right of
+            the raised hand, clear of the arm through the whole wave. */}
+        {backgroundCount > 0 && (
+          <SceneBackgroundMark count={backgroundCount} cx={52} cy={10} />
+        )}
       </>,
       { animation: "waitBounce 2s ease-in-out infinite" },
     );

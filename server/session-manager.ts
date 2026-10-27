@@ -353,12 +353,15 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         //     observability or watchdog decisions.
         // steer_delivered also passes: the engine recorded a pushed steer in
         // the turn, so the model has it whatever the interrupt does, and the
-        // queue must not send it again.
+        // queue must not send it again. background_tasks passes too: it is
+        // the process's whole background list, not part of the cancelled
+        // turn, and a dropped one would leave a stale count.
         if (
           this.aborting &&
           ev.kind !== "turn_completed" &&
           ev.kind !== "error" &&
-          ev.kind !== "steer_delivered"
+          ev.kind !== "steer_delivered" &&
+          ev.kind !== "background_tasks"
         )
           continue;
         this.deps.processNormalizedEvent(this.agentId, ev);
@@ -399,8 +402,10 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         // closeAndDrainSession uses. Harmless when a post-send turn existed
         // (it is settled via the rejection below).
         this.turnCancelToken++;
+        // The background work died with the process.
         for (const event of this.deps.updateAgent(this.agentId, {
           dormant: true,
+          backgroundTasks: null,
         }))
           this.deps.emit(event);
         if (turn) {
@@ -457,6 +462,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       const turn = this.pendingTurn;
       this.clearLiveTurn(host);
       this.pendingTurn = null;
+      // The failed stream's process took its background work with it.
+      for (const event of this.deps.updateAgent(this.agentId, {
+        backgroundTasks: null,
+      }))
+        this.deps.emit(event);
       // Asked before the rejection: the owning caller keeps the desk waiting
       // for a turn that needed sign-in (AuthNeededError).
       const authNeeded = this.deps.authNeededThisTurn(host);
@@ -579,7 +589,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     host.reportedPlugins = null;
     host.reportedSkills = null;
     this.consumerPromise = null;
-    for (const event of this.deps.updateAgent(this.agentId, { dormant: true }))
+    // The closed process takes its background work with it.
+    for (const event of this.deps.updateAgent(this.agentId, {
+      dormant: true,
+      backgroundTasks: null,
+    }))
       this.deps.emit(event);
     if (oldConsumer) {
       await this.drainConsumerBounded(oldConsumer);

@@ -434,6 +434,100 @@ describe("ClaudeSession stream", () => {
 // ClaudeSession - send
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ClaudeSession - background work (task daa9dbef)
+// ---------------------------------------------------------------------------
+
+// The SDK's background_tasks_changed is a level with REPLACE semantics. The
+// session turns each changed level into one background_tasks event: ambient
+// tasks dropped, a kind per task type, a one-line label.
+describe("ClaudeSession background work", () => {
+  const level = (
+    tasks: {
+      task_id: string;
+      task_type: string;
+      description: string;
+      ambient?: boolean;
+    }[],
+  ) => ({
+    type: "system",
+    subtype: "background_tasks_changed",
+    tasks,
+    uuid: "u",
+    session_id: "s",
+  });
+  const RUNNING = [
+    { task_id: "b1", task_type: "local_bash", description: "npm run\n  dev" },
+    { task_id: "a1", task_type: "local_agent", description: "Review the diff" },
+    {
+      task_id: "t1",
+      task_type: "in_process_teammate",
+      description: "Teammate",
+    },
+    { task_id: "r1", task_type: "remote_agent", description: "Remote" },
+    { task_id: "w1", task_type: "local_workflow", description: "Ship it" },
+    { task_id: "x1", task_type: "mcp_task", description: "" },
+    {
+      task_id: "m1",
+      task_type: "monitor_mcp",
+      description: "Watch",
+      ambient: true,
+    },
+  ];
+
+  it("sends each changed level once, without ambient tasks, with a kind per task type", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+
+    conv.emit(level(RUNNING));
+    const first = (await nextEvent(it)) as {
+      kind: string;
+      tasks: { id: string; kind: string; label: string }[];
+    };
+    expect(first.kind).toBe("background_tasks");
+    expect(first.tasks.map((t) => [t.id, t.kind, t.label])).toEqual([
+      ["b1", "command", "npm run dev"],
+      ["a1", "agent", "Review the diff"],
+      ["t1", "agent", "Teammate"],
+      ["r1", "agent", "Remote"],
+      ["w1", "workflow", "Ship it"],
+      // No description: the task id names it.
+      ["x1", "command", "x1"],
+    ]);
+
+    // The same level again (an ambient task only changed): no event. The
+    // next event is the empty level.
+    conv.emit(level(RUNNING.filter((t) => t.task_id !== "m1")));
+    conv.emit(level([]));
+    expect(await nextEvent(it)).toEqual({
+      kind: "background_tasks",
+      tasks: [],
+    });
+
+    conv.finish();
+    expect((await it.next()).done).toBe(true);
+    session.close();
+  });
+
+  it("starts each session empty: a new session sends the level an earlier one already sent", async () => {
+    const fake = new FakeSdkClient();
+    const one = [{ task_id: "b1", task_type: "local_bash", description: "x" }];
+    for (let i = 0; i < 2; i++) {
+      const { session, conv } = makeSession(fake);
+      const it = session.stream()[Symbol.asyncIterator]();
+      conv.emit(level(one));
+      expect(await nextEvent(it)).toMatchObject({
+        kind: "background_tasks",
+        tasks: [{ id: "b1" }],
+      });
+      conv.finish();
+      expect((await it.next()).done).toBe(true);
+      session.close();
+    }
+  });
+});
+
 describe("ClaudeSession send", () => {
   // Attachments follow the shared path-notice convention
   // (server/attachment-prompt.ts owns the line format, skip and order): one

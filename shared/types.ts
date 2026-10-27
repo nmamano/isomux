@@ -778,6 +778,14 @@ export interface SubscriptionUsageWire {
 }
 
 // What the browser knows about an agent
+// One piece of background work an agent's session runs. The UI words the
+// kind; label is the backend's one-line description.
+export interface BackgroundTask {
+  id: string;
+  kind: "agent" | "command" | "workflow";
+  label: string;
+}
+
 export interface AgentInfo {
   id: string;
   name: string;
@@ -916,6 +924,11 @@ export interface AgentInfo {
   // pending prompt does not survive a restart either. Clears go over the wire
   // as EXPLICIT null for the same JSON.stringify reason as contextUsage below.
   pendingPrompt?: PendingPromptKind | null;
+  // Background work the live session still runs (Claude background agents,
+  // commands and workflows; Codex subagents and background terminals). Live
+  // only: not persisted, and cleared with the session. Explicit null when
+  // empty, for the same JSON.stringify reason as contextUsage below.
+  backgroundTasks?: BackgroundTask[] | null;
   // Live context-window fullness of the CURRENT conversation, pushed over
   // agent_updated (internal-docs/context-fullness-visibility.md). Absent or
   // null while there's no committed measurement (fresh conversation, Codex

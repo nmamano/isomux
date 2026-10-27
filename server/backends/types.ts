@@ -19,7 +19,7 @@ import type { FallbackFamily } from "../provider-fallback.ts";
 // shared/types.ts as AgentCapabilities; this is just an alias so backend
 // code reads naturally.
 
-import type { AgentCapabilities } from "../../shared/types.ts";
+import type { AgentCapabilities, BackgroundTask } from "../../shared/types.ts";
 export type BackendCapabilities = AgentCapabilities;
 
 // `filename` (relative to the agent's attachments dir) is resolved to an
@@ -338,6 +338,12 @@ export type NormalizedEvent =
       taskId: string;
       label: string;
     }
+  // The full list of background work the session runs now (REPLACE
+  // semantics), sent only when it changes: Claude from the SDK's
+  // background_tasks_changed level, Codex from running child threads and
+  // background terminals. OpenCode sends none. Never a turn event: it moves
+  // no state and stamps no activity.
+  | { kind: "background_tasks"; tasks: BackgroundTask[] }
   // A tool call was auto-denied without an interactive prompt (Claude-only at
   // v1): newer SDKs emit system/permission_denied for the deny short-circuit
   // in canUseTool - auto-mode classifier, deny rules, dontAsk mode. The

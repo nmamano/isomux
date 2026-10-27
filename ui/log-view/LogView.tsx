@@ -1,4 +1,5 @@
 import { isBackSeat } from "../../shared/desks.ts";
+import { HeaderBackgroundPill } from "../components/BackgroundWork.tsx";
 import { BackRoomStrip } from "./BackRoomStrip.tsx";
 import {
   STATE_LABEL_KEYS,
@@ -2188,6 +2189,7 @@ export function LogView({
             {agent.pendingPrompt && !interaction && (
               <PendingPromptLabel kind={agent.pendingPrompt} />
             )}
+            <HeaderBackgroundPill tasks={agent.backgroundTasks ?? []} />
             {/* Topic (conversation summary) stacked over cwd. */}
             <div
               style={{
@@ -2452,6 +2454,10 @@ export function LogView({
                   {agent.pendingPrompt && !interaction && (
                     <PendingPromptLabel kind={agent.pendingPrompt} />
                   )}
+                  <HeaderBackgroundPill
+                    tasks={agent.backgroundTasks ?? []}
+                    compact
+                  />
                   {showAgentSubscriptionUsageIndicator(agent.agentType) && (
                     <SubscriptionPill
                       key={`${agent.id}:${agent.agentType}`}

@@ -51,9 +51,11 @@ import {
   providerText,
 } from "../provider-text.ts";
 import { authSignal } from "../auth-signal.ts";
+import { sanitizeTaskLabel } from "../task-label.ts";
 import { effectiveCodexSandbox } from "./sandbox-probe.ts";
 import {
   CODEX_DEFAULT_SANDBOX,
+  type BackgroundTask,
   type SubagentOrigin,
 } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
@@ -117,6 +119,7 @@ import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
 import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
 import type { ThreadForkParams } from "./_generated/v2/ThreadForkParams.ts";
+import type { ThreadBackgroundTerminalsListResponse } from "./_generated/v2/ThreadBackgroundTerminalsListResponse.ts";
 import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/ThreadTokenUsageUpdatedNotification.ts";
 import type { TokenUsageBreakdown } from "./_generated/v2/TokenUsageBreakdown.ts";
 import type { AccountRateLimitsUpdatedNotification } from "./_generated/v2/AccountRateLimitsUpdatedNotification.ts";
@@ -884,8 +887,8 @@ function collabReceivers(item: Record<string, unknown>): string[] {
     : [];
 }
 
-// One bounded line for SubagentOrigin labels (same 200-char cap as the
-// Claude backend's sanitizeTaskLabel - the UI pill ellipsizes, but the
+// One bounded line for SubagentOrigin labels (same 200-char cap as
+// sanitizeTaskLabel in ../task-label.ts - the UI pill ellipsizes, but the
 // metadata is persisted per entry).
 function subagentLabel(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 200);
@@ -991,12 +994,18 @@ export interface CodexSessionInitOpts {
   scheduleRetry?: (delayMs: number, run: () => void) => () => void;
   // Deterministic timer seam for the turn watchdog (CODEX_TURN_ERROR_WATCHDOG_MS).
   scheduleTurnWatchdog?: (delayMs: number, run: () => void) => () => void;
+  // Deterministic timer seam for the background-terminal poll
+  // (CODEX_BACKGROUND_POLL_MS).
+  scheduleBackgroundPoll?: (delayMs: number, run: () => void) => () => void;
 }
 
 const CODEX_CAPACITY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000] as const;
 
 // The longest a usage-limited turn's end waits for a rate-limit read.
 export const CODEX_LIMIT_RESET_READ_MS = 3_000;
+
+// While a thread has background terminals, how often the session lists them.
+export const CODEX_BACKGROUND_POLL_MS = 30_000;
 
 // How long a turn may stay silent after a terminal error notification before
 // the session ends it as failed itself.
@@ -1156,6 +1165,15 @@ export class CodexSession implements BackendSession {
   // those entries. Lives and dies with this session instance, like the
   // thread itself.
   private childThreads = new Map<string, SubagentOrigin>();
+  // Background work (AgentInfo.backgroundTasks): known child threads whose
+  // thread/status/changed says active, and the background terminals the
+  // last successful thread/backgroundTerminals/list reported. `backgroundSent`
+  // is the list last sent, so an equal list sends nothing.
+  private runningChildren = new Set<string>();
+  private backgroundTerminals: BackgroundTask[] = [];
+  private backgroundSent = "[]";
+  private backgroundListInFlight = false;
+  private cancelBackgroundPoll: (() => void) | null = null;
   // Latest known subscription rate limits for the signed-in ChatGPT account,
   // keyed by metered limitId (see codexLimitKey). Fed by
   // `account/rateLimits/updated` notifications and, until one arrives, a
@@ -1481,6 +1499,75 @@ export class CodexSession implements BackendSession {
     if (this.opts.scheduleRetry) return this.opts.scheduleRetry(delayMs, run);
     const timer = setTimeout(run, delayMs);
     return () => clearTimeout(timer);
+  }
+
+  // Sends the background work list when it differs from the last one sent.
+  private sendBackgroundTasks(): void {
+    const tasks: BackgroundTask[] = [];
+    for (const id of this.runningChildren) {
+      const origin = this.childThreads.get(id);
+      tasks.push({
+        id,
+        kind: "agent",
+        label: sanitizeTaskLabel(origin?.description || origin?.type || id),
+      });
+    }
+    tasks.push(...this.backgroundTerminals);
+    const key = JSON.stringify(tasks);
+    if (key === this.backgroundSent) return;
+    this.backgroundSent = key;
+    this.enqueue({ kind: "background_tasks", tasks });
+  }
+
+  // Lists the thread's background terminals (every page), and polls again
+  // while any run. One call at a time; a failed call keeps the last list.
+  private async refreshBackgroundTerminals(): Promise<void> {
+    if (this.closed || !this.threadId || this.backgroundListInFlight) return;
+    this.backgroundListInFlight = true;
+    let terminals: BackgroundTask[] | null = [];
+    try {
+      let cursor: string | null = null;
+      for (let page = 0; page < 20; page++) {
+        const resp: ThreadBackgroundTerminalsListResponse =
+          await this.client.request<ThreadBackgroundTerminalsListResponse>(
+            "thread/backgroundTerminals/list",
+            { threadId: this.threadId, ...(cursor ? { cursor } : {}) },
+          );
+        for (const t of resp.data ?? [])
+          terminals.push({
+            id: t.processId,
+            kind: "command",
+            label: sanitizeTaskLabel(t.command || t.processId),
+          });
+        cursor = resp.nextCursor ?? null;
+        if (!cursor) break;
+      }
+    } catch {
+      terminals = null;
+    } finally {
+      this.backgroundListInFlight = false;
+    }
+    if (this.closed) return;
+    if (terminals) {
+      this.backgroundTerminals = terminals;
+      this.sendBackgroundTasks();
+    }
+    if (this.backgroundTerminals.length > 0) this.scheduleBackgroundPoll();
+  }
+
+  private scheduleBackgroundPoll(): void {
+    this.cancelBackgroundPoll?.();
+    const schedule =
+      this.opts.scheduleBackgroundPoll ??
+      ((delayMs: number, run: () => void) => {
+        const timer = setTimeout(run, delayMs);
+        timer.unref?.();
+        return () => clearTimeout(timer);
+      });
+    this.cancelBackgroundPoll = schedule(CODEX_BACKGROUND_POLL_MS, () => {
+      this.cancelBackgroundPoll = null;
+      void this.refreshBackgroundTerminals();
+    });
   }
 
   private clearCapacityRetry(): void {
@@ -1813,6 +1900,8 @@ export class CodexSession implements BackendSession {
     if (this.closed) return;
     this.closed = true;
     this.clearTurnWatchdog();
+    this.cancelBackgroundPoll?.();
+    this.cancelBackgroundPoll = null;
     this.finishCapacityBackoff(
       "failed",
       "Codex session closed during provider-capacity backoff.",
@@ -2273,6 +2362,18 @@ export class CodexSession implements BackendSession {
           else this.translateCompletedItem(params.item, origin);
         }
       }
+      // A known child counts as background work while it is active.
+      if (
+        (n.method === "thread/status/changed" ||
+          n.method === "thread/closed") &&
+        this.childThreads.has(eventThreadId as string)
+      ) {
+        const status = params?.status as { type?: string } | undefined;
+        if (n.method === "thread/status/changed" && status?.type === "active")
+          this.runningChildren.add(eventThreadId as string);
+        else this.runningChildren.delete(eventThreadId as string);
+        this.sendBackgroundTasks();
+      }
       return;
     }
     // Traffic on our thread keeps a turn alive after a terminal error;
@@ -2340,6 +2441,7 @@ export class CodexSession implements BackendSession {
           break;
         }
         this.settleTurn(rawStatus, turn?.error);
+        void this.refreshBackgroundTerminals();
         break;
       }
 

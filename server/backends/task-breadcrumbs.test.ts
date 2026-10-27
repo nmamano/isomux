@@ -13,7 +13,8 @@
 // 0c7945cd: the tracker used to key off task_type alone and breadcrumbed both.
 import { describe, expect, it } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { TaskBreadcrumbTracker, sanitizeTaskLabel } from "./claude";
+import { TaskBreadcrumbTracker } from "./claude";
+import { sanitizeTaskLabel } from "./task-label";
 
 // Fixture builders - minimal shapes; the tracker only reads these fields.
 function taskStarted(over: Record<string, unknown> = {}): SDKMessage {

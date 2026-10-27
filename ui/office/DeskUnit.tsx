@@ -250,6 +250,7 @@ export function DeskUnit({
             state={agent.state}
             outfit={agent.outfit}
             sweating={sweating}
+            backgroundCount={agent.backgroundTasks?.length ?? 0}
           />
         </div>
 

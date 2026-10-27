@@ -41,6 +41,7 @@ export function LiveCharacter({
       outfit={agent.outfit}
       height={height}
       sweating={sweating}
+      backgroundCount={agent.backgroundTasks?.length ?? 0}
     />
   );
 }

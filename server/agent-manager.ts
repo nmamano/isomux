@@ -1390,6 +1390,9 @@ export function createAgentManager(deps: ManagerDeps) {
     // every turn boundary + Codex usage_update, so persisting on each would
     // rewrite agents.json needlessly.
     "contextUsage",
+    // Live background work of the session (not in PersistedAgent); changes at
+    // each background start and end.
+    "backgroundTasks",
     // Same story for the subscription-allowance reading: in-memory only, and
     // refreshed on the same high-frequency events.
     "subscriptionUsage",
@@ -5400,6 +5403,20 @@ export function createAgentManager(deps: ManagerDeps) {
 
   function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     const eventManaged = agents.get(agentId);
+    // Background work is not turn activity: it moves no state, stamps no
+    // liveness or idle clock (the idle release still ends it) and writes no
+    // log entry. An equal list sends nothing; an empty one clears with null.
+    if (ev.kind === "background_tasks") {
+      if (!eventManaged) return;
+      const next = ev.tasks.length > 0 ? ev.tasks : null;
+      const prev = eventManaged.info.backgroundTasks ?? null;
+      if (JSON.stringify(prev) === JSON.stringify(next)) return;
+      for (const event of officeState.updateAgent(agentId, {
+        backgroundTasks: next,
+      }))
+        emit(event);
+      return;
+    }
     if (eventManaged) eventManaged.lastNormalizedEventAt = Date.now();
     const newState = deriveStateFromEvent(ev);
     // Activity can arrive after its turn_completed boundary (observed from
