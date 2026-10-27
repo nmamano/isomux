@@ -528,25 +528,32 @@ a native select hidden under a styled control works, and the result adds
 `selected`.
 
 **Dialogs.** Each session page and popup has a `dialog` listener, so
-Playwright's uncaught auto-close never runs. The listener answers at once:
-dismiss, or accept for the first non-`beforeunload` dialog of an action that
+Playwright's uncaught auto-close never runs. During an action the listener
+answers at once: dismiss, or accept for the first non-`beforeunload` dialog of an action that
 sent `dialog: "accept"`; `beforeunload` is always accepted. A failed answer is
 caught. The action's result lists `dialogs: [{type, message, accepted}]`, and a
 failure carries the same list as `error.dialogs` (the route passes it as error
 detail);
 `accepted` is true only after Chrome confirmed the accept. The policy is
-cleared on every exit, so a later dialog is dismissed and reported nowhere.
+cleared on every exit.
 
-A dialog that no client answered (it opened while no client was attached, or
-its client retired first) blocks every command on its page, so the next
-client's connect would wedge. Chrome does not report it again on
-`Page.enable`, and only the debugger session that saw it open can answer it.
-The bridge tracks open dialogs per grant from `Page.javascriptDialogOpening` and
-`Page.javascriptDialogClosed`, and when the next client is assigned it
-dismisses each one before any command of that client, `beforeunload`
-included (no agent action caused it; an accept would navigate the member's
-tab away). That action lists it in `dialogs`. A dialog already open before the
-offer cannot be answered: a fresh debugger session gets "No dialog is showing".
+A dialog that opens while no action runs is left open: the member may have
+opened it on the offered tab (task 2088b38d). An open dialog blocks every
+command on its page, so a client's connect or command would wait to the
+deadline. The bridge tracks open dialogs per grant from
+`Page.javascriptDialogOpening`, and drops one on
+`Page.javascriptDialogClosed` or on a successful `Page.handleJavaScriptDialog`
+for its session (the result and the event come on separate channels), and
+with its popup or frame session. While one is listed on any page or frame of
+the grant, every action but `tabs` and `close` returns `action_failed` with
+the list in `error.dialogs`, after the office-page refusals and the fence
+checks, and sends nothing. Playwright never forgets a dialog it did not
+answer and refuses to evaluate on that page after it closes, so the next
+action retires a client that left one open (cause `held_dialog`) and attaches
+a fresh one. Agents cannot answer such a dialog; the member does. Not
+tracked: a dialog already open before the offer, or still open when the
+debugger reattached (a new debugger session gets "No dialog is showing");
+there the action waits to its deadline.
 
 **Out of scope.** A click on a custom-protocol link (`x-proto://`) ends control
 (the grant is released); reported to Isomux PM separately.

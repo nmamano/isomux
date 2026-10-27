@@ -102,12 +102,9 @@ type Assignment = {
   announced: boolean;
   // Sessions whose Target.setAutoAttach the current client got a result for.
   autoAttached: Set<string>;
-  // Open JavaScript dialogs by page or frame session. One that no client
-  // answered blocks every command on its page.
+  // Open JavaScript dialogs by page or frame session. One that is open blocks
+  // every command on its page.
   dialogs: Map<string, { type: string; message: string }>;
-  // Dismissals sent as the current client connected, until the session reads
-  // them.
-  dismissed: Promise<{ type: string; message: string } | undefined>[];
   // The script contexts the current client got for the tab's main frame.
   world: ScriptWorld;
   closed: boolean;
@@ -539,7 +536,6 @@ export class ExtensionConnection {
     assignment.announced = false;
     assignment.autoAttached = new Set();
     assignment.world = { isolated: "none" };
-    this.dismissDialogs(assignment);
     return {
       receive: (message) =>
         assignment.peer === peer && assignment.connected
@@ -600,45 +596,11 @@ export class ExtensionConnection {
     peer.close();
   }
 
-  /** The dialogs dismissed as the grant's current client connected, each
-   * undefined when Chrome had none open by then. Read once. */
-  takeDismissedDialogs(
-    grant: string,
-  ): Promise<{ type: string; message: string } | undefined>[] {
+  /** The JavaScript dialogs open on the grant's pages and frames. Each one
+   * blocks its page until the member or an action's client answers it. */
+  openDialogs(grant: string): { type: string; message: string }[] {
     const a = this.assignments.get(grant);
-    if (!a) return [];
-    const dismissed = a.dismissed;
-    a.dismissed = [];
-    return dismissed;
-  }
-
-  // A dialog still open as a client connects opened with no client to answer
-  // it, or its client retired first. Only the debugger session that saw it
-  // open can answer it, and the extension keeps that one session per tab.
-  // Every type is dismissed: no agent action caused a beforeunload here, and
-  // accepting it would navigate the member's tab away. Sent before any
-  // command of the new client.
-  private dismissDialogs(a: Assignment): void {
-    a.dismissed = [];
-    for (const [key, dialog] of a.dialogs) {
-      a.dialogs.delete(key);
-      let answer: Promise<Fields>;
-      try {
-        answer = this.request(a, "cdp", {
-          method: "Page.handleJavaScriptDialog",
-          params: { accept: false },
-          ...(key === a.session ? {} : { sessionId: key }),
-        });
-      } catch {
-        return;
-      }
-      a.dismissed.push(
-        answer.then(
-          () => dialog,
-          () => undefined,
-        ),
-      );
-    }
+    return a ? [...a.dialogs.values()].map((dialog) => ({ ...dialog })) : [];
   }
 
   // Dialogs and the main frame's script contexts, from the page's own events.
@@ -850,7 +812,6 @@ export class ExtensionConnection {
       announced: false,
       autoAttached: new Set(),
       dialogs: new Map(),
-      dismissed: [],
       world: { isolated: "none" },
       closed: false,
     };
@@ -1525,6 +1486,19 @@ export class ExtensionConnection {
         world.isolated = "error";
         throw error;
       }
+    }
+    // Chrome's Closed event and this result reach the bridge on separate
+    // channels: an answered dialog leaves the list before the client goes on.
+    // The page's next dialog can open before the result, and stays listed.
+    if (method === "Page.handleJavaScriptDialog") {
+      const answered = a.dialogs.get(sessionId);
+      const result = await this.request(a, "cdp", {
+        method,
+        params,
+        sessionId: target,
+      });
+      if (a.dialogs.get(sessionId) === answered) a.dialogs.delete(sessionId);
+      return result;
     }
     if (method === "Target.setAutoAttach") {
       const peer = a.peer;

@@ -3283,9 +3283,11 @@ describe("offer resume after a restart", () => {
   });
 });
 
-// Task 6950c897: a JavaScript dialog blocks every command on its page. One
-// left open with no client to answer it wedged the next client's connect.
-describe("dialogs that no client answered", () => {
+// Task 6950c897: a JavaScript dialog blocks every command on its page. Task
+// 2088b38d: the office never answers a dialog that opened while no action ran
+// (the member may have opened it); it tracks it so the session can refuse an
+// action at once instead of wedging on it.
+describe("open dialogs", () => {
   type H = Awaited<ReturnType<typeof harness>>;
   const cdp = (h: H, from = 0) =>
     h.extension.messages
@@ -3303,174 +3305,171 @@ describe("dialogs that no client answered", () => {
       params,
       ...(sessionId ? { sessionId } : {}),
     });
-  const opening = (h: H, type: string, sessionId?: string) =>
+  const opening = (h: H, type: string, message: string, sessionId?: string) =>
     event(
       h,
       "Page.javascriptDialogOpening",
       {
         url: "https://example.com/",
-        message: "Unsaved draft",
+        message,
         type,
         hasBrowserHandler: true,
         defaultPrompt: "",
       },
       sessionId,
     );
+  const closed = (h: H, sessionId?: string) =>
+    event(
+      h,
+      "Page.javascriptDialogClosed",
+      { result: false, userInput: "" },
+      sessionId,
+    );
+  const lifecycle = (h: H, method: string, params: Fields = {}) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method,
+      params,
+    });
+  const addPopup = (h: H) =>
+    lifecycle(h, "popup", {
+      sessionId: "popup-session",
+      targetInfo: {
+        targetId: "popup-target",
+        type: "page",
+        openerId: "owned",
+        url: "https://example.com/popup",
+      },
+    });
 
-  test("an open dialog is answered as the next client connects, before any of its commands", async () => {
+  test("a dialog is listed until Chrome reports it closed, and no client connect answers it", async () => {
     const h = await harness(true);
     try {
-      const { sessionId } = await create(h);
+      const { assignment } = await create(h);
+      // Opened with the client attached: listed, and the office sends nothing.
+      opening(h, "alert", "Saved");
+      expect(h.connection.openDialogs(assignment)).toEqual([
+        { type: "alert", message: "Saved" },
+      ]);
+      closed(h);
+      expect(h.connection.openDialogs(assignment)).toEqual([]);
+
+      // Opened while no client is attached: a new client's connect leaves it
+      // open for the member.
       h.agent.close();
-      opening(h, "beforeunload");
-      // Nobody acts on the tab: the member may be reading it.
-      expect(answers(h)).toEqual([]);
-      const from = h.extension.messages.length;
-      const next = peer();
-      const agent = h.connection.assign("agent", next, true);
-      const work = agent.receive({
+      opening(h, "beforeunload", "Unsaved draft");
+      const next = h.connection.assign("agent", peer(), true);
+      await next.receive({
         id: 1,
-        sessionId,
-        method: "Runtime.evaluate",
-        params: { expression: "1" },
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
       });
       for (let i = 0; i < 20; i++) await Promise.resolve();
-      const sent = cdp(h, from);
-      expect(sent[0]).toMatchObject({
-        method: "Page.handleJavaScriptDialog",
-        params: { accept: false },
-      });
-      // On the tab's own session.
-      expect(sent[0].sessionId).toBeUndefined();
-      expect(answers(h)).toHaveLength(1);
-      h.connection.receive({
-        kind: "result",
-        generation: h.connection.generation,
-        id: sent[0].id,
-        result: {},
-      });
-      for (let i = 0; i < 20; i++) await Promise.resolve();
-      const evaluate = cdp(h, from).find(
-        (c) => c.method === "Runtime.evaluate",
-      );
-      expect(evaluate).toBeDefined();
-      h.connection.receive({
-        kind: "result",
-        generation: h.connection.generation,
-        id: evaluate!.id,
-        result: { result: { type: "number", value: 1 } },
-      });
-      await work;
-      expect(next.messages.at(-1)!.result).toEqual({
-        result: { type: "number", value: 1 },
-      });
-      // Answered once: a later client finds nothing open.
-      agent.close();
-      h.connection.assign("agent", peer(), true);
-      expect(answers(h)).toHaveLength(1);
+      expect(answers(h)).toEqual([]);
+      expect(h.connection.openDialogs(assignment)).toEqual([
+        { type: "beforeunload", message: "Unsaved draft" },
+      ]);
+      // A copy: the caller cannot change what the bridge tracks.
+      h.connection.openDialogs(assignment).pop();
+      expect(h.connection.openDialogs(assignment)).toHaveLength(1);
+      closed(h);
+      expect(h.connection.openDialogs(assignment)).toEqual([]);
+      expect(answers(h)).toEqual([]);
     } finally {
       h.connection.close();
     }
   });
 
-  test("with a client attached the client answers; a dialog its retired client left open is answered for the next client", async () => {
+  test("a popup's dialog is listed for the grant and drops with the popup; a debugger reattach drops the tab's", async () => {
     const h = await harness(true);
     try {
       const { assignment } = await create(h);
-      opening(h, "alert");
-      // The attached client gets the event and answers it itself.
-      expect(
-        h.client.messages.some(
-          (m) => m.method === "Page.javascriptDialogOpening",
-        ),
-      ).toBe(true);
-      expect(answers(h)).toEqual([]);
-      event(h, "Page.javascriptDialogClosed", { result: false, userInput: "" });
-      h.connection.retireClient(assignment, "stalled_wait");
-      h.connection.assign("agent", peer(), true).close();
-      expect(answers(h)).toEqual([]);
+      addPopup(h);
+      opening(h, "confirm", "Leave?", "popup-session");
+      expect(h.connection.openDialogs(assignment)).toEqual([
+        { type: "confirm", message: "Leave?" },
+      ]);
+      lifecycle(h, "popupDetached", { sessionId: "popup-session" });
+      expect(h.connection.openDialogs(assignment)).toEqual([]);
 
-      // A client that retires before its answer lands leaves it open.
-      h.connection.assign("agent", peer(), true);
-      opening(h, "confirm");
+      // Only the debugger session that saw a dialog open can answer it, so a
+      // reattach forgets it.
+      opening(h, "alert", "Saved");
+      expect(h.connection.openDialogs(assignment)).toHaveLength(1);
+      lifecycle(h, "recovering");
+      lifecycle(h, "recovered");
+      expect(h.connection.openDialogs(assignment)).toEqual([]);
       expect(answers(h)).toEqual([]);
-      h.connection.retireClient(assignment, "stalled_wait");
-      h.connection.assign("agent", peer(), true);
-      expect(answers(h)).toHaveLength(1);
-      expect(answers(h)[0]).toMatchObject({ params: { accept: false } });
-      expect(answers(h)[0].sessionId).toBeUndefined();
     } finally {
       h.connection.close();
     }
   });
 
-  test("a dialog left open in a popup is answered on the popup's session", async () => {
-    const h = await harness(true);
-    try {
-      const { assignment } = await create(h);
-      h.connection.receive({
-        kind: "event",
-        generation: h.connection.generation,
-        assignment,
-        method: "popup",
-        params: {
-          sessionId: "popup-session",
-          targetInfo: {
-            targetId: "popup-target",
-            type: "page",
-            openerId: "owned",
-            url: "https://example.com/popup",
-          },
-        },
-      });
-      h.agent.close();
-      opening(h, "alert", "popup-session");
-      h.connection.assign("agent", peer(), true);
-      expect(answers(h)).toHaveLength(1);
-      expect(answers(h)[0]).toMatchObject({
-        sessionId: "popup-session",
-        params: { accept: false },
-      });
-    } finally {
-      h.connection.close();
-    }
-  });
-  test("a dialog whose session is gone is not answered: a closed popup, or a debugger that reattached", async () => {
-    const h = await harness(true);
-    try {
-      const { assignment } = await create(h);
-      const lifecycle = (method: string, params: Fields = {}) =>
-        h.connection.receive({
-          kind: "event",
-          generation: h.connection.generation,
-          assignment,
-          method,
-          params,
+  // The client's answer and Chrome's close event reach the bridge on two
+  // channels in either order. An action returns after its answer, so the next
+  // action must not see that dialog as still open.
+  for (const where of ["tab", "popup"] as const)
+    test(`a client's answer on the ${where} drops its dialog before Chrome reports it closed; a failed answer keeps it`, async () => {
+      const h = await harness(true);
+      try {
+        const { assignment, sessionId } = await create(h);
+        if (where === "popup") addPopup(h);
+        const key = where === "popup" ? "popup-session" : undefined;
+        const clientSession = where === "popup" ? "popup-session" : sessionId;
+        opening(h, "alert", "Saved", key);
+        const answer = async (
+          id: number,
+          reply: Fields,
+          beforeReply?: () => void,
+        ) => {
+          const from = h.extension.messages.length;
+          const work = h.agent.receive({
+            id,
+            sessionId: clientSession,
+            method: "Page.handleJavaScriptDialog",
+            params: { accept: false },
+          });
+          let sent: Fields | undefined;
+          for (let i = 0; i < 20 && !sent; i++) {
+            await Promise.resolve();
+            sent = answers(h, from)[0];
+          }
+          expect(sent).toBeDefined();
+          expect(sent!.sessionId).toBe(key);
+          beforeReply?.();
+          h.connection.receive({
+            kind: "result",
+            generation: h.connection.generation,
+            id: sent!.id,
+            ...reply,
+          });
+          await work;
+        };
+        await answer(7, {
+          error: { code: -32602, message: "No dialog is showing" },
         });
-      lifecycle("popup", {
-        sessionId: "popup-session",
-        targetInfo: {
-          targetId: "popup-target",
-          type: "page",
-          openerId: "owned",
-          url: "https://example.com/popup",
-        },
-      });
-      h.agent.close();
-      opening(h, "alert", "popup-session");
-      lifecycle("popupDetached", { sessionId: "popup-session" });
-      h.connection.assign("agent", peer(), true).close();
-      expect(answers(h)).toEqual([]);
-      // Only the debugger session that saw a dialog open can answer it.
-      opening(h, "alert");
-      lifecycle("recovering");
-      lifecycle("recovered");
-      h.connection.assign("agent", peer(), true);
-      expect(answers(h)).toEqual([]);
-    } finally {
-      h.connection.close();
-    }
-  });
+        expect(h.connection.openDialogs(assignment)).toEqual([
+          { type: "alert", message: "Saved" },
+        ]);
+        await answer(8, { result: {} });
+        expect(h.connection.openDialogs(assignment)).toEqual([]);
+
+        // The page opens its next dialog before the answer's result arrives:
+        // the result drops only the dialog it answered.
+        opening(h, "alert", "First", key);
+        await answer(9, { result: {} }, () => {
+          closed(h, key);
+          opening(h, "confirm", "Second", key);
+        });
+        expect(h.connection.openDialogs(assignment)).toEqual([
+          { type: "confirm", message: "Second" },
+        ]);
+      } finally {
+        h.connection.close();
+      }
+    });
 });
 
 // Task 6950c897: Playwright reads a title in its own isolated world, and it

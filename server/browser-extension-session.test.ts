@@ -1205,6 +1205,8 @@ async function timeoutSessionFixture(
     !!opts.hangClose ||
     opts.dialogAnswer !== undefined;
   let clients = 0;
+  // The Playwright dialog listeners the session put on the page.
+  const dialogListeners: ((dialog: unknown) => void)[] = [];
   let transport!: import("playwright-core").ConnectOverCDPTransport;
   let sessionId: unknown;
   const connect = spyOn(chromium, "connectOverCDP").mockImplementation(
@@ -1257,7 +1259,9 @@ async function timeoutSessionFixture(
         }),
       };
       const page = {
-        on() {},
+        on(name: string, listener: (dialog: unknown) => void) {
+          if (name === "dialog") dialogListeners.push(listener);
+        },
         off() {},
         close: async () => {
           pageClosed = true;
@@ -1323,6 +1327,11 @@ async function timeoutSessionFixture(
     store,
     service,
     pageClosed: () => pageClosed,
+    openDialog: (dialog: unknown) => {
+      // The session listens: Playwright's own auto-close does not run.
+      expect(dialogListeners.length).toBeGreaterThan(0);
+      for (const listener of dialogListeners) listener(dialog);
+    },
     backgroundOnNextClick: () => {
       background = true;
     },
@@ -1674,18 +1683,14 @@ test("an unclassified failure is logged by name and class, never by its message"
   }
 });
 
-// Task 6950c897: a dialog that opened while no client was attached blocks
-// every command of the next client. The office answers it as that client
-// connects and reports it to the agent.
-for (const c of [
-  { type: "alert", answer: "ok", closed: false, reported: true },
-  { type: "beforeunload", answer: "ok", closed: false, reported: true },
-  { type: "alert", answer: "error", closed: false, reported: false },
-  { type: "alert", answer: "ok", closed: true, reported: false },
-] as const)
-  test(`a ${c.type} left open with no client (answer ${c.answer}, closed ${c.closed}) is dismissed as the next client connects`, async () => {
+// Task 6950c897: a dialog that no client answered blocks every command on its
+// page. Task 2088b38d: the member may have opened it, so the office leaves it
+// open and an action fails at once with the dialog listed, before it creates
+// or sends anything.
+for (const attached of [false, true])
+  test(`a dialog open on the tab fails each page action at once and sends nothing (client ${attached ? "attached" : "not attached"}); after the member answers it the next action runs`, async () => {
     const h = await timeoutSessionFixture(false, false, 0, {
-      dialogAnswer: c.answer,
+      dialogAnswer: "ok",
     });
     const diagnostics = spyOn(console, "info").mockImplementation(() => {});
     try {
@@ -1697,40 +1702,57 @@ for (const c of [
           method,
           params,
         });
+      if (attached)
+        expect(await h.sessions.run("agent", { action: "text" })).toMatchObject(
+          { ok: true },
+        );
+      const message = "Unsaved draft " + "x".repeat(2100);
       event("Page.javascriptDialogOpening", {
         url: "https://example.com/",
-        message: "Unsaved draft",
-        type: c.type,
+        message,
+        type: "alert",
         hasBrowserHandler: true,
         defaultPrompt: "",
       });
-      if (c.closed)
-        event("Page.javascriptDialogClosed", { result: true, userInput: "" });
-      const answers = () =>
+      const sent = h.messages.length;
+      const connects = h.connect.mock.calls.length;
+      const retired = h.retired();
+      const calls = h.calls();
+      for (const body of [
+        { action: "text" },
+        { action: "click", selector: "button" },
+        { action: "goto", url: "https://example.com/next" },
+        { action: "screenshot" },
+      ]) {
+        const result = await h.sessions.run("agent", body);
+        expect({ body, result }).toMatchObject({
+          body,
+          result: { ok: false, code: "action_failed" },
+        });
+        expect((result as { dialogs?: unknown }).dialogs).toEqual([
+          { type: "alert", message: message.slice(0, 2000), accepted: false },
+        ]);
+      }
+      // No command, no answer, no client connected or retired, no fence.
+      expect(h.messages.slice(sent)).toEqual([]);
+      expect(h.connect.mock.calls.length).toBe(connects);
+      expect(h.retired()).toBe(retired);
+      expect(h.calls()).toBe(calls);
+      expect(h.connection.pendingCount(h.grant)).toBe(0);
+      expect(h.connection.offered("agent")).toBe(h.grant);
+
+      // The member answers it in Chrome.
+      event("Page.javascriptDialogClosed", { result: false, userInput: "" });
+      const result = await h.sessions.run("agent", { action: "text" });
+      expect(result).toMatchObject({ ok: true, text: "fixture" });
+      expect((result as { dialogs?: unknown }).dialogs).toBeUndefined();
+      expect(
         h.messages.filter(
           (m) =>
             (m.params as { method?: string } | undefined)?.method ===
             "Page.handleJavaScriptDialog",
-        );
-      // Not answered while nobody acts on the tab.
-      expect(answers()).toHaveLength(0);
-      const result = await h.sessions.run("agent", { action: "text" });
-      expect(result).toMatchObject({ ok: true, text: "fixture" });
-      if (c.closed) expect(answers()).toHaveLength(0);
-      else {
-        expect(answers()).toHaveLength(1);
-        // On the tab itself, and dismissed: no agent caused a beforeunload.
-        expect(answers()[0].params).toEqual({
-          method: "Page.handleJavaScriptDialog",
-          params: { accept: false },
-        });
-      }
-      const dialogs = (result as { dialogs?: unknown[] }).dialogs ?? [];
-      expect(dialogs).toEqual(
-        c.reported
-          ? [{ type: c.type, message: "Unsaved draft", accepted: false }]
-          : [],
-      );
+        ),
+      ).toEqual([]);
       expect(diagnostics.mock.calls.flat().join(" ")).not.toContain(
         "Unsaved draft",
       );
@@ -1739,6 +1761,52 @@ for (const c of [
       h.stop();
     }
   });
+
+test("a dialog that opens on an attached client while no action runs gets no answer", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    dialogAnswer: "ok",
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: true,
+    });
+    const answered: string[] = [];
+    h.openDialog({
+      type: () => "alert",
+      message: () => "Saved",
+      accept: () => {
+        answered.push("accept");
+        return Promise.resolve();
+      },
+      dismiss: () => {
+        answered.push("dismiss");
+        return Promise.resolve();
+      },
+    });
+    await Bun.sleep(0);
+    expect(answered).toEqual([]);
+    // The member answered it (the bridge lists nothing). Playwright never
+    // forgets a dialog it did not answer, so the next action runs on a fresh
+    // client.
+    expect(h.connection.openDialogs(h.grant)).toEqual([]);
+    expect(h.connect).toHaveBeenCalledTimes(1);
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: true,
+      text: "fixture",
+    });
+    expect(h.retired()).toBe(1);
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    // A client that answered nothing is kept.
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: true,
+    });
+    expect(h.connect).toHaveBeenCalledTimes(2);
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+});
 
 test("an action that never settles fences its grant until the ceiling, then a fresh client runs the next action", async () => {
   // The stuck client's close also waits on Chrome: only the bridge's retire

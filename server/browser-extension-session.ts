@@ -39,7 +39,7 @@ import {
 } from "./browser-actions";
 
 // The dialog policy of the action that runs now. A dialog that opens while no
-// action runs is dismissed and reported nowhere.
+// action runs stays open for the member.
 type ActionDialogs = {
   accept: boolean;
   acceptUsed: boolean;
@@ -58,6 +58,10 @@ type Session = {
   parents: Map<Page, Page>;
   opened: boolean;
   dialogs?: ActionDialogs;
+  // Playwright left a dialog open between actions. It never forgets one it
+  // did not answer, and refuses to evaluate on that page after the member
+  // answers it.
+  heldDialog?: boolean;
 };
 const failure = (
   code:
@@ -161,14 +165,20 @@ const notChecked = (wanted: boolean, reason: string) =>
     "action_failed",
     `The control was not ${wanted ? "checked" : "unchecked"}: ${reason}.`,
   );
-// Every dialog is answered at once. Without a page listener Playwright closes
-// it itself without catching a failed answer, which ends the server process.
+// A dialog that opens while an action runs is answered at once. One that
+// opens between actions stays open for the member: the listener only keeps
+// Playwright from closing it, which it does without catching a failed answer,
+// and that ends the server process.
 function answerDialog(owner: Session, dialog: Dialog): void {
   const action = owner.dialogs;
+  if (!action) {
+    owner.heldDialog = true;
+    return;
+  }
   const type = dialog.type();
   const accept =
-    type === "beforeunload" || (!!action?.accept && !action.acceptUsed);
-  if (action?.accept && type !== "beforeunload") action.acceptUsed = true;
+    type === "beforeunload" || (action.accept && !action.acceptUsed);
+  if (action.accept && type !== "beforeunload") action.acceptUsed = true;
   const record: BrowserDialog = {
     type,
     message: dialog.message().slice(0, MAX_DIALOG_MESSAGE),
@@ -180,7 +190,6 @@ function answerDialog(owner: Session, dialog: Dialog): void {
     },
     () => {},
   );
-  if (!action) return;
   action.records.push(record);
   action.answers.push(answered);
 }
@@ -391,6 +400,25 @@ export class ExtensionBrowserSessions {
       clearTimeout(drainTimer);
       if (connection.pendingCount(grant)) return notSent("pending");
     }
+    // An open dialog blocks every command on its page. The member may have
+    // opened it, so no action answers it.
+    const open = connection.openDialogs(grant);
+    if (open.length)
+      return {
+        ...failure(
+          "action_failed",
+          "A JavaScript dialog is open on the page. Ask the member to answer it in Chrome, then try again.",
+        ),
+        dialogs: open.map((dialog) => ({
+          type: dialog.type,
+          message: dialog.message.slice(0, MAX_DIALOG_MESSAGE),
+          accepted: false,
+        })),
+      };
+    if (session?.heldDialog) {
+      this.retire(key, connection, grant, "held_dialog");
+      session = undefined;
+    }
     if (session && session.actor !== agent) {
       // One client at a time per grant. Its immutable actor retires with it;
       // delayed old-client commands cannot borrow the next caller's access.
@@ -558,18 +586,6 @@ export class ExtensionBrowserSessions {
       };
       session.dialogs = dialogs;
       policy = { session, dialogs };
-      // Dialogs the office dismissed as this client connected.
-      for (const dismissed of connection.takeDismissedDialogs(grant))
-        dialogs.answers.push(
-          dismissed.then((dialog) => {
-            if (dialog)
-              dialogs.records.push({
-                type: dialog.type,
-                message: dialog.message.slice(0, MAX_DIALOG_MESSAGE),
-                accepted: false,
-              });
-          }),
-        );
       const timeout = actionMs;
       const page = session.page;
       const closedTarget = (error: unknown) =>

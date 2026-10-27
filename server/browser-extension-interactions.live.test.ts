@@ -10,7 +10,7 @@ import { browserExtensionFixture } from "./test-support/browser-extension-fixtur
 import type { ExtensionBrowserSessions } from "./browser-extension-session";
 import type { BrowserResult } from "./browser-actions";
 import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
-import type { Page } from "playwright-core";
+import type { Dialog, Page } from "playwright-core";
 import { writeFileSync } from "node:fs";
 
 type Site = (url: URL) => Response | Promise<Response>;
@@ -956,18 +956,26 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
 );
 
 // Task 6950c897: a dialog that opened while no agent client was connected
-// blocked every command of the next client until the fence ceiling.
+// blocked every command of the next client until the fence ceiling. Task
+// 2088b38d: the office leaves such a dialog open for the member, with or
+// without an agent client attached, and each action fails at once and lists
+// it until the member answers it.
 test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
-  "an alert that opens while no agent client is connected is dismissed and reported at the next action",
+  "an alert that opens while no action runs stays open for the member, and actions fail at once until they answer it",
   async () => {
     await withOfferedTab(
       () =>
         html(
           `<!doctype html><title>Later</title><button id="later">later</button><script>document.getElementById("later").onclick = () => setTimeout(() => alert("late alert"), 1000)</script>`,
         ),
-      async ({ act, closeSetup, stopClient }) => {
-        const { ok } = expectations(act);
-        const events: { method: string; at: number }[] = [];
+      async ({ act, setupPage, stopClient }) => {
+        const { ok, failed } = expectations(act);
+        // The setup client stands in for the member: it holds each dialog
+        // and answers only when told to. Its answer fails if the dialog is
+        // no longer open.
+        const held: Dialog[] = [];
+        setupPage.on("dialog", (dialog) => void held.push(dialog));
+        const events: string[] = [];
         const prototype = ExtensionConnection.prototype as unknown as {
           receive: (message: unknown) => void;
         };
@@ -975,32 +983,48 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         const receive = spyOn(prototype, "receive").mockImplementation(
           function (this: unknown, message: unknown) {
             const method = (message as { method?: unknown }).method;
-            if (method === "Page.javascriptDialogOpening")
-              events.push({ method, at: performance.now() });
+            if (
+              method === "Page.javascriptDialogOpening" ||
+              method === "Page.javascriptDialogClosed"
+            )
+              events.push(method);
             return original.call(this, message);
           },
         );
-        try {
-          // The setup client would answer the dialog itself.
-          await closeSetup();
-          ok(await act({ action: "click", selector: "#later" }));
-          stopClient();
-          const stopped = performance.now();
+        const until = async (done: () => boolean, what: string) => {
           const deadline = Date.now() + 5000;
-          while (!events.length && Date.now() < deadline) await Bun.sleep(50);
-          // The alert opened after the client ended.
-          expect(events).toHaveLength(1);
-          expect(events[0].at).toBeGreaterThan(stopped);
-          const { result, elapsed } = await act({ action: "text" });
-          expect(result).toMatchObject({ ok: true, title: "Later" });
-          expect(elapsed).toBeLessThan(DEADLINE_MS);
-          expect(
-            (result as Extract<BrowserResult, { ok: true }>).dialogs,
-          ).toEqual([
-            { type: "alert", message: "late alert", accepted: false },
-          ]);
-          // The page answers again.
-          expect(ok(await act({ action: "text" })).dialogs).toBeUndefined();
+          while (!done() && Date.now() < deadline) await Bun.sleep(50);
+          expect({ what, done: done() }).toEqual({ what, done: true });
+        };
+        try {
+          for (const [round, attached] of [true, false].entries()) {
+            ok(await act({ action: "click", selector: "#later" }));
+            if (!attached) stopClient();
+            await until(() => held.length === round + 1, "alert opened");
+            // Time for an answer the office should not send.
+            await Bun.sleep(300);
+            const blocked = await act({ action: "text" });
+            expect({ attached, code: failed(blocked).code }).toEqual({
+              attached,
+              code: "action_failed",
+            });
+            expect(failed(blocked).dialogs).toEqual([
+              { type: "alert", message: "late alert", accepted: false },
+            ]);
+            expect(blocked.elapsed).toBeLessThan(DEADLINE_MS / 5);
+            // Still open: the member's answer succeeds.
+            await held[round].dismiss();
+            await until(
+              () =>
+                events.filter((e) => e === "Page.javascriptDialogClosed")
+                  .length ===
+                round + 1,
+              "alert closed",
+            );
+            const after = ok(await act({ action: "text" }));
+            expect(after.title).toBe("Later");
+            expect(after.dialogs).toBeUndefined();
+          }
         } finally {
           receive.mockRestore();
         }
