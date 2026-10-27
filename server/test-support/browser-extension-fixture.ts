@@ -5,6 +5,10 @@ import {
   type ExtensionConnection,
 } from "../browser-extension-bridge";
 import {
+  ExtensionBrowserSessions,
+  type ExtensionSessionService,
+} from "../browser-extension-session";
+import {
   BROWSER_EXTENSION_PROTOCOL,
   fields,
 } from "../../shared/browser-extension-protocol";
@@ -99,6 +103,11 @@ export function browserExtensionFixture(
     },
   });
   const origin = "http://127.0.0.1:" + server.port;
+  const service: ExtensionSessionService = {
+    bridge,
+    store: { paired: () => true },
+    outdatedBrowsers: () => [],
+  };
   return {
     origin,
     port: server.port,
@@ -106,6 +115,13 @@ export function browserExtensionFixture(
     bridge,
     extensionURL: origin.replace("http:", "ws:") + "/extension",
     starts: () => starts,
+    sessions: (deadlineMs: number) =>
+      new ExtensionBrowserSessions(
+        service,
+        () => "fixture-member",
+        () => true,
+        () => deadlineMs,
+      ),
     stop: () => {
       bridge.connections("fixture-member")[0]?.close();
       void server.stop(true);

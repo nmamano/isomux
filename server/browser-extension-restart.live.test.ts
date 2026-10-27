@@ -6,19 +6,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
-import { ExtensionBrowserSessions } from "./browser-extension-session";
-import type { BrowserExtensionService } from "./browser-extension-service";
+import type { ExtensionBrowserSessions } from "./browser-extension-session";
 
-const sessionsFor = (fixture: ReturnType<typeof browserExtensionFixture>) =>
-  new ExtensionBrowserSessions(
-    {
-      bridge: fixture.bridge,
-      store: { paired: () => true },
-    } as unknown as BrowserExtensionService,
-    () => "fixture-member",
-    () => true,
-    () => 5000,
-  );
 async function until(what: string, ok: () => boolean, ms: number) {
   const deadline = Date.now() + ms;
   while (!ok()) {
@@ -91,7 +80,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await popup.close();
       const connection = first.bridge.connections("fixture-member")[0];
       await connection.drain(connection.offered("fixture-agent")!);
-      sessions = sessionsFor(first);
+      sessions = first.sessions(5000);
       const listed = await sessions.run("fixture-agent", { action: "tabs" });
       expect(listed.ok).toBe(true);
       const target = listed.ok ? listed.tabs![0].target : "";
@@ -132,7 +121,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           .targets("fixture-member", "fixture-agent")
           .map((t) => t.target),
       ).toEqual([target]);
-      sessions = sessionsFor(second);
+      sessions = second.sessions(5000);
       const after = await sessions.run("fixture-agent", {
         action: "text",
         target,

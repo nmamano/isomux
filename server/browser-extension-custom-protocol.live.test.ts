@@ -6,8 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
-import { ExtensionBrowserSessions } from "./browser-extension-session";
-import type { BrowserExtensionService } from "./browser-extension-service";
+import type { ExtensionBrowserSessions } from "./browser-extension-session";
 import type { BrowserResult } from "./browser-actions";
 import type { Page } from "playwright-core";
 
@@ -139,15 +138,7 @@ async function withOfferedTab(
       receive(message);
     };
     await connection.drain(connection.offered("fixture-agent")!);
-    const owned = new ExtensionBrowserSessions(
-      {
-        bridge: fixture.bridge,
-        store: { paired: () => true },
-      } as unknown as BrowserExtensionService,
-      () => "fixture-member",
-      () => true,
-      () => deadlineMs,
-    );
+    const owned = fixture.sessions(deadlineMs);
     sessions = owned;
     await run({
       setupPage: offered,

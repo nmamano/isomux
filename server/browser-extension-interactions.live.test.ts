@@ -7,8 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
-import { ExtensionBrowserSessions } from "./browser-extension-session";
-import type { BrowserExtensionService } from "./browser-extension-service";
+import type { ExtensionBrowserSessions } from "./browser-extension-session";
 import type { BrowserResult } from "./browser-actions";
 import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
 import type { Page } from "playwright-core";
@@ -93,15 +92,7 @@ async function withOfferedTab(
     await popup.close();
     const connection = fixture.bridge.connections("fixture-member")[0];
     await connection.drain(connection.offered("fixture-agent")!);
-    const owned = new ExtensionBrowserSessions(
-      {
-        bridge: fixture.bridge,
-        store: { paired: () => true },
-      } as unknown as BrowserExtensionService,
-      () => "fixture-member",
-      () => true,
-      () => deadlineMs,
-    );
+    const owned = fixture.sessions(deadlineMs);
     sessions = owned;
     const setupBrowser = raw.browser;
     await run({

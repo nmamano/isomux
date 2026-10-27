@@ -27,6 +27,7 @@ import {
 } from "./browser-extension-bridge";
 import { officePageRefused } from "./browser-office-gate";
 import type { BrowserExtensionService } from "./browser-extension-service";
+import type { BrowserExtensionStore } from "./browser-extension-store";
 import {
   BROWSER_ACTION_DEADLINE_MS,
   parseBrowserParams,
@@ -178,12 +179,18 @@ type Recovery = {
   ceiling?: ReturnType<typeof setTimeout>;
 };
 
+// Only what the sessions read, so a test fake is typed without a cast.
+export type ExtensionSessionService = Pick<
+  BrowserExtensionService,
+  "bridge" | "outdatedBrowsers"
+> & { store: Pick<BrowserExtensionStore, "paired"> };
+
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
   private recovering = new Map<string, Recovery>();
   constructor(
-    private service: BrowserExtensionService,
+    private service: ExtensionSessionService,
     private owner: (agent: string) => string | undefined,
     private mayUse: (member: string, agent: string) => boolean,
     private actionDeadline: () => number = () => BROWSER_ACTION_DEADLINE_MS,
