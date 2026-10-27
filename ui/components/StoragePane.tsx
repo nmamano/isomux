@@ -70,7 +70,6 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
   disabledLook,
-  filledSecondaryBtn,
 } from "./dialog-styles.ts";
 
 // The category's words, by wire id. Own-property lookup like every other key
@@ -670,7 +669,7 @@ function BackupBlock({
       {!editing && (
         <button
           onClick={() => setEditing(true)}
-          style={{ ...filledSecondaryBtn, marginTop: 10, width: "100%" }}
+          style={{ ...dialogCancelBtn, marginTop: 14, width: "100%" }}
         >
           {t("settings.storage.changeBackupSettings")}
         </button>
