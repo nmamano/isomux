@@ -104,9 +104,6 @@ export interface MembersChatState {
   loaded: boolean;
   readPointer: string | null;
   unread: number;
-  // Newest live id at the last full_state (null: the chat was empty);
-  // undefined until a full_state carries the summary.
-  latestId?: string | null;
 }
 
 export interface AppState {
@@ -202,6 +199,10 @@ export interface AppState {
   // access list. Open when the viewer clicked it, or landed on it because they
   // have no visible room. Selecting a room closes it.
   lobbyOpen: boolean;
+  // The desktop lobby chat panel is shown. CLIENT state for this page load
+  // only: it starts closed on every load so the lobby door is visible, and a
+  // full_state (reconnect) keeps it.
+  membersChatShown: boolean;
   tasksLoaded: boolean;
   // Agent-built apps. Fetched by AppsView when the tab opens (an app list costs
   // a systemd read on the server, so no session pays for a tab it never opens)
@@ -475,6 +476,7 @@ type Action =
       pinsRevisionAtRequest: number;
     }
   | { type: "set_lobby_open"; open: boolean }
+  | { type: "set_members_chat_shown"; shown: boolean }
   // Wire events for the same slice (server/events/registry.ts).
   | {
       type: "members_chat_message";
@@ -819,7 +821,6 @@ export function reducer(state: AppState, action: Action): AppState {
           ...(action.membersChat && {
             readPointer: action.membersChat.readPointer,
             unread: action.membersChat.unread,
-            latestId: action.membersChat.latestId,
           }),
           loaded: false,
         },
@@ -1549,6 +1550,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "set_lobby_open":
       if (state.lobbyOpen === action.open) return state;
       return { ...state, lobbyOpen: action.open };
+    case "set_members_chat_shown":
+      if (state.membersChatShown === action.shown) return state;
+      return { ...state, membersChatShown: action.shown };
     case "room_created":
       // Select the new room only when nothing is currently selected (e.g. a
       // member whose visible rooms were all closed, then gains a freshly
@@ -1872,6 +1876,7 @@ export const initialState: AppState = {
     unread: 0,
   },
   lobbyOpen: false,
+  membersChatShown: false,
   apps: [],
   appsLoaded: false,
   appsRevision: 0,

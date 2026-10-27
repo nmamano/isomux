@@ -2,14 +2,16 @@ import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
-const { createElement } = await import("react");
+const { createElement, useState } = await import("react");
+const { DispatchCtx, StateCtx, reducer } = await import("../store.tsx");
+const { LanguageProvider } = await import("../i18n.tsx");
 const { SceneDecorationContext } =
   await import("../office/scene-decoration.tsx");
-const { onLanguage } = await import("../test-support/language-fixture.tsx");
+const { onLanguage, stateWithSelfUser } =
+  await import("../test-support/language-fixture.tsx");
 const { OfficeView } = await import("../office/OfficeView.tsx");
 const noop = () => {};
 const { setApiShim } = await import("../api.ts");
-const key = "isomux-members-chat-hidden";
 const reads: string[] = [];
 setApiShim(async (method, path, body) => {
   if (method === "POST" && path === "/api/members-chat/read")
@@ -23,77 +25,98 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
 });
 afterEach(() => jest.useRealTimers());
+const office = createElement(
+  SceneDecorationContext.Provider,
+  { value: false },
+  createElement(OfficeView, {
+    onSpawn: noop,
+    onContextMenu: noop,
+    onOpenSettings: noop,
+    onEditOfficePrompt: noop,
+    onOpenThemePicker: noop,
+    onOpenTasks: noop,
+    onOpenCronjobs: noop,
+    onOpenApps: noop,
+    onOpenUpdate: noop,
+  }),
+);
+function lobbyState(id: string | null, mobile: boolean) {
+  return {
+    lobbyOpen: true,
+    isMobile: mobile,
+    hasReceivedInitialState: true,
+    connected: true,
+    membersChat: {
+      loaded: true,
+      messages: id
+        ? [
+            {
+              id,
+              kind: "user" as const,
+              userId: "other",
+              userName: "Sam",
+              content: id,
+              attachments: [],
+              timestamp: 1,
+            },
+          ]
+        : [],
+      hasMore: false,
+      unread: id ? 1 : 0,
+      readPointer: null,
+    },
+  };
+}
+// A fixed store state, with the chat shown or not.
 function lobby(
   id: string | null = null,
   mobile = false,
   language: "en" | "es" = "en",
+  shown = false,
 ) {
-  return onLanguage(
-    language,
+  return onLanguage(language, office, {
+    ...lobbyState(id, mobile),
+    membersChatShown: shown,
+  });
+}
+// The same state, with the store reducer behind the show and hide buttons.
+function Toggled(props: { id: string | null; language: "en" | "es" }) {
+  const [shown, setShown] = useState(false);
+  const state = stateWithSelfUser(props.language, {
+    ...lobbyState(props.id, false),
+    membersChatShown: shown,
+  });
+  return createElement(
+    DispatchCtx.Provider,
+    { value: (action) => setShown(reducer(state, action).membersChatShown) },
     createElement(
-      SceneDecorationContext.Provider,
-      { value: false },
-      createElement(OfficeView, {
-        onSpawn: noop,
-        onContextMenu: noop,
-        onOpenSettings: noop,
-        onEditOfficePrompt: noop,
-        onOpenThemePicker: noop,
-        onOpenTasks: noop,
-        onOpenCronjobs: noop,
-        onOpenApps: noop,
-        onOpenUpdate: noop,
-      }),
+      StateCtx.Provider,
+      { value: state },
+      createElement(LanguageProvider, null, office),
     ),
-    {
-      lobbyOpen: true,
-      isMobile: mobile,
-      hasReceivedInitialState: true,
-      connected: true,
-      membersChat: {
-        loaded: true,
-        messages: id
-          ? [
-              {
-                id,
-                kind: "user",
-                userId: "other",
-                userName: "Sam",
-                content: id,
-                attachments: [],
-                timestamp: 1,
-              },
-            ]
-          : [],
-        hasMore: false,
-        unread: id ? 1 : 0,
-        readPointer: null,
-      },
-    },
   );
 }
+const toggled = (id: string | null = null, language: "en" | "es" = "en") =>
+  createElement(Toggled, { id, language });
 // Well past the mark-read debounce, on a fake clock.
 const settleRead = () =>
   act(async () => {
     jest.advanceTimersByTime(1000);
   });
 
-it("ignores the desktop chat preference on phones, shown or hidden", () => {
-  // Anchor: on a desktop, a saved "shown" choice mounts the side panel.
-  localStorage.setItem(key, "false");
-  const desktop = render(lobby());
+it("gives a phone its own chat, never the desktop panel, even when the store shows the desktop chat", () => {
+  // Anchor: on a desktop, the shown state mounts the side panel.
+  const desktop = render(lobby(null, false, "en", true));
   expect(desktop.queryByRole("separator") !== null).toBe(true);
   desktop.unmount();
-  for (const saved of ["false", "true"]) {
-    localStorage.setItem(key, saved);
-    const view = render(lobby(null, true));
+  for (const shown of [true, false]) {
+    const view = render(lobby(null, true, "en", shown));
     expect(view.queryByRole("separator") === null).toBe(true);
     fireEvent.click(view.getByRole("button", { name: "Members chat" }));
     expect(view.getByRole("dialog", { name: "Members chat" })).not.toBeNull();
     expect(view.queryByRole("button", { name: "Hide chat" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Back" }));
     expect(view.queryByRole("dialog")).toBeNull();
-    expect(localStorage.getItem(key)).toBe(saved);
     view.unmount();
   }
 });
@@ -102,8 +125,8 @@ it("translates the desktop hide and show controls", () => {
   // The panel header's last button hides the chat; the floating button
   // shows it again. Each must render through the catalog.
   function controls(language: "en" | "es") {
-    localStorage.setItem(key, "false");
-    const view = render(lobby(null, false, language));
+    const view = render(toggled(null, language));
+    fireEvent.click(view.container.querySelector("[data-lobby-chat-fab]")!);
     const header = view.container.querySelector(
       "[data-members-chat-list]",
     )!.previousElementSibling!;
@@ -129,10 +152,10 @@ it("translates the desktop hide and show controls", () => {
 
 it("keeps incoming unread visible while hidden and marks the same message read only after show", async () => {
   jest.useFakeTimers();
-  localStorage.setItem(key, "false");
-  const view = render(lobby());
+  const view = render(toggled());
+  fireEvent.click(view.getByRole("button", { name: "Members chat" }));
   fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
-  view.rerender(lobby("02"));
+  view.rerender(toggled("02"));
   // One dot on the Lobby tab, one on the floating chat button.
   expect(view.container.querySelectorAll("[data-lobby-unread]").length).toBe(2);
   const button = view.container.querySelector<HTMLButtonElement>(

@@ -67,7 +67,6 @@ const message = {
 const fullState = (membersChat?: {
   readPointer: string | null;
   unread: number;
-  latestId: string | null;
 }) =>
   dispatch({
     type: "full_state",
@@ -110,7 +109,7 @@ it("shows the full_state unread on the closed chat, fetches the page only while 
   const view = render(
     createElement(StoreProvider, null, createElement(Harness)),
   );
-  act(() => fullState({ readPointer: null, unread: 1, latestId: message.id }));
+  act(() => fullState({ readPointer: null, unread: 1 }));
   await act(async () => {});
   expect(pages).toBe(0);
   const lobby = view.getByRole("button", { name: /Lobby/ });
@@ -142,9 +141,7 @@ it("shows the full_state unread on the closed chat, fetches the page only while 
   );
   // A reconnect while open refetches: full_state leaves the page unloaded.
   // The page already sits at the pointer, so nothing is read again.
-  act(() =>
-    fullState({ readPointer: message.id, unread: 0, latestId: message.id }),
-  );
+  act(() => fullState({ readPointer: message.id, unread: 0 }));
   await act(async () => {});
   expect(pages).toBe(2);
   await settleRead();
@@ -155,9 +152,7 @@ it("shows the full_state unread on the closed chat, fetches the page only while 
   // Closed again: a reconnect takes the count from full_state, no page.
   const later = { ...message, id: "202609-00000002", content: "Later" };
   held = [message, later];
-  act(() =>
-    fullState({ readPointer: message.id, unread: 1, latestId: later.id }),
-  );
+  act(() => fullState({ readPointer: message.id, unread: 1 }));
   await act(async () => {});
   expect(pages).toBe(2);
   expect(entry.querySelector("[data-lobby-unread]") !== null).toBe(true);
@@ -181,7 +176,7 @@ it("keeps the last unread when full_state carries no summary", async () => {
   const view = render(
     createElement(StoreProvider, null, createElement(Harness)),
   );
-  act(() => fullState({ readPointer: null, unread: 3, latestId: message.id }));
+  act(() => fullState({ readPointer: null, unread: 3 }));
   act(() => fullState());
   await act(async () => {});
   expect(
@@ -189,9 +184,7 @@ it("keeps the last unread when full_state carries no summary", async () => {
       .getByRole("button", { name: /Lobby/ })
       .querySelector("[data-lobby-unread]") !== null,
   ).toBe(true);
-  act(() =>
-    fullState({ readPointer: message.id, unread: 0, latestId: message.id }),
-  );
+  act(() => fullState({ readPointer: message.id, unread: 0 }));
   expect(view.container.querySelector("[data-lobby-unread]") === null).toBe(
     true,
   );
@@ -205,7 +198,7 @@ it("contains a load failure in the open chat and retries", async () => {
   const view = render(
     createElement(StoreProvider, null, createElement(Harness)),
   );
-  act(() => fullState({ readPointer: null, unread: 0, latestId: null }));
+  act(() => fullState({ readPointer: null, unread: 0 }));
   await act(async () => {});
   expect(calls).toBe(0);
   fireEvent.click(view.getByRole("button", { name: /Lobby/ }));

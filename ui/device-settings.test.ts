@@ -28,7 +28,6 @@ afterAll(() => {
 });
 
 const {
-  getMembersChatHidden,
   getMembersChatWidth,
   setMembersChatWidth,
   getUsagePin,
@@ -113,17 +112,6 @@ describe("members chat width", () => {
     setMembersChatWidth(90000);
     expect(getMembersChatWidth(1440)).toBe(900);
   });
-});
-
-it("reads a missing or unknown desktop chat visibility value as no saved choice", () => {
-  store.delete("isomux-members-chat-hidden");
-  expect(getMembersChatHidden()).toBe(null);
-  store.set("isomux-members-chat-hidden", "broken");
-  expect(getMembersChatHidden()).toBe(null);
-  store.set("isomux-members-chat-hidden", "true");
-  expect(getMembersChatHidden()).toBe(true);
-  store.set("isomux-members-chat-hidden", "false");
-  expect(getMembersChatHidden()).toBe(false);
 });
 
 // The Settings groups opened on this device (task db800fd8). A value the

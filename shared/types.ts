@@ -981,8 +981,6 @@ export interface MembersChatReply {
 export interface MembersChatSummary {
   readPointer: string | null;
   unread: number;
-  // Newest live message id, or null when the chat is empty.
-  latestId: string | null;
 }
 
 export interface MembersChatMessage {

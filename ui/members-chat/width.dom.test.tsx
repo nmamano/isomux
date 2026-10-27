@@ -32,6 +32,8 @@ function office(mobile = false) {
     {
       lobbyOpen: true,
       isMobile: mobile,
+      // The desktop chat is open; a phone ignores it.
+      membersChatShown: true,
       membersChat: {
         loaded: true,
         messages: [],
@@ -49,7 +51,6 @@ const setViewport = (value: number) =>
   Object.defineProperty(window, "innerWidth", { configurable: true, value });
 afterEach(() => setViewport(initialWidth));
 it("keeps the panel and zoom inset together, remembers keyboard resizing, and clamps after a viewport resize", () => {
-  localStorage.setItem("isomux-members-chat-hidden", "false");
   const view = render(office());
   const handle = view.getByRole("separator", { name: "Resize chat" });
   expect(handle.getAttribute("aria-valuenow")).toBe("520");
@@ -66,9 +67,8 @@ it("keeps the panel and zoom inset together, remembers keyboard resizing, and cl
   expect(handle.getAttribute("aria-valuenow")).toBe("502");
 });
 it("gives a phone the full-width chat, never the desktop panel or its handle", () => {
-  // A saved "shown" choice and a saved width would mount the side panel on a
-  // desktop (the anchor); a phone ignores both.
-  localStorage.setItem("isomux-members-chat-hidden", "false");
+  // The shown chat and a saved width mount the side panel on a desktop (the
+  // anchor); a phone ignores both.
   localStorage.setItem("isomux-members-chat-width", "900");
   const desktop = render(office());
   expect(desktop.queryByRole("separator") !== null).toBe(true);

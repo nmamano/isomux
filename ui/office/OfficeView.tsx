@@ -1,10 +1,8 @@
 import {
-  getMembersChatHidden,
   getMembersChatWidth,
   setMembersChatWidth,
   clampMembersChatWidth,
   DEFAULT_MEMBERS_CHAT_WIDTH,
-  setMembersChatHidden,
 } from "../device-settings.ts";
 import { ChatWidthHandle } from "../members-chat/ChatWidthHandle.tsx";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
@@ -270,7 +268,7 @@ export function OfficeView({
     lobbyOpen,
     asks,
     answeredAsks,
-    membersChat,
+    membersChatShown,
   } = useAppState();
   const askCountByAgent = useMemo(
     () => askCounts(openAsks(asks, answeredAsks)),
@@ -336,12 +334,8 @@ export function OfficeView({
   const { embed } = useFeatures();
   const decorateScene = useContext(SceneDecorationContext);
   const seasonalItems = useSeasonalItems();
-  const [savedChatHidden, setChatHidden] = useState(getMembersChatHidden);
-  // With no saved choice, an empty chat starts minimized so a new office
-  // shows its doors. Decided once, from the first full_state summary.
-  if (savedChatHidden === null && membersChat.latestId !== undefined)
-    setChatHidden(membersChat.latestId === null);
-  const chatHidden = savedChatHidden ?? true;
+  // The chat starts closed on every load, so the lobby door is visible.
+  const chatHidden = !membersChatShown;
   const [chatViewportWidth, setChatViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth,
   );
@@ -374,8 +368,7 @@ export function OfficeView({
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(desktopChatVisible);
   function changeChatHidden(hidden: boolean) {
-    setChatHidden(hidden);
-    setMembersChatHidden(hidden);
+    dispatch({ type: "set_members_chat_shown", shown: !hidden });
   }
   const i18n = useI18n();
   const { t } = i18n;

@@ -319,7 +319,7 @@ describe("members chat", () => {
       ownerWs.close();
     });
 
-    it("full_state carries each user's own pointer, unread and newest live id", async () => {
+    it("full_state carries each user's own pointer and unread count", async () => {
       server = await startTestServer();
       const owner = await server.seedOwner("Nil");
       const member = await server.seedMember("Pau");
@@ -332,13 +332,11 @@ describe("members chat", () => {
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: null,
         unread: 0,
-        latestId: null,
       });
 
       const a = (await post(server, owner.rawSessionId, "a"))
         .body as MembersChatMessage;
-      const b = (await post(server, owner.rawSessionId, "b"))
-        .body as MembersChatMessage;
+      await post(server, owner.rawSessionId, "b");
       const c = (await post(server, member.rawSessionId, "c"))
         .body as MembersChatMessage;
       await api(server, "/api/members-chat/read", {
@@ -349,16 +347,14 @@ describe("members chat", () => {
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: a.id,
         unread: 2,
-        latestId: c.id,
       });
       // Same count as GET: every live message after the pointer, own included.
       expect(await summaryAt(member.rawSessionId)).toEqual({
         readPointer: null,
         unread: 3,
-        latestId: c.id,
       });
 
-      // A deleted message is neither the newest id nor unread.
+      // A deleted message is not unread.
       expect(
         (
           await api(server, `/api/members-chat/${c.id}`, {
@@ -370,12 +366,10 @@ describe("members chat", () => {
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: a.id,
         unread: 1,
-        latestId: b.id,
       });
       expect(await summaryAt(member.rawSessionId)).toEqual({
         readPointer: null,
         unread: 2,
-        latestId: b.id,
       });
     });
   });

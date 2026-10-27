@@ -498,12 +498,13 @@ The hydration hook runs from OfficeView (desktop panel) and LobbyChat
 (mobile), so its scoped checks include the App render tests as well as the
 office and chat tests.
 
-`ui/members-chat/desktop.dom.test.tsx` covers hide/show, browser persistence,
-the zoom-control inset, the unsaved minimize choice from the `full_state`
-summary and the page fetch only while the desktop chat is shown.
+`ui/members-chat/desktop.dom.test.tsx` covers the closed chat at load (an old
+saved key is ignored), show and hide with nothing saved, the zoom-control
+inset, the open chat across an OfficeView remount, a room tab and a reconnect,
+and the page fetch only while the desktop chat is shown.
 `desktop-controls.dom.test.tsx` checks incoming unread while hidden and proves
 that showing the same message sends a read request; it also checks translated
-controls and that a phone ignores the desktop preference, shown or hidden.
+controls and that a phone ignores the store's shown state.
 
 `hydration.dom.test.tsx` covers the request-time snapshot, superseded
 responses and the pin refresh; the fresh-page case is in `ui/store.test.ts`.

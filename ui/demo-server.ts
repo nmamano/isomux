@@ -108,10 +108,6 @@ import {
   normalizeHexColor,
 } from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
-import {
-  getMembersChatHidden,
-  setMembersChatHidden,
-} from "./device-settings.ts";
 import { demoSecretsRoute } from "./demo-secrets.ts";
 import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { nextVariableNotes } from "../shared/connection-notes.ts";
@@ -360,12 +356,6 @@ export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
 
 export function setEmbedMode() {
   embedMode = true;
-}
-
-// The demo opens with the lobby members chat minimized, unless this browser
-// already chose.
-export function seedDemoDeviceDefaults(): void {
-  if (getMembersChatHidden() === null) setMembersChatHidden(true);
 }
 
 // Per-backend defaults for demo agents. A real server takes capabilities from
@@ -4151,7 +4141,6 @@ export function sendInitialState() {
     membersChat: {
       readPointer: demoMembersChat.at(-1)?.id ?? null,
       unread: 0,
-      latestId: demoMembersChat.at(-1)?.id ?? null,
     },
   });
   shimEmit({ type: "tasks", tasks: s.tasks });

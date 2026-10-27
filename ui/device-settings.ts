@@ -11,7 +11,6 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
-const KEY_MEMBERS_CHAT_HIDDEN = "isomux-members-chat-hidden";
 const KEY_MEMBERS_CHAT_WIDTH = "isomux-members-chat-width";
 export const DEFAULT_MEMBERS_CHAT_WIDTH = 520;
 export const MIN_MEMBERS_CHAT_WIDTH = 300;
@@ -70,24 +69,6 @@ export function setDevice(label: string | null): void {
   if (typeof localStorage === "undefined") return;
   if (label && label.trim()) localStorage.setItem(KEY_DEVICE, label.trim());
   else localStorage.removeItem(KEY_DEVICE);
-}
-
-// null when this browser has no saved choice.
-export function getMembersChatHidden(): boolean | null {
-  try {
-    if (typeof localStorage === "undefined") return null;
-    const raw = localStorage.getItem(KEY_MEMBERS_CHAT_HIDDEN);
-    return raw === "true" ? true : raw === "false" ? false : null;
-  } catch {
-    return null;
-  }
-}
-
-export function setMembersChatHidden(hidden: boolean): void {
-  try {
-    if (typeof localStorage !== "undefined")
-      localStorage.setItem(KEY_MEMBERS_CHAT_HIDDEN, String(hidden));
-  } catch {}
 }
 
 // The Apps page filter, remembered on this device. It starts off.

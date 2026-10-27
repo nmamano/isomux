@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
+import { describe, expect, it, jest } from "bun:test";
 import type {
   BackupStatusWire,
   StorageUsageWire,
@@ -16,18 +16,9 @@ import { cronjobRunStreamId, ordinaryRooms } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../shared/memory-caps.ts";
-import {
-  DEMO_ROOM_NAMES,
-  demoApi,
-  seedDemoDeviceDefaults,
-  sendInitialState,
-} from "./demo-server.ts";
+import { DEMO_ROOM_NAMES, demoApi, sendInitialState } from "./demo-server.ts";
 import { demoAppMockContent } from "./demo-app.ts";
 import { addRawListener, removeRawListener } from "./ws.ts";
-import {
-  getMembersChatHidden,
-  setMembersChatHidden,
-} from "./device-settings.ts";
 
 function sumBucket(rows: UsageBucketWire[]): UsageBucketWire {
   return rows.reduce(
@@ -516,42 +507,4 @@ it("cycles Stephen's ghost through every room agent and never the lobby", () => 
   expect([...new Set(stops.map((s) => s.focusedAgentId))].sort()).toEqual(
     roomAgents.map((a) => a.id).sort(),
   );
-});
-
-describe("demo device defaults", () => {
-  const store = new Map<string, string>();
-  const realLocalStorage = Object.getOwnPropertyDescriptor(
-    globalThis,
-    "localStorage",
-  );
-  beforeEach(() => {
-    store.clear();
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      value: {
-        getItem: (k: string) => store.get(k) ?? null,
-        setItem: (k: string, v: string) => void store.set(k, String(v)),
-        removeItem: (k: string) => void store.delete(k),
-      },
-    });
-  });
-  afterEach(() => {
-    if (realLocalStorage)
-      Object.defineProperty(globalThis, "localStorage", realLocalStorage);
-    // @ts-expect-error - removing the stub installed above
-    else delete globalThis.localStorage;
-  });
-
-  // Task d587f975: the demo opens with the lobby members chat minimized.
-  it("minimizes the members chat when this browser has no saved choice", () => {
-    expect(getMembersChatHidden()).toBe(null);
-    seedDemoDeviceDefaults();
-    expect(getMembersChatHidden()).toBe(true);
-  });
-
-  it("keeps a visitor's saved choice to show the members chat", () => {
-    setMembersChatHidden(false);
-    seedDemoDeviceDefaults();
-    expect(getMembersChatHidden()).toBe(false);
-  });
 });

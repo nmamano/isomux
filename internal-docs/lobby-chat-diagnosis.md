@@ -13,8 +13,8 @@ Tasks: 33e17110 (unread signals stay on) and 4580172b (lighter chat layout).
   local estimate on another author's new message. `full_state` carries no
   members-chat count (`shared/types.ts`); it invalidates the loaded flag so
   `useMembersChatHydration.ts` fetches the count again. Since 2026-10-19
-  (task a8b21cea), `full_state.membersChat` carries the pointer, the count and
-  the newest live id, and the page is fetched only while a chat panel is open.
+  (task a8b21cea), `full_state.membersChat` carries the pointer and the count,
+  and the page is fetched only while a chat panel is open.
 - The visible `MembersChatPanel.tsx` calls POST `/api/members-chat/read` after
   500 ms at the bottom in a visible document. The response clears the count
   locally. The server also sends `members_chat_read` to that user's sockets

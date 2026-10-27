@@ -551,22 +551,10 @@ export function createMembersChatStore(
 
   function summary(userId: string): MembersChatSummary {
     const readPointer = getReadPointer(userId);
-    const months = listMonths();
     return {
       readPointer,
-      unread: countAfter(readPointer, months),
-      latestId: newestLiveId(months),
+      unread: countAfter(readPointer, listMonths()),
     };
-  }
-
-  function newestLiveId(months: string[]): string | null {
-    for (let m = months.length - 1; m >= 0; m--) {
-      const folded = fold(months[m]);
-      for (let i = folded.order.length - 1; i >= 0; i--) {
-        if (folded.byId.has(folded.order[i])) return folded.order[i];
-      }
-    }
-    return null;
   }
 
   return {
