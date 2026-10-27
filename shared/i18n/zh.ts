@@ -128,6 +128,8 @@ export const zh: Catalog = {
   "browser.offlineHelp":
     "离线时如需撤销访问权限，请使用办公室“集成”中的“浏览器使用”标签页。",
   "browser.failed": "浏览器请求失败。请检查连接后重试。",
+  "browser.tabUnanswered":
+    "此标签页没有响应。如果它显示了对话框，请关闭对话框，然后重新开启代理控制。",
 
   "lobby.moveHere": "移到这里",
   "templates.shared.firstTurn": `首先，了解成员的需求，并提出一个方向。`,

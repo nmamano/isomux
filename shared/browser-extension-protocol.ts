@@ -1,6 +1,10 @@
 // Internal wire protocol. No page, token, or CDP payload belongs in a log.
 export const BROWSER_EXTENSION_PROTOCOL = 4;
 export const BROWSER_REATTACH_MS = 3000;
+// How long the extension waits for each command when it attaches to or
+// releases a tab. A tab that shows a JavaScript dialog answers none, and only
+// the debugger session that saw the dialog open can close it.
+export const ATTACH_ANSWER_MS = 5000;
 const BROWSER_GRANT_DURATIONS = [0, 15, 60, 240] as const;
 export type BrowserGrantDuration = (typeof BROWSER_GRANT_DURATIONS)[number];
 export function validGrantDuration(

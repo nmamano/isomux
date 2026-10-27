@@ -151,6 +151,8 @@ export const en = {
     "To revoke access while offline, use the Browser Use tab in office Integrations.",
   "browser.failed":
     "Browser request failed. Check the connection and try again.",
+  "browser.tabUnanswered":
+    "This tab did not respond. If it shows a dialog, close it, then turn on Agent control again.",
 
   "lobby.moveHere": "Move here",
   "templates.shared.firstTurn": `To start, learn what the member wants and propose a direction.`,

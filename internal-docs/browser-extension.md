@@ -555,5 +555,15 @@ tracked: a dialog already open before the offer, or still open when the
 debugger reattached (a new debugger session gets "No dialog is showing");
 there the action waits to its deadline.
 
+Such a dialog also blocks the extension's own attach, so no agent client ever
+meets it (task 1bac4dfd). Each attach command of an offer, a resumed offer or
+a site-opened popup waits at most `ATTACH_ANSWER_MS` (5 s). Then the extension
+detaches the debugger, which rejects the command still waiting, and skips the
+focus reset, which would not answer either. The office releases the offer and
+the connection stays. The popup tells the member to close the dialog and turn
+on Agent control again; a resumed offer ends; a site-opened popup is dropped
+and the next one can attach. The release reset in `detach()` has the same
+bound.
+
 **Out of scope.** A click on a custom-protocol link (`x-proto://`) ends control
 (the grant is released); reported to Isomux PM separately.

@@ -140,6 +140,8 @@ export const ca: Catalog = {
     "Per revocar l’accés sense connexió, fes servir la pestanya Ús del navegador d’Integracions a l’oficina.",
   "browser.failed":
     "La sol·licitud al navegador ha fallat. Comprova la connexió i torna-ho a provar.",
+  "browser.tabUnanswered":
+    "Aquesta pestanya no ha respost. Si mostra un quadre de diàleg, tanca’l i torna a activar Control de l’agent.",
 
   "lobby.moveHere": "Mou-te aquí",
   "templates.shared.firstTurn": `Per començar, esbrina què vol el membre i proposa una direcció.`,

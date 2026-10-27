@@ -140,6 +140,8 @@ export const es: Catalog = {
     "Para revocar el acceso sin conexión, usa la pestaña Uso del navegador de Integraciones en la oficina.",
   "browser.failed":
     "La solicitud al navegador ha fallado. Comprueba la conexión e inténtalo de nuevo.",
+  "browser.tabUnanswered":
+    "Esta pestaña no ha respondido. Si muestra un cuadro de diálogo, ciérralo y vuelve a activar Control del agente.",
 
   "lobby.moveHere": "Moverse aquí",
   "templates.shared.firstTurn": `Para empezar, averigua qué quiere el miembro y propón una dirección.`,

@@ -11,6 +11,8 @@ import type { ExtensionBrowserSessions } from "./browser-extension-session";
 import type { BrowserResult } from "./browser-actions";
 import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
 import type { Dialog, Page } from "playwright-core";
+import { ATTACH_ANSWER_MS } from "../shared/browser-extension-protocol";
+import { translatorFor } from "../shared/i18n/translate";
 import { writeFileSync } from "node:fs";
 
 type Site = (url: URL) => Response | Promise<Response>;
@@ -27,6 +29,11 @@ async function withOfferedTab(
     stopClient: () => void;
   }) => Promise<void>,
   deadlineMs = 5000,
+  // Runs on the open popup before the member turns on control.
+  beforeOffer?: (h: {
+    page: Page;
+    popup: Awaited<ReturnType<typeof openExtensionActionPopup>>;
+  }) => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-interactions-"));
   const fixture = browserExtensionFixture();
@@ -84,6 +91,7 @@ async function withOfferedTab(
     await offeredCDP.detach();
     const popup = await openExtensionActionPopup(admin, id, target, setup);
     await popup.waitFor('!document.querySelector("#allow").disabled');
+    await beforeOffer?.({ page: offered, popup });
     await popup.click("#allow");
     await popup.waitFor(
       // The switch is checked during offering, before the office accepts it.
@@ -128,6 +136,51 @@ async function withOfferedTab(
     rmSync(join(dir, "extension"), { recursive: true, force: true });
   }
 }
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a tab that shows a dialog before the offer fails fast with the reason, and is offered once the dialog closes",
+  async () => {
+    await withOfferedTab(
+      () => html(`<!doctype html><title>Dialog</title><p id="text">ready</p>`),
+      async ({ act }) => {
+        const { read } = expectations(act);
+        expect(await read("#text")).toBe("ready");
+      },
+      5000,
+      async ({ page, popup }) => {
+        // A listener keeps Playwright from dismissing the dialog itself.
+        let opened!: (dialog: Dialog) => void;
+        const shown = new Promise<Dialog>((resolve) => (opened = resolve));
+        page.on("dialog", (dialog) => opened(dialog));
+        await page.evaluate(() => {
+          setTimeout(() => alert("open before the offer"), 0);
+        });
+        const dialog = await shown;
+        const started = performance.now();
+        await popup.click("#allow");
+        const state = () =>
+          popup.read<{ error: string; checked: boolean; status: string }>(
+            '({error: document.querySelector("#error").textContent, checked: document.querySelector("#allow").checked, status: document.querySelector("#status").dataset.state})',
+          );
+        let seen = await state();
+        while (!seen.error && performance.now() - started < 20_000) {
+          await Bun.sleep(50);
+          seen = await state();
+        }
+        const elapsed = performance.now() - started;
+        console.log("Dialog offer:", JSON.stringify({ ...seen, elapsed }));
+        // The reason names the dialog: the copy of the catalog key.
+        expect(seen.error).toBe(translatorFor("en").t("browser.tabUnanswered"));
+        expect(elapsed).toBeLessThan(ATTACH_ANSWER_MS + 3000);
+        // The extension's connection stays (it used to drop at 30 s).
+        expect(seen.status).toBe("connected");
+        await popup.waitFor('!document.querySelector("#allow").checked');
+        await dialog.dismiss();
+      },
+    );
+  },
+  60_000,
+);
 
 const html = (body: string) =>
   new Response(body, { headers: { "Content-Type": "text/html" } });

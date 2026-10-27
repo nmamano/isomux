@@ -1,6 +1,7 @@
 import { translatorFor } from "../shared/i18n/translate";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  ATTACH_ANSWER_MS,
   BROWSER_REATTACH_MS,
   extensionOutdated,
   validExtensionPackage,
@@ -40,6 +41,8 @@ type OwnedTab = {
   // The origin the office pinned at the offer, sent back to resume it.
   offerOrigin?: string;
   resuming?: boolean;
+  // An attach command got no answer within ATTACH_ANSWER_MS.
+  unanswered?: boolean;
 };
 type Connection = {
   ws: WebSocket;
@@ -369,7 +372,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       const accepted = await requestOffer(c, id, tab);
       if (!accepted || c.tabs.get(id) !== tab || tab.phase !== "offering") {
         await revoke(c, id);
-        throw new Error();
+        throw tab.unanswered ? new TabUnansweredError() : new Error();
       }
       check(c);
       tab.phase = "on";
@@ -417,10 +420,14 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return;
   void uiCommand(message).then(
     (state) => reply({ ...state, generation: current?.generation }),
-    () =>
+    (error) =>
       reply({
         error:
           "Browser request failed. Check the office address and pairing code, or reconnect.",
+        // The popup shows why an offer failed when the tab did not respond.
+        ...(error instanceof TabUnansweredError
+          ? { reason: "unanswered" }
+          : {}),
       }),
   );
   return true;
@@ -523,16 +530,39 @@ async function detach(tab: OwnedTab): Promise<void> {
     if (tab.popups.get(id) === popup) await detach(popup);
   }
   tab.popups.clear();
-  try {
-    await chrome.debugger.sendCommand(
-      { tabId: tab.tabId },
-      "Emulation.setFocusEmulationEnabled",
-      { enabled: false },
-    );
-  } catch {}
+  // A tab that did not answer the attach does not answer the reset either.
+  if (!tab.unanswered)
+    try {
+      await answered(
+        { tabId: tab.tabId },
+        "Emulation.setFocusEmulationEnabled",
+        { enabled: false },
+      );
+    } catch {}
   try {
     await chrome.debugger.detach({ tabId: tab.tabId });
   } catch {}
+}
+// A tab that gave no answer to an attach command within ATTACH_ANSWER_MS.
+class TabUnansweredError extends Error {}
+// One command of an attach or a detach, bounded by ATTACH_ANSWER_MS. It
+// rejects with TabUnansweredError when the tab gives no answer.
+function answered(
+  target: { tabId: number; sessionId?: string },
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<unknown> {
+  const command = chrome.debugger.sendCommand(target, method, params);
+  // The detach that follows the bound rejects the command later.
+  command.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new TabUnansweredError()),
+      ATTACH_ANSWER_MS,
+    );
+  });
+  return Promise.race([command, bound]).finally(() => clearTimeout(timer));
 }
 function close(c: Connection): void {
   if (c.closed) return;
@@ -610,20 +640,17 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
         await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
-        await chrome.debugger.sendCommand(
-          { tabId: owned.tabId },
-          "Page.enable",
-        );
+        await answered({ tabId: owned.tabId }, "Page.enable");
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
-        await chrome.debugger.sendCommand(
+        await answered(
           { tabId: owned.tabId },
           "Page.setInterceptFileChooserDialog",
           { enabled: true },
         );
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
-        await chrome.debugger.sendCommand(
+        await answered(
           { tabId: owned.tabId },
           "Emulation.setFocusEmulationEnabled",
           { enabled: true },
@@ -631,10 +658,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
         const result = fields(
-          await chrome.debugger.sendCommand(
-            { tabId: owned.tabId },
-            "Target.getTargetInfo",
-          ),
+          await answered({ tabId: owned.tabId }, "Target.getTargetInfo"),
         );
         check(c);
         if (!c.creating.has(id) || owned.phase !== "offering")
@@ -650,6 +674,9 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
         owned.targetId = target.targetId;
         return result;
       } catch (error) {
+        // A tab that shows a JavaScript dialog answers no command from a
+        // debugger attached after the dialog opened.
+        if (error instanceof TabUnansweredError) owned.unanswered = true;
         await detach(owned);
         throw error;
       } finally {
@@ -1077,28 +1104,22 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
       try {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
         owned();
-        await chrome.debugger.sendCommand(
-          { tabId: popup.tabId },
-          "Page.enable",
-        );
+        await answered({ tabId: popup.tabId }, "Page.enable");
         owned();
-        await chrome.debugger.sendCommand(
+        await answered(
           { tabId: popup.tabId },
           "Page.setInterceptFileChooserDialog",
           { enabled: true },
         );
         owned();
-        await chrome.debugger.sendCommand(
+        await answered(
           { tabId: popup.tabId },
           "Emulation.setFocusEmulationEnabled",
           { enabled: true },
         );
         owned();
         const result = fields(
-          await chrome.debugger.sendCommand(
-            { tabId: popup.tabId },
-            "Target.getTargetInfo",
-          ),
+          await answered({ tabId: popup.tabId }, "Target.getTargetInfo"),
         );
         owned();
         const info = fields(result.targetInfo);
@@ -1117,7 +1138,8 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
             targetInfo: { ...info, openerId: opener.targetId },
           },
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof TabUnansweredError) popup.unanswered = true;
         await detach(popup);
         if (main.popups.get(sessionId) === popup) main.popups.delete(sessionId);
       } finally {

@@ -72,6 +72,8 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
   if (busy && action !== "state" && action !== "stop") return;
   if (action !== "state") busy = true;
   if (action !== "state") element("error").textContent = "";
+  // Why the background refused, when it names a cause the member can fix.
+  let reason: string | undefined;
   try {
     if (action === "offer") {
       const [active] = await chrome.tabs.query({
@@ -86,8 +88,11 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
       tabId: invocationTab?.id,
       windowId: invocationTab?.windowId,
       ...extra,
-    })) as typeof state & { error?: string };
-    if (!result || result.error) throw new Error();
+    })) as typeof state & { error?: string; reason?: string };
+    if (!result || result.error) {
+      reason = result?.reason;
+      throw new Error();
+    }
     // A returned pair command is not pairing: the code stays in the form until
     // the office confirms it, so a refused or mistyped attempt can be fixed.
     if (action === "pair") showPair = false;
@@ -96,7 +101,9 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
     if (code.value && code.value.trim() === paired) code.value = "";
     render(result);
   } catch {
-    element("error").textContent = t("browser.failed");
+    element("error").textContent = t(
+      reason === "unanswered" ? "browser.tabUnanswered" : "browser.failed",
+    );
   } finally {
     if (action !== "state") busy = false;
   }

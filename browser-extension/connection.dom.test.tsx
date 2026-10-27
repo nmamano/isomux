@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { setUpDomTestFile } from "../ui/test-support/dom";
+import { translatorFor } from "../shared/i18n/translate";
 
 setUpDomTestFile();
 const { Script } = await import("node:vm");
@@ -518,4 +519,52 @@ test("the popup shows an update notice with the office's download exactly while 
   await settle();
   expect(document.getElementById("update")!.hidden).toBe(true);
   window.dispatchEvent(new Event("pagehide"));
+});
+
+test("a failed offer names the dialog cause only when the tab did not answer", async () => {
+  const { t } = translatorFor("en");
+  for (const reason of ["unanswered", undefined]) {
+    document.body.innerHTML = popupHTML;
+    const state = {
+      state: "connected",
+      generation: "g",
+      office: "https://example.com",
+      currentTab: { id: 7, eligible: true },
+      agents: [{ id: "a", name: "Agent" }],
+      assignments: [],
+    };
+    const offers: unknown[] = [];
+    await popupScript.runInNewContext({
+      document,
+      window,
+      navigator: { language: "en" },
+      Date,
+      chrome: {
+        storage: { session: noDraft },
+        tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+        runtime: {
+          sendMessage: async (message: Record<string, unknown>) => {
+            if (message.action !== "offer") return structuredClone(state);
+            offers.push(message);
+            return { error: "fixture failure", ...(reason ? { reason } : {}) };
+          },
+        },
+      },
+      setInterval: () => 1,
+      clearInterval() {},
+    });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    await settle();
+    const toggle = document.getElementById("allow") as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    await settle();
+    // The enabling condition: the popup sent the offer.
+    expect(offers).toHaveLength(1);
+    expect(document.getElementById("error")!.textContent).toBe(
+      t(reason ? "browser.tabUnanswered" : "browser.failed"),
+    );
+    window.dispatchEvent(new Event("pagehide"));
+  }
 });

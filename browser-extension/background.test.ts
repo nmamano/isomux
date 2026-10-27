@@ -1,6 +1,10 @@
 import { beforeAll, test, expect } from "bun:test";
 import { runInNewContext } from "node:vm";
-import { fields, type Fields } from "../shared/browser-extension-protocol";
+import {
+  ATTACH_ANSWER_MS,
+  fields,
+  type Fields,
+} from "../shared/browser-extension-protocol";
 import manifest from "./manifest.json";
 
 let source: string;
@@ -43,6 +47,18 @@ async function harness(
   let focus: () => Promise<unknown> = async () => ({});
   let chooser: () => Promise<unknown> = async () => ({});
   const intercepted: Array<{ tabId: number; params: unknown }> = [];
+  // A tab that shows a JavaScript dialog: from the command `from` on, no
+  // command to the tab answers. chrome.debugger.detach rejects the pending
+  // ones, as Chrome does ("Detached while handling command.").
+  const dialogs = new Map<
+    number,
+    {
+      from: string;
+      open: boolean;
+      pending: Array<{ answer: () => void; fail: (error: Error) => void }>;
+    }
+  >();
+  const detachedTabs: number[] = [];
   const focused: Array<{ tabId: number; params: unknown }> = [];
   let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({
     targetInfo: {
@@ -191,6 +207,10 @@ async function harness(
       },
       detach: (target: { tabId: number }) => {
         calls.push("detach");
+        detachedTabs.push(target.tabId);
+        const dialog = dialogs.get(target.tabId);
+        for (const command of dialog?.pending.splice(0) ?? [])
+          command.fail(new Error("Detached while handling command."));
         return detach(target.tabId);
       },
       sendCommand: (
@@ -199,18 +219,17 @@ async function harness(
         params?: unknown,
       ) => {
         calls.push(method);
-        if (method === "Runtime.evaluate") return evaluation();
-        if (method === "Page.setInterceptFileChooserDialog") {
-          intercepted.push({ tabId: target.tabId, params });
-          return chooser();
+        const dialog = dialogs.get(target.tabId);
+        if (dialog && (dialog.open || method === dialog.from)) {
+          dialog.open = true;
+          return new Promise((resolve, reject) =>
+            dialog.pending.push({
+              answer: () => resolve(answer(target, method, params)),
+              fail: reject,
+            }),
+          );
         }
-        if (method === "Emulation.setFocusEmulationEnabled") {
-          focused.push({ tabId: target.tabId, params });
-          return focus();
-        }
-        return method === "Target.getTargetInfo"
-          ? targetInfo(target.tabId)
-          : Promise.resolve({});
+        return answer(target, method, params);
       },
       onEvent: { addListener() {} },
       onDetach: {
@@ -220,7 +239,26 @@ async function harness(
       },
     },
   };
+  function answer(
+    target: { tabId: number },
+    method: string,
+    params?: unknown,
+  ): Promise<unknown> {
+    if (method === "Runtime.evaluate") return evaluation();
+    if (method === "Page.setInterceptFileChooserDialog") {
+      intercepted.push({ tabId: target.tabId, params });
+      return chooser();
+    }
+    if (method === "Emulation.setFocusEmulationEnabled") {
+      focused.push({ tabId: target.tabId, params });
+      return focus();
+    }
+    return method === "Target.getTargetInfo"
+      ? targetInfo(target.tabId)
+      : Promise.resolve({});
+  }
   const timers = new Map<number, () => void>();
+  const delays = new Map<number, number | undefined>();
   let timerId = 0;
   runInNewContext(source, {
     chrome,
@@ -229,8 +267,9 @@ async function harness(
     URL,
     crypto,
     queueMicrotask,
-    setTimeout: (fn: () => void) => {
+    setTimeout: (fn: () => void, ms?: number) => {
       timers.set(++timerId, fn);
+      delays.set(timerId, ms);
       return timerId;
     },
     clearTimeout: (id: number) => timers.delete(id),
@@ -387,6 +426,25 @@ async function harness(
       };
     },
     timers,
+    // Runs every pending timer set for `ms`; returns how many ran.
+    fire: (ms: number) => {
+      const due = [...timers].filter(([id]) => delays.get(id) === ms);
+      for (const [id, run] of due) {
+        timers.delete(id);
+        run();
+      }
+      return due.length;
+    },
+    pendingTimers: (ms: number) =>
+      [...timers.keys()].filter((id) => delays.get(id) === ms).length,
+    dialog: (tabId: number, from: string) =>
+      dialogs.set(tabId, { from, open: false, pending: [] }),
+    // Chrome answers the commands that waited when the member closes it.
+    closeDialog: (tabId: number) => {
+      for (const command of dialogs.get(tabId)?.pending ?? []) command.answer();
+      dialogs.delete(tabId);
+    },
+    detachedTabs,
     navigation: (sourceTabId: number, tabId: number) =>
       navigation({ sourceTabId, tabId }),
     delayDetach: (tabId: number) => {
@@ -1779,4 +1837,105 @@ test("the hello reports the extension's package; a newer office package offers a
     expect(state.state).toBe("connected");
     expect(state.update).toBeUndefined();
   }
+});
+
+// A tab that shows a JavaScript dialog answers no command from a debugger
+// session that attached after the dialog opened.
+const settled = async () => {
+  for (let i = 0; i < 10; i++) await settle();
+};
+for (const from of [
+  "Page.enable",
+  "Page.setInterceptFileChooserDialog",
+  "Emulation.setFocusEmulationEnabled",
+  "Target.getTargetInfo",
+] as const) {
+  test(`an offer whose tab stops answering at ${from} fails at the attach bound with its reason, and the connection stays`, async () => {
+    const h = await harness();
+    h.dialog(7, from);
+    let replied = false;
+    const reply = h.offer().finally(() => {
+      replied = true;
+    });
+    await settled();
+    // The enabling condition: the tab got the command and gave no answer.
+    expect(h.calls).toContain(from);
+    expect(replied).toBe(false);
+    expect(h.socket.sent.some((m) => m.kind === "result" && m.id === 1)).toBe(
+      false,
+    );
+    expect(h.fire(ATTACH_ANSWER_MS)).toBeGreaterThan(0);
+    await settled();
+    // One bound: the reason does not wait for a second timer.
+    expect(replied).toBe(true);
+    expect(h.pendingTimers(ATTACH_ANSWER_MS)).toBe(0);
+    expect(
+      h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
+    ).toBeDefined();
+    expect(h.detachedTabs).toContain(7);
+    expect(await reply).toMatchObject({
+      error: expect.any(String),
+      reason: "unanswered",
+    });
+    // The extension's connection, and so every other offered tab, stays.
+    expect(h.sockets).toHaveLength(1);
+    expect(h.socket.readyState).toBe(1);
+    const state = await h.ui({ action: "state" });
+    expect(state.state).toBe("connected");
+    expect(state.assignments).toEqual([]);
+  });
+}
+
+test("a tab that answers the attach late but inside the bound is offered", async () => {
+  const h = await harness();
+  h.dialog(7, "Page.enable");
+  const reply = h.offer();
+  await settled();
+  // The enabling condition: the bound is armed on a command with no answer.
+  expect(h.pendingTimers(ATTACH_ANSWER_MS)).toBeGreaterThan(0);
+  h.closeDialog(7);
+  await settled();
+  expect((await reply).error).toBeUndefined();
+  // A bound that outlives its answer ends nothing.
+  h.fire(ATTACH_ANSWER_MS);
+  await settled();
+  expect(h.detachedTabs).toEqual([]);
+  expect(await listed(h)).toEqual([{ id: h.assignment(), phase: "on" }]);
+});
+
+test("an attach that fails for another cause gives no dialog reason", async () => {
+  const h = await harness();
+  h.failAttach();
+  const reply = await h.offer();
+  expect(reply.error).toBeDefined();
+  expect(reply.reason).toBeUndefined();
+});
+
+test("a site-opened popup that gives no answer is dropped at the bound; a later popup attaches and Stop completes", async () => {
+  const h = await harness();
+  await h.offer();
+  h.dialog(8, "Page.enable");
+  h.navigation(7, 8);
+  await settled();
+  // The enabling condition: the popup got Page.enable and gave no answer.
+  expect(h.calls.filter((call) => call === "Page.enable")).toHaveLength(2);
+  expect(h.fire(ATTACH_ANSWER_MS)).toBeGreaterThan(0);
+  await settled();
+  expect(h.detachedTabs).toEqual([8]);
+  expect(h.socket.sent.some((m) => m.method === "popup")).toBe(false);
+  h.navigation(7, 9);
+  await settled();
+  const popups = h.socket.sent.filter((m) => m.method === "popup");
+  expect(popups).toHaveLength(1);
+  expect(fields(fields(popups[0].params).targetInfo).targetId).toBe("target-9");
+  h.command(2, "detach");
+  await settled();
+  expect(h.detachedTabs).toContain(7);
+  expect(h.socket.sent).toContainEqual({
+    kind: "event",
+    generation: "generation-1",
+    assignment: h.assignment(),
+    method: "detached",
+    params: {},
+  });
 });
