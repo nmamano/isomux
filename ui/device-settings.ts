@@ -11,6 +11,9 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
+// A new key on purpose: an older build saved "isomux-members-chat-hidden", and
+// its "false" would open the chat over the lobby door on the first load.
+const KEY_MEMBERS_CHAT_OPEN = "isomux-members-chat-open";
 const KEY_MEMBERS_CHAT_WIDTH = "isomux-members-chat-width";
 export const DEFAULT_MEMBERS_CHAT_WIDTH = 520;
 export const MIN_MEMBERS_CHAT_WIDTH = 300;
@@ -69,6 +72,23 @@ export function setDevice(label: string | null): void {
   if (typeof localStorage === "undefined") return;
   if (label && label.trim()) localStorage.setItem(KEY_DEVICE, label.trim());
   else localStorage.removeItem(KEY_DEVICE);
+}
+
+// The desktop lobby chat is open. False until a member opens it on this device.
+export function getMembersChatOpen(): boolean {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem(KEY_MEMBERS_CHAT_OPEN) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setMembersChatOpen(open: boolean): void {
+  try {
+    if (typeof localStorage !== "undefined")
+      localStorage.setItem(KEY_MEMBERS_CHAT_OPEN, String(open));
+  } catch {}
 }
 
 // The Apps page filter, remembered on this device. It starts off.

@@ -87,6 +87,7 @@ import {
   readLegacyUserPrefs,
   clearLegacyUserPrefs,
   shouldNotifyRoom,
+  getMembersChatOpen,
 } from "./device-settings.ts";
 import {
   DEFAULT_THEME_ID,
@@ -199,9 +200,9 @@ export interface AppState {
   // access list. Open when the viewer clicked it, or landed on it because they
   // have no visible room. Selecting a room closes it.
   lobbyOpen: boolean;
-  // The desktop lobby chat panel is shown. CLIENT state for this page load
-  // only: it starts closed on every load so the lobby door is visible, and a
-  // full_state (reconnect) keeps it.
+  // The desktop lobby chat panel is shown. CLIENT state: a load reads this
+  // browser's last show or hide click (closed when there is none, so a new
+  // member sees the lobby door), and a full_state (reconnect) keeps it.
   membersChatShown: boolean;
   tasksLoaded: boolean;
   // Agent-built apps. Fetched by AppsView when the tab opens (an app list costs
@@ -1970,7 +1971,10 @@ function playNotificationSound() {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(reducer, initialState, (s) => ({
+    ...s,
+    membersChatShown: getMembersChatOpen(),
+  }));
 
   useEffect(() => {
     let legacyMigrated = false;

@@ -3,6 +3,7 @@ import {
   setMembersChatWidth,
   clampMembersChatWidth,
   DEFAULT_MEMBERS_CHAT_WIDTH,
+  setMembersChatOpen,
 } from "../device-settings.ts";
 import { ChatWidthHandle } from "../members-chat/ChatWidthHandle.tsx";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
@@ -334,7 +335,6 @@ export function OfficeView({
   const { embed } = useFeatures();
   const decorateScene = useContext(SceneDecorationContext);
   const seasonalItems = useSeasonalItems();
-  // The chat starts closed on every load, so the lobby door is visible.
   const chatHidden = !membersChatShown;
   const [chatViewportWidth, setChatViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth,
@@ -368,6 +368,7 @@ export function OfficeView({
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(desktopChatVisible);
   function changeChatHidden(hidden: boolean) {
+    setMembersChatOpen(!hidden);
     dispatch({ type: "set_members_chat_shown", shown: !hidden });
   }
   const i18n = useI18n();
