@@ -3,6 +3,7 @@ import type { AppWidgetStatus } from "../../../shared/contract-shapes.ts";
 import type { Identity } from "../../identity/index.ts";
 import { appManifest, type WidgetMetadata } from "../../app-widget-metadata.ts";
 import { bytes, fail, ok, type RouteHandler } from "../executor.ts";
+import { appReloadRequestedAt } from "../../app-revision.ts";
 
 export interface AppWidgetDeps {
   get(name: string): AppRecord | null;
@@ -13,13 +14,15 @@ export interface AppWidgetDeps {
   chat(app: AppRecord, identity: Identity): AppWidgetStatus["chat"];
   // The app's title and icons, read as the short-link page reads them.
   metadata(app: AppRecord): Promise<WidgetMetadata>;
+  revision(app: AppRecord): Promise<string | null>;
+  serving(app: AppRecord): Promise<boolean>;
 }
 
 export function appWidgetHandlers(
   deps: AppWidgetDeps,
 ): Record<string, RouteHandler> {
   return {
-    "apps.widget": (ctx) => {
+    "apps.widget": async (ctx) => {
       const app = deps.get(ctx.params.name);
       if (
         !app ||
@@ -41,6 +44,9 @@ export function appWidgetHandlers(
           ctx.callerSessionIdHash ?? null,
         ),
         chat: deps.chat(app, ctx.identity),
+        revision: await deps.revision(app),
+        serving: await deps.serving(app),
+        reloadRequestedAt: appReloadRequestedAt(app.name),
       };
       return ok(status);
     },

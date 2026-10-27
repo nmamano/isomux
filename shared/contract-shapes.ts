@@ -176,9 +176,16 @@ export interface SwapDesksReq {
   deskB: number;
 }
 
+// What the member sees in an app frame, as the widget last learned it: path is
+// pathname + search + hash. The title is absent when the page did not report.
+export interface AppView {
+  path: string;
+  title?: string;
+}
+
 export interface SendMessageReq {
   text: string;
-  appContext?: { name: string; registration: number };
+  appContext?: { name: string; registration: number; view?: AppView };
   device?: string;
   attachments?: Attachment[];
   // Optional legacy input. Sender authority is ALWAYS the token; rejected if
@@ -2021,6 +2028,13 @@ export interface AppWidgetStatus {
   appUrl: string;
   sessionExpiresAt: number | null;
   chat: { agentId: string; agentName: string; sessionId: string | null } | null;
+  // Changes when the app's files change or the office restarts the app; null
+  // when the files could not be read.
+  revision: string | null;
+  // The app runs and its port accepts a connection.
+  serving: boolean;
+  // As on AppWire: the widget's baseline for reload requests.
+  reloadRequestedAt: number | null;
 }
 
 // GET /api/terminal-recordings (task 749cb7fd), newest first.

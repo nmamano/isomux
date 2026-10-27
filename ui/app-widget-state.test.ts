@@ -2,6 +2,7 @@ import { expect, it } from "bun:test";
 import {
   beginAppHandshake,
   isAppSessionSignal,
+  isAppViewReport,
   widgetDraftKey,
   screenshotHint,
 } from "./app-widget-state.ts";
@@ -40,6 +41,43 @@ it("accepts only the fixed signal from this app iframe", () => {
   expect(isAppSessionSignal(event, null, "https://hello.office.example")).toBe(
     false,
   );
+});
+
+// The frame's report of the page it shows (task d7ac4f73): only from this
+// app's frame, only in the report's shape, and only the view's own fields.
+it("reads the view only from this app frame's report", () => {
+  const frame = {} as Window;
+  const appUrl = "https://hello.office.example";
+  const report = {
+    type: "isomux:app-view",
+    path: "/recipes/3?step=2#notes",
+    title: "Pasta",
+  };
+  const event = { source: frame, origin: appUrl, data: report };
+  expect(isAppViewReport(event, frame, appUrl)).toEqual({
+    path: report.path,
+    title: "Pasta",
+  });
+  expect(
+    isAppViewReport(
+      { ...event, data: { ...report, title: undefined, extra: "x" } },
+      frame,
+      appUrl,
+    ),
+  ).toEqual({ path: report.path });
+  for (const refused of [
+    { ...event, source: {} as Window },
+    { ...event, origin: "https://other.office.example" },
+    { ...event, data: { ...report, type: "isomux:app-reload" } },
+    { ...event, data: "isomux:app-view" },
+    { ...event, data: null },
+    { ...event, data: { ...report, path: 3 } },
+    { ...event, data: { type: report.type, title: "Pasta" } },
+    { ...event, data: { ...report, title: 4 } },
+  ])
+    expect(isAppViewReport(refused, frame, appUrl)).toBeNull();
+  expect(isAppViewReport(event, null, appUrl)).toBeNull();
+  expect(isAppViewReport(event, frame, null)).toBeNull();
 });
 
 it("bounds sign-in recovery across page reloads and permits later expiry", () => {

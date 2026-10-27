@@ -145,6 +145,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "apps.start": "apps",
   "apps.stop": "apps",
   "apps.restart": "apps",
+  "apps.reload": "apps",
   "apps.archive": "apps",
   "apps.unarchive": "apps",
   "webhooks.list": "webhooks",

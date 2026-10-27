@@ -1562,6 +1562,10 @@ export interface AppWire extends AppRecord {
   url?: string;
   // Office path that redirects to url; absent without an app domain or for reserved names.
   shortUrl?: string;
+  // When the office last asked open app widgets to reload the app (the reload
+  // route, or a verb that ran a new process). In memory: null after an office
+  // restart, so a restart reloads nothing. Absent: no request since then.
+  reloadRequestedAt?: number;
 }
 
 // The launch-only projection returned to a room-derived viewer who may open
@@ -1582,6 +1586,7 @@ export interface AppViewerWire {
   shortUrl?: string;
   thumbnailUpdatedAt?: number;
   archived?: boolean;
+  reloadRequestedAt?: number;
   canManage: false;
 }
 

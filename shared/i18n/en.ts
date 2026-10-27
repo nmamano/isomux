@@ -1817,6 +1817,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.apps.start": "Start app",
   "apiCall.apps.stop": "Stop app",
   "apiCall.apps.restart": "Restart app",
+  "apiCall.apps.reload": "Reload app",
   "apiCall.apps.archive": "Archive app",
   "apiCall.apps.unarchive": "Unarchive app",
   "apiCall.webhooks.list": "List webhooks",
@@ -3541,6 +3542,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.skills.save": "Save a skill",
   "apiCall.skills.create": "Create a skill",
   "appWidget.launcher": "Chat",
+  "appWidget.appChanged": "App changed",
+  "appWidget.reload": "Reload",
   "appWidget.title": "Chat with {agentName}",
   "appWidget.notice": "Shared with members of the agent's room.",
   "appWidget.windowsHint":

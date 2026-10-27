@@ -14,6 +14,7 @@
 import { useSyncExternalStore } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type { Attachment } from "../../shared/types.ts";
+import type { SendMessageReq } from "../../shared/contract-shapes.ts";
 
 export type OutboxError =
   // The request did not get an answer (network down, connection reset).
@@ -35,6 +36,11 @@ export interface OutboxAttempt {
   attachments?: Attachment[];
   device?: string;
   sendNow?: boolean;
+  // Set when the office was opened from a phone's app widget (task d7ac4f73):
+  // the app and the page the member came from. It belongs to this page load,
+  // so it is never saved: a restored attempt sends without it, and a reload
+  // cannot turn a retry into a refusal for an app that changed since.
+  appContext?: SendMessageReq["appContext"];
   status: "pending" | "failed";
   error?: OutboxError;
   createdAt: number;
@@ -61,7 +67,7 @@ function persist(attempt: OutboxAttempt): boolean {
   try {
     localStorage.setItem(
       userPrefix(storageUser) + attempt.id,
-      JSON.stringify(attempt),
+      JSON.stringify({ ...attempt, appContext: undefined }),
     );
     return true;
   } catch {
@@ -194,6 +200,7 @@ function request(attempt: OutboxAttempt): Promise<unknown> {
     ...device,
     ...(attempt.attachments ? { attachments: attempt.attachments } : {}),
     ...(attempt.sendNow ? { sendNow: true } : {}),
+    ...(attempt.appContext ? { appContext: attempt.appContext } : {}),
   });
 }
 
@@ -224,6 +231,7 @@ export function sendAttempt(input: {
   attachments?: Attachment[];
   device?: string;
   sendNow?: boolean;
+  appContext?: SendMessageReq["appContext"];
 }): OutboxAttempt | null {
   const attempt: OutboxAttempt = {
     id: newId(),
@@ -235,6 +243,7 @@ export function sendAttempt(input: {
       : {}),
     ...(input.device ? { device: input.device } : {}),
     ...(input.sendNow ? { sendNow: true } : {}),
+    ...(input.appContext ? { appContext: input.appContext } : {}),
     status: "pending",
     createdAt: Date.now(),
   };

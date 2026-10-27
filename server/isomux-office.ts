@@ -3,6 +3,19 @@ import {
   applyWidgetMetadata,
 } from "./app-widget-metadata.ts";
 import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
+import {
+  appFilesRevision,
+  appServing,
+  bumpAppRestartSeq,
+  requestAppReload,
+} from "./app-revision.ts";
+
+// Every office verb that runs a new process for an app moves the widget's
+// revision and asks its open widgets to reload (task d7ac4f73).
+function appProcessStarted(name: string): void {
+  bumpAppRestartSeq(name);
+  requestAppReload(name);
+}
 import { auditHandlers } from "./routes/handlers/audit.ts";
 import { terminalRecordingHandlers } from "./routes/handlers/terminal-recordings.ts";
 import { auditActor } from "./audit-actor.ts";
@@ -734,7 +747,10 @@ const appSecrets = createAppSecrets({
     unitInjectsSecrets: (name) => appSupervisor.unitInjectsSecrets(name),
     regenerate: (record) => appSupervisor.regenerate(record),
     states: (names) => appSupervisor.states(names),
-    restart: (name) => appSupervisor.restart(name),
+    restart: (name) => {
+      appSupervisor.restart(name);
+      appProcessStarted(name);
+    },
   },
   dir: appSecretsDir(STATE_ROOT),
   oauthOwned: (scope) => {
@@ -3475,6 +3491,9 @@ function viewerAppWire(app: AppWire): AppListWire | null {
       ? { thumbnailUpdatedAt: app.thumbnailUpdatedAt }
       : {}),
     ...(app.archived === true ? { archived: true } : {}),
+    ...(app.reloadRequestedAt !== undefined
+      ? { reloadRequestedAt: app.reloadRequestedAt }
+      : {}),
     canManage: false,
   };
 }
@@ -3984,6 +4003,17 @@ function buildExecutorDeps(
           apps: appRegistry.list(),
           supervisor: appSupervisor,
         }),
+      revision: appFilesRevision,
+      serving: (app) => {
+        let running = false;
+        try {
+          running =
+            appSupervisor.states([app.name]).get(app.name)?.state === "running";
+        } catch {
+          // An unreadable supervisor is not serving.
+        }
+        return appServing(app, running);
+      },
     }),
   );
 
@@ -4097,11 +4127,22 @@ function buildExecutorDeps(
       readThumbnailFile: readCappedFile,
       now: () => Date.now(),
       install: (record) => appSupervisor.install(record),
-      reinstall: (record) => appSupervisor.reinstall(record),
+      // Each verb that runs a new process moves the widget's revision, so an
+      // open app frame reloads after the turn (task d7ac4f73).
+      reinstall: (record) => {
+        appSupervisor.reinstall(record);
+        appProcessStarted(record.name);
+      },
       teardown: (name) => appSupervisor.teardown(name),
-      start: (name) => appSupervisor.start(name),
+      start: (name) => {
+        appSupervisor.start(name);
+        appProcessStarted(name);
+      },
       stop: (name) => appSupervisor.stop(name),
-      restart: (name) => appSupervisor.restart(name),
+      restart: (name) => {
+        appSupervisor.restart(name);
+        appProcessStarted(name);
+      },
       states: (names) => appSupervisor.states(names),
       provablyNotRunning: (name) => appSupervisor.provablyNotRunning(name),
       logs: (name, lines) => appSupervisor.logs(name, lines),

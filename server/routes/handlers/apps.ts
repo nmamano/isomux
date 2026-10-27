@@ -67,6 +67,7 @@ import {
 } from "../../identity/index.ts";
 import { noteAuditTarget } from "../../audit-context.ts";
 import { scrubText } from "../../secret-proxy/scrub.ts";
+import { appReloadRequestedAt, requestAppReload } from "../../app-revision.ts";
 import type { AppRecord } from "../../../shared/types.ts";
 import {
   MAX_APP_THUMBNAIL_BYTES,
@@ -263,6 +264,11 @@ export interface AppsDeps {
   limiter: AppMessageLimiter;
 }
 
+function withReloadRequest(name: string): { reloadRequestedAt?: number } {
+  const at = appReloadRequestedAt(name);
+  return at === null ? {} : { reloadRequestedAt: at };
+}
+
 // The ONE place a record becomes wire. `state` and `restartCount` are derived
 // from the supervisor at read time and never stored - a persisted "running"
 // would be a lie the moment the box reboots. `url` is derived too, from the
@@ -283,6 +289,7 @@ function toWire(
     // an empty string would be a URL-shaped answer meaning "none".
     ...(url !== null ? { url } : {}),
     ...(shortUrl !== null ? { shortUrl } : {}),
+    ...withReloadRequest(record.name),
   };
 }
 
@@ -913,6 +920,11 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     "apps.start": actionHandler(deps, (name) => deps.start(name), true),
     "apps.stop": actionHandler(deps, (name) => deps.stop(name), false),
     "apps.restart": actionHandler(deps, (name) => deps.restart(name), true),
+
+    // Asks every open widget of the app to reload it once it serves (task
+    // d7ac4f73): the agent decides when the member sees a change.
+    // No supervisor verb: the app's process is left alone.
+    "apps.reload": actionHandler(deps, (name) => requestAppReload(name), false),
 
     // The owner's switch for the app's reach into their asks. The guard
     // admits the owner only; the app reads it on its next request.

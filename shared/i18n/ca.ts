@@ -1863,6 +1863,7 @@ Coses que pots fer per ell:
   "apiCall.apps.start": "Arrencar l'app",
   "apiCall.apps.stop": "Aturar l'app",
   "apiCall.apps.restart": "Reiniciar l'app",
+  "apiCall.apps.reload": "Recarregar l'app",
   "apiCall.apps.archive": "Arxivar l'app",
   "apiCall.apps.unarchive": "Desarxivar l'app",
   "apiCall.webhooks.list": "Llistar els webhooks",
@@ -3587,6 +3588,8 @@ Coses que pots fer per ell:
   "apiCall.skills.save": "Desar una habilitat",
   "apiCall.skills.create": "Crear una habilitat",
   "appWidget.launcher": "Xat",
+  "appWidget.appChanged": "L'app ha canviat",
+  "appWidget.reload": "Recarrega",
   "appWidget.title": "Xat amb {agentName}",
   "appWidget.notice": "Compartit amb els membres de la sala de l'agent.",
   "appWidget.windowsHint":

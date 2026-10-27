@@ -31,6 +31,7 @@ import type { AppRuntime, AppSupervisor } from "./app-supervisor.ts";
 import { APP_COOKIE_NAME } from "./app-auth.ts";
 import { isSessionCookieName } from "./auth.ts";
 import { setAppFramingPolicy } from "./app-framing.ts";
+import { framedDocumentRequest, injectAppView } from "./app-view-script.ts";
 import {
   APP_BUSY_BODY,
   APP_STOPPED_BODY,
@@ -286,8 +287,19 @@ function buildDownstreamHeaders(upstream: Response): Headers {
   for (const line of upstream.headers.getSetCookie()) {
     out.append("Set-Cookie", line);
   }
-  setAppFramingPolicy(out);
   return out;
+}
+
+// A page's framed answer can differ from its direct one (the app-view script),
+// so a cache must keep them apart. Every GET HTML answer says so, framed or
+// not: the direct copy must not be reused for a frame either.
+function varyOnFrame(req: Request, headers: Headers): void {
+  if (req.method !== "GET") return;
+  const type = headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
+  if (type !== "text/html") return;
+  const vary = headers.get("Vary");
+  if (vary?.trim() === "*") return;
+  headers.set("Vary", vary ? `${vary}, Sec-Fetch-Dest` : "Sec-Fetch-Dest");
 }
 
 export interface RelayContext {
@@ -417,14 +429,18 @@ export async function relayToApp(
     ttfbTimer = setTimeout(() => ac.abort(), ctx.ttfbMs ?? APP_RELAY_TTFB_MS);
     let upstream: Response;
     try {
+      const upstreamHeaders = buildUpstreamHeaders(
+        req,
+        ctx.host,
+        peerAddress(ctx),
+        ctx.member ?? null,
+      );
+      // A framed page may get the app-view script, which needs plain bytes.
+      if (framedDocumentRequest(req))
+        upstreamHeaders.set("Accept-Encoding", "identity");
       upstream = await fetch(target, {
         method: req.method,
-        headers: buildUpstreamHeaders(
-          req,
-          ctx.host,
-          peerAddress(ctx),
-          ctx.member ?? null,
-        ),
+        headers: upstreamHeaders,
         // Streamed, never buffered: an upload of any size and an SSE response
         // both have to work, and neither can if a body is read into memory
         // first. A `Content-Length` the client sent is preserved above, so the
@@ -462,11 +478,13 @@ export async function relayToApp(
       NULL_BODY_STATUSES.has(upstream.status) ||
       upstream.body === null;
     const headers = buildDownstreamHeaders(upstream);
+    varyOnFrame(req, headers);
 
     if (bodyless) {
       // Cancel rather than leave a body half-read holding the connection.
       upstream.body?.cancel().catch(() => {});
       release();
+      setAppFramingPolicy(headers);
       return new Response(null, { status: upstream.status, headers });
     }
 
@@ -477,10 +495,14 @@ export async function relayToApp(
     });
     terminateStartedResponse = guarded.terminate;
     disarmStall = guarded.disarm;
-    return new Response(guarded.body, {
-      status: upstream.status,
-      headers,
-    });
+    // The script decision reads the app's own CSP, so it runs before the
+    // framing policy adds one.
+    const response = injectAppView(
+      new Response(guarded.body, { status: upstream.status, headers }),
+      req,
+    );
+    setAppFramingPolicy(response.headers);
+    return response;
   } catch (err) {
     // Nothing here is expected to throw - header rewriting, taking the reader,
     // building the Response. But if one of them does, the upstream request may

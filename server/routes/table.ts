@@ -2523,6 +2523,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
     emits: ["app_upserted"],
   }),
+  defineRoute<void, AppWire>({
+    opId: "apps.reload",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/apps/:name/reload",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: ["app_upserted"],
+  }),
   // One shared flag per app; start and restart clear it.
   defineRoute<void, AppWire>({
     opId: "apps.archive",

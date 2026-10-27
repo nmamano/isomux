@@ -44,6 +44,7 @@ export const AUDIT_OPERATIONS = [
   "apps.archive",
   "apps.delete",
   "apps.register",
+  "apps.reload",
   "apps.restart",
   "apps.sendMessage",
   "apps.setInboxAccess",

@@ -29,7 +29,11 @@ A member sees the apps they own plus apps built by agents in rooms they can acce
 
 To limit an action to one member, read the member from the request. A request through the app's `url` carries `X-Isomux-Member-Id` and `X-Isomux-Member-Name` (percent-encoded). Authorize on the id. Change state only on POST, PUT, PATCH or DELETE. The office refuses those when they come from a page that is not the app's own; a GET from a link on any site still carries the member. The office removes every `X-Isomux-*` header that the browser sends, so the app cannot use that prefix for its own headers. A screenshot capture has no member. A request sent directly to the app's port does not go through the office, and any process on the box can set these headers on it.
 
-Give members the registry `shortUrl` when present, else `url`. The short address opens an office page with the app and its target agent's shared chat. Chat appears only for members who can access both the app and that agent's room. Members can paste, drop or attach screenshots to that shared chat. Isomux does not take screenshots. The direct `url` opens the app alone. Registration refuses names that collide with office paths. Otherwise use the box hostname and port; never give them server localhost. If only the office port is exposed, give an SSH port-forward command.
+Give members the registry `shortUrl` when present, else `url`. The short address opens an office page with the app and its target agent's shared chat. Chat appears only for members who can access both the app and that agent's room. Members can paste, drop or attach screenshots to that shared chat. Isomux does not take screenshots. The direct `url` opens the app alone.
+
+When a change to an app is ready for the member to see, call `POST /api/apps/:name/reload`: each open short-address page reloads the app once it serves, on the page the member is on. After a change to the server code, restart the app instead; a start or restart also reloads. Do not ask the member to reload. A tab that opened the direct `url` does not reload.
+
+Registration refuses names that collide with office paths. Otherwise use the box hostname and port; never give them server localhost. If only the office port is exposed, give an SSH port-forward command.
 
 Safe example: `GET /api/apps`.
 
@@ -46,6 +50,7 @@ Safe example: `GET /api/apps`.
 | `POST /api/apps/:name/start`       | Empty body                                              | `AppWire`                        |
 | `POST /api/apps/:name/stop`        | Empty body                                              | `AppWire`                        |
 | `POST /api/apps/:name/restart`     | Empty body                                              | `AppWire`                        |
+| `POST /api/apps/:name/reload`      | Empty body                                              | `AppWire`                        |
 | `POST /api/apps/:name/archive`     | Empty body                                              | `AppWire`                        |
 | `POST /api/apps/:name/unarchive`   | Empty body                                              | `AppWire`                        |
 | `PUT /api/apps/:name/thumbnail`    | Raw PNG, JPEG or WebP bytes, or JSON `{path}`; max 2 MB | `AppWire`                        |

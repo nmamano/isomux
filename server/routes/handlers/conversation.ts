@@ -36,6 +36,7 @@ import type {
   QueuedMessageView,
 } from "../../../shared/types.ts";
 import type {
+  AppView,
   SendMessageReq,
   EditMessageReq,
   ResumeReq,
@@ -52,6 +53,7 @@ import { parseDeliverAt } from "../../scheduled-messages.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 import { formatApiTokenDevice } from "../../../shared/identity.ts";
+import { formatAppViewLabel } from "../../app-view-label.ts";
 
 // The AGENT (inter-agent) send outcome. The failure carries the status + stable
 // code directly (self-send/unknown-sender from the dep's checks; otherwise
@@ -260,6 +262,17 @@ function malformedAttachmentSpec(a: unknown): boolean {
 // each attachment ELEMENT (the WS command never element-validated; the REST
 // surface is the one a hand-crafted body reaches).
 
+// appContext.view: a path string and an optional title string, nothing else
+// checked here; the label bounds and quotes them.
+function isAppView(view: unknown): view is AppView {
+  if (!view || typeof view !== "object") return false;
+  const { path, title } = view as Record<string, unknown>;
+  return (
+    typeof path === "string" &&
+    (title === undefined || typeof title === "string")
+  );
+}
+
 function malformedSendFields(b: Record<string, unknown>): boolean {
   if (b.device !== undefined && typeof b.device !== "string") return true;
   if (b.clientMessageId !== undefined && typeof b.clientMessageId !== "string")
@@ -318,7 +331,7 @@ export function conversationHandlers(
           "device, clientMessageId, and deliverAt must be strings; attachments must be an array of {filename, originalName, mediaType} strings plus a nonnegative integer size; sendNow and steer must be booleans",
         );
       }
-      let appName: string | undefined;
+      let appLabel: string | undefined;
       if (b.appContext !== undefined) {
         if (ctx.identity.scope !== "user" && ctx.identity.scope !== "api")
           return fail(403, "forbidden");
@@ -328,7 +341,8 @@ export function conversationHandlers(
           typeof context !== "object" ||
           typeof context.name !== "string" ||
           !Number.isSafeInteger(context.registration) ||
-          context.registration < 0
+          context.registration < 0 ||
+          (context.view !== undefined && !isAppView(context.view))
         )
           return fail(422, "invalid_app_context");
         const resolved = deps.resolveAppContext(
@@ -341,10 +355,10 @@ export function conversationHandlers(
             resolved.error === "app_unavailable" ? 404 : 409,
             resolved.error,
           );
-        appName = resolved.name;
+        appLabel = formatAppViewLabel(resolved.name, context.view);
       }
       const withAppDevice = (device?: string): string | undefined =>
-        appName ? `${device ? device + "; " : ""}App ${appName}` : device;
+        appLabel ? `${device ? device + "; " : ""}${appLabel}` : device;
       // sendNow is USER-branch only (the composer's Ctrl/Cmd+Enter). Rejected
       // loudly for agent senders - mirrors the deliverAt style below (never
       // silently ignore a delivery-affecting flag); agents pass steer instead

@@ -36,7 +36,8 @@ import { createFakeAppSupervisor } from "./fake-app-supervisor.ts";
 import type { AppRuntime } from "../app-supervisor.ts";
 import type { AppRecord } from "../../shared/types.ts";
 import { _testSetAppRegistrationGeneration } from "../app-registry.ts";
-import { officeSessionCookieNames } from "../auth.ts";
+import { buildPublicOrigin, officeSessionCookieNames } from "../auth.ts";
+import { appViewScript } from "../app-view-script.ts";
 import {
   _testResetAppLifecycles,
   retireAppRegistration,
@@ -940,5 +941,238 @@ describe("relay: concurrency permits", () => {
     );
     expect(ended).toBe("AbortError");
     await settlesTo(() => up!.aborted.includes("/sse"), true);
+  });
+});
+
+// The app-view script (task d7ac4f73). A framed page load gets one script
+// appended at the end of the document, so the office wrapper learns which page
+// the member sees. Every other answer keeps the app's bytes exactly: a direct
+// visit, an error page, a non-HTML body, a compressed body, a page whose CSP
+// (header or meta) restricts scripts, and a charset that is not UTF-8.
+describe("relay: the app-view script", () => {
+  const PAGE =
+    "<!doctype html><html><head><title>Pasta</title></head><body><p>Pasta</p></body></html>";
+  const FRAMED = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" };
+  let pages: ReturnType<typeof Bun.serve> | null = null;
+  let streamClosed = false;
+  let streamCancelled = false;
+  const seenEncoding: Record<string, string | null> = {};
+  afterEach(async () => {
+    await pages?.stop(true);
+    pages = null;
+  });
+
+  function startPages(): AppRecord {
+    streamClosed = false;
+    streamCancelled = false;
+    const html = (body: BodyInit, headers: Record<string, string> = {}) =>
+      new Response(body, {
+        headers: { "Content-Type": "text/html; charset=utf-8", ...headers },
+      });
+    pages = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      idleTimeout: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        seenEncoding[path] = req.headers.get("accept-encoding");
+        switch (path) {
+          case "/page":
+            return html(PAGE, {
+              ETag: '"v1"',
+              Vary: "Accept-Encoding",
+            });
+          case "/upper-utf8":
+            return html(PAGE, { "Content-Type": 'text/html; charset="UTF-8"' });
+          case "/no-charset":
+            return html(PAGE, { "Content-Type": "text/html" });
+          case "/missing":
+            return new Response(PAGE, {
+              status: 404,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          case "/json":
+            return new Response('{"a":1}', {
+              headers: { "Content-Type": "application/json" },
+            });
+          case "/gzip":
+            // The app compresses whatever the relay asked for.
+            return html(gzipSync(Buffer.from(PAGE)), {
+              "Content-Encoding": "gzip",
+            });
+          case "/csp-script-src":
+            return html(PAGE, {
+              "Content-Security-Policy": "script-src 'self'",
+            });
+          case "/csp-default-src":
+            return html(PAGE, {
+              "Content-Security-Policy": "img-src *; default-src 'self'",
+            });
+          case "/csp-script-src-elem":
+            return html(PAGE, {
+              "Content-Security-Policy": "script-src-elem 'self'",
+            });
+          case "/csp-second-policy": {
+            const h = new Headers({
+              "Content-Type": "text/html; charset=utf-8",
+            });
+            h.append("Content-Security-Policy", "img-src *");
+            h.append("Content-Security-Policy", "script-src 'self'");
+            return new Response(PAGE, { headers: h });
+          }
+          case "/csp-frames-only":
+            // A policy that says nothing about scripts does not stop it.
+            return html(PAGE, {
+              "Content-Security-Policy": "frame-ancestors 'self'",
+            });
+          case "/csp-report-only":
+            // Not enforced: nothing is blocked, so nothing stops it.
+            return html(PAGE, {
+              "Content-Security-Policy-Report-Only": "script-src 'self'",
+            });
+          case "/csp-meta":
+            return html(
+              PAGE.replace(
+                "<head>",
+                `<head><meta http-equiv="Content-Security-Policy" content="script-src 'self'">`,
+              ),
+            );
+          case "/latin1":
+            return html(PAGE, {
+              "Content-Type": "text/html; charset=iso-8859-1",
+            });
+          case "/stream": {
+            const enc = new TextEncoder();
+            const stream = new ReadableStream<Uint8Array>({
+              async start(controller) {
+                try {
+                  controller.enqueue(enc.encode("<!doctype html><p>first</p>"));
+                  for (let i = 0; i < 50; i++) {
+                    await Bun.sleep(30);
+                    controller.enqueue(enc.encode(`<p>${i}</p>`));
+                  }
+                  controller.close();
+                  streamClosed = true;
+                } catch {
+                  // The consumer went away mid-stream.
+                }
+              },
+              cancel() {
+                streamCancelled = true;
+              },
+            });
+            return html(stream);
+          }
+          default:
+            return new Response("no", { status: 500 });
+        }
+      },
+    });
+    return appRecord(pages.port as number);
+  }
+
+  const script = () =>
+    `<script>${appViewScript(buildPublicOrigin().origin)}</script>`;
+  const varyNames = (res: Response) =>
+    (res.headers.get("vary") ?? "")
+      .split(",")
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean);
+
+  // The bytes an upstream answer has when the relay leaves it alone: the same
+  // request with no Sec-Fetch-Dest at all.
+  async function directBytes(app: AppRecord, path: string) {
+    const res = await relay(get(path), { app });
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  it("appends the script to a framed page, after the app's own bytes", async () => {
+    const app = startPages();
+    const res = await relay(
+      get("/page", { headers: { ...FRAMED, "Accept-Encoding": "gzip, br" } }),
+      { app },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(PAGE + script());
+    // The app was asked for plain bytes, so there is something to append to.
+    expect(seenEncoding["/page"]).toBe("identity");
+    // The upstream length and validator name other bytes.
+    expect(res.headers.get("content-length")).toBeNull();
+    expect(res.headers.get("etag")).toBeNull();
+    // A cache keeps the framed copy apart from a direct visit's copy, and
+    // keeps the app's own Vary.
+    expect(varyNames(res)).toContain("sec-fetch-dest");
+    expect(varyNames(res)).toContain("accept-encoding");
+    expect(_testRelayInFlight()).toEqual(NO_PERMITS);
+
+    for (const path of [
+      "/upper-utf8",
+      "/no-charset",
+      "/csp-frames-only",
+      "/csp-report-only",
+    ]) {
+      const ok = await relay(get(path, { headers: FRAMED }), { app });
+      expect({ path, body: await ok.text() }).toEqual({
+        path,
+        body: PAGE + script(),
+      });
+    }
+  });
+
+  it("leaves a direct visit's bytes and encoding alone, and still varies on the frame", async () => {
+    const app = startPages();
+    for (const dest of [undefined, "document"]) {
+      const res = await relay(
+        get("/page", {
+          headers: {
+            "Accept-Encoding": "gzip, br",
+            ...(dest ? { "Sec-Fetch-Dest": dest } : {}),
+          },
+        }),
+        { app },
+      );
+      expect(await res.text()).toBe(PAGE);
+      expect(seenEncoding["/page"]).toBe("gzip, br");
+      expect(res.headers.get("etag")).toBe('"v1"');
+      expect(varyNames(res)).toContain("sec-fetch-dest");
+    }
+  });
+
+  for (const [why, path, init] of [
+    ["an error page", "/missing", {}],
+    ["a body that is not HTML", "/json", {}],
+    ["a compressed body", "/gzip", {}],
+    ["a CSP script-src header", "/csp-script-src", {}],
+    ["a CSP default-src header", "/csp-default-src", {}],
+    ["a CSP script-src-elem header", "/csp-script-src-elem", {}],
+    ["a second CSP header that restricts scripts", "/csp-second-policy", {}],
+    ["a CSP meta tag", "/csp-meta", {}],
+    ["a charset other than UTF-8", "/latin1", {}],
+    ["a framed POST", "/page", { method: "POST", body: "x" }],
+  ] as const) {
+    it(`keeps the app's bytes for ${why}`, async () => {
+      const app = startPages();
+      const expected = await directBytes(app, path);
+      const res = await relay(get(path, { ...init, headers: FRAMED }), { app });
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(expected);
+      expect(_testRelayInFlight()).toEqual(NO_PERMITS);
+    });
+  }
+
+  // The rewriter sits between the app and the client: it must pass each chunk
+  // on as it comes (a server-rendered page streams), and a client that hangs up
+  // must still reach the app and return the permit.
+  it("streams a framed page and passes a client's hang-up to the app", async () => {
+    const app = startPages();
+    const res = await relay(get("/stream", { headers: FRAMED }), { app });
+    const reader = res.body!.getReader();
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain("first");
+    expect(streamClosed).toBe(false);
+    expect(_testRelayInFlight()).toEqual({ total: 1, perApp: 1 });
+    await reader.cancel();
+    await settlesTo(() => streamCancelled, true);
+    await settlesTo(_testRelayInFlight, NO_PERMITS);
+    expect(streamClosed).toBe(false);
   });
 });

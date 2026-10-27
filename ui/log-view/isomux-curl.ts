@@ -960,6 +960,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/apps/*/start", "apiCall.apps.start"],
   ["POST", "/api/apps/*/stop", "apiCall.apps.stop"],
   ["POST", "/api/apps/*/restart", "apiCall.apps.restart"],
+  ["POST", "/api/apps/*/reload", "apiCall.apps.reload"],
   ["POST", "/api/apps/*/archive", "apiCall.apps.archive"],
   ["POST", "/api/apps/*/unarchive", "apiCall.apps.unarchive"],
   ["GET", "/api/webhooks", "apiCall.webhooks.list"],

@@ -331,7 +331,7 @@ describe("routes/apps REST: the recovery verbs", () => {
   it("are closed to another member, and never say whether a name exists", async () => {
     const { srv, owner } = await seed();
     const bob = await srv.seedMember("Bob");
-    for (const verb of ["start", "stop", "restart"]) {
+    for (const verb of ["start", "stop", "restart", "reload"]) {
       expect(
         (
           await api(srv, `/api/apps/hello/${verb}`, {
@@ -1949,6 +1949,7 @@ describe("routes/apps: a host that cannot run apps", () => {
       ["apps.start", {}],
       ["apps.stop", {}],
       ["apps.restart", {}],
+      ["apps.reload", {}],
       ["apps.logs", {}],
       ["apps.archive", {}],
       ["apps.unarchive", {}],

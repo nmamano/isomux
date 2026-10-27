@@ -140,6 +140,15 @@ describe("a member gives a secret to their own app", () => {
   it("the file holds the value after create, rotate and delete, and the running app restarts each time", async () => {
     const o = await office();
     const session = o.member.rawSessionId;
+    // A restart runs a new process, so it asks open widgets to reload
+    // (task d7ac4f73).
+    const reloadRequestedAt = async () =>
+      (
+        (await call(o.srv, "GET", "/api/apps/bot", { session })).body as {
+          reloadRequestedAt?: number;
+        }
+      ).reloadRequestedAt ?? 0;
+    const before = await reloadRequestedAt();
     const created = await call(o.srv, "POST", o.memberBase, {
       session,
       body: secret(),
@@ -152,6 +161,7 @@ describe("a member gives a secret to their own app", () => {
     expect(appEnv("bot")).toEqual({ BOT_TOKEN: VALUE });
     expect(appEnv("helper")).toBeNull();
     expect(restarts(o)).toEqual(["restart:bot"]);
+    expect(await reloadRequestedAt()).toBeGreaterThan(before);
 
     o.srv.appSupervisor.calls.length = 0;
     const rotated = "fake-app-secret-rotated-0001";

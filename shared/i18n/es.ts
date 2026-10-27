@@ -1859,6 +1859,7 @@ Cosas que puedes hacer por él:
   "apiCall.apps.start": "Arrancar la app",
   "apiCall.apps.stop": "Parar la app",
   "apiCall.apps.restart": "Reiniciar la app",
+  "apiCall.apps.reload": "Recargar la app",
   "apiCall.apps.archive": "Archivar la app",
   "apiCall.apps.unarchive": "Desarchivar la app",
   "apiCall.webhooks.list": "Listar los webhooks",
@@ -3580,6 +3581,8 @@ Cosas que puedes hacer por él:
   "apiCall.skills.save": "Guardar una habilidad",
   "apiCall.skills.create": "Crear una habilidad",
   "appWidget.launcher": "Chat",
+  "appWidget.appChanged": "La app cambió",
+  "appWidget.reload": "Recargar",
   "appWidget.title": "Chat con {agentName}",
   "appWidget.notice": "Compartido con los miembros de la sala del agente.",
   "appWidget.windowsHint":

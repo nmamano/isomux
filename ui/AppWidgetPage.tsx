@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { AppWidgetStatus } from "../shared/contract-shapes.ts";
+import type { AppView, AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
 import { AGENT_LINK_PREFIX } from "../shared/office-links.ts";
@@ -37,10 +37,17 @@ import {
   ShareIcon,
 } from "./components/install-icons.tsx";
 import {
+  APP_RELOAD_FALLBACK_MS,
+  APP_RELOAD_MESSAGE,
+  APP_RELOAD_POLL_MS,
+  APP_RELOAD_POLL_TRIES,
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
   beginAppHandshake,
+  framePath,
+  frameStart,
   isAppSessionSignal,
+  isAppViewReport,
   widgetDraftKey,
   screenshotHint,
   type AppWidgetBoot,
@@ -60,6 +67,8 @@ const WIDGET_CSS = `
 .app-widget-launcher[aria-expanded="true"] { border-color:var(--accent); color:var(--accent-text); box-shadow:inset 0 0 0 1px var(--accent); }
 .app-widget-dock-direct { display:flex; align-items:center; justify-content:center; min-width:40px; min-height:40px; border:1px solid var(--border); border-radius:9px; background:var(--bg-surface-solid); color:var(--text-secondary); }
 .app-widget-dock-direct:hover { color:var(--text-primary); }
+.app-widget-changed { display:flex; align-items:center; gap:10px; padding:4px 4px 4px 12px; border:1px solid var(--border); background:var(--bg-surface-solid); color:var(--text-secondary); font-size:13px; }
+.app-widget .app-widget-changed button { padding:5px 10px; font-size:13px; }
 .app-widget .app-widget-dock-install { padding:0; }
 .app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
 .app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:280px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
@@ -98,10 +107,13 @@ const WIDGET_CSS = `
 
 export function AppWidgetPage({
   boot,
+  returnPath,
   onOpenOffice,
 }: {
   boot: AppWidgetBoot;
-  onOpenOffice?: (agent: AgentInfo) => void;
+  // The page a phone member left for the office, for the first frame src.
+  returnPath?: string | null;
+  onOpenOffice?: (agent: AgentInfo, view: AppView) => void;
 }) {
   const { t } = useI18n();
   const state = useAppState();
@@ -115,6 +127,28 @@ export function AppWidgetPage({
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [open, setOpen] = useState(false);
+  // What the member sees (task d7ac4f73): the frame's last report, or null
+  // before one, when the frame's first path stands in.
+  const frameView = useRef<AppView | null>(null);
+  // A new key mounts a new frame: the reload for a page that cannot reload
+  // itself. remountSrc, once set, is the page that frame opens; the status
+  // rechecks must not move it back to the first page.
+  const [frameKey, setFrameKey] = useState(0);
+  const [remountSrc, setRemountSrc] = useState<string | null>(null);
+  // Armed by an in-place reload request, cleared by the frame's next load.
+  const reloadFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The app's revision when the target agent's turn started.
+  const revisionBaseline = useRef<string | null | undefined>(undefined);
+  const baselineRead = useRef<Promise<void>>(Promise.resolve());
+  // The last reload request seen (task d7ac4f73): the first status's value is
+  // the baseline, and only a later, greater time is a request.
+  const lastRequest = useRef<number | undefined>(undefined);
+  const requestedThisTurn = useRef(false);
+  const noteRequest = useRef<(status: AppWidgetStatus) => void>(() => {});
+  // "App changed": a turn moved the revision and asked for no reload.
+  const [appChanged, setAppChanged] = useState(false);
+  // Bumped by each new wait for the app, so only the latest one reloads.
+  const reloadWait = useRef(0);
   // The Apps page links here with INSTALL_HASH: open the install popover.
   // One flag per install mode serves both surfaces: the popover, or the steps
   // in the open chat panel. Opening or closing the panel clears them, so only
@@ -200,7 +234,10 @@ export function AppWidgetPage({
       }
       setStatus(next);
       setUnavailable(false);
-      setFrameUrl(next.appUrl + "/" + window.location.search);
+      if (lastRequest.current === undefined)
+        lastRequest.current = next.reloadRequestedAt ?? 0;
+      else noteRequest.current(next);
+      setFrameUrl(frameStart(next.appUrl, window.location.search, returnPath));
     } catch {
       if (seq !== requestSeq.current) return;
       setStatus(null);
@@ -208,7 +245,7 @@ export function AppWidgetPage({
       setUnavailable(true);
       setOpen(false);
     }
-  }, [boot, accessStamp, recover]);
+  }, [boot, accessStamp, recover, returnPath]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -246,11 +283,13 @@ export function AppWidgetPage({
 
   useEffect(() => {
     const listener = (event: MessageEvent) => {
-      if (
-        isAppSessionSignal(event, frame.current?.contentWindow ?? null, appUrl)
-      ) {
+      const frameWindow = frame.current?.contentWindow ?? null;
+      if (isAppSessionSignal(event, frameWindow, appUrl)) {
         recover(appUrl!);
+        return;
       }
+      const reported = isAppViewReport(event, frameWindow, appUrl);
+      if (reported) frameView.current = reported;
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
@@ -271,6 +310,169 @@ export function AppWidgetPage({
     setReadMark({ agent: target?.agentId, latest });
   }
   const unread = !open && !!readMark.latest && latest !== readMark.latest;
+
+  // The reload after a change (task d7ac4f73). The status says whether the
+  // app's files or the office's restarts moved, and whether the app serves.
+  const readStatus = useCallback(async () => {
+    try {
+      return await apiFetch<AppWidgetStatus>(
+        "GET",
+        `/api/apps/${encodeURIComponent(boot.name)}/widget?registration=${boot.registration}`,
+      );
+    } catch {
+      return null;
+    }
+  }, [boot]);
+  // A new frame, at the page the member was on when one reported.
+  const remountFrame = useCallback(
+    (path?: string) => {
+      frameView.current = null;
+      if (path && appUrl) {
+        const src = frameStart(appUrl, "", path);
+        setRemountSrc(src);
+      }
+      setFrameKey((key) => key + 1);
+    },
+    [appUrl],
+  );
+  // In place when the page reported (its script reloads it, so the route
+  // stays). The page now in the frame may have no script (the office's error
+  // page, an error status), so a reload with no frame load after it falls back
+  // to a new frame at the reported page.
+  const reloadFrame = useCallback(() => {
+    const frameWindow = frame.current?.contentWindow;
+    const reported = frameView.current;
+    if (!reported || !frameWindow || !appUrl) {
+      remountFrame();
+      return;
+    }
+    frameWindow.postMessage(APP_RELOAD_MESSAGE, new URL(appUrl).origin);
+    if (reloadFallback.current !== null) clearTimeout(reloadFallback.current);
+    reloadFallback.current = setTimeout(() => {
+      reloadFallback.current = null;
+      remountFrame(reported.path);
+    }, APP_RELOAD_FALLBACK_MS);
+  }, [appUrl, remountFrame]);
+  // Reload once the app serves, checking every second for up to a minute.
+  const reloadWhenServing = useCallback(
+    async (first: AppWidgetStatus) => {
+      const wait = ++reloadWait.current;
+      let current: AppWidgetStatus | null = first;
+      for (let tries = 0; ; tries++) {
+        if (wait !== reloadWait.current) return;
+        if (current?.serving) {
+          reloadFrame();
+          return;
+        }
+        if (tries >= APP_RELOAD_POLL_TRIES) return;
+        await new Promise((resolve) => setTimeout(resolve, APP_RELOAD_POLL_MS));
+        if (wait !== reloadWait.current) return;
+        current = await readStatus();
+      }
+    },
+    [readStatus, reloadFrame],
+  );
+  useEffect(
+    () => () => {
+      // Stops a pending wait for the app and its fallback.
+      ++reloadWait.current;
+      if (reloadFallback.current !== null) clearTimeout(reloadFallback.current);
+    },
+    [],
+  );
+  // The agent decides when the member sees a change: its reload request
+  // reloads the frame once the app serves. Requests come on the app's row in
+  // the store (app_upserted) or in a status read; a time not greater than the
+  // last one seen, or none (an office restart), is not a request.
+  const takeRequest = useCallback((at: number | null | undefined): boolean => {
+    if (
+      typeof at !== "number" ||
+      lastRequest.current === undefined ||
+      at <= lastRequest.current
+    )
+      return false;
+    lastRequest.current = at;
+    requestedThisTurn.current = true;
+    setAppChanged(false);
+    return true;
+  }, []);
+  useEffect(() => {
+    noteRequest.current = (next) => {
+      if (takeRequest(next.reloadRequestedAt)) void reloadWhenServing(next);
+    };
+  }, [takeRequest, reloadWhenServing]);
+  const requestedAt = state.apps.find(
+    (item) => item.name === boot.name,
+  )?.reloadRequestedAt;
+  useEffect(() => {
+    if (!takeRequest(requestedAt)) return;
+    void readStatus().then((next) => {
+      if (next) void reloadWhenServing(next);
+    });
+  }, [requestedAt, takeRequest, readStatus, reloadWhenServing]);
+  const reloadNow = () => {
+    setAppChanged(false);
+    void readStatus().then((next) => {
+      if (next) void reloadWhenServing(next);
+    });
+  };
+  // Nothing reloads at turn end. The baseline is read when the target agent's
+  // turn starts, so files the member's own use of the app changed between
+  // turns do not count; a turn that moved the revision and asked for no reload
+  // offers one.
+  const agentBusy =
+    agent?.state === "thinking" || agent?.state === "tool_executing";
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (agentBusy === wasBusy.current) return;
+    wasBusy.current = agentBusy;
+    if (agentBusy) {
+      requestedThisTurn.current = false;
+      revisionBaseline.current = undefined;
+      baselineRead.current = readStatus().then((next) => {
+        if (!next) return;
+        revisionBaseline.current = next.revision;
+        noteRequest.current(next);
+      });
+      return;
+    }
+    void baselineRead.current.then(async () => {
+      const next = await readStatus();
+      if (!next) return;
+      noteRequest.current(next);
+      if (
+        next.revision !== null &&
+        revisionBaseline.current !== undefined &&
+        next.revision !== revisionBaseline.current &&
+        !requestedThisTurn.current
+      )
+        setAppChanged(true);
+    });
+  }, [agentBusy, readStatus]);
+  // A page that loaded while the app did not serve (Back during a restart, or
+  // a stopped app) shows the error page: reload it once the app serves.
+  const frameLoaded = () => {
+    if (reloadFallback.current !== null) {
+      clearTimeout(reloadFallback.current);
+      reloadFallback.current = null;
+    }
+    // A frame load shows the app as it is now.
+    setAppChanged(false);
+    void readStatus().then((next) => {
+      if (!next) return;
+      noteRequest.current(next);
+      if (next.serving) return;
+      // The frame shows the office's error page, not the reported page's
+      // title; the path stays for the reload.
+      if (frameView.current)
+        frameView.current = { path: frameView.current.path };
+      void reloadWhenServing(next);
+    });
+  };
+  const currentView = (): AppView =>
+    frameView.current ?? {
+      path: (remountSrc ?? frameUrl) ? framePath(remountSrc ?? frameUrl!) : "/",
+    };
 
   const closeInstall = () => {
     setStepsOpen(false);
@@ -358,10 +560,12 @@ export function AppWidgetPage({
       <style>{CSS + WIDGET_CSS}</style>
       {frameUrl && (
         <iframe
+          key={frameKey}
           ref={frame}
+          onLoad={frameLoaded}
           className="app-widget-frame"
           title={boot.name}
-          src={frameUrl}
+          src={remountSrc ?? frameUrl}
           sandbox={APP_WIDGET_SANDBOX}
         />
       )}
@@ -396,8 +600,16 @@ export function AppWidgetPage({
           </button>
         </div>
       )}
-      {(dockDirect || chatReady || dockInstall) && (
+      {(dockDirect || chatReady || dockInstall || appChanged) && (
         <div className="app-widget-dock">
+          {appChanged && (
+            <div className="app-widget-changed" aria-live="polite">
+              {t("appWidget.appChanged")}
+              <button type="button" onClick={reloadNow}>
+                {t("appWidget.reload")}
+              </button>
+            </div>
+          )}
           {dockInstall && (
             <button
               type="button"
@@ -448,7 +660,7 @@ export function AppWidgetPage({
               aria-controls={state.isMobile ? undefined : "app-widget-chat"}
               onClick={() => {
                 if (state.isMobile) {
-                  onOpenOffice?.(agent);
+                  onOpenOffice?.(agent, currentView());
                   return;
                 }
                 toggleChat(!open);
@@ -518,6 +730,7 @@ export function AppWidgetPage({
                 onRecheck={() => {
                   void refresh();
                 }}
+                currentView={currentView}
               />
             </section>
           )}
@@ -585,6 +798,7 @@ export function WidgetChat({
   installSteps,
   onRecheck,
   stateChangedAt,
+  currentView,
 }: {
   boot: AppWidgetBoot;
   agent: AgentInfo;
@@ -597,6 +811,8 @@ export function WidgetChat({
   installSteps?: ReactNode;
   onRecheck: () => void;
   stateChangedAt?: number;
+  // What the member sees in the frame, sent with each message.
+  currentView?: () => AppView;
 }) {
   const { t, rich } = useI18n();
   const transcript = useChatTranscript(
@@ -735,7 +951,7 @@ export function WidgetChat({
       await apiFetch("POST", `/api/agents/${agent.id}/messages`, {
         text,
         clientMessageId: draft.clientMessageId,
-        appContext: boot,
+        appContext: currentView ? { ...boot, view: currentView() } : boot,
         attachments: draft.images.map((image) => image.attachment!),
       });
       const next = {

@@ -29,6 +29,15 @@ describe("parseIsomuxCurl", () => {
     expect(req!.actionKey).toBe("apiCall.tasks.list");
   });
 
+  // The agent's call that shows a ready change to the member (task d7ac4f73).
+  test("POST app reload is its own action, not a restart", () => {
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/apps/hello/reload -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
+    );
+    expect(req!.method).toBe("POST");
+    expect(req!.actionKey).toBe("apiCall.apps.reload");
+  });
+
   test("POST create task with JSON body", () => {
     const req = parseIsomuxCurl(
       `curl -s -X POST localhost:4000/api/tasks -H 'Content-Type: application/json' -d '{"title":"Fix bug","createdBy":"Isomuxer1","priority":"P1"}'`,
