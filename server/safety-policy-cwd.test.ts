@@ -631,6 +631,56 @@ const cases: Case[] = [
     command: "cd .isomux && cat > agents.json",
     denied: false,
   },
+  // A quote that spans lines must not hide the quoted heredoc after it: its
+  // body (`a >= 4`) is data, never a redirect to a relative file `=`.
+  {
+    name: "quoted heredoc after a multi-line quote",
+    command:
+      "cd /tmp && echo \"\n\"; cat > /tmp/x.ts <<'EOF'\nif (a >= 4) b();\nEOF",
+    denied: false,
+  },
+  {
+    // The reported command's shape, with its paths made neutral.
+    name: "python -c script then a quoted heredoc script",
+    command: [
+      'cd ~/game && bun /tmp/probe/augment.ts /tmp/probe/in.json /tmp/probe/out.json && python3 -I -c "',
+      "import json;r=json.load(open('/tmp/probe/out.json'))",
+      "print(len(r['ranked']), [(i+1,e['gameId']) for i,e in enumerate(r['ranked']) if e['escapes']])",
+      "\"; cat > /tmp/probe/esc-probe.ts <<'EOF'",
+      "for (let p = 0; p < moves.length; p++)",
+      '  if (t.walks[p] === 1 && t.walks[p + 1] >= 4) console.log(p, "->", t.walks[p + 1]);',
+      "EOF",
+      "bun /tmp/probe/esc-probe.ts /tmp/probe/in.json",
+    ].join("\n"),
+    denied: false,
+  },
+  {
+    name: "relative heredoc target after a multi-line quote",
+    command: 'cd "$D" && echo "\n"; cat <<\'EOF\' > x.ts\nbody\nEOF',
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    // `#` opens a comment, and the apostrophe in it opens no quote.
+    name: "comment apostrophe before a quoted heredoc",
+    command:
+      "cd /tmp && true # don't\ncat > /tmp/x.ts <<'EOF'\nif (a >= 4) b();\nEOF",
+    denied: false,
+  },
+  {
+    // Inside `${ }`, `#` is a parameter operator, not a comment.
+    name: "hash inside a parameter expansion before a quoted heredoc",
+    command:
+      "cd /tmp && echo \"${x:- #}\"; cat > /tmp/x.ts <<'EOF'\nif (a >= 4) b();\nEOF",
+    denied: false,
+  },
+  {
+    // Each closed `$( )`, `${ }` and backtick span leaves no open context.
+    name: "closed substitutions before a quoted heredoc",
+    command:
+      "cd /tmp && echo \"$(date) ${x} `date`\"\ncat > /tmp/x.ts <<'EOF'\nif (a >= 4) b();\nEOF",
+    denied: false,
+  },
 ];
 
 function check(

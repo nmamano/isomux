@@ -236,24 +236,55 @@ function normalizeAbsolutePaths(cmd: string): string {
 type Heredoc = { delimiter: string; stripTabs: boolean; expand: boolean };
 
 /**
- * The heredocs opened on one line, in the order their bodies follow it.
+ * Where the scan stands: `'…'`, `"…"`, `$'…'`, `$( … )`, a bare `( … )`,
+ * `${ … }` or a backtick span. A `"` inside `$( … )` within `"…"` opens a new
+ * string, so the scan keeps a stack of these, not one quote character.
+ */
+type ShellContext =
+  | "single"
+  | "double"
+  | "ansi"
+  | "command"
+  | "paren"
+  | "brace"
+  | "backtick";
+
+/**
+ * The heredocs opened on one line, in the order their bodies follow it, and
+ * the contexts still open at its end. `open` is the stack the line starts in:
+ * a string that spans lines (`python3 -c "…"`) leaves the next line inside it.
  *
  * Everything here exists to avoid a phantom: a `<<` read as an operator when
  * it is not one takes the lines below it out of view as though they were data.
- * So quotes are tracked (`echo "see <<EOF"`), a comment ends the scan, `<<<`
- * is a here-string with no body, and an arithmetic span is skipped whole
- * because `<<` inside it is a bit shift.
+ * So quotes are tracked across lines and through `"$( … )"`, `"${ … }"` and
+ * backticks (`echo "$(echo "<<X")"`), a comment ends the scan, `<<<` is a
+ * here-string with no body, and an arithmetic span is skipped whole because
+ * `<<` inside it is a bit shift.
+ *
+ * A known fail-open limit: a case pattern's bare `)` inside `$( … )` closes
+ * the substitution early, as matchParen does. In `"$(case a in a) …)"` a
+ * later `"` is then read as the end of the outer string, and a `<<X` after it
+ * opens a phantom heredoc that hides the lines below.
  */
-function heredocsOpenedOn(line: string): Heredoc[] {
+function heredocsOpenedOn(
+  line: string,
+  open: readonly ShellContext[] = [],
+): { docs: Heredoc[]; open: ShellContext[] } {
   const found: Heredoc[] = [];
-  let quote: string | null = null;
+  const stack = [...open];
   let i = 0;
   while (i < line.length) {
     const ch = line[i];
-    if (quote) {
-      if (ch === "\\" && quote === '"') i += 2;
+    const context = stack[stack.length - 1];
+    if (context === "single") {
+      if (ch === "'") stack.pop();
+      i++;
+      continue;
+    }
+    if (context === "ansi") {
+      if (ch === "\\") i += 2;
       else {
-        if (ch === quote) quote = null;
+        if (ch === "'") stack.pop();
         i++;
       }
       continue;
@@ -262,8 +293,52 @@ function heredocsOpenedOn(line: string): Heredoc[] {
       i += 2;
       continue;
     }
+    if (ch === "$" && line[i + 1] === "(" && line[i + 2] === "(") {
+      // Arithmetic, where `<<` is a bit shift: `$((1 << 20))`.
+      i = matchParen(line, i + 1) + 1;
+      continue;
+    }
+    if (ch === "$" && line[i + 1] === "(") {
+      stack.push("command");
+      i += 2;
+      continue;
+    }
+    if (ch === "$" && line[i + 1] === "{") {
+      stack.push("brace");
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      if (context === "backtick") stack.pop();
+      else stack.push("backtick");
+      i++;
+      continue;
+    }
+    if (context === "double") {
+      if (ch === '"') stack.pop();
+      i++;
+      continue;
+    }
+    // Unquoted from here: the top level or inside a substitution.
+    if (ch === "$" && line[i + 1] === "'") {
+      stack.push("ansi");
+      i += 2;
+      continue;
+    }
     if (ch === "'" || ch === '"') {
-      quote = ch;
+      stack.push(ch === "'" ? "single" : "double");
+      i++;
+      continue;
+    }
+    if (context === "brace") {
+      // `${x#pat}` and `${x:-<<X}` hold an operator and a word, not a
+      // comment or a heredoc.
+      if (ch === "}") stack.pop();
+      i++;
+      continue;
+    }
+    if (ch === ")" && (context === "command" || context === "paren")) {
+      stack.pop();
       i++;
       continue;
     }
@@ -271,10 +346,13 @@ function heredocsOpenedOn(line: string): Heredoc[] {
       break; // a comment: `# heredocs are written <<EOF` opens nothing
     }
     if (ch === "(" && line[i + 1] === "(") {
-      // Arithmetic, where `<<` is a bit shift, in both spellings: `$((1 << 20))`
-      // and the bare `(( x << 2 ))`. Skipping the span keeps either from
-      // opening a heredoc named `20`.
+      // Arithmetic in the bare `(( x << 2 ))` spelling.
       i = matchParen(line, i) + 1;
+      continue;
+    }
+    if (ch === "(") {
+      stack.push("paren");
+      i++;
       continue;
     }
     if (ch !== "<" || line[i + 1] !== "<") {
@@ -322,7 +400,7 @@ function heredocsOpenedOn(line: string): Heredoc[] {
     }
     if (delimiter) found.push({ delimiter, stripTabs, expand });
   }
-  return found;
+  return { docs: found, open: stack };
 }
 
 /**
@@ -373,9 +451,12 @@ function stripHeredocBodies(cmd: string): string {
   if (!cmd.includes("<<")) return cmd;
   const lines = cmd.split("\n");
   const kept: string[] = [];
+  let open: ShellContext[] = [];
   for (let i = 0; i < lines.length; i++) {
     kept.push(lines[i]);
-    for (const doc of heredocsOpenedOn(lines[i])) {
+    const opened = heredocsOpenedOn(lines[i], open);
+    open = opened.open;
+    for (const doc of opened.docs) {
       let end = -1;
       for (let j = i + 1; j < lines.length; j++) {
         const line = doc.stripTabs ? lines[j].replace(/^\t+/, "") : lines[j];

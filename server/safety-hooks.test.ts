@@ -493,6 +493,18 @@ describe("heredoc bodies are data, not commands", () => {
     expect((await bash(command)).denied).toBe(false);
   });
 
+  it("allows a quoted heredoc inside a substitution inside double quotes", async () => {
+    // The substitution starts a new quote context, so its `<<'EOF'` is an
+    // operator and the body is data.
+    const command = [
+      "echo \"$(cat <<'EOF'",
+      "rm -rf ~/.isomux",
+      "EOF",
+      ')"',
+    ].join("\n");
+    expect((await bash(command)).denied).toBe(false);
+  });
+
   it("reads an unterminated body as data, the way bash does", async () => {
     // Verified against bash: it warns, ends the heredoc at end of input, and
     // runs the command - the last line is cat's input, not a command.
@@ -509,9 +521,24 @@ describe("heredoc bodies are data, not commands", () => {
     ['echo "see <<EOF in the docs"', "pkill -f bun"],
     // A here-string, which has no body.
     ["cat <<< 'just prose'", "pkill -f bun"],
+    // A quoted mention inside a quote that spans lines, in both quotes.
+    ['echo "', '<<X"', "pkill -f bun"],
+    ["echo '", "<<X'", "pkill -f bun"],
+    // A quoted mention inside a substitution or expansion inside "...",
+    // where the inner quotes nest instead of closing the outer string.
+    ['echo "$(echo "<<X")"', "pkill -f bun"],
+    ['echo "`echo "<<X"`"', "pkill -f bun"],
+    ['echo "${x:-"<<X"}"', "pkill -f bun"],
+    // A subshell inside the substitution: its `)` does not end it.
+    ['echo "$( (true); echo "<<X" )"', "pkill -f bun"],
+    // An ANSI-C string, where \' does not close the quote.
+    ["echo $'it\\'s <<X'", "pkill -f bun"],
+    // A bit shift in arithmetic inside "...".
+    ['echo "$((1 << 20))"', "pkill -f bun"],
   ];
   for (const lines of notOperators) {
-    it(`does not let ${JSON.stringify(lines[0])} swallow the line below it`, async () => {
+    const opener = JSON.stringify(lines.slice(0, -1).join("\n"));
+    it(`does not let ${opener} swallow the line below it`, async () => {
       expect((await bash(lines.join("\n"))).denied).toBe(true);
     });
   }
